@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Logs
+*.log
+
+# Auto-generated files
+package-lock.json
+*.tsbuildinfo
+
+# Database
+prisma/migrations/
+
+# OS files
+.DS_Store
+Thumbs.db

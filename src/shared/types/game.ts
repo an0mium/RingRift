@@ -1,6 +1,7 @@
 export type BoardType = 'square8' | 'square19' | 'hexagonal';
-export type GamePhase = 'ring_placement' | 'movement' | 'capture' | 'territory_processing' | 'main_game';
+export type GamePhase = 'ring_placement' | 'movement' | 'capture' | 'line_processing' | 'territory_processing';
 export type GameStatus = 'waiting' | 'active' | 'finished' | 'paused' | 'abandoned' | 'completed';
+export type MarkerType = 'regular' | 'collapsed';
 export type MoveType = 'place_ring' | 'move_ring' | 'build_stack' | 'move_stack' | 'overtaking_capture' | 'line_formation' | 'territory_claim';
 export type PlayerType = 'human' | 'ai';
 export type CaptureType = 'overtaking' | 'elimination';
@@ -36,8 +37,9 @@ export interface RingStack {
 }
 
 export interface MarkerInfo {
-  player: number;
+  player: number; // Player who owns this marker
   position: Position;
+  type: MarkerType; // 'regular' for standard marker, 'collapsed' for claimed territory
 }
 
 // Territory representation
@@ -74,6 +76,7 @@ export interface Move {
   
   // Capture specific
   captureType?: CaptureType;
+  captureTarget?: Position; // Position of the stack being captured (for overtaking)
   capturedStacks?: RingStack[];
   captureChain?: Position[]; // Sequence of capture positions
   overtakenRings?: number[]; // Player numbers of overtaken rings
@@ -94,7 +97,8 @@ export interface Move {
 
 export interface BoardState {
   stacks: Map<string, RingStack>; // Position string -> RingStack
-  markers: Map<string, MarkerInfo>; // Position string -> MarkerInfo
+  markers: Map<string, MarkerInfo>; // Position string -> MarkerInfo (regular markers only)
+  collapsedSpaces: Map<string, number>; // Position string -> player number (collapsed territory)
   territories: Map<string, Territory>; // Region ID -> Territory
   formedLines: LineInfo[]; // Completed lines awaiting collapse
   eliminatedRings: { [player: number]: number }; // Count of eliminated rings per player

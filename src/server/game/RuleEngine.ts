@@ -78,10 +78,11 @@ export class RuleEngine {
 
   /**
    * Validates stack movement according to RingRift rules
+   * Rule Reference: Section 8.2, FAQ Q2
    */
   private validateStackMovement(move: Move, gameState: GameState): boolean {
-    // Stack movement is only allowed during main game phase
-    if (gameState.currentPhase !== 'main_game') {
+    // Stack movement is allowed during movement or capture phases
+    if (gameState.currentPhase !== 'movement' && gameState.currentPhase !== 'capture') {
       return false;
     }
 
@@ -101,41 +102,125 @@ export class RuleEngine {
       return false;
     }
 
-    // Check movement distance based on stack height
-    const distance = this.calculateDistance(move.from, move.to);
-    const minDistance = Math.max(1, sourceStack.stackHeight);
-    const maxDistance = this.boardConfig.size; // Can move across entire board
-
-    if (distance < minDistance || distance > maxDistance) {
+    // Rule Reference: Section 8.2 - Cannot land on collapsed space
+    if (this.boardManager.isCollapsedSpace(move.to, gameState.board)) {
       return false;
     }
 
-    // Check if path is clear (using movement adjacency)
-    const blockedPositions = new Set<string>();
-    for (const [posKey, stack] of gameState.board.stacks) {
-      if (stack.rings.length > 0 && posKey !== positionToString(move.to)) {
-        blockedPositions.add(posKey);
-      }
+    // Check movement distance based on stack height
+    // Rule Reference: Section 8.2 - Must move at least stack height
+    const distance = this.calculateDistance(move.from, move.to);
+    const minDistance = sourceStack.stackHeight;
+
+    if (distance < minDistance) {
+      return false;
     }
 
-    const path = this.boardManager.findPath(move.from, move.to, blockedPositions);
-    if (!path || path.length === 0) {
-      return false; // No valid path
+    // Validate landing position
+    // Rule Reference: Section 8.2, FAQ Q2 - Can land on empty or same-color marker
+    const toKey = positionToString(move.to);
+    const destinationStack = gameState.board.stacks.get(toKey);
+    const destinationMarker = this.boardManager.getMarker(move.to, gameState.board);
+
+    // Landing space must be either empty or have same-color marker
+    if (destinationStack && destinationStack.rings.length > 0) {
+      // Can land on stacks for merging
+      // This is valid in normal movement
+    } else if (destinationMarker !== undefined && destinationMarker !== move.player) {
+      // Cannot land on opponent's marker
+      return false;
+    }
+
+    // Check if path is clear
+    // Rule Reference: Section 8.1 - Cannot pass through collapsed spaces or other rings
+    if (!this.isPathClear(move.from, move.to, gameState.board)) {
+      return false;
     }
 
     return true;
   }
 
   /**
-   * Validates capture move according to RingRift rules
+   * Checks if the path between two positions is clear
+   * Rule Reference: Section 8.1, Section 8.2
+   */
+  private isPathClear(from: Position, to: Position, board: BoardState): boolean {
+    // Get path positions (excluding start and end)
+    const pathPositions = this.getPathPositions(from, to);
+    
+    // Check each position along the path
+    for (const pos of pathPositions) {
+      const posKey = positionToString(pos);
+      
+      // Cannot pass through collapsed spaces
+      if (this.boardManager.isCollapsedSpace(pos, board)) {
+        return false;
+      }
+      
+      // Cannot pass through other rings/stacks
+      const stack = board.stacks.get(posKey);
+      if (stack && stack.rings.length > 0) {
+        return false;
+      }
+      
+      // Markers are OK to pass through - they get flipped/collapsed
+    }
+    
+    return true;
+  }
+
+  /**
+   * Gets all positions along a straight path (excluding start and end)
+   * Helper for path validation and marker processing
+   */
+  private getPathPositions(from: Position, to: Position): Position[] {
+    const positions: Position[] = [];
+    
+    // Calculate direction
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const dz = (to.z || 0) - (from.z || 0);
+    
+    // Determine step count
+    const steps = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
+    
+    if (steps === 0) {
+      return positions; // Same position
+    }
+    
+    // Calculate unit step
+    const stepX = dx / steps;
+    const stepY = dy / steps;
+    const stepZ = dz / steps;
+    
+    // Generate intermediate positions
+    for (let i = 1; i < steps; i++) {
+      const x = Math.round(from.x + stepX * i);
+      const y = Math.round(from.y + stepY * i);
+      
+      // Only include z if the positions have z coordinates (hexagonal board)
+      if (from.z !== undefined || to.z !== undefined) {
+        const z = Math.round((from.z || 0) + stepZ * i);
+        positions.push({ x, y, z });
+      } else {
+        positions.push({ x, y });
+      }
+    }
+    
+    return positions;
+  }
+
+  /**
+   * Validates overtaking capture move according to RingRift rules
+   * Rule Reference: Section 10.1, Section 10.2
    */
   private validateCapture(move: Move, gameState: GameState): boolean {
-    // Captures are only allowed during main game phase
-    if (gameState.currentPhase !== 'main_game') {
+    // Captures are only allowed during capture phase
+    if (gameState.currentPhase !== 'capture') {
       return false;
     }
 
-    if (!move.from || !move.capturedStacks || move.capturedStacks.length === 0) {
+    if (!move.from || !move.captureTarget) {
       return false;
     }
 
@@ -145,9 +230,74 @@ export class RuleEngine {
       return false;
     }
 
-    // Validate each captured stack
-    for (const capturedStack of move.capturedStacks) {
-      if (!this.isValidCapture(move.from, capturedStack.position, gameState.board)) {
+    const targetKey = positionToString(move.captureTarget);
+    const targetStack = gameState.board.stacks.get(targetKey);
+    if (!targetStack) {
+      return false;
+    }
+
+    // Rule Reference: Section 10.1 - Cap height must be >= target's cap height
+    if (attackerStack.capHeight < targetStack.capHeight) {
+      return false;
+    }
+
+    // Cannot capture own stacks (though can jump over them)
+    if (attackerStack.controllingPlayer === targetStack.controllingPlayer) {
+      return false;
+    }
+
+    // Check if movement from attacker position to target is valid
+    // Must be in straight line and path must be clear up to target
+    if (!this.isValidCaptureDirection(move.from, move.captureTarget, gameState.board)) {
+      return false;
+    }
+
+    // Rule Reference: Section 10.2 - Must have valid landing space beyond target
+    // Check if path from attacker through target to landing is valid
+    if (!this.isValidCaptureLanding(move.from, move.captureTarget, move.to, attackerStack.stackHeight, gameState.board)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Validates that capture direction is a straight line with clear path to target
+   * Rule Reference: Section 10.1
+   */
+  private isValidCaptureDirection(from: Position, target: Position, board: BoardState): boolean {
+    // Check if direction is straight line (orthogonal or diagonal for square, one of 3 axes for hex)
+    const dx = target.x - from.x;
+    const dy = target.y - from.y;
+    const dz = (target.z || 0) - (from.z || 0);
+
+    // For hexagonal boards, must be along one of the 3 main axes
+    if (this.boardConfig.type === 'hexagonal') {
+      // In hex coordinates, movement along an axis means one coordinate stays 0
+      const coordChanges = [dx !== 0, dy !== 0, dz !== 0].filter(Boolean).length;
+      if (coordChanges !== 2) {
+        return false; // Must change exactly 2 coordinates for valid hex direction
+      }
+    } else {
+      // For square boards, must be orthogonal or diagonal
+      if (dx !== 0 && dy !== 0 && Math.abs(dx) !== Math.abs(dy)) {
+        return false; // Not a valid diagonal
+      }
+    }
+
+    // Check path to target is clear (excluding target itself)
+    const pathToTarget = this.getPathPositions(from, target);
+    for (const pos of pathToTarget) {
+      const posKey = positionToString(pos);
+      
+      // Cannot pass through collapsed spaces
+      if (this.boardManager.isCollapsedSpace(pos, board)) {
+        return false;
+      }
+      
+      // Cannot pass through other stacks (markers are OK)
+      const stack = board.stacks.get(posKey);
+      if (stack && stack.rings.length > 0) {
         return false;
       }
     }
@@ -156,31 +306,86 @@ export class RuleEngine {
   }
 
   /**
-   * Checks if a capture is valid (overtaking rules)
+   * Validates landing position for overtaking capture
+   * Rule Reference: Section 10.2 - Flexible landing beyond target
    */
-  private isValidCapture(attackerPos: Position, targetPos: Position, board: BoardState): boolean {
-    const attackerKey = positionToString(attackerPos);
-    const targetKey = positionToString(targetPos);
-    
-    const attackerStack = board.stacks.get(attackerKey);
-    const targetStack = board.stacks.get(targetKey);
-
-    if (!attackerStack || !targetStack) {
+  private isValidCaptureLanding(from: Position, target: Position, landing: Position, stackHeight: number, board: BoardState): boolean {
+    // Landing must be beyond target in same direction
+    if (!this.isBeyondTarget(from, target, landing)) {
       return false;
     }
 
-    // Cannot capture own stacks
-    if (attackerStack.controllingPlayer === targetStack.controllingPlayer) {
+    // Total distance must be at least stack height
+    const distance = this.calculateDistance(from, landing);
+    if (distance < stackHeight) {
       return false;
     }
 
-    // Must be adjacent (using movement adjacency)
-    if (!this.areAdjacent(attackerPos, targetPos)) {
-      return false;
+    // Path from target to landing must be clear
+    const pathFromTarget = this.getPathPositions(target, landing);
+    for (const pos of pathFromTarget) {
+      const posKey = positionToString(pos);
+      
+      // Cannot pass through collapsed spaces
+      if (this.boardManager.isCollapsedSpace(pos, board)) {
+        return false;
+      }
+      
+      // Cannot pass through stacks
+      const stack = board.stacks.get(posKey);
+      if (stack && stack.rings.length > 0) {
+        return false;
+      }
     }
 
-    // Overtaking rules: attacker's cap height must be >= target's cap height
-    return attackerStack.capHeight >= targetStack.capHeight;
+    // Landing space must be empty or have same-color marker
+    const landingKey = positionToString(landing);
+    const landingStack = board.stacks.get(landingKey);
+    if (landingStack && landingStack.rings.length > 0) {
+      return false; // Cannot land on another stack
+    }
+
+    if (this.boardManager.isCollapsedSpace(landing, board)) {
+      return false; // Cannot land on collapsed space
+    }
+
+    // If there's a marker at landing, it must be same color (will be removed)
+    const landingMarker = this.boardManager.getMarker(landing, board);
+    if (landingMarker !== undefined) {
+      // Marker exists - must be attacking player's color
+      const fromKey = positionToString(from);
+      const attackerStack = board.stacks.get(fromKey);
+      if (!attackerStack || landingMarker !== attackerStack.controllingPlayer) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Checks if landing position is beyond target in same direction from start
+   */
+  private isBeyondTarget(from: Position, target: Position, landing: Position): boolean {
+    const dx1 = target.x - from.x;
+    const dy1 = target.y - from.y;
+    const dz1 = (target.z || 0) - (from.z || 0);
+
+    const dx2 = landing.x - from.x;
+    const dy2 = landing.y - from.y;
+    const dz2 = (landing.z || 0) - (from.z || 0);
+
+    // Landing should be further in same direction
+    // Check if vectors point in same direction and landing is further
+    if (dx1 !== 0 && Math.sign(dx1) !== Math.sign(dx2)) return false;
+    if (dy1 !== 0 && Math.sign(dy1) !== Math.sign(dy2)) return false;
+    if (dz1 !== 0 && Math.sign(dz1) !== Math.sign(dz2)) return false;
+
+    // Check distance - landing should be further from start than target
+    const distToTarget = Math.abs(dx1) + Math.abs(dy1) + Math.abs(dz1);
+    const distToLanding = Math.abs(dx2) + Math.abs(dy2) + Math.abs(dz2);
+
+    return distToLanding > distToTarget;
   }
 
   /**
@@ -414,8 +619,10 @@ export class RuleEngine {
       case 'ring_placement':
         moves.push(...this.getValidRingPlacements(currentPlayer, gameState));
         break;
-      case 'main_game':
+      case 'movement':
         moves.push(...this.getValidStackMovements(currentPlayer, gameState));
+        break;
+      case 'capture':
         moves.push(...this.getValidCaptures(currentPlayer, gameState));
         break;
     }
@@ -488,37 +695,54 @@ export class RuleEngine {
 
   /**
    * Gets valid capture moves
+   * Rule Reference: Section 10.1 - Checking for available captures
    */
   private getValidCaptures(player: number, gameState: GameState): Move[] {
     const moves: Move[] = [];
     const playerStacks = this.getPlayerStacks(player, gameState.board);
     
     for (const stackPos of playerStacks) {
+      const stackKey = positionToString(stackPos);
+      const stack = gameState.board.stacks.get(stackKey);
+      if (!stack) continue;
+
       const adjacentPositions = this.getAdjacentPositions(stackPos);
-      const captureTargets: RingStack[] = [];
 
       for (const adjPos of adjacentPositions) {
-        if (this.isValidCapture(stackPos, adjPos, gameState.board)) {
-          const adjKey = positionToString(adjPos);
-          const adjStack = gameState.board.stacks.get(adjKey);
-          if (adjStack) {
-            captureTargets.push(adjStack);
+        const adjKey = positionToString(adjPos);
+        const adjStack = gameState.board.stacks.get(adjKey);
+        
+        // Check if this is a valid capture target
+        if (adjStack && 
+            adjStack.controllingPlayer !== player &&
+            stack.capHeight >= adjStack.capHeight) {
+          
+          // For each valid target, find valid landing positions
+          // This is simplified - in a full implementation, would check all valid landings
+          const allPositions = this.boardManager.getAllPositions();
+          
+          for (const landingPos of allPositions) {
+            const testMove: Move = {
+              id: '',
+              type: 'overtaking_capture',
+              player,
+              from: stackPos,
+              captureTarget: adjPos,
+              to: landingPos,
+              timestamp: new Date(),
+              thinkTime: 0,
+              moveNumber: 0
+            };
+
+            if (this.validateCapture(testMove, gameState)) {
+              moves.push({
+                ...testMove,
+                id: `capture-${positionToString(stackPos)}-${positionToString(adjPos)}-${positionToString(landingPos)}`,
+                moveNumber: gameState.moveHistory.length + 1
+              });
+            }
           }
         }
-      }
-
-      if (captureTargets.length > 0) {
-        moves.push({
-          id: `capture-${positionToString(stackPos)}`,
-          type: 'overtaking_capture',
-          player,
-          from: stackPos,
-          to: captureTargets[0].position, // Primary target
-          capturedStacks: captureTargets,
-          timestamp: new Date(),
-          thinkTime: 0,
-          moveNumber: gameState.moveHistory.length + 1
-        });
       }
     }
 

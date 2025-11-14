@@ -1,0 +1,60 @@
+# Core FastAPI dependencies (Python 3.13 compatible)
+fastapi==0.115.5
+uvicorn[standard]==0.34.0
+pydantic==2.10.5
+
+# Utilities
+python-dotenv==1.0.0
+aiohttp==3.11.11
+redis==5.2.1
+
+# Development tools
+pytest==8.3.4
+pytest-asyncio==0.24.0
+black==24.10.0
+flake8==7.1.1
+
+# Core ML/Data Science libraries (Latest versions with numpy 2.x)
+numpy==2.2.1
+scipy==1.15.1
+scikit-learn==1.6.1
+
+# Deep Learning for Self-Improving AI
+# PyTorch - Neural networks for position evaluation and policy learning
+torch==2.6.0
+torchvision==0.21.0
+
+# TensorBoard - Training monitoring and visualization
+tensorboard==2.18.0
+tensorboardX==2.6.2.2
+
+# Reinforcement Learning environment
+# gymnasium - Modern RL environment interface (successor to OpenAI Gym)
+gymnasium==1.0.0
+
+# Note: stable-baselines3 removed - incompatible with numpy 2.x
+# We'll implement RL algorithms directly using PyTorch instead
+# This gives us more control and flexibility for RingRift-specific RL
+
+# Model serialization and management
+cloudpickle==3.1.0
+h5py==3.13.0
+
+# Data processing for game replay analysis
+pandas==2.2.3
+matplotlib==3.10.0
+
+# Performance optimization
+# Note: numba removed - not yet compatible with Python 3.13
+# JIT compilation can be added later when numba supports Python 3.13
+
+# Memory optimization for experience replay
+msgpack==1.1.0
+lz4==4.4.5
+
+# Progress bars and monitoring
+tqdm==4.67.1
+
+# Additional utilities
+python-dateutil==2.9.0
+pytz==2025.1

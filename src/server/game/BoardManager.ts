@@ -28,6 +28,7 @@ export class BoardManager {
     return {
       stacks: new Map(),
       markers: new Map(),
+      collapsedSpaces: new Map(),
       territories: new Map(),
       formedLines: [],
       eliminatedRings: {},
@@ -41,7 +42,9 @@ export class BoardManager {
 
     if (this.boardType === 'hexagonal') {
       // Generate hexagonal board positions
-      const radius = this.size;
+      // size=11 means radius 10 (positions from -10 to 10)
+      // This gives 3*10^2 + 3*10 + 1 = 331 positions
+      const radius = this.size - 1;
       for (let q = -radius; q <= radius; q++) {
         const r1 = Math.max(-radius, -q - radius);
         const r2 = Math.min(radius, -q + radius);
@@ -168,6 +171,97 @@ export class BoardManager {
         Math.abs(pos1.y - pos2.y)
       );
     }
+  }
+
+  // Marker manipulation methods - Section 8.3 of rules
+  
+  /**
+   * Sets a marker at the specified position
+   * Rule Reference: Section 4.2.1 - Leave marker on departure space
+   */
+  setMarker(position: Position, player: number, board: BoardState): void {
+    const posKey = positionToString(position);
+    board.markers.set(posKey, {
+      player,
+      position,
+      type: 'regular'
+    });
+  }
+
+  /**
+   * Gets marker at position (returns undefined if no marker or if space is collapsed)
+   */
+  getMarker(position: Position, board: BoardState): number | undefined {
+    const posKey = positionToString(position);
+    const marker = board.markers.get(posKey);
+    return marker?.player;
+  }
+
+  /**
+   * Removes a marker from the board
+   * Rule Reference: Section 8.2 - Landing on same-color marker removes it
+   */
+  removeMarker(position: Position, board: BoardState): void {
+    const posKey = positionToString(position);
+    board.markers.delete(posKey);
+  }
+
+  /**
+   * Flips an opponent marker to the moving player's color
+   * Rule Reference: Section 8.3 - Opponent markers flip to your color
+   */
+  flipMarker(position: Position, newPlayer: number, board: BoardState): void {
+    const posKey = positionToString(position);
+    const existingMarker = board.markers.get(posKey);
+    if (existingMarker && existingMarker.player !== newPlayer) {
+      board.markers.set(posKey, {
+        player: newPlayer,
+        position,
+        type: 'regular'
+      });
+    }
+  }
+
+  /**
+   * Collapses a marker into claimed territory
+   * Rule Reference: Section 8.3 - Your own markers become collapsed territory
+   */
+  collapseMarker(position: Position, player: number, board: BoardState): void {
+    const posKey = positionToString(position);
+    // Remove from markers
+    board.markers.delete(posKey);
+    // Add to collapsed spaces
+    board.collapsedSpaces.set(posKey, player);
+  }
+
+  /**
+   * Gets the controlling player of a collapsed space (undefined if not collapsed)
+   */
+  getCollapsedSpace(position: Position, board: BoardState): number | undefined {
+    const posKey = positionToString(position);
+    return board.collapsedSpaces.get(posKey);
+  }
+
+  /**
+   * Sets a position as collapsed territory
+   * Rule Reference: Section 11.2, 12.2 - Spaces collapse to player's color
+   */
+  setCollapsedSpace(position: Position, player: number, board: BoardState): void {
+    const posKey = positionToString(position);
+    // Remove any marker that might exist
+    board.markers.delete(posKey);
+    // Remove any stack that might exist
+    board.stacks.delete(posKey);
+    // Mark as collapsed
+    board.collapsedSpaces.set(posKey, player);
+  }
+
+  /**
+   * Checks if a position is collapsed territory (cannot be moved through or occupied)
+   */
+  isCollapsedSpace(position: Position, board: BoardState): boolean {
+    const posKey = positionToString(position);
+    return board.collapsedSpaces.has(posKey);
   }
 
   // Stack manipulation methods
@@ -303,13 +397,16 @@ export class BoardManager {
     return territories;
   }
 
-  // Line detection methods
+  // Line detection methods - CRITICAL: Lines are formed by MARKERS, not stacks
+  // Rule Reference: Section 11.1 - Line Formation Rules
   findLinesFromPosition(position: Position, board: BoardState): LineInfo[] {
     const lines: LineInfo[] = [];
-    const stack = this.getStack(position, board);
-    if (!stack) return lines;
+    
+    // Check if this position has a marker (not a stack!)
+    const marker = this.getMarker(position, board);
+    if (marker === undefined) return lines;
 
-    const playerId = stack.controllingPlayer;
+    const playerId = marker;
     const directions = this.getLineDirections();
 
     for (const direction of directions) {
@@ -346,6 +443,10 @@ export class BoardManager {
     }
   }
 
+  /**
+   * Find consecutive markers (not stacks!) in a direction
+   * Rule Reference: Section 11.1 - Must consist of consecutive, contiguous, non-collapsed markers
+   */
   private findLineInDirection(
     startPosition: Position, 
     direction: Position, 
@@ -365,8 +466,13 @@ export class BoardManager {
 
       if (!this.isValidPosition(next)) break;
       
-      const stack = this.getStack(next, board);
-      if (!stack || stack.controllingPlayer !== playerId) break;
+      // CRITICAL: Check for MARKER, not stack!
+      // Line cannot be interrupted by empty spaces, collapsed spaces, or stacks
+      const marker = this.getMarker(next, board);
+      if (marker !== playerId) break;
+      
+      // Also check it's not a collapsed space or has a stack on it
+      if (this.isCollapsedSpace(next, board) || this.getStack(next, board)) break;
 
       line.push(next);
       current = next;
@@ -383,8 +489,12 @@ export class BoardManager {
 
       if (!this.isValidPosition(prev)) break;
       
-      const stack = this.getStack(prev, board);
-      if (!stack || stack.controllingPlayer !== playerId) break;
+      // CRITICAL: Check for MARKER, not stack!
+      const marker = this.getMarker(prev, board);
+      if (marker !== playerId) break;
+      
+      // Also check it's not a collapsed space or has a stack on it
+      if (this.isCollapsedSpace(prev, board) || this.getStack(prev, board)) break;
 
       line.unshift(prev);
       current = prev;
@@ -393,23 +503,40 @@ export class BoardManager {
     return line;
   }
 
-  // Find all lines on the board
+  /**
+   * Find all marker lines on the board (4+ for 8x8, 5+ for 19x19/hex)
+   * Rule Reference: Section 11.1 - Line Formation Rules
+   * CRITICAL: Lines are formed by MARKERS, not stacks!
+   */
   findAllLines(board: BoardState): LineInfo[] {
     const lines: LineInfo[] = [];
-    const processedPositions = new Set<string>();
+    const processedLines = new Set<string>();
 
-    for (const [posStr] of board.stacks) {
-      if (processedPositions.has(posStr)) continue;
-
+    // Iterate through all MARKERS (not stacks!)
+    for (const [posStr, marker] of board.markers) {
       const position = stringToPosition(posStr);
-      const positionLines = this.findLinesFromPosition(position, board);
+      const directions = this.getLineDirections();
 
-      for (const line of positionLines) {
-        // Mark all positions in this line as processed to avoid duplicates
-        for (const pos of line.positions) {
-          processedPositions.add(positionToString(pos));
+      for (const direction of directions) {
+        const line = this.findLineInDirection(position, direction, marker.player, board);
+        
+        if (line.length >= this.config.lineLength) {
+          // Create a unique key for this line (sorted positions to avoid duplicates)
+          const lineKey = line
+            .map(p => positionToString(p))
+            .sort()
+            .join('|');
+          
+          if (!processedLines.has(lineKey)) {
+            processedLines.add(lineKey);
+            lines.push({
+              positions: line,
+              player: marker.player,
+              length: line.length,
+              direction: direction
+            });
+          }
         }
-        lines.push(line);
       }
     }
 
@@ -489,13 +616,15 @@ export class BoardManager {
     
     if (this.boardType === 'hexagonal') {
       // Hexagonal edge positions
+      // size=11 means radius 10, so edge is at distance 10
+      const radius = this.size - 1;
       return allPositions.filter(pos => {
         const distance = Math.max(
           Math.abs(pos.x),
           Math.abs(pos.y),
           Math.abs(pos.z || 0)
         );
-        return distance === this.size;
+        return distance === radius;
       });
     } else {
       // Square edge positions
@@ -532,12 +661,14 @@ export class BoardManager {
 
   isOnEdge(position: Position): boolean {
     if (this.boardType === 'hexagonal') {
+      // size=11 means radius 10, so edge is at distance 10
+      const radius = this.size - 1;
       const distance = Math.max(
         Math.abs(position.x),
         Math.abs(position.y),
         Math.abs(position.z || 0)
       );
-      return distance === this.size;
+      return distance === radius;
     } else {
       return position.x === 0 || position.x === this.size - 1 || 
              position.y === 0 || position.y === this.size - 1;
@@ -558,6 +689,435 @@ export class BoardManager {
       return Math.abs(position.x - center) <= 2 && 
              Math.abs(position.y - center) <= 2;
     }
+  }
+
+  /**
+   * Find all disconnected regions on the board
+   * Rule Reference: Section 12.2 - Territory Disconnection
+   * 
+   * A region is disconnected when:
+   * 1. Physical Disconnection: Surrounded by collapsed spaces, board edges, or single-player marker border
+   * 2. Representation: Lacks representation from at least one active player's ring stacks
+   * 
+   * Key Insight: Markers of a specific color can act as borders (treated like collapsed spaces).
+   * We must check for disconnection with respect to each marker color separately.
+   */
+  findDisconnectedRegions(board: BoardState, movingPlayer: number): Territory[] {
+    const disconnectedRegions: Territory[] = [];
+    
+    // Get all active players (those with stacks on board)
+    const activePlayers = new Set<number>();
+    for (const [, stack] of board.stacks) {
+      activePlayers.add(stack.controllingPlayer);
+    }
+    
+    // Get all marker colors present on board
+    const markerColors = new Set<number>();
+    for (const [, marker] of board.markers) {
+      markerColors.add(marker.player);
+    }
+    
+    // Check for disconnection with respect to each marker color
+    // (markers of that color act as borders along with collapsed spaces and edges)
+    for (const borderColor of markerColors) {
+      const regions = this.findRegionsWithBorderColor(board, borderColor, activePlayers);
+      disconnectedRegions.push(...regions);
+    }
+    
+    // Also check for regions surrounded by only collapsed spaces and edges (no marker borders)
+    const regionsWithoutMarkerBorder = this.findRegionsWithoutMarkerBorder(board, activePlayers);
+    disconnectedRegions.push(...regionsWithoutMarkerBorder);
+    
+    return disconnectedRegions;
+  }
+
+
+  /**
+   * Find regions where markers of a specific color act as borders
+   * Rule Reference: Section 12.2 - Markers of one color can form disconnecting borders
+   */
+  private findRegionsWithBorderColor(
+    board: BoardState, 
+    borderColor: number, 
+    activePlayers: Set<number>
+  ): Territory[] {
+    const disconnectedRegions: Territory[] = [];
+    const visited = new Set<string>();
+    
+    // Find all connected regions where borderColor markers act as borders
+    for (const posStr of this.validPositions) {
+      if (visited.has(posStr)) continue;
+      
+      const position = stringToPosition(posStr);
+      
+      // Skip if this is a border (collapsed or borderColor marker)
+      if (this.isCollapsedSpace(position, board)) {
+        visited.add(posStr);
+        continue;
+      }
+      
+      const marker = this.getMarker(position, board);
+      if (marker === borderColor) {
+        visited.add(posStr);
+        continue;
+      }
+      
+      // Find connected region using flood fill (borderColor markers act as borders)
+      const region = this.exploreRegionWithBorderColor(position, board, borderColor, visited);
+      
+      if (region.length === 0) continue;
+      
+      // Check representation - must lack at least one active player's stacks
+      const representedPlayers = this.getRepresentedPlayers(region, board);
+      
+      if (representedPlayers.size < activePlayers.size) {
+        // This region is disconnected!
+        disconnectedRegions.push({
+          spaces: region,
+          controllingPlayer: 0, // Will be set by caller
+          isDisconnected: true
+        });
+      }
+    }
+    
+    return disconnectedRegions;
+  }
+
+  /**
+   * Find regions surrounded only by collapsed spaces and edges (no marker borders)
+   */
+  private findRegionsWithoutMarkerBorder(
+    board: BoardState,
+    activePlayers: Set<number>
+  ): Territory[] {
+    const disconnectedRegions: Territory[] = [];
+    const visited = new Set<string>();
+    
+    // Find all connected regions where only collapsed spaces and edges form borders
+    for (const posStr of this.validPositions) {
+      if (visited.has(posStr)) continue;
+      
+      const position = stringToPosition(posStr);
+      
+      // Skip collapsed spaces
+      if (this.isCollapsedSpace(position, board)) {
+        visited.add(posStr);
+        continue;
+      }
+      
+      // Find connected region (only collapsed spaces/edges are borders)
+      const region = this.exploreRegionWithoutMarkerBorder(position, board, visited);
+      
+      if (region.length === 0) continue;
+      
+      // Check if region is actually bordered by collapsed spaces/edges (no markers in border)
+      if (!this.isRegionBorderedByCollapsedOnly(region, board)) {
+        continue;
+      }
+      
+      // Check representation
+      const representedPlayers = this.getRepresentedPlayers(region, board);
+      
+      if (representedPlayers.size < activePlayers.size) {
+        disconnectedRegions.push({
+          spaces: region,
+          controllingPlayer: 0,
+          isDisconnected: true
+        });
+      }
+    }
+    
+    return disconnectedRegions;
+  }
+
+  /**
+   * Flood fill to find region where markers of borderColor act as borders
+   */
+  private exploreRegionWithBorderColor(
+    startPosition: Position,
+    board: BoardState,
+    borderColor: number,
+    visited: Set<string>
+  ): Position[] {
+    const region: Position[] = [];
+    const queue = [startPosition];
+    const localVisited = new Set<string>();
+    
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const currentKey = positionToString(current);
+      
+      if (localVisited.has(currentKey)) continue;
+      localVisited.add(currentKey);
+      visited.add(currentKey);
+      
+      // Check if this is a border
+      if (this.isCollapsedSpace(current, board)) continue;
+      
+      const marker = this.getMarker(current, board);
+      if (marker === borderColor) continue;
+      
+      // This space is part of the region (empty, stack, or other-color marker)
+      region.push(current);
+      
+      // Explore neighbors
+      const neighbors = this.getNeighbors(current, this.config.territoryAdjacency);
+      for (const neighbor of neighbors) {
+        const neighborKey = positionToString(neighbor);
+        if (!localVisited.has(neighborKey) && this.isValidPosition(neighbor)) {
+          queue.push(neighbor);
+        }
+      }
+    }
+    
+    return region;
+  }
+
+  /**
+   * Flood fill to find region where only collapsed spaces/edges are borders
+   */
+  private exploreRegionWithoutMarkerBorder(
+    startPosition: Position,
+    board: BoardState,
+    visited: Set<string>
+  ): Position[] {
+    const region: Position[] = [];
+    const queue = [startPosition];
+    const localVisited = new Set<string>();
+    
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const currentKey = positionToString(current);
+      
+      if (localVisited.has(currentKey)) continue;
+      localVisited.add(currentKey);
+      visited.add(currentKey);
+      
+      // Check if this is a border (only collapsed spaces)
+      if (this.isCollapsedSpace(current, board)) continue;
+      
+      // This space is part of the region
+      region.push(current);
+      
+      // Explore neighbors
+      const neighbors = this.getNeighbors(current, this.config.territoryAdjacency);
+      for (const neighbor of neighbors) {
+        const neighborKey = positionToString(neighbor);
+        if (!localVisited.has(neighborKey) && this.isValidPosition(neighbor)) {
+          queue.push(neighbor);
+        }
+      }
+    }
+    
+    return region;
+  }
+
+  /**
+   * Check if a region is bordered only by collapsed spaces and edges (no markers)
+   */
+  private isRegionBorderedByCollapsedOnly(regionSpaces: Position[], board: BoardState): boolean {
+    const regionSet = new Set(regionSpaces.map(positionToString));
+    
+    // Check all border positions
+    for (const space of regionSpaces) {
+      const neighbors = this.getNeighbors(space, this.config.territoryAdjacency);
+      for (const neighbor of neighbors) {
+        const neighborKey = positionToString(neighbor);
+        
+        // Skip if neighbor is in region
+        if (regionSet.has(neighborKey)) continue;
+        
+        // Check if neighbor is valid position (board edge check)
+        if (!this.isValidPosition(neighbor)) continue; // Edge is OK
+        
+        // Check if it's collapsed
+        if (this.isCollapsedSpace(neighbor, board)) continue; // Collapsed is OK
+        
+        // If it has a marker, this region is NOT bordered by collapsed-only
+        if (this.getMarker(neighbor, board) !== undefined) {
+          return false;
+        }
+        
+        // Empty spaces or stacks in border mean not a valid disconnection
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  /**
+   * Explore a region using flood fill
+   * Returns all connected empty/marker spaces starting from position
+   */
+  private exploreRegion(startPosition: Position, board: BoardState, visited: Set<string>): {
+    spaces: Position[];
+    borderPositions: Position[];
+  } {
+
+    const spaces: Position[] = [];
+    const borderPositions: Position[] = [];
+    const queue = [startPosition];
+    const localVisited = new Set<string>();
+    
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const currentKey = positionToString(current);
+      
+      if (localVisited.has(currentKey)) continue;
+      localVisited.add(currentKey);
+      visited.add(currentKey);
+      
+      // Check if this position is part of the region (empty or marker, not collapsed/stack)
+      const isCollapsed = this.isCollapsedSpace(current, board);
+      const hasStack = this.getStack(current, board) !== undefined;
+      
+      if (isCollapsed || hasStack) {
+        // This is a border position
+        borderPositions.push(current);
+        continue;
+      }
+      
+      // This is part of the region
+      spaces.push(current);
+      
+      // Explore neighbors using territory adjacency
+      const neighbors = this.getNeighbors(current, this.config.territoryAdjacency);
+      for (const neighbor of neighbors) {
+        const neighborKey = positionToString(neighbor);
+        if (!localVisited.has(neighborKey)) {
+          queue.push(neighbor);
+        }
+      }
+    }
+    
+    return { spaces, borderPositions };
+  }
+
+  /**
+   * Analyze the border of a region to determine if it's physically disconnected
+   * Rule Reference: Section 12.1 - Border can be collapsed spaces, board edges, or single-player marker border
+   */
+  private analyzeRegionBorder(regionSpaces: Position[], board: BoardState): {
+    isPhysicallyDisconnected: boolean;
+    borderMarkerPlayer?: number;
+  } {
+    if (regionSpaces.length === 0) {
+      return { isPhysicallyDisconnected: false };
+    }
+    
+    // Collect all border positions (neighbors of region spaces that are not in region)
+    const borderPositions = new Set<string>();
+    const regionSet = new Set(regionSpaces.map(positionToString));
+    
+    for (const space of regionSpaces) {
+      const neighbors = this.getNeighbors(space, this.config.territoryAdjacency);
+      for (const neighbor of neighbors) {
+        const neighborKey = positionToString(neighbor);
+        if (!regionSet.has(neighborKey)) {
+          borderPositions.add(neighborKey);
+        }
+      }
+    }
+    
+    // Check if border forms a complete disconnection
+    // Border can consist of: collapsed spaces, board edges, single-player markers
+    let borderMarkerPlayer: number | undefined = undefined;
+    let hasCollapsedOrEdge = false;
+    
+    for (const borderPosStr of borderPositions) {
+      const borderPos = stringToPosition(borderPosStr);
+      
+      // Check if it's a board edge
+      if (!this.isValidPosition(borderPos)) {
+        hasCollapsedOrEdge = true;
+        continue;
+      }
+      
+      // Check if it's collapsed
+      if (this.isCollapsedSpace(borderPos, board)) {
+        hasCollapsedOrEdge = true;
+        continue;
+      }
+      
+      // Check if it's a marker
+      const marker = this.getMarker(borderPos, board);
+      if (marker !== undefined) {
+        if (borderMarkerPlayer === undefined) {
+          borderMarkerPlayer = marker;
+        } else if (borderMarkerPlayer !== marker) {
+          // Borders with multiple player markers don't disconnect
+          return { isPhysicallyDisconnected: false };
+        }
+        continue;
+      }
+      
+      // Check if it's a stack (stacks don't form borders)
+      const stack = this.getStack(borderPos, board);
+      if (stack) {
+        // Stacks don't form disconnecting borders
+        return { isPhysicallyDisconnected: false };
+      }
+      
+      // It's an empty space - not a valid border
+      return { isPhysicallyDisconnected: false };
+    }
+    
+    // Valid border: all collapsed, edges, or single-player markers
+    const result: { isPhysicallyDisconnected: boolean; borderMarkerPlayer?: number } = {
+      isPhysicallyDisconnected: true
+    };
+    if (borderMarkerPlayer !== undefined) {
+      result.borderMarkerPlayer = borderMarkerPlayer;
+    }
+    return result;
+  }
+
+  /**
+   * Get all players represented in a region (by their ring stacks)
+   * Rule Reference: Section 12.2 - Representation check
+   */
+  private getRepresentedPlayers(regionSpaces: Position[], board: BoardState): Set<number> {
+    const represented = new Set<number>();
+    
+    for (const space of regionSpaces) {
+      const stack = this.getStack(space, board);
+      if (stack) {
+        represented.add(stack.controllingPlayer);
+      }
+    }
+    
+    return represented;
+  }
+
+  /**
+   * Get border marker positions for a disconnected region
+   * Returns positions of all markers that form part of the border
+   */
+  getBorderMarkerPositions(regionSpaces: Position[], board: BoardState): Position[] {
+    const borderMarkers: Position[] = [];
+    const regionSet = new Set(regionSpaces.map(positionToString));
+    
+    for (const space of regionSpaces) {
+      const neighbors = this.getNeighbors(space, this.config.territoryAdjacency);
+      for (const neighbor of neighbors) {
+        const neighborKey = positionToString(neighbor);
+        if (!regionSet.has(neighborKey)) {
+          const marker = this.getMarker(neighbor, board);
+          if (marker !== undefined) {
+            borderMarkers.push(neighbor);
+          }
+        }
+      }
+    }
+    
+    // Remove duplicates
+    const uniqueMarkers = new Map<string, Position>();
+    for (const pos of borderMarkers) {
+      uniqueMarkers.set(positionToString(pos), pos);
+    }
+    
+    return Array.from(uniqueMarkers.values());
   }
 
   // Get board configuration

@@ -13,13 +13,20 @@
     "start": "node dist/server/index.js",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:coverage:watch": "jest --coverage --watch",
+    "test:ci": "jest --ci --coverage --maxWorkers=2",
+    "test:unit": "jest --testPathPattern=tests/unit",
+    "test:integration": "jest --testPathPattern=tests/integration",
+    "test:verbose": "jest --verbose",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "docker:build": "docker build -t ringrift .",
     "docker:run": "docker-compose up",
     "db:migrate": "npx prisma migrate dev",
     "db:generate": "npx prisma generate",
-    "db:seed": "ts-node src/server/database/seed.ts"
+    "db:seed": "ts-node src/server/database/seed.ts",
+    "prepare": "husky install"
   },
   "keywords": [
     "game",
@@ -81,9 +88,12 @@
     "eslint": "^8.55.0",
     "eslint-plugin-react": "^7.33.0",
     "eslint-plugin-react-hooks": "^4.6.0",
+    "husky": "^9.1.7",
     "jest": "^29.7.0",
+    "lint-staged": "^16.2.6",
     "nodemon": "^3.0.2",
     "postcss": "^8.4.27",
+    "prettier": "^3.6.2",
     "supertest": "^6.3.3",
     "tailwindcss": "^3.3.3",
     "ts-jest": "^29.1.1",
@@ -94,5 +104,14 @@
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   }
 }
