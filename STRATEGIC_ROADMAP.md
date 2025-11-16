@@ -2,7 +2,7 @@
 
 **Version:** 2.0  
 **Created:** November 13, 2025  
-**Last Updated:** November 13, 2025  
+**Last Updated:** November 14, 2025  
 **Status:** Code-Verified Plan  
 **Philosophy:** MVP-First, Testing-First, Playability-First
 
@@ -15,6 +15,17 @@
 **Timeline:** 8-12 weeks to MVP  
 **Strategy:** Complete core logic → Build minimal UI → Integrate AI → Comprehensive testing
 
+This roadmap should be read alongside the current, code-verified documents:
+
+- `ringrift_complete_rules.md` / `ringrift_compact_rules.md` – game rules
+- `CURRENT_STATE_ASSESSMENT.md` – factual implementation status
+- `KNOWN_ISSUES.md` – P0/P1 issues
+- `ARCHITECTURE_ASSESSMENT.md` – architecture and refactoring axes
+- `TODO.md` – concrete, phase-based task tracker
+- `PLAYABLE_GAME_IMPLEMENTATION_PLAN.md` – end-to-end playable lifecycle plan (lobby → backend game → choices/AI → victory → return to lobby)
+
+Older architecture/evaluation/improvement docs (e.g. `CODEBASE_EVALUATION.md`, `RINGRIFT_IMPROVEMENT_PLAN.md`, `ringrift_architecture_plan.md`, `TECHNICAL_ARCHITECTURE_ANALYSIS.md`) have been moved to `deprecated/` and should be treated as historical context only; any still-relevant guidance from them has been merged into the documents listed above.
+
 **Key Insight:** The project has excellent architecture but needs focused execution on:
 1. Player choice system (enables strategic gameplay)
 2. Chain capture enforcement (critical rule)
@@ -24,23 +35,23 @@
 
 ---
 
-## 📊 Current State (Verified November 13, 2025)
+## 📊 Current State (Verified November 14, 2025)
 
 ### What Works ✅
 - Type system and data structures (100%)
-- Board management (90%): Position system, adjacency, markers
-- Basic game mechanics (75%): Ring placement, movement, single captures
-- Line detection and collapse (70%)
-- Territory disconnection (70%)
-- Phase transitions (85%)
-- Infrastructure: Docker, PostgreSQL, Redis, WebSocket (95%)
+- Board management (90%): Position system, adjacency, markers, line and territory helpers
+- Basic game mechanics (75%): Ring placement, movement, single and chained captures (engine-enforced), line formation, territory disconnection, phase transitions
+- Player interaction system (~75%): Shared PlayerChoice types, PlayerInteractionManager, WebSocketInteractionHandler, AIInteractionHandler, DelegatingInteractionHandler, and GameEngine integration for line order, line rewards, ring elimination, region order, and capture direction
+- Python AI service + AIEngine/AIServiceClient path (~55%): service, client, AIProfile, and globalAIEngine wiring in place for move selection in backend games
+- Frontend board and choice UI (~30%): BoardView renders 8×8, 19×19, and hex boards; GamePage supports both a backend-driven game view and a **client-local sandbox** powered by `ClientSandboxEngine`; ChoiceDialog + GameContext surface server-driven PlayerChoices for backend games and local PlayerChoices for the sandbox.
+- Infrastructure: Docker, PostgreSQL, Redis, WebSocket, CI (95%)
 
 ### Critical Gaps ❌
-- **Player choice system (~40%)** - Shared types and PlayerInteractionManager exist; GameEngine uses them for line order, line reward, ring elimination, and region order, but capture direction choices and UI/AI wiring are still missing.
-- **Chain captures (40%)** - Not enforced as mandatory
-- **Playable UI (20%)** - Minimal board UI and local sandbox exist, but no move/choice wiring to the engine
-- **Testing (8%)** - Cannot verify full rule compliance; only minimal and interaction tests exist
-- **AI integration (40%)** - Python service exists but disconnected
+- **Player choice system not yet battle-tested** – Engine/WebSocket/UI wiring exists, but scenario coverage and UX around timeouts/errors is still thin.
+- **Chain captures (~70%)** – Engine enforces mandatory continuation and capture-direction choices, but complex FAQ scenarios (180° reversals, cycles) are not yet fully covered by tests or UI/AI flows.
+- **Playable UI (30%)** – Board and basic backend play exist, but HUD, timers, post-game flows, and polished status/choice presentation are still missing.
+- **Testing (~10%)** – Key mechanics and interaction flows have some unit/integration tests (movement/capture, AI turns, territory, choices), but there is no comprehensive scenario suite derived from the rules/FAQ.
+- **AI integration (~55%)** – Python service and AIEngine are used for move selection in backend games, but AI is not yet used for PlayerChoice decisions and high-difficulty tactical behaviour.
 
 ### Architecture Decision: **Keep Python AI Service** ✅
 **Rationale:**
@@ -379,6 +390,13 @@ interface PlayerChoiceResponse<T> {
 - Update all docs
 - Plan UI architecture
 - Design component hierarchy
+
+### Sandbox-Focused Next Steps (client-local engine)
+**In parallel with Week 1–2 work, continue evolving the client-local sandbox as a fast, rules-complete harness:**
+- Treat `ClientSandboxEngine` + `sandboxMovement`/`sandboxCaptures`/`sandboxLinesEngine`/`sandboxTerritoryEngine`/`sandboxVictory` as the canonical client-local rules implementation for `/sandbox`.
+- Extend sandbox AI from simple random choice to slightly stronger heuristics (while keeping it clearly documented as “teaching/experiment” strength, not production AI).
+- Add a short section to `CURRENT_STATE_ASSESSMENT.md`, `README.md`, and `TODO.md` describing the sandbox engine’s parity and tests, and keep it updated as new sandbox scenarios are added.
+- Use the sandbox plus its Jest suites (`ClientSandboxEngine.*.test.ts`) as a safety net when changing movement/capture/line/territory rules, mirroring high-value Rust tests where possible.
 
 ---
 

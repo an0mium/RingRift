@@ -229,7 +229,7 @@ This document is the **single source of truth** for RingRift development trackin
 - Elimination: Rings permanently removed (line formations, territory disconnections)
 - Chain captures: Mandatory once started, player chooses direction at each step ✅ (engine-level, tests pending)
 
-**Progress:** 15/19 subtasks completed (~70% functional) - Single and chained captures enforced engine-side; tests & UI/AI wiring still pending
+**Progress:** 15/19 subtasks completed (~70% functional) - Single and chained captures enforced engine-side; a shared capture-segment validator now lives in `src/shared/engine/core.ts` and is used by `RuleEngine.validateCaptureSegment`; tests & UI/AI wiring still pending
 
 **Status:** INCOMPLETE - Chain capture logic implemented but needs more tests and UI/AI integration
 
@@ -335,7 +335,11 @@ This document is the **single source of truth** for RingRift development trackin
   - [x] Capture direction selection (chain captures)
 - [x] Create UI scaffold for each choice type via `ChoiceDialog`
 - [x] Wire `ChoiceDialog` to server-driven choices over WebSockets via GameContext
-- [ ] Add AI decision logic for each choice type (via AIServiceClient or local heuristics)
+- [x] Add AI decision logic for each choice type using local TypeScript heuristics (AIInteractionHandler + DelegatingInteractionHandler wired through PlayerInteractionManager)
+- [ ] Integrate Python AIServiceClient-based decision-making for choices (service-backed PlayerChoices), building on the existing move loop:
+  - [ ] Start with a single concrete choice type (e.g. `line_reward_option`) so we can exercise the full AI → service → GameEngine path end-to-end.
+  - [ ] Ensure AI choice responses share the same validation semantics as human/WebSocket choices by funnelling everything through `PlayerInteractionManager` + `DelegatingInteractionHandler`.
+  - [ ] Add targeted tests that exercise at least one service-backed choice end-to-end (AI profile → AIServiceClient → GameEngine), including failure modes and fallbacks to local heuristics.
 - [x] Write basic tests for PlayerInteractionManager
 - [x] Write tests for WebSocketInteractionHandler (happy path, invalid option, wrong player)
 - [ ] Add integration tests covering at least one full choice flow through GameEngine
@@ -354,7 +358,13 @@ This document is the **single source of truth** for RingRift development trackin
   - [ ] Use `PlayerChoiceResponseFor<TChoice>` more broadly within GameEngine for clearer branching.
 - [ ] Add at least one integration test that:
   - [ ] Drives a line reward choice from GameEngine → PlayerInteractionManager → WebSocketInteractionHandler → mocked client → back.
-- [ ] Add AI choice logic (for early levels) using simple TypeScript heuristics until AIService integration is in place.
+- [x] Add AI choice logic (for early levels) using simple TypeScript heuristics until AIService integration is in place (implemented via AIInteractionHandler + DelegatingInteractionHandler with unit tests).
+- [ ] Extend AI-service-backed PlayerChoices beyond `line_reward_option`:
+  - [ ] Finalize the `/ai/choice/ring_elimination` endpoint to use `RingEliminationChoiceRequest/Response` and a real heuristic (e.g. smallest `capHeight`, tie-breaking on `totalHeight`) with full `GameState` available.
+  - [ ] Add `getRingEliminationChoice` to `AIEngine` that delegates to `AIServiceClient.getRingEliminationChoice` and returns the selected option.
+  - [ ] Update `AIInteractionHandler.selectRingEliminationOption` to call `globalAIEngine.getRingEliminationChoice` first, with robust fallback to the existing local heuristic on error or missing AI config.
+  - [ ] Add focused unit tests for `AIEngine` and `AIInteractionHandler` covering the service-backed ring elimination path and its fallback behaviour.
+  - [ ] Plan similar service-backed integration for `region_order` once the ring elimination path is stable.
 
 ---
 
@@ -468,13 +478,24 @@ Add new bullets under Scenario/Integration tests:
 
 ## 🤖 PHASE 1.5: AI Engine Implementation (NEW REFINEMENTS)
 
-Add a new subtask under AI Testing / Integration:
-- [ ] Integrate AI choice responses with PlayerInteractionManager:
-  - [ ] Implement an AI-side handler that satisfies `PlayerInteractionHandler`.
-  - [ ] Ensure AI responds to PlayerChoice prompts with valid `selectedOption` values.
-  - [ ] Mirror WebSocketInteractionHandler validation semantics to avoid divergence between human and AI flows.
+Add AI Testing / Integration subtasks:
+- [x] Integrate AI choice responses with PlayerInteractionManager:
+  - [x] Implement an AI-side handler that satisfies `PlayerInteractionHandler` (see `AIInteractionHandler`).
+  - [x] Ensure AI responds to PlayerChoice prompts with valid `selectedOption` values for all choice variants.
+  - [x] Mirror WebSocketInteractionHandler validation semantics by funnelling all engine choices through `PlayerInteractionManager` + `DelegatingInteractionHandler` so humans and AI share the same interface.
+- [x] Introduce shared AI configuration via `AIProfile` and centralise AI setup:
+  - [x] Add `AIProfile` and supporting types (`AIControlMode`, `AITacticType`) to `src/shared/types/game.ts`.
+  - [x] Extend `Player` with an optional `aiProfile` field to surface AI config in GameState and to clients.
+  - [x] Extend `AIEngine` with `createAIFromProfile` so all server-side AI configuration flows through a single façade.
+  - [x] Update `WebSocketServer.getOrCreateGameEngine` to construct `AIProfile` instances for AI opponents and configure `globalAIEngine` via `createAIFromProfile`, keeping GameEngine/PlayerInteractionManager the single source of truth for player types.
+- [ ] Plan and implement AIServiceClient-based move and choice integration:
+  - [ ] Treat `globalAIEngine` as a façade that can delegate to either local TypeScript heuristics or the Python `AIServiceClient` on a per-player/per-aiType basis.
+  - [ ] Add configuration on players/AI profiles to select AI type (local heuristic vs service-backed) and difficulty, and plumb this into `globalAIEngine`.
+  - [ ] Implement service-backed move selection that calls the Python AI service via `AIServiceClient.getAIMove` and applies the result through `GameEngine` (reusing the existing `maybePerformAITurn` broadcast path).
+  - [ ] Design and, if needed, implement AI-service endpoints for answering `PlayerChoice` prompts directly, or define a fallback strategy where local heuristics (`AIInteractionHandler`) are used when the service cannot answer.
+  - [ ] Add tests that cover service success/failure cases and ensure the system degrades gracefully to local heuristics when the AI service is unavailable.
 
-**Status:** Not Started  
+**Status:** IN PROGRESS (local AI heuristics integrated; service-backed AI pending)  
 **Priority:** P1 - HIGH  
 **Target Completion:** 2-3 weeks after Phase 1
 
@@ -522,9 +543,9 @@ Under **Task 3.3: User Interaction**, update bullets:
   - [x] Ring/cap elimination
   - [x] Region order
   - [x] Capture direction
-- [ ] Integrate ChoiceDialog with GameContext pendingChoice/choiceDeadline for backend games.
-- [ ] Add visual indication of active choice timeout based on `choiceDeadline`.
-- [ ] Add optimistic UI handling for choice submissions (disable buttons after selection until response ack or error).
+- [x] Integrate ChoiceDialog with GameContext pendingChoice/choiceDeadline for backend games.
+- [x] Add visual indication of active choice timeout based on `choiceDeadline`.
+- [x] Add optimistic UI handling for choice submissions (disable buttons after selection until response ack or error).
 
 Under **Task 3.4: Game State Display**, add:
 - [ ] Display current pending choice (type and prompt) in a status panel for debugging and UX clarity.
@@ -555,8 +576,25 @@ Under **Task 3.4: Game State Display**, add:
 - [ ] Stack height indicators (visual cue for cap height vs total height)
 - [ ] Hover effects and highlights
 
+- [ ] **3.5.2 Piece & territory visualization**
+  - [ ] Extend `BoardView` to render **ring stacks** visually rather than as raw numbers:
+    - [ ] Introduce a per-cell stack widget that renders **thin oval “ring” shapes** stacked vertically, as if viewing a column of coins or donut-shaped rings from a slightly elevated angle:
+      - [ ] Draw the top ring as a wider ellipse with a visible top surface; render lower rings as thinner side views partially hidden beneath the top ring.
+      - [ ] Color each ring by owner using the fixed player palette.
+    - [ ] Represent the **cap** as “all top rings of the same color” in the stack:
+      - [ ] Do **not** make cap rings thicker; instead, outline or highlight all cap rings (e.g. subtle border, inner glow, or ring-offset effect) to distinguish them from rings lower in the stack.
+    - [ ] Keep `H# C#` notation to indicate total height and cap height, either as a small overlay badge or as text immediately below the stack widget.
+  - [ ] Render **markers** from `board.markers` as distinct symbols:
+    - [ ] Outlined circle overlay in the cell using the owner’s color.
+    - [ ] Ensure markers remain visible on both empty and stacked cells (e.g. corner badge).
+  - [ ] Render **collapsed spaces** from `board.collapsedSpaces`:
+    - [ ] Tint the cell background by owner color, darkened, with partial opacity.
+    - [ ] Add a subtle pattern or border to distinguish collapsed territory from regular occupied cells.
+
 ### Task 3.3: User Interaction
 - [ ] Ring placement controls
+  - [ ] In the local sandbox mode on `GamePage` (when no `gameId` is present), allow clicking an empty cell to **place a ring on the board** for a chosen/current player, updating the `BoardState.stacks` map and reusing the same ring stack widget used in backend games.
+  - [ ] Once the sandbox is wired to the real GameEngine, align sandbox ring placement with the rules (respecting per-player ring limits and phase flow), and clearly label any simpler "free placement" mode as experimental.
 - [ ] Move selection (drag or click)
 - [ ] Valid move highlighting
 - [ ] Move confirmation dialog
@@ -568,13 +606,117 @@ Under **Task 3.4: Game State Display**, add:
 
 ### Task 3.4: Game State Display
 - [ ] Current player indicator
+  - [ ] Highlight the active player consistently in both backend GamePage view and local sandbox using `GameState.currentPlayer` and `GameState.currentPhase`.
+  - [ ] Use a unified color/typography system so the current player stands out clearly while remaining readable in dark mode.
 - [ ] Ring count displays (in hand, on board, eliminated)
+  - [ ] Derive counts from `GameState.players[*].ringsInHand`, `GameState.board.stacks`, and `GameState.players[*].eliminatedRings` rather than maintaining separate local counters.
+  - [ ] Ensure displays stay correct for 2–4 players and mixed human/AI configurations.
 - [ ] Territory statistics panel (collapsed spaces per player)
+  - [ ] Compute territory statistics from `GameState.board.collapsedSpaces` and any BoardManager helpers, keeping TS as the source of truth rather than re-implementing rules client-side.
+  - [ ] Show both absolute counts and simple percentages of total board spaces for each player.
 - [ ] Move history list
+  - [ ] Render a scrollable history based on `GameState.moveHistory`, with a simple, human-readable notation for placements, movements, captures, line collapses, and territory events.
+  - [ ] Prepare the history panel to later include PlayerChoice events (line options, region order, eliminations, capture directions) as a separate, filterable layer.
 - [ ] Timer/clock display
+  - [ ] Use `GameState.timeControl` and `players[*].timeRemaining` to render per-player clocks in minutes:seconds, without enforcing time rules in the client.
+  - [ ] Integrate clock highlighting with the current player indicator so the active player’s clock is visually dominant and paused clocks appear clearly inactive.
 - [ ] Victory progress indicators (ring elimination %, territory control %)
+  - [ ] Drive victory progress from `GameState.totalRingsInPlay`, `GameState.totalRingsEliminated`, `GameState.victoryThreshold`, and `GameState.territoryVictoryThreshold`.
+  - [ ] Present progress for each player as simple bar/percentage indicators that remain readable with the chosen dark-theme palette.
+
+### Task 3.5: Concrete GUI/HUD Work Items (Board, HUD, History)
+These items break down requested GUI improvements into implementable
+steps. Initial focus should be on the **GamePage backend view** (real
+GameEngine + WebSocket) with patterns reusable in the local sandbox.
+
+- [ ] **3.5.1 Board contrast & accessibility**
+  - [x] Improve default board and cell colors for square boards in `BoardView`:
+    - [x] Add explicit background colors for empty cells (e.g. alternating dark/light squares on square boards).
+    - [x] Increase border contrast and hover/selection states using Tailwind utilities (e.g. `border-slate-600`, `bg-slate-800`, `ring-offset-2`).
+    - [x] Ensure text/icons in cells maintain accessible contrast against backgrounds.
+    - [x] Brighten the overall board palette so the board is not nearly black against a dark page background, while preserving clear separation between the board surface and surrounding HUD panels.
+    - [x] For 8x8 and 19x19 square boards, make the square backgrounds **significantly lighter** (roughly “50% closer to white” compared to the current palette), using either lighter Tailwind slate shades or added transparency so the board surface reads clearly as the primary play area.
+  - [x] Adjust square cell sizes to improve readability and visual room for stacks:
+    - [x] For 8x8 boards, increase the side length of each square to approximately **2× the previous size**.
+    - [x] For 19x19 boards, increase the side length of each square by roughly **30%** (within the constraints of Tailwind’s size scale) so stacks and markers remain legible without overwhelming the viewport.
+    - [x] Verify that these size changes still allow the full board to fit comfortably on common laptop screens without horizontal scrolling in the default layout.
+  - [x] Apply consistent dark-theme backgrounds for key containers (LoginPage, GamePage panels, **including the local sandbox setup dialog in GamePage**) using Tailwind `bg-slate-*`/`text-slate-*` classes:
+    - [x] Fix the local sandbox initialization dialog so that **select inputs and their default/placeholder text have high contrast** against their backgrounds (e.g. light text on dark background, or lighter input backgrounds), and the dialog container is not the same shade as its contents.
+    - [x] Ensure side-panel text on GamePage (Selection, Status, Players/AI Profiles) uses high-contrast text colors (e.g. `text-slate-100`) rather than mid-gray that is too close to the panel background.
+  - [ ] Add a simple visual legend component explaining colors used for players, markers, and collapsed spaces.
+  - [x] Add **faint movement grid overlays** for readability and rules intuition:
+    - [x] On square boards, render a faint horizontal/vertical/diagonal (triangular) grid of thin lines connecting the centers of each square, indicating lines of possible travel.
+    - [x] On hex boards, render a faint equilateral triangular grid of thin lines connecting the centers of each hex/circle, indicating lines of possible travel along all 6 directions.
+    - [x] At each grid intersection, render a small, translucent dot/node so movement lines and junctions are visually discoverable without overpowering the board.
+    - [x] Implement a reusable `computeBoardMovementGrid(board: BoardState)` helper that returns normalized centers + adjacency edges for all supported board types, so future overlays (valid-move highlighting, AI visualizations, sandbox harness, and history playback) can re-use the same board-local geometry independent of the DOM.
+    - [ ] Extend documentation in `CURRENT_STATE_ASSESSMENT.md` and `RINGRIFT_IMPROVEMENT_PLAN.md` to mention the movement grid overlay and normalized center geometry as part of the frontend rules/UX foundation.
+
+- [ ] **3.5.2 Piece & territory visualization**
+  - [ ] Extend `BoardView` to render **ring stacks** visually rather than as raw numbers:
+    - [ ] Introduce a small per-cell stack widget (vertical chips,visually in a vertical stack, with thin layers for each chip and a small margin visible for chips below the top chip with each chip in the stack colored by ring owner, and, with notation H# C# indicating total height and cap height displayed on the top chip.)
+    - [ ] Map `Player`/ring numbers → a fixed Tailwind color palette (e.g. P1 = emerald, P2 = sky, P3 = amber, P4 = fuchsia) using explicit class names to keep Tailwind happy.
+    - [ ] Show stack height and cap height via badge/overlay (e.g. text label).
+    - [ ] Ensure that for both square and hex boards, **stacks up to height 10** can be rendered (including the H#/C# label) without extending significantly beyond the visual bounds of a cell; this may require tuning ring oval heights, spacing, and font sizes separately for 8x8 vs 19x19/hex boards.
+  - [ ] Render **markers** from `board.markers` as distinct symbols:
+    - [ ] Outlined circle overlay in the cell using the owner’s color.
+    - [ ] Ensure markers remain visible on both empty and stacked cells (e.g. corner badge).
+  - [ ] Render **collapsed spaces** from `board.collapsedSpaces`:
+    - [ ] Tint the cell background by owner color, darkened, with partial opacity.
+    - [ ] Add a subtle pattern or border to distinguish collapsed territory from regular occupied cells.
+  - [ ] For the **hex board**, refine the layout and movement cues:
+    - [ ] Adjust the per-row offsets and spacing so that the circular cells are arranged in a **proper hexagonal close packing**, with each circle touching (tangential to) all of its neighbors where appropriate, and without visual overlap.
+    - [ ] Ensure the hex board’s faint triangular movement grid (see 3.5.1) aligns with circle centers and directions of legal movement.
+
+- [ ] **3.5.3 Turn HUD, player status, and clocks**
+  - [ ] Add a **per-player HUD panel** in `GamePage` (backend mode) showing:
+    - [ ] Player name / AI profile.
+    - [ ] Whether the player is human or AI.
+    - [ ] Ring counts (in hand, on board, eliminated) derived from `GameState`.
+    - [ ] Territory spaces controlled from `GameState.board.eliminatedRings` / BoardManager helpers.
+  - [ ] Implement a **current player indicator** integrated with GameEngine’s `currentPlayer` and `currentPhase`:
+    - [ ] Highlight the active player’s HUD row with a strong accent color.
+    - [ ] Show current phase (“Ring placement”, “Movement”, “Capture”, “Lines”, “Territory”).
+  - [ ] Add **per-player clocks** wired to `GameState.timeControl` / `players[*].timeRemaining`:
+    - [ ] Display time remaining for each player in minutes:seconds.
+    - [ ] Highlight the active player’s clock;  dim and pause others.
+    - [ ] Initially treat clocks as **display-only** (no enforcement changes) and defer rule-level timing edge cases to a later server pass.
+
+- [ ] **3.5.4 Game history & notation**
+  - [ ] Add a **move/choice history panel** to `GamePage` (backend mode):
+    - [ ] Use `GameState.moveHistory` plus local event log entries (e.g. line formation, territory disconnection, PlayerChoices).
+    - [ ] Derive a simple, human-readable notation for moves and choices, both for square and hexagonal boards, grounded in `ringrift_complete_rules.md` (e.g. `P1: place (c3)`, `P2: move (d4→d8)`, `P1: capture (e5×e7→e9)`, `choice: line_reward_option=option_1`).  Visually label the game boards with corresponding coordinates.
+    - [ ] Support basic filtering (all events vs placements vs moves vs captures vs line formation, territory disconnection, ring elimination, etc. choices, by player, etc).
+  - [ ] In the sandbox (`/sandbox`), maintain a simpler local history log based on user interactions until full GameEngine integration exists.
+
+- [ ] **3.5.5 Turn-stage controls & richer interactions (longer-term)**
+  - [ ] For the backend game view, refine interaction flows to make **turn stages** explicit:
+    - [ ] Ring placement: affordances for “place”, “skip”, or “forced placement” according to rules.
+    - [ ] Movement: highlight all legal moves from a selected stack (using backend-provided `validMoves`) and valid overtaking capture segments out to at least the first segment when multi segment overtaking captures are allowed.
+    - [ ] Capture: visually distinguish capture moves from non-captures; clearly show capture targets and possible landings.  If depth of multi segment possible landing squares is >1, distinguish first segment from subsequent segments.
+    - [ ] Line processing and territory processing: surface system-driven events in the history panel and HUD rather than as “silent” transitions.
+  - [ ] For the local sandbox (`/sandbox`), plan a **lightweight local-engine harness**:
+    - [ ] Instantiate a browser-only GameEngine-like state (or call the existing TS GameEngine directly) for a single local game.
+    - [ ] Allow users to step through full turns (placement, movement, capture, line/territory processing) without a backend connection.
+    - [ ] Keep this behind a clear “experimental sandbox” flag until parity with backend behaviour is validated by tests.
 
 ---
+
+## 🧪 Sandbox Harness – Backend-wrapped now, client-local later
+
+**Status:** Stage 1 planned/partially implemented · **Priority:** P1 – HIGH (supports UX, testing, and AI debugging)
+
+To keep the rules source-of-truth unified while still moving toward a rich local sandbox, the sandbox harness is split into two stages:
+
+- [ ] **Stage 1 – Thin client wrapper around the existing backend GameEngine (current focus)**
+  - [x] Allow the `/sandbox` route (`GamePage` without a `:gameId`) to act as a frontend-only entry point that can be swapped to a backend-backed game without changing board/choice UI.
+  - [x] In `GamePage`, wire the "Start Local Game" action to first attempt a `CreateGameRequest` via the same `/games` API used by `LobbyPage`, then navigate to `/game/:gameId` on success so the sandbox uses the real server GameEngine, WebSocket, PlayerChoice layer, and AI turns.
+  - [ ] Surface any backend-creation failures in the sandbox setup UI with a clear message, then fall back to the existing local-only board for quick visual experiments (already partially implemented via `backendSandboxError`, but not yet rendered in the UI).
+  - [ ] Once this flow is stable, document it in `CURRENT_STATE_ASSESSMENT.md` and `RINGRIFT_IMPROVEMENT_PLAN.md` as the canonical Stage 1 sandbox harness.
+- [ ] **Stage 2 – True client-local GameEngine harness (future)**
+  - [x] Implement an initial browser-safe `LocalSandboxState` controller under `src/client/sandbox/localSandboxController.ts`, wiring the `ring_placement` and a minimal `movement` phase into the `/sandbox` branch of `GamePage` using the shared `BoardView` + movement grid and shared helpers from `src/shared/engine/core.ts` (experimental, local-only for now).
+  - [ ] Refactor the shared TS GameEngine (or a thin wrapper) so it can be imported into the client bundle in a browser-safe way (no Node-only deps, no direct DB/Redis usage).
+  - [ ] Replace the Stage 1 backend-backed sandbox with a client-local harness that can step through full turns (placement → movement → capture → lines → territory) using the same BoardView, movement grid (`computeBoardMovementGrid`), and PlayerChoice UI, with the server remaining the authority for ranked/networked games.
+  - [ ] Keep this client-local harness behind an "experimental sandbox" flag until its behaviour is validated against backend engines and Jest/Rust tests.
 
 ## 📊 PHASE 2.5: Monitoring & DevOps (NEW)
 
@@ -690,7 +832,7 @@ Keep non-choice WebSocket tasks (move broadcasting, reconnection, etc.) as TODO.
 **NEW/REFINED near-term cross-cutting items:**
 
 1. **Tighten choice typing end-to-end**
-   - [ ] Use `PlayerChoiceResponseFor<TChoice>` more broadly in `GameEngine` where choices are consumed.
+   - [x] Use `PlayerChoiceResponseFor<TChoice>` more broadly in `GameEngine` where choices are consumed.
    - [x] Update `GameContext.respondToChoice` to include `choiceType: choice.type` in `player_choice_response` payloads.
    - [x] Optionally, add a non-fatal assertion in `WebSocketInteractionHandler.handleChoiceResponse` to log mismatch between `response.choiceType` and `choice.type`.
 
@@ -709,7 +851,74 @@ Keep non-choice WebSocket tasks (move broadcasting, reconnection, etc.) as TODO.
      - [ ] Reduce `no-non-null-assertion` usage in core engine modules by introducing safer helpers.
    - [ ] Defer broad `no-console` cleanup in test scaffolds until after core behaviour is stable.
 
+5. **Leverage Rust engine as reference implementation**
+   - [x] Treat `RingRift Rust/ringrift` as an authoritative reference for tricky rule areas (chain capture, line/territory processing, PlayerChoice model) rather than as a runtime dependency.
+   - [x] Port at least one core Rust `test_chain_capture` scenario into Jest (see `tests/unit/GameEngine.chainCapture.test.ts`).
+   - [ ] Systematically identify additional high-value Rust tests (especially chain capture, stalemate, and territory edge cases) to mirror in Jest.
+   - [ ] Add short notes in relevant Jest test files pointing back to the original Rust tests they were ported from, to preserve design rationale and ease future cross-checking.
+
+6. **Backend AI configuration & diagnostics (immediate next step)**
+   - [x] Extend the backend `CreateGame` pipeline to carry `aiOpponents.mode` and `aiOpponents.aiType` through `CreateGameSchema` → `CreateGameRequest` → Prisma `gameState.aiOpponents`.
+   - [x] Update `WebSocketServer.getOrCreateGameEngine` to map `aiOpponents` into per-player `AIProfile` instances and pass them into `globalAIEngine.createAIFromProfile`.
+   - [x] Extend `LobbyPage` to expose AI configuration controls (mode, type, count, difficulty) and submit a fully typed `CreateGameRequest`.
+   - [x] Add a diagnostic panel in `GamePage` that lists each player and, for AI players, surfaces their `aiProfile` (difficulty, mode, aiType) for debugging and tuning.
+   - [x] Add targeted BoardManager territory-disconnection tests that mirror the core Section 12 examples from `ringrift_complete_rules.md` for regression safety.
+   - [x] Add at least one GameEngine-level territory-disconnection scenario test that covers a full move → disconnection → elimination flow, using the new BoardManager tests as fixtures.
+
+7. **Playable game lifecycle quick wins (aligned with PLAYABLE_GAME_IMPLEMENTATION_PLAN.md)**
+   - **Victory signalling and persistence:**
+     - [x] Extend `GameEngine`/`RuleEngine` usage so that after each move (including engine-driven chains and automatic consequences) the server has an explicit victory check (`checkGameEnd`), and propagate the resulting `gameResult` from `GameEngine.makeMove` into the WebSocket layer.
+     - [x] In `WebSocketServer.handlePlayerMove` and `maybePerformAITurn`, when the engine reports a game end, persist `status: COMPLETED`, `winnerId`, and `endedAt` via Prisma and emit a `game_over` event with a structured payload (`{ gameId, gameState, gameResult }`).
+   - **Minimal victory UI:**
+     - [x] In `GameContext`, listen for `game_over` and store a small `victoryState` (`GameResult`) while updating the local `gameState` snapshot.
+     - [x] In `GamePage` (backend mode), render a minimal `VictoryModal` overlay that shows the winner/reason and offers an action to return to the lobby.
+   - **Auto-start / lifecycle smoothing:**
+     - [ ] In `WebSocketServer.getOrCreateGameEngine`, add a simple auto-start rule for backend games: if the hydrated game has enough players and all AI profiles are configured, call `gameEngine.startGame()` and set the DB status to `ACTIVE` if still `waiting`.
+   - **HUD alignment:**
+     - [ ] Ensure that any new HUD elements (current player, phase, ring counts, territory stats) added to `GamePage`/`GameHUD` derive their data directly from `GameState` fields (`players`, `board.stacks`, `board.collapsedSpaces`, `board.eliminatedRings`, `totalRingsInPlay`, `totalRingsEliminated`, `victoryThreshold`, `territoryVictoryThreshold`) so that the HUD and rules always stay in sync.
+
 ---
+
+======= SEARCH
+### Key Documentation References
+
+**Game Rules:**
+- **Complete Rules:** `ringrift_complete_rules.md` - Authoritative source
+- **Section 4:** Turn Sequence - Phase flow and turn structure
+- **Section 8:** Movement Rules - Distance, landing, marker interaction
+- **Section 9-10:** Capture Mechanics - Overtaking vs elimination, chains
+- **Section 11:** Line Formation - Graduated rewards system
+- **Section 12:** Territory Disconnection - Von Neumann adjacency, representation
+- **FAQ Q1-Q24:** Edge cases and clarifications
+
+**Architecture:**
+- **Architecture Plan:** `ringrift_architecture_plan.md` - Original design
+- **Architecture Assessment:** `ARCHITECTURE_ASSESSMENT.md` - Current state analysis
+- **Technical Analysis:** `TECHNICAL_ARCHITECTURE_ANALYSIS.md` - Detailed technical review
+- **Known Issues:** `KNOWN_ISSUES.md` - Bug tracking
+### Key Documentation References
+
+**Game Rules:**
+- **Complete Rules:** `ringrift_complete_rules.md` - Authoritative source
+- **Section 4:** Turn Sequence - Phase flow and turn structure
+- **Section 8:** Movement Rules - Distance, landing, marker interaction
+- **Section 9-10:** Capture Mechanics - Overtaking vs elimination, chains
+- **Section 11:** Line Formation - Graduated rewards system
+- **Section 12:** Territory Disconnection - Von Neumann adjacency, representation
+- **FAQ Q1-Q24:** Edge cases and clarifications
+
+**Architecture & Status (current, code-verified):**
+- **Architecture Assessment:** `ARCHITECTURE_ASSESSMENT.md` - Current architecture and refactoring axes
+- **Codebase Evaluation:** `CODEBASE_EVALUATION.md` - Code-level evaluation and recommendations
+- **Current State:** `CURRENT_STATE_ASSESSMENT.md` - Factual, code-verified implementation status
+- **Known Issues:** `KNOWN_ISSUES.md` - Bug/issue tracking (P0/P1 gaps)
+
+**Roadmap & Playable Experience:**
+- **Strategic Roadmap:** `STRATEGIC_ROADMAP.md` - Phased strategic plan (testing → core logic → UI → AI → multiplayer)
+- **Improvement Plan:** `RINGRIFT_IMPROVEMENT_PLAN.md` - Rules/engine/UX/AI improvement plan
+- **Playable Game Implementation:** `PLAYABLE_GAME_IMPLEMENTATION_PLAN.md` - End-to-end playable lifecycle plan (lobby → game → victory) and new-task context summary
+
+**Note:** Older high-level design documents such as `ringrift_architecture_plan.md` and `TECHNICAL_ARCHITECTURE_ANALYSIS.md` have been moved to `deprecated/` and are preserved only as historical context; any still-relevant guidance has been merged into the documents listed above.
 
 ## 📊 Progress Summary
 
@@ -806,6 +1015,84 @@ Keep non-choice WebSocket tasks (move broadcasting, reconnection, etc.) as TODO.
 
 ---
 
+## 📌 1–2 Week Implementation Checklist (Concrete Next Steps)
+
+1. **Chain capture & PlayerChoice tests (engine-level)**
+   - [x] Add additional chain capture tests derived from Rust scenarios (multi-step, 180° reversal, diagonal and orthogonal rays).
+   - [x] Add integration tests for CaptureDirectionChoice using both a direct handler and WebSocketIntegrationHandler.
+   - [x] Add a WebSocket-backed integration test for LineRewardChoice and RingEliminationChoice.
+   - [ ] Mirror at least one more complex chain capture scenario from `RingRift Rust/ringrift/tests/chain_capture_tests.rs` into Jest (including a full move → chain → processAutomaticConsequences path).
+
+2. **Short, prioritized TODO/roadmap slice for the next 1–2 weeks**
+   - [ ] Keep this checklist and the "Near-Term Implementation Focus" section in TODO.md in sync with CURRENT_STATE_ASSESSMENT and STRATEGIC_ROADMAP.
+   - [ ] Revisit this list after each significant engine/AI/UX change and prune/extend items accordingly.
+
+3. **GamePage / ChoiceDialog UX polish**
+   - [ ] Add a choice timeout indicator in GamePage using `choiceDeadline` (countdown in seconds for `pendingChoice`).
+   - [ ] Add a small status panel in GamePage to show the current `pendingChoice` (type, player, remaining time).
+   - [ ] Update ChoiceDialog to disable buttons once a selection is made until the choice resolves or errors.
+   - [ ] Add a minimal event log (recent moves/choices) in GamePage to aid debugging.
+
+4. **Targeted testing after UX changes**
+   - [ ] Re-run the choice/chain/territory/AI test suites after UX changes to ensure no regressions:
+     - `tests/unit/GameEngine.chainCapture.test.ts`
+     - `tests/unit/GameEngine.chainCaptureChoiceIntegration.test.ts`
+     - `tests/unit/GameEngine.captureDirectionChoiceWebSocketIntegration.test.ts`
+     - `tests/unit/GameEngine.lineRewardChoiceWebSocketIntegration.test.ts`
+     - `tests/unit/GameEngine.territoryDisconnection.test.ts`
+     - `tests/unit/AIEngine.serviceClient.test.ts`
+
+## PHASE 3S: Sandbox Stage 2 – Fully Local Playable Game (NEW)
+
+**Current Status (November 15, 2025):** Core client-local sandbox functionality is implemented. `ClientSandboxEngine` plus `sandboxMovement.ts`, `sandboxCaptures.ts`, `sandboxElimination.ts`, `sandboxLines.ts`, `sandboxLinesEngine.ts`, `sandboxTerritory.ts`, `sandboxTerritoryEngine.ts`, and `sandboxVictory.ts` now drive a full rules-complete game loop in `/sandbox` (movement, overtaking and mandatory chain captures, line processing, territory disconnection on square + hex boards, and ring/territory victories), with dedicated Jest suites under `tests/unit/ClientSandboxEngine.*.test.ts`. The remaining tasks below focus on richer HUD/UX integration, stronger sandbox AI heuristics, and additional lifecycle polish rather than basic rules coverage.
+
+**Goal:** Make `http://localhost:3000/sandbox` capable of running a complete 2–4 player RingRift game entirely in the browser, with rules enforcement and AI players that make random valid choices for all stages and possibilities of their turns, until a valid victory/conclusion is reached.
+
+**Scope:** Client-only harness that reuses the existing rules engine and PlayerChoice architecture as much as possible, without duplicating rules logic or diverging from the backend GameEngine semantics.
+
+### 3S.1: Design Client-Local Engine Harness
+- [ ] Define a browser-safe engine façade for the sandbox (e.g. `ClientSandboxEngine`) under `src/client/sandbox/` that:
+  - [ ] Maintains a `GameState` instance in memory.
+  - [ ] Drives turn/phase progression using the same phase model as `GameEngine` (`ring_placement → movement → capture → line_processing → territory_processing → next player`).
+  - [ ] Uses the existing shared types from `src/shared/types/game.ts` so that sandbox GameState is structurally identical to the backend GameState.
+- [ ] Decide, and document in `ARCHITECTURE_ASSESSMENT.md`, whether the sandbox harness:
+  - [ ] Imports a refactored, browser-safe subset of `GameEngine`/`RuleEngine`/`BoardManager` (preferred long-term), or
+  - [ ] Wraps calls to shared engine helpers in `src/shared/engine/core.ts` plus a thin sandbox-specific orchestration layer.
+
+### 3S.2: Player Interaction in Sandbox (Human + AI)
+- [ ] Introduce a sandbox-specific `SandboxInteractionHandler` that satisfies the same `PlayerInteractionHandler` contract used by `PlayerInteractionManager` on the server, but implemented entirely on the client:
+  - [ ] For **human** players: surface `PlayerChoice` objects into React state (similar to `GameContext.pendingChoice`), and expose a callback that resolves the internal `requestChoice` Promise when the user selects an option via the existing `ChoiceDialog` UI.
+  - [ ] For **AI** players: choose randomly among the provided `options` for any `PlayerChoice` (line order, line reward, ring elimination, region order, capture direction) to guarantee forward progress while keeping the logic simple.
+- [ ] Ensure the sandbox interaction layer reuses the same choice types (`PlayerChoice`, `PlayerChoiceResponseFor<TChoice>`) and semantics as the backend, so behaviour remains consistent and future test scenarios can be shared.
+
+### 3S.3: Sandbox Turn Loop & Phases
+- [ ] Implement a deterministic “sandbox turn loop” that:
+  - [ ] Alternates between players 1–N based on `GameState.currentPlayer` and `nextPlayer` logic matching `GameEngine`.
+  - [ ] For each turn, walks through the same phase sequence as the backend engine:
+    - [ ] Ring placement phase (honouring `ringsInHand` and placement rules).
+    - [ ] Movement phase (valid moves only).
+    - [ ] Capture phase, including mandatory chain continuation.
+    - [ ] Line processing (graduated rewards and line/region ordering via PlayerChoices).
+    - [ ] Territory processing (disconnections, chain reactions, self-elimination prerequisite).
+  - [ ] Uses the sandbox interaction handler for all PlayerChoices during the turn.
+- [ ] Define clear, sandbox-local victory detection mirroring `RuleEngine.checkGameEnd`/`GameEngine.endGame` semantics and surface the resulting `GameResult` to the UI.
+
+### 3S.4: `/sandbox` UI Integration
+- [ ] Extend the existing `/sandbox` branch of `GamePage` to:
+  - [ ] Replace the current “local-only board with manual clicks” model with a `ClientSandboxEngine`-driven game that uses the same `BoardView`, movement-grid overlay, `ChoiceDialog`, and (where appropriate) `GameHUD` components as backend games.
+  - [ ] Support configuration of 2–4 players with arbitrary human/AI mixes (using the existing local sandbox setup form as the entry point).
+  - [ ] For human players, wire cell clicks into sandbox move submission (source/target selection) using a pattern similar to backend click-to-move, but targeting the sandbox engine instead of the WebSocket server.
+  - [ ] For AI players, have the sandbox loop automatically call into the random-choice AI interaction handler when it is their turn.
+- [ ] Ensure that a complete game can be started and played in the sandbox from ring placement through to a valid victory or conclusion (including chain captures, lines, territory, and forced elimination), with the UI clearly indicating when the game is over.
+
+### 3S.5: Testing & Documentation for Sandbox
+- [ ] Add at least one sandbox-focused test (unit or integration) that:
+  - [ ] Constructs a small sandbox game state, drives a few turns through the `ClientSandboxEngine` (or equivalent), and asserts that invariant properties hold (e.g. no illegal moves are accepted, phases progress as expected, victory is recognized when configured conditions are met).
+- [ ] Update `TODO.md`, `PLAYABLE_GAME_IMPLEMENTATION_PLAN.md`, and `CURRENT_STATE_ASSESSMENT.md` to:
+  - [ ] Mark Sandbox Stage 1 (backend-wrapped sandbox entry) as complete.
+  - [ ] Clearly describe Sandbox Stage 2 as a fully local GameEngine harness that mirrors backend behaviour but lives entirely in the browser for experimentation and teaching.
+  - [ ] Document that the sandbox AI is intentionally simple (random among valid options) to prioritise correctness and completeness of rules over strength.
+
 ## 🔧 Development Guidelines
 
 ### Code Quality Standards
@@ -828,7 +1115,6 @@ Keep non-choice WebSocket tasks (move broadcasting, reconnection, etc.) as TODO.
 - Document complex algorithms and logic
 - Keep `KNOWN_ISSUES.md` updated with bugs
 - Update `README.md` with new features
-- Leverage historical Triphlex documentation (e.g. diagrams and worked examples) to strengthen `ringrift_complete_rules.md` and related docs, while keeping RingRift's rules as the single source of truth
 
 ---
 

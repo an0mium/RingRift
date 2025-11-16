@@ -1,13 +1,17 @@
 # RingRift Architecture Assessment
 
-**Assessment Date:** November 13, 2025  
+**Assessment Date:** November 14, 2025  
 **Status:** Comprehensive architecture review and optimization recommendations
+
+**Status Update (November 14, 2025):** Core game logic, WebSocket-backed backend play, AI turns, and basic board/choice UI are now in place. For the most up-to-date implementation status and component completion percentages, see `CURRENT_STATE_ASSESSMENT.md` and `TODO.md`. The architectural recommendations in this document remain valid and are intentionally more long-term than the day-to-day status documents.
 
 ---
 
 ## Executive Summary
 
 RingRift follows a **TypeScript-first architecture** with Node.js backend and React frontend. This assessment evaluates the current implementation distribution, identifies architectural strengths and gaps, and provides recommendations for optimal feature distribution.
+
+This document, together with `CODEBASE_EVALUATION.md`, supersedes earlier high-level design plans such as `ringrift_architecture_plan.md` and the more aspirational parts of `TECHNICAL_ARCHITECTURE_ANALYSIS.md`. Those older documents are now treated as historical context only; any architectural guidance still considered valid has been merged into the current assessment, roadmap, and improvement plan.
 
 **Overall Architecture Grade: B+**
 - ✅ Excellent: Architecture planning and documentation
@@ -198,15 +202,15 @@ ai-service/
 | **WebSocket Events** | Monolith | TypeScript | P0 | 50% ⚠️ |
 | Real-time moves | Monolith | TypeScript | P0 | 30% ⚠️ |
 | Game broadcasts | Monolith | TypeScript | P0 | 40% ⚠️ |
-| **Frontend UI** | Monolith | TypeScript | P1 | 10% ❌ |
-| Board rendering | Monolith | TypeScript | P1 | 0% ❌ |
-| Move interface | Monolith | TypeScript | P1 | 0% ❌ |
-| **Simple AI** | Monolith | TypeScript | P1 | 0% ❌ |
-| Random moves | Monolith | TypeScript | P1 | 0% ❌ |
-| Basic heuristics | Monolith | TypeScript | P1 | 0% ❌ |
-| **Testing** | Monolith | TypeScript | P0 | 0% ❌ |
-| Unit tests | Monolith | TypeScript | P0 | 0% ❌ |
-| Integration tests | Monolith | TypeScript | P1 | 0% ❌ |
+| **Frontend UI** | Monolith | TypeScript | P1 | 30% ⚠️ |
+| Board rendering | Monolith | TypeScript | P1 | 60% ⚠️ |
+| Move interface | Monolith | TypeScript | P1 | 10% ❌ |
+| **Simple AI** | Monolith | TypeScript | P1 | 20% ⚠️ |
+| Random moves | Monolith | TypeScript | P1 | 20% ⚠️ |
+| Basic heuristics | Monolith | TypeScript | P1 | 20% ⚠️ |
+| **Testing** | Monolith | TypeScript | P0 | 10% ⚠️ |
+| Unit tests | Monolith | TypeScript | P0 | 10% ⚠️ |
+| Integration tests | Monolith | TypeScript | P1 | 5% ⚠️ |
 | **Advanced AI** | Microservice | Python | P2 | 0% ❌ |
 | MCTS engine | Separate | Python | P2 | 0% ❌ |
 | Neural networks | Separate | Python | P3 | 0% ❌ |
@@ -561,4 +565,122 @@ Controller → Service → GameEngine → RuleEngine
 
 **Next Review:** After Phase 1 completion  
 **Document Version:** 1.0  
+**Maintained By:** Development Team
+
+---
+
+## Refactoring Axes & Deep Improvement Plan (TS/React/Python AI)
+
+This section summarizes the four main refactoring axes we will use to guide deep, root‑cause improvements to the TypeScript/Node backend, React client, and Python AI service. It is intentionally high‑level and architecture‑oriented; concrete tasks and status live in `TODO.md`, `CURRENT_STATE_ASSESSMENT.md`, and `STRATEGIC_ROADMAP.md`.
+
+### 1. Game Rules & State Architecture
+
+**Scope**  
+GameEngine, BoardManager, RuleEngine, shared types (`src/shared/types/game.ts`), and the PlayerInteraction* layer (PlayerInteractionManager, WebSocketInteractionHandler, AIInteractionHandler, DelegatingInteractionHandler) as they relate to `ringrift_complete_rules.md`.
+
+**Current Position (TS side)**
+- Core mechanics (movement, markers, overtaking captures, line formation/collapse, territory disconnection, forced elimination, hex + square boards) are implemented and generally aligned with the rules doc.  
+- PlayerChoice flows and mandatory chain captures are present and exercised by several unit/integration tests.  
+- The Rust engine provides a partially independent reference implementation but is not the runtime source of truth; the rules document is.
+
+**Key Risks / Technical Debt**
+- Rules fidelity currently depends on a combination of code reading, scattered tests, and cross‑referencing the rules doc; there is no single “rules ↔ code” mapping artifact.  
+- Some invariants (e.g., self‑elimination prerequisite for territory, chain capture edge cases, ordering of lines and regions) are enforced by emergent behaviour rather than explicitly codified contracts.  
+- GameEngine, BoardManager, and RuleEngine are relatively well factorized, but their responsibility boundaries are implicit rather than documented as formal interfaces and invariants.
+
+**Recommended Direction**
+- **Rules–Code Conformance Matrix:** Create and maintain a concise matrix (or section in `CURRENT_STATE_ASSESSMENT.md`) that maps each major rules section (4.x–13.x, FAQ 1–24) to specific code entrypoints and tests. This becomes the single authority for “what implements what” in TS.  
+- **Explicit Module Contracts:** Document and, where useful, enforce clearer contracts:
+  - BoardManager: topology + pure board operations + territory/line detection (no phase or choice knowledge).  
+  - RuleEngine: pure validation and move generation (no state mutation, no transport, no timers).  
+  - GameEngine: the only mutator of GameState and the only place that owns phase transitions, chain capture orchestration, and calls into PlayerInteractionManager.  
+  - PlayerInteractionManager*: pure “question/answer” abstraction with no game rules, used by GameEngine but not vice‑versa.  
+- **Invariants as First‑Class Citizens:** For each of the following rule clusters, define and test explicit invariants:
+  - Turn sequence & forced elimination (Sections 4.x, FAQ 15.2, 24).  
+  - Non‑capture movement & marker interaction (Section 8.x).  
+  - Overtaking/chain capture semantics (Sections 9–10, FAQ 14, 15.3.x).  
+  - Line formation & graduated rewards (Section 11.2–11.3, FAQ 7, 22).  
+  - Territory disconnection & self‑elimination prerequisite (Section 12.2–12.3, FAQ 15, 23).  
+- **Deep Refactor Style:** When discrepancies are found, prefer shaping GameEngine/BoardManager/RuleEngine around the rules document and these invariants rather than layering special‑case fixes.
+
+### 2. AI Boundary & Integration
+
+**Scope**  
+Python AI service (`ai-service/`), AIServiceClient, AIEngine/globalAIEngine, AIInteractionHandler, and their integration with GameEngine + PlayerInteractionManager.
+
+**Current Position**
+- Python FastAPI service provides move selection and some choice endpoints, designed to accept full GameState + options where useful.  
+- TypeScript has a clear façade (`AIEngine` + `AIServiceClient`) and a global configurator (`globalAIEngine`) that mediates AI profiles and service calls.  
+- AI moves in backend games are service‑backed; `line_reward_option` is fully service‑backed end‑to‑end with fallbacks; ring elimination and region order are wired with service endpoints and TS façades.
+
+**Key Risks / Technical Debt**
+- The AI boundary is present but not yet treated as a strict contract:  
+  - Request/response shapes and error semantics are implicit, not documented as versioned contracts.  
+  - Choice decisions for AI are partly service‑backed and partly local heuristics, with behaviour controlled by code rather than configuration.  
+- Observability around AI (latency, errors, fallbacks, profile usage) is limited, making tuning and debugging harder.  
+- The AI integration tests cover representative paths but not a systematic matrix of “AI type × difficulty × failure mode × choice type”.
+
+**Recommended Direction**
+- **Treat AI as a First‑Class Boundary:** Document a small, stable contract (even if implemented over HTTP) covering:
+  - Move requests (inputs/outputs, required GameState fields, error semantics).  
+  - Choice requests (per PlayerChoice type, including how options are encoded).  
+  - Timeouts, retry strategies, and fallback rules.  
+- **Configuration‑Driven Behaviour:** Move AI policy decisions out of scattered code into a central configuration model:
+  - Per‑profile toggles for “service‑backed vs local heuristic” per choice type.  
+  - Difficulty‑dependent behaviour (e.g., which rules/heuristics to apply on the Python side).  
+- **Unified AI Path:** Ensure all AI decisions (moves and choices) flow through the same high‑level path: GameEngine → PlayerInteractionManager → DelegatingInteractionHandler → AIInteractionHandler → AIEngine → AIServiceClient. Document this path and use it consistently in tests and diagrams.  
+- **Observability:** Add structured logging and basic metrics around AI calls (latency, error rates, fallback counts) to support future stronger AI and service tuning.
+
+### 3. WebSocket/Game Loop Reliability
+
+**Scope**  
+WebSocket server (`src/server/websocket/server.ts`), WebSocketInteractionHandler, GameContext/ChoiceDialog on the client, and the orchestration of human/AI turns and PlayerChoices over Socket.IO.
+
+**Current Position**
+- WebSocket server and event types exist; backend games can be driven via WebSockets with both human and AI players.  
+- PlayerChoice flows (for humans) and AI turns are integrated into the game loop.  
+- There are focused integration tests for AI turns and some choice flows.
+
+**Key Risks / Technical Debt**
+- WebSocket responsibilities (join/leave, reconnection, lobby/matchmaking, spectator support, robust error handling) are only partially implemented.  
+- The game loop’s behaviour under adverse conditions (disconnects, late or duplicate choice responses, AI timeouts) is not comprehensively specified or tested.  
+- Message schemas are mostly centralized but not yet treated as a versioned contract for the client.
+
+**Recommended Direction**
+- **Clarify Game Loop Semantics:** Document the authoritative turn/phase/choice lifecycle as it appears over WebSockets, including:
+  - How and when GameState snapshots are emitted.  
+  - How PlayerChoices are requested, acknowledged, and resolved (including timeouts and server‑side defaults).  
+  - How AI turns are sequenced relative to human turns and UI updates.
+- **Solidify Event Contracts:** Treat the WebSocket message types in `src/shared/types/websocket.ts` as a public API and:
+  - Ensure every server event has an explicit, typed payload and corresponding client handler.  
+  - Add simple versioning and compatibility notes to avoid accidental breaking changes.  
+- **Resilience Patterns:** Define and implement patterns for:
+  - Reconnection and resynchronization (how a client re‑joins and re‑hydrates state).  
+  - Handling duplicate/stale `player_choice_response` messages safely.  
+  - Graceful degradation when AI or backend operations fail mid‑turn.
+
+### 4. Testing & Quality Gates
+
+**Scope**  
+Jest test suites (unit + integration), test utilities, CI configuration, and quality thresholds (coverage, linting, type‑checking).
+
+**Current Position**
+- Jest, ts‑jest, CI, and basic thresholds are configured.  
+- There is a growing set of targeted tests for BoardManager, RuleEngine movement/capture, GameEngine chain captures and territory disconnection, PlayerInteractionManager, WebSocketInteractionHandler, AIEngine/AIServiceClient, AIInteractionHandler, and some GameEngine‑level integrations.
+
+**Key Risks / Technical Debt**
+- Overall coverage remains low relative to the rules’ complexity; many rule/FAQ scenarios are still not represented in tests.  
+- Some older assessments/documents assume either “no tests” or “almost no engine implementation”, which is now outdated and can mislead future contributors.  
+- CI thresholds and test structure are not yet aligned with the four axes; tests are not clearly partitioned by domain (rules/state, AI boundary, WebSocket/game loop, UI integration).
+
+**Recommended Direction**
+- **Rule‑Driven Scenario Suites:** Build explicit scenario suites keyed to `ringrift_complete_rules.md` and FAQ sections, organized by rule cluster rather than by file.  
+- **Axis‑Oriented Test Groups:** Make it easy to run and reason about tests per refactoring axis (e.g., `rules-state`, `ai-boundary`, `websocket-loop`, `ui-integration`). This can be as simple as directory naming and npm scripts.  
+- **Realistic Coverage Targets:** Use staged coverage goals (per axis and per module) instead of a single global number; raise them as the suite matures.  
+- **Quality Gates in CI:** Once test suites per axis are solid, treat failures as blockers and avoid merging changes that dilute coverage or break key invariants without updating tests and docs.
+
+These four axes should be treated as the backbone for ongoing architectural work. `STRATEGIC_ROADMAP.md`, `RINGRIFT_IMPROVEMENT_PLAN.md`, `CURRENT_STATE_ASSESSMENT.md`, `CODEBASE_EVALUATION.md`, and `TODO.md` each reference them from different angles (timeline, improvement focus, factual status, evaluation, and tasks respectively) and should remain synchronized with this assessment.
+
+**Next Review:** After Phase 1 completion  
+**Document Version:** 1.1  
 **Maintained By:** Development Team

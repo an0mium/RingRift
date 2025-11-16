@@ -10,11 +10,17 @@ This directory contains the comprehensive testing framework for RingRift. The te
 tests/
 ├── README.md                 # This file - testing documentation
 ├── setup.ts                  # Jest setup - runs AFTER test framework
+├── setup-env.ts              # Jest env setup (dotenv, timers, etc.)
 ├── test-environment.js       # Custom Jest environment (fixes localStorage)
 ├── utils/
 │   └── fixtures.ts          # Test utilities and fixture creators
 └── unit/
-    └── board.test.ts        # Sample unit tests (board fixtures)
+    ├── BoardManager.*.test.ts                 # Board geometry, lines, territory
+    ├── GameEngine.*.test.ts                   # Core rules, chain capture, choices
+    ├── ClientSandboxEngine.*.test.ts          # Client-local sandbox engine: movement, captures, lines, territory, victory
+    ├── AIEngine.*.test.ts                     # AI service client + heuristics
+    ├── WebSocket*.test.ts                     # WebSocket & PlayerInteractionManager flows
+    └── ...                                    # Additional focused rule/interaction suites
 ```
 
 ## Running Tests
@@ -45,6 +51,12 @@ npm run test:integration
 
 # Run tests with verbose output
 npm run test:verbose
+
+# Run only the client-local sandbox engine suites
+npm test -- ClientSandboxEngine
+
+# Run only GameEngine territory/region tests
+npm test -- GameEngine.territoryDisconnection
 ```
 
 ## Test Configuration

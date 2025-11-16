@@ -114,6 +114,26 @@ cd ai-service
 
 ---
 
+### Using VS Code Docker Extension
+
+If you prefer a graphical interface to manage containers, the VS Code Docker
+extension works well with this project:
+
+- Install the **Docker** extension in VS Code (whale icon sidebar).
+- Open this repo in VS Code; the `docker-compose.yml` file will appear under the
+  **COMPOSE** section.
+- To start the AI service only, right‑click the compose project and choose
+  **Compose Up** → select `ai-service`.
+- To run the full stack, choose **Compose Up** and select all services.
+- To inspect logs, expand **CONTAINERS**, right‑click the `ai-service` container
+  and choose **View Logs**.
+- To stop everything, right‑click the compose project and choose **Compose Down**.
+
+This extension simply wraps the same `docker compose` commands shown above, but
+makes it easier to see what is running and to inspect logs directly in VS Code.
+
+---
+
 ## Troubleshooting
 
 ### Python Setup
