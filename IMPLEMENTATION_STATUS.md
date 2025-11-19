@@ -1,6 +1,6 @@
 # Implementation Status
 
-**Last Updated:** November 18, 2025
+**Last Updated:** November 19, 2025
 
 This file is a **short summary** of the current, code‑verified status. For full detail, see:
 
@@ -115,8 +115,8 @@ The following items are **not complete**, even though some docs previously claim
 
 ### AI Depth
 
-- Current AI opponents use random + heuristic strategies; there is **no MCTS/minimax/ML** implementation yet.
-- AI service contracts are stable for the existing endpoints but do not yet include deeper search or learning models.
+- Current AI opponents in live games use RandomAI and HeuristicAI via the Python AI service and local fallbacks. Prototype Minimax, MCTS, and NeuralNet-based AIs exist under `ai-service/app/ai`, but they are **not** yet wired into the primary `/ai/move` path or used by default.
+- AI service contracts are stable for the existing endpoints, but deeper search and learning models are still considered experimental and are not treated as production-strength.
 
 ### Testing & Rules Coverage
 

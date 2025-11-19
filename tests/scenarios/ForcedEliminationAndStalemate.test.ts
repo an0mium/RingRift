@@ -21,7 +21,7 @@ import { computeProgressSnapshot } from '../../src/shared/engine/core';
  *   placements are possible and no stacks remain on the board.
  */
 
-describe('Scenario: Forced Elimination & Stalemate (backend)', () => {
+describe('Scenario: Forced Elimination & Stalemate (Section 4.4, 13.4–13.5; FAQ 11, 24; backend)', () => {
   const boardType: BoardType = 'square8';
   const timeControl: TimeControl = { initialTime: 600, increment: 0, type: 'blitz' };
 

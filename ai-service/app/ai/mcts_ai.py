@@ -9,6 +9,7 @@ from datetime import datetime
 import uuid
 import math
 import time
+import copy
 
 from .base import BaseAI
 from .heuristic_ai import HeuristicAI

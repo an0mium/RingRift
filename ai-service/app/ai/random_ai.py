@@ -28,8 +28,9 @@ class RandomAI(BaseAI):
         # Simulate thinking for natural behavior
         self.simulate_thinking(min_ms=200, max_ms=800)
         
-        # Get all valid moves
-        valid_moves = self._get_valid_moves_for_phase(game_state)
+        # Get all valid moves using GameEngine
+        from ..game_engine import GameEngine
+        valid_moves = GameEngine.get_valid_moves(game_state, self.player_number)
         
         if not valid_moves:
             return None
@@ -37,11 +38,8 @@ class RandomAI(BaseAI):
         # Select random move
         selected = random.choice(valid_moves)
         
-        # Convert to Move object
-        move = self._create_move_object(selected, game_state)
-        
         self.move_count += 1
-        return move
+        return selected
     
     def evaluate_position(self, game_state: GameState) -> float:
         """

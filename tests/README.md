@@ -543,5 +543,13 @@ This matrix links key sections of `ringrift_complete_rules.md` and FAQ entries t
 
 ---
 
+## Rules/FAQ → Scenario Matrix
+
+For a rule-centric view of test coverage, see:
+
+- `RULES_SCENARIO_MATRIX.md` – a living matrix mapping sections of `ringrift_complete_rules.md` and the FAQ to concrete Jest suites (backend engine, sandbox engine, WebSocket/choice flows, and AI boundary tests).
+
+When you add or modify scenario-style tests, update that matrix so it remains the single source of truth for how rules map to executable tests.
+
 **Last Updated**: November 18, 2025  
 **Framework**: Jest 29.7.0 + ts-jest 29.1.1

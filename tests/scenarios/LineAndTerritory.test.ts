@@ -23,7 +23,7 @@ import {
  * ordering and combined effects behave as documented.
  */
 
-describe('Scenario: Line and Territory Interactions (backend)', () => {
+describe('Scenario: Line and Territory Interactions (FAQ 7, 20, 22, 23; backend)', () => {
   const timeControl: TimeControl = { initialTime: 600, increment: 0, type: 'blitz' };
 
   const basePlayers: Player[] = [

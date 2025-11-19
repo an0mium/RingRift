@@ -165,11 +165,24 @@ class HeuristicAI(BaseAI):
         for stack in game_state.board.stacks.values():
             if stack.controlling_player == self.player_number:
                 my_stacks += 1
-                my_height += stack.stack_height
+                # Diminishing returns for height > 5 to discourage mega-stacks
+                h = stack.stack_height
+                effective_height = h if h <= 5 else 5 + (h - 5) * 0.1
+                my_height += effective_height
             else:
                 opponent_stacks += 1
-                opponent_height += stack.stack_height
+                h = stack.stack_height
+                effective_height = h if h <= 5 else 5 + (h - 5) * 0.1
+                opponent_height += effective_height
         
+        # Reward having multiple stacks (risk diversification)
+        if my_stacks == 0:
+            score -= 50.0 # Huge penalty for no stacks
+        elif my_stacks == 1:
+            score -= 10.0 # Penalty for single stack (vulnerable)
+        else:
+            score += my_stacks * 2.0
+            
         score += (my_stacks - opponent_stacks) * self.WEIGHT_STACK_CONTROL
         score += (my_height - opponent_height) * self.WEIGHT_STACK_HEIGHT
         

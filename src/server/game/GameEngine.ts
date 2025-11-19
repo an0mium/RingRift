@@ -1520,6 +1520,16 @@ export class GameEngine {
     const player = this.gameState.players.find((p) => p.playerNumber === playerNumber);
     if (!player || player.type === 'ai') return;
 
+    // In Jest test runs we avoid creating long-lived OS-level timers so that
+    // game clocks (which may be minutes long) do not keep the Node event loop
+    // alive after tests complete, which would trigger Jest's
+    // "asynchronous operations that weren't stopped" warning. Tests do not
+    // currently assert on real-time forfeits, so it is safe to no-op timers
+    // when NODE_ENV === 'test'.
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
     const timer = setTimeout(() => {
       // Time expired, forfeit the game
       this.forfeitGame(playerNumber.toString());

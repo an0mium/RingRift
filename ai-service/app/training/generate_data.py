@@ -111,6 +111,7 @@ def run_self_play_game(ai1, ai2):
             break
             
         # Apply move
+        print(f"Move {move_count}: Player {current_player_num} {move.type} to {move.to.to_key()}")
         game_state = GameEngine.apply_move(game_state, move)
         
         # Update game state meta-data (turn switching, etc.)
@@ -118,6 +119,14 @@ def run_self_play_game(ai1, ai2):
         # We need to manually switch turns for this loop
         game_state.current_player = 2 if current_player_num == 1 else 1
         
+        # Check for phase transition
+        if game_state.current_phase == GamePhase.RING_PLACEMENT:
+            p1 = next(p for p in game_state.players if p.player_number == 1)
+            p2 = next(p for p in game_state.players if p.player_number == 2)
+            if p1.rings_in_hand == 0 and p2.rings_in_hand == 0:
+                game_state.current_phase = GamePhase.MOVEMENT
+                print("Phase transition: RING_PLACEMENT -> MOVEMENT")
+
         # Check victory conditions (simplified)
         # Real victory check is complex, we'll use a simple heuristic check or move limit
         # For data generation, we might rely on the heuristic evaluation to determine a winner
@@ -159,8 +168,9 @@ def generate_dataset(num_games=100, output_file="training_data.npy"):
     
     # Initialize AIs
     # We can mix and match AI types
-    ai1 = HeuristicAI(1, AIConfig(difficulty=5))
-    ai2 = MinimaxAI(2, AIConfig(difficulty=3)) # Slightly weaker opponent for variety
+    # Add randomness to avoid identical games
+    ai1 = HeuristicAI(1, AIConfig(difficulty=5, randomness=0.1))
+    ai2 = MinimaxAI(2, AIConfig(difficulty=3, randomness=0.1))
     
     for i in range(num_games):
         if i % 10 == 0:

@@ -10,7 +10,7 @@ import { Position, Player, BoardType, TimeControl, RingStack } from '../../src/s
  * - Multi-step chains with direction changes
  */
 
-describe('Scenario: Complex Chain Captures', () => {
+describe('Scenario: Complex Chain Captures (FAQ 15.3.1, 15.3.2)', () => {
   beforeAll(() => {
     jest.useFakeTimers();
   });
@@ -79,7 +79,7 @@ describe('Scenario: Complex Chain Captures', () => {
     gameState.currentPlayer = 1;
   }
 
-  test('Cyclic Pattern: Triangle Loop', async () => {
+  test('FAQ_15_3_2_CyclicPattern_TriangleLoop', async () => {
     // Setup a triangle of opponent stacks that allows a cyclic capture
     // P1 at (2,2) H1
     // P2 at (2,3) H1

@@ -55,8 +55,9 @@ class GameEngine:
         elif move.type == "chain_capture":
             GameEngine._apply_chain_capture(new_state, move)
             
-        # Update turn/phase logic would go here
-        # For now, we just update the board state
+        # Update move history
+        new_state.move_history.append(move)
+        new_state.last_move_at = move.timestamp
         
         return new_state
 
@@ -117,10 +118,22 @@ class GameEngine:
         """Get valid movement moves"""
         moves = []
         board = game_state.board
+        
+        # Check if last move was placement by this player
+        last_move = game_state.move_history[-1] if game_state.move_history else None
+        must_move_pos = None
+        if last_move and last_move.player == player_number and last_move.type == "place_ring":
+             must_move_pos = last_move.to
 
         # Iterate through all stacks controlled by the player
         for pos_key, stack in board.stacks.items():
             if stack.controlling_player == player_number:
+                # If we must move a specific stack, skip others
+                if must_move_pos and (stack.position.x != must_move_pos.x or stack.position.y != must_move_pos.y):
+                    continue
+                if must_move_pos and must_move_pos.z is not None and stack.position.z != must_move_pos.z:
+                    continue
+
                 from_pos = stack.position
 
                 # Get adjacent positions
