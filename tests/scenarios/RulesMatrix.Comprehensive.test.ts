@@ -160,30 +160,23 @@ describe('RulesMatrix Comprehensive Scenarios', () => {
 
     test('M2: Rules_8_2_Q2_markers_any_valid_space_beyond_square8', async () => {
       // §8.2, FAQ Q2–Q3 – landing beyond marker runs
-      // Markers are placed at the departure point.
-      // Landing on own marker is valid (self-elimination hook, though not fully exercised here).
-      // Landing on opponent marker flips it.
+      // Per rules: can land on any valid space (empty or own marker) beyond markers
+      // Landing on opponent marker is ILLEGAL
       const { engine, gameState, boardManager } = createEngine('square8');
       gameState.currentPlayer = 1;
       gameState.currentPhase = 'movement';
 
       const origin = { x: 0, y: 0 };
-      const dest = { x: 0, y: 2 };
+      const dest = { x: 0, y: 3 }; // Land on empty space beyond intermediate marker
       makeStack(boardManager, gameState, 1, 1, origin);
 
-      // Opponent marker at destination
-      gameState.board.markers.set(positionToString(dest), {
+      // Opponent marker along the path (will be flipped)
+      gameState.board.markers.set(positionToString({ x: 0, y: 1 }), {
         player: 2,
-        position: dest,
+        position: { x: 0, y: 1 },
         type: 'regular',
       });
 
-      // Ensure the stack is correctly set up for movement
-      // The stack at origin must be controlled by player 1
-      // And the move must be valid.
-      // The stack was created with makeStack(..., 1, 1, origin) which sets controllingPlayer=1.
-
-      // Debug: check if stack exists
       const stack = boardManager.getStack(origin, gameState.board);
       expect(stack).toBeDefined();
       expect(stack?.controllingPlayer).toBe(1);
@@ -193,7 +186,6 @@ describe('RulesMatrix Comprehensive Scenarios', () => {
         type: 'move_stack',
         from: origin,
         to: dest,
-        // stack parameter is not required for move_stack in GameEngine, it uses 'from'
       } as any);
 
       if (!moveResult.success) {
@@ -204,35 +196,21 @@ describe('RulesMatrix Comprehensive Scenarios', () => {
       // Check marker at origin (departure)
       const originKey = positionToString(origin);
       const originMarker = gameState.board.markers.get(originKey);
+      expect(originMarker).toBeDefined();
+      if (typeof originMarker === 'number') {
+        expect(originMarker).toBe(1);
+      } else {
+        expect(originMarker?.player).toBe(1);
+      }
 
-      // If originMarker is undefined, it means no marker was left.
-      // Rule: "Leave marker on departure space".
-      // This happens in applyMove -> move_stack.
-
-      // Debug: if move failed, we won't get here because of expect(moveResult.success).toBe(true).
-      // But if move succeeded but no marker left, that's a bug or misunderstanding.
-      // GameEngine.applyMove calls boardManager.setMarker.
-
-      // Note: If the move failed, we already logged it.
-      // If it succeeded, markers should be there.
-
-      if (moveResult.success) {
-        expect(originMarker).toBeDefined();
-        if (typeof originMarker === 'number') {
-          expect(originMarker).toBe(1);
-        } else {
-          expect(originMarker?.player).toBe(1);
-        }
-
-        // Check marker at dest (flipped)
-        const destKey = positionToString(dest);
-        const destMarker = gameState.board.markers.get(destKey);
-        expect(destMarker).toBeDefined();
-        if (typeof destMarker === 'number') {
-          expect(destMarker).toBe(1);
-        } else {
-          expect(destMarker?.player).toBe(1);
-        }
+      // Check intermediate marker was flipped
+      const intermediateKey = positionToString({ x: 0, y: 1 });
+      const intermediateMarker = gameState.board.markers.get(intermediateKey);
+      expect(intermediateMarker).toBeDefined();
+      if (typeof intermediateMarker === 'number') {
+        expect(intermediateMarker).toBe(1);
+      } else {
+        expect(intermediateMarker?.player).toBe(1);
       }
     });
 
@@ -427,7 +405,7 @@ describe('RulesMatrix Comprehensive Scenarios', () => {
         console.log('Board state at target:', boardManager.getStack(t1, gameState.board));
         console.log('Board state at landing:', boardManager.getStack(landing, gameState.board));
       }
-      // expect(matchingMove).toBeDefined(); // Commented out to allow debugging
+      expect(matchingMove).toBeDefined(); // Commented out to allow debugging
 
       const move1 = await engine.makeMove({
         player: 1,
@@ -717,14 +695,9 @@ describe('RulesMatrix Comprehensive Scenarios', () => {
       // §11.2, FAQ 7 – exact-length line
       const { engine, gameState, boardManager } = createEngine('square8');
       gameState.currentPlayer = 1;
-      // Setup: 5 markers in a row (exact length for square8 is 5)
-      // We need to trigger line processing. Usually happens after movement/capture.
-      // We can manually invoke processLineFormations or set up a state where it happens.
-      // Let's use internal method for direct verification or simulate a turn end.
-      // Simulating turn end is safer.
 
-      // Place markers
-      for (let i = 0; i < 5; i++) {
+      // Place 4 markers in a row (exact length for square8)
+      for (let i = 0; i < 4; i++) {
         const pos = { x: i, y: 0 };
         gameState.board.markers.set(positionToString(pos), {
           player: 1,
@@ -735,39 +708,11 @@ describe('RulesMatrix Comprehensive Scenarios', () => {
       // Need a stack to eliminate (required for line completion reward)
       makeStack(boardManager, gameState, 1, 1, { x: 0, y: 1 });
 
-      // Force phase to line_processing
       gameState.currentPhase = 'line_processing';
-
-      // The engine should detect the line.
-      // Since it's exact length, it might auto-process or ask for choice if multiple lines?
-      // Exact length usually auto-processes if only one option.
-      // But wait, line reward choice (eliminate ring) is always a choice if rings exist.
-
-      // Actually, let's call processLineFormations directly to see logic
       const engineAny: any = engine;
       await engineAny.processLineFormations();
 
-      // Expect markers to be removed (collapsed)
-      // Expect territory to be granted
-      // Expect ring elimination (if auto-chosen or if we mock the choice)
-      // The default behavior without interaction manager might be to eliminate if possible?
-      // Or it might wait for input.
-      // In this test setup without a real interaction manager, we might need to mock it or check pending choice.
-
-      // If pending choice, we can resolve it.
-      // Note: GameEngine doesn't expose pendingPlayerChoice directly on GameState in the types,
-      // but it might be available via interaction manager or internal state if we had access.
-      // For this test, we rely on the fact that without an interaction manager,
-      // the engine might default or we can't easily test the choice flow without mocking.
-      // However, we can check if the line was processed by checking board state.
-
-      // Since we didn't provide an interaction manager, the engine defaults to:
-      // - Exact length: collapse all, eliminate from first stack.
-      // - Overlength: collapse min, no elimination.
-
-      // This is exact length, so it should have collapsed and eliminated.
-
-      // Now check state
+      // Exact length should collapse all and eliminate
       expect(gameState.board.markers.has('0,0')).toBe(false); // Collapsed
       expect(gameState.players[0].territorySpaces).toBeGreaterThan(0);
     });
@@ -906,102 +851,37 @@ describe('RulesMatrix Comprehensive Scenarios', () => {
 
     test('V2: Forced Elimination Ladder', async () => {
       // §4.4, §13.3–13.5
-      // If a player cannot move, they must eliminate a ring.
-      // If they have no rings on board, they eliminate from hand.
-      // If no rings in hand, they lose? Or pass?
-      // "If a player cannot make a valid move... they must remove one of their own rings from the board."
-      // "If they have no rings on the board, they must discard a ring from their hand."
-
+      // If a player cannot move, they must eliminate a ring from board
       const { engine, gameState, boardManager } = createEngine('square8');
-      gameState.currentPlayer = 1;
-      gameState.currentPhase = 'movement';
 
-      // Block P1 completely
-      // P1 has 1 stack at (0,0)
-      makeStack(boardManager, gameState, 1, 1, { x: 0, y: 0 });
-      // Surround with P2 stacks/markers/edges so no move is possible
-      makeStack(boardManager, gameState, 2, 2, { x: 0, y: 1 });
-      makeStack(boardManager, gameState, 2, 2, { x: 1, y: 0 });
-      makeStack(boardManager, gameState, 2, 2, { x: 1, y: 1 });
-
-      // Verify no moves
-      // In the current implementation, if blocked, getValidMoves might return empty,
-      // and the engine handles forced elimination via processForcedElimination internally
-      // during advanceGame.
-      // However, RuleEngine might expose 'eliminate_ring_from_hand' if configured?
-      // Or maybe we should check that hasValidActions returns false?
-
-      const moves = engine.getValidMoves(1);
-
-      // If moves are empty, it means the player is blocked.
-      // The test expects forced elimination moves to be present if they are explicit.
-      // If they are implicit (handled by engine turn advancement), then moves might be empty.
-
-      // Let's check if we can trigger the forced elimination logic.
-      // We can call resolveBlockedStateForCurrentPlayerForTesting() and see if it eliminates a ring.
-
-      const initialEliminated = gameState.players[0].eliminatedRings;
-      const engineAny: any = engine;
-
-      // Ensure game status is active for the resolver to work
-      gameState.gameStatus = 'active';
-
-      engineAny.resolveBlockedStateForCurrentPlayerForTesting();
-
-      // Should have eliminated 1 ring (from hand or board)
-      // Note: resolveBlockedStateForCurrentPlayerForTesting iterates until it finds a valid move or eliminates.
-      // If P1 is blocked, it should eliminate.
-
-      // Debug: check if P1 is actually blocked
-      const debugMoves = engine.getValidMoves(1);
-      // console.log('V2 Moves:', debugMoves.length);
-
-      // Re-setup for V2 with a truly blocked state
+      // Clear default board and create blocked state
       // P1 at (0,0) with height 9 (impossible to move on 8x8 as max dist is 7)
       gameState.board.stacks.clear();
       makeStack(boardManager, gameState, 1, 9, { x: 0, y: 0 });
 
-      // Ensure P1 has no rings in hand to place (otherwise placement is a valid move)
+      // Ensure BOTH players have no rings in hand (so P2 can't interfere)
       gameState.players[0].ringsInHand = 0;
+      gameState.players[1].ringsInHand = 0;
 
-      // Now P1 has no placement (0 rings) and no movement (stack too heavy).
-      // Should be blocked.
-
-      // Also ensure P2 has stacks so game doesn't end immediately due to no stacks?
-      // No, P1 has a stack.
-
-      // We need to ensure it's P1's turn.
+      // Set up game state
       gameState.currentPlayer = 1;
       gameState.currentPhase = 'movement';
-
-      // Debug: check if P1 has any valid moves
-      const debugMovesV2 = engine.getValidMoves(1);
-      if (debugMovesV2.length > 0) {
-        console.log(
-          'V2 Unexpected valid moves:',
-          debugMovesV2.map((m) => m.type)
-        );
-      }
-
-      // Ensure we are in a state where resolveBlockedStateForCurrentPlayerForTesting can work.
-      // It requires gameStatus === 'active'.
       gameState.gameStatus = 'active';
 
-      // It also requires currentPhase to be interactive.
-      gameState.currentPhase = 'movement';
+      // Capture initial state AFTER setup
+      const initialEliminated = gameState.players[0].eliminatedRings;
+      const engineAny: any = engine;
 
+      // Verify no valid moves exist for P1
+      const debugMovesV2 = engine.getValidMoves(1);
+      expect(debugMovesV2.length).toBe(0);
+
+      // Trigger forced elimination
       engineAny.resolveBlockedStateForCurrentPlayerForTesting();
 
-      // If forced elimination happened, P1 should have eliminated a ring.
-      // Or if P1 has no valid moves, they might be skipped?
-      // "If a player cannot make a valid move... they must remove one of their own rings from the board."
-      // So eliminatedRings should increase.
-
-      // Note: If P1 has no rings on board (eliminated all), then they eliminate from hand.
-      // If they have no rings in hand, they are skipped.
-      // Here P1 has a stack on board (height 9). So they should eliminate from board.
-
+      // Should have eliminated the cap (all 9 rings)
       expect(gameState.players[0].eliminatedRings).toBeGreaterThan(initialEliminated);
+      expect(gameState.players[0].eliminatedRings).toBe(9); // All 9 rings in the cap
     });
   });
 });

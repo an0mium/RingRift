@@ -1,5 +1,7 @@
 # ⚠️ DEPRECATED: RingRift Technical Architecture Analysis & Recommendations
 
+> **⚠️ HISTORICAL DOCUMENT. For current status and plans, see `TODO.md` and `STRATEGIC_ROADMAP.md`.**
+>
 > **This is a historical document preserved for context.**
 >
 > **For current architecture and plans, see:**

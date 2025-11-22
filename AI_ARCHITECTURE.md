@@ -19,6 +19,20 @@ The AI system operates as a dedicated microservice (`ai-service`) built with Pyt
   - `AIEngine` (TypeScript) delegates to `AIServiceClient` for AI moves.
   - `RulesBackendFacade` (TypeScript) delegates to `PythonRulesClient` for rules validation (shadow/authoritative modes).
 - **Fallback:** Local heuristics in `AIEngine` provide immediate responses if the service is unavailable or for simple decisions.
+- **UI Integration:** Full lobby and game UI support for AI opponent configuration and visualization.
+
+### Difficulty-to-AI-Type Mapping
+
+The system provides a unified difficulty scale (1-10) that automatically selects the appropriate AI type:
+
+| Difficulty | Label        | AI Type     | Description                                                |
+| ---------- | ------------ | ----------- | ---------------------------------------------------------- |
+| 1-2        | Beginner     | RandomAI    | Random move selection with filtering                       |
+| 3-5        | Intermediate | HeuristicAI | Rule-based evaluation (stack control, territory, mobility) |
+| 6-8        | Advanced     | MinimaxAI   | Alpha-beta search with move ordering                       |
+| 9-10       | Expert       | MCTSAI      | Monte Carlo Tree Search with neural network guidance       |
+
+Users can optionally override the AI type for specific testing or gameplay scenarios.
 
 ### AI Implementations
 
@@ -26,7 +40,7 @@ The AI system operates as a dedicated microservice (`ai-service`) built with Pyt
 
 1.  **RandomAI** (`random`): Baseline engine for testing and very low difficulty.
 2.  **HeuristicAI** (`heuristic`): Rule-based evaluation using weighted factors (stack control, territory, mobility).
-3.  **MinimaxAI** (`minimax`): Alpha–beta search with move ordering and quiescence; used for mid–high difficulties where a fixed-depth search is acceptable.
+3.  **MinimaxAI** (`minimax`): Alpha–beta search with move ordering and quiescence. **Note:** Currently implemented but not instantiated by default in the factory; mid-high difficulties currently fall back to HeuristicAI.
 4.  **MCTSAI** (`mcts`): Monte Carlo Tree Search with PUCT and RAVE, using the shared neural network for value/policy where weights are available.
 5.  **DescentAI** (`descent`): UBFM/Descent-style tree search that also consumes the shared neural network for guidance and learning logs.
 
@@ -43,6 +57,30 @@ The Python `ai-service` exposes these tactical engines via the `AIType` enum, an
 - **Input:** 10-channel board representation + 10 global features.
 - **Output:** Value (scalar) and Policy (probability distribution over ~55k moves).
 - **Training:** Basic training loop implemented (`train.py`), but data generation (`generate_data.py`) needs improvement to use self-play with the current best model.
+
+### UI Integration
+
+**Lobby (Game Creation)**
+
+- AI opponent configuration panel with visual difficulty selector
+- Support for 0-3 AI opponents per game
+- Difficulty slider (1-10) with clear labels (Beginner/Intermediate/Advanced/Expert)
+- Optional AI type and control mode overrides
+- Clear visual feedback showing AI configuration before game creation
+
+**Game Display**
+
+- AI opponent indicator badges in game header and player cards
+- Color-coded difficulty labels (green=Beginner, blue=Intermediate, purple=Advanced, red=Expert)
+- AI type display (Random/Heuristic/Minimax/MCTS)
+- Animated "thinking" indicators during AI turns
+- Distinct styling for AI players vs human players
+
+**Game Lifecycle**
+
+- AI games auto-start immediately upon creation (no waiting for human opponents)
+- AI moves are automatically triggered by GameSession when it's an AI player's turn
+- AI games are unrated by default to prevent rating manipulation
 
 ---
 
@@ -67,6 +105,7 @@ The Python `ai-service` exposes these tactical engines via the `AIType` enum, an
 - **Status:** **Significantly Improved**
 - **Optimizations:** Safe time management, enhanced move ordering (MVV-LVA), optimized quiescence search.
 - **Critical Issue:** Zobrist hashing is O(N) instead of O(1), negating transposition table benefits.
+- **Wiring Gap:** MinimaxAI is not currently instantiated in `_create_ai_instance` (commented out), so requests for it fall back to HeuristicAI.
 
 #### MCTS Agent (`mcts_ai.py`)
 
@@ -78,6 +117,7 @@ The Python `ai-service` exposes these tactical engines via the `AIType` enum, an
 
 - **Strengths:** ResNet-style CNN with adaptive pooling.
 - **Weaknesses:** Architecture mismatch with saved checkpoint. History handling in training pipeline is flawed (see below).
+- **RNG Determinism:** Uses global `random` module and `ZobristHash` reseeds globally, making per-game determinism difficult without process-level isolation.
 
 ---
 

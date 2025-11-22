@@ -133,7 +133,11 @@ describe('RulesBackendFacade', () => {
         player: 1,
       })
     );
-    expect(engine.makeMove).toHaveBeenCalledTimes(1);
+    // When Python returns nextState, the facade currently invokes
+    // engine.makeMove once in the provisional py.nextState branch (shadow
+    // comparison) and once in the canonical apply path. Both calls see the
+    // same move payload and the final result is the TS GameEngine state.
+    expect(engine.makeMove).toHaveBeenCalledTimes(2);
     expect(engine.makeMove).toHaveBeenCalledWith(move);
     expect(result).toBe(tsResult);
     expect(logSpy).not.toHaveBeenCalled();

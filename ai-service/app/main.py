@@ -6,7 +6,7 @@ Provides AI move selection and position evaluation endpoints
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TypedDict
 import logging
 
 from .ai.random_ai import RandomAI
@@ -22,7 +22,6 @@ from .models import (
     LineRewardChoiceOption,
     RingEliminationChoiceRequest,
     RingEliminationChoiceResponse,
-    RingEliminationChoiceOption,
     RegionOrderChoiceRequest,
     RegionOrderChoiceResponse,
     RegionOrderChoiceOption,
@@ -136,24 +135,45 @@ async def get_ai_move(request: MoveRequest):
         import time
         start_time = time.time()
         
-        # Select AI type based on difficulty if not specified
-        ai_type = request.ai_type or _select_ai_type(request.difficulty)
+        # Select AI type and canonical difficulty profile based on difficulty
+        # if not explicitly specified on the request. This keeps the Python
+        # service, TypeScript backend, and client-facing difficulty ladder
+        # aligned.
+        profile = _get_difficulty_profile(request.difficulty)
+        ai_type = request.ai_type or profile["ai_type"]
         
-        # Get or create AI instance
+        # Get or create AI instance keyed by (type, difficulty, player).
         ai_key = (
             f"{ai_type.value}-{request.difficulty}-"
             f"{request.player_number}"
         )
         
         if ai_key not in ai_instances:
+            # Derive optional profile ids for heuristic weights and neural-net
+            # models from the canonical difficulty profile. These do not change
+            # the effective behaviour of the ladder today (all v1 heuristic
+            # profiles share the same weights and the NN id defaults to the
+            # existing ringrift_v1 checkpoint), but they allow training and
+            # tournament tooling to override weights/models in a controlled
+            # way.
+            heuristic_profile_id: Optional[str] = None
+            nn_model_id: Optional[str] = None
+
+            if ai_type == AIType.HEURISTIC:
+                heuristic_profile_id = profile.get("profile_id")
+
             config = AIConfig(
                 difficulty=request.difficulty,
-                randomness=_get_randomness_for_difficulty(request.difficulty)
+                randomness=profile["randomness"],
+                think_time=profile["think_time_ms"],
+                rngSeed=None,
+                heuristic_profile_id=heuristic_profile_id,
+                nn_model_id=nn_model_id,
             )
             ai_instances[ai_key] = _create_ai_instance(
-                ai_type, 
-                request.player_number, 
-                config
+                ai_type,
+                request.player_number,
+                config,
             )
         
         ai = ai_instances[ai_key]
@@ -196,8 +216,15 @@ async def evaluate_position(request: EvaluationRequest):
         EvaluationResponse with position score and breakdown
     """
     try:
-        # Use heuristic AI for evaluation
-        config = AIConfig(difficulty=5, randomness=0)
+        # Use heuristic AI for evaluation. We tie this to the same canonical
+        # heuristic profile as difficulty 5 so that offline evaluations and
+        # online play remain aligned.
+        config = AIConfig(
+            difficulty=5,
+            randomness=0,
+            rngSeed=None,
+            heuristic_profile_id="v1-heuristic-5",
+        )
         ai = HeuristicAI(request.player_number, config)
         
         score = ai.evaluate_position(request.game_state)
@@ -242,7 +269,9 @@ async def evaluate_move(request: RulesEvalRequest):
         if not is_valid:
             return RulesEvalResponse(
                 valid=False,
-                validation_error="Move rejected by DefaultRulesEngine.validate_move",
+                validation_error=(
+                    "Move rejected by DefaultRulesEngine.validate_move"
+                ),
             )
 
         # Apply the move using the Python GameEngine (TS-aligned semantics).
@@ -260,7 +289,11 @@ async def evaluate_move(request: RulesEvalRequest):
             game_status=next_state.game_status,
         )
     except Exception as e:
-        logger.error("Error in /rules/evaluate_move: %s", str(e), exc_info=True)
+        logger.error(
+            "Error in /rules/evaluate_move: %s",
+            str(e),
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -307,7 +340,9 @@ async def choose_line_reward_option(request: LineRewardChoiceRequest):
     "/ai/choice/ring_elimination",
     response_model=RingEliminationChoiceResponse,
 )
-async def choose_ring_elimination_option(request: RingEliminationChoiceRequest):
+async def choose_ring_elimination_option(
+    request: RingEliminationChoiceRequest,
+):
     """Select a ring elimination option for an AI-controlled player.
 
     This endpoint mirrors the TypeScript AIInteractionHandler heuristic
@@ -396,7 +431,11 @@ async def choose_region_order_option(request: RegionOrderChoiceRequest):
             enemy_players = set()
             if request.game_state is not None:
                 for p in request.game_state.players:
-                    if getattr(p, "player_number", None) != request.player_number:
+                    if getattr(
+                        p,
+                        "player_number",
+                        None,
+                    ) != request.player_number:
                         enemy_players.add(p.player_number)
 
             def _manhattan(a: Position, b: Position) -> int:
@@ -462,26 +501,117 @@ async def clear_ai_cache():
     return {"status": "cache cleared", "instances_removed": len(ai_instances)}
 
 
-def _select_ai_type(difficulty: int) -> AIType:
-    """Auto-select AI type based on difficulty"""
-    if difficulty <= 2:
-        return AIType.RANDOM
-    elif difficulty <= 5:
-        return AIType.HEURISTIC
-    elif difficulty <= 8:
-        return AIType.MINIMAX
+class DifficultyProfile(TypedDict):
+    """
+    Canonical difficulty profile for a single ladder level.
+
+    This mapping is the Python source of truth for how difficulty 1–10 map
+    onto concrete AI configurations. TypeScript mirrors the same ladder in
+    its own shared module so that lobby UIs, matchmaking, and the server
+    all agree on which underlying AI engine and parameters correspond to a
+    given difficulty.
+    """
+
+    ai_type: AIType
+    randomness: float
+    think_time_ms: int
+    profile_id: str
+
+
+# v1 canonical ladder. The randomness values intentionally mirror the legacy
+# mapping used by _get_randomness_for_difficulty while the think_time_ms
+# budget is kept small enough to be test-friendly. Search-based engines
+# (Minimax/MCTS) interpret think_time_ms as a wall-clock budget; purely
+# heuristic engines use it as a UX-oriented delay.
+_CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
+    1: {
+        "ai_type": AIType.RANDOM,
+        "randomness": 0.5,
+        "think_time_ms": 150,
+        "profile_id": "v1-random-1",
+    },
+    2: {
+        "ai_type": AIType.RANDOM,
+        "randomness": 0.3,
+        "think_time_ms": 200,
+        "profile_id": "v1-random-2",
+    },
+    3: {
+        "ai_type": AIType.HEURISTIC,
+        "randomness": 0.2,
+        "think_time_ms": 250,
+        "profile_id": "v1-heuristic-3",
+    },
+    4: {
+        "ai_type": AIType.HEURISTIC,
+        "randomness": 0.1,
+        "think_time_ms": 300,
+        "profile_id": "v1-heuristic-4",
+    },
+    5: {
+        "ai_type": AIType.HEURISTIC,
+        "randomness": 0.05,
+        "think_time_ms": 350,
+        "profile_id": "v1-heuristic-5",
+    },
+    6: {
+        "ai_type": AIType.MINIMAX,
+        "randomness": 0.02,
+        "think_time_ms": 400,
+        "profile_id": "v1-minimax-6",
+    },
+    7: {
+        "ai_type": AIType.MINIMAX,
+        "randomness": 0.01,
+        "think_time_ms": 450,
+        "profile_id": "v1-minimax-7",
+    },
+    8: {
+        "ai_type": AIType.MINIMAX,
+        "randomness": 0.0,
+        "think_time_ms": 500,
+        "profile_id": "v1-minimax-8",
+    },
+    9: {
+        "ai_type": AIType.MCTS,
+        "randomness": 0.0,
+        "think_time_ms": 600,
+        "profile_id": "v1-mcts-9",
+    },
+    10: {
+        "ai_type": AIType.MCTS,
+        "randomness": 0.0,
+        "think_time_ms": 700,
+        "profile_id": "v1-mcts-10",
+    },
+}
+
+
+def _get_difficulty_profile(difficulty: int) -> DifficultyProfile:
+    """
+    Return the canonical difficulty profile for the given ladder level.
+
+    Difficulty is clamped into [1, 10] so that out-of-range values still map
+    to a well-defined profile instead of silently diverging between callers.
+    """
+    if difficulty < 1:
+        effective = 1
+    elif difficulty > 10:
+        effective = 10
     else:
-        # Highest difficulty: use MCTS (placeholder for more advanced AI).
-        return AIType.MCTS
+        effective = difficulty
+
+    return _CANONICAL_DIFFICULTY_PROFILES[effective]
+
+
+def _select_ai_type(difficulty: int) -> AIType:
+    """Auto-select AI type based on canonical difficulty mapping."""
+    return _get_difficulty_profile(difficulty)["ai_type"]
 
 
 def _get_randomness_for_difficulty(difficulty: int) -> float:
-    """Get randomness factor for difficulty level"""
-    randomness_map = {
-        1: 0.5, 2: 0.3, 3: 0.2, 4: 0.1, 5: 0.05,
-        6: 0.02, 7: 0.01, 8: 0, 9: 0, 10: 0
-    }
-    return randomness_map.get(difficulty, 0.1)
+    """Get randomness factor for difficulty level from canonical profile."""
+    return _get_difficulty_profile(difficulty)["randomness"]
 
 
 def _create_ai_instance(ai_type: AIType, player_number: int, config: AIConfig):
@@ -490,8 +620,9 @@ def _create_ai_instance(ai_type: AIType, player_number: int, config: AIConfig):
         return RandomAI(player_number, config)
     elif ai_type == AIType.HEURISTIC:
         return HeuristicAI(player_number, config)
-    # elif ai_type == AIType.MINIMAX:
-    #     return MinimaxAI(player_number, config)
+    elif ai_type == AIType.MINIMAX:
+        from .ai.minimax_ai import MinimaxAI
+        return MinimaxAI(player_number, config)
     elif ai_type == AIType.MCTS:
         from .ai.mcts_ai import MCTSAI
         return MCTSAI(player_number, config)

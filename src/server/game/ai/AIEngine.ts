@@ -41,21 +41,106 @@ export interface AIConfig {
   mode?: AIControlMode;
 }
 
-export const AI_DIFFICULTY_PRESETS: Record<number, Partial<AIConfig>> = {
-  1: { randomness: 0.5, thinkTime: 500 },
-  2: { randomness: 0.3, thinkTime: 700 },
-  3: { randomness: 0.2, thinkTime: 1000 },
-  4: { randomness: 0.1, thinkTime: 1200 },
-  5: { randomness: 0.05, thinkTime: 1500 },
-  6: { randomness: 0.02, thinkTime: 2000 },
-  7: { randomness: 0.01, thinkTime: 2500 },
-  8: { randomness: 0, thinkTime: 3000 },
-  9: { randomness: 0, thinkTime: 4000 },
-  10: { randomness: 0, thinkTime: 5000 },
+/**
+ * Lightweight per-player diagnostics for AI service usage. These counters are
+ * incremented when the Python AI service fails or when the engine falls back
+ * to local heuristics, and can be queried by tests and orchestration layers
+ * to detect degraded AI quality modes.
+ */
+export interface AIDiagnostics {
+  /** Number of times the AI service call failed for this player. */
+  serviceFailureCount: number;
+  /**
+   * Number of times a local fallback move was generated because the AI
+   * service was unavailable or failed. Note that this is counted at the
+   * selection layer; downstream rules validation may still reject the move.
+   */
+  localFallbackCount: number;
+}
+
+/**
+ * Canonical difficulty presets for the TypeScript backend. This table is kept
+ * in lockstep with the Python service's difficulty ladder defined in
+ * `ai-service/app/main.py` so that a given numeric difficulty corresponds to
+ * the same underlying AI engine and coarse behaviour on both sides.
+ *
+ * Think times are intentionally modest (hundreds of milliseconds) to keep
+ * tests and local development responsive; search-based engines (Minimax/MCTS)
+ * interpret `thinkTime` as a search budget, while simpler engines treat it as
+ * UX-oriented delay.
+ */
+export const AI_DIFFICULTY_PRESETS: Record<number, Partial<AIConfig> & { profileId: string }> = {
+  1: {
+    aiType: AIType.RANDOM,
+    randomness: 0.5,
+    thinkTime: 150,
+    profileId: 'v1-random-1',
+  },
+  2: {
+    aiType: AIType.RANDOM,
+    randomness: 0.3,
+    thinkTime: 200,
+    profileId: 'v1-random-2',
+  },
+  3: {
+    aiType: AIType.HEURISTIC,
+    randomness: 0.2,
+    thinkTime: 250,
+    profileId: 'v1-heuristic-3',
+  },
+  4: {
+    aiType: AIType.HEURISTIC,
+    randomness: 0.1,
+    thinkTime: 300,
+    profileId: 'v1-heuristic-4',
+  },
+  5: {
+    aiType: AIType.HEURISTIC,
+    randomness: 0.05,
+    thinkTime: 350,
+    profileId: 'v1-heuristic-5',
+  },
+  6: {
+    aiType: AIType.MINIMAX,
+    randomness: 0.02,
+    thinkTime: 400,
+    profileId: 'v1-minimax-6',
+  },
+  7: {
+    aiType: AIType.MINIMAX,
+    randomness: 0.01,
+    thinkTime: 450,
+    profileId: 'v1-minimax-7',
+  },
+  8: {
+    aiType: AIType.MINIMAX,
+    randomness: 0.0,
+    thinkTime: 500,
+    profileId: 'v1-minimax-8',
+  },
+  9: {
+    aiType: AIType.MCTS,
+    randomness: 0.0,
+    thinkTime: 600,
+    profileId: 'v1-mcts-9',
+  },
+  10: {
+    aiType: AIType.MCTS,
+    randomness: 0.0,
+    thinkTime: 700,
+    profileId: 'v1-mcts-10',
+  },
 };
 
 export class AIEngine {
   private aiConfigs: Map<number, AIConfig> = new Map();
+
+  /**
+   * Internal per-player diagnostics map keyed by playerNumber. This is kept
+   * private to avoid accidental mutation; callers access a cloned snapshot
+   * via getDiagnostics(...).
+   */
+  private diagnostics: Map<number, AIDiagnostics> = new Map();
 
   /**
    * Create/configure an AI player
@@ -86,17 +171,25 @@ export class AIEngine {
       throw new Error('AI difficulty must be between 1 and 10');
     }
 
-    const basePreset = AI_DIFFICULTY_PRESETS[difficulty] || {};
+    const basePreset = AI_DIFFICULTY_PRESETS[difficulty] ?? AI_DIFFICULTY_PRESETS[5];
+
     const aiType = profile.aiType
       ? this.mapAITacticToAIType(profile.aiType)
-      : this.selectAITypeForDifficulty(difficulty);
+      : (basePreset.aiType ?? this.selectAITypeForDifficulty(difficulty));
 
     const config: AIConfig = {
-      ...basePreset,
       difficulty,
       aiType,
       mode: profile.mode ?? 'service',
     };
+
+    if (typeof basePreset.randomness === 'number') {
+      config.randomness = basePreset.randomness;
+    }
+
+    if (typeof basePreset.thinkTime === 'number') {
+      config.thinkTime = basePreset.thinkTime;
+    }
 
     this.aiConfigs.set(playerNumber, config);
 
@@ -123,12 +216,20 @@ export class AIEngine {
   }
 
   /**
-   * Get move from AI player via Python microservice
+   * Get move from AI player via Python microservice.
+   *
    * @param playerNumber - The player number
    * @param gameState - Current game state
-   * @returns The selected move or null if no valid moves
+   * @param rng - Optional RNG hook used by local fallback paths. When
+   *   provided, this is threaded through to getLocalAIMove so that test
+   *   harnesses and parity tools can keep sandbox and backend AI on the
+   *   same deterministic RNG stream.
    */
-  async getAIMove(playerNumber: number, gameState: GameState): Promise<Move | null> {
+  async getAIMove(
+    playerNumber: number,
+    gameState: GameState,
+    rng?: LocalAIRng
+  ): Promise<Move | null> {
     const config = this.aiConfigs.get(playerNumber);
 
     if (!config) {
@@ -164,8 +265,21 @@ export class AIEngine {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
 
-      // Fallback to local heuristic
-      return this.getLocalAIMove(playerNumber, gameState);
+      // Record the service failure for diagnostics so that callers and tests
+      // can detect degraded AI quality.
+      const diag = this.getOrCreateDiagnostics(playerNumber);
+      diag.serviceFailureCount += 1;
+
+      // Fallback to local heuristic. When an explicit rng is provided,
+      // thread it through so callers can keep local fallback decisions
+      // on the same deterministic stream as any sandbox AI.
+      const localMove = this.getLocalAIMove(playerNumber, gameState, rng);
+
+      if (localMove) {
+        diag.localFallbackCount += 1;
+      }
+
+      return localMove;
     }
   }
 
@@ -266,6 +380,28 @@ export class AIEngine {
   }
 
   /**
+   * Public wrapper around the local heuristic move generator used by the
+   * service fallback path. This allows orchestrators such as GameSession
+   * to explicitly request a purely local move when the Python AI service
+   * has failed or produced invalid moves, without re-entering the service
+   * code path.
+   */
+  public getLocalFallbackMove(
+    playerNumber: number,
+    gameState: GameState,
+    rng?: LocalAIRng
+  ): Move | null {
+    const move = this.getLocalAIMove(playerNumber, gameState, rng ?? Math.random);
+
+    if (move) {
+      const diag = this.getOrCreateDiagnostics(playerNumber);
+      diag.localFallbackCount += 1;
+    }
+
+    return move;
+  }
+
+  /**
    * Shared local-selection policy used by the fallback path and test
    * harnesses. Given a set of already-legal moves (typically from
    * GameEngine.getValidMoves or RuleEngine.getValidMoves), prefer moves
@@ -359,8 +495,10 @@ export class AIEngine {
     }
 
     // Empty cell: allow small multi-ring placements. If the service
-    // already provided a placementCount, clamp it; otherwise choose a
-    // simple count in [1, min(3, ringsInHand)].
+    // already provided a placementCount, clamp it; otherwise fall back
+    // to a deterministic default of 1 ring. This avoids introducing any
+    // additional RNG at the AI–rules boundary while keeping older
+    // service versions (that omit placementCount) working.
     const maxPerPlacement = ringsInHand;
     if (maxPerPlacement <= 0) {
       return normalized;
@@ -373,9 +511,16 @@ export class AIEngine {
       return normalized;
     }
 
-    const upper = Math.min(3, maxPerPlacement);
-    const chosen = upper > 1 ? 1 + Math.floor(Math.random() * upper) : 1;
-    normalized.placementCount = chosen;
+    // If placementCount is missing for an otherwise valid empty-cell
+    // placement, record this so we can add metrics and tighten the
+    // contract in a future phase.
+    logger.warn('AI service omitted placementCount for empty-cell place_ring; defaulting to 1', {
+      playerNumber,
+      position: normalized.to && positionToString(normalized.to),
+      ringsInHand,
+    });
+
+    normalized.placementCount = 1;
     normalized.placedOnStack = false;
 
     return normalized;
@@ -561,12 +706,40 @@ export class AIEngine {
   getAllAIPlayerNumbers(): number[] {
     return Array.from(this.aiConfigs.keys());
   }
-
   /**
    * Clear all AI players
    */
   clearAll(): void {
     this.aiConfigs.clear();
+    this.diagnostics.clear();
+  }
+
+  /**
+   * Get a snapshot of diagnostics for a given AI-controlled player. The
+   * returned object is a shallow clone so callers cannot mutate the
+   * internal counters directly.
+   */
+  getDiagnostics(playerNumber: number): AIDiagnostics | undefined {
+    const diag = this.diagnostics.get(playerNumber);
+    return diag
+      ? {
+          serviceFailureCount: diag.serviceFailureCount,
+          localFallbackCount: diag.localFallbackCount,
+        }
+      : undefined;
+  }
+
+  /**
+   * Internal helper: ensure a diagnostics record exists for the given
+   * player and return it.
+   */
+  private getOrCreateDiagnostics(playerNumber: number): AIDiagnostics {
+    let diag = this.diagnostics.get(playerNumber);
+    if (!diag) {
+      diag = { serviceFailureCount: 0, localFallbackCount: 0 };
+      this.diagnostics.set(playerNumber, diag);
+    }
+    return diag;
   }
 
   /**
@@ -595,20 +768,15 @@ export class AIEngine {
   }
 
   /**
-   * Auto-select AI type based on difficulty level
-   * @param difficulty - Difficulty level (1-10)
-   * @returns Recommended AI type for this difficulty
+   * Auto-select AI type based on difficulty level.
+   *
+   * This is a thin wrapper over the canonical AI_DIFFICULTY_PRESETS table so
+   * that both Python and TypeScript resolve difficulty→engine in the same way.
    */
   private selectAITypeForDifficulty(difficulty: number): AIType {
-    if (difficulty >= 1 && difficulty <= 2) {
-      return AIType.RANDOM; // Levels 1-2: Random AI
-    } else if (difficulty >= 3 && difficulty <= 5) {
-      return AIType.HEURISTIC; // Levels 3-5: Heuristic AI
-    } else if (difficulty >= 6 && difficulty <= 8) {
-      return AIType.MINIMAX; // Levels 6-8: Minimax AI (falls back to Heuristic if not implemented)
-    } else {
-      return AIType.MCTS; // Levels 9-10: MCTS AI (falls back to Heuristic if not implemented)
-    }
+    const clamped = difficulty < 1 ? 1 : difficulty > 10 ? 10 : difficulty;
+    const preset = AI_DIFFICULTY_PRESETS[clamped];
+    return preset.aiType ?? AIType.HEURISTIC;
   }
 
   /** Map shared AITacticType values onto the internal AIType enum. */

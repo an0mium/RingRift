@@ -65,9 +65,17 @@ describe('GameEngine turn sequence & forced elimination scenarios (backend)', ()
 
     const board = createTestBoard(boardType);
 
-    const stacksByPlayer: Record<number, { x: number; y: number; z?: number }[]> = {
+    const stacksByPlayer: Record<number, any[]> = {
       1: [],
-      2: [{ x: 0, y: 0 }],
+      2: [
+        {
+          position: { x: 0, y: 0 },
+          rings: [2],
+          stackHeight: 1,
+          capHeight: 1,
+          controllingPlayer: 2,
+        },
+      ],
     };
 
     const boardManager: any = {
@@ -114,7 +122,8 @@ describe('GameEngine turn sequence & forced elimination scenarios (backend)', ()
 
     // Forced elimination must have been applied to player 2 (FAQ Q24).
     expect(eliminatePlayerRingOrCap).toHaveBeenCalledTimes(1);
-    expect(eliminatePlayerRingOrCap).toHaveBeenCalledWith(2);
+    // The second argument is the stack position, which is { x: 0, y: 0 } in this scenario
+    expect(eliminatePlayerRingOrCap).toHaveBeenCalledWith(2, { x: 0, y: 0 });
 
     // After elimination and turn handoff, the next interactive turn belongs
     // to player 2 again (the only player with material) in the movement phase.
@@ -215,9 +224,17 @@ describe('GameEngine turn sequence & forced elimination scenarios (backend)', ()
 
     const board = createTestBoard(boardType);
 
-    const stacksByPlayer: Record<number, { x: number; y: number; z?: number }[]> = {
+    const stacksByPlayer: Record<number, any[]> = {
       1: [],
-      2: [{ x: 0, y: 0 }], // Player 2 controls a single stack but has no legal moves.
+      2: [
+        {
+          position: { x: 0, y: 0 },
+          rings: [2],
+          stackHeight: 1,
+          capHeight: 1,
+          controllingPlayer: 2,
+        },
+      ], // Player 2 controls a single stack but has no legal moves.
       3: [],
     };
 
@@ -268,7 +285,8 @@ describe('GameEngine turn sequence & forced elimination scenarios (backend)', ()
     // Player 2 controls a stack but has no legal actions and must be
     // forced to eliminate a ring/cap as per FAQ Q24.
     expect(eliminatePlayerRingOrCap).toHaveBeenCalledTimes(1);
-    expect(eliminatePlayerRingOrCap).toHaveBeenCalledWith(2);
+    // The second argument is the stack position, which is { x: 0, y: 0 } in this scenario
+    expect(eliminatePlayerRingOrCap).toHaveBeenCalledWith(2, { x: 0, y: 0 });
 
     // After forced elimination, the interactive turn remains with
     // player 2 in the movement phase, as in the two-player scenario.

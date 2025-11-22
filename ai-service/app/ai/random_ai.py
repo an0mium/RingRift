@@ -4,7 +4,6 @@ Selects moves randomly from valid options
 """
 
 from typing import Optional, Dict
-import random
 
 from .base import BaseAI
 from ..models import GameState, Move
@@ -34,8 +33,8 @@ class RandomAI(BaseAI):
         if not valid_moves:
             return None
         
-        # Select random move
-        selected = random.choice(valid_moves)
+        # Select random move using the per-instance RNG.
+        selected = self.get_random_element(valid_moves)
         
         self.move_count += 1
         return selected
@@ -51,8 +50,8 @@ class RandomAI(BaseAI):
             0.0 (neutral evaluation)
         """
         # Random AI doesn't evaluate positions
-        # Return small random value to simulate variance
-        return random.uniform(-0.1, 0.1)
+        # Return small random value to simulate variance (per-instance RNG).
+        return self.rng.uniform(-0.1, 0.1)
     
     def get_evaluation_breakdown(
         self, game_state: GameState
@@ -68,6 +67,6 @@ class RandomAI(BaseAI):
         """
         return {
             "total": 0.0,
-            "random_variance": random.uniform(-0.1, 0.1)
+            "random_variance": self.rng.uniform(-0.1, 0.1)
         }
     

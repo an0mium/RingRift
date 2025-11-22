@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 from typing import Any, Optional, Union
-import random
 from datetime import datetime
 
 from .base import BaseAI
@@ -302,17 +301,28 @@ class NeuralNetAI(BaseAI):
         )
         self.model.to(self.device)
 
-        # Load weights if available
+        # Load weights if available. When config.nn_model_id is provided, use
+        # it as the logical model identifier (e.g. "ringrift_v1" or
+        # "v1-nn-heuristic-5") and resolve to ``<base_dir>/models/<id>.pth``.
+        # Otherwise we fall back to the historical default "ringrift_v1.pth".
         import os
         # Use absolute path relative to this file
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        model_path = os.path.join(base_dir, "models/ringrift_v1.pth")
+
+        model_id = getattr(self.config, "nn_model_id", None)
+        if not model_id:
+            model_id = "ringrift_v1"
+
+        model_filename = f"{model_id}.pth"
+        model_path = os.path.join(base_dir, "models", model_filename)
         
         if os.path.exists(model_path):
             try:
                 self.model.load_state_dict(
                     torch.load(
-                        model_path, map_location=self.device, weights_only=True
+                        model_path,
+                        map_location=self.device,
+                        weights_only=True,
                     )
                 )
                 self.model.eval()
@@ -335,24 +345,24 @@ class NeuralNetAI(BaseAI):
 
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """
-        Select the best move using neural network evaluation
+        Select the best move using neural network evaluation.
         """
         self.simulate_thinking(min_ms=300, max_ms=1000)
-        
+
         # Update history for the current game state
         current_features, _ = self._extract_features(game_state)
         game_id = game_state.id
-        
+
         if game_id not in self.game_history:
             self.game_history[game_id] = []
-            
+
         # Append current state to history
         # We only append if it's a new state (simple check: diff from last)
         # Or just append always? select_move is called once per turn.
         # But we might be called multiple times for same state if retrying?
         # Let's assume we append.
         self.game_history[game_id].append(current_features)
-        
+
         # Keep only needed history (history_length + 1 for current)
         # Actually we need history_length previous states.
         # So we keep history_length + 1 (current) + maybe more?
@@ -363,56 +373,56 @@ class NeuralNetAI(BaseAI):
 
         # Get all valid moves for this AI player via the rules engine
         valid_moves = self.get_valid_moves(game_state)
-
         if not valid_moves:
             return None
-            
+
+        # Optional exploration/randomisation based on configured randomness
         if self.should_pick_random_move():
-            selected = random.choice(valid_moves)
+            selected = self.get_random_element(valid_moves)
         else:
             # Batch evaluation
-            next_states = []
-            moves_list = []
-            
+            next_states: list[GameState] = []
+            moves_list: list[Move] = []
+
             for move in valid_moves:
                 next_states.append(
                     self.rules_engine.apply_move(game_state, move)
                 )
                 moves_list.append(move)
-            
+
             # Construct stacked inputs for all next states
             # For each next_state, the history is:
             # [current_state, prev1, prev2, ...] (from self.game_history)
             # So the stack for next_state is:
             # next_state + current_state + prev1 + prev2 ...
-            
+
             # Get the base history (current + previous)
             # self.game_history[game_id] contains [...prev2, prev1, current]
             # Reverse to get [current, prev1, prev2...]
             base_history = self.game_history[game_id][::-1]
-            
+
             # Pad if necessary
             while len(base_history) < self.history_length:
                 base_history.append(np.zeros_like(current_features))
-            
+
             # Trim to history_length
-            base_history = base_history[:self.history_length]
-            
+            base_history = base_history[: self.history_length]
+
             # Now construct batch
-            batch_stacks = []
-            batch_globals = []
-            
+            batch_stacks: list[np.ndarray] = []
+            batch_globals: list[np.ndarray] = []
+
             for ns in next_states:
                 ns_features, ns_globals = self._extract_features(ns)
-                
+
                 # Stack: [ns_features, base_history[0], base_history[1]...]
                 stack_list = [ns_features] + base_history
                 # Concatenate along channel dim (0)
                 stack = np.concatenate(stack_list, axis=0)
-                
+
                 batch_stacks.append(stack)
                 batch_globals.append(ns_globals)
-            
+
             # Convert to tensor
             tensor_input = torch.FloatTensor(
                 np.array(batch_stacks)
@@ -420,18 +430,18 @@ class NeuralNetAI(BaseAI):
             globals_input = torch.FloatTensor(
                 np.array(batch_globals)
             ).to(self.device)
-            
+
             # Evaluate batch
             values, _ = self.evaluate_batch(
                 next_states,
                 tensor_input=tensor_input,
-                globals_input=globals_input
+                globals_input=globals_input,
             )
-            
+
             # Find best move
-            best_idx = np.argmax(values)
+            best_idx = int(np.argmax(values))
             selected = moves_list[best_idx]
-            
+
         return selected
 
     def evaluate_position(self, game_state: GameState) -> float:

@@ -534,7 +534,7 @@ export class RuleEngine {
     if (landedOnOwnMarker) {
       const stackAtLanding = gameState.board.stacks.get(toKey);
       if (stackAtLanding && stackAtLanding.stackHeight > 0) {
-        const [topRing, ...remainingRings] = stackAtLanding.rings;
+        const [, ...remainingRings] = stackAtLanding.rings;
 
         if (remainingRings.length > 0) {
           const newStack: RingStack = {
@@ -665,7 +665,7 @@ export class RuleEngine {
     if (landedOnOwnMarker) {
       const stackAtLanding = gameState.board.stacks.get(toKey);
       if (stackAtLanding && stackAtLanding.stackHeight > 0) {
-        const [topRing, ...remainingRings] = stackAtLanding.rings;
+        const [, ...remainingRings] = stackAtLanding.rings;
 
         if (remainingRings.length > 0) {
           const newStack: RingStack = {

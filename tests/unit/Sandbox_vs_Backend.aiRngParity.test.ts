@@ -15,6 +15,25 @@ import {
 import { AIEngine } from '../../src/server/game/ai/AIEngine';
 import { LocalAIRng } from '../../src/shared/engine/localAIMoveSelection';
 
+// Ensure that any attempt by AIEngine to call the Python service during
+// these RNG plumbing tests fails fast, forcing the local fallback path.
+// This keeps the suite hermetic and guarantees that getAIMove exercises
+// getLocalAIMove when we explicitly test that wiring.
+jest.mock('../../src/server/services/AIServiceClient', () => {
+  return {
+    AIType: {
+      RANDOM: 'random',
+      HEURISTIC: 'heuristic',
+      MINIMAX: 'minimax',
+      MCTS: 'mcts',
+      DESCENT: 'descent',
+    },
+    getAIServiceClient: () => ({
+      getAIMove: jest.fn().mockRejectedValue(new Error('AI service disabled in RNG tests')),
+    }),
+  };
+});
+
 /**
  * RNG-parity / RNG-hook tests.
  *
@@ -200,6 +219,57 @@ describe('Sandbox vs Backend AI RNG hooks', () => {
     } finally {
       Math.random = originalRandom;
     }
+  });
+
+  test('backend getAIMove local fallback threads injected RNG through to getLocalAIMove', async () => {
+    const engine = new AIEngine();
+    // Configure a simple AI profile so getAIMove has a config entry.
+    engine.createAI(1, 5);
+
+    const state = {
+      id: 'g-ai-rng-fallback',
+      boardType: 'square8',
+      currentPhase: 'movement',
+      currentPlayer: 1,
+      board: {
+        stacks: new Map(),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: BOARD_CONFIGS.square8.size,
+        type: 'square8',
+      },
+      players: [],
+      moveHistory: [],
+      timeControl: { initialTime: 0, increment: 0, type: 'blitz' },
+      spectators: [],
+      gameStatus: 'active',
+      createdAt: new Date(),
+      lastMoveAt: new Date(),
+      isRated: false,
+      maxPlayers: 2,
+    } as unknown as GameState;
+
+    const { rng } = makeCountingRng(321);
+
+    const localSpy = jest
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .spyOn(engine as any, 'getLocalAIMove')
+      // We do not care about the actual move here, only that the RNG is
+      // propagated; stub out the implementation to avoid exercising the full
+      // rules engine in this wiring test.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((): any => null);
+
+    const result = await engine.getAIMove(1, state, rng);
+
+    expect(result).toBeNull();
+    expect(localSpy).toHaveBeenCalledTimes(1);
+
+    const [, , passedRng] = localSpy.mock.calls[0];
+    expect(passedRng).toBe(rng);
   });
 
   test('backend local AI move selection uses injected RNG instead of Math.random', () => {

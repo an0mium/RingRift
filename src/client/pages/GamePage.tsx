@@ -26,6 +26,7 @@ import { toast } from 'react-hot-toast';
 import { useGame, ConnectionStatus } from '../contexts/GameContext';
 import { useAuth } from '../contexts/AuthContext';
 import { gameApi } from '../services/api';
+import { isSandboxAiStallDiagnosticsEnabled } from '../../shared/utils/envFlags';
 
 type LocalPlayerType = 'human' | 'ai';
 
@@ -110,10 +111,28 @@ const PHASE_COPY: Record<
   },
 };
 
+/**
+ * Get friendly display name for AI difficulty level with description
+ */
+function getAIDifficultyLabel(difficulty: number): { label: string; color: string } {
+  if (difficulty <= 2) return { label: 'Beginner', color: 'text-green-400' };
+  if (difficulty <= 5) return { label: 'Intermediate', color: 'text-blue-400' };
+  if (difficulty <= 8) return { label: 'Advanced', color: 'text-purple-400' };
+  return { label: 'Expert', color: 'text-red-400' };
+}
+
 function renderGameHeader(gameState: GameState) {
   const playerSummary = gameState.players
     .sort((a, b) => a.playerNumber - b.playerNumber)
-    .map((p) => `${p.username || `P${p.playerNumber}`} (${p.type})`)
+    .map((p) => {
+      if (p.type === 'ai') {
+        const difficulty = p.aiProfile?.difficulty ?? p.aiDifficulty ?? 5;
+        const aiType = p.aiProfile?.aiType ?? 'heuristic';
+        const diffLabel = getAIDifficultyLabel(difficulty);
+        return `${p.username || `AI-${p.playerNumber}`} (AI ${diffLabel.label} Lv${difficulty})`;
+      }
+      return `${p.username || `P${p.playerNumber}`} (Human)`;
+    })
     .join(', ');
 
   return (
@@ -252,6 +271,7 @@ export default function GamePage() {
   // Sandbox stall/watchdog diagnostics for local AI games.
   const [sandboxLastProgressAt, setSandboxLastProgressAt] = useState<number | null>(null);
   const [sandboxStallWarning, setSandboxStallWarning] = useState<string | null>(null);
+  const sandboxDiagnosticsEnabled = isSandboxAiStallDiagnosticsEnabled();
 
   const createSandboxInteractionHandler = (
     playerTypesSnapshot: LocalPlayerType[]
@@ -622,7 +642,7 @@ export default function GamePage() {
         setSelected(undefined);
         setValidTargets([]);
         setSandboxTurn((t) => t + 1);
-        maybeRunSandboxAiIfNeeded();
+        setSandboxStateVersion((v) => v + 1);
         return;
       }
 
@@ -1120,6 +1140,38 @@ export default function GamePage() {
     };
   }, [pendingChoice, choiceDeadline]);
 
+  // State version counter to trigger AI turn checks after human moves.
+  // Must be declared before any conditional returns to satisfy Rules of Hooks.
+  const [sandboxStateVersion, setSandboxStateVersion] = useState(0);
+
+  // Auto-trigger AI turns when state version changes (after human moves).
+  // This effect checks the sandboxEngineRef directly to avoid prop dependency issues.
+  useEffect(() => {
+    if (!isConfigured || !sandboxEngineRef.current) {
+      return;
+    }
+
+    const engine = sandboxEngineRef.current;
+    const state = engine.getGameState();
+    const current = state.players.find((p) => p.playerNumber === state.currentPlayer);
+
+    // Only trigger if it's an active AI turn
+    if (state.gameStatus === 'active' && current && current.type === 'ai') {
+      // Update progress timestamp to prevent false stall warnings
+      setSandboxLastProgressAt(Date.now());
+      setSandboxStallWarning(null);
+
+      // Small delay to allow React state to settle, then start AI turn loop
+      const timeoutId = window.setTimeout(() => {
+        void runSandboxAiTurnLoop();
+      }, 50);
+
+      return () => {
+        window.clearTimeout(timeoutId);
+      };
+    }
+  }, [isConfigured, sandboxStateVersion]);
+
   // Local sandbox AI-only stall watchdog. This runs independently of the
   // internal sandbox AI diagnostics and focuses on scheduler-level stalls
   // (situations where an AI player is to move but the local game state has
@@ -1160,8 +1212,9 @@ export default function GamePage() {
           );
         }
 
-        // Below threshold: clear any existing warning.
-        return null;
+        // Below threshold but still in AI turn: preserve any existing warning
+        // (it may have been set by the diagnostics watcher or a previous poll).
+        return prevWarning;
       });
     }, POLL_INTERVAL_MS);
 
@@ -1169,6 +1222,53 @@ export default function GamePage() {
       window.clearInterval(id);
     };
   }, [isConfigured, sandboxLastProgressAt]);
+
+  // Structural AI stall diagnostics watcher: when enabled via
+  // RINGRIFT_ENABLE_SANDBOX_AI_STALL_DIAGNOSTICS, poll the sandbox AI trace
+  // buffer and surface any "stall" entries as a UI banner so that AI-vs-AI
+  // stalls are visible and debuggable from the /sandbox route.
+  useEffect(() => {
+    if (!sandboxDiagnosticsEnabled) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const POLL_INTERVAL_MS = 1000;
+    const anyWindow = window as any;
+    let lastSeenStallTimestamp = 0;
+
+    const id = window.setInterval(() => {
+      const trace = (anyWindow.__RINGRIFT_SANDBOX_TRACE__ ?? []) as any[];
+      if (!Array.isArray(trace) || trace.length === 0) {
+        return;
+      }
+
+      const latestStall = [...trace].reverse().find((entry) => entry && entry.kind === 'stall');
+      if (!latestStall) {
+        return;
+      }
+
+      const ts = typeof latestStall.timestamp === 'number' ? latestStall.timestamp : Date.now();
+      if (ts <= lastSeenStallTimestamp) {
+        return;
+      }
+
+      lastSeenStallTimestamp = ts;
+
+      setSandboxStallWarning(
+        (prev) =>
+          prev ??
+          'Sandbox AI stall detected by diagnostics: consecutive AI turns are not changing the game state. Use “Copy AI trace” for detailed debugging.'
+      );
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [sandboxDiagnosticsEnabled]);
 
   // === Backend game mode ===
   if (routeGameId) {
@@ -1665,6 +1765,7 @@ export default function GamePage() {
       : 'Legacy local sandbox fallback (no backend).',
     'Runs entirely in-browser; use "Change Setup" to switch configurations.',
   ];
+
   return (
     <div className="container mx-auto px-4 py-8 space-y-4">
       <header className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,1.1fr)]">

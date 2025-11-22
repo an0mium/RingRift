@@ -5,7 +5,6 @@ Based on "A Simple AlphaZero" (arXiv:2008.01188v4)
 
 from typing import Optional, List, Dict, Any, Tuple
 import time
-import random
 from enum import Enum
 import numpy as np
 
@@ -13,11 +12,13 @@ from .base import BaseAI
 from .neural_net import NeuralNetAI, INVALID_MOVE_INDEX
 from ..models import GameState, Move, AIConfig
 
+
 class NodeStatus(Enum):
     HEURISTIC = 0
     PROVEN_WIN = 1
     PROVEN_LOSS = 2
     DRAW = 3
+
 
 class DescentAI(BaseAI):
     """
@@ -60,7 +61,12 @@ class DescentAI(BaseAI):
             return None
             
         if self.should_pick_random_move():
-            return random.choice(valid_moves)
+            selected = self.get_random_element(valid_moves)
+            # get_random_element only returns None when the list is empty, but
+            # we guard for type-checkers even though we already checked above.
+            if selected is None:
+                return None
+            return selected
             
         # Descent parameters
         if self.config.think_time is not None and self.config.think_time > 0:
@@ -89,7 +95,10 @@ class DescentAI(BaseAI):
                 entry = self.transposition_table[state_key]
                 if len(entry) == 3:
                     _, _, status = entry
-                    if status == NodeStatus.PROVEN_WIN or status == NodeStatus.PROVEN_LOSS:
+                    if status in (
+                        NodeStatus.PROVEN_WIN,
+                        NodeStatus.PROVEN_LOSS,
+                    ):
                         break
             
         # Select best move from root
@@ -103,13 +112,23 @@ class DescentAI(BaseAI):
                 
             if children_values:
                 if game_state.current_player == self.player_number:
-                    best_move_key = max(children_values.items(), key=lambda x: x[1][1])[0]
+                    best_move_key = max(
+                        children_values.items(),
+                        key=lambda x: x[1][1],
+                    )[0]
                 else:
-                    best_move_key = min(children_values.items(), key=lambda x: x[1][1])[0]
+                    best_move_key = min(
+                        children_values.items(),
+                        key=lambda x: x[1][1],
+                    )[0]
                 return children_values[best_move_key][0]
         
-        # Fallback if something went wrong or no search happened
-        return random.choice(valid_moves)
+        # Fallback if something went wrong or no search happened. Use the
+        # per-instance RNG for reproducible behaviour under a fixed seed.
+        fallback = self.get_random_element(valid_moves)
+        if fallback is None:
+            return None
+        return fallback
 
     def _descent_iteration(
         self,
@@ -197,11 +216,11 @@ class DescentAI(BaseAI):
             # Update current node value and status
             if state.current_player == self.player_number:
                 new_best_val = max(v[1] for v in children_values.values())
-                
-                # Check for proven status
-                # If any child is PROVEN_WIN (1.0), we are PROVEN_WIN
-                # If ALL children are PROVEN_LOSS (-1.0), we are PROVEN_LOSS
-                # Note: This assumes 1.0/-1.0 are strictly reserved for proven outcomes
+
+                # Check for proven status.
+                # If any child is PROVEN_WIN (1.0), we are PROVEN_WIN.
+                # If ALL children are PROVEN_LOSS (-1.0), we are PROVEN_LOSS.
+                # Note: 1.0/-1.0 are reserved for proven outcomes.
                 if any(v[1] == 1.0 for v in children_values.values()):
                     new_status = NodeStatus.PROVEN_WIN
                 elif all(v[1] == -1.0 for v in children_values.values()):
@@ -210,18 +229,23 @@ class DescentAI(BaseAI):
                     new_status = NodeStatus.HEURISTIC
             else:
                 new_best_val = min(v[1] for v in children_values.values())
-                
-                # If any child is PROVEN_LOSS (-1.0), we are PROVEN_LOSS (opponent wins)
-                # If ALL children are PROVEN_WIN (1.0), we are PROVEN_WIN (opponent loses)
+
+                # If any child is PROVEN_LOSS (-1.0), we are PROVEN_LOSS
+                # (opponent wins). If ALL children are PROVEN_WIN (1.0),
+                # we are PROVEN_WIN (opponent loses).
                 if any(v[1] == -1.0 for v in children_values.values()):
                     new_status = NodeStatus.PROVEN_LOSS
                 elif all(v[1] == 1.0 for v in children_values.values()):
                     new_status = NodeStatus.PROVEN_WIN
                 else:
                     new_status = NodeStatus.HEURISTIC
-                
-            self.transposition_table[state_key] = (new_best_val, children_values, new_status)
-            
+
+            self.transposition_table[state_key] = (
+                new_best_val,
+                children_values,
+                new_status,
+            )
+
             # Log update
             if self.neural_net:
                 features, _ = self.neural_net._extract_features(state)
@@ -243,12 +267,12 @@ class DescentAI(BaseAI):
             move_probs: Dict[str, float] = {}
             if self.neural_net:
                 try:
-                    features, globals_vec = self.neural_net._extract_features(
-                        state
-                    )
-                    _, policy_logits = self.neural_net.forward_single(
-                        features, globals_vec
-                    )
+                    # Use the public batched evaluation API so that Descent
+                    # shares the same deterministic inference path as other
+                    # AIs. We evaluate just this single state and reuse the
+                    # resulting policy logits below.
+                    _, policy_batch = self.neural_net.evaluate_batch([state])
+                    policy_logits = policy_batch[0]
 
                     valid_indices: List[int] = []
                     valid_moves_list: List[Move] = []
@@ -284,8 +308,11 @@ class DescentAI(BaseAI):
 
             # Evaluate children
             children_values = {}
-            best_val = float('-inf') if state.current_player == self.player_number else float('inf')
-            
+            if state.current_player == self.player_number:
+                best_val = float("-inf")
+            else:
+                best_val = float("inf")
+
             for move in valid_moves:
                 next_state = self.rules_engine.apply_move(state, move)
 
@@ -318,11 +345,18 @@ class DescentAI(BaseAI):
             status = NodeStatus.HEURISTIC
             if best_val == 1.0 and state.current_player == self.player_number:
                 status = NodeStatus.PROVEN_WIN
-            elif best_val == -1.0 and state.current_player != self.player_number:
+            elif (
+                best_val == -1.0
+                and state.current_player != self.player_number
+            ):
                 status = NodeStatus.PROVEN_LOSS
-            
-            self.transposition_table[state_key] = (best_val, children_values, status)
-            
+
+            self.transposition_table[state_key] = (
+                best_val,
+                children_values,
+                status,
+            )
+
             # Log initial visit
             if self.neural_net:
                 features, _ = self.neural_net._extract_features(state)
@@ -350,38 +384,48 @@ class DescentAI(BaseAI):
             return 0.0
             
         # Bonuses for tie-breaking metrics (Territory, Eliminated, Markers)
+        # Bonuses for tie-breaking metrics (Territory, Eliminated, Markers)
         # Territory
         territory_count = 0
         for p_id in state.board.collapsed_spaces.values():
             if p_id == self.player_number:
                 territory_count += 1
-        
+
         # Eliminated
-        eliminated_count = state.board.eliminated_rings.get(str(self.player_number), 0)
-        
+        eliminated_count = state.board.eliminated_rings.get(
+            str(self.player_number),
+            0,
+        )
+
         # Markers
         marker_count = 0
         for m in state.board.markers.values():
             if m.player == self.player_number:
                 marker_count += 1
-                
-        # Normalize bonuses to be small (max ~0.05 total)
-        # This ensures they act as tie-breakers and don't override win/loss
-        bonus = (territory_count * 0.001) + (eliminated_count * 0.001) + (marker_count * 0.0001)
-        
+
+        # Normalize bonuses to be small (max ~0.05 total). This ensures they
+        # act as tie-breakers and don't override the win/loss signal.
+        bonus = (
+            (territory_count * 0.001)
+            + (eliminated_count * 0.001)
+            + (marker_count * 0.0001)
+        )
+
         if base_val > 0:
             val = base_val + bonus
         else:
-            # If losing, we still prefer having more territory/rings (tie-breakers)
+            # If losing, we still prefer having more territory/rings as
+            # tie-breakers.
             val = base_val + bonus
-            
-        # Discount for depth (fewest moves to win)
-        # Win fast (val > 0): val * gamma^depth -> decreases with depth
-        # Lose slow (val < 0): val * gamma^depth -> increases (closer to 0) with depth
+
+        # Discount for depth (fewest moves to win).
+        # Win fast (val > 0): val * gamma^depth decreases with depth.
+        # Lose slow (val < 0): val * gamma^depth increases (towards 0)
+        # with depth.
         gamma = 0.99
         discounted_val = val * (gamma ** depth)
-        
-        # Ensure we don't exceed bounds or flip sign
+
+        # Ensure we don't exceed bounds or flip sign.
         if base_val > 0:
             return max(0.001, min(1.0, discounted_val))
         elif base_val < 0:
@@ -394,16 +438,19 @@ class DescentAI(BaseAI):
         if self.neural_net:
             val = self.neural_net.evaluate_position(game_state)
         else:
-            # Heuristic fallback
-            # Simple material difference
-            my_elim = game_state.board.eliminated_rings.get(str(self.player_number), 0)
-            
+            # Heuristic fallback: simple material difference.
+            my_elim = game_state.board.eliminated_rings.get(
+                str(self.player_number),
+                0,
+            )
+
             opp_elim = 0
             for pid, count in game_state.board.eliminated_rings.items():
                 if int(pid) != self.player_number:
                     opp_elim += count
-            
+
             val = (my_elim - opp_elim) * 0.05
-        
-        # Clamp value to (-0.99, 0.99) to reserve 1.0/-1.0 for proven terminal states
+
+        # Clamp value to (-0.99, 0.99) to reserve 1.0/-1.0 for proven
+        # terminal states.
         return max(-0.99, min(0.99, val))

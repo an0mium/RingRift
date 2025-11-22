@@ -4,10 +4,9 @@ Uses strategic heuristics to evaluate and select moves
 """
 
 from typing import Optional, List, Dict
-import random
 
 from .base import BaseAI
-from ..models import GameState, Move, RingStack, Position
+from ..models import GameState, Move, RingStack, Position, AIConfig
 from ..rules.geometry import BoardGeometry
 
 
@@ -33,7 +32,50 @@ class HeuristicAI(BaseAI):
     WEIGHT_LINE_CONNECTIVITY = 6.0
     WEIGHT_TERRITORY_SAFETY = 5.0
     WEIGHT_STACK_MOBILITY = 4.0
-    
+
+    def __init__(self, player_number: int, config: AIConfig):
+        """
+        Initialise HeuristicAI with an optional heuristic weight profile.
+
+        When ``config.heuristic_profile_id`` is set (typically to the same
+        value as the canonical difficulty ``profile_id`` from the ladder,
+        e.g. ``"v1-heuristic-5"``), the corresponding entry in
+        HEURISTIC_WEIGHT_PROFILES is used to override the class-level weight
+        constants for this instance. If no profile is found, the built-in
+        defaults defined above are used unchanged to preserve current
+        behaviour.
+        """
+        super().__init__(player_number, config)
+        self._apply_weight_profile()
+
+    def _apply_weight_profile(self) -> None:
+        """
+        Override class-level weights for this instance based on the configured
+        heuristic profile.
+
+        This is deliberately lightweight: it simply sets attributes like
+        ``WEIGHT_STACK_CONTROL`` on the instance, which shadow the class-level
+        constants without changing them globally.
+        """
+        # Prefer an explicit profile id from AIConfig when provided.
+        profile_id = getattr(self.config, "heuristic_profile_id", None)
+
+        # If none is provided, attempt to infer from the canonical ladder
+        # naming convention for heuristic difficulties (v1-heuristic-3/4/5).
+        if not profile_id and 1 <= self.config.difficulty <= 10:
+            inferred = f"v1-heuristic-{self.config.difficulty}"
+            profile_id = inferred
+
+        if not profile_id:
+            return
+
+        weights = HEURISTIC_WEIGHT_PROFILES.get(profile_id)
+        if not weights:
+            return
+
+        for name, value in weights.items():
+            setattr(self, name, value)
+     
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """
         Select the best move using heuristic evaluation
@@ -55,7 +97,7 @@ class HeuristicAI(BaseAI):
         
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
-            selected = random.choice(valid_moves)
+            selected = self.get_random_element(valid_moves)
         else:
             # Evaluate each move and pick the best one
             best_move = None
@@ -70,7 +112,11 @@ class HeuristicAI(BaseAI):
                     best_score = score
                     best_move = move
             
-            selected = best_move if best_move else random.choice(valid_moves)
+            selected = (
+                best_move
+                if best_move
+                else self.get_random_element(valid_moves)
+            )
         
         self.move_count += 1
         return selected
@@ -781,3 +827,43 @@ class HeuristicAI(BaseAI):
             game_state.board.type,
             game_state.board.size
         )
+
+
+# Heuristic weight profile registry
+#
+# This mapping is intentionally simple: all v1 heuristic profiles currently
+# share the same weight set derived from the class-level defaults. Training
+# and tuning scripts can later emit updated profiles keyed by the same
+# profile_id strings without changing the public difficulty ladder contract.
+HeuristicWeights = Dict[str, float]
+
+BASE_V1_HEURISTIC_WEIGHTS: HeuristicWeights = {
+    "WEIGHT_STACK_CONTROL": HeuristicAI.WEIGHT_STACK_CONTROL,
+    "WEIGHT_STACK_HEIGHT": HeuristicAI.WEIGHT_STACK_HEIGHT,
+    "WEIGHT_TERRITORY": HeuristicAI.WEIGHT_TERRITORY,
+    "WEIGHT_RINGS_IN_HAND": HeuristicAI.WEIGHT_RINGS_IN_HAND,
+    "WEIGHT_CENTER_CONTROL": HeuristicAI.WEIGHT_CENTER_CONTROL,
+    "WEIGHT_ADJACENCY": HeuristicAI.WEIGHT_ADJACENCY,
+    "WEIGHT_OPPONENT_THREAT": HeuristicAI.WEIGHT_OPPONENT_THREAT,
+    "WEIGHT_MOBILITY": HeuristicAI.WEIGHT_MOBILITY,
+    "WEIGHT_ELIMINATED_RINGS": HeuristicAI.WEIGHT_ELIMINATED_RINGS,
+    "WEIGHT_LINE_POTENTIAL": HeuristicAI.WEIGHT_LINE_POTENTIAL,
+    "WEIGHT_VICTORY_PROXIMITY": HeuristicAI.WEIGHT_VICTORY_PROXIMITY,
+    "WEIGHT_MARKER_COUNT": HeuristicAI.WEIGHT_MARKER_COUNT,
+    "WEIGHT_VULNERABILITY": HeuristicAI.WEIGHT_VULNERABILITY,
+    "WEIGHT_OVERTAKE_POTENTIAL": HeuristicAI.WEIGHT_OVERTAKE_POTENTIAL,
+    "WEIGHT_TERRITORY_CLOSURE": HeuristicAI.WEIGHT_TERRITORY_CLOSURE,
+    "WEIGHT_LINE_CONNECTIVITY": HeuristicAI.WEIGHT_LINE_CONNECTIVITY,
+    "WEIGHT_TERRITORY_SAFETY": HeuristicAI.WEIGHT_TERRITORY_SAFETY,
+    "WEIGHT_STACK_MOBILITY": HeuristicAI.WEIGHT_STACK_MOBILITY,
+}
+
+HEURISTIC_WEIGHT_PROFILES: Dict[str, HeuristicWeights] = {
+    # Canonical v1 heuristic profiles used by the difficulty ladder. All three
+    # currently share the same weight set; future training runs can introduce
+    # differentiated profiles keyed by these same ids without breaking
+    # existing tests.
+    "v1-heuristic-3": BASE_V1_HEURISTIC_WEIGHTS,
+    "v1-heuristic-4": BASE_V1_HEURISTIC_WEIGHTS,
+    "v1-heuristic-5": BASE_V1_HEURISTIC_WEIGHTS,
+}

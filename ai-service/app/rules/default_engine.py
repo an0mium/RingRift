@@ -411,7 +411,15 @@ class DefaultRulesEngine(RulesEngine):
             turn_ended = (
                 next_via_engine.current_player != state.current_player
             )
-            if extra_moves > 1 or turn_ended:
+            # Check for forced elimination side-effects that might occur even if
+            # the turn didn't end (e.g. P2 moves -> P1 skipped -> P2 forced
+            # elimination).
+            forced_elimination_occurred = (
+                next_via_engine.total_rings_eliminated
+                > mutator_state.total_rings_eliminated
+            )
+
+            if extra_moves > 1 or turn_ended or forced_elimination_occurred:
                 pass
             else:
                 move_desc = self._describe_move(move)

@@ -1,4 +1,6 @@
-# RingRift Rules Gap Analysis Report
+# ⚠️ DEPRECATED: RingRift Rules Gap Analysis Report
+
+> **⚠️ HISTORICAL DOCUMENT. For current status and plans, see `TODO.md` and `STRATEGIC_ROADMAP.md`.**
 
 **Date:** November 21, 2025
 **Analyst:** Architect Mode

@@ -44,6 +44,8 @@ const timeControl: any = { initialTime: 600, increment: 0, type: 'blitz' };
 function createEngines(gameId: string, boardType: BoardType = 'square8') {
   const players = createPlayers();
   const legacy = new LegacyGameEngine(gameId, boardType, players, timeControl, true);
+  // Enable move-driven phases to match SharedEngine behavior
+  legacy.enableMoveDrivenDecisionPhases();
   legacy.startGame();
 
   const baseState = legacy.getGameState();
@@ -177,5 +179,168 @@ describe('Refactored shared GameEngine vs legacy backend GameEngine parity (mini
     const tempShared = new SharedGameEngine(sharedState as unknown as SharedEngineGameState);
     const event = tempShared.processAction(sharedAction);
     expect(event.type).toBe('ACTION_PROCESSED');
+  });
+
+  it('territory disconnection triggers correct phase transition in both engines', async () => {
+    const { legacy, shared } = createEngines('parity-territory');
+    const legacyState = legacy.getGameState();
+
+    // Setup: Create a potential disconnected region
+    // We need to manually manipulate the board to set up the scenario quickly
+    // P1 surrounds (0,0) with markers/collapsed spaces
+    const board = legacyState.board;
+    const p1 = 1;
+
+    // Place markers to surround (0,0)
+    // (0,1), (1,0), (1,1)
+    // We use the boardManager from legacy engine to set this up correctly
+    const legacyAny: any = legacy;
+    const boardManager = legacyAny.boardManager;
+
+    // Access internal state directly to modify it
+    const internalBoard = legacyAny.gameState.board;
+
+    boardManager.setMarker({ x: 0, y: 1 }, p1, internalBoard);
+    boardManager.setMarker({ x: 1, y: 0 }, p1, internalBoard);
+    boardManager.setMarker({ x: 1, y: 1 }, p1, internalBoard);
+
+    // Ensure P1 has a stack outside to satisfy self-elimination prerequisite
+    // Place stack at (3,3)
+    const stack = {
+      position: { x: 3, y: 3 },
+      rings: [p1],
+      stackHeight: 1,
+      capHeight: 1,
+      controllingPlayer: p1,
+    };
+    boardManager.setStack({ x: 3, y: 3 }, stack, internalBoard);
+
+    // Sync shared engine with this state
+    const syncedState = legacy.getGameState();
+    const sharedAny: any = shared;
+    sharedAny.state = JSON.parse(JSON.stringify(syncedState)); // Deep copy to ensure clean state
+
+    // Now P1 moves a stack to (0,0) to complete the disconnection?
+    // No, usually you place a marker to complete the border.
+    // Let's say P1 moves from (0,2) to (0,1) (which is already marked? No).
+    // Let's say (0,0) is the region.
+    // Border is (0,1), (1,1), (1,0).
+    // If P1 moves to (0,1) and leaves a marker at (0,2), that doesn't help.
+
+    // Better setup:
+    // Region is (0,0).
+    // Border needs to be closed.
+    // Existing markers: (1,0), (1,1).
+    // P1 moves from (0,2) to (0,1).
+    // Leaves marker at (0,2).
+    // Lands at (0,1).
+    // This creates a marker at (0,2).
+    // Wait, we need to surround (0,0).
+    // Neighbors of (0,0) are (0,1) and (1,0).
+    // If (1,0) has a marker.
+    // And P1 moves FROM (0,0) to somewhere else? No, (0,0) is the region.
+
+    // Let's try:
+    // Region: (0,0).
+    // P1 has markers at (1,0) and (1,1).
+    // P1 moves a stack from (0,2) to (0,1).
+    // This leaves a marker at (0,2).
+    // And lands at (0,1).
+    // Now (0,0) is surrounded by:
+    // (1,0) - marker
+    // (0,1) - stack (acts as barrier? No, stack is not a marker border).
+
+    // Actually, a region is disconnected if surrounded by markers/collapsed/edges.
+    // So we need markers at (0,1) and (1,0).
+    // Setup: Marker at (1,0).
+    // P1 moves from (0,1) to (0,2).
+    // Leaves marker at (0,1).
+    // Now (0,0) is surrounded by (0,1) and (1,0) and edges.
+    // (0,0) is empty.
+    // It lacks representation (no stacks).
+    // So it should disconnect.
+
+    // Setup for move:
+    // Stack at (0,1).
+    // Marker at (1,0).
+    // Move (0,1) -> (0,2).
+
+    boardManager.setMarker({ x: 1, y: 0 }, p1, internalBoard);
+    // Clear other markers from previous attempt
+    internalBoard.markers.delete('0,1');
+    internalBoard.markers.delete('1,1');
+
+    const moveStack = {
+      position: { x: 0, y: 1 },
+      rings: [p1],
+      stackHeight: 1,
+      capHeight: 1,
+      controllingPlayer: p1,
+    };
+    boardManager.setStack({ x: 0, y: 1 }, moveStack, internalBoard);
+
+    // Force phase to movement
+    legacyAny.gameState.currentPhase = 'movement';
+
+    // Sync again
+    const syncedState2 = legacy.getGameState();
+    // Manually reconstruct Maps because JSON.parse/stringify destroys them
+    const sharedState2 = {
+      ...syncedState2,
+      board: {
+        ...syncedState2.board,
+        stacks: new Map(syncedState2.board.stacks),
+        markers: new Map(syncedState2.board.markers),
+        collapsedSpaces: new Map(syncedState2.board.collapsedSpaces),
+        territories: new Map(syncedState2.board.territories),
+      },
+    };
+    sharedAny.state = sharedState2;
+
+    // Execute move on Legacy
+    const movePayload: Omit<Move, 'id' | 'timestamp' | 'moveNumber'> = {
+      type: 'move_stack',
+      player: p1,
+      from: { x: 0, y: 1 },
+      to: { x: 0, y: 2 },
+      thinkTime: 0,
+    };
+
+    const legacyResult = await legacy.makeMove(movePayload);
+    if (!legacyResult.success) {
+      console.error('Legacy Move Failed:', legacyResult.error);
+    }
+    expect(legacyResult.success).toBe(true);
+
+    // Execute move on Shared
+    const moveAction: MoveStackAction = {
+      type: 'MOVE_STACK',
+      playerId: p1,
+      from: { x: 0, y: 1 },
+      to: { x: 0, y: 2 },
+    };
+    const sharedEvent = shared.processAction(moveAction);
+    expect(sharedEvent.type).toBe('ACTION_PROCESSED');
+
+    // Verify Phase Transition
+    // Legacy engine should transition to 'territory_processing' (or handle it if automatic)
+    // Shared engine should transition to 'territory_processing'
+
+    const legacyStateAfter = legacy.getGameState();
+    const sharedStateAfter = shared.getGameState() as unknown as GameState;
+
+    // Note: Legacy engine might auto-process if configured, or wait in territory_processing.
+    // The default GameEngine processes automatic consequences immediately unless move-driven phases are enabled.
+    // So legacyStateAfter.currentPhase might be 'movement' (next player) or 'territory_processing'.
+    // However, SharedGameEngine.checkStateTransitions sets phase to 'territory_processing' if regions found.
+
+    // Let's check if they match.
+    // If Legacy auto-processed, it will be in next turn.
+    // If Shared DOES NOT auto-process (it just changes phase), then they will mismatch.
+
+    // This highlights a potential divergence: Legacy handles auto-processing internally, Shared might expect explicit actions.
+    // If so, we need to align them.
+
+    expect(sharedStateAfter.currentPhase).toEqual(legacyStateAfter.currentPhase);
   });
 });

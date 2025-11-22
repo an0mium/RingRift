@@ -28,6 +28,22 @@ class BaseAI(ABC):
         self.config = config
         self.move_count = 0
         self.rules_engine: RulesEngine = get_rules_engine()
+
+        # Per-instance RNG used for all stochastic behaviour (thinking delays,
+        # random move selection, rollout policies, etc.). Prefer an explicit
+        # rng_seed from AIConfig when provided; otherwise derive a stable,
+        # difficulty- and player-dependent default. A future phase will plumb
+        # a cross-language seed from the HTTP API into AIConfig.rng_seed so
+        # TS and Python can share the same stream.
+        if self.config.rng_seed is not None:
+            seed = self.config.rng_seed
+        else:
+            # Simple, deterministic derivation that stays within 32-bit range.
+            seed = (self.config.difficulty * 1_000_003) ^ (
+                self.player_number * 97_911
+            )
+        self.rng_seed: int = int(seed & 0xFFFFFFFF)
+        self.rng: random.Random = random.Random(self.rng_seed)
         
     @abstractmethod
     def select_move(self, game_state: GameState) -> Optional[Move]:
@@ -99,8 +115,9 @@ class BaseAI(ABC):
             if self.config.think_time > 0:
                 time.sleep(self.config.think_time / 1000.0)
         else:
-            # Random think time for more natural feel
-            think_time = random.randint(min_ms, max_ms)
+            # Random think time for more natural feel. Use the per-instance RNG
+            # so that thinking delays are reproducible under a fixed seed.
+            think_time = self.rng.randint(min_ms, max_ms)
             time.sleep(think_time / 1000.0)
     
     def should_pick_random_move(self) -> bool:
@@ -112,11 +129,11 @@ class BaseAI(ABC):
         """
         if self.config.randomness is None or self.config.randomness == 0:
             return False
-        return random.random() < self.config.randomness
+        return self.rng.random() < self.config.randomness
     
     def get_random_element(self, items: List[Any]) -> Optional[Any]:
         """
-        Get random element from list
+        Get random element from list using the per-instance RNG.
         
         Args:
             items: List of items
@@ -126,11 +143,11 @@ class BaseAI(ABC):
         """
         if not items:
             return None
-        return random.choice(items)
+        return self.rng.choice(items)
     
     def shuffle_array(self, items: List[Any]) -> List[Any]:
         """
-        Shuffle array in place and return it
+        Shuffle array in place and return it using the per-instance RNG.
         
         Args:
             items: List to shuffle
@@ -138,7 +155,7 @@ class BaseAI(ABC):
         Returns:
             Shuffled list
         """
-        random.shuffle(items)
+        self.rng.shuffle(items)
         return items
     
     def get_opponent_numbers(self, game_state: GameState) -> List[int]:

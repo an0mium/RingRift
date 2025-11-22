@@ -455,4 +455,59 @@ describe('GameEngine move-driven decision phases', () => {
 
     expect(findDisconnectedRegionsSpy).toHaveBeenCalled();
   });
+
+  it('in move-driven territory_processing, does not surface eliminate_rings_from_stack when no region has been processed', () => {
+    const engine = new GameEngine(
+      'move-driven-territory-gating',
+      boardType,
+      players,
+      timeControl,
+      false
+    );
+    engine.enableMoveDrivenDecisionPhases();
+
+    const engineAny: any = engine;
+    const gameState = engineAny.gameState as any;
+    const boardManager = engineAny.boardManager as any;
+    const ruleEngine = engineAny.ruleEngine as any;
+
+    gameState.gameStatus = 'active';
+    gameState.currentPlayer = 1;
+    gameState.currentPhase = 'territory_processing';
+
+    // No disconnected regions for the current player in this cycle.
+    jest.spyOn(boardManager, 'findDisconnectedRegions').mockReturnValue([]);
+
+    // Even if the underlying RuleEngine would be willing to surface
+    // eliminate_rings_from_stack moves for this state, the GameEngine
+    // must NOT expose them until at least one region has been processed
+    // in the current territory_processing cycle.
+    const ruleMoves: Move[] = [
+      {
+        id: 'eliminate-0,1',
+        type: 'eliminate_rings_from_stack',
+        player: 1,
+        to: { x: 0, y: 1 },
+        eliminatedRings: [{ player: 1, count: 1 }],
+        eliminationFromStack: {
+          position: { x: 0, y: 1 },
+          capHeight: 1,
+          totalHeight: 2,
+        } as any,
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      },
+    ];
+
+    const ruleSpy = jest.spyOn(ruleEngine, 'getValidMoves').mockReturnValue(ruleMoves as any);
+
+    const moves = engine.getValidMoves(1);
+
+    // No decision Moves should be exposed in this phase, and the
+    // underlying RuleEngine.getValidMoves should not be consulted for
+    // elimination options while no region has been processed.
+    expect(moves).toEqual([]);
+    expect(ruleSpy).not.toHaveBeenCalled();
+  });
 });

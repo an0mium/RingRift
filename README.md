@@ -67,30 +67,40 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 
 To understand the project and know which documents are authoritative for each area, use these documents. When information in older planning or analysis docs conflicts with the files listed below, these **canonical sources win**.
 
-- **Rules & engine spec**
-  - `ringrift_complete_rules.md` – full, narrative rules for players and designers.
-  - `ringrift_compact_rules.md` – compact, implementation-oriented spec for engine/AI authors.
-  - `RULES_ANALYSIS_PHASE2.md` – consistency and strategic assessment of the rules.
+### For Players & Designers (Rules)
 
-- **Status & roadmap (canonical, living)**
-  - `CURRENT_STATE_ASSESSMENT.md` – factual, code-verified current state (includes implementation status).
-  - `TODO.md` – phase-structured task tracker.
-  - `STRATEGIC_ROADMAP.md` – phased roadmap to production.
-  - `KNOWN_ISSUES.md` – current P0/P1 bugs and gaps.
+- `ringrift_complete_rules.md` – **The authoritative rulebook.** Full, narrative rules for players and designers.
+- `ringrift_compact_rules.md` – Compact, implementation-oriented spec for engine/AI authors.
+- `RULES_ANALYSIS_PHASE2.md` – Consistency and strategic assessment of the rules.
+
+### For Developers (Architecture, Status, Setup)
+
+- **Status & Roadmap (Canonical, Living)**
+  - `CURRENT_STATE_ASSESSMENT.md` – Factual, code-verified current state (includes implementation status).
+  - `TODO.md` – Phase-structured task tracker.
+  - `STRATEGIC_ROADMAP.md` – Phased roadmap to production.
+  - `KNOWN_ISSUES.md` – Current P0/P1 bugs and gaps.
 
 - **Architecture & Design**
-  - `ARCHITECTURE_ASSESSMENT.md` – comprehensive architecture review and future design plans.
+  - `ARCHITECTURE_ASSESSMENT.md` – Comprehensive architecture review and future design plans.
   - `AI_ARCHITECTURE.md` – AI service architecture, assessment, and improvement plans.
   - `RULES_ENGINE_ARCHITECTURE.md` – Python rules engine architecture and rollout strategy.
 
-- **Subsystem guides**
+- **Subsystem Guides**
   - `tests/README.md` – Jest setup, test structure, and the rules/FAQ → scenario test matrix.
   - `RULES_SCENARIO_MATRIX.md` – Canonical mapping of rules/FAQ sections to specific Jest test suites.
   - `ai-service/README.md` – Python AI microservice (Random/Heuristic AI, endpoints, setup).
-  - `CONTRIBUTING.md` – contribution workflow and historical phase breakdown.
+  - `CONTRIBUTING.md` – Contribution workflow and historical phase breakdown.
 
-- **Historical plans & evaluations**
-  - Docs under `deprecated/` – earlier architecture and improvement plans, preserved for context only.
+- **Historical Plans & Evaluations**
+  - Docs under `deprecated/` – Earlier architecture and improvement plans, preserved for context only.
+
+### 🔗 Developer Quick Links
+
+- **Start Here:** [docs/INDEX.md](./docs/INDEX.md) – Concise entry point for new contributors.
+- **Getting Started:** [QUICKSTART.md](./QUICKSTART.md)
+- **Contributing:** [CONTRIBUTING.md](./CONTRIBUTING.md)
+- **Testing Guide:** [tests/README.md](./tests/README.md)
 
 ## 🎯 Overview
 

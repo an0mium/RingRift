@@ -31,7 +31,21 @@ rather than missing core mechanics.
 
 ## 🔴 P0 – Critical Issues (Correctness & Confidence)
 
-### P0.1 – Incomplete Scenario Test Coverage for Rules & FAQ
+### P0.1 – Forced Elimination Choice Divergence
+
+**Component(s):** `TurnEngine.ts`, `GameEngine.ts`
+**Severity:** P1 (Rules Divergence)
+**Status:** Engine auto-selects first stack; Rules say player chooses.
+**Details:** The written rules state that if a player is blocked (has stacks but no legal moves), they must choose which stack to eliminate. The current engine implementation (`TurnEngine.processForcedElimination`) automatically eliminates the first available stack to keep the game moving. This simplifies the UI but removes a strategic decision.
+
+### P0.2 – Chain Capture Edge Cases
+
+**Component(s):** `GameEngine`, `captureChainEngine`
+**Severity:** P1 (Coverage Gap)
+**Status:** Core logic exists; complex scenarios need tests.
+**Details:** While basic and overtaking captures work, complex chain patterns like 180-degree reversals and cyclic captures (A->B->A) are supported by the engine but lack robust scenario tests to guarantee they behave exactly as per the FAQ in all edge cases.
+
+### P0.3 – Incomplete Scenario Test Coverage for Rules & FAQ
 
 **Component(s):** GameEngine, RuleEngine, BoardManager, tests  
 **Severity:** Critical for long-term confidence  

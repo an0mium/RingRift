@@ -1,5 +1,12 @@
 import { GameEngine } from '../../src/server/game/GameEngine';
-import { Position, Player, BoardType, TimeControl, RingStack, GameState } from '../../src/shared/types/game';
+import {
+  Position,
+  Player,
+  BoardType,
+  TimeControl,
+  RingStack,
+  GameState,
+} from '../../src/shared/types/game';
 import { getCaptureOptionsFromPosition as getCaptureOptionsFromPositionShared } from '../../src/server/game/rules/captureChainEngine';
 import { BoardManager } from '../../src/server/game/BoardManager';
 import { RuleEngine } from '../../src/server/game/RuleEngine';
@@ -155,20 +162,20 @@ describe('Scenario: Complex Chain Captures (FAQ 15.3.1, 15.3.2)', () => {
     // We assert only aggregate outcomes (final heights / control), not the
     // exact landing coordinate, to remain tolerant of different but still-legal
     // paths chosen by the engine.
- 
+
     const engine = createEngine('square8');
     const startPos = { x: 3, y: 3 };
     const target1 = { x: 3, y: 4 };
     const target2 = { x: 4, y: 4 };
     const target3 = { x: 4, y: 3 };
- 
+
     setupBoard(engine, [
       { pos: startPos, player: 1, height: 1 },
       { pos: target1, player: 2, height: 1 },
       { pos: target2, player: 2, height: 1 },
       { pos: target3, player: 2, height: 1 },
     ]);
- 
+
     // Start the chain: (3,3) jumps (3,4) to land at (3,5).
     const step1 = await engine.makeMove({
       player: 1,
@@ -220,18 +227,18 @@ describe('Scenario: Complex Chain Captures (FAQ 15.3.1, 15.3.2)', () => {
       );
       expect(hasExpectedDebug).toBe(true);
     }
- 
+
     // Resolve any mandatory capture continuations via the chain_capture phase.
     await resolveChainIfPresent(engine);
- 
+
     const engineAny: any = engine;
     const board = engineAny.gameState.board;
     const stacks = board.stacks as Map<string, RingStack>;
     const allStacks: RingStack[] = Array.from(stacks.values());
- 
+
     const blueStacks = allStacks.filter((s) => s.controllingPlayer === 1);
     const redStacks = allStacks.filter((s) => s.controllingPlayer === 2);
- 
+
     // One Blue-controlled stack of height 4, no remaining Red stacks.
     expect(blueStacks.length).toBe(1);
     expect(blueStacks[0].stackHeight).toBe(4);
@@ -271,7 +278,7 @@ describe('Scenario: Complex Chain Captures (FAQ 15.3.1, 15.3.2)', () => {
     ]);
 
     const engineAnyLocal: any = engine;
- 
+
     const step1Local = await engine.makeMove({
       player: 1,
       type: 'overtaking_capture',
@@ -279,13 +286,13 @@ describe('Scenario: Complex Chain Captures (FAQ 15.3.1, 15.3.2)', () => {
       captureTarget: B,
       to: C,
     } as any);
- 
+
     expect(step1Local.success).toBe(true);
- 
+
     // Drive any mandatory follow-up segments via the unified chain_capture
     // phase so that the final board state reflects the full 180° reversal.
     await resolveChainIfPresent(engine);
- 
+
     const boardLocal = engineAnyLocal.gameState.board;
     const stacks = boardLocal.stacks as Map<string, RingStack>;
     const allStacks: RingStack[] = Array.from(stacks.values());
@@ -395,14 +402,14 @@ describe('Scenario: Complex Chain Captures (FAQ 15.3.1, 15.3.2)', () => {
     const target1 = { x: 1, y: 1 };
     const target2 = { x: 3, y: 2 };
     const target3 = { x: 4, y: 3 };
- 
+
     setupBoard(engine, [
       { pos: startPos, player: 1, height: 1 },
       { pos: target1, player: 2, height: 1 },
       { pos: target2, player: 2, height: 1 },
       { pos: target3, player: 2, height: 1 },
     ]);
- 
+
     // Start the zig-zag chain with a single overtaking_capture:
     // (0,0) -> (1,1) -> (2,2).
     const step1 = await engine.makeMove({
@@ -455,24 +462,104 @@ describe('Scenario: Complex Chain Captures (FAQ 15.3.1, 15.3.2)', () => {
       );
       expect(hasExpectedZig).toBe(true);
     }
- 
+
     // Resolve any mandatory continuation segments via the chain_capture phase,
     // allowing the engine to choose any legal zig-zag continuation.
     await resolveChainIfPresent(engine);
- 
+
     const engineAny: any = engine;
     const board = engineAny.gameState.board;
     const stacks = board.stacks as Map<string, RingStack>;
     const allStacks: RingStack[] = Array.from(stacks.values());
- 
+
     const blueStacks = allStacks.filter((s) => s.controllingPlayer === 1);
     const redStacks = allStacks.filter((s) => s.controllingPlayer === 2);
- 
+
     // One Blue-controlled stack of height 4, no remaining Red stacks, regardless
     // of the exact intermediate landings chosen by the engine.
     expect(blueStacks.length).toBe(1);
     expect(blueStacks[0].stackHeight).toBe(4);
     expect(blueStacks[0].controllingPlayer).toBe(1);
+    expect(redStacks.length).toBe(0);
+  });
+  test('Revisit_Start_Position_With_State_Change', async () => {
+    const engine = createEngine('square8');
+    const startPos = { x: 3, y: 3 };
+    const target1 = { x: 3, y: 4 };
+    const target2 = { x: 4, y: 4 };
+    const target3 = { x: 4, y: 3 };
+
+    setupBoard(engine, [
+      { pos: startPos, player: 1, height: 1 },
+      { pos: target1, player: 2, height: 1 },
+      { pos: target2, player: 2, height: 1 },
+      { pos: target3, player: 2, height: 1 },
+    ]);
+
+    const step1 = await engine.makeMove({
+      player: 1,
+      type: 'overtaking_capture',
+      from: startPos,
+      captureTarget: target1,
+      to: { x: 3, y: 5 },
+    } as any);
+    expect(step1.success).toBe(true);
+
+    await resolveChainIfPresent(engine);
+
+    const engineAny: any = engine;
+    const board = engineAny.gameState.board;
+    const stacks = board.stacks as Map<string, RingStack>;
+    const allStacks: RingStack[] = Array.from(stacks.values());
+
+    const blueStacks = allStacks.filter((s) => s.controllingPlayer === 1);
+    const redStacks = allStacks.filter((s) => s.controllingPlayer === 2);
+
+    expect(blueStacks.length).toBe(1);
+    expect(blueStacks[0].stackHeight).toBe(4);
+    expect(blueStacks[0].controllingPlayer).toBe(1);
+    expect(redStacks.length).toBe(0);
+  });
+
+  test('Immediate_180_Degree_Reversal', async () => {
+    const engine = createEngine('square8');
+    const startPos = { x: 2, y: 2 };
+    const targetPos = { x: 2, y: 3 };
+
+    setupBoard(engine, [
+      { pos: startPos, player: 1, height: 2 },
+      { pos: targetPos, player: 2, height: 2 },
+    ]);
+
+    const step1 = await engine.makeMove({
+      player: 1,
+      type: 'overtaking_capture',
+      from: startPos,
+      captureTarget: targetPos,
+      to: { x: 2, y: 4 },
+    } as any);
+    expect(step1.success).toBe(true);
+
+    const engineAny: any = engine;
+    const board = engineAny.gameState.board;
+    const stackAtB = board.stacks.get('2,4');
+    const stackAtTarget = board.stacks.get('2,3');
+
+    expect(stackAtB).toBeDefined();
+    expect(stackAtTarget).toBeDefined();
+    expect(stackAtTarget.stackHeight).toBe(1);
+
+    await resolveChainIfPresent(engine);
+
+    const stacks = board.stacks as Map<string, RingStack>;
+    const allStacks: RingStack[] = Array.from(stacks.values());
+    const blueStacks = allStacks.filter((s) => s.controllingPlayer === 1);
+    const redStacks = allStacks.filter((s) => s.controllingPlayer === 2);
+
+    expect(blueStacks.length).toBe(1);
+    const finalBlue = blueStacks[0];
+    expect(finalBlue.controllingPlayer).toBe(1);
+    expect(finalBlue.stackHeight).toBe(4);
     expect(redStacks.length).toBe(0);
   });
 });

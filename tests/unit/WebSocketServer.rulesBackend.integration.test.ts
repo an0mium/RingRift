@@ -40,7 +40,7 @@ describe('WebSocketServer + RulesBackendFacade integration', () => {
     mockUpdateGame.mockReset();
   });
 
-  it('handlePlayerMove delegates to RulesBackendFacade.applyMove when a facade is registered', async () => {
+  it('handlePlayerMove delegates to GameSession.handlePlayerMove via GameSessionManager', async () => {
     const httpServerStub: any = {};
     const wsServer = new WebSocketServer(httpServerStub as any);
     const serverAny: any = wsServer as any;
@@ -103,39 +103,21 @@ describe('WebSocketServer + RulesBackendFacade integration', () => {
 
     const state = { ...baseState };
 
-    const fakeEngine: any = {
+    // Fake GameSession implementation that captures the canonical move
+    // payload that WebSocketServer passes through GameSessionManager.
+    const fakeSession: any = {
+      handlePlayerMove: jest.fn().mockResolvedValue(undefined),
       getGameState: jest.fn(() => state),
-      makeMove: jest.fn(),
-      makeMoveById: jest.fn(),
       getValidMoves: jest.fn(() => []),
     };
 
-    // Bypass DB-backed engine creation and inject our fake engine.
-    serverAny.getOrCreateGameEngine = jest.fn().mockResolvedValue(fakeEngine);
-
-    // Register a fake RulesBackendFacade instance for this game. We only
-    // care that applyMove is invoked with the canonical engineMove payload;
-    // we do not need a real facade implementation here.
-    const fakeRulesBackend = {
-      applyMove: jest.fn(
-        async (
-          engineMove: Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
-        ): Promise<{ success: boolean; gameState?: GameState }> => {
-          // Simulate the engine applying the move by pushing a synthetic
-          // entry into moveHistory so handlePlayerMove can fetch it via
-          // getGameState().
-          state.moveHistory.push({
-            ...engineMove,
-            id: 'move-1',
-            timestamp: new Date(),
-            thinkTime: 0,
-            moveNumber: 1,
-          } as Move);
-          return { success: true, gameState: state };
-        }
-      ),
-    };
-    serverAny.rulesFacades.set(gameId, fakeRulesBackend);
+    const sessionManager: any = serverAny.sessionManager;
+    // Short-circuit locking for the test while preserving the contract that
+    // handlePlayerMove runs inside withGameLock.
+    sessionManager.withGameLock = jest.fn(async (_gameId: string, fn: () => Promise<void>) => {
+      await fn();
+    });
+    sessionManager.getOrCreateSession = jest.fn().mockResolvedValue(fakeSession);
 
     // Minimal AuthenticatedSocket stub for a human player in the room.
     const fakeSocket: any = {
@@ -144,9 +126,10 @@ describe('WebSocketServer + RulesBackendFacade integration', () => {
       gameId,
     };
 
-    // Client payload: geometry-based move. The server parses move.position
-    // as JSON and translates it into a canonical Move payload for the
-    // rules backend.
+    // Client payload: geometry-based move. WebSocketServer is responsible
+    // only for forwarding this to the appropriate GameSession; canonical
+    // Move construction and rules application are handled inside the
+    // session/RulesBackendFacade layer.
     const clientMove = {
       gameId,
       move: {
@@ -158,33 +141,18 @@ describe('WebSocketServer + RulesBackendFacade integration', () => {
 
     await serverAny.handlePlayerMove(fakeSocket, clientMove);
 
-    // Engine should have been resolved and the facade used to apply the
-    // canonical move.
-    expect(serverAny.getOrCreateGameEngine).toHaveBeenCalledWith(gameId);
-    expect(fakeRulesBackend.applyMove).toHaveBeenCalledTimes(1);
+    // Ensure that the move was processed under the per-game lock and that
+    // the session was resolved via GameSessionManager.
+    expect(sessionManager.withGameLock).toHaveBeenCalledTimes(1);
+    expect(sessionManager.withGameLock).toHaveBeenCalledWith(gameId, expect.any(Function));
 
-    const appliedArg = fakeRulesBackend.applyMove.mock.calls[0][0] as Omit<
-      Move,
-      'id' | 'timestamp' | 'moveNumber'
-    >;
-    expect(appliedArg.player).toBe(1);
-    expect(appliedArg.type).toBe('place_ring');
-    expect(appliedArg.to).toEqual({ x: 0, y: 0 });
+    expect(sessionManager.getOrCreateSession).toHaveBeenCalledTimes(1);
+    expect(sessionManager.getOrCreateSession).toHaveBeenCalledWith(gameId);
 
-    // The legacy GameEngine.makeMove path should NOT have been used for
-    // geometry-based moves when a RulesBackendFacade is registered.
-    expect(fakeEngine.makeMove).not.toHaveBeenCalled();
-
-    // The handler should persist the move and emit a game_state event.
-    expect(mockCreateMove).toHaveBeenCalledTimes(1);
-    const moveCreateArgs = mockCreateMove.mock.calls[0][0];
-    expect(moveCreateArgs.data.gameId).toBe(gameId);
-    expect(moveCreateArgs.data.moveType).toBe('place_ring');
-
-    const gameStateCalls = fakeIo.toCalls.filter((call) => call.event === 'game_state');
-    expect(gameStateCalls.length).toBe(1);
-    const payload = gameStateCalls[0].payload;
-    expect(payload.data.gameId).toBe(gameId);
-    expect(payload.data.gameState.currentPlayer).toBe(state.currentPlayer);
+    // The GameSession should receive the original socket and move payload.
+    expect(fakeSession.handlePlayerMove).toHaveBeenCalledTimes(1);
+    const [socketArg, moveArg] = fakeSession.handlePlayerMove.mock.calls[0];
+    expect(socketArg).toBe(fakeSocket);
+    expect(moveArg).toEqual(clientMove.move);
   });
 });

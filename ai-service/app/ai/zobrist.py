@@ -20,8 +20,14 @@ class ZobristHash:
         return cls._instance
     
     def _initialize(self):
-        """Initialize random bitstrings for all board features"""
-        random.seed(42)  # Fixed seed for reproducibility
+        """Initialize random bitstrings for all board features.
+
+        This uses a private Random instance so that constructing a
+        ZobristHash never mutates the module-level ``random`` state.
+        """
+
+        # Private RNG seeded with a fixed constant for reproducibility.
+        self._rng = random.Random(42)
 
         # Board features to hash:
         # - Stacks: (position_key, controlling_player, height, rings_tuple)
@@ -37,17 +43,28 @@ class ZobristHash:
         self.phase_keys: Dict[str, int] = {}
 
         # Pre-generate keys for common positions (lazy load others if needed,
-        # but better to pre-gen for max speed)
-        # Since the board space is large (especially hex), we might need
-        # dynamic generation or just hash the position string + feature.
-
-        # For simplicity and memory efficiency, we'll use a mix of pre-gen
-        # and dynamic hashing. But true Zobrist requires fixed keys.
-        # Let's use a large table of random numbers indexed by a hash of
-        # the feature.
-
+        # but better to pre-gen for max speed). We back this with a large
+        # table of 64‑bit values and index into it using a stable, salted‑hash‑
+        # independent function so results do not depend on PYTHONHASHSEED.
         self.table_size = 1000000
-        self.table = [random.getrandbits(64) for _ in range(self.table_size)]
+        self.table = [
+            self._rng.getrandbits(64)
+            for _ in range(self.table_size)
+        ]
+
+    def _index_for(self, key: str) -> int:
+        """Compute a stable table index for a feature key.
+
+        We avoid Python's built-in ``hash()`` here because it is salted via
+        ``PYTHONHASHSEED`` and therefore not stable across processes. A small
+        64‑bit FNV‑1a style hash is sufficient and fully deterministic.
+        """
+        # 64‑bit FNV‑1a parameters.
+        h = 1469598103934665603
+        for b in key.encode("utf-8"):
+            h ^= b
+            h = (h * 1099511628211) & ((1 << 64) - 1)
+        return h % self.table_size
 
     def get_stack_hash(
         self,
@@ -57,29 +74,29 @@ class ZobristHash:
         rings: Tuple[int, ...]
     ) -> int:
         """Get hash for a stack"""
-        # Combine features into a unique index
-        feature_hash = hash((pos_key, "stack", player, height, rings))
-        return self.table[feature_hash % self.table_size]
+        rings_str = ",".join(str(r) for r in rings)
+        key = f"{pos_key}|stack|{player}|{height}|{rings_str}"
+        return self.table[self._index_for(key)]
         
     def get_marker_hash(self, pos_key: str, player: int) -> int:
         """Get hash for a marker"""
-        feature_hash = hash((pos_key, "marker", player))
-        return self.table[feature_hash % self.table_size]
+        key = f"{pos_key}|marker|{player}"
+        return self.table[self._index_for(key)]
         
     def get_collapsed_hash(self, pos_key: str) -> int:
         """Get hash for a collapsed space"""
-        feature_hash = hash((pos_key, "collapsed"))
-        return self.table[feature_hash % self.table_size]
+        key = f"{pos_key}|collapsed"
+        return self.table[self._index_for(key)]
         
     def get_player_hash(self, player: int) -> int:
         """Get hash for current player"""
-        feature_hash = hash(("player", player))
-        return self.table[feature_hash % self.table_size]
+        key = f"player|{player}"
+        return self.table[self._index_for(key)]
         
     def get_phase_hash(self, phase: str) -> int:
         """Get hash for current phase"""
-        feature_hash = hash(("phase", phase))
-        return self.table[feature_hash % self.table_size]
+        key = f"phase|{phase}"
+        return self.table[self._index_for(key)]
 
     def compute_initial_hash(self, game_state) -> int:
         """Compute full hash from scratch (expensive, O(N))"""

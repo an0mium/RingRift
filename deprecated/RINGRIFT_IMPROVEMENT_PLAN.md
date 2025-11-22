@@ -1,5 +1,7 @@
 # ⚠️ DEPRECATED: RingRift Improvement & Implementation Plan
 
+> **⚠️ HISTORICAL DOCUMENT. For current status and plans, see `TODO.md` and `STRATEGIC_ROADMAP.md`.**
+>
 > **This is a historical document preserved for context.**
 >
 > **For current status and plans, see:**

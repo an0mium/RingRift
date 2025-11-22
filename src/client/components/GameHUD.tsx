@@ -11,6 +11,46 @@ interface GameHUDProps {
   lastHeartbeatAt?: number | null;
 }
 
+/**
+ * Get friendly display label and color for AI difficulty
+ */
+function getAIDifficultyInfo(difficulty: number): {
+  label: string;
+  color: string;
+  bgColor: string;
+} {
+  if (difficulty <= 2) {
+    return { label: 'Beginner', color: 'text-green-400', bgColor: 'bg-green-900/40' };
+  }
+  if (difficulty <= 5) {
+    return { label: 'Intermediate', color: 'text-blue-400', bgColor: 'bg-blue-900/40' };
+  }
+  if (difficulty <= 8) {
+    return { label: 'Advanced', color: 'text-purple-400', bgColor: 'bg-purple-900/40' };
+  }
+  return { label: 'Expert', color: 'text-red-400', bgColor: 'bg-red-900/40' };
+}
+
+/**
+ * Get display name for AI type
+ */
+function getAITypeLabel(aiType?: string): string {
+  switch (aiType) {
+    case 'random':
+      return 'Random';
+    case 'heuristic':
+      return 'Heuristic';
+    case 'minimax':
+      return 'Minimax';
+    case 'mcts':
+      return 'MCTS';
+    case 'descent':
+      return 'Descent';
+    default:
+      return 'AI';
+  }
+}
+
 export function GameHUD({
   gameState,
   currentPlayer,
@@ -164,6 +204,18 @@ export function GameHUD({
             <span className="text-3xl font-black text-white tracking-tight">
               {currentPlayer.username || `Player ${currentPlayer.playerNumber}`}
             </span>
+            {currentPlayer.type === 'ai' && (
+              <div className="flex items-center gap-2 ml-2">
+                <span className="px-2 py-0.5 rounded-full bg-slate-700/80 border border-slate-500 text-xs font-semibold text-slate-200">
+                  🤖 AI
+                </span>
+                <div className="animate-pulse flex gap-1">
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce"></div>
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:0.1s]"></div>
+                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -227,7 +279,27 @@ export function GameHUD({
             >
               <div className={`font-bold mb-1 ${colorClass.split(' ')[0]}`}>
                 {p.username || `P${p.playerNumber}`}
-                {p.type === 'ai' && <span className="ml-1 text-xs opacity-70">(AI)</span>}
+                {p.type === 'ai' && (
+                  <div className="flex flex-col gap-1 mt-1">
+                    {(() => {
+                      const difficulty = p.aiProfile?.difficulty ?? p.aiDifficulty ?? 5;
+                      const aiType = p.aiProfile?.aiType ?? 'heuristic';
+                      const diffInfo = getAIDifficultyInfo(difficulty);
+                      return (
+                        <>
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded ${diffInfo.bgColor} ${diffInfo.color} font-semibold`}
+                          >
+                            {diffInfo.label} Lv{difficulty}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
+                            {getAITypeLabel(aiType)}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               <div className="flex justify-between text-sm text-slate-300">

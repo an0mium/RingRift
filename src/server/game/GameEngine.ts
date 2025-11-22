@@ -14,7 +14,6 @@ import {
   LineOrderChoice,
   LineRewardChoice,
   RingEliminationChoice,
-  RegionOrderChoice,
   PlayerChoiceResponseFor,
   GameHistoryEntry,
 } from '../../shared/types/game';
@@ -90,7 +89,7 @@ export class GameEngine {
   /**
    * Per-turn placement state: when a ring placement occurs, we track that
    * fact and remember which stack must be moved this turn. This mirrors
-   * the sandbox engine’s per-turn fields but remains internal to the
+   * the sandbox engine's per-turn fields but remains internal to the
    * backend engine.
    */
   private hasPlacedThisTurn: boolean = false;
@@ -112,6 +111,15 @@ export class GameEngine {
    * where no region has ever been processed.
    */
   private pendingTerritorySelfElimination: boolean = false;
+  /**
+   * Internal flag used only in move-driven decision phases to indicate
+   * that the current player has processed an exact-length or overlength
+   * line with Option 1 reward and must now perform mandatory ring
+   * elimination via an explicit eliminate_rings_from_stack Move. This
+   * prevents the backend from bypassing the unified Move model for line
+   * reward eliminations.
+   */
+  private pendingLineRewardElimination: boolean = false;
 
   constructor(
     gameId: string,
@@ -1221,6 +1229,7 @@ export class GameEngine {
   private async applyDecisionMove(move: Move): Promise<void> {
     if (move.type === 'process_line' || move.type === 'choose_line_reward') {
       const config = BOARD_CONFIGS[this.gameState.boardType];
+      const requiredLength = config.lineLength;
 
       const allLines = this.boardManager.findAllLines(this.gameState.board);
       const playerLines = allLines.filter((line) => line.player === move.player);
@@ -1248,9 +1257,74 @@ export class GameEngine {
         targetLine = playerLines[0];
       }
 
-      // For both process_line and choose_line_reward we currently delegate
-      // to processOneLine, which will in turn use the interaction manager
-      // (when present) to choose Option 1 vs Option 2 for overlength lines.
+      // In move-driven mode with explicit decision Moves, apply line
+      // collapse effects directly based on the Move payload without
+      // delegating to processOneLine / PlayerChoice helpers.
+      if (this.useMoveDrivenDecisionPhases) {
+        if (move.type === 'process_line') {
+          // process_line is only used for exact-length lines in the unified
+          // model. Apply the same semantics as processOneLine for exact
+          // length: collapse all markers and set pendingLineRewardElimination
+          // so an explicit eliminate_rings_from_stack Move is surfaced.
+          if (targetLine.positions.length === requiredLength) {
+            this.collapseLineMarkers(targetLine.positions, move.player);
+            this.pendingLineRewardElimination = true;
+
+            // Stay in line_processing for the elimination decision.
+            this.gameState.currentPhase = 'line_processing';
+            return;
+          }
+
+          // Defensive: process_line should only be used for exact-length
+          // lines in move-driven mode. Treat this as a no-op and log a
+          // warning for diagnostic purposes.
+          console.warn(
+            '[GameEngine.applyDecisionMove] process_line applied to overlength line in move-driven mode',
+            {
+              lineLength: targetLine.positions.length,
+              requiredLength,
+            }
+          );
+          return;
+        }
+
+        if (move.type === 'choose_line_reward') {
+          // choose_line_reward for overlength lines: apply the selected
+          // reward option based on collapsedMarkers metadata.
+          const isOption1 =
+            !move.collapsedMarkers || move.collapsedMarkers.length === targetLine.positions.length;
+
+          if (isOption1) {
+            // Option 1: collapse all markers and set
+            // pendingLineRewardElimination for explicit ring elimination.
+            this.collapseLineMarkers(targetLine.positions, move.player);
+            this.pendingLineRewardElimination = true;
+            this.gameState.currentPhase = 'line_processing';
+            return;
+          }
+
+          // Option 2: collapse only the specified markers (or default to
+          // minimum if collapsedMarkers is missing).
+          const markersToCollapse =
+            move.collapsedMarkers ?? targetLine.positions.slice(0, requiredLength);
+          this.collapseLineMarkers(markersToCollapse, move.player);
+
+          // No elimination for Option 2; check if more lines remain.
+          const remainingLines = this.boardManager
+            .findAllLines(this.gameState.board)
+            .filter((line) => line.player === move.player);
+
+          if (remainingLines.length > 0) {
+            this.gameState.currentPhase = 'line_processing';
+          } else {
+            this.gameState.currentPhase = 'territory_processing';
+          }
+          return;
+        }
+      }
+
+      // Legacy / non-move-driven mode: delegate to processOneLine which
+      // handles PlayerChoice flows internally for backward compatibility.
       await this.processOneLine(targetLine, config.lineLength);
 
       // After processing one line, re-check whether any further lines
@@ -1458,10 +1532,15 @@ export class GameEngine {
     } else if (move.type === 'eliminate_rings_from_stack') {
       const playerNumber = move.player;
 
-      // This explicit elimination satisfies any pending
-      // self-elimination requirement for the current
-      // territory_processing cycle.
+      // This explicit elimination satisfies any pending self-elimination
+      // requirement from either territory processing (after processing a
+      // disconnected region) or line processing (after choosing Option 1
+      // for an exact-length or overlength line).
+      const wasTerritorySelfElimination = this.pendingTerritorySelfElimination;
+      const wasLineRewardElimination = this.pendingLineRewardElimination;
+
       this.pendingTerritorySelfElimination = false;
+      this.pendingLineRewardElimination = false;
 
       if (!move.to) {
         return;
@@ -1477,11 +1556,31 @@ export class GameEngine {
       // ring accounting and S-invariant behaviour.
       this.eliminateFromStack(stack, playerNumber);
 
-      // After an explicit elimination decision, treat this as the final
-      // step of the current territory_processing phase and advance the
-      // turn using the normal turn engine.
-      this.advanceGame();
-      this.stepAutomaticPhasesForTesting();
+      // After an explicit elimination decision, determine which phase to
+      // return to based on the origin of the elimination requirement.
+      if (wasLineRewardElimination) {
+        // Line reward elimination complete; check if more lines remain
+        // for this player before leaving line_processing.
+        const remainingLines = this.boardManager
+          .findAllLines(this.gameState.board)
+          .filter((line) => line.player === playerNumber);
+
+        if (remainingLines.length > 0) {
+          this.gameState.currentPhase = 'line_processing';
+        } else {
+          this.gameState.currentPhase = 'territory_processing';
+        }
+      } else if (wasTerritorySelfElimination) {
+        // Territory self-elimination complete; advance the turn using the
+        // normal turn engine so the next player's phase is computed.
+        this.advanceGame();
+        this.stepAutomaticPhasesForTesting();
+      } else {
+        // Defensive fallback: if no pending flag was set, treat this as
+        // a standalone elimination and advance the game normally.
+        this.advanceGame();
+        this.stepAutomaticPhasesForTesting();
+      }
     }
   }
 
@@ -1623,7 +1722,7 @@ export class GameEngine {
    * Eliminate one ring or cap from player's controlled stacks
    * Rule Reference: Section 11.2 - Moving player chooses which ring/stack cap to eliminate
    */
-  private eliminatePlayerRingOrCap(player: number): void {
+  private eliminatePlayerRingOrCap(player: number, stackPosition?: Position): void {
     const playerStacks = this.boardManager.getPlayerStacks(this.gameState.board, player);
 
     if (playerStacks.length === 0) {
@@ -1644,6 +1743,16 @@ export class GameEngine {
         this.updatePlayerEliminatedRings(player, 1);
       }
       return;
+    }
+
+    // If a specific stack position is provided, try to find and use it
+    if (stackPosition) {
+      const targetKey = positionToString(stackPosition);
+      const targetStack = playerStacks.find((s) => positionToString(s.position) === targetKey);
+      if (targetStack) {
+        this.eliminateFromStack(targetStack, player);
+        return;
+      }
     }
 
     // Default behaviour: eliminate from first stack
@@ -1984,8 +2093,8 @@ export class GameEngine {
     };
 
     const hooks: TurnEngineHooks = {
-      eliminatePlayerRingOrCap: (playerNumber: number) => {
-        this.eliminatePlayerRingOrCap(playerNumber);
+      eliminatePlayerRingOrCap: (playerNumber: number, stackPosition?: Position) => {
+        this.eliminatePlayerRingOrCap(playerNumber, stackPosition);
       },
       endGame: (winner?: number, reason?: string) => this.endGame(winner, reason),
     };
@@ -2015,14 +2124,17 @@ export class GameEngine {
       console.log(`[GameEngine] advanceGame: mustMove is ${this.mustMoveFromStackKey}`);
     }
 
-    // Whenever we leave the territory_processing phase for the current
-    // player, clear any pending self-elimination flag so the next
-    // interactive turn starts with a clean slate.
+    // Whenever we leave the territory_processing or line_processing phases
+    // for the current player, clear any pending self-elimination flags so
+    // the next interactive turn starts with a clean slate.
     if (
       previousPhase === 'territory_processing' &&
       this.gameState.currentPhase !== 'territory_processing'
     ) {
       this.pendingTerritorySelfElimination = false;
+    }
+    if (previousPhase === 'line_processing' && this.gameState.currentPhase !== 'line_processing') {
+      this.pendingLineRewardElimination = false;
     }
   }
 
@@ -2172,7 +2284,7 @@ export class GameEngine {
     for (const stack of playerStacks) {
       if (stack.capHeight > 0) {
         // Found a stack with a cap, eliminate it
-        this.eliminatePlayerRingOrCap(playerNumber);
+        this.eliminatePlayerRingOrCap(playerNumber, stack.position);
         return;
       }
     }
@@ -2477,7 +2589,28 @@ export class GameEngine {
     // processing. This keeps the unified Move/GamePhase model complete even
     // though these phases are still usually resolved internally.
     if (this.gameState.currentPhase === 'line_processing') {
-      return this.getValidLineProcessingMoves(playerNumber);
+      const lineMoves = this.getValidLineProcessingMoves(playerNumber);
+
+      // In move-driven mode, when a line reward elimination is pending
+      // (exact-length line or Option 1 for overlength), surface explicit
+      // eliminate_rings_from_stack Moves instead of process_line decisions.
+      if (this.useMoveDrivenDecisionPhases && this.pendingLineRewardElimination) {
+        // Use the same elimination Move enumeration as territory processing
+        // but within the line_processing phase context.
+        const tempState: GameState = {
+          ...this.gameState,
+          currentPlayer: playerNumber,
+          currentPhase: 'territory_processing', // Borrow territory phase for elimination logic
+        };
+
+        const eliminationMoves = this.ruleEngine
+          .getValidMoves(tempState)
+          .filter((m) => m.type === 'eliminate_rings_from_stack');
+
+        return eliminationMoves;
+      }
+
+      return lineMoves;
     }
 
     if (this.gameState.currentPhase === 'territory_processing') {

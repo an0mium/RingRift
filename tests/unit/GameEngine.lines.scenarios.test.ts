@@ -65,7 +65,7 @@ describe('GameEngine line formation scenarios (square8)', () => {
     gameState: GameState,
     playerNumber: number,
     height: number,
-    position: Position,
+    position: Position
   ) {
     const rings = Array(height).fill(playerNumber);
     const stack = {
@@ -275,12 +275,24 @@ describe('GameEngine line formation scenarios (square8)', () => {
     expect(processLineMoves).toHaveLength(2);
     expect(processLineMoves.every((m) => m.player === 1)).toBe(true);
 
-    // One choose_line_reward move for the single overlength line.
-    expect(rewardMoves).toHaveLength(1);
-    expect(rewardMoves[0].player).toBe(1);
+    // Two choose_line_reward moves for the single overlength line:
+    // - Option 1: collapse all markers and eliminate (no collapsedMarkers specified)
+    // - Option 2: minimum collapse only (collapsedMarkers length === requiredLength)
+    expect(rewardMoves).toHaveLength(2);
+    expect(rewardMoves.every((m) => m.player === 1)).toBe(true);
 
-    // The reward move id should embed the overlength line key so tests and
-    // tooling can associate it back to a concrete line.
+    const minReward = rewardMoves.find(
+      (m) => m.collapsedMarkers && m.collapsedMarkers.length === requiredLength
+    );
+    const allReward = rewardMoves.find(
+      (m) => !m.collapsedMarkers || m.collapsedMarkers.length === overlengthLine.length
+    );
+
+    expect(minReward).toBeDefined();
+    expect(allReward).toBeDefined();
+
+    // The reward move ids should embed the overlength line key so tests and
+    // tooling can associate them back to a concrete line.
     const overlengthKey = overlengthLine.map((p) => positionToString(p)).join('|');
     const rewardIds = rewardMoves.map((m) => m.id);
     expect(rewardIds.some((id) => id.includes(overlengthKey))).toBe(true);

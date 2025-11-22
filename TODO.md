@@ -321,6 +321,14 @@ Planned work:
 - [ ] Surface basic metrics in the existing Prometheus/Grafana stack
       defined in [`docker-compose.yml`](docker-compose.yml).
 
+### P2.3 – AI Wiring & Determinism (New)
+
+- [ ] **Wire up MinimaxAI:** Update `_create_ai_instance` in `ai-service/app/main.py` to instantiate `MinimaxAI` for mid-high difficulties instead of falling back to `HeuristicAI`.
+- [ ] **Fix RNG Determinism:**
+  - [ ] Replace global `random` usage in Python AI with per-game seeded RNG instances.
+  - [ ] Update `ZobristHash` to use a stable, seeded RNG instead of global `random.seed(42)`.
+  - [ ] Pass RNG seeds from TS backend to Python service in `/ai/move` requests.
+
 ## Cross-Cutting – Documentation & CI
 
 - [ ] Keep the following docs synchronized whenever behaviour changes:

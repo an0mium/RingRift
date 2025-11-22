@@ -128,10 +128,19 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
         return selected;
       }
     } catch (error) {
-      // Ignore and fall back to heuristic behaviour.
-      console.warn('AI Service unavailable for line_reward_option, falling back to heuristic', {
-        error,
-      });
+      // Service is unavailable or misconfigured for this player. Log a
+      // structured warning and fall back to the local heuristic; this is
+      // treated as a degraded AI mode for non-move decisions.
+      logger.warn(
+        'AI service unavailable for line_reward_option; falling back to local heuristic',
+        {
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+          choiceType: choice.type,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
     }
 
     const hasOption2 = choice.options.includes('option_2_min_collapse_no_elimination');
@@ -179,9 +188,14 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
         return selected;
       }
     } catch (error) {
-      // Ignore and fall back to heuristic behaviour.
-      console.warn('AI Service unavailable for ring_elimination, falling back to heuristic', {
-        error,
+      // Service is unavailable or misconfigured for this player. Log a
+      // structured warning and fall back to the local heuristic.
+      logger.warn('AI service unavailable for ring_elimination; falling back to local heuristic', {
+        gameId: choice.gameId,
+        playerNumber: choice.playerNumber,
+        choiceId: choice.id,
+        choiceType: choice.type,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
 
@@ -237,8 +251,15 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
         return selected;
       }
     } catch (error) {
-      // Ignore and fall back to heuristic behaviour.
-      console.warn('AI Service unavailable for region_order, falling back to heuristic', { error });
+      // Service is unavailable or misconfigured for this player. Log a
+      // structured warning and fall back to the local heuristic.
+      logger.warn('AI service unavailable for region_order; falling back to local heuristic', {
+        gameId: choice.gameId,
+        playerNumber: choice.playerNumber,
+        choiceId: choice.id,
+        choiceType: choice.type,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     let best = choice.options[0];

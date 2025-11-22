@@ -28,7 +28,7 @@ export interface PerTurnState {
  * concrete class shape.
  */
 export interface TurnEngineHooks {
-  eliminatePlayerRingOrCap: (playerNumber: number) => void;
+  eliminatePlayerRingOrCap: (playerNumber: number, stackPosition?: Position) => void;
   endGame: (winner?: number, reason?: string) => { success: boolean; gameResult: GameResult };
 }
 
@@ -428,25 +428,31 @@ function processForcedElimination(
     return;
   }
 
-  // TODO: In full implementation, player should choose which stack.
-  // For now, eliminate from the first stack that exposes a capHeight
-  // greater than zero. In test scenarios and simplified fixtures where
-  // capHeight is omitted, fall back to eliminating from the first
-  // available stack so that the presence of any material is enough to
-  // trigger forced elimination semantics.
+  // Auto-execute elimination: Select the best stack to eliminate.
+  // Strategy:
+  // 1. Prefer stacks with capHeight > 0 (actual caps).
+  // 2. Among those, prefer the one with the SMALLEST capHeight to minimize loss.
+  // 3. If no caps (e.g. test fixtures), pick the first available stack.
+
+  let bestStack = playerStacks[0];
+  let minCapHeight = Infinity;
+
   for (const stack of playerStacks) {
-    if (typeof (stack as any).capHeight === 'number' && (stack as any).capHeight > 0) {
-      hooks.eliminatePlayerRingOrCap(playerNumber);
-      return;
+    const capHeight = (stack as any).capHeight;
+    if (typeof capHeight === 'number' && capHeight > 0) {
+      if (capHeight < minCapHeight) {
+        minCapHeight = capHeight;
+        bestStack = stack;
+      }
     }
   }
 
-  // Fallback: if we reached this point, there are stacks but none
-  // advertise a positive capHeight (e.g. lightweight test fixtures).
-  // Still perform a single forced elimination event for this player.
-  hooks.eliminatePlayerRingOrCap(playerNumber);
-}
+  // If we found a stack with a cap, bestStack is the one with the smallest cap.
+  // If we didn't find any (minCapHeight is still Infinity), bestStack remains the first stack.
+  // This handles both real game scenarios and simplified test fixtures.
 
+  hooks.eliminatePlayerRingOrCap(playerNumber, bestStack.position);
+}
 
 /**
  * Advance to the next player in turn order.

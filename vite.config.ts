@@ -26,6 +26,14 @@ export default defineConfig({
       },
     },
   },
+  define: {
+    'process.env': Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([key, value]) =>
+          (key === 'NODE_ENV' || key.startsWith('RINGRIFT_')) && typeof value === 'string'
+      )
+    ),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

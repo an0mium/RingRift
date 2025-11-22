@@ -4,7 +4,6 @@ Uses Monte Carlo Tree Search for move selection
 """
 
 from typing import Optional, Dict
-import random
 import math
 import time
 
@@ -149,7 +148,7 @@ class MCTSAI(HeuristicAI):
 
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
-            selected = random.choice(valid_moves)
+            selected = self.get_random_element(valid_moves)
             # Create a simple policy for random move
             policy = {
                 str(m): (1.0 if m == selected else 0.0) for m in valid_moves
@@ -214,7 +213,7 @@ class MCTSAI(HeuristicAI):
 
                     # Expansion
                     if node.untried_moves:
-                        m = random.choice(node.untried_moves)
+                        m = self.get_random_element(node.untried_moves)
                         state = self.rules_engine.apply_move(state, m)
 
                         # Get prior from parent's policy if available
@@ -333,7 +332,7 @@ class MCTSAI(HeuristicAI):
                                     w = 1.5
                                 weights.append(w)
 
-                            selected_move = random.choices(
+                            selected_move = self.rng.choices(
                                 moves,
                                 weights=weights,
                                 k=1,
@@ -379,7 +378,7 @@ class MCTSAI(HeuristicAI):
                 self.last_root = best_child
                 self.last_root.parent = None  # Detach to allow GC of old tree
             else:
-                selected = random.choice(valid_moves)
+                selected = self.get_random_element(valid_moves)
                 policy = {
                     str(m): (1.0 if m == selected else 0.0)
                     for m in valid_moves

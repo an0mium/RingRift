@@ -13,6 +13,29 @@ export interface RulesResult {
 }
 
 /**
+ * Lightweight diagnostics for Python rules engine usage. These counters are
+ * incremented when Python evaluation fails (transport/runtime), when the
+ * backend falls back to the TS GameEngine in python mode, and when shadow
+ * evaluation encounters errors. Game/session layers can aggregate these
+ * values to detect rules-service degradation.
+ */
+export interface RulesDiagnostics {
+  /** Number of Python /rules/evaluate_move calls that threw or failed. */
+  pythonEvalFailures: number;
+  /**
+   * Number of times we fell back to the TS GameEngine as a result of a
+   * Python evaluation failure while running in python mode.
+   */
+  pythonBackendFallbacks: number;
+  /**
+   * Number of shadow-evaluation errors encountered while calling Python
+   * in ts or shadow modes. These do not affect authoritative TS rules
+   * behaviour but indicate that parity checks are degraded.
+   */
+  pythonShadowErrors: number;
+}
+
+/**
  * RulesBackendFacade
  *
  * Single entry point for applying moves through the backend rules engine.
@@ -29,6 +52,12 @@ export interface RulesResult {
  *         Python-authoritative implementation.
  */
 export class RulesBackendFacade {
+  private diagnostics: RulesDiagnostics = {
+    pythonEvalFailures: 0,
+    pythonBackendFallbacks: 0,
+    pythonShadowErrors: 0,
+  };
+
   constructor(
     private readonly engine: GameEngine,
     private readonly pythonClient: PythonRulesClient
@@ -141,7 +170,11 @@ export class RulesBackendFacade {
       } catch (err) {
         // On Python transport/runtime failures in python mode, fall back to
         // the TS GameEngine but emit a backend_fallback parity log so
-        // operators can track the error rate.
+        // operators can track the error rate. We also increment diagnostics
+        // so game/session layers can detect rules-service degradation.
+        this.diagnostics.pythonEvalFailures += 1;
+        this.diagnostics.pythonBackendFallbacks += 1;
+
         logRulesMismatch('backend_fallback', {
           note: 'RINGRIFT_RULES_MODE=python: Python rules evaluation failed; falling back to TS GameEngine',
           error: err instanceof Error ? err.message : String(err),
@@ -157,6 +190,7 @@ export class RulesBackendFacade {
 
     if (isRulesShadowMode()) {
       this.runPythonShadow(beforeState, move as Move, tsResult).catch((err) => {
+        this.diagnostics.pythonShadowErrors += 1;
         logRulesMismatch('shadow_error', { error: String(err) });
       });
     }
@@ -205,6 +239,9 @@ export class RulesBackendFacade {
 
         return tsResult;
       } catch (err) {
+        this.diagnostics.pythonEvalFailures += 1;
+        this.diagnostics.pythonBackendFallbacks += 1;
+
         logRulesMismatch('backend_fallback', {
           note: 'RINGRIFT_RULES_MODE=python: Python rules evaluation failed in applyMoveById; falling back to TS GameEngine',
           error: err instanceof Error ? err.message : String(err),
@@ -222,6 +259,7 @@ export class RulesBackendFacade {
 
       if (lastMove) {
         this.runPythonShadow(beforeState, lastMove, tsResult).catch((err) => {
+          this.diagnostics.pythonShadowErrors += 1;
           logRulesMismatch('shadow_error', { error: String(err) });
         });
       }
@@ -249,6 +287,15 @@ export class RulesBackendFacade {
   ): Promise<void> {
     const py = await this.pythonClient.evaluateMove(tsBefore, move);
     this.compareTsAndPython(tsResult, py);
+  }
+
+  /**
+   * Expose a snapshot of Python-rules diagnostics for observability and
+   * tests. The returned object is a shallow clone to prevent external
+   * mutation of internal counters.
+   */
+  getDiagnostics(): RulesDiagnostics {
+    return { ...this.diagnostics };
   }
 
   /**

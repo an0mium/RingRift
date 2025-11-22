@@ -654,12 +654,12 @@ export interface LineOrderChoice extends PlayerChoiceBase {
     lineId: string;
     markerPositions: Position[];
     /**
-     * Optional identifier of the canonical 'process_line' Move that this
-     * option corresponds to. When present, engines and AI clients can
-     * treat this choice as "select Move with id === moveId" rather than
-     * relying on implicit index/position matching.
+     * Stable identifier of the canonical 'process_line' Move that this
+     * option corresponds to. Engines and AI clients must treat this choice
+     * as "select Move with id === moveId" to ensure decisions are applied
+     * only via canonical Moves.
      */
-    moveId?: string;
+    moveId: string;
   }>;
 }
 
@@ -683,12 +683,12 @@ export interface RingEliminationChoice extends PlayerChoiceBase {
     capHeight: number;
     totalHeight: number;
     /**
-     * Optional identifier of the canonical 'eliminate_rings_from_stack'
-     * Move that this option corresponds to. When present, engines and AI
-     * clients can treat this choice as "select Move with id === moveId"
-     * rather than re-deriving the target solely from the geometry.
+     * Stable identifier of the canonical 'eliminate_rings_from_stack'
+     * Move that this option corresponds to. Engines and AI clients must
+     * treat this choice as "select Move with id === moveId" to ensure
+     * decisions are applied only via canonical Moves.
      */
-    moveId?: string;
+    moveId: string;
   }>;
 }
 
@@ -699,12 +699,12 @@ export interface RegionOrderChoice extends PlayerChoiceBase {
     size: number;
     representativePosition: Position;
     /**
-     * Optional identifier of the canonical 'process_territory_region' Move
-     * that this option corresponds to. When present, engines and AI clients
-     * can treat this choice as "select Move with id === moveId" rather than
-     * relying solely on implicit regionId/position matching.
+     * Stable identifier of the canonical 'process_territory_region' Move
+     * that this option corresponds to. Engines and AI clients must treat
+     * this choice as "select Move with id === moveId" to ensure decisions
+     * are applied only via canonical Moves.
      */
-    moveId?: string;
+    moveId: string;
   }>;
 }
 

@@ -75,28 +75,41 @@ A reasonable label for the current state is: **engine/AI-focused beta suitable f
 ### 3. AI Integration
 
 - **Python AI Service** (`ai-service/`)
-  - FastAPI service with Random and Heuristic AI implementations.
+  - FastAPI service with Random, Heuristic, Minimax, and MCTS AI implementations.
   - Endpoints for move selection and position evaluation.
+  - Difficulty-based AI type mapping (1-2: Random, 3-5: Heuristic, 6-8: Minimax, 9-10: MCTS).
 - **TypeScript Boundary**
   - `AIServiceClient` and `AIEngine`/`globalAIEngine`.
   - `RulesBackendFacade` mediates between TS engine and Python service, supporting `shadow` and `python` (authoritative) modes.
   - Service-backed move selection and several PlayerChoices (`line_reward_option`, `ring_elimination`, `region_order`) with tested fallbacks to local heuristics.
+  - Full AIProfile support with difficulty (1-10), mode (service/local_heuristic), and aiType overrides.
+- **Game Creation with AI**
+  - Backend API supports creating games with AI opponents via `aiOpponents` configuration.
+  - AI games auto-start immediately without waiting for additional human players.
+  - AI games are unrated by default (configurable).
+  - GameSession automatically initializes AI players and triggers AI turn loop.
 - **Integration Tests**
   - `FullGameFlow` integration test acts as a regression harness for the unified chain-capture / Move model and the S‑invariant.
+  - AI turn execution tested through GameSession and WebSocketServer integration tests.
 
 ### 4. Frontend Client
 
 - **LobbyPage**
   - Lists available games via `/games/lobby/available`.
-  - Allows creating games with board type, maxPlayers, rated/private flags, time control, and AI configuration.
+  - Allows creating games with board type, maxPlayers, rated/private flags, time control, and **AI configuration**.
+  - AI opponent controls: count (0-3), difficulty (1-10), mode (service/local_heuristic), AI type override.
+  - Clear UI feedback for AI difficulty levels (Beginner/Intermediate/Advanced/Expert).
 - **GamePage (Backend Mode)**
   - Connects via GameContext to WebSocket, receives `game_state` and `game_over`.
   - Renders `BoardView` for 8×8, 19×19, and hex boards.
   - Uses backend-provided `validMoves` for click‑to‑move.
   - Uses `ChoiceDialog` to render server-driven PlayerChoices.
   - Uses `VictoryModal` to show `gameResult` on `game_over`.
+  - **AI opponent display**: Shows AI indicator badges and difficulty labels in game header.
 - **GameHUD**
   - Displays current player, phase, and per-player ring/territory statistics.
+  - **AI thinking indicators**: Animated dots when AI is making moves.
+  - **AI difficulty badges**: Color-coded difficulty and AI type labels for each AI player.
 - **Local Sandbox (`/sandbox`)**
   - `ClientSandboxEngine` + sandbox modules implement a fully local rules‑complete engine.
   - Supports mixed human/AI games with unified "place then move" turn semantics.

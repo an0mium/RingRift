@@ -18,7 +18,9 @@ import {
   AIProfile,
   BOARD_CONFIGS,
   TimeControl,
+  GameResult,
 } from '../../shared/types/game';
+import { hashGameState } from '../../shared/engine/core';
 
 export class GameSession {
   public readonly gameId: string;
@@ -29,6 +31,17 @@ export class GameSession {
   private wsHandler!: WebSocketInteractionHandler;
   private pythonRulesClient: PythonRulesClient;
   private userSockets: Map<string, string>; // userId -> socketId
+
+  /**
+   * Per-game view of AI/rules degraded-mode diagnostics. These counters are
+   * derived from AIEngine and RulesBackendFacade diagnostics and are used for
+   * observability and tests.
+   */
+  private aiQualityMode: 'normal' | 'fallbackLocalAI' | 'rulesServiceDegraded' = 'normal';
+  private aiServiceFailureCount = 0;
+  private aiFallbackMoveCount = 0;
+  private rulesServiceFailureCount = 0;
+  private rulesShadowErrorCount = 0;
 
   constructor(
     gameId: string,
@@ -354,6 +367,9 @@ export class GameSession {
 
     await this.persistMove(socket.userId, moveData, result);
     await this.broadcastUpdate(result);
+    // Refresh degraded-mode diagnostics after a successful human move so
+    // rules-service failures (in python or shadow modes) are visible.
+    this.updateDiagnostics(player.playerNumber);
     await this.maybePerformAITurn();
   }
 
@@ -402,6 +418,9 @@ export class GameSession {
     }
 
     await this.broadcastUpdate(result);
+    // Refresh degraded-mode diagnostics after a successful human move
+    // selected by id so rules-service failures are visible.
+    this.updateDiagnostics(player.playerNumber);
     await this.maybePerformAITurn();
   }
 
@@ -493,11 +512,13 @@ export class GameSession {
 
   private async maybePerformAITurn(): Promise<void> {
     try {
-      const state = this.gameEngine.getGameState();
-      if (state.gameStatus !== 'active') return;
+      const initialState = this.gameEngine.getGameState();
+      if (initialState.gameStatus !== 'active') return;
 
-      const currentPlayerNumber = state.currentPlayer;
-      const currentPlayer = state.players.find((p) => p.playerNumber === currentPlayerNumber);
+      const currentPlayerNumber = initialState.currentPlayer;
+      const currentPlayer = initialState.players.find(
+        (p) => p.playerNumber === currentPlayerNumber
+      );
 
       if (!currentPlayer || currentPlayer.type !== 'ai') return;
 
@@ -508,26 +529,30 @@ export class GameSession {
         aiConfig = globalAIEngine.getAIConfig(currentPlayerNumber);
       }
 
-      let result: { success: boolean; error?: string; gameState?: GameState; gameResult?: any };
       let appliedMoveType: Move['type'] | undefined;
 
+      // Non-move decision phases (line/territory processing) always use
+      // local heuristics and should only emit already-valid moves from
+      // GameEngine.getValidMoves.
       if (
-        state.currentPhase === 'line_processing' ||
-        state.currentPhase === 'territory_processing'
+        initialState.currentPhase === 'line_processing' ||
+        initialState.currentPhase === 'territory_processing'
       ) {
         const allCandidates = this.gameEngine.getValidMoves(currentPlayerNumber);
         const decisionCandidates = allCandidates.filter((m) => {
-          if (state.currentPhase === 'line_processing') {
+          if (initialState.currentPhase === 'line_processing') {
             return m.type === 'process_line' || m.type === 'choose_line_reward';
           }
           return m.type === 'process_territory_region' || m.type === 'eliminate_rings_from_stack';
         });
 
-        if (decisionCandidates.length === 0) return;
+        if (decisionCandidates.length === 0) {
+          return;
+        }
 
         const selected = globalAIEngine.chooseLocalMoveFromCandidates(
           currentPlayerNumber,
-          state,
+          initialState,
           decisionCandidates
         );
 
@@ -537,90 +562,300 @@ export class GameSession {
         const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
         appliedMoveType = engineMove.type;
 
-        result = await this.rulesFacade.applyMove(engineMove);
-      } else {
-        const aiMove = await globalAIEngine.getAIMove(currentPlayerNumber, state);
-        if (!aiMove) return;
+        const result = await this.rulesFacade.applyMove(engineMove);
+        await this.handleAIMoveResult(result, currentPlayerNumber, appliedMoveType);
+        return;
+      }
+
+      // Move-generating AI path (Python service first, then local fallback).
+      const MAX_SERVICE_RETRIES = 2;
+      let stateForAI = initialState;
+      let lastError: string | undefined;
+
+      for (let attempt = 0; attempt <= MAX_SERVICE_RETRIES; attempt++) {
+        const aiMove = await globalAIEngine.getAIMove(currentPlayerNumber, stateForAI);
+        if (!aiMove) {
+          lastError =
+            lastError ?? 'AI service returned no move after retries (see earlier logs for details)';
+          break;
+        }
 
         const { id, timestamp, moveNumber, ...rest } = aiMove;
         const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
         appliedMoveType = engineMove.type;
 
-        result = await this.rulesFacade.applyMove(engineMove);
-      }
+        const result = await this.rulesFacade.applyMove(engineMove);
 
-      if (!result.success) {
-        logger.warn('Engine rejected AI move', {
+        if (result.success) {
+          await this.handleAIMoveResult(result, currentPlayerNumber, appliedMoveType);
+          return;
+        }
+
+        lastError = result.error ?? 'rules engine rejected AI service move';
+
+        logger.error('AI service move rejected by rules engine', {
           gameId: this.gameId,
           playerNumber: currentPlayerNumber,
+          moveType: engineMove.type,
           reason: result.error,
+          attempt,
+          stateHash: hashGameState(stateForAI),
+        });
+
+        // Re-acquire the latest game state before retrying the AI service.
+        stateForAI = this.gameEngine.getGameState();
+      }
+
+      // Local fallback heuristic when the AI service repeatedly fails.
+      const fallbackMove = globalAIEngine.getLocalFallbackMove(currentPlayerNumber, stateForAI);
+
+      if (fallbackMove) {
+        const { id, timestamp, moveNumber, ...rest } = fallbackMove as any;
+        const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
+        appliedMoveType = engineMove.type;
+
+        logger.warn('Using local fallback AI move after service failure', {
+          gameId: this.gameId,
+          playerNumber: currentPlayerNumber,
+          moveType: engineMove.type,
+          stateHash: hashGameState(stateForAI),
+        });
+
+        const result = await this.rulesFacade.applyMove(engineMove);
+        if (result.success) {
+          await this.handleAIMoveResult(result, currentPlayerNumber, appliedMoveType);
+          return;
+        }
+
+        logger.error('Local fallback AI move was rejected by rules engine', {
+          gameId: this.gameId,
+          playerNumber: currentPlayerNumber,
+          moveType: engineMove.type,
+          reason: result.error,
+          stateHash: hashGameState(this.gameEngine.getGameState()),
+        });
+
+        await this.handleAIFatalFailure(currentPlayerNumber, {
+          reason: result.error ?? 'Local fallback AI move rejected after AI service failures',
         });
         return;
       }
 
-      const updatedState = this.gameEngine.getGameState();
-      const prisma = getDatabaseClient();
-
-      if (prisma) {
-        try {
-          const aiUser = await getOrCreateAIUser();
-          const lastMove = updatedState.moveHistory[updatedState.moveHistory.length - 1];
-
-          if (lastMove) {
-            await prisma.move.create({
-              data: {
-                gameId: this.gameId,
-                playerId: aiUser.id,
-                moveNumber: lastMove.moveNumber,
-                position: JSON.stringify({ from: lastMove.from, to: lastMove.to }),
-                moveType: lastMove.type as any,
-                timestamp: lastMove.timestamp,
-              },
-            });
-          }
-
-          if (result.gameResult) {
-            const winnerPlayerNumber = result.gameResult.winner;
-            let winnerId: string | null = null;
-
-            if (winnerPlayerNumber !== undefined) {
-              const winnerPlayer = updatedState.players.find(
-                (p) => p.playerNumber === winnerPlayerNumber && p.type === 'human'
-              );
-              winnerId = winnerPlayer?.id ?? null;
-            }
-
-            await prisma.game.update({
-              where: { id: this.gameId },
-              data: {
-                status: 'completed' as any,
-                winnerId: winnerId ?? null,
-                endedAt: new Date(),
-                updatedAt: new Date(),
-              },
-            });
-          }
-        } catch (err) {
-          logger.error('Failed to persist AI move', {
-            gameId: this.gameId,
-            playerNumber: currentPlayerNumber,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-
-      await this.broadcastUpdate(result);
-
-      logger.info('AI move processed and applied', {
-        gameId: this.gameId,
-        playerNumber: currentPlayerNumber,
-        moveType: appliedMoveType,
+      // No valid local fallback move exists; abandon the game with a clear
+      // failure reason so that operators can investigate.
+      await this.handleAIFatalFailure(currentPlayerNumber, {
+        reason:
+          lastError ?? 'AI service produced no valid moves and local fallback had no candidates',
       });
     } catch (error) {
       logger.error('Error during AI turn', {
         gameId: this.gameId,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  private async handleAIMoveResult(
+    result: { success: boolean; error?: string; gameState?: GameState; gameResult?: any },
+    currentPlayerNumber: number,
+    appliedMoveType: Move['type'] | undefined
+  ): Promise<void> {
+    if (!result.success) {
+      logger.warn('Engine rejected AI move', {
+        gameId: this.gameId,
+        playerNumber: currentPlayerNumber,
+        reason: result.error,
+      });
+      return;
+    }
+
+    const updatedState = this.gameEngine.getGameState();
+    const prisma = getDatabaseClient();
+
+    if (prisma) {
+      try {
+        const aiUser = await getOrCreateAIUser();
+        const lastMove = updatedState.moveHistory[updatedState.moveHistory.length - 1];
+
+        if (lastMove) {
+          await prisma.move.create({
+            data: {
+              gameId: this.gameId,
+              playerId: aiUser.id,
+              moveNumber: lastMove.moveNumber,
+              position: JSON.stringify({ from: lastMove.from, to: lastMove.to }),
+              moveType: lastMove.type as any,
+              timestamp: lastMove.timestamp,
+            },
+          });
+        }
+
+        if (result.gameResult) {
+          const winnerPlayerNumber = result.gameResult.winner;
+          let winnerId: string | null = null;
+
+          if (winnerPlayerNumber !== undefined) {
+            const winnerPlayer = updatedState.players.find(
+              (p) => p.playerNumber === winnerPlayerNumber && p.type === 'human'
+            );
+            winnerId = winnerPlayer?.id ?? null;
+          }
+
+          await prisma.game.update({
+            where: { id: this.gameId },
+            data: {
+              status: 'completed' as any,
+              winnerId: winnerId ?? null,
+              endedAt: new Date(),
+              updatedAt: new Date(),
+            },
+          });
+        }
+      } catch (err) {
+        logger.error('Failed to persist AI move', {
+          gameId: this.gameId,
+          playerNumber: currentPlayerNumber,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    await this.broadcastUpdate(result);
+
+    // Refresh per-game diagnostics now that both AI and rules backends have
+    // had a chance to update their internal counters.
+    this.updateDiagnostics(currentPlayerNumber);
+
+    logger.info('AI move processed and applied', {
+      gameId: this.gameId,
+      playerNumber: currentPlayerNumber,
+      moveType: appliedMoveType,
+    });
+  }
+
+  private async handleAIFatalFailure(
+    currentPlayerNumber: number,
+    context: { reason: string }
+  ): Promise<void> {
+    const updatedState = this.gameEngine.getGameState();
+    const prisma = getDatabaseClient();
+
+    if (prisma) {
+      try {
+        await prisma.game.update({
+          where: { id: this.gameId },
+          data: {
+            status: 'completed' as any,
+            winnerId: null,
+            endedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      } catch (err) {
+        logger.error('Failed to mark game as completed after AI failure', {
+          gameId: this.gameId,
+          playerNumber: currentPlayerNumber,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Construct a minimal GameResult with an abandonment reason so that
+    // clients can surface a clear failure mode. We approximate final
+    // scores from the current GameState; this path is expected to be
+    // extremely rare and primarily diagnostic.
+    const ringsEliminated: { [playerNumber: number]: number } = {};
+    const territorySpaces: { [playerNumber: number]: number } = {};
+    const ringsRemaining: { [playerNumber: number]: number } = {};
+
+    for (const player of updatedState.players) {
+      const num = player.playerNumber;
+      ringsEliminated[num] = player.eliminatedRings;
+      territorySpaces[num] = player.territorySpaces;
+      ringsRemaining[num] = player.ringsInHand;
+    }
+
+    const gameResult: GameResult = {
+      reason: 'abandonment',
+      finalScore: {
+        ringsEliminated,
+        territorySpaces,
+        ringsRemaining,
+      },
+    };
+
+    this.io.to(this.gameId).emit('game_over', {
+      type: 'game_over',
+      data: {
+        gameId: this.gameId,
+        gameState: updatedState,
+        gameResult,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    // Ensure degraded-mode diagnostics reflect the fatal failure state.
+    this.updateDiagnostics(currentPlayerNumber);
+
+    logger.error('AI turn failed after service and local fallbacks; game abandoned', {
+      gameId: this.gameId,
+      playerNumber: currentPlayerNumber,
+      ...context,
+    });
+  }
+
+  /**
+   * Public accessor used by tests and observability tooling to inspect the
+   * per-game degraded-mode diagnostics without exposing the internal mutable
+   * fields directly.
+   */
+  public getAIDiagnosticsSnapshotForTesting(): {
+    aiQualityMode: 'normal' | 'fallbackLocalAI' | 'rulesServiceDegraded';
+    aiServiceFailureCount: number;
+    aiFallbackMoveCount: number;
+    rulesServiceFailureCount: number;
+    rulesShadowErrorCount: number;
+  } {
+    return {
+      aiQualityMode: this.aiQualityMode,
+      aiServiceFailureCount: this.aiServiceFailureCount,
+      aiFallbackMoveCount: this.aiFallbackMoveCount,
+      rulesServiceFailureCount: this.rulesServiceFailureCount,
+      rulesShadowErrorCount: this.rulesShadowErrorCount,
+    };
+  }
+
+  /**
+   * Internal helper: refresh this session's view of AI and rules degraded-mode
+   * diagnostics from the underlying AIEngine and RulesBackendFacade. The
+   * aiQualityMode flag is escalated based on the presence of local fallbacks
+   * and rules-service failures but is never downgraded within a session.
+   */
+  private updateDiagnostics(currentPlayerNumber?: number): void {
+    // Refresh rules diagnostics first; rules degradation is treated as
+    // strictly worse than local AI fallback for quality-mode purposes.
+    if (this.rulesFacade && (this.rulesFacade as any).getDiagnostics) {
+      const rulesDiag = this.rulesFacade.getDiagnostics();
+      const rulesFailures = rulesDiag.pythonEvalFailures + rulesDiag.pythonBackendFallbacks;
+
+      this.rulesServiceFailureCount = rulesFailures;
+      this.rulesShadowErrorCount = rulesDiag.pythonShadowErrors;
+
+      if (rulesFailures > 0) {
+        this.aiQualityMode = 'rulesServiceDegraded';
+      }
+    }
+
+    if (currentPlayerNumber !== undefined) {
+      const aiDiag = globalAIEngine.getDiagnostics(currentPlayerNumber);
+      if (aiDiag) {
+        this.aiServiceFailureCount = aiDiag.serviceFailureCount;
+        this.aiFallbackMoveCount = aiDiag.localFallbackCount;
+
+        if (this.aiQualityMode === 'normal' && this.aiFallbackMoveCount > 0) {
+          this.aiQualityMode = 'fallbackLocalAI';
+        }
+      }
     }
   }
 }

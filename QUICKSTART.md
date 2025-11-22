@@ -88,9 +88,27 @@ Once running, you should have:
 You can:
 
 - Register/login via the client (Auth routes: `/api/auth/*`).
-- Create games from the lobby (Game routes: `/api/games/*`).
+- Create games from the lobby (Game routes: `/api/games/*`), including games against AI opponents.
 - Join games and play via the board UI and WebSocket-backed `GamePage`.
 - Use `/sandbox` in the client to run a **client-local, rules-complete sandbox** (`ClientSandboxEngine`).
+
+### Playing Against AI
+
+The lobby UI now supports creating games with AI opponents:
+
+1. **Navigate to the Lobby**: Visit `/lobby` after logging in
+2. **Configure AI opponents**:
+   - Set "Number of AI opponents" (0-3)
+   - Choose AI difficulty (1-10):
+     - **1-2**: Beginner (RandomAI)
+     - **3-5**: Intermediate (HeuristicAI)
+     - **6-8**: Advanced (MinimaxAI)
+     - **9-10**: Expert (MCTSAI)
+   - Optionally override AI type and control mode
+3. **Create Game**: Games with AI opponents auto-start immediately
+4. **Play**: The AI will make moves automatically during its turns
+
+AI games are currently unrated. The AI thinking indicator shows when it's the AI's turn.
 
 To run tests while you work:
 

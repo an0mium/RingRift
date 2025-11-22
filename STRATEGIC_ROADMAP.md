@@ -1,7 +1,7 @@
 # RingRift Strategic Roadmap
 
 **Version:** 3.0
-**Last Updated:** November 21, 2025
+**Last Updated:** November 22, 2025
 **Status:** Engine/Rules Beta (Playable, not yet fully stable)
 **Philosophy:** Robustness, Parity, and Scale
 
@@ -128,57 +128,22 @@ list of tasks that roll up into these phases.
 
 ---
 
-## Recommended Next Steps (Prioritized)
+## 📋 Implementation Roadmap (Post-Audit)
 
-These are distilled from the code, the failing tests you just ran, and the existing roadmap, but phrased as concrete next actions.
+**P0: Rules Fidelity & Parity (Critical)**
 
-### Tier 1 – Rules Confidence & Engine Parity (P0)
+- **Fix Forced Elimination Divergence:** Resolve auto-select vs player choice discrepancies.
+- **Chain Capture Edge Cases:** Handle cyclic captures and reversals correctly.
+- **Unified Move Model:** Complete the refactor to the unified move model.
 
-1. **Finish P0.4 unified Move model rollout on the backend**
-   - Update or replace the remaining **CaptureDirection** tests to target the new `chain_capture` + `continue_capture_segment` API.
-   - Ensure `GameEngine.captureDirectionChoice.test.ts` and related integration tests use the new model.
+**P1: AI Robustness & Intelligence (High Value)**
 
-2. **Close sandbox vs backend semantic gaps**
-   - Focus on mismatches in `Sandbox_vs_Backend.aiHeuristicCoverage.test.ts` and `Backend_vs_Sandbox.aiParallelDebug.test.ts`.
-   - Fix underlying engine/sandbox discrepancies to ensure trace-based debugging is trustworthy.
+- **Wire Up Minimax/MCTS:** Uncomment and fix the AI factory to enable advanced strategies.
+- **Fix RNG Determinism:** Implement per-game seeding for reproducible AI behavior.
+- **AI Move Rejection Fallback:** Implement a tiered fallback system for invalid AI moves.
 
-3. **Get `FullGameFlow.test.ts` green**
-   - Ensure AI fallback games reach termination (ring-elimination or territory-control) without stalling.
+**P2: UX Polish & Multiplayer (User Experience)**
 
-### Tier 2 – Scenario Matrix & Explicit Rules Coverage (P0/P1)
-
-4. **Expand `RULES_SCENARIO_MATRIX.md` and scenario suites**
-   - Systematically cover FAQ and rules examples in Jest (complex chains, mixed line+territory, hex edge cases).
-   - Ensure each scenario is represented in the matrix and covered by backend/sandbox tests.
-
-5. **Align sandbox AI and backend Move semantics**
-   - Refactor `ClientSandboxEngine` to use canonical `Move` objects for all actions.
-   - Ensure `applyCanonicalMoveInternal` is the single path for state mutation.
-
-### Tier 3 – Multiplayer Lifecycle & UX (P1)
-
-6. **WebSocket lifecycle & reconnection polish**
-   - Tighten rejoin flows and spectator semantics.
-   - Add integration tests for `game_over` handling and socket cleanup.
-
-7. **HUD and GamePage UX**
-   - Enhance `GameHUD` with phase, ring counts, territory stats, and timers.
-   - Add a compact event log for moves and choices.
-
-### Tier 4 – AI Observability & Gradual Strengthening (P1–P2)
-
-8. **Add AI telemetry**
-   - Log call type, latency, and success/failure in `AIServiceClient`.
-   - Expose basic metrics via Prometheus/Grafana.
-
-9. **Targeted heuristic AI improvements**
-   - Apply small adjustments to `heuristic_ai.py` based on observed weaknesses.
-
-### Tier 5 – Persistence, Replays, and Stats (P2)
-
-10. **Lifecycle persistence and basic replays**
-    - Ensure DB game lifecycle is correct (`WAITING` → `ACTIVE` → `COMPLETED`).
-    - Add a move-history panel in the client.
-
-11. **Stats & leaderboards**
-    - Wire up ELO/ratings and simple leaderboards.
+- **HUD Improvements:** Add phase indicators, timers, and better state visualization.
+- **Victory Modal:** Wire up `game_over` events to the victory modal.
+- **Lobby Game List:** Display waiting games correctly in the lobby.

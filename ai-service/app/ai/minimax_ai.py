@@ -4,7 +4,6 @@ Uses minimax algorithm with alpha-beta pruning for move selection
 """
 
 from typing import Optional
-import random
 import time
 
 from .heuristic_ai import HeuristicAI
@@ -53,10 +52,10 @@ class MinimaxAI(HeuristicAI):
         
         if not valid_moves:
             return None
-            
+             
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
-            selected = random.choice(valid_moves)
+            selected = self.get_random_element(valid_moves)
         else:
             # Iterative Deepening
             self.start_time = time.time()

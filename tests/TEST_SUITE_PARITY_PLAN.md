@@ -274,3 +274,32 @@ By maintaining this file alongside `tests/README.md` and `RULES_SCENARIO_MATRIX.
 - Quickly see where to add a new case.
 - Decide whether a failing test indicates a **rules regression** or a **stale trace**.
 - Keep TS backend, client sandbox, and Python AI-service aligned with the shared rules engine and documented rules.
+
+## 7. Decision-surface Move model status (P0 Task 18)
+
+This section records, at a high level, which decision surfaces are currently driven end‑to‑end by the unified Move model and which still rely on legacy choice structures or ad‑hoc flows.
+
+### 7.1 Backend (server rules + game engine)
+
+- Movement, overtaking captures, and chain‑capture continuation are fully Move‑driven:
+  - Valid options are always exposed as concrete Moves (including continue‑chain variants) and applied via the same Move application pipeline as placements and normal movement.
+  - Chain‑capture tests in the RulesMatrix suites assert over these canonical Moves and resulting states.
+- Line and territory decisions are partially Move‑driven:
+  - Canonical Move variants exist for line processing, line‑reward selection, territory‑region processing, and elimination‑from‑stack, and are enumerated/validated by the backend rules engine.
+  - Some legacy decision paths still execute effects directly from PlayerChoice payloads (line order, line reward option, region order, ring‑elimination choices), even though each option is now annotated with a stable move identifier that can be mapped back to the canonical Move set.
+  - Target state for this task is that all such choices are re‑applied by resolving the chosen move identifier into a valid Move and feeding it through the same Move pipeline, leaving PlayerChoice as a thin UI/transport wrapper.
+
+### 7.2 Client sandbox engine
+
+- The sandbox maintains the shared GameState shape and records a structured history of canonical Moves; parity/debug paths already apply backend‑style Moves directly through a single canonical Move applier.
+- For human‑driven play, placement and movement/capture use local helpers and click handling, but their effects and history entries are aligned with the canonical Move model.
+- Line processing in the sandbox offers a canonical decision surface via Move enumeration and application helpers; current sandbox UX still auto‑selects lines and defaults line‑reward behaviour, rather than prompting the user to choose among explicit Moves.
+- Territory and elimination decisions have canonical enumeration and application helpers in the sandbox that mirror the backend decision Moves, but normal sandbox territory resolution still flows through RegionOrderChoice and related helpers for now, with the canonical Moves primarily exercised by parity and test harnesses.
+
+### 7.3 WebSocket and AI integration
+
+- Primary move selection (placement, movement, capture, chain capture) is Move‑driven for both humans and AI:
+  - The backend exposes valid Moves to clients and AI, and all accepted decisions are normalised into Moves before being applied.
+- Decision‑phase UX (line reward, region order, ring elimination, capture direction) still uses typed choice payloads as the transport surface:
+  - Each option is enriched with a corresponding canonical move identifier.
+  - Ongoing refactors aim to ensure those identifiers are always resolved back into concrete Moves and reapplied through the same Move validation and application code paths, so that the public decision surfaces are uniformly expressed in terms of Moves even when the transport shape still mentions PlayerChoice.
