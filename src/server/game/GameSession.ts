@@ -21,6 +21,7 @@ import {
   GameResult,
 } from '../../shared/types/game';
 import { hashGameState } from '../../shared/engine/core';
+import { SeededRNG, generateGameSeed } from '../../shared/utils/rng';
 
 export class GameSession {
   public readonly gameId: string;
@@ -31,6 +32,7 @@ export class GameSession {
   private wsHandler!: WebSocketInteractionHandler;
   private pythonRulesClient: PythonRulesClient;
   private userSockets: Map<string, string>; // userId -> socketId
+  private rng: SeededRNG; // Per-game RNG for deterministic AI behavior
 
   /**
    * Per-game view of AI/rules degraded-mode diagnostics. These counters are
@@ -53,6 +55,8 @@ export class GameSession {
     this.io = io;
     this.pythonRulesClient = pythonRulesClient;
     this.userSockets = userSockets;
+    // Initialize with a temporary seed; will be updated from gameState in initialize()
+    this.rng = new SeededRNG(generateGameSeed());
   }
 
   public async initialize(): Promise<void> {
@@ -180,6 +184,15 @@ export class GameSession {
     );
 
     this.interactionManager = new PlayerInteractionManager(delegatingHandler);
+
+    // Initialize RNG from game's seed (if available) or database rngSeed
+    const gameSeed = (game as any).rngSeed ?? generateGameSeed();
+    this.rng = new SeededRNG(gameSeed);
+
+    logger.info('GameSession RNG initialized', {
+      gameId: this.gameId,
+      seed: gameSeed,
+    });
 
     // Create game engine
     this.gameEngine = new GameEngine(
@@ -553,7 +566,8 @@ export class GameSession {
         const selected = globalAIEngine.chooseLocalMoveFromCandidates(
           currentPlayerNumber,
           initialState,
-          decisionCandidates
+          decisionCandidates,
+          () => this.rng.next()
         );
 
         if (!selected) return;
@@ -573,7 +587,9 @@ export class GameSession {
       let lastError: string | undefined;
 
       for (let attempt = 0; attempt <= MAX_SERVICE_RETRIES; attempt++) {
-        const aiMove = await globalAIEngine.getAIMove(currentPlayerNumber, stateForAI);
+        const aiMove = await globalAIEngine.getAIMove(currentPlayerNumber, stateForAI, () =>
+          this.rng.next()
+        );
         if (!aiMove) {
           lastError =
             lastError ?? 'AI service returned no move after retries (see earlier logs for details)';
@@ -607,7 +623,11 @@ export class GameSession {
       }
 
       // Local fallback heuristic when the AI service repeatedly fails.
-      const fallbackMove = globalAIEngine.getLocalFallbackMove(currentPlayerNumber, stateForAI);
+      const fallbackMove = globalAIEngine.getLocalFallbackMove(
+        currentPlayerNumber,
+        stateForAI,
+        () => this.rng.next()
+      );
 
       if (fallbackMove) {
         const { id, timestamp, moveNumber, ...rest } = fallbackMove as any;

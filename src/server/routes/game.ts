@@ -173,6 +173,7 @@ router.post(
         player1Id: userId,
         status: initialStatus,
         gameState: initialGameState as any,
+        rngSeed: gameData.seed, // Store seed in database if provided
         createdAt: new Date(),
         updatedAt: new Date(),
         ...(startedAt && { startedAt }),

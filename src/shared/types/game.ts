@@ -135,6 +135,8 @@ export interface CreateGameRequest {
   isPrivate: boolean;
   maxPlayers: number;
   aiOpponents?: AiOpponentsConfig;
+  /** Optional RNG seed for deterministic games; auto-generated if not provided */
+  seed?: number;
 }
 
 export interface AIProfile {
@@ -469,6 +471,8 @@ export interface TimeControl {
 export interface GameState {
   id: string;
   boardType: BoardType;
+  /** Per-game RNG seed for deterministic replay and testing */
+  rngSeed?: number;
   board: BoardState;
   players: Player[];
   currentPhase: GamePhase;

@@ -117,7 +117,87 @@ The Python `ai-service` exposes these tactical engines via the `AIType` enum, an
 
 - **Strengths:** ResNet-style CNN with adaptive pooling.
 - **Weaknesses:** Architecture mismatch with saved checkpoint. History handling in training pipeline is flawed (see below).
-- **RNG Determinism:** Uses global `random` module and `ZobristHash` reseeds globally, making per-game determinism difficult without process-level isolation.
+
+---
+
+## 5. RNG Determinism & Replay System
+
+### Overview
+
+RingRift implements comprehensive per-game RNG seeding to enable:
+
+- **Deterministic replay:** Same seed + same inputs = same outputs
+- **Cross-language parity:** TypeScript and Python produce identical sequences
+- **Debugging:** Reproducible AI behavior for troubleshooting
+- **Tournament validation:** Verify results by replaying games
+- **Testing:** Reliable parity tests between engines
+
+### Architecture
+
+**Per-Game Seeding:**
+
+- Each [`GameState`](src/shared/types/game.ts:469) contains an optional `rngSeed` field
+- Seeds are auto-generated during game creation if not explicitly provided
+- Database schema includes `rngSeed` for persistence and replay
+
+**TypeScript Implementation:**
+
+- [`SeededRNG`](src/shared/utils/rng.ts:11) class using xorshift128+ algorithm
+- Provides `next()`, `nextInt()`, `shuffle()`, and `choice()` methods
+- Used by [`GameSession`](src/server/game/GameSession.ts:35), [`AIEngine`](src/server/game/ai/AIEngine.ts:135), and [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts:128)
+
+**Python Implementation:**
+
+- Python's built-in `random.Random` class provides deterministic sequences
+- [`BaseAI`](ai-service/app/ai/base.py:16) initializes per-instance `self.rng` from `AIConfig.rngSeed`
+- All AI implementations (RandomAI, HeuristicAI, MinimaxAI, MCTSAI) use `self.rng` instead of global `random`
+
+**API Integration:**
+
+- [`AIServiceClient`](src/server/services/AIServiceClient.ts:106) propagates `gameState.rngSeed` to Python service
+- Python `/ai/move` endpoint accepts optional `seed` parameter
+- When seed is provided, creates per-request AI instance instead of caching
+
+### Determinism Guarantees
+
+**What is deterministic:**
+
+- AI move selection with same seed + same game state
+- Random tie-breaking in move evaluation
+- MCTS exploration with same seed
+- Line reward and territory processing choices
+
+**What is NOT deterministic:**
+
+- Network timing (latency, timeouts)
+- Wall-clock timestamps
+- Concurrent game execution order
+- User input timing
+
+### Testing
+
+**TypeScript Tests:**
+
+- [`RNGDeterminism.test.ts`](tests/unit/RNGDeterminism.test.ts:1): Core SeededRNG algorithm tests
+- AI parity tests verify sandbox and backend produce identical sequences
+
+**Python Tests:**
+
+- [`test_determinism.py`](ai-service/tests/test_determinism.py:1): AI determinism with seeded configs
+- Verify RandomAI, HeuristicAI produce identical moves with same seed
+
+### Known Limitations
+
+1. **Python Neural Network:** Some NN operations may use non-seeded GPU operations
+2. **External Services:** Network calls introduce non-determinism in timing
+3. **Process Isolation:** Python global state requires careful seed management
+
+### Migration & Backward Compatibility
+
+- **Existing games:** Migration sets `rngSeed` to NULL (games created before this feature)
+- **API:** `seed` parameter is optional in all requests
+- **Fallback:** Games without seed generate one automatically and log it for debugging
+- **No breaking changes:** All existing code paths continue to work
 
 ---
 

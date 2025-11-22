@@ -29,6 +29,7 @@ import {
   hashGameState,
 } from '../../shared/engine/core';
 import { LocalAIRng } from '../../shared/engine/localAIMoveSelection';
+import { SeededRNG, generateGameSeed } from '../../shared/utils/rng';
 import { findAllLinesOnBoard } from './sandboxLines';
 import { getValidLineProcessingMoves, applyLineDecisionMove } from './sandboxLinesEngine';
 import {
@@ -132,6 +133,9 @@ export class ClientSandboxEngine {
   // is currently reserved for future parity-specific behaviour and does
   // not alter normal sandbox rules or AI policy.
   private readonly traceMode: boolean;
+
+  // Per-game RNG for deterministic AI behavior
+  private rng: SeededRNG;
 
   // When non-null, the sandbox game has ended with this result.
   private victoryResult: GameResult | null = null;
@@ -277,6 +281,9 @@ export class ClientSandboxEngine {
     this.interactionHandler = interactionHandler;
     this.traceMode = traceMode ?? isSandboxAiTraceModeEnabled();
 
+    // Initialize with temporary seed; will be set from gameState if provided
+    this.rng = new SeededRNG(generateGameSeed());
+
     const board = this.createEmptyBoard(config.boardType);
     const players: Player[] = Array.from({ length: config.numPlayers }, (_, idx) => {
       const playerNumber = idx + 1;
@@ -298,9 +305,14 @@ export class ClientSandboxEngine {
     const now = new Date();
     const boardConfig = BOARD_CONFIGS[config.boardType];
 
+    // Generate seed for this sandbox game
+    const gameSeed = generateGameSeed();
+    this.rng = new SeededRNG(gameSeed);
+
     this.gameState = {
       id: 'sandbox-local',
       boardType: config.boardType,
+      rngSeed: gameSeed,
       board,
       players,
       currentPhase: 'ring_placement',
@@ -465,6 +477,9 @@ export class ClientSandboxEngine {
    * backend RuleEngine semantics (movement reachability + capture chains).
    */
   public async maybeRunAITurn(rng?: LocalAIRng): Promise<void> {
+    // Use provided RNG if given (for testing), otherwise use instance RNG
+    const effectiveRng = rng ?? (() => this.rng.next());
+
     const hooks: SandboxAIHooks = {
       getPlayerStacks: (playerNumber: number, board: BoardState) =>
         this.getPlayerStacks(playerNumber, board),
@@ -504,7 +519,7 @@ export class ClientSandboxEngine {
       applyCanonicalMove: (move: Move) => this.applyCanonicalMove(move),
     };
 
-    await maybeRunAITurnSandbox(hooks, rng ?? Math.random);
+    await maybeRunAITurnSandbox(hooks, effectiveRng);
   }
   /**
    * Get all valid landing positions for the current player from the given

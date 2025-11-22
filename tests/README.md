@@ -353,6 +353,7 @@ The `npm run test:ci` command is optimized for CI/CD pipelines:
 5. **Mock Carefully**: Only mock what's necessary for isolation
 6. **Clean Up**: Tests clean up automatically via `afterEach` hooks
 7. **Coverage**: Aim for 80%+ coverage on all metrics
+8. **Determinism**: Use explicit seeds for reproducible tests with AI or random behavior
 
 ## Debugging Tests
 
@@ -676,6 +677,123 @@ For a rule-centric view of test coverage, see:
 - `RULES_SCENARIO_MATRIX.md` – a living matrix mapping sections of `ringrift_complete_rules.md` and the FAQ to concrete Jest suites (backend engine, sandbox engine, WebSocket/choice flows, and AI boundary tests).
 
 When you add or modify scenario-style tests, update that matrix so it remains the single source of truth for how rules map to executable tests.
+
+## Writing Deterministic Tests
+
+### Using SeededRNG in Tests
+
+When writing tests that involve random behavior (AI moves, tie-breaking, shuffling), always use explicit seeds for reproducibility:
+
+```typescript
+import { SeededRNG } from '../../src/shared/utils/rng';
+
+describe('Deterministic AI Test', () => {
+  it('should produce same result with same seed', () => {
+    const seed = 42;
+    const rng1 = new SeededRNG(seed);
+    const rng2 = new SeededRNG(seed);
+
+    // Both should produce identical sequences
+    expect(rng1.next()).toBe(rng2.next());
+  });
+});
+```
+
+### Creating Games with Explicit Seeds
+
+```typescript
+import { createInitialGameState } from '../../src/shared/engine/initialState';
+
+const gameState = createInitialGameState(
+  gameId,
+  boardType,
+  players,
+  timeControl,
+  isRated,
+  42 // Explicit seed for determinism
+);
+```
+
+### Testing Sandbox AI with Seeds
+
+```typescript
+import { ClientSandboxEngine } from '../../src/client/sandbox/ClientSandboxEngine';
+import { SeededRNG } from '../../src/shared/utils/rng';
+
+const seed = 12345;
+const rng = new SeededRNG(seed);
+const engine = new ClientSandboxEngine({
+  config: { boardType: 'square8', numPlayers: 2, playerKinds: ['ai', 'ai'] },
+  interactionHandler: mockHandler,
+});
+
+// Use explicit RNG for deterministic AI behavior
+await engine.maybeRunAITurn(() => rng.next());
+```
+
+### Testing Backend AI with Seeds
+
+The backend `AIEngine` already accepts an optional RNG parameter:
+
+```typescript
+import { globalAIEngine } from '../../src/server/game/ai/AIEngine';
+import { SeededRNG } from '../../src/shared/utils/rng';
+
+const seed = 999;
+const rng = new SeededRNG(seed);
+
+const move = globalAIEngine.chooseLocalMoveFromCandidates(playerNumber, gameState, candidates, () =>
+  rng.next()
+);
+```
+
+### Cross-Engine Parity with Seeds
+
+When testing that backend and sandbox produce identical results:
+
+```typescript
+const seed = 42;
+const backendRng = new SeededRNG(seed);
+const sandboxRng = new SeededRNG(seed);
+
+// Backend move selection
+const backendMove = await backendAI.getMove(gameState, () => backendRng.next());
+
+// Sandbox move selection
+const sandboxMove = await sandboxEngine.maybeRunAITurn(() => sandboxRng.next());
+
+// Should select equivalent moves
+expect(backendMove.type).toBe(sandboxMove.type);
+expect(backendMove.to).toEqual(sandboxMove.to);
+```
+
+### Python AI Service Tests
+
+Python uses `random.Random(seed)` for deterministic sequences:
+
+```python
+import random
+from app.ai.random_ai import RandomAI
+from app.models import AIConfig
+
+config = AIConfig(difficulty=3, randomness=0.2, rngSeed=42)
+ai = RandomAI(player_number=2, config=config)
+
+# All random operations use ai.rng (seeded Random instance)
+move = ai.select_move(game_state)
+```
+
+### Guidelines for Deterministic Testing
+
+1. **Always use explicit seeds** in tests involving randomness
+2. **Document seed values** used in test descriptions
+3. **Avoid `Math.random()`** - use `SeededRNG` instances instead
+4. **Test both determinism and variation**:
+   - Same seed → same output
+   - Different seeds → different outputs (where applicable)
+5. **Use seeds for debugging** - when a test fails, the seed can reproduce the exact scenario
+
+---
 
 ## RNG hooks and AI parity tests
 

@@ -19,7 +19,9 @@ class TrainConfig:
     
     # Paths
     data_dir: str = "ai-service/app/training/data"
-    model_dir: str = "ai-service/app/models"
+    # Model directory is aligned with NeuralNetAI, which expects checkpoints
+    # under "<repo_root>/ai-service/models/<nn_model_id>.pth".
+    model_dir: str = "ai-service/models"
     log_dir: str = "ai-service/app/logs"
     
     def __post_init__(self):

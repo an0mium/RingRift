@@ -32,6 +32,7 @@ export interface MoveRequest {
   player_number: number;
   difficulty: number;
   ai_type?: AIType;
+  seed?: number;
 }
 
 export interface MoveResponse {
@@ -139,15 +140,20 @@ export class AIServiceClient {
     gameState: GameState,
     playerNumber: number,
     difficulty: number = 5,
-    aiType?: AIType
+    aiType?: AIType,
+    seed?: number
   ): Promise<MoveResponse> {
     const startTime = performance.now();
     try {
+      // Derive seed from gameState if not explicitly provided
+      const effectiveSeed = seed ?? gameState.rngSeed;
+
       const request: MoveRequest = {
         game_state: gameState,
         player_number: playerNumber,
         difficulty,
         ...(aiType && { ai_type: aiType }),
+        ...(effectiveSeed !== undefined && { seed: effectiveSeed }),
       };
 
       logger.info('Requesting AI move', {

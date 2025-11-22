@@ -1,5 +1,5 @@
-import { GameState } from './types';
-import { BoardType, TimeControl, Player, BOARD_CONFIGS } from '../types/game';
+import { GameState, BoardType, TimeControl, Player, BOARD_CONFIGS } from '../types/game';
+import { generateGameSeed } from '../utils/rng';
 
 /**
  * Creates a pristine initial GameState for a new game.
@@ -9,6 +9,7 @@ import { BoardType, TimeControl, Player, BOARD_CONFIGS } from '../types/game';
  * @param players - Array of players participating in the game
  * @param timeControl - Time control settings
  * @param isRated - Whether the game is rated (default: true)
+ * @param rngSeed - Optional RNG seed for deterministic games; auto-generated if not provided
  * @returns A new immutable GameState object
  */
 export function createInitialGameState(
@@ -16,7 +17,8 @@ export function createInitialGameState(
   boardType: BoardType,
   players: Player[],
   timeControl: TimeControl,
-  isRated: boolean = true
+  isRated: boolean = true,
+  rngSeed?: number
 ): GameState {
   const config = BOARD_CONFIGS[boardType];
 
@@ -50,12 +52,16 @@ export function createInitialGameState(
 
   return {
     id: gameId,
+    boardType,
+    rngSeed: rngSeed ?? generateGameSeed(),
     board,
     players: initializedPlayers,
     currentPhase: 'ring_placement',
     currentPlayer: 1,
     moveHistory: [],
+    history: [],
     gameStatus: 'waiting',
+    spectators: [],
     timeControl,
     createdAt: new Date(),
     lastMoveAt: new Date(),

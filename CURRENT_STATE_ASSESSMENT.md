@@ -149,8 +149,8 @@ A reasonable label for the current state is: **engine/AI-focused beta suitable f
 
 ### P1 – AI Depth and Observability
 
-- AI strength is limited to random + heuristic strategies (no deep search/ML yet).
-- Metrics and observability around AI latency/error/fallback usage are minimal.
+- AI strength is moderate: Random and Heuristic engines are stable and used across all difficulties, and Minimax/MCTS/Descent variants are wired through the canonical 1–10 difficulty ladder and covered by targeted tests. However, there is not yet a deployed ML-trained policy network or aggressive think-time budget tuning, so AI play is geared toward development/playtesting rather than strong competitive opponents.
+- Observability is primarily log-based: AI calls record latency, thinking time, evaluation scores, AI type, difficulty, and per-player service-failure/local-fallback counters, but there is no dedicated metrics pipeline or dashboard (e.g. Prometheus/Grafana) aggregating these signals across games/environments.
 
 ---
 

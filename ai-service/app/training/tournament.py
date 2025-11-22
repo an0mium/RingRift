@@ -22,18 +22,40 @@ logger = logging.getLogger(__name__)
 
 
 class Tournament:
-    def __init__(self, model_path_a: str, model_path_b: str, num_games: int = 20):
+    def __init__(
+        self,
+        model_path_a: str,
+        model_path_b: str,
+        num_games: int = 20,
+        k_elo: int = 32,
+    ):
         self.model_path_a = model_path_a
         self.model_path_b = model_path_b
         self.num_games = num_games
         self.results = {"A": 0, "B": 0, "Draw": 0}
+        # Simple Elo-like rating system for candidate (A) vs best (B).
+        self.k_elo = k_elo
+        self.ratings = {"A": 1500.0, "B": 1500.0}
         
     def _create_ai(self, player_number: int, model_path: str) -> DescentAI:
-        """Create an AI instance with specific model weights"""
-        config = AIConfig(difficulty=10, randomness=0.1, think_time=500)
+        """Create an AI instance with specific model weights.
+        
+        The checkpoint basename (without .pth) is treated as the nn_model_id so
+        that NeuralNetAI can load it via AIConfig.nn_model_id. We keep the
+        manual load as a fallback in case older DescentAI/NeuralNetAI versions
+        ignore nn_model_id.
+        """
+        model_id = os.path.splitext(os.path.basename(model_path))[0]
+        config = AIConfig(
+            difficulty=10,
+            randomness=0.1,
+            think_time=500,
+            rngSeed=None,
+            nn_model_id=model_id,
+        )
         ai = DescentAI(player_number, config)
 
-        # Manually load weights if neural net exists
+        # Fallback/manual load for robustness with legacy implementations.
         if ai.neural_net and os.path.exists(model_path):
             try:
                 ai.neural_net.model.load_state_dict(
@@ -47,7 +69,11 @@ class Tournament:
 
     def run(self) -> Dict[str, int]:
         """Run the tournament"""
-        logger.info(f"Starting tournament: {self.model_path_a} vs {self.model_path_b}")
+        logger.info(
+            "Starting tournament: %s vs %s",
+            self.model_path_a,
+            self.model_path_b,
+        )
         
         for i in range(self.num_games):
             # Alternate colors
@@ -69,14 +95,34 @@ class Tournament:
             
             if winner == 1:
                 self.results[p1_label] += 1
+                self._update_elo(p1_label)
             elif winner == 2:
                 self.results[p2_label] += 1
+                self._update_elo(p2_label)
             else:
                 self.results["Draw"] += 1
+                self._update_elo(None)
                 
-            logger.info(f"Game {i+1}/{self.num_games}: Winner {winner} ({p1_label if winner==1 else p2_label if winner==2 else 'Draw'})")
+            if winner == 1:
+                winner_label_str = p1_label
+            elif winner == 2:
+                winner_label_str = p2_label
+            else:
+                winner_label_str = "Draw"
+            logger.info(
+                "Game %d/%d: Winner %s (%s)",
+                i + 1,
+                self.num_games,
+                winner,
+                winner_label_str,
+            )
             
-        logger.info(f"Tournament finished. Results: {self.results}")
+        logger.info("Tournament finished. Results: %s", self.results)
+        logger.info(
+            "Final Elo ratings: A=%.1f, B=%.1f",
+            self.ratings["A"],
+            self.ratings["B"],
+        )
         return self.results
 
     def _play_game(self, ai1: DescentAI, ai2: DescentAI) -> Optional[int]:
@@ -102,6 +148,25 @@ class Tournament:
             
         return state.winner
 
+    def _update_elo(self, winner_label: Optional[str]) -> None:
+        """Update Elo-like ratings for candidate (A) and best (B)."""
+        ra = self.ratings["A"]
+        rb = self.ratings["B"]
+        # Expected scores
+        ea = 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
+        eb = 1.0 - ea
+
+        if winner_label == "A":
+            sa, sb = 1.0, 0.0
+        elif winner_label == "B":
+            sa, sb = 0.0, 1.0
+        else:
+            # Draw
+            sa = sb = 0.5
+
+        self.ratings["A"] = ra + self.k_elo * (sa - ea)
+        self.ratings["B"] = rb + self.k_elo * (sb - eb)
+
     def _create_initial_state(self) -> GameState:
         """Create initial game state"""
         # Simplified version of generate_data.create_initial_state
@@ -110,30 +175,49 @@ class Tournament:
         return GameState(
             id="tournament",
             boardType=BoardType.SQUARE8,
+            rngSeed=None,
             board=BoardState(
                 type=BoardType.SQUARE8,
                 size=size,
                 stacks={},
                 markers={},
                 collapsedSpaces={},
-                eliminatedRings={}
+                eliminatedRings={},
             ),
             players=[
                 Player(
-                    id="p1", username="AI 1", type="ai", playerNumber=1,
-                    isReady=True, timeRemaining=600, ringsInHand=rings,
-                    eliminatedRings=0, territorySpaces=0, aiDifficulty=10
+                    id="p1",
+                    username="AI 1",
+                    type="ai",
+                    playerNumber=1,
+                    isReady=True,
+                    timeRemaining=600,
+                    ringsInHand=rings,
+                    eliminatedRings=0,
+                    territorySpaces=0,
+                    aiDifficulty=10,
                 ),
                 Player(
-                    id="p2", username="AI 2", type="ai", playerNumber=2,
-                    isReady=True, timeRemaining=600, ringsInHand=rings,
-                    eliminatedRings=0, territorySpaces=0, aiDifficulty=10
-                )
+                    id="p2",
+                    username="AI 2",
+                    type="ai",
+                    playerNumber=2,
+                    isReady=True,
+                    timeRemaining=600,
+                    ringsInHand=rings,
+                    eliminatedRings=0,
+                    territorySpaces=0,
+                    aiDifficulty=10,
+                ),
             ],
             currentPhase=GamePhase.RING_PLACEMENT,
             currentPlayer=1,
             moveHistory=[],
-            timeControl=TimeControl(initialTime=600, increment=0, type="blitz"),
+            timeControl=TimeControl(
+                initialTime=600,
+                increment=0,
+                type="blitz",
+            ),
             gameStatus=GameStatus.ACTIVE,
             createdAt=datetime.now(),
             lastMoveAt=datetime.now(),
@@ -144,7 +228,8 @@ class Tournament:
             victoryThreshold=19,
             territoryVictoryThreshold=33,
             chainCaptureState=None,
-            mustMoveFromStackKey=None
+            mustMoveFromStackKey=None,
+            zobristHash=None,
         )
 
 

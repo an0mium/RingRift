@@ -65,6 +65,12 @@ class MoveRequest(BaseModel):
     player_number: int
     difficulty: int = Field(ge=1, le=10, default=5)
     ai_type: Optional[AIType] = None
+    seed: Optional[int] = Field(
+        None,
+        ge=0,
+        le=0x7FFFFFFF,
+        description="Optional RNG seed for deterministic AI behavior"
+    )
 
 
 class MoveResponse(BaseModel):
@@ -142,20 +148,17 @@ async def get_ai_move(request: MoveRequest):
         profile = _get_difficulty_profile(request.difficulty)
         ai_type = request.ai_type or profile["ai_type"]
         
-        # Get or create AI instance keyed by (type, difficulty, player).
-        ai_key = (
-            f"{ai_type.value}-{request.difficulty}-"
-            f"{request.player_number}"
-        )
+        # Derive seed from request or game state. When both are provided,
+        # prefer the explicit seed parameter for debugging/testing.
+        effective_seed: Optional[int] = request.seed
+        if effective_seed is None and hasattr(request.game_state, 'rng_seed'):
+            effective_seed = request.game_state.rng_seed
         
-        if ai_key not in ai_instances:
-            # Derive optional profile ids for heuristic weights and neural-net
-            # models from the canonical difficulty profile. These do not change
-            # the effective behaviour of the ladder today (all v1 heuristic
-            # profiles share the same weights and the NN id defaults to the
-            # existing ringrift_v1 checkpoint), but they allow training and
-            # tournament tooling to override weights/models in a controlled
-            # way.
+        # Get or create AI instance. When a seed is provided, we create a
+        # per-request instance instead of caching to ensure determinism.
+        # For unseeded requests, continue using the cached instances.
+        if effective_seed is not None:
+            # Per-request seeded AI instance (not cached)
             heuristic_profile_id: Optional[str] = None
             nn_model_id: Optional[str] = None
 
@@ -166,17 +169,44 @@ async def get_ai_move(request: MoveRequest):
                 difficulty=request.difficulty,
                 randomness=profile["randomness"],
                 think_time=profile["think_time_ms"],
-                rngSeed=None,
+                rngSeed=effective_seed,
                 heuristic_profile_id=heuristic_profile_id,
                 nn_model_id=nn_model_id,
             )
-            ai_instances[ai_key] = _create_ai_instance(
+            ai = _create_ai_instance(
                 ai_type,
                 request.player_number,
                 config,
             )
-        
-        ai = ai_instances[ai_key]
+        else:
+            # Unseeded: use cached instance keyed by (type, difficulty, player)
+            ai_key = (
+                f"{ai_type.value}-{request.difficulty}-"
+                f"{request.player_number}"
+            )
+            
+            if ai_key not in ai_instances:
+                heuristic_profile_id = None
+                nn_model_id = None
+
+                if ai_type == AIType.HEURISTIC:
+                    heuristic_profile_id = profile.get("profile_id")
+
+                config = AIConfig(
+                    difficulty=request.difficulty,
+                    randomness=profile["randomness"],
+                    think_time=profile["think_time_ms"],
+                    rngSeed=None,
+                    heuristic_profile_id=heuristic_profile_id,
+                    nn_model_id=nn_model_id,
+                )
+                ai_instances[ai_key] = _create_ai_instance(
+                    ai_type,
+                    request.player_number,
+                    config,
+                )
+            
+            ai = ai_instances[ai_key]
         
         # Get move from AI
         move = ai.select_move(request.game_state)

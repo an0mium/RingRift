@@ -52,6 +52,7 @@ model Game {
   allowSpectators Boolean    @default(true)
   status          GameStatus @default(waiting)
   gameState       Json       @default("{}")
+  rngSeed         Int?       // Per-game RNG seed for deterministic replay
 
   // Players
   player1Id String?
