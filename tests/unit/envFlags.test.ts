@@ -89,4 +89,122 @@ describe('envFlags helpers', () => {
     delete (process.env as any).RINGRIFT_SANDBOX_AI_PARITY_MODE;
     expect(isSandboxAiParityModeEnabled()).toBe(false);
   });
+
+  //
+  // Server config / JWT secret validation
+  //
+  // These tests intentionally live alongside the envFlags helpers to keep
+  // environment-related behaviour covered in a single place.
+  //
+
+  it('allows placeholder JWT secrets in development', async () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'development',
+      JWT_SECRET: 'your-super-secret-jwt-key-change-this-in-production',
+      JWT_REFRESH_SECRET: 'your-super-secret-refresh-key-change-this-in-production',
+    } as any;
+
+    jest.resetModules();
+    const { config } = await import('../../src/server/config');
+
+    expect(config.nodeEnv).toBe('development');
+    expect(config.auth.jwtSecret).toBe(
+      'your-super-secret-jwt-key-change-this-in-production'
+    );
+    expect(config.auth.jwtRefreshSecret).toBe(
+      'your-super-secret-refresh-key-change-this-in-production'
+    );
+  });
+
+  it('accepts strong non-placeholder JWT secrets in production', async () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://user:pass@localhost:5432/testdb',
+      REDIS_URL: 'redis://localhost:6379',
+      JWT_SECRET: 'strong-access-secret-123',
+      JWT_REFRESH_SECRET: 'strong-refresh-secret-123',
+    } as any;
+
+    jest.resetModules();
+    const { config } = await import('../../src/server/config');
+
+    expect(config.nodeEnv).toBe('production');
+    expect(config.auth.jwtSecret).toBe('strong-access-secret-123');
+    expect(config.auth.jwtRefreshSecret).toBe('strong-refresh-secret-123');
+  });
+
+  it('rejects missing JWT secrets in production', async () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://user:pass@localhost:5432/testdb',
+      REDIS_URL: 'redis://localhost:6379',
+    } as any;
+
+    delete (process.env as any).JWT_SECRET;
+    delete (process.env as any).JWT_REFRESH_SECRET;
+
+    jest.resetModules();
+    await expect(import('../../src/server/config')).rejects.toThrow(
+      /Invalid JWT configuration for NODE_ENV=production/
+    );
+  });
+
+  it('rejects placeholder JWT secrets in production', async () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgresql://user:pass@localhost:5432/testdb',
+      REDIS_URL: 'redis://localhost:6379',
+      JWT_SECRET: 'change-this-secret',
+      JWT_REFRESH_SECRET: 'change-this-refresh-secret',
+    } as any;
+
+    jest.resetModules();
+    await expect(import('../../src/server/config')).rejects.toThrow(
+      /Invalid JWT configuration for NODE_ENV=production/
+    );
+  });
+
+  it('defaults app topology to "single" when unset', async () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'development',
+    } as any;
+
+    delete (process.env as any).RINGRIFT_APP_TOPOLOGY;
+
+    jest.resetModules();
+    const { config } = await import('../../src/server/config');
+
+    expect(config.app.topology).toBe('single');
+  });
+
+  it('parses RINGRIFT_APP_TOPOLOGY=multi-unsafe', async () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'development',
+      RINGRIFT_APP_TOPOLOGY: 'multi-unsafe',
+    } as any;
+
+    jest.resetModules();
+    const { config } = await import('../../src/server/config');
+
+    expect(config.app.topology).toBe('multi-unsafe');
+  });
+
+  it('parses RINGRIFT_APP_TOPOLOGY=multi-sticky', async () => {
+    process.env = {
+      ...process.env,
+      NODE_ENV: 'development',
+      RINGRIFT_APP_TOPOLOGY: 'multi-sticky',
+    } as any;
+
+    jest.resetModules();
+    const { config } = await import('../../src/server/config');
+
+    expect(config.app.topology).toBe('multi-sticky');
+  });
 });

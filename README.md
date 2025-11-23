@@ -8,7 +8,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 
 ## 📋 Current Status
 
-**Last Updated:** November 21, 2025
+**Last Updated:** November 22, 2025
 **Verification:** Code-verified assessment (see `CURRENT_STATE_ASSESSMENT.md`)
 **Overall Progress:** Strong foundation with critical gaps; see `CURRENT_STATE_ASSESSMENT.md` for the latest high-level summary.
 
@@ -35,7 +35,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 - ⚠️ **Player choice system is implemented but not yet deeply battle-tested** – Shared types and `PlayerInteractionManager` exist and GameEngine uses them for line order, line reward, ring elimination, region order, and capture direction. `WebSocketInteractionHandler`, `GameContext`, and `ChoiceDialog` wire these choices to human clients for backend-driven games, and `AIInteractionHandler` answers choices for AI players via local heuristics and (for some choices) the Python AI service. What’s missing is broad scenario coverage (all FAQ/rules examples), polished UX around errors/timeouts, and full test coverage of complex multi-choice turns.
 - ⚠️ **Chain captures enforced engine-side; more edge-case tests still needed** – GameEngine maintains internal chain-capture state and uses `CaptureDirectionChoice` via `PlayerInteractionManager` to drive mandatory continuation when multiple follow-up captures exist. Core behaviour is covered by focused unit/integration tests, but additional rule/FAQ scenarios (e.g. complex 180° and cyclic patterns) and full UI/AI flows still need to be exercised and encoded as named scenarios.
 - ⚠️ **UI is functional but not polished** – Board rendering, a local sandbox, and backend game mode exist for 8x8, 19x19, and hex boards. Backend games now support “click source, click highlighted destination” moves and server-driven choices, and AI opponents can take turns. However, the HUD, timers, post-game flows, and multiplayer UX (spectators, reconnection, chat) still need refinement.
-- ⚠️ **Testing is incomplete relative to rules complexity** – Dedicated Jest suites now cover the client-local sandbox engine (movement, captures, lines, territory, victory) and several backend engine/interaction paths, but there is no comprehensive scenario suite derived systematically from `ringrift_complete_rules.md` and the FAQ. See `CURRENT_STATE_ASSESSMENT.md` and `KNOWN_ISSUES.md` for details.
+- ⚠️ **Testing is still evolving relative to rules complexity** – Dedicated Jest suites now cover the client-local sandbox engine (movement, captures, lines, territory, victory), backend engine/interaction paths, and a rules/FAQ scenario matrix (`RULES_SCENARIO_MATRIX.md`) including dedicated FAQ suites under `tests/scenarios/FAQ_*.test.ts`. Several seeded trace-parity suites and multi-host/AI fuzz harnesses remain diagnostic or partial rather than hard CI gates; see `CURRENT_STATE_ASSESSMENT.md` and `KNOWN_ISSUES.md` for details.
 - ⚠️ **AI service integration is move- and choice-focused but still evolving** – The Python AI microservice is integrated into the turn loop via `AIEngine`/`AIServiceClient` and `WebSocketServer.maybePerformAITurn`, so AI players can select moves in backend games. The service is also used for several PlayerChoices (`line_reward_option`, `ring_elimination`, `region_order`) behind `globalAIEngine`/`AIInteractionHandler`, with remaining choices currently answered via local heuristics. Higher-difficulty tactical behaviour and ML-based agents are future work.
 
 ### 🎯 What This Means
@@ -263,6 +263,37 @@ docker-compose up -d
 # Or manual deployment
 npm start
 ```
+
+#### Deployment Topology (Backend)
+
+The current backend is designed and tested for a **single app instance** per environment:
+
+- Game sessions and engines live **in-process** inside the Node app.
+- Redis is used for **per-instance** locking and coordination, not as a shared, authoritative game state store.
+- Running multiple independent app instances against the same PostgreSQL + Redis cluster **without strong sticky sessions or a shared game-state layer is not supported**.
+
+The topology is controlled via the `RINGRIFT_APP_TOPOLOGY` environment variable:
+
+- `single` (default, safe, supported):
+  - The backend assumes it is the **only** app instance talking to this database and Redis for authoritative game sessions.
+  - This is the default when `RINGRIFT_APP_TOPOLOGY` is unset.
+- `multi-unsafe` (explicitly unsupported multi-instance):
+  - Signals an operator is intentionally running multiple app instances **without** infrastructure-enforced sticky sessions or a shared game-state layer.
+  - In `NODE_ENV=production`, the server logs a fatal error and **refuses to start** with this topology.
+  - In non-production environments (e.g. `development`, `test`), the server logs a **strong warning** and continues, for experimentation only.
+- `multi-sticky` (multi-instance with external sticky sessions; still risky):
+  - Signals that infrastructure-enforced sticky sessions (HTTP + WebSocket) are in place so that all game-affecting traffic for a given game is routed to the same app instance.
+  - The server starts in all environments but logs a **high-visibility warning** that correctness is not guaranteed if sticky sessions are misconfigured.
+
+The default Docker Compose stack (`docker-compose.yml`) runs a **single** `app` instance and sets:
+
+- `RINGRIFT_APP_TOPOLOGY=single`
+- `deploy.replicas: 1` for the `app` service
+
+If you manually scale the app service (for example with `docker compose up --scale app=2` or in an orchestrator that increases replicas), you are entering a **non-default, higher-risk mode**. You must:
+
+1. Set `RINGRIFT_APP_TOPOLOGY` to either `multi-unsafe` or `multi-sticky` to acknowledge the risk, and
+2. Ensure your infrastructure provides the guarantees required for that mode (especially sticky sessions for WebSocket and game-affecting HTTP traffic in `multi-sticky` deployments).
 
 For more detailed environment and workflow guidance, see [QUICKSTART.md](./QUICKSTART.md).
 

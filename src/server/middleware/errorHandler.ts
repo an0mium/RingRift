@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { ZodError } from 'zod';
 import { logger } from '../utils/logger';
 import { ValidationError, AuthenticationError, AuthorizationError } from '../../shared/validation/schemas';
+import { config } from '../config';
 
 export interface AppError extends Error {
   statusCode?: number;
@@ -81,9 +82,9 @@ export const errorHandler = (
       message,
       code,
       timestamp: new Date().toISOString(),
-      ...(process.env.NODE_ENV === 'development' && { 
+      ...(config.isDevelopment && {
         stack: error.stack,
-        details: error 
+        details: error
       })
     }
   };

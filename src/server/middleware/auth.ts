@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { getDatabaseClient } from '../database/connection';
 import { createError } from './errorHandler';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -94,33 +95,11 @@ const extractToken = (req: Request): string | null => {
 };
 
 export const getAccessTokenSecret = (): string => {
-  const envSecret = process.env.JWT_SECRET;
-  if (envSecret && envSecret.length > 0) {
-    return envSecret;
-  }
-
-  // In non-production environments, fall back to a stable in-memory secret so
-  // local development and tests don't fail with 500s when JWT env vars are
-  // omitted. This is safe because tokens issued in one process remain
-  // unverifiable by any other process.
-  if (process.env.NODE_ENV !== 'production') {
-    return 'dev-access-token-secret';
-  }
-
-  throw new Error('JWT_SECRET not configured');
+  return config.auth.jwtSecret;
 };
 
 const getRefreshTokenSecret = (): string => {
-  const envSecret = process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET;
-  if (envSecret && envSecret.length > 0) {
-    return envSecret;
-  }
-
-  if (process.env.NODE_ENV !== 'production') {
-    return 'dev-refresh-token-secret';
-  }
-
-  throw new Error('JWT_REFRESH_SECRET not configured');
+  return config.auth.jwtRefreshSecret;
 };
 
 export const verifyToken = (token: string): { userId: string; email: string } => {
@@ -190,7 +169,7 @@ export const generateToken = (user: { id: string; email: string }): string => {
   };
 
   const options: any = {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
+    expiresIn: config.auth.accessTokenExpiresIn,
     issuer: 'ringrift',
     audience: 'ringrift-users'
   };
@@ -208,7 +187,7 @@ export const generateRefreshToken = (user: { id: string; email: string }): strin
   };
 
   const options: any = {
-    expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d',
+    expiresIn: config.auth.refreshTokenExpiresIn,
     issuer: 'ringrift',
     audience: 'ringrift-users'
   };

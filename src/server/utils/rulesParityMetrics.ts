@@ -29,6 +29,36 @@ export const rulesParityMetrics = {
 };
 
 /**
+ * Core application-wide Prometheus metrics for AI, move processing, and WebSockets.
+ * These share the default Node.js registry and are exported individually so
+ * callers can import only what they need without re-configuring collectors.
+ */
+export const aiMoveLatencyHistogram = new client.Histogram({
+  name: 'ai_move_latency_ms',
+  help: 'Latency of AI move selection calls in milliseconds',
+  labelNames: ['aiType', 'difficulty'] as const,
+  buckets: [25, 50, 100, 200, 400, 800, 1600, 3200, 6400],
+});
+
+export const aiFallbackCounter = new client.Counter({
+  name: 'ai_fallback_total',
+  help: 'Total number of AI fallbacks by reason',
+  labelNames: ['reason'] as const,
+});
+
+export const gameMoveLatencyHistogram = new client.Histogram({
+  name: 'game_move_latency_ms',
+  help: 'Latency of game move processing in milliseconds',
+  labelNames: ['boardType', 'phase'] as const,
+  buckets: [5, 10, 20, 40, 80, 160, 320, 640, 1280, 2560],
+});
+
+export const webSocketConnectionsGauge = new client.Gauge({
+  name: 'websocket_connections_current',
+  help: 'Current number of active WebSocket connections',
+});
+
+/**
  * Structured logging helper for rules parity discrepancies.
  *
  * All parity-related logs are emitted with a common message key so that

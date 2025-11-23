@@ -10,10 +10,17 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://ringrift:${DB_PASSWORD:-password}@postgres:5432/ringrift
       - REDIS_URL=redis://redis:6379
+      # WARNING: The default JWT_* secrets below are intended for local development only.
+      # In NODE_ENV=production, the backend will refuse to start if these placeholder
+      # values (or the corresponding examples in .env.example) are used unchanged.
       - JWT_SECRET=${JWT_SECRET:-change-this-secret}
       - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-change-this-refresh-secret}
       - AI_SERVICE_URL=http://ai-service:8001
       - RINGRIFT_RULES_MODE=shadow
+      # The backend currently assumes a single app instance for authoritative game sessions.
+      # Do not change this to 'multi-*' in production unless you understand and accept
+      # the risks described in README.md and QUICKSTART.md.
+      - RINGRIFT_APP_TOPOLOGY=single
     depends_on:
       - postgres
       - redis
@@ -23,7 +30,10 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     deploy:
-      replicas: 2
+      # The default topology is a single app instance. If you increase replicas,
+      # you must also update RINGRIFT_APP_TOPOLOGY and ensure infrastructure-enforced
+      # sticky sessions for all game-affecting HTTP and WebSocket traffic.
+      replicas: 1
       resources:
         limits:
           memory: 512M

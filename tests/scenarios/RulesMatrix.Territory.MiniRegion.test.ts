@@ -49,4 +49,49 @@ describe('RulesMatrix → TerritoryRuleScenario – Q23 mini-region numeric inva
     expect(region.outsideStackPosition).toEqual({ x: 0, y: 0 });
     expect(region.selfEliminationStackHeight).toBe(3);
   });
+
+  it('exposes the Q20 region-order two-region scenario via getScenarioById', () => {
+    const id = 'Rules_12_3_region_order_choice_two_regions_square8';
+    const scenario = getScenarioById(id) as TerritoryRuleScenario | undefined;
+
+    expect(scenario).toBeDefined();
+    if (!scenario) return;
+
+    expect(scenario.kind).toBe('territory');
+    expect(scenario.boardType).toBe('square8');
+    expect(scenario.movingPlayer).toBe(1);
+    expect(scenario.ref.id).toBe(id);
+    expect(scenario.ref.rulesSections).toContain('§12.3');
+    expect(scenario.ref.faqRefs).toContain('Q20');
+
+    // Two disconnected regions should be surfaced to the moving player for a
+    // RegionOrderChoice-style decision.
+    expect(scenario.regions.length).toBe(2);
+
+    const [regionA, regionB] = scenario.regions;
+
+    const expectedRegionASpaces = [
+      { x: 1, y: 1 },
+      { x: 1, y: 2 },
+    ];
+    const expectedRegionBSpaces = [
+      { x: 5, y: 5 },
+      { x: 5, y: 6 },
+    ];
+
+    expect(regionA.spaces).toEqual(expectedRegionASpaces);
+    expect(regionB.spaces).toEqual(expectedRegionBSpaces);
+
+    // These regions are neutral in terms of controlling/victim players; the
+    // key semantics (region-order decision and self-elimination prerequisite)
+    // are asserted by the dedicated integration suites:
+    //   - tests/unit/GameEngine.regionOrderChoiceIntegration.test.ts
+    //   - tests/unit/ClientSandboxEngine.regionOrderChoice.test.ts
+    expect(regionA.controllingPlayer).toBe(0);
+    expect(regionB.controllingPlayer).toBe(0);
+    expect(regionA.victimPlayer).toBe(0);
+    expect(regionB.victimPlayer).toBe(0);
+    expect(regionA.movingPlayerHasOutsideStack).toBe(true);
+    expect(regionB.movingPlayerHasOutsideStack).toBe(true);
+  });
 });

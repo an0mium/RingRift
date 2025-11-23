@@ -1,0 +1,60 @@
+"""Prometheus metrics for the RingRift AI service.
+
+This module centralises counters and histograms so that /ai/move and
+related endpoints can record lightweight telemetry without each handler
+having to manage its own metric instances. The metrics are intentionally
+minimal but labeled so they can be filtered by AI type and difficulty in
+local/dev Prometheus setups.
+"""
+
+from __future__ import annotations
+
+from typing import Final
+
+from prometheus_client import Counter, Histogram
+
+
+AI_MOVE_REQUESTS: Final[Counter] = Counter(
+    "ai_move_requests_total",
+    (
+        "Total number of /ai/move requests, labeled by ai_type, "
+        "difficulty and outcome."
+    ),
+    labelnames=("ai_type", "difficulty", "outcome"),
+)
+
+AI_MOVE_LATENCY: Final[Histogram] = Histogram(
+    "ai_move_latency_seconds",
+    (
+        "Latency of /ai/move requests in seconds, labeled by ai_type "
+        "and difficulty."
+    ),
+    labelnames=("ai_type", "difficulty"),
+    # Buckets chosen to cover sub-100ms up to several seconds while keeping
+    # the set small enough for local/dev use. These can be refined later if
+    # we deploy a dedicated metrics stack.
+    buckets=(
+        0.05,
+        0.1,
+        0.25,
+        0.5,
+        1.0,
+        2.0,
+        5.0,
+        10.0,
+    ),
+)
+
+
+def observe_ai_move_start(ai_type: str, difficulty: int) -> tuple[str, str]:
+    """Prepare metric label values for a new /ai/move request.
+
+    This helper just normalises difficulty into a string label; callers are
+    expected to pass the returned labels into the Counter/Histogram as
+    needed. It exists mainly to keep the label-shape logic in one place.
+    """
+
+    return ai_type, str(difficulty)
+
+
+__all__ = ["AI_MOVE_REQUESTS", "AI_MOVE_LATENCY", "observe_ai_move_start"]

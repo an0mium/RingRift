@@ -159,6 +159,21 @@ export class ClientSandboxEngine {
   // canonical Move shape for comparison against backend getValidMoves.
   private _lastAIMove: Move | null = null;
 
+  // Internal flag used in move-driven territory decision phases to indicate
+  // that the current player has processed at least one disconnected region
+  // and therefore owes a mandatory self-elimination via an explicit
+  // eliminate_rings_from_stack decision. This mirrors the backend
+  // GameEngine.pendingTerritorySelfElimination flag but remains local to
+  // the sandbox engine.
+  private _pendingTerritorySelfElimination: boolean = false;
+
+  // Test-only checkpoint hook used by parity/diagnostic harnesses to capture
+  // GameState snapshots at key points inside canonical move application and
+  // post-movement processing. When unset, all debugCheckpoint calls are no-ops.
+  private _debugCheckpointHook?:
+    | ((label: string, state: GameState) => void)
+    | undefined;
+
   /**
    * Internal helper to record a single capture segment as a canonical
    * Move + GameHistoryEntry, mirroring backend GameEngine semantics.
@@ -335,6 +350,23 @@ export class ClientSandboxEngine {
       victoryThreshold: Math.floor((boardConfig.ringsPerPlayer * config.numPlayers) / 2) + 1,
       territoryVictoryThreshold: Math.floor(boardConfig.totalSpaces / 2) + 1,
     };
+  }
+
+  /**
+   * Test-only helper: register a debug checkpoint hook so parity/diagnostic
+   * harnesses can capture GameState snapshots at key points inside canonical
+   * move application and post-movement processing.
+   */
+  public setDebugCheckpointHook(
+    hook: ((label: string, state: GameState) => void) | undefined
+  ): void {
+    this._debugCheckpointHook = hook;
+  }
+
+  private debugCheckpoint(label: string): void {
+    if (this._debugCheckpointHook) {
+      this._debugCheckpointHook(label, this.getGameState());
+    }
   }
 
   /**
@@ -517,6 +549,7 @@ export class ClientSandboxEngine {
       },
       getMustMoveFromStackKey: () => this._mustMoveFromStackKey,
       applyCanonicalMove: (move: Move) => this.applyCanonicalMove(move),
+      hasPendingTerritorySelfElimination: () => this._pendingTerritorySelfElimination,
     };
 
     await maybeRunAITurnSandbox(hooks, effectiveRng);
@@ -910,6 +943,19 @@ export class ClientSandboxEngine {
     board: BoardState = this.gameState.board
   ): void {
     const key = positionToString(position);
+
+    // Mirror backend BoardManager.setMarker semantics:
+    // - Do not place markers on collapsed territory.
+    // - Ensure stack+marker exclusivity by removing any stack at this key
+    //   before writing the marker.
+    if (board.collapsedSpaces.has(key)) {
+      return;
+    }
+
+    if (board.stacks.has(key)) {
+      board.stacks.delete(key);
+    }
+
     board.markers.set(key, {
       player: playerNumber,
       position,
@@ -939,7 +985,10 @@ export class ClientSandboxEngine {
     board: BoardState = this.gameState.board
   ): void {
     const key = positionToString(position);
+    // When a marker collapses to territory, the cell becomes
+    // exclusive territory: no stacks or markers may remain.
     board.markers.delete(key);
+    board.stacks.delete(key);
     board.collapsedSpaces.set(key, playerNumber);
   }
 
@@ -1132,19 +1181,31 @@ export class ClientSandboxEngine {
   // Removed unused advanceAfterPlacement helper to fix TS6133
 
   private async advanceAfterMovement(): Promise<void> {
+    this.debugCheckpoint('before-advanceAfterMovement');
+
     // Post-movement consequences for the player who just moved: lines,
     // territory disconnections, and victory checks.
     await this.processLinesForCurrentPlayer();
+    this.debugCheckpoint('after-processLinesForCurrentPlayer');
+
+    // When in traceMode and a decision phase was set, stop here so the
+    // current player remains active to make the decision move on their
+    // next AI turn. This keeps sandbox traces aligned with backend
+    // move-driven decision phases.
     if (this.gameState.currentPhase === 'line_processing') {
       return;
     }
 
     await this.processDisconnectedRegionsForCurrentPlayer();
+    this.debugCheckpoint('after-processDisconnectedRegionsForCurrentPlayer');
+
+    // Same traceMode handling for territory_processing
     if (this.gameState.currentPhase === 'territory_processing') {
       return;
     }
 
     this.checkAndApplyVictory();
+    this.debugCheckpoint('after-checkAndApplyVictory');
 
     if (this.gameState.gameStatus !== 'active') {
       return;
@@ -1162,6 +1223,7 @@ export class ClientSandboxEngine {
     };
 
     this.startTurnForCurrentPlayer();
+    this.debugCheckpoint('after-startTurnForCurrentPlayer');
   }
 
   /**
@@ -1183,7 +1245,13 @@ export class ClientSandboxEngine {
     for (const stack of this.gameState.board.stacks.values()) {
       activePlayers.add(stack.controllingPlayer);
     }
-    if (activePlayers.size === 1) {
+    // Mirror backend territory-processing semantics: only short-circuit when
+    // the *moving player* is the sole player with stacks on the board.
+    // When exactly one player has stacks but that player is not the mover,
+    // we must still consult findDisconnectedRegions so that scenarios like
+    // FAQ Q23 (control without on-board presence) are handled consistently
+    // across engines.
+    if (activePlayers.size === 1 && activePlayers.has(this.gameState.currentPlayer)) {
       return;
     }
 
@@ -1304,6 +1372,16 @@ export class ClientSandboxEngine {
   private getValidEliminationDecisionMovesForCurrentPlayer(): Move[] {
     // console.log('DEBUG: getValidEliminationDecisionMovesForCurrentPlayer this:', this, 'getPlayerStacks:', this.getPlayerStacks);
     const moves: Move[] = [];
+
+    // Explicit elimination decisions are only legal when a self-elimination
+    // debt is outstanding from a prior territory decision. Mirror the backend
+    // GameEngine.pendingTerritorySelfElimination flag by requiring the sandbox
+    // engine's internal pending flag to be set before surfacing any
+    // eliminate_rings_from_stack moves.
+    if (!this._pendingTerritorySelfElimination) {
+      return moves;
+    }
+
     const movingPlayer = this.gameState.currentPlayer;
     const board = this.gameState.board;
 
@@ -1404,6 +1482,22 @@ export class ClientSandboxEngine {
     }
 
     this.gameState = state;
+
+    // Normalise terminal states so that completed games are never left in
+    // the dedicated line/territory decision phases. This mirrors the
+    // backend GameEngine.applyDecisionMove elimination handling and keeps
+    // parity tests from observing a 'completed' game still in
+    // 'territory_processing' or 'line_processing'.
+    if (
+      this.gameState.gameStatus !== 'active' &&
+      (this.gameState.currentPhase === 'territory_processing' ||
+        this.gameState.currentPhase === 'line_processing')
+    ) {
+      this.gameState = {
+        ...this.gameState,
+        currentPhase: 'ring_placement',
+      };
+    }
 
     if (!result) {
       return;
@@ -1685,6 +1779,7 @@ export class ClientSandboxEngine {
     move: Move,
     opts: { bypassNoDeadPlacement?: boolean } = {}
   ): Promise<boolean> {
+    this.debugCheckpoint(`before-applyCanonicalMoveInternal-${move.type}`);
     const beforeHash = hashGameState(this.getGameState());
 
     // Ensure currentPlayer matches the move's player for the purposes of
@@ -1844,11 +1939,95 @@ export class ClientSandboxEngine {
         if (hashGameState(nextState) !== hashGameState(this.gameState)) {
           this.gameState = nextState;
           applied = true;
+          
+          // After applying a line decision, check if more lines remain.
+          // If not, advance to territory_processing or next player.
+          const remainingLines = this.findAllLines(this.gameState.board).filter(
+            (line) => line.player === move.player
+          );
+
+          if (remainingLines.length > 0) {
+            // Stay in line_processing if more lines remain
+            this.gameState = {
+              ...this.gameState,
+              currentPhase: 'line_processing',
+            };
+          } else {
+            // No more lines; check for territory processing
+            const disconnected = findDisconnectedRegionsOnBoard(this.gameState.board);
+            const eligible = disconnected.filter((region) =>
+              this.canProcessDisconnectedRegion(region.spaces, move.player, this.gameState.board)
+            );
+
+            if (eligible.length > 0) {
+              this.gameState = {
+                ...this.gameState,
+                currentPhase: 'territory_processing',
+              };
+            } else {
+              // No territory decisions either; advance to next player
+              this.checkAndApplyVictory();
+              if (this.gameState.gameStatus === 'active') {
+                this._hasPlacedThisTurn = false;
+                this._mustMoveFromStackKey = undefined;
+                const nextPlayer = this.getNextPlayerNumber(this.gameState.currentPlayer);
+                this.gameState = {
+                  ...this.gameState,
+                  currentPlayer: nextPlayer,
+                };
+                this.startTurnForCurrentPlayer();
+              }
+            }
+          }
         }
         break;
       }
 
-      case 'process_territory_region':
+      case 'process_territory_region': {
+        const nextState = applyTerritoryDecisionMove(
+          this.gameState,
+          move,
+          (regionSpaces: Position[], playerNumber: number, state: GameState) =>
+            this.canProcessDisconnectedRegion(regionSpaces, playerNumber, state.board)
+        );
+        if (hashGameState(nextState) !== hashGameState(this.gameState)) {
+          this.gameState = nextState;
+          applied = true;
+          this._pendingTerritorySelfElimination = true;
+
+          // After processing a region, mandatory self-elimination is required
+          // in traceMode. Stay in territory_processing phase so the next AI
+          // turn generates an explicit eliminate_rings_from_stack move.
+          if (this.traceMode) {
+            this.gameState = {
+              ...this.gameState,
+              currentPhase: 'territory_processing',
+            };
+          } else {
+            // In non-trace mode, check if more regions remain or advance
+            const disconnected = findDisconnectedRegionsOnBoard(this.gameState.board);
+            const eligible = disconnected.filter((region) =>
+              this.canProcessDisconnectedRegion(region.spaces, move.player, this.gameState.board)
+            );
+
+            if (eligible.length === 0) {
+              this.checkAndApplyVictory();
+              if (this.gameState.gameStatus === 'active') {
+                this._hasPlacedThisTurn = false;
+                this._mustMoveFromStackKey = undefined;
+                const nextPlayer = this.getNextPlayerNumber(this.gameState.currentPlayer);
+                this.gameState = {
+                  ...this.gameState,
+                  currentPlayer: nextPlayer,
+                };
+                this.startTurnForCurrentPlayer();
+              }
+            }
+          }
+        }
+        break;
+      }
+      
       case 'eliminate_rings_from_stack': {
         const nextState = applyTerritoryDecisionMove(
           this.gameState,
@@ -1859,6 +2038,28 @@ export class ClientSandboxEngine {
         if (hashGameState(nextState) !== hashGameState(this.gameState)) {
           this.gameState = nextState;
           applied = true;
+          this._pendingTerritorySelfElimination = false;
+          
+          // After elimination, check if more territory work remains
+          const disconnected = findDisconnectedRegionsOnBoard(this.gameState.board);
+          const eligible = disconnected.filter(region =>
+            this.canProcessDisconnectedRegion(region.spaces, move.player, this.gameState.board)
+          );
+          
+          if (eligible.length === 0) {
+            // No more territory decisions; advance to next player
+            this.checkAndApplyVictory();
+            if (this.gameState.gameStatus === 'active') {
+              this._hasPlacedThisTurn = false;
+              this._mustMoveFromStackKey = undefined;
+              const nextPlayer = this.getNextPlayerNumber(this.gameState.currentPlayer);
+              this.gameState = {
+                ...this.gameState,
+                currentPlayer: nextPlayer,
+              };
+              this.startTurnForCurrentPlayer();
+            }
+          }
         }
         break;
       }
@@ -1874,9 +2075,29 @@ export class ClientSandboxEngine {
     if (!applied) {
       return false;
     }
-
+ 
+    this.debugCheckpoint(`after-applyCanonicalMoveInternal-${move.type}`);
     const afterHash = hashGameState(this.getGameState());
-    return beforeHash !== afterHash;
+    const changed = beforeHash !== afterHash;
+ 
+    // Test-only board invariant enforcement: when running under Jest, assert
+    // that the sandbox never commits a board state with overlapping stacks,
+    // markers, or collapsed spaces. This mirrors the backend
+    // BoardManager.assertBoardInvariants helper but is intentionally wired
+    // only for tests so production builds avoid the extra scan cost.
+    if (
+      changed &&
+      typeof process !== 'undefined' &&
+      (process as any).env &&
+      (process as any).env.NODE_ENV === 'test'
+    ) {
+      const selfAny = this as any;
+      if (typeof selfAny.assertBoardInvariants === 'function') {
+        selfAny.assertBoardInvariants(`applyCanonicalMoveInternal:${move.type}`);
+      }
+    }
+ 
+    return changed;
   }
 
   /**
@@ -1963,9 +2184,24 @@ export class ClientSandboxEngine {
   const board: BoardState = (this as any).gameState.board as BoardState;
   const errors: string[] = [];
 
+  // Invariant 1: no stacks may exist on collapsed territory.
   for (const key of board.stacks.keys()) {
     if (board.collapsedSpaces.has(key)) {
       errors.push(`stack present on collapsed space at ${key}`);
+    }
+  }
+
+  // Invariant 2: a cell may not host both a stack and a marker.
+  for (const key of board.stacks.keys()) {
+    if (board.markers.has(key)) {
+      errors.push(`stack and marker coexist at ${key}`);
+    }
+  }
+
+  // Invariant 3: a cell may not host both a marker and collapsed territory.
+  for (const key of board.markers.keys()) {
+    if (board.collapsedSpaces.has(key)) {
+      errors.push(`marker present on collapsed space at ${key}`);
     }
   }
 

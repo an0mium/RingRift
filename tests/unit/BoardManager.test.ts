@@ -5,6 +5,7 @@
  */
 
 import { BoardManager } from '../../src/server/game/BoardManager';
+import { RingStack } from '../../src/shared/types/game';
 import { 
   createTestBoard, 
   addStack, 
@@ -200,6 +201,88 @@ describe('BoardManager', () => {
 
       it('should return false for non-collapsed space', () => {
         expect(boardManager.isCollapsedSpace(pos(3, 3), board)).toBe(false);
+      });
+    });
+
+    describe('Board invariants', () => {
+      let board: ReturnType<typeof createTestBoard>;
+
+      beforeEach(() => {
+        board = createTestBoard('square8');
+      });
+
+      it('should not throw for a clean board state when using core mutators', () => {
+        const stack: RingStack = {
+          position: pos(0, 0),
+          rings: [1],
+          stackHeight: 1,
+          capHeight: 1,
+          controllingPlayer: 1,
+        };
+
+        expect(() => {
+          boardManager.setStack(pos(0, 0), stack, board);
+          boardManager.setCollapsedSpace(pos(1, 1), 1, board);
+          boardManager.collapseMarker(pos(2, 2), 1, board);
+        }).not.toThrow();
+      });
+
+      it('should throw when a stack exists on a collapsed space elsewhere on the board', () => {
+        // Create an illegal state directly on the BoardState
+        addStack(board, pos(1, 1), 1, 1);
+        addCollapsedSpace(board, pos(1, 1), 1);
+
+        const safeStack: RingStack = {
+          position: pos(0, 0),
+          rings: [1],
+          stackHeight: 1,
+          capHeight: 1,
+          controllingPlayer: 1,
+        };
+
+        expect(() => {
+          // Any core mutator that triggers invariant checks should surface
+          // the pre-existing illegal state.
+          boardManager.setStack(pos(0, 0), safeStack, board);
+        }).toThrow(/invariant violation/i);
+      });
+
+      it('should throw when a marker and collapsed space coexist on the same cell', () => {
+        // Construct an illegal marker + collapsed overlap
+        addMarker(board, pos(2, 2), 1);
+        addCollapsedSpace(board, pos(2, 2), 1);
+
+        const safeStack: RingStack = {
+          position: pos(0, 0),
+          rings: [1],
+          stackHeight: 1,
+          capHeight: 1,
+          controllingPlayer: 1,
+        };
+
+        expect(() => {
+          boardManager.setStack(pos(0, 0), safeStack, board);
+        }).toThrow(/invariant violation/i);
+      });
+
+      it('should repair and log when placing a stack on a marker while still enforcing invariants', () => {
+        // Marker at destination but no collapsed spaces
+        addMarker(board, pos(3, 3), 1);
+
+        const stack: RingStack = {
+          position: pos(3, 3),
+          rings: [1],
+          stackHeight: 1,
+          capHeight: 1,
+          controllingPlayer: 1,
+        };
+
+        // The implementation removes the marker before asserting invariants,
+        // so the resulting state is legal and no error is thrown, but the
+        // invariant helper still protects against wider board corruption.
+        expect(() => {
+          boardManager.setStack(pos(3, 3), stack, board);
+        }).not.toThrow();
       });
     });
   });

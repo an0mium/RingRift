@@ -1,6 +1,7 @@
 import { createClient } from 'redis';
 import { logger } from '../utils/logger';
 import { initializeRateLimiters } from '../middleware/rateLimiter';
+import { config } from '../config';
 
 type RedisClient = ReturnType<typeof createClient>;
 let redisClient: RedisClient | null = null;
@@ -8,7 +9,7 @@ let redisClient: RedisClient | null = null;
 export const connectRedis = async (): Promise<RedisClient> => {
   try {
     const clientOptions: any = {
-      url: process.env.REDIS_URL || 'redis://localhost:6379',
+      url: config.redis.url,
       socket: {
         connectTimeout: 60000,
         reconnectStrategy: (retries: number) => {
@@ -21,8 +22,8 @@ export const connectRedis = async (): Promise<RedisClient> => {
       },
     };
 
-    if (process.env.REDIS_PASSWORD) {
-      clientOptions.password = process.env.REDIS_PASSWORD;
+    if (config.redis.password) {
+      clientOptions.password = config.redis.password;
     }
 
     const client = createClient(clientOptions);

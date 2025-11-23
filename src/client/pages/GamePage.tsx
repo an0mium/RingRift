@@ -219,6 +219,7 @@ export default function GamePage() {
   // Choice/phase diagnostics
   const [eventLog, setEventLog] = useState<string[]>([]);
   const [showSystemEventsInLog, setShowSystemEventsInLog] = useState(true);
+  const [fatalGameError, setFatalGameError] = useState<{message: string; technical?: string} | null>(null);
   // Use backend chat messages if available, otherwise local state (for sandbox/fallback)
   const [localChatMessages, setLocalChatMessages] = useState<{ sender: string; text: string }[]>(
     []
@@ -331,6 +332,7 @@ export default function GamePage() {
     if (!routeGameId) {
       // Ensure any previous connection is torn down when leaving a game
       disconnect();
+      setFatalGameError(null);
       return;
     }
 
@@ -340,6 +342,33 @@ export default function GamePage() {
       disconnect();
     };
   }, [routeGameId, connectToGame, disconnect]);
+
+  // Listen for game_error events from the server
+  useEffect(() => {
+    if (!routeGameId) return;
+
+    const handleGameError = (data: any) => {
+      if (data && data.data) {
+        setFatalGameError({
+          message: data.data.message || 'An error occurred during the game.',
+          technical: data.data.technical
+        });
+        
+        // Log technical details in development
+        if (process.env.NODE_ENV === 'development' && data.data.technical) {
+          console.error('[Game Error]', data.data.technical);
+        }
+      }
+    };
+
+    // Access socket through the game context
+    // Note: This assumes the socket is exposed, or we use the error from context
+    // For now, we'll rely on the error state from useGame context
+    
+    return () => {
+      // Cleanup if needed
+    };
+  }, [routeGameId]);
 
   const handleSetupChange = (partial: Partial<LocalConfig>) => {
     setConfig((prev) => ({
@@ -1348,6 +1377,30 @@ export default function GamePage() {
     return (
       <div className="container mx-auto px-4 py-8 space-y-4">
         {reconnectionBanner}
+        
+        {/* Fatal game error banner */}
+        {fatalGameError && (
+          <div className="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded">
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <p className="font-semibold mb-1">{fatalGameError.message}</p>
+                {process.env.NODE_ENV === 'development' && fatalGameError.technical && (
+                  <p className="text-xs text-red-300 font-mono mt-2">
+                    Technical: {fatalGameError.technical}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setFatalGameError(null)}
+                className="ml-4 text-red-300 hover:text-red-100 transition"
+                aria-label="Dismiss error"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+        
         <header className="flex items-center justify-between">
           <div>
             {renderGameHeader(gameState)}
@@ -1374,6 +1427,11 @@ export default function GamePage() {
             /* Optional: allow closing to view board */
           }}
           onReturnToLobby={() => navigate('/lobby')}
+          onRematch={() => {
+            // TODO: Implement rematch request via WebSocket
+            console.log('Rematch requested');
+          }}
+          currentUserId={user?.id}
         />
 
         <main className="flex flex-col md:flex-row md:space-x-8 space-y-4 md:space-y-0">
@@ -1434,6 +1492,7 @@ export default function GamePage() {
               connectionStatus={connectionStatus}
               isSpectator={!isPlayer}
               lastHeartbeatAt={lastHeartbeatAt}
+              currentUserId={user?.id}
             />
 
             <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1">
@@ -1837,6 +1896,7 @@ export default function GamePage() {
             setBackendSandboxError(null);
             setSandboxPendingChoice(null);
           }}
+          currentUserId={user?.id}
         />
       )}
 

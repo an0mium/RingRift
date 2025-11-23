@@ -285,4 +285,108 @@ describe('GameEngine victory scenarios (Section 13.1–13.2; FAQ 11, 18, 21)', (
     expect(endCheck.winner).toBe(2);
     expect(endCheck.reason).toBe('last_player_standing');
   });
+
+  it('Rules_13_7_bare_board_with_legal_reentry_not_terminal_backend', () => {
+    // Scenario:
+    // - No stacks on the board.
+    // - Players still have rings in hand.
+    // - At least one legal ring placement exists for some player under the
+    //   no-dead-placement rule.
+    //
+    // Expected:
+    // - RuleEngine.checkGameEnd should report that the game is *not*
+    //   over, since re-entry into play is still possible.
+
+    const engine = new GameEngine(
+      'victory-bare-board-nonterminal',
+      boardType,
+      createPlayers(),
+      timeControl,
+      false
+    );
+    const engineAny: any = engine;
+    const gameState: GameState = engineAny.gameState as GameState;
+
+    // Ensure structural bare-board preconditions.
+    gameState.board.stacks.clear();
+
+    // Make sure each player has at least one ring in hand and no prior
+    // progress towards other victory conditions.
+    gameState.players.forEach((p) => {
+      if (p.ringsInHand <= 0) {
+        p.ringsInHand = 1;
+      }
+      p.territorySpaces = 0;
+      p.eliminatedRings = 0;
+    });
+
+    const endCheck = engineAny.ruleEngine.checkGameEnd(gameState);
+
+    expect(endCheck.isGameOver).toBe(false);
+    expect(endCheck.winner).toBeUndefined();
+    expect(endCheck.reason).toBeUndefined();
+  });
+
+  it('Rules_13_8_global_stalemate_bare_board_rings_in_hand_elimination_tiebreak_backend', () => {
+    // Scenario:
+    // - No stacks on the board, but both players still have rings in hand.
+    // - Due to the surrounding board/marker configuration, assume there are
+    //   *no* legal ring placements for any player under the no-dead-placement
+    //   rule.
+    //
+    // We simulate this "no legal placement anywhere" condition by
+    // temporarily stubbing RuleEngine.getValidRingPlacements to return an
+    // empty array for all players. This forces the global-stalemate branch
+    // in checkGameEnd and allows us to assert that ringsInHand are treated
+    // as eliminated for tie-breaking purposes (hand → E).
+
+    const engine = new GameEngine(
+      'victory-bare-board-global-stalemate',
+      boardType,
+      createPlayers(),
+      timeControl,
+      false
+    );
+    const engineAny: any = engine;
+    const gameState: GameState = engineAny.gameState as GameState;
+
+    gameState.board.stacks.clear();
+    gameState.board.markers.clear();
+
+    const p1 = gameState.players.find((p) => p.playerNumber === 1)!;
+    const p2 = gameState.players.find((p) => p.playerNumber === 2)!;
+
+    // No territory or previously eliminated rings for either player so that
+    // the elimination tiebreak is decided purely by (eliminated + hand).
+    p1.territorySpaces = 0;
+    p2.territorySpaces = 0;
+
+    p1.eliminatedRings = 0;
+    p2.eliminatedRings = 0;
+
+    // Give Player 1 more rings in hand than Player 2.
+    p1.ringsInHand = 3;
+    p2.ringsInHand = 1;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ruleEngine: any = engineAny.ruleEngine;
+    const originalGetValidRingPlacements = ruleEngine.getValidRingPlacements.bind(ruleEngine);
+
+    try {
+      // Force the global-stalemate branch by reporting no legal placements
+      // for any player.
+      ruleEngine.getValidRingPlacements = (_playerNumber: number, _state: GameState) => {
+        return [];
+      };
+
+      const endCheck = ruleEngine.checkGameEnd(gameState);
+
+      expect(endCheck.isGameOver).toBe(true);
+      expect(endCheck.winner).toBe(1);
+      expect(endCheck.reason).toBe('ring_elimination');
+    } finally {
+      // Restore the original implementation to avoid affecting other tests.
+      ruleEngine.getValidRingPlacements = originalGetValidRingPlacements;
+    }
+  });
 });

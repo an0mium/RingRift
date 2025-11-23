@@ -568,6 +568,23 @@ The harness:
 
 Some seeded configurations (including `square8` with 2 AI players and seed `1`) are currently expected to exceed `MAX_AI_ACTIONS`; they are tracked as **diagnostic failures** under P1.4 in `KNOWN_ISSUES.md` rather than as hard CI blockers.
 
+### AI fuzz harness mid-game plateau regressions
+
+To lock in behaviour around a historically problematic square8/2p plateau (seed `1` around action ~58), there are two additional tests and a small helper harness:
+
+- `tests/utils/aiSeedSnapshots.ts` – seed reproduction utilities, notably `reproduceSquare8TwoAiSeed1AtAction(targetActionIndex)` which:
+  - Recreates the sandbox AI configuration used by the heavy fuzz harness (square8 / 2 AI players, deterministic seed).
+  - Advances the game via `ClientSandboxEngine.maybeRunAITurn` until a requested action index or until an early stall/termination, enforcing the S-invariant along the way.
+  - Returns a full `GameState`, an order-stable `ComparableSnapshot`, the number of actions taken, and a live `ClientSandboxEngine` bound to that checkpoint.
+- `tests/unit/ClientSandboxEngine.aiStallRegression.test.ts` – unit-level regression that:
+  - Uses the seed harness to checkpoint a mid-game plateau near action ≈58 for `square8` / 2 AI / seed 1.
+  - Asserts that from this checkpoint the sandbox AI does **not** enter a long active stall (no 8+ consecutive no-op AI turns while `gameStatus === 'active'`).
+- `tests/scenarios/AI_TerminationFromSeed1Plateau.test.ts` – scenario-level termination test that:
+  - Reuses the same plateau and focuses on global S-invariant + eventual termination behaviour.
+  - Asserts that S remains non-decreasing from the plateau and that the game either completes or continues to evolve under additional AI play within a generous bound.
+
+These tests are safe to run in normal CI and serve as targeted, reproducible guards around the fuzz harness findings, without re-running the full heavy aiSimulation suite.
+
 ## Sandbox AI stall diagnostics (engine parity and repro)
 
 In addition to the general aiSimulation harness above, there is a focused regression test for a previously observed sandbox AI stall:
@@ -677,6 +694,60 @@ For a rule-centric view of test coverage, see:
 - `RULES_SCENARIO_MATRIX.md` – a living matrix mapping sections of `ringrift_complete_rules.md` and the FAQ to concrete Jest suites (backend engine, sandbox engine, WebSocket/choice flows, and AI boundary tests).
 
 When you add or modify scenario-style tests, update that matrix so it remains the single source of truth for how rules map to executable tests.
+
+## FAQ Scenario Tests
+
+Each FAQ question from [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) has dedicated test coverage in scenario-style test files under `tests/scenarios/FAQ_*.test.ts`.
+
+### Running FAQ Tests
+
+```bash
+# Run all FAQ scenario tests
+npm test -- FAQ_
+
+# Run specific FAQ question groups
+npm test -- FAQ_Q01_Q06     # Basic mechanics (Q1-Q6)
+npm test -- FAQ_Q07_Q08     # Line formation (Q7-Q8)
+npm test -- FAQ_Q09_Q14     # Edge cases & special mechanics (Q9-Q14)
+npm test -- FAQ_Q15         # Chain capture patterns (Q15)
+npm test -- FAQ_Q16_Q18     # Victory conditions & control (Q16-Q18)
+npm test -- FAQ_Q19_Q21_Q24 # Player counts & thresholds (Q19-Q21, Q24)
+npm test -- FAQ_Q22_Q23     # Graduated rewards & territory (Q22-Q23)
+
+# Run with verbose output
+npm test -- FAQ_Q15 --verbose
+```
+
+### FAQ Test Coverage Map
+
+| FAQ Questions | Test File | Topics Covered |
+|--------------|-----------|----------------|
+| Q1-Q6 | [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) | Stack order, minimum distance, capture landing, overtaking vs elimination |
+| Q7-Q8 | [`tests/scenarios/FAQ_Q07_Q08.test.ts`](tests/scenarios/FAQ_Q07_Q08.test.ts:1) | Line formation, exact vs overlength lines, no rings to eliminate |
+| Q9-Q14 | [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) | Chain blocking, multicolored stacks, Moore vs Von Neumann adjacency |
+| Q15 | [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:1) | 180° reversal, cyclic patterns, mandatory chain continuation |
+| Q16-Q18 | [`tests/scenarios/FAQ_Q16_Q18.test.ts`](tests/scenarios/FAQ_Q16_Q18.test.ts:1) | Control transfer, first placement, multiple victory conditions |
+| Q19-Q21, Q24 | [`tests/scenarios/FAQ_Q19_Q21_Q24.test.ts`](tests/scenarios/FAQ_Q19_Q21_Q24.test.ts:1) | Player count variations, thresholds, forced elimination, stalemate |
+| Q22-Q23 | [`tests/scenarios/FAQ_Q22_Q23.test.ts`](tests/scenarios/FAQ_Q22_Q23.test.ts:1) | Graduated line rewards, territory self-elimination prerequisite |
+
+### FAQ Test Design Principles
+
+1. **Direct FAQ Mapping**: Each test explicitly references its FAQ question number in the describe/it names
+2. **Multiple Board Types**: Tests cover square8, square19, and hexagonal where applicable
+3. **Both Engines**: Critical FAQs tested on both backend GameEngine and sandbox ClientSandboxEngine
+4. **Complete Examples**: Each FAQ example from the rulebook is encoded as a test case
+5. **Edge Cases**: FAQ scenarios include both positive and negative test cases
+
+### Coverage Statistics
+
+- **Total FAQ Questions**: 24
+- **FAQ Questions with Dedicated Tests**: 24 (100%)
+- **Test Files Created**: 7
+- **Approximate Test Cases**: 50+
+- **Board Types Covered**: square8, square19, hexagonal
+- **Engines Validated**: GameEngine (backend), ClientSandboxEngine (sandbox)
+
+For the complete FAQ → test mapping, see [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md:1) Section 9.
 
 ## Writing Deterministic Tests
 

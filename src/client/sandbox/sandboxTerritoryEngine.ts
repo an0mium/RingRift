@@ -11,6 +11,7 @@ import {
 import {
   findDisconnectedRegionsOnBoard,
   processDisconnectedRegionOnBoard,
+  processDisconnectedRegionCoreOnBoard,
 } from './sandboxTerritory';
 import { forceEliminateCapOnBoard } from './sandboxElimination';
 
@@ -151,7 +152,13 @@ export function applyTerritoryDecisionMove(
       return state;
     }
 
-    const result = processDisconnectedRegionOnBoard(
+    // Move-driven territory decision: apply only the geometric/core
+    // consequences of processing this region (internal eliminations +
+    // collapse + border markers), without performing the mandatory
+    // self-elimination. Explicit eliminate_rings_from_stack Moves are
+    // responsible for the self-elimination step, mirroring the backend
+    // GameEngine.processDisconnectedRegionCore + applyDecisionMove split.
+    const result = processDisconnectedRegionCoreOnBoard(
       state.board,
       state.players,
       movingPlayer,

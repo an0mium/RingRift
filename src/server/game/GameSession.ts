@@ -10,6 +10,7 @@ import { getOrCreateAIUser } from '../services/AIUserService';
 import { PythonRulesClient } from '../services/PythonRulesClient';
 import { getDatabaseClient } from '../database/connection';
 import { logger } from '../utils/logger';
+import { gameMoveLatencyHistogram } from '../utils/rulesParityMetrics';
 import {
   Move,
   Player,
@@ -33,6 +34,7 @@ export class GameSession {
   private pythonRulesClient: PythonRulesClient;
   private userSockets: Map<string, string>; // userId -> socketId
   private rng: SeededRNG; // Per-game RNG for deterministic AI behavior
+  private turnTimerId: NodeJS.Timeout | null = null; // Timer for turn countdown
 
   /**
    * Per-game view of AI/rules degraded-mode diagnostics. These counters are
@@ -368,7 +370,16 @@ export class GameSession {
       thinkTime: 0,
     } as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
 
+    // Measure core move-processing latency (rules engine + game engine) for
+    // successful applications. Labels are low-cardinality: boardType and phase.
+    const boardTypeLabel = (currentState.boardType ?? 'unknown') as string;
+    const phaseLabel = (currentState.currentPhase ?? 'unknown') as string;
+    const startTime = performance.now();
+
     const result = await this.rulesFacade.applyMove(engineMove);
+    const duration = performance.now() - startTime;
+    gameMoveLatencyHistogram.labels(boardTypeLabel, phaseLabel).observe(duration);
+
     if (!result.success) {
       logger.warn('Engine rejected move', {
         gameId: this.gameId,
@@ -404,7 +415,14 @@ export class GameSession {
       throw new Error('Current socket user is not a player in this game');
     }
 
+    const boardTypeLabel = (currentState.boardType ?? 'unknown') as string;
+    const phaseLabel = (currentState.currentPhase ?? 'unknown') as string;
+    const startTime = performance.now();
+
     const result = await this.rulesFacade.applyMoveById(player.playerNumber, moveId);
+    const duration = performance.now() - startTime;
+    gameMoveLatencyHistogram.labels(boardTypeLabel, phaseLabel).observe(duration);
+
     if (!result.success) {
       logger.warn('Engine rejected move by id', {
         gameId: this.gameId,
@@ -480,6 +498,9 @@ export class GameSession {
     const updatedState = this.gameEngine.getGameState();
 
     if (result.gameResult) {
+      // Stop timer when game ends
+      this.stopTurnTimer();
+      
       this.io.to(this.gameId).emit('game_over', {
         type: 'game_over',
         data: {
@@ -490,6 +511,9 @@ export class GameSession {
         timestamp: new Date().toISOString(),
       });
     } else {
+      // Start timer for the new current player
+      this.startTurnTimer();
+      
       // Broadcast state to all connected clients in the room
       // For active players, we include their valid moves
       // For spectators, validMoves is empty
@@ -804,6 +828,17 @@ export class GameSession {
       },
     };
 
+    // Emit game_error for active players to show error UI
+    this.io.to(this.gameId).emit('game_error', {
+      type: 'game_error',
+      data: {
+        message: 'AI encountered a fatal error. Game cannot continue.',
+        technical: context.reason,
+        gameId: this.gameId,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
     this.io.to(this.gameId).emit('game_over', {
       type: 'game_over',
       data: {
@@ -875,6 +910,108 @@ export class GameSession {
         if (this.aiQualityMode === 'normal' && this.aiFallbackMoveCount > 0) {
           this.aiQualityMode = 'fallbackLocalAI';
         }
+      }
+    }
+  }
+
+  /**
+   * Start the turn timer for the current player
+   */
+  private startTurnTimer(): void {
+    if (!this.gameEngine) return;
+    
+    const gameState = this.gameEngine.getGameState();
+    if (!gameState.timeControl) return;
+    
+    const currentPlayer = gameState.players.find(
+      p => p.playerNumber === gameState.currentPlayer
+    );
+    if (!currentPlayer) return;
+    
+    // Clear any existing timer
+    if (this.turnTimerId) {
+      clearInterval(this.turnTimerId);
+      this.turnTimerId = null;
+    }
+    
+    // Update time every second and broadcast to clients
+    this.turnTimerId = setInterval(() => {
+      const latestState = this.gameEngine.getGameState();
+      const player = latestState.players.find(
+        p => p.playerNumber === latestState.currentPlayer
+      );
+      
+      if (!player) {
+        this.stopTurnTimer();
+        return;
+      }
+      
+      // Decrement player's time
+      player.timeRemaining = Math.max(0, (player.timeRemaining ?? 0) - 1000);
+      
+      // Broadcast time update to all clients
+      this.io.to(this.gameId).emit('time_update', {
+        playerId: player.id,
+        playerNumber: player.playerNumber,
+        timeRemaining: player.timeRemaining
+      });
+      
+      // Handle time expiration
+      if (player.timeRemaining === 0) {
+        this.handleTimeExpiration(player.playerNumber);
+      }
+    }, 1000);
+  }
+
+  /**
+   * Stop the turn timer
+   */
+  private stopTurnTimer(): void {
+    if (this.turnTimerId) {
+      clearInterval(this.turnTimerId);
+      this.turnTimerId = null;
+    }
+  }
+
+  /**
+   * Handle when a player runs out of time
+   */
+  private async handleTimeExpiration(playerNumber: number): Promise<void> {
+    this.stopTurnTimer();
+    
+    logger.warn('Player time expired', {
+      gameId: this.gameId,
+      playerNumber
+    });
+    
+    const gameState = this.gameEngine.getGameState();
+    
+    // For AI players, just make a move immediately
+    const player = gameState.players.find(p => p.playerNumber === playerNumber);
+    if (player?.type === 'ai') {
+      await this.maybePerformAITurn();
+      return;
+    }
+    
+    // For human players, try to make a random valid move
+    const validMoves = this.gameEngine.getValidMoves(playerNumber);
+    if (validMoves.length > 0) {
+      const randomMove = validMoves[Math.floor(this.rng.next() * validMoves.length)];
+      const { id, timestamp, moveNumber, ...rest } = randomMove as any;
+      const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
+      
+      try {
+        const result = await this.rulesFacade.applyMove(engineMove);
+        if (result.success) {
+          await this.broadcastUpdate(result);
+          await this.maybePerformAITurn();
+        }
+      } catch (err) {
+        logger.error('Failed to apply time-expiration move', {
+          gameId: this.gameId,
+          playerNumber,
+          error: err instanceof Error ? err.message : String(err)
+        });
       }
     }
   }

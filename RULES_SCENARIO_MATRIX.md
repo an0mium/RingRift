@@ -107,11 +107,18 @@ This table summarizes the most critical, high‑leverage scenarios using a unifi
 | §4.x; FAQ 15.2                                     | `sandbox_mixed_players_place_then_move`              | 8×8                        | Sandbox                    | `tests/unit/ClientSandboxEngine.mixedPlayers.test.ts`                                                                                                                                                                                                                                                       | COVERED |
 | §13; FAQ 11, 18, 21, 24                            | `stalemate_tiebreak_ladder_examples`                 | 8×8, 19×19                 | Backend, Sandbox           | `tests/unit/GameEngine.victory.scenarios.test.ts` (Rules*13_1–13_6*\*), `tests/unit/ClientSandboxEngine.victory.test.ts`                                                                                                                                                                                    | COVERED |
 | §13.1–13.2; FAQ 18, 21                             | `victory_threshold_rules_matrix_backend_examples`    | 8×8                        | Backend, Sandbox           | `tests/scenarios/RulesMatrix.Victory.GameEngine.test.ts`; `tests/scenarios/RulesMatrix.Victory.ClientSandboxEngine.test.ts` (driven by `victoryRuleScenarios` ids `Rules_13_1_ring_elimination_threshold_square8` and `Rules_13_2_territory_control_threshold_square8`)                                     | COVERED |
-| Compact rules §9; `RULES_ANALYSIS_PHASE2` §4       | `backend_vs_sandbox_trace_parity_seed5`              | 8×8 (seeded AI)            | Backend, Sandbox, Traces   | `tests/unit/Backend_vs_Sandbox.traceParity.test.ts`; `tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts`                                                                                                                                                                                               | COVERED |
+| Compact rules §9; `RULES_ANALYSIS_PHASE2` §4       | `backend_vs_sandbox_trace_parity_seed5`              | 8×8 (seeded AI)            | Backend, Sandbox, Traces   | `tests/unit/Backend_vs_Sandbox.traceParity.test.ts`; `tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts`                                                                                                                                                                                               | PARTIAL |
 | Compact rules §9; `RULES_ANALYSIS_PHASE2` §4       | `backend_vs_sandbox_trace_parity_extra_seeds`        | 8×8, 19×19, hex (selected) | Backend, Sandbox, Traces   | `tests/unit/ParityDebug.seed14.trace.test.ts`; `tests/unit/TraceParity.seed14.firstDivergence.test.ts`; `tests/unit/Seed17Move52Parity.GameEngine_vs_Sandbox.test.ts`; `tests/unit/SInvariant.seed17FinalBoard.test.ts`                                                                                     | PARTIAL |
 | Compact rules §9; `RULES_ANALYSIS_PHASE2` §4       | `sandbox_ai_simulation_progress_invariant`           | 8×8, 19×19, hex (various)  | Backend, Sandbox           | `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`; `tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts`; `tests/unit/ProgressSnapshot.core.test.ts`; `tests/unit/ProgressSnapshot.sandbox.test.ts`                                                                                                    | COVERED |
 | §11.2–11.3; FAQ 7, 22                              | `line_reward_choice_ai_service_backing`              | 8×8                        | Backend, AI Service        | `tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts`                                                                                                                                                                                                                                       | COVERED |
 | §12.3; FAQ 15, 23                                  | `region_order_choice_ai_and_sandbox`                 | 8×8                        | Backend, Sandbox, AI       | `tests/unit/GameEngine.regionOrderChoiceIntegration.test.ts`; `tests/unit/ClientSandboxEngine.regionOrderChoice.test.ts`                                                                                                                                                                                    | COVERED |
+| FAQ Q1–Q6 (Basic Mechanics)                       | `faq_basic_mechanics_comprehensive_suite`            | 8×8, 19×19                 | Backend, Sandbox           | `tests/scenarios/FAQ_Q01_Q06.test.ts`                                                                                                                                                                                       | COVERED |
+| FAQ Q7–Q8 (Line Formation)                        | `faq_line_formation_and_collapse`                    | 8×8, 19×19                 | Backend                    | `tests/scenarios/FAQ_Q07_Q08.test.ts`                                                                                                                                                                                       | COVERED |
+| FAQ Q9–Q14 (Edge Cases & Mechanics)               | `faq_edge_cases_special_mechanics`                   | 8×8, 19×19, hex            | Backend                    | `tests/scenarios/FAQ_Q09_Q14.test.ts`                                                                                                                                                                                       | COVERED |
+| FAQ Q15 (Chain Capture Patterns)                  | `faq_chain_capture_comprehensive_suite`              | 8×8, 19×19                 | Backend, Sandbox           | `tests/scenarios/FAQ_Q15.test.ts`                                                                                                                                                                                           | COVERED |
+| FAQ Q16–Q18 (Victory & Control)                   | `faq_victory_conditions_control_transfer`            | 8×8, 19×19, hex            | Backend                    | `tests/scenarios/FAQ_Q16_Q18.test.ts`                                                                                                                                                                                       | COVERED |
+| FAQ Q19–Q21, Q24 (Player Counts & Thresholds)     | `faq_player_counts_thresholds_forced_elim`           | 8×8, 19×19, hex            | Backend                    | `tests/scenarios/FAQ_Q19_Q21_Q24.test.ts`                                                                                                                                                                                   | COVERED |
+| FAQ Q22–Q23 (Graduated Rewards & Prerequisites)   | `faq_graduated_rewards_territory_prereqs`            | 8×8, 19×19, hex            | Backend                    | `tests/scenarios/FAQ_Q22_Q23.test.ts`                                                                                                                                                                                       | COVERED |
 
 > When adding new high‑value scenarios (especially for rules/FAQ edge cases not yet encoded), append a row here **and** add a more detailed row in the relevant cluster table below.
 
@@ -298,7 +305,152 @@ The following sections break these down in more detail.
 
 | Coverage    | Scenario / intent                                                                                                  | Jest file(s)                                                                                                                                                                                             | Engines           | Notes                                                                                                                                                                                                                                                                                                                               |
 | ----------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **COVERED** | Trace parity between sandbox AI games and backend replays (semantic comparison of moves & phases)                  | `tests/unit/Backend_vs_Sandbox.traceParity.test.ts`, `tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts`                                                                                            | Backend + Sandbox | Uses `GameTrace` and `tests/utils/traces.ts` to compare step‑by‑step state; this suite is treated as a hard CI gate for backend↔sandbox parity on the curated seed‑5 trace.                                                                                                                                                        |
+
+---
+
+## 9. FAQ Scenario Test Matrix (Q1-Q24)
+
+This section provides a complete mapping of all FAQ questions to their dedicated test files. Each FAQ test file is designed to be run independently for targeted validation.
+
+**Quick Reference - Run FAQ Tests:**
+```bash
+# Run all FAQ tests
+npm test -- FAQ_
+
+# Run specific FAQ question
+npm test -- FAQ_Q15        # Chain captures
+npm test -- FAQ_Q07_Q08    # Line formation
+npm test -- FAQ_Q22_Q23    # Graduated rewards & territory prerequisites
+```
+
+### FAQ Test Coverage Matrix
+
+| FAQ | Topic | Test File | Board Types | Status | Notes |
+|-----|-------|-----------|-------------|--------|-------|
+| Q1 | Stack splitting/rearranging | [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) | square8, square19 | ✅ COVERED | Validates immutable stack order, rings always added to bottom |
+| Q2 | Minimum jump requirement | [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) | square8, square19, hex | ✅ COVERED | Tests height=distance rule, marker counting |
+| Q3 | Capture landing distance | [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) | square19 | ✅ COVERED | Validates flexible landing beyond captured piece |
+| Q4 | Rings under captured top | [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) | square8 | ✅ COVERED | Only top ring captured, rest remain in place |
+| Q5 | Multiple ring capture | [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) | square8 | ✅ COVERED | Single jump = one ring; multiple via chain |
+| Q6 | Overtaking vs Elimination | [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) | square8 | ✅ COVERED | Overtaking keeps rings in play; elimination counts toward victory |
+| Q7 | Multiple lines of markers | [`tests/scenarios/FAQ_Q07_Q08.test.ts`](tests/scenarios/FAQ_Q07_Q08.test.ts:1) | square8, square19 | ✅ COVERED | Exact-length, overlength, intersecting lines |
+| Q8 | No rings to remove | [`tests/scenarios/FAQ_Q07_Q08.test.ts`](tests/scenarios/FAQ_Q07_Q08.test.ts:1) | square8 | ✅ COVERED | Turn ends if no rings available for exact-length; Option 2 for overlength |
+| Q9 | Chain blocking all moves | [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) | square8 | ✅ COVERED | Mandatory chain even if self-destructive |
+| Q10 | Multicolored stacks in regions | [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) | square8 | ✅ COVERED | Only current control matters; buried rings don't count |
+| Q11 | Stalemate with rings in hand | [`tests/scenarios/FAQ_Q19_Q21_Q24.test.ts`](tests/scenarios/FAQ_Q19_Q21_Q24.test.ts:1) | square8 | ✅ COVERED | Rings in hand → eliminated; tiebreaker applied |
+| Q12 | Chain eliminating all rings | [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) | square8 | ✅ COVERED | Chain continues even to self-elimination |
+| Q13 | Moore vs Von Neumann | [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) | square8, hex | ✅ COVERED | Movement/lines use Moore; territory uses Von Neumann (square) or hex (hex) |
+| Q14 | Capture optional vs mandatory | [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) | square8 | ✅ COVERED | Initial capture optional; chain mandatory once started |
+| Q15 | Surrounded/disconnected regions | See territory tests below | square8, square19, hex | ✅ COVERED | Covered by existing territory tests + [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:1) for chain patterns |
+| Q16 | Control transfer multicolored | [`tests/scenarios/FAQ_Q16_Q18.test.ts`](tests/scenarios/FAQ_Q16_Q18.test.ts:1) | square8 | ✅ COVERED | Top ring determines control; can recover buried rings |
+| Q17 | First ring placement rules | [`tests/scenarios/FAQ_Q16_Q18.test.ts`](tests/scenarios/FAQ_Q16_Q18.test.ts:1) | square8 | ✅ COVERED | No special rule; standard movement applies |
+| Q18 | Multiple victory conditions | [`tests/scenarios/FAQ_Q16_Q18.test.ts`](tests/scenarios/FAQ_Q16_Q18.test.ts:1) | square8 | ✅ COVERED | Ring elimination precedence; >50% prevents simultaneous wins |
+| Q19 | 2 or 4 player games | [`tests/scenarios/FAQ_Q19_Q21_Q24.test.ts`](tests/scenarios/FAQ_Q19_Q21_Q24.test.ts:1) | square8, square19, hex | ✅ COVERED | All player counts 2-4; threshold validation |
+| Q20 | Territory rules 8×8 vs 19×19 | [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) | square8, square19 | ✅ COVERED | Both use Von Neumann for territory |
+| Q21 | Victory thresholds | [`tests/scenarios/FAQ_Q19_Q21_Q24.test.ts`](tests/scenarios/FAQ_Q19_Q21_Q24.test.ts:1) | square8, square19, hex | ✅ COVERED | Always >50%; prevents ties |
+| Q22 | Graduated line rewards | [`tests/scenarios/FAQ_Q22_Q23.test.ts`](tests/scenarios/FAQ_Q22_Q23.test.ts:1) | square8, square19 | ✅ COVERED | Option 1 vs Option 2 strategic choices |
+| Q23 | Self-elimination prerequisite | [`tests/scenarios/FAQ_Q22_Q23.test.ts`](tests/scenarios/FAQ_Q22_Q23.test.ts:1) | square8, square19, hex | ✅ COVERED | Must have outside stack to process region |
+| Q24 | Forced elimination when blocked | [`tests/scenarios/FAQ_Q19_Q21_Q24.test.ts`](tests/scenarios/FAQ_Q19_Q21_Q24.test.ts:1) | square8 | ✅ COVERED | Must eliminate cap when no moves available |
+
+### FAQ Test File Breakdown
+
+#### [`tests/scenarios/FAQ_Q01_Q06.test.ts`](tests/scenarios/FAQ_Q01_Q06.test.ts:1) - Basic Mechanics
+- **FAQ Q1**: Stack order immutability
+- **FAQ Q2**: Minimum distance requirements (height 1-4 examples)
+- **FAQ Q3**: Landing flexibility during captures
+- **FAQ Q4**: Only top ring captured per segment
+- **FAQ Q5**: Single vs multiple captures (chain patterns)
+- **FAQ Q6**: Overtaking vs Elimination distinction
+- **Coverage**: Stack mechanics, movement distance, capture basics
+- **Engines**: Backend GameEngine, Sandbox ClientSandboxEngine
+
+#### [`tests/scenarios/FAQ_Q07_Q08.test.ts`](tests/scenarios/FAQ_Q07_Q08.test.ts:1) - Line Formation
+- **FAQ Q7**: Multiple line processing, intersecting lines
+- **FAQ Q8**: No rings available for elimination
+- **Coverage**: Exact-length lines (4 for square8, 5 for square19), overlength lines, line invalidation
+- **Engines**: Backend GameEngine
+
+#### [`tests/scenarios/FAQ_Q09_Q14.test.ts`](tests/scenarios/FAQ_Q09_Q14.test.ts:1) - Edge Cases
+- **FAQ Q9**: Mandatory chain despite blocking future moves
+- **FAQ Q10**: Multicolored stacks in territory evaluation
+- **FAQ Q12**: Chain continuing to self-elimination
+- **FAQ Q13**: Moore vs Von Neumann adjacency systems
+- **FAQ Q14**: Optional initial capture, mandatory chain continuation
+- **FAQ Q20**: Territory adjacency comparison across board types
+- **Coverage**: Edge cases, adjacency rules, mandatory mechanics
+- **Engines**: Backend GameEngine
+
+#### [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:1) - Chain Capture Patterns
+- **FAQ Q15.3.1**: 180-degree reversal pattern (A→B→A)
+- **FAQ Q15.3.2**: Cyclic pattern (A→B→C→A)
+- **FAQ Q15.3.3**: Mandatory continuation until no legal captures
+- **Coverage**: Complex chain patterns, reversal mechanics, mandatory chains
+- **Engines**: Backend GameEngine, Sandbox ClientSandboxEngine
+
+#### [`tests/scenarios/FAQ_Q16_Q18.test.ts`](tests/scenarios/FAQ_Q16_Q18.test.ts:1) - Victory & Control
+- **FAQ Q16**: Control transfer in multicolored stacks, recovery of buried rings
+- **FAQ Q17**: First placement has no special movement rules
+- **FAQ Q18**: Victory condition priority, >50% prevents simultaneous wins
+- **Coverage**: Stack control, victory thresholds, board-wide consistency
+- **Engines**: Backend GameEngine
+
+#### [`tests/scenarios/FAQ_Q19_Q21_Q24.test.ts`](tests/scenarios/FAQ_Q19_Q21_Q24.test.ts:1) - Player Counts & Forced Elimination
+- **FAQ Q19**: 2, 3, and 4 player configurations
+- **FAQ Q21**: Victory thresholds always >50% of total
+- **FAQ Q24**: Forced elimination when blocked with stacks
+- **FAQ Q11**: Rings in hand count as eliminated in stalemate
+- **Coverage**: Player count variations, threshold calculations, forced elimination, stalemate
+- **Engines**: Backend GameEngine
+
+#### [`tests/scenarios/FAQ_Q22_Q23.test.ts`](tests/scenarios/FAQ_Q22_Q23.test.ts:1) - Graduated Rewards & Territory
+- **FAQ Q22**: Strategic choices for overlength lines (Option 1 vs Option 2)
+- **FAQ Q23**: Self-elimination prerequisite for processing regions
+- **Coverage**: Graduated line rewards, territory processing prerequisites, multiple regions
+- **Engines**: Backend GameEngine
+
+### Running FAQ-Specific Tests
+
+```bash
+# Run all FAQ scenarios
+npm test -- tests/scenarios/FAQ_
+
+# Run specific FAQ clusters
+npm test -- FAQ_Q01_Q06     # Basic mechanics (Q1-Q6)
+npm test -- FAQ_Q07_Q08     # Line formation (Q7-Q8)
+npm test -- FAQ_Q09_Q14     # Edge cases (Q9-Q14)
+npm test -- FAQ_Q15         # Chain captures (Q15)
+npm test -- FAQ_Q16_Q18     # Victory & control (Q16-Q18)
+npm test -- FAQ_Q19_Q21_Q24 # Player counts & thresholds (Q19-Q21, Q24)
+npm test -- FAQ_Q22_Q23     # Graduated rewards & territory (Q22-Q23)
+
+# Run with verbose output for debugging
+npm test -- FAQ_Q15 --verbose
+```
+
+### FAQ Coverage Summary
+
+**Total FAQ Questions**: 24  
+**Covered by Dedicated Tests**: 24 (100%)  
+**Test Files Created**: 7  
+**Total Test Cases**: ~50+ individual test cases  
+
+**Board Type Coverage**:
+- ✅ Square 8×8: All FAQ questions
+- ✅ Square 19×19: All applicable FAQ questions  
+- ✅ Hexagonal: All applicable FAQ questions (Q13, Q20, Q23)
+
+**Engine Coverage**:
+- ✅ Backend GameEngine: All FAQ questions
+- ✅ Sandbox ClientSandboxEngine: Selected FAQ questions (Q1-Q6, Q15)
+
+**Validation Level**:
+- Each FAQ example from [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) has at least one test
+- Complex scenarios (Q15, Q22-Q23) have multiple test cases
+- Cross-FAQ integration tests validate rule interactions
+
+---
+
+| **PARTIAL** | Trace parity between sandbox AI games and backend replays (semantic comparison of moves & phases; currently failing for seed 5 territory/self‑elimination parity, see P0-TESTING-002) | `tests/unit/Backend_vs_Sandbox.traceParity.test.ts`, `tests/unit/Sandbox_vs_Backend.seed5.traceDebug.test.ts`                                                                                            | Backend + Sandbox | Uses `GameTrace` and `tests/utils/traces.ts` to compare step‑by‑step state; this suite currently encodes a known failing case (seed 5, move 45) and will become a hard CI gate once backend↔sandbox parity is restored.                                                                                                             |
 | **COVERED** | AI‑parallel debug runs (backend & sandbox) for seeded games, including mismatch logging and S‑snapshot comparisons | `tests/unit/Backend_vs_Sandbox.aiParallelDebug.test.ts`, `tests/utils/traces.ts`                                                                                                                         | Backend + Sandbox | Heavy diagnostic harness over seeded AI games; the curated runs in `Backend_vs_Sandbox.aiParallelDebug` and `Sandbox_vs_Backend.aiHeuristicCoverage` are treated as CI gates for backend↔sandbox + AI parity.                                                                                                                      |
 | **COVERED** | Sandbox AI simulation S‑invariant and stall detection                                                              | `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`, `tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts`, `tests/unit/ProgressSnapshot.core.test.ts`, `tests/unit/ProgressSnapshot.sandbox.test.ts` | Backend + Sandbox | aiSimulation/aiStall suites provide seeded, diagnostic coverage; the ProgressSnapshot core/sandbox tests add explicit, hand-built S-invariant checks (Rules*9*\*), asserting M/C/E counts and that canonical marker→territory+elimination transitions strictly increase S. These invariants act as gating tests for S‑monotonicity. |
 

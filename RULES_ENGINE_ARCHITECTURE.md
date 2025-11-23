@@ -1,6 +1,6 @@
 # RingRift Rules Engine Architecture & Rollout Strategy
 
-**Last Updated:** November 21, 2025
+**Last Updated:** November 22, 2025
 **Scope:** Python Rules Engine, TypeScript Parity, and Rollout Plan
 
 This document defines the architecture of the Python rules engine within the AI service, its relationship to the canonical TypeScript engine, and the strategy for rolling it out as an authoritative validation source.
@@ -249,6 +249,33 @@ The Python engine is evolving towards a purely functional, mutator-driven archit
 
 This section documents the canonical semantics for **territory disconnection**, **Q23 self-elimination**, **elimination bookkeeping**, and the **S-invariant** as implemented by the TypeScript sandbox and shared engine. The backend GameEngine and Python engine are required to match these behaviours.
 
+### 5.0 Board Cell Exclusivity Invariants
+
+Across all engines (backend TS, sandbox TS, Python), **each board cell is exclusive** in terms of what it may contain at steady state:
+
+- A cell may be **empty**, or
+- It may contain **exactly one stack** (one `RingStack`), or
+- It may contain **exactly one marker** (a single `Marker` entry), or
+- It may be marked as **collapsed territory** (`collapsedSpaces` entry for one player),
+
+but **never any combination** of these at the same time.
+
+Concretely:
+
+- **No stack on collapsed territory:** if a position is in `board.collapsedSpaces`, `board.stacks` must not have an entry for the same key.
+- **No stack + marker coexistence:** if `board.stacks` has a stack at a key, `board.markers` must not have a marker at that key.
+- **No marker on collapsed territory:** if `board.collapsedSpaces` contains a key, `board.markers` must not contain that key.
+
+The following implementation points enforce these invariants:
+
+- Backend `BoardManager.setCollapsedSpace` removes any stack and marker before inserting a `collapsedSpaces` entry.
+- Backend `BoardManager.setStack` now logs and then **removes any existing marker** before setting a stack at that position.
+- Sandbox `ClientSandboxEngine.collapseMarker` and `collapseLineMarkers` clear both stacks and markers when creating collapsed territory.
+- Sandbox placement (`tryPlaceRings`) rejects any attempt to place a stack on top of a marker, keeping stack/marker maps disjoint.
+- The sandbox test helper `ClientSandboxEngine.assertBoardInvariants` asserts these conditions under Jest when `NODE_ENV=test`.
+
+These exclusivity rules are considered **part of the rules contract** and must be maintained by any future engine or mutator implementations.
+
 ### 5.1 Territory Regions and Disconnection
 
 **Reference implementations:**
@@ -403,7 +430,289 @@ These semantics are the authoritative contract for later phases (AI parity, WebS
 
 ---
 
-## 6. References
+## 6. Backend vs Sandbox Invariant Enforcement & Termination Ladder
+
+This section documents where **board invariants** and the **termination ladder** are enforced across the backend GameEngine, client sandbox, and shared core. It also clarifies how the no-dead-placement and forced-elimination policies interact so that long AI sequences cannot stall while valid progress exists.
+
+### 6.1 Board Invariant Enforcement (Backend vs Sandbox)
+
+**Backend (server-side TS):**
+
+- Core ownership: `src/server/game/BoardManager.ts`.
+- Key responsibilities:
+  - Maintain board geometry, stacks, markers, and collapsed territories.
+  - Provide mutators such as `setStack`, `removeStack`, `setMarker`, `removeMarker`, `collapseMarker`, `setCollapsedSpace`.
+  - Discover disconnected regions and border markers.
+- Invariant helper:
+
+  ```ts
+  // Pseudocode – see BoardManager for the exact implementation
+  private assertBoardInvariants(board: BoardState, context: string): void {
+    const errors: string[] = [];
+
+    for (const key of board.stacks.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`stack present on collapsed space at ${key}`);
+      }
+      if (board.markers.has(key)) {
+        errors.push(`stack and marker coexist at ${key}`);
+      }
+    }
+
+    for (const key of board.markers.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`marker present on collapsed space at ${key}`);
+      }
+    }
+
+    if (errors.length === 0) return;
+
+    const message =
+      `[BoardManager] invariant violation (${context}):` + '\n' + errors.join('\n');
+    console.error(message);
+
+    if (BOARD_INVARIANTS_STRICT) {
+      throw new Error(message);
+    }
+  }
+  ```
+
+- Strictness:
+  - Under `NODE_ENV === 'test'` or when `RINGRIFT_ENABLE_BACKEND_BOARD_INVARIANTS` is set, invariant violations **throw**.
+  - In production, violations are logged but do not currently throw by default.
+- Repair behaviour in hot mutators:
+  - `setStack` removes any marker on the destination cell **before** placing the stack, then calls `assertBoardInvariants`.
+  - `setCollapsedSpace` removes any stack or marker before marking the cell as collapsed, then calls `assertBoardInvariants`.
+  - `collapseMarker` removes the marker and any stack on that cell, sets collapsed territory, and then calls `assertBoardInvariants`.
+
+**Sandbox (client-side TS):**
+
+- Core ownership: `src/client/sandbox/ClientSandboxEngine.ts`.
+- Invariant helper (test-only):
+
+  ```ts
+  (ClientSandboxEngine.prototype as any).assertBoardInvariants = function (
+    this: ClientSandboxEngine,
+    context: string
+  ): void {
+    const board: BoardState = (this as any).gameState.board as BoardState;
+    const errors: string[] = [];
+
+    for (const key of board.stacks.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`stack present on collapsed space at ${key}`);
+      }
+      if (board.markers.has(key)) {
+        errors.push(`stack and marker coexist at ${key}`);
+      }
+    }
+
+    for (const key of board.markers.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`marker present on collapsed space at ${key}`);
+      }
+    }
+
+    if (errors.length === 0) return;
+
+    const message =
+      `ClientSandboxEngine invariant violation (${context}):` + '\n' + errors.join('\n');
+
+    console.error(message);
+
+    if (isTestEnv) {
+      throw new Error(message);
+    }
+  };
+  ```
+
+- Usage:
+  - Called from AI-simulation and debug harnesses after each AI turn.
+  - Ensures sandbox-side logic never produces illegal stack/marker/territory overlaps.
+- Mutators that preserve invariants by construction:
+  - Placement (`tryPlaceRings`) rejects placement on markers or collapsed spaces.
+  - Line collapse (`collapseLineMarkers`) removes stacks and markers before collapsing to territory.
+  - `collapseMarker` in `ClientSandboxEngine` removes both marker and stack, then sets collapsed territory.
+  - Territory processing (`sandboxTerritory.ts` / `sandboxTerritoryEngine.ts`) removes stacks/markers before collapsing region spaces and border markers.
+
+Together, these guarantees mean that **any** invariant violation that does slip through is surfaced immediately in tests on both backend and sandbox paths, and repair logic in hot mutators ensures new overlaps are corrected before they become latent bugs.
+
+### 6.2 Shared No-Dead-Placement Core
+
+The no-dead-placement rule is implemented once in the shared core and then
+wrapped by backend and sandbox engines.
+
+- Core helper: `hasAnyLegalMoveOrCaptureFromOnBoard` in
+  `src/shared/engine/core.ts`.
+  - Inputs: `boardType`, `from` position, `player`, and a minimal
+    `MovementBoardView` (valid-position, collapsed-space, stack + marker
+    lookup).
+  - Behaviour:
+    - Checks for at least one legal **non-capture move** from the stack at
+      `from`.
+    - If none exist, checks for at least one legal **overtaking capture**
+      from `from`.
+    - Returns `true` iff some legal movement or capture exists.
+- Backend usage:
+  - `BoardManager` adapters expose a `MovementBoardView` over the server-side
+    board.
+  - `RuleEngine.validateRingPlacement` and related helpers call
+    `hasAnyLegalMoveOrCaptureFromOnBoard` to enforce that placements do not
+    create dead stacks.
+- Sandbox usage:
+  - `ClientSandboxEngine.hasAnyLegalMoveOrCaptureFrom` builds a
+    `MovementBoardView` from the sandbox board and delegates to the shared core.
+  - `ClientSandboxEngine.tryPlaceRings` uses this to gate placements.
+  - `sandboxPlacement.enumerateLegalRingPlacements` uses the same check when
+    generating candidate positions for sandbox and AI.
+
+This shared helper is the **single source of truth** for no-dead-placement in
+both backend and sandbox engines.
+
+### 6.3 Termination Ladder & Sandbox AI Control Flow
+
+The **rules-level termination ladder**, as captured in
+`RULES_TERMINATION_ANALYSIS.md`, is:
+
+1. If a player can **move**, they must move.
+2. If they cannot move and cannot place, they must undergo **forced
+   elimination**.
+3. If they can place but cannot move, they must place and then move; that
+   process must eventually exhaust rings in hand and on board.
+
+The sandbox AI enforces this ladder using three main components:
+
+- Shared core: `hasAnyLegalMoveOrCaptureFromOnBoard` (no-dead-placement).
+- Sandbox AI policy: `src/client/sandbox/sandboxAI.ts`.
+- Turn engine / forced elimination: `src/client/sandbox/sandboxTurnEngine.ts`.
+
+#### 6.3.1 Ring Placement Phase (Sandbox AI)
+
+Key implementation: `maybeRunAITurnSandbox` in `src/client/sandbox/sandboxAI.ts`.
+
+- When `currentPhase === 'ring_placement'`, the AI:
+  1. Reads `ringsInHand` for the current player.
+  2. If `ringsInHand <= 0`:
+     - Computes `hasAnyActionFromStacks` using `hooks.getPlayerStacks` and
+       `hooks.hasAnyLegalMoveOrCaptureFrom`.
+     - If `hasAnyActionFromStacks` is true, applies an explicit
+       `skip_placement` move via `hooks.applyCanonicalMove`, advancing into
+       movement – mirroring backend `RuleEngine.validateSkipPlacement`.
+     - Otherwise, calls `hooks.maybeProcessForcedEliminationForCurrentPlayer()`
+       and logs diagnostics if elimination does not change state.
+  3. If `ringsInHand > 0`:
+     - Computes `placementCandidates` via
+       `hooks.enumerateLegalRingPlacements(current.playerNumber)`.
+     - For each candidate position, uses
+       `hooks.createHypotheticalBoardWithPlacement` +
+       `hooks.hasAnyLegalMoveOrCaptureFrom` to filter out placements that
+       would create dead stacks.
+     - Builds `place_ring` moves for each surviving candidate, respecting
+       per-placement and per-player caps.
+     - Optionally appends a `skip_placement` candidate when the player has
+       legal moves from existing stacks.
+     - Uses `chooseLocalMoveFromCandidates` (shared selector) to choose
+       between `place_ring` and `skip_placement` in a deterministic,
+       proportional way.
+     - Applies the chosen move via `hooks.applyCanonicalMove`.
+
+**Stall fixes introduced for the historical seed-18 bug:**
+
+- `ringsInHand <= 0` in ring_placement is no longer treated as a silent
+  no-op; the AI now **always** either:
+  - emits a `skip_placement` move when moves from stacks exist, or
+  - invokes forced elimination via `hooks.maybeProcessForcedEliminationForCurrentPlayer()`.
+- Defensive logging and diagnostics ensure that if forced elimination fails
+  to change state while the game remains active, the situation is surfaced in
+  test logs rather than silently looping.
+
+These changes guarantee that the sandbox AI cannot remain in ring_placement
+with `ringsInHand <= 0` for many consecutive no-op turns.
+
+#### 6.3.2 Forced Elimination & Turn Engine (Sandbox)
+
+Key implementation: `maybeProcessForcedEliminationForCurrentPlayerSandbox` in
+`src/client/sandbox/sandboxTurnEngine.ts`, wired through
+`ClientSandboxEngine.maybeProcessForcedEliminationForCurrentPlayer`.
+
+- Inputs:
+  - `state: GameState` and per-turn `SandboxTurnState`.
+  - Hooks that expose `enumerateLegalRingPlacements`,
+    `hasAnyLegalMoveOrCaptureFrom`, `getPlayerStacks`, `forceEliminateCap`,
+    and `checkAndApplyVictory`.
+- Behaviour:
+  1. Compute stacks for the current player.
+  2. If **no stacks**:
+     - If `ringsInHand <= 0`: advance `currentPlayer` to the next player,
+       mark this as an eliminated turn (for control flow), and return.
+     - If `ringsInHand > 0`: do **not** advance; the player may act again on
+       a future ring_placement turn.
+  3. If stacks **do exist**:
+     - Compute whether any movement/capture is available:
+       - If a must-move stack is tracked for movement, check that stack
+         first; otherwise, scan all stacks.
+     - Compute whether any legal ring placements exist that satisfy the
+       no-dead-placement rule using `enumerateLegalRingPlacements`.
+  4. If the player has **any** legal action (move, capture, or
+     no-dead-placement placement), return with `eliminated: false`.
+  5. If they have **no** such actions, call `forceEliminateCap` to perform a
+     cap elimination and advance turn order.
+
+This function is used both when starting a new turn and during movement
+phases where a player might become completely blocked. It ensures the rules-
+level condition "cannot move and cannot place → must eliminate" is enforced
+consistently in the sandbox.
+
+### 6.4 Termination-Oriented Tests & Diagnostics
+
+Several test suites and harnesses work together to enforce the termination
+ladder and detect stalls:
+
+- **Single-seed debug harness:**
+  - `tests/unit/ClientSandboxEngine.aiSingleSeedDebug.test.ts` drives a single
+    sandbox AI-vs-AI game for `square8` / `2p` / `seed=18`.
+  - After each AI action, it:
+    - Asserts S-invariant non-decrease (`computeProgressSnapshot`).
+    - Tracks consecutive stagnant steps (unchanged state hash while active)
+      and breaks early when a stall threshold is reached.
+    - Calls `engineAny.assertBoardInvariants(...)` to enforce board
+      exclusivity.
+    - At failure time (pre-fix), logged rich diagnostics including
+      `legalPlacements`, movement options on hypothetical boards, and a
+      rolling `recentHistory` of S and resource snapshots.
+  - Post-fix, this test now **terminates within the action budget** and the
+    final `gameStatus` is not `active`.
+
+- **Fuzz AI simulation harness:**
+  - `tests/unit/ClientSandboxEngine.aiSimulation.test.ts` fuzzes across
+    multiple board types and player counts.
+  - For each scenario and seed, it:
+    - Enforces global S-invariant non-decrease.
+    - Detects stalls via a `MAX_STAGNANT` window (unchanged hashes while
+      active) and logs diagnostics with `logAiDiagnostic`.
+    - Requires each game to terminate within `MAX_AI_ACTIONS` AI actions.
+  - This harness is gated behind `RINGRIFT_ENABLE_SANDBOX_AI_SIM=1` due to
+    its cost but is the primary long-run stall detector.
+
+- **Targeted regression test:**
+  - `tests/unit/SandboxAI.ringPlacementNoopRegression.test.ts` encodes the
+    historical seed-18 stall as a fast, CI-friendly regression:
+    - Replays the same `square8` / `2p` / `seed=18` setup with the shared LCG.
+    - Calls `maybeRunAITurn` up to a modest `MAX_AI_ACTIONS`.
+    - Tracks consecutive no-op AI turns (unchanged hash while active) and
+      fails if a long no-op run is observed.
+    - Asserts that the final `gameStatus` is **not** `active`.
+  - This test ensures that any future change to sandbox AI ring_placement or
+    forced-elimination control flow that would reintroduce a stall is caught
+    quickly.
+
+Together, these tests and diagnostics ensure that the **practical** behaviour
+of the sandbox AI matches the theoretical termination guarantees in
+`RULES_TERMINATION_ANALYSIS.md`.
+
+---
+
+## 7. References
 
 - Sandbox territory & elimination:
   - `src/client/sandbox/ClientSandboxEngine.ts`
@@ -422,5 +731,10 @@ These semantics are the authoritative contract for later phases (AI parity, WebS
   - `ai-service/app/board_manager.py`
   - `ai-service/app/rules/mutators/territory.py`
   - `ai-service/app/rules/mutators/capture.py`
-
-These components collectively define the canonical behaviour for territory, Q23, elimination, and S-invariant across all RingRift engines.
+- Termination & sandbox AI:
+  - `RULES_TERMINATION_ANALYSIS.md`
+  - `src/client/sandbox/sandboxAI.ts`
+  - `src/client/sandbox/sandboxTurnEngine.ts`
+  - `tests/unit/ClientSandboxEngine.aiSingleSeedDebug.test.ts`
+  - `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`
+  - `tests/unit/SandboxAI.ringPlacementNoopRegression.test.ts`

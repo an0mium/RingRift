@@ -147,6 +147,19 @@ export function applyCaptureSegmentOnBoard(
 
   const newRings = [...attacker.rings, capturedRing];
   const landingKey = positionToString(landing);
+
+  // Invariant alignment: a cell may host either a stack, a marker, or
+  // collapsed territory, but never combinations. The backend enforces
+  // this by routing all stack writes through BoardManager.setStack,
+  // which drops any marker on the destination cell. The sandbox
+  // capture path historically wrote directly to board.stacks without
+  // clearing markers, which allowed stack+marker overlaps when a
+  // capture landed on a marked cell. To keep the S-invariant and
+  // board exclusivity rules consistent between engines, we explicitly
+  // clear any marker at the landing key before placing the updated
+  // stack.
+  board.markers.delete(landingKey);
+
   const updatedStack: RingStack = {
     position: landing,
     rings: newRings,

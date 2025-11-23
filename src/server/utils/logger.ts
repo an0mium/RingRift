@@ -1,11 +1,12 @@
 import winston from 'winston';
 import path from 'path';
+import { config } from '../config';
 
 // Create logs directory if it doesn't exist
 const logsDir = path.join(process.cwd(), 'logs');
 
 const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
+  level: config.logging.level,
   format: winston.format.combine(
     winston.format.timestamp({
       format: 'YYYY-MM-DD HH:mm:ss'
@@ -32,7 +33,7 @@ const logger = winston.createLogger({
 });
 
 // If we're not in production, log to the console with a simple format
-if (process.env.NODE_ENV !== 'production') {
+if (!config.isProduction) {
   logger.add(new winston.transports.Console({
     format: winston.format.combine(
       winston.format.colorize(),

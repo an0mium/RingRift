@@ -3,8 +3,8 @@ module.exports = {
   // Use ts-jest preset for TypeScript support
   preset: 'ts-jest',
   
-  // Run tests in custom Node environment (with localStorage mock)
-  testEnvironment: '<rootDir>/tests/test-environment.js',
+  // Use custom jsdom environment with import.meta support
+  testEnvironment: '<rootDir>/tests/jest-environment-jsdom.js',
   
   // Roots for test discovery
   roots: ['<rootDir>/src', '<rootDir>/tests'],
@@ -18,16 +18,17 @@ module.exports = {
   // Module paths
   modulePaths: ['<rootDir>/src'],
   
-  // Configure ts-jest to use a Jest-specific TS config that understands React TSX
-  globals: {
-    'ts-jest': {
-      tsconfig: '<rootDir>/tsconfig.jest.json',
-    },
-  },
-
-  // Transform files with ts-jest
+  // Transform files with ts-jest and handle import.meta
   transform: {
-    '^.+\\.(ts|tsx)$': 'ts-jest',
+    '^.+\\.(ts|tsx)$': ['ts-jest', {
+      tsconfig: '<rootDir>/tsconfig.jest.json',
+      diagnostics: {
+        ignoreCodes: ['TS1343'], // Ignore "import.meta" errors during transformation
+      },
+      babelConfig: {
+        plugins: ['babel-plugin-transform-import-meta'],
+      },
+    }],
   },
   
   // Coverage configuration
@@ -89,6 +90,9 @@ module.exports = {
     'json',
   ],
   
+  // Setup files - runs BEFORE test framework is installed
+  setupFiles: ['<rootDir>/tests/setup-jsdom.ts'],
+  
   // Setup files - runs AFTER test framework is installed
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   
@@ -99,6 +103,9 @@ module.exports = {
     '^@shared/(.*)$': '<rootDir>/src/shared/$1',
     '^@server/(.*)$': '<rootDir>/src/server/$1',
     '^@client/(.*)$': '<rootDir>/src/client/$1',
+    // Mock CSS and asset imports for React component tests
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/tests/__mocks__/fileMock.js',
   },
   
   // Ignore patterns

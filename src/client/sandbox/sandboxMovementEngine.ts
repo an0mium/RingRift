@@ -251,6 +251,28 @@ export async function handleMovementClickSandbox(
     return { nextSelectedFromKey: undefined };
   }
 
+  // Marker landing rules must mirror the shared movement helpers used by
+  // hasAnyLegalMoveOrCaptureFromOnBoard and enumerateSimpleMovementLandings:
+  //   - You may land on empty spaces or your own markers.
+  //   - You may NOT land on an opponent marker; such a cell is only a
+  //     transit point along the ray.
+  const destinationStack = board.stacks.get(key);
+  const landingMarkerOwner = hooks.getMarkerOwner(position, board);
+  if (!destinationStack || destinationStack.stackHeight === 0) {
+    if (
+      landingMarkerOwner !== undefined &&
+      landingMarkerOwner !== movingStack.controllingPlayer
+    ) {
+      if (selectedFromKey === '2,7')
+        console.log('[Sandbox Movement Engine Debug] Opponent marker at landing', {
+          position,
+          landingMarkerOwner,
+          currentPlayer: state.currentPlayer,
+        });
+      return { nextSelectedFromKey: undefined };
+    }
+  }
+
   const nextStacks = new Map(board.stacks);
   nextStacks.delete(fromKey);
 
@@ -270,7 +292,9 @@ export async function handleMovementClickSandbox(
     };
     nextStacks.set(key, mergedStack);
   } else {
-    // Move to an empty position.
+    // Move to an empty position (with no stack). Any same-colour marker
+    // on the landing cell will be handled by marker-path processing and
+    // subsequent landing-on-own-marker elimination.
     nextStacks.set(key, {
       ...movingStack,
       position,
@@ -281,8 +305,9 @@ export async function handleMovementClickSandbox(
   // before marker processing removes it. This mirrors the backend
   // GameEngine behaviour where landing on your own marker immediately
   // eliminates your top ring.
-  const landingMarkerOwner = hooks.getMarkerOwner(position, board);
-  const landedOnOwnMarker = landingMarkerOwner === movingStack.controllingPlayer;
+  const landedOnOwnMarker =
+    landingMarkerOwner !== undefined &&
+    landingMarkerOwner === movingStack.controllingPlayer;
 
   applyMarkerEffectsAlongPathWithHooks(
     hooks,

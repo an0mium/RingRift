@@ -156,11 +156,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build server
-        run: npm run build:server
-
-      - name: Build client
-        run: npm run build:client
+      - name: Build server and client
+        run: npm run build
 
       - name: Archive production artifacts
         uses: actions/upload-artifact@v3

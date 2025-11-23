@@ -1,6 +1,8 @@
 import express from 'express';
 import request from 'supertest';
+import client from 'prom-client';
 import setupRoutes from '../../src/server/routes';
+import '../../src/server/utils/rulesParityMetrics';
 
 /**
  * Lightweight server harness for testing the public HTTP surface:
@@ -27,6 +29,15 @@ function createTestApp() {
       uptime: process.uptime(),
       version: process.env.npm_package_version || 'test',
     });
+  });
+
+  // Prometheus metrics endpoint (lightweight mirror of src/server/index.ts).
+  // This uses the shared default registry from prom-client so that metrics
+  // declared in src/server/utils/rulesParityMetrics.ts are exposed.
+  app.get('/metrics', async (_req, res) => {
+    res.set('Content-Type', client.register.contentType);
+    const metrics = await client.register.metrics();
+    res.send(metrics);
   });
 
   // API routes mounted at /api
@@ -68,5 +79,17 @@ describe('Server health and API info routes', () => {
     });
 
     expect(typeof res.body.timestamp).toBe('string');
+  });
+
+  it('GET /metrics exposes core Prometheus metrics', async () => {
+    const app = createTestApp();
+
+    const res = await request(app).get('/metrics').expect(200);
+    const body = res.text;
+
+    expect(body).toContain('ai_move_latency_ms');
+    expect(body).toContain('ai_fallback_total');
+    expect(body).toContain('game_move_latency_ms');
+    expect(body).toContain('websocket_connections_current');
   });
 });

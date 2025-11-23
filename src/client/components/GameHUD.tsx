@@ -1,5 +1,5 @@
-import React from 'react';
-import { GameState, Player, GamePhase, BOARD_CONFIGS } from '../../shared/types/game';
+import React, { useEffect, useState } from 'react';
+import { GameState, Player, GamePhase, BOARD_CONFIGS, TimeControl } from '../../shared/types/game';
 import { ConnectionStatus } from '../contexts/GameContext';
 
 interface GameHUDProps {
@@ -9,6 +9,241 @@ interface GameHUDProps {
   connectionStatus?: ConnectionStatus;
   isSpectator?: boolean;
   lastHeartbeatAt?: number | null;
+  currentUserId?: string;
+}
+
+/**
+ * Phase information with user-friendly labels, descriptions, colors, and icons
+ */
+interface PhaseInfo {
+  label: string;
+  description: string;
+  color: string;
+  icon: string;
+}
+
+function getPhaseInfo(phase: GamePhase): PhaseInfo {
+  switch (phase) {
+    case 'ring_placement':
+      return {
+        label: 'Ring Placement',
+        description: 'Place your rings on the board',
+        color: 'bg-blue-500',
+        icon: '🎯'
+      };
+    case 'movement':
+      return {
+        label: 'Movement Phase',
+        description: 'Move a stack or capture opponent pieces',
+        color: 'bg-green-500',
+        icon: '⚡'
+      };
+    case 'capture':
+      return {
+        label: 'Capture Phase',
+        description: 'Execute a capture move',
+        color: 'bg-orange-500',
+        icon: '⚔️'
+      };
+    case 'chain_capture':
+      return {
+        label: 'Chain Capture',
+        description: 'Continue capturing or end your turn',
+        color: 'bg-orange-500',
+        icon: '🔗'
+      };
+    case 'line_processing':
+      return {
+        label: 'Line Reward',
+        description: 'Choose how to process your line',
+        color: 'bg-purple-500',
+        icon: '📏'
+      };
+    case 'territory_processing':
+      return {
+        label: 'Territory Claim',
+        description: 'Choose regions to collapse',
+        color: 'bg-pink-500',
+        icon: '🏰'
+      };
+    default:
+      return {
+        label: 'Unknown Phase',
+        description: '',
+        color: 'bg-gray-400',
+        icon: '❓'
+      };
+  }
+}
+
+/**
+ * Phase indicator showing current game phase with icon and description
+ */
+function PhaseIndicator({ gameState }: { gameState: GameState }) {
+  const phaseInfo = getPhaseInfo(gameState.currentPhase);
+  
+  return (
+    <div className={`${phaseInfo.color} text-white px-4 py-2 rounded-lg shadow-lg`}>
+      <div className="flex items-center gap-2">
+        {phaseInfo.icon && <span className="text-2xl">{phaseInfo.icon}</span>}
+        <div>
+          <div className="font-bold">{phaseInfo.label}</div>
+          <div className="text-sm opacity-90">{phaseInfo.description}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sub-phase details for complex phases like territory/line processing
+ */
+function SubPhaseDetails({ gameState }: { gameState: GameState }) {
+  // For line processing, check if we have pending line decisions
+  if (gameState.currentPhase === 'line_processing') {
+    const formedLines = gameState.board.formedLines || [];
+    if (formedLines.length > 0) {
+      return (
+        <div className="text-sm text-gray-600 mt-1">
+          Processing {formedLines.length} line{formedLines.length !== 1 ? 's' : ''}
+        </div>
+      );
+    }
+  }
+  
+  // For territory processing, we don't have a direct count in GameState,
+  // but we can show a generic message
+  if (gameState.currentPhase === 'territory_processing') {
+    return (
+      <div className="text-sm text-gray-600 mt-1">
+        Processing disconnected regions
+      </div>
+    );
+  }
+  
+  return null;
+}
+
+/**
+ * Player timer with countdown display
+ */
+interface PlayerTimerProps {
+  player: Player;
+  isActive: boolean;
+  timeControl?: TimeControl;
+}
+
+function PlayerTimer({ player, isActive, timeControl }: PlayerTimerProps) {
+  const [timeRemaining, setTimeRemaining] = useState(player.timeRemaining ?? 0);
+  
+  useEffect(() => {
+    if (!isActive || !timeControl) return;
+    
+    const interval = setInterval(() => {
+      setTimeRemaining(prev => Math.max(0, prev - 1000));
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [isActive, timeControl]);
+  
+  // Sync with player's actual time when it updates
+  useEffect(() => {
+    setTimeRemaining(player.timeRemaining ?? 0);
+  }, [player.timeRemaining]);
+  
+  if (!timeControl) return null;
+  
+  const minutes = Math.floor(timeRemaining / 60000);
+  const seconds = Math.floor((timeRemaining % 60000) / 1000);
+  const isLowTime = timeRemaining < 60000; // Less than 1 minute
+  
+  return (
+    <div className={`font-mono ${isLowTime ? 'text-red-600 font-bold' : 'text-gray-700'}`}>
+      {minutes}:{seconds.toString().padStart(2, '0')}
+    </div>
+  );
+}
+
+/**
+ * Calculate ring statistics for a player
+ */
+function calculateRingStats(player: Player, gameState: GameState) {
+  const boardConfig = BOARD_CONFIGS[gameState.boardType];
+  const total = boardConfig.ringsPerPlayer;
+  
+  // Count rings on board
+  const onBoard = Array.from(gameState.board.stacks.values()).reduce((count, stack) => {
+    return count + stack.rings.filter(r => r === player.playerNumber).length;
+  }, 0);
+  
+  const eliminated = player.eliminatedRings ?? 0;
+  const inHand = player.ringsInHand ?? 0;
+  
+  return { inHand, onBoard, eliminated, total };
+}
+
+/**
+ * Detailed ring statistics display
+ */
+interface RingStatsProps {
+  player: Player;
+  gameState: GameState;
+}
+
+function RingStats({ player, gameState }: RingStatsProps) {
+  const ringStats = calculateRingStats(player, gameState);
+  
+  return (
+    <div className="grid grid-cols-3 gap-2 text-xs mt-2">
+      <div className="text-center">
+        <div className="font-bold">{ringStats.inHand}</div>
+        <div className="text-gray-500">In Hand</div>
+      </div>
+      <div className="text-center">
+        <div className="font-bold">{ringStats.onBoard}</div>
+        <div className="text-gray-500">On Board</div>
+      </div>
+      <div className="text-center">
+        <div className="font-bold text-red-600">{ringStats.eliminated}</div>
+        <div className="text-gray-500">Lost</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Territory statistics display
+ */
+function TerritoryStats({ player }: { player: Player }) {
+  const territoryCount = player.territorySpaces ?? 0;
+  
+  if (territoryCount === 0) return null;
+  
+  return (
+    <div className="text-sm mt-1 text-center">
+      <span className="font-semibold">{territoryCount}</span> territory space{territoryCount !== 1 ? 's' : ''}
+    </div>
+  );
+}
+
+/**
+ * Game progress display (turn/move counter)
+ */
+function GameProgress({ gameState }: { gameState: GameState }) {
+  const turnNumber = gameState.moveHistory.length;
+  const moveNumber = gameState.history.length > 0 
+    ? gameState.history[gameState.history.length - 1]?.moveNumber 
+    : 0;
+  
+  return (
+    <div className="text-center py-2 bg-gray-100 rounded">
+      <div className="text-2xl font-bold">{turnNumber}</div>
+      <div className="text-xs text-gray-600">Turn</div>
+      {moveNumber > 0 && (
+        <div className="text-xs text-gray-500">Move #{moveNumber}</div>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -51,6 +286,80 @@ function getAITypeLabel(aiType?: string): string {
   }
 }
 
+/**
+ * Badge component for player indicators
+ */
+function Badge({ variant = 'default', children }: { variant?: 'default' | 'primary'; children: React.ReactNode }) {
+  const classes = variant === 'primary' 
+    ? 'px-2 py-0.5 rounded-full bg-blue-500 text-white text-xs font-semibold'
+    : 'px-2 py-0.5 rounded-full bg-gray-600 text-gray-200 text-xs font-semibold';
+  
+  return <span className={classes}>{children}</span>;
+}
+
+/**
+ * Player card component
+ */
+interface PlayerCardProps {
+  player: Player;
+  gameState: GameState;
+  isCurrentPlayer: boolean;
+  isUserPlayer: boolean;
+}
+
+function PlayerCard({ player, gameState, isCurrentPlayer, isUserPlayer }: PlayerCardProps) {
+  return (
+    <div className={`
+      p-3 rounded-lg border-2 transition-all
+      ${isCurrentPlayer ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}
+      ${isUserPlayer ? 'ring-2 ring-green-400' : ''}
+    `}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <div className={`w-4 h-4 rounded-full bg-${['emerald', 'sky', 'amber', 'fuchsia'][player.playerNumber - 1] || 'gray'}-500`} />
+          <span className="font-semibold">{player.username}</span>
+          {player.type === 'ai' && <Badge>🤖 AI</Badge>}
+          {isCurrentPlayer && <Badge variant="primary">Current Turn</Badge>}
+        </div>
+        
+        {gameState.timeControl && (
+          <PlayerTimer
+            player={player}
+            isActive={isCurrentPlayer}
+            timeControl={gameState.timeControl}
+          />
+        )}
+      </div>
+      
+      {player.type === 'ai' && (
+        <div className="flex flex-col gap-1 mb-2">
+          {(() => {
+            const difficulty = player.aiProfile?.difficulty ?? player.aiDifficulty ?? 5;
+            const aiType = player.aiProfile?.aiType ?? 'heuristic';
+            const diffInfo = getAIDifficultyInfo(difficulty);
+            return (
+              <>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded ${diffInfo.bgColor} ${diffInfo.color} font-semibold`}>
+                  {diffInfo.label} Lv{difficulty}
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
+                  {getAITypeLabel(aiType)}
+                </span>
+              </>
+            );
+          })()}
+        </div>
+      )}
+      
+      <RingStats player={player} gameState={gameState} />
+      <TerritoryStats player={player} />
+    </div>
+  );
+}
+
+/**
+ * Main GameHUD component
+ */
 export function GameHUD({
   gameState,
   currentPlayer,
@@ -58,66 +367,11 @@ export function GameHUD({
   connectionStatus = 'connected',
   isSpectator = false,
   lastHeartbeatAt,
+  currentUserId,
 }: GameHUDProps) {
   if (!currentPlayer) return null;
 
   const spectatorCount = gameState.spectators.length;
-
-  const getPhaseLabel = (phase: GamePhase) => {
-    switch (phase) {
-      case 'ring_placement':
-        return 'Ring Placement';
-      case 'movement':
-        return 'Movement';
-      case 'capture':
-        return 'Capture';
-      case 'chain_capture':
-        return 'Chain Capture';
-      case 'line_processing':
-        return 'Line Processing';
-      case 'territory_processing':
-        return 'Territory Processing';
-      default:
-        return phase;
-    }
-  };
-
-  const formatTime = (ms: number) => {
-    const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-    const minutes = Math.floor(totalSeconds / 60);
-    const seconds = totalSeconds % 60;
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  };
-
-  const getPlayerColorClass = (playerNumber: number) => {
-    switch (playerNumber) {
-      case 1:
-        return 'text-emerald-400 border-emerald-500';
-      case 2:
-        return 'text-sky-400 border-sky-500';
-      case 3:
-        return 'text-amber-400 border-amber-500';
-      case 4:
-        return 'text-fuchsia-400 border-fuchsia-500';
-      default:
-        return 'text-slate-400 border-slate-500';
-    }
-  };
-
-  const getPlayerBgClass = (playerNumber: number) => {
-    switch (playerNumber) {
-      case 1:
-        return 'bg-emerald-900/30';
-      case 2:
-        return 'bg-sky-900/30';
-      case 3:
-        return 'bg-amber-900/30';
-      case 4:
-        return 'bg-fuchsia-900/30';
-      default:
-        return 'bg-slate-800';
-    }
-  };
 
   const connectionLabel = () => {
     switch (connectionStatus) {
@@ -147,10 +401,9 @@ export function GameHUD({
         ? 'text-amber-300'
         : 'text-rose-300';
 
-  const boardConfig = BOARD_CONFIGS[gameState.boardType];
-
   return (
     <div className="w-full max-w-4xl mx-auto mb-4">
+      {/* Connection Status */}
       <div className="flex items-center justify-between text-xs text-slate-300 mb-3">
         <div className={`font-semibold ${connectionColor}`}>
           Connection: {connectionLabel()}
@@ -184,155 +437,34 @@ export function GameHUD({
           )}
         </div>
       </div>
-      {/* Current Turn Banner */}
-      <div
-        className={`
-        flex items-center justify-between px-6 py-4 rounded-xl border-2 shadow-lg mb-4 transition-all duration-300
-        ${getPlayerBgClass(currentPlayer.playerNumber)}
-        ${getPlayerColorClass(currentPlayer.playerNumber)}
-        ${isSpectator ? 'opacity-90' : 'opacity-100'}
-      `}
-      >
-        <div className="flex flex-col">
-          <span className="text-xs font-bold opacity-70 uppercase tracking-widest mb-1">
-            Current Turn
-          </span>
-          <div className="flex items-center gap-3">
-            <div
-              className={`w-3 h-3 rounded-full ${getPlayerColorClass(currentPlayer.playerNumber).replace('text-', 'bg-').replace('border-', '')} animate-pulse`}
-            />
-            <span className="text-3xl font-black text-white tracking-tight">
-              {currentPlayer.username || `Player ${currentPlayer.playerNumber}`}
-            </span>
-            {currentPlayer.type === 'ai' && (
-              <div className="flex items-center gap-2 ml-2">
-                <span className="px-2 py-0.5 rounded-full bg-slate-700/80 border border-slate-500 text-xs font-semibold text-slate-200">
-                  🤖 AI
-                </span>
-                <div className="animate-pulse flex gap-1">
-                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce"></div>
-                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:0.1s]"></div>
-                  <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
 
-        <div className="flex flex-col items-end">
-          <span className="text-xs font-bold opacity-70 uppercase tracking-widest mb-1">Phase</span>
-          <span className="text-xl font-bold text-white">
-            {getPhaseLabel(gameState.currentPhase)}
-          </span>
-        </div>
+      {/* Phase Indicator */}
+      <PhaseIndicator gameState={gameState} />
+      <SubPhaseDetails gameState={gameState} />
+
+      {/* Game Progress */}
+      <div className="mt-3">
+        <GameProgress gameState={gameState} />
       </div>
 
       {/* Instruction Banner */}
       {instruction && (
-        <div className="mb-4 px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-center">
+        <div className="mt-3 px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-center">
           <span className="text-slate-200 font-medium">{instruction}</span>
         </div>
       )}
 
-      {/* Compact per-player summary row */}
-      <div className="flex flex-wrap gap-2 mb-3 text-[11px] text-slate-200">
-        {gameState.players.map((p) => {
-          const ringsPerPlayer = boardConfig.ringsPerPlayer;
-          const ringsOnBoard = Math.max(0, ringsPerPlayer - p.ringsInHand - p.eliminatedRings);
-          const ringsInPlay = p.ringsInHand + ringsOnBoard;
-          const isCurrent = p.playerNumber === gameState.currentPlayer;
-
-          return (
-            <div
-              key={`summary-${p.playerNumber}`}
-              className={`px-2 py-1 rounded-full border bg-slate-900/60 ${
-                isCurrent
-                  ? 'border-emerald-400 text-emerald-200'
-                  : 'border-slate-600 text-slate-200'
-              }`}
-            >
-              <span className="font-semibold mr-1">P{p.playerNumber}</span>
-              <span className="mr-1">
-                R {ringsInPlay}/{ringsPerPlayer}
-              </span>
-              <span>• T {p.territorySpaces}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Player Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {gameState.players.map((p) => {
-          const isCurrent = p.playerNumber === gameState.currentPlayer;
-          const colorClass = getPlayerColorClass(p.playerNumber);
-          const ringsPerPlayer = boardConfig.ringsPerPlayer;
-          const ringsOnBoard = Math.max(0, ringsPerPlayer - p.ringsInHand - p.eliminatedRings);
-
-          return (
-            <div
-              key={p.playerNumber}
-              className={`
-                p-3 rounded-lg border transition-all
-                ${isCurrent ? 'bg-slate-700 border-slate-500 shadow-md scale-105 z-10' : 'bg-slate-800 border-slate-700 opacity-80'}
-              `}
-            >
-              <div className={`font-bold mb-1 ${colorClass.split(' ')[0]}`}>
-                {p.username || `P${p.playerNumber}`}
-                {p.type === 'ai' && (
-                  <div className="flex flex-col gap-1 mt-1">
-                    {(() => {
-                      const difficulty = p.aiProfile?.difficulty ?? p.aiDifficulty ?? 5;
-                      const aiType = p.aiProfile?.aiType ?? 'heuristic';
-                      const diffInfo = getAIDifficultyInfo(difficulty);
-                      return (
-                        <>
-                          <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded ${diffInfo.bgColor} ${diffInfo.color} font-semibold`}
-                          >
-                            {diffInfo.label} Lv{difficulty}
-                          </span>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 text-slate-300">
-                            {getAITypeLabel(aiType)}
-                          </span>
-                        </>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-between text-sm text-slate-300">
-                <span>Time:</span>
-                <span
-                  className={`font-mono font-bold ${isCurrent ? 'text-yellow-400' : 'text-slate-400'}`}
-                >
-                  {formatTime(p.timeRemaining)}
-                </span>
-              </div>
-
-              <div className="flex justify-between text-sm text-slate-300">
-                <span>Hand:</span>
-                <span className="font-mono font-bold text-white">{p.ringsInHand}</span>
-              </div>
-
-              <div className="flex justify-between text-sm text-slate-300">
-                <span>On board:</span>
-                <span className="font-mono font-bold text-white">{ringsOnBoard}</span>
-              </div>
-
-              <div className="flex justify-between text-sm text-slate-300">
-                <span>Eliminated:</span>
-                <span className="font-mono font-bold text-red-400">{p.eliminatedRings}</span>
-              </div>
-
-              <div className="flex justify-between text-sm text-slate-300">
-                <span>Territory:</span>
-                <span className="font-mono font-bold text-blue-400">{p.territorySpaces}</span>
-              </div>
-            </div>
-          );
-        })}
+      {/* Player Cards */}
+      <div className="mt-4 space-y-3">
+        {gameState.players.map(player => (
+          <PlayerCard
+            key={player.id}
+            player={player}
+            gameState={gameState}
+            isCurrentPlayer={player.playerNumber === gameState.currentPlayer}
+            isUserPlayer={player.id === currentUserId}
+          />
+        ))}
       </div>
     </div>
   );

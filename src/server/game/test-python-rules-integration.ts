@@ -37,7 +37,6 @@ async function runTest() {
   const gameEngine = new GameEngine('test-game-id', boardType, players, timeControl);
   // Mock Python client to avoid connection errors during test
   const pythonClient = new PythonRulesClient();
-  // @ts-expect-error: mock evaluateMove signature for integration test harness
   pythonClient.evaluateMove = async (state, move) => {
     logger.info('MOCK Python evaluateMove called');
     return {

@@ -12,6 +12,7 @@ import {
   LineRewardChoice,
   RingEliminationChoice,
   RegionOrderChoice,
+  Position,
   positionToString,
 } from '../../../shared/types/game';
 import { getAIServiceClient, AIType as ServiceAIType } from '../../services/AIServiceClient';
@@ -22,6 +23,7 @@ import {
   chooseLocalMoveFromCandidates as chooseSharedLocalMoveFromCandidates,
   LocalAIRng,
 } from '../../../shared/engine/localAIMoveSelection';
+import { aiFallbackCounter, aiMoveLatencyHistogram } from '../../utils/rulesParityMetrics';
 
 export enum AIType {
   RANDOM = 'random',
@@ -236,51 +238,223 @@ export class AIEngine {
       throw new Error(`No AI configuration found for player number ${playerNumber}`);
     }
 
-    try {
-      // Call Python AI service. Prefer any explicit aiType derived from
-      // AIProfile, falling back to a difficulty-based default.
-      const aiType = config.aiType ?? this.selectAITypeForDifficulty(config.difficulty);
-      const serviceAIType = this.mapInternalTypeToServiceType(aiType);
-      const response = await getAIServiceClient().getAIMove(
-        gameState,
-        playerNumber,
-        config.difficulty,
-        serviceAIType
-      );
+    const difficultyLabel = String(config.difficulty ?? 'n/a');
 
-      const normalizedMove = this.normalizeServiceMove(response.move, gameState, playerNumber);
+    // Get valid moves for validation
+    const boardManager = new BoardManager(gameState.boardType);
+    const ruleEngine = new RuleEngine(boardManager, gameState.boardType);
+    const validMoves = ruleEngine.getValidMoves(gameState);
 
-      logger.info('AI move generated', {
-        playerNumber,
-        moveType: normalizedMove?.type,
-        evaluation: response.evaluation,
-        thinkingTime: response.thinking_time_ms,
-        aiType: response.ai_type,
-      });
-
-      return normalizedMove;
-    } catch (error) {
-      logger.error('Failed to get AI move from service, falling back to local heuristic', {
-        playerNumber,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-
-      // Record the service failure for diagnostics so that callers and tests
-      // can detect degraded AI quality.
-      const diag = this.getOrCreateDiagnostics(playerNumber);
-      diag.serviceFailureCount += 1;
-
-      // Fallback to local heuristic. When an explicit rng is provided,
-      // thread it through so callers can keep local fallback decisions
-      // on the same deterministic stream as any sandbox AI.
-      const localMove = this.getLocalAIMove(playerNumber, gameState, rng);
-
-      if (localMove) {
-        diag.localFallbackCount += 1;
-      }
-
-      return localMove;
+    if (validMoves.length === 0) {
+      logger.warn('No valid moves available for AI player', { playerNumber });
+      return null;
     }
+
+    // If only one move is available, return it immediately
+    if (validMoves.length === 1) {
+      logger.info('Single valid move for AI player', {
+        playerNumber,
+        moveType: validMoves[0].type,
+      });
+      return validMoves[0];
+    }
+
+    let lastError: Error | null = null;
+
+    // Level 1: Try Python AI service (if mode is 'service')
+    if (config.mode === 'service') {
+      try {
+        const aiType = config.aiType ?? this.selectAITypeForDifficulty(config.difficulty);
+        const serviceAIType = this.mapInternalTypeToServiceType(aiType);
+        const response = await getAIServiceClient().getAIMove(
+          gameState,
+          playerNumber,
+          config.difficulty,
+          serviceAIType
+        );
+
+        const normalizedMove = this.normalizeServiceMove(response.move, gameState, playerNumber);
+
+        // Validate that the AI service returned a move that's in the valid moves list
+        if (normalizedMove) {
+          const isValid = this.validateMoveInList(normalizedMove, validMoves);
+
+          if (isValid) {
+            logger.info('AI move generated via remote service', {
+              playerNumber,
+              moveType: normalizedMove.type,
+              evaluation: response.evaluation,
+              thinkingTime: response.thinking_time_ms,
+              aiType: response.ai_type,
+            });
+            return normalizedMove;
+          } else {
+            logger.warn('Remote AI service returned invalid move', {
+              playerNumber,
+              suggestedMove: normalizedMove,
+              validMoveCount: validMoves.length,
+            });
+            aiFallbackCounter.labels('validation_failed').inc();
+          }
+        } else {
+          // Service did not return a usable move; fall back to local heuristics.
+          aiFallbackCounter.labels('no_move_from_service').inc();
+        }
+      } catch (error) {
+        lastError = error as Error;
+
+        // Classify the failure reason using the structured aiErrorType set by
+        // AIServiceClient so Prometheus can track why we fall back.
+        const errorType = (error as any).aiErrorType as string | undefined;
+        let reason: string;
+        switch (errorType) {
+          case 'connection_refused':
+            reason = 'connection_refused';
+            break;
+          case 'timeout':
+            reason = 'timeout';
+            break;
+          case 'service_unavailable':
+            reason = 'service_unavailable';
+            break;
+          case 'server_error':
+            reason = 'server_error';
+            break;
+          case 'client_error':
+            reason = 'client_error';
+            break;
+          default:
+            if (error instanceof Error && error.message.includes('Circuit breaker is open')) {
+              reason = 'circuit_open';
+            } else {
+              reason = 'python_error';
+            }
+        }
+
+        aiFallbackCounter.labels(reason).inc();
+
+        logger.warn('Remote AI service failed, falling back to local heuristics', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          playerNumber,
+          difficulty: config.difficulty,
+        });
+
+        // Record the service failure for diagnostics
+        const diag = this.getOrCreateDiagnostics(playerNumber);
+        diag.serviceFailureCount += 1;
+      }
+    }
+
+        // Level 2: Local heuristic AI
+        try {
+          const heuristicStart = performance.now();
+          const localMove = this.selectLocalHeuristicMove(gameState, validMoves, rng ?? Math.random);
+    
+          if (localMove) {
+            const duration = performance.now() - heuristicStart;
+            aiMoveLatencyHistogram.labels('heuristic', difficultyLabel).observe(duration);
+    
+            const diag = this.getOrCreateDiagnostics(playerNumber);
+            diag.localFallbackCount += 1;
+    
+            logger.info('AI move selected via local heuristics (fallback)', {
+              playerNumber,
+              moveType: localMove.type,
+              fallback: config.mode === 'service',
+            });
+            return localMove;
+          }
+        } catch (error) {
+          lastError = error as Error;
+          logger.error('Local heuristic AI failed, falling back to random', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            playerNumber,
+          });
+        }
+
+    // Level 3: Random selection (last resort)
+    logger.warn('All AI methods failed, selecting random valid move', {
+      playerNumber,
+      validMoveCount: validMoves.length,
+      lastError: lastError?.message,
+    });
+
+    const randomRng = rng ?? Math.random;
+    const randomIndex = Math.floor(randomRng() * validMoves.length);
+    return validMoves[randomIndex];
+  }
+
+  /**
+   * Validate that a move is in the list of valid moves
+   */
+  private validateMoveInList(move: Move, validMoves: Move[]): boolean {
+    return validMoves.some(validMove => this.movesEqual(validMove, move));
+  }
+
+  /**
+   * Deep equality check for Move objects
+   */
+  private movesEqual(m1: Move, m2: Move): boolean {
+    // Compare essential move properties
+    if (m1.type !== m2.type) return false;
+    if (m1.player !== m2.player) return false;
+    
+    // Compare positions if they exist
+    if (m1.from || m2.from) {
+      if (!m1.from || !m2.from) return false;
+      if (!this.positionsEqual(m1.from, m2.from)) return false;
+    }
+    
+    if (m1.to || m2.to) {
+      if (!m1.to || !m2.to) return false;
+      if (!this.positionsEqual(m1.to, m2.to)) return false;
+    }
+
+    // Compare capture target if exists
+    if (m1.captureTarget || m2.captureTarget) {
+      if (!m1.captureTarget || !m2.captureTarget) return false;
+      if (!this.positionsEqual(m1.captureTarget, m2.captureTarget)) return false;
+    }
+
+    // Compare placement count for place_ring moves
+    if (m1.type === 'place_ring' && m2.type === 'place_ring') {
+      if (m1.placementCount !== m2.placementCount) return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Compare two positions for equality
+   */
+  private positionsEqual(p1: Position, p2: Position): boolean {
+    if (p1.x !== p2.x || p1.y !== p2.y) return false;
+    // Handle hexagonal z coordinate
+    if (p1.z !== undefined || p2.z !== undefined) {
+      return p1.z === p2.z;
+    }
+    return true;
+  }
+
+  /**
+   * Select a move using local heuristics from the valid moves list
+   */
+  private selectLocalHeuristicMove(
+    gameState: GameState,
+    validMoves: Move[],
+    rng: LocalAIRng
+  ): Move | null {
+    if (validMoves.length === 0) {
+      return null;
+    }
+
+    // Use the shared chooseLocalMoveFromCandidates for consistent heuristics
+    return chooseSharedLocalMoveFromCandidates(
+      gameState.currentPlayer,
+      gameState,
+      validMoves,
+      rng
+    );
   }
 
   /**
@@ -396,6 +570,11 @@ export class AIEngine {
     if (move) {
       const diag = this.getOrCreateDiagnostics(playerNumber);
       diag.localFallbackCount += 1;
+
+      // Record that this move was generated via the explicit local fallback
+      // path after service degradation (e.g. repeated Python AI failures or
+      // rules-engine rejections of service moves).
+      aiFallbackCounter.labels('service_degraded').inc();
     }
 
     return move;

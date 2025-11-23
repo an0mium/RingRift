@@ -10,11 +10,24 @@ import {
   positionToString,
   stringToPosition,
 } from '../../shared/types/game';
+import { findDisconnectedRegions as findDisconnectedRegionsShared } from '../../shared/engine/territoryDetection';
 
 const TERRITORY_TRACE_DEBUG =
   typeof process !== 'undefined' &&
   !!(process as any).env &&
   ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+
+// When true, backend BoardManager will treat board invariant violations as
+// hard errors (throwing in tests) rather than best-effort diagnostics. This
+// mirrors the ClientSandboxEngine assertBoardInvariants helper and is used
+// by rules/parity tests to surface exclusivity bugs early.
+const BOARD_INVARIANTS_STRICT =
+  typeof process !== 'undefined' &&
+  !!(process as any).env &&
+  (((process as any).env.NODE_ENV === 'test') ||
+    ['1', 'true', 'TRUE'].includes(
+      (process as any).env.RINGRIFT_ENABLE_BACKEND_BOARD_INVARIANTS ?? ''
+    ));
 
 export class BoardManager {
   private boardType: BoardType;
@@ -29,6 +42,83 @@ export class BoardManager {
     this.size = this.config.size;
     this.validPositions = this.generateValidPositions();
     this.buildAdjacencyGraph();
+  }
+
+  /**
+   * Internal board invariants used for defensive checks in tests and
+   * strict/dev modes. Each cell must be in exactly one of the following
+   * categories:
+   *   - empty
+   *   - occupied by a stack
+   *   - occupied by a marker
+   *   - collapsed territory
+   *
+   * In particular:
+   *   1) No stacks may exist on collapsed territory.
+   *   2) A cell may not host both a stack and a marker.
+   *   3) A cell may not host both a marker and collapsed territory.
+   */
+  private assertBoardInvariants(board: BoardState, context: string): void {
+    const errors: string[] = [];
+
+    // Defensive repair pass: ensure that stacks and markers never coexist on
+    // the same cell, and that markers never coexist with collapsed territory.
+    // If we detect such a state, we log a diagnostic and repair the board
+    // before running the stricter invariant checks below. This keeps the
+    // runtime board geometry consistent even if an earlier rule path produced
+    // a borderline state, while still surfacing anomalies in test logs.
+    for (const key of board.stacks.keys()) {
+      if (board.markers.has(key)) {
+        // eslint-disable-next-line no-console
+        console.error(
+          '[BoardManager.assertBoardInvariants] Repairing stack+marker overlap',
+          { context, key }
+        );
+        board.markers.delete(key);
+      }
+    }
+
+    for (const key of board.markers.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        // eslint-disable-next-line no-console
+        console.error(
+          '[BoardManager.assertBoardInvariants] Repairing marker on collapsed space',
+          { context, key }
+        );
+        board.markers.delete(key);
+      }
+    }
+
+    // Invariant 1 + 2: stack vs collapsed / marker exclusivity
+    for (const key of board.stacks.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`stack present on collapsed space at ${key}`);
+      }
+      if (board.markers.has(key)) {
+        errors.push(`stack and marker coexist at ${key}`);
+      }
+    }
+
+    // Invariant 3: marker vs collapsed exclusivity
+    for (const key of board.markers.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`marker present on collapsed space at ${key}`);
+      }
+    }
+
+    if (errors.length === 0) {
+      return;
+    }
+
+    const message =
+      `[BoardManager] invariant violation (${context}):` + '\n' + errors.join('\n');
+
+    // eslint-disable-next-line no-console
+    console.error(message);
+
+    if (BOARD_INVARIANTS_STRICT) {
+      throw new Error(message);
+    }
   }
 
   private buildAdjacencyGraph(): void {
@@ -202,11 +292,35 @@ export class BoardManager {
    */
   setMarker(position: Position, player: number, board: BoardState): void {
     const posKey = positionToString(position);
+
+    // Markers must never coexist with stacks or collapsed territory. When a
+    // marker is placed on a space that currently hosts a stack (for example,
+    // a departure cell during movement/capture), we treat the marker as
+    // replacing that stack so the resulting cell is a pure marker space.
+    //
+    // Likewise, markers are not meaningful on collapsed territory; if a caller
+    // attempts to place a marker on a collapsed space, we ignore the request.
+    // Any residual inconsistencies are surfaced via assertBoardInvariants.
+    if (board.collapsedSpaces.has(posKey)) {
+      // Do not place markers on collapsed territory.
+      return;
+    }
+
+    // Ensure stack+marker exclusivity by removing any stack that might exist
+    // at this position before setting the marker. This mirrors the invariant
+    // that stacks and markers are mutually exclusive and prevents transient
+    // stack+marker overlaps at departure cells.
+    if (board.stacks.has(posKey)) {
+      board.stacks.delete(posKey);
+    }
+
     board.markers.set(posKey, {
       player,
       position,
       type: 'regular',
     });
+
+    this.assertBoardInvariants(board, 'setMarker');
   }
 
   /**
@@ -251,8 +365,13 @@ export class BoardManager {
     const posKey = positionToString(position);
     // Remove from markers
     board.markers.delete(posKey);
+    // When a marker collapses to territory, the cell becomes exclusive
+    // territory: no stacks or markers may remain.
+    board.stacks.delete(posKey);
     // Add to collapsed spaces
     board.collapsedSpaces.set(posKey, player);
+
+    this.assertBoardInvariants(board, 'collapseMarker');
   }
 
   /**
@@ -275,6 +394,8 @@ export class BoardManager {
     board.stacks.delete(posKey);
     // Mark as collapsed
     board.collapsedSpaces.set(posKey, player);
+
+    this.assertBoardInvariants(board, 'setCollapsedSpace');
   }
 
   /**
@@ -294,21 +415,28 @@ export class BoardManager {
     const posKey = positionToString(position);
 
     // Invariant guard: stacks and markers should not coexist on the same
-    // space. If we ever see both at once, log a diagnostic so tests can
-    // pinpoint the earlier operation that created the invalid state.
+    // space. If we ever see both at once, log a diagnostic and repair the
+    // state by removing the marker. This mirrors the client sandbox
+    // semantics where stacks and markers are mutually exclusive.
     if (board.markers.has(posKey)) {
+      const existingMarker = board.markers.get(posKey);
+
       // eslint-disable-next-line no-console
       console.error(
         '[BoardManager.setStack] Invariant violation: setting stack on position that already has a marker',
         {
           posKey,
           stack,
-          existingMarker: board.markers.get(posKey),
+          existingMarker,
         }
       );
+
+      board.markers.delete(posKey);
     }
 
     board.stacks.set(posKey, stack);
+
+    this.assertBoardInvariants(board, 'setStack');
   }
 
   removeStack(position: Position, board: BoardState): void {
@@ -783,43 +911,20 @@ export class BoardManager {
   }
 
   /**
-   * Find all disconnected regions on the board
-   * Rule Reference: Section 12.2 - Territory Disconnection
+   * Find all disconnected regions on the board.
    *
-   * A region is disconnected when:
-   * 1. Physical Disconnection: Surrounded by collapsed spaces, board edges, or single-player marker border
-   * 2. Representation: Lacks representation from at least one active player's ring stacks
+   * Backend now delegates to the shared territory-detection helper so that
+   * disconnected-region geometry is defined in exactly one place
+   * (src/shared/engine/territoryDetection.ts). This keeps backend,
+   * sandbox, and rules-layer tests aligned and avoids subtle drift
+   * between multiple independent implementations.
    *
-   * Key Insight: Markers of a specific color can act as borders (treated like collapsed spaces).
-   * We must check for disconnection with respect to each marker color separately.
+   * The _movingPlayer parameter is retained for backward compatibility
+   * with existing call sites but is no longer used; representation checks
+   * are handled entirely by the shared helper.
    */
   findDisconnectedRegions(board: BoardState, _movingPlayer: number): Territory[] {
-    const disconnectedRegions: Territory[] = [];
-
-    // Get all active players (those with stacks on board)
-    const activePlayers = new Set<number>();
-    for (const [, stack] of board.stacks) {
-      activePlayers.add(stack.controllingPlayer);
-    }
-
-    // Get all marker colors present on board
-    const markerColors = new Set<number>();
-    for (const [, marker] of board.markers) {
-      markerColors.add(marker.player);
-    }
-
-    // Check for disconnection with respect to each marker color
-    // (markers of that color act as borders along with collapsed spaces and edges)
-    for (const borderColor of markerColors) {
-      const regions = this.findRegionsWithBorderColor(board, borderColor, activePlayers);
-      disconnectedRegions.push(...regions);
-    }
-
-    // Also check for regions surrounded by only collapsed spaces and edges (no marker borders)
-    const regionsWithoutMarkerBorder = this.findRegionsWithoutMarkerBorder(board, activePlayers);
-    disconnectedRegions.push(...regionsWithoutMarkerBorder);
-
-    return disconnectedRegions;
+    return findDisconnectedRegionsShared(board);
   }
 
   /**

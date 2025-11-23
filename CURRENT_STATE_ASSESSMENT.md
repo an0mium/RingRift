@@ -23,7 +23,7 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
 - **Backend Play:** WebSocket-backed games work end-to-end, including AI turns via the Python service / local fallback and server-driven PlayerChoices surfaced to the client.
 - **Session Management:** `GameSessionManager` and `GameSession` provide robust, lock-protected game state access.
 - **Frontend:** The React client has a usable lobby, backend GamePage (board + HUD + victory modal), and a rich local sandbox harness.
-- **Testing:** Solid around core mechanics and several interaction paths, but there is **no complete scenario matrix** mapping `ringrift_complete_rules.md` + FAQ to tests.
+- **Testing:** Solid around core mechanics and several interaction paths, with a **rules/FAQ scenario matrix** in place (`RULES_SCENARIO_MATRIX.md`) including dedicated FAQ suites under `tests/scenarios/FAQ_*.test.ts`. Several seeded trace-parity suites and multi-host/AI fuzz harnesses remain **diagnostic or partial** rather than hard CI gates.
 - **Gaps:** Multiplayer UX (spectators, reconnection UX, matchmaking, chat UI) and advanced AI are still **clearly incomplete**.
 
 A reasonable label for the current state is: **engine/AI-focused beta suitable for developers and playtesters**, not for a broad public audience.
@@ -136,7 +136,7 @@ A reasonable label for the current state is: **engine/AI-focused beta suitable f
 
 ### P0 – Confidence in Exhaustive Rules Coverage
 
-- There is no **systematic scenario matrix** for all examples from `ringrift_complete_rules.md` and FAQ Q1–Q24.
+- The **rules/FAQ scenario matrix** (`RULES_SCENARIO_MATRIX.md`) and dedicated FAQ suites (`tests/scenarios/FAQ_*.test.ts`) cover many high-value examples, but they are not yet exhaustive for every diagram and composite example in `ringrift_complete_rules.md` and FAQ Q1–Q24.
 - Some complex capture + line + territory combinations are not yet encoded as tests.
 - Backend↔sandbox semantic parity is still being improved; some seeded traces reveal differences that must be treated as engine bugs.
 

@@ -471,8 +471,7 @@ export class RuleEngine {
       controllingPlayer: move.player,
     };
 
-    const posKey = positionToString(move.to);
-    gameState.board.stacks.set(posKey, newStack);
+    this.boardManager.setStack(move.to, newStack, gameState.board);
   }
 
   /**
@@ -517,18 +516,18 @@ export class RuleEngine {
         capHeight: sourceStack.capHeight, // Moving stack's cap becomes new cap
         controllingPlayer: sourceStack.controllingPlayer,
       };
-      gameState.board.stacks.set(toKey, mergedStack);
+      this.boardManager.setStack(move.to, mergedStack, gameState.board);
     } else {
       // Move to empty position (or position that had a marker which is now removed)
       const movedStack: RingStack = {
         ...sourceStack,
         position: move.to,
       };
-      gameState.board.stacks.set(toKey, movedStack);
+      this.boardManager.setStack(move.to, movedStack, gameState.board);
     }
 
     // Remove from source
-    gameState.board.stacks.delete(fromKey);
+    this.boardManager.removeStack(move.from, gameState.board);
 
     // Handle landing on own marker: eliminate top ring
     if (landedOnOwnMarker) {
@@ -544,9 +543,9 @@ export class RuleEngine {
             capHeight: calculateCapHeight(remainingRings),
             controllingPlayer: remainingRings[0],
           };
-          gameState.board.stacks.set(toKey, newStack);
+          this.boardManager.setStack(move.to, newStack, gameState.board);
         } else {
-          gameState.board.stacks.delete(toKey);
+          this.boardManager.removeStack(move.to, gameState.board);
         }
 
         // Update elimination counts
@@ -637,12 +636,13 @@ export class RuleEngine {
           capHeight: calculateCapHeight(remaining),
           controllingPlayer: remaining[0],
         };
-        gameState.board.stacks.set(capturedKey, newTarget);
+        this.boardManager.setStack(capturedStack.position, newTarget, gameState.board);
       } else {
-        gameState.board.stacks.delete(capturedKey);
+        this.boardManager.removeStack(capturedStack.position, gameState.board);
       }
 
       const newRings = [...updatedAttacker.rings, capturedRing];
+
       updatedAttacker = {
         ...updatedAttacker,
         rings: newRings,
@@ -658,8 +658,8 @@ export class RuleEngine {
       ...updatedAttacker,
       position: move.to,
     };
-    gameState.board.stacks.set(toKey, movedStack);
-    gameState.board.stacks.delete(fromKey);
+    this.boardManager.setStack(move.to, movedStack, gameState.board);
+    this.boardManager.removeStack(move.from, gameState.board);
 
     // Handle landing on own marker: eliminate top ring
     if (landedOnOwnMarker) {
@@ -675,9 +675,9 @@ export class RuleEngine {
             capHeight: calculateCapHeight(remainingRings),
             controllingPlayer: remainingRings[0],
           };
-          gameState.board.stacks.set(toKey, newStack);
+          this.boardManager.setStack(move.to, newStack, gameState.board);
         } else {
-          gameState.board.stacks.delete(toKey);
+          this.boardManager.removeStack(move.to, gameState.board);
         }
 
         // Update elimination counts
@@ -699,7 +699,6 @@ export class RuleEngine {
     // chain captures via chainCaptureState and CaptureDirectionChoice).
     this.processChainReactions(move.from, gameState);
   }
-
   /**
    * Processes chain reactions from captures
    */
@@ -746,8 +745,7 @@ export class RuleEngine {
       if (line.positions.length >= this.boardConfig.lineLength) {
         // Collapse line - remove all stacks in the line
         for (const pos of line.positions) {
-          const posKey = positionToString(pos);
-          gameState.board.stacks.delete(posKey);
+          this.boardManager.removeStack(pos, gameState.board);
         }
       }
     }
@@ -768,8 +766,7 @@ export class RuleEngine {
         if (territory.isDisconnected) {
           // Remove all stacks in disconnected territory
           for (const pos of territory.spaces) {
-            const posKey = positionToString(pos);
-            gameState.board.stacks.delete(posKey);
+            this.boardManager.removeStack(pos, gameState.board);
           }
         }
       }
@@ -820,89 +817,126 @@ export class RuleEngine {
       };
     }
 
-    // 3) Fallback structural terminality: no stacks on the board and no
-    // rings in hand for any player. In this situation the game cannot
-    // progress further, even if nobody has reached the strict thresholds.
+    // 3) Fallback structural terminality & global stalemate on bare boards.
+    //
+    // When there are no stacks left on the board the game can only
+    // continue if at least one player can legally re-enter play via a
+    // ring placement that satisfies the no-dead-placement rule. If no
+    // such placement exists for any player, the compact rules treat all
+    // rings remaining in hand as eliminated (hand → E) for tie-break
+    // purposes and apply the stalemate ladder (territory → eliminated
+    // rings → markers → last actor).
     const noStacksLeft = gameState.board.stacks.size === 0;
+    if (!noStacksLeft) {
+      return { isGameOver: false };
+    }
+
     const anyRingsInHand = players.some((p) => p.ringsInHand > 0);
+    let treatHandAsEliminated = false;
 
-    // Only trigger fallback termination if NO stacks are left AND NO rings are in hand.
-    // The previous logic was correct, but we want to be absolutely sure we aren't
-    // triggering this prematurely.
-    if (noStacksLeft && !anyRingsInHand) {
-      // First tie-breaker: territory spaces.
-      const maxTerritory = Math.max(...players.map((p) => p.territorySpaces));
-      const territoryLeaders = players.filter((p) => p.territorySpaces === maxTerritory);
-
-      if (territoryLeaders.length === 1 && maxTerritory > 0) {
-        return {
-          isGameOver: true,
-          winner: territoryLeaders[0].playerNumber,
-          reason: 'territory_control',
-        };
-      }
-
-      // Second tie-breaker: eliminated rings.
-      const maxEliminated = Math.max(...players.map((p) => p.eliminatedRings));
-      const eliminationLeaders = players.filter((p) => p.eliminatedRings === maxEliminated);
-
-      if (eliminationLeaders.length === 1 && maxEliminated > 0) {
-        return {
-          isGameOver: true,
-          winner: eliminationLeaders[0].playerNumber,
-          reason: 'ring_elimination',
-        };
-      }
-
-      // Third tie-breaker: remaining markers on the board. This mirrors
-      // the complete rules' S-invariant ladder (markers, collapsed,
-      // eliminated) and ensures structural terminality still yields a
-      // definitive winner when possible.
-      const markerCountsByPlayer: { [player: number]: number } = {};
-      for (const p of players) {
-        markerCountsByPlayer[p.playerNumber] = 0;
-      }
-      for (const marker of gameState.board.markers.values()) {
-        const owner = marker.player;
-        if (markerCountsByPlayer[owner] !== undefined) {
-          markerCountsByPlayer[owner] += 1;
+    if (anyRingsInHand) {
+      // Check whether any player with rings in hand still has at least one
+      // legal placement under the full no-dead-placement rule. If so, the
+      // game is not yet structurally terminal: they may be able to
+      // re-enter play once phases advance.
+      const anyLegalPlacementForAnyPlayer = players.some((p) => {
+        if (p.ringsInHand <= 0) {
+          return false;
         }
+        const placements = this.getValidRingPlacements(p.playerNumber, gameState);
+        return placements.length > 0;
+      });
+
+      if (anyLegalPlacementForAnyPlayer) {
+        return { isGameOver: false };
       }
 
-      const markerCounts = players.map((p) => markerCountsByPlayer[p.playerNumber] ?? 0);
-      const maxMarkers = Math.max(...markerCounts);
-      const markerLeaders = players.filter(
-        (p) => (markerCountsByPlayer[p.playerNumber] ?? 0) === maxMarkers
-      );
+      // Global stalemate on a bare board: some players hold rings in hand
+      // but none of them has a legal placement. For tie-break purposes we
+      // conceptually treat those rings as eliminated (hand → E) without
+      // mutating the underlying GameState counters; this keeps S
+      // non-decreasing while matching the rules text.
+      treatHandAsEliminated = true;
+    }
 
-      if (markerLeaders.length === 1 && maxMarkers > 0) {
-        return {
-          isGameOver: true,
-          winner: markerLeaders[0].playerNumber,
-          reason: 'last_player_standing',
-        };
-      }
+    // At this point the board has no stacks and either nobody holds rings
+    // in hand or no legal placements exist for any player. Apply the
+    // stalemate ladder.
 
-      // Final tie-breaker: last player to complete a valid turn action.
-      const lastActor = this.getLastActor(gameState);
-      if (lastActor !== undefined) {
-        return {
-          isGameOver: true,
-          winner: lastActor,
-          reason: 'last_player_standing',
-        };
-      }
+    // First tie-breaker: territory spaces.
+    const maxTerritory = Math.max(...players.map((p) => p.territorySpaces));
+    const territoryLeaders = players.filter((p) => p.territorySpaces === maxTerritory);
 
-      // Safety fallback: in degenerate cases where no last actor can be
-      // determined (e.g. malformed game state), mark the game as
-      // completed without a specific winner.
+    if (territoryLeaders.length === 1 && maxTerritory > 0) {
       return {
         isGameOver: true,
-        reason: 'game_completed',
+        winner: territoryLeaders[0].playerNumber,
+        reason: 'territory_control',
       };
     }
 
-    return { isGameOver: false };
+    // Second tie-breaker: eliminated rings, including rings remaining in
+    // hand when we are in a global-stalemate case.
+    const eliminationScores = players.map(
+      (p) => p.eliminatedRings + (treatHandAsEliminated ? p.ringsInHand : 0)
+    );
+    const maxEliminated = Math.max(...eliminationScores);
+    const eliminationLeaders = players.filter((p, idx) => eliminationScores[idx] === maxEliminated);
+
+    if (eliminationLeaders.length === 1 && maxEliminated > 0) {
+      return {
+        isGameOver: true,
+        winner: eliminationLeaders[0].playerNumber,
+        reason: 'ring_elimination',
+      };
+    }
+
+    // Third tie-breaker: remaining markers on the board. This mirrors the
+    // complete rules' S-invariant ladder (markers, collapsed, eliminated)
+    // and ensures structural terminality still yields a definitive winner
+    // when possible.
+    const markerCountsByPlayer: { [player: number]: number } = {};
+    for (const p of players) {
+      markerCountsByPlayer[p.playerNumber] = 0;
+    }
+    for (const marker of gameState.board.markers.values()) {
+      const owner = marker.player;
+      if (markerCountsByPlayer[owner] !== undefined) {
+        markerCountsByPlayer[owner] += 1;
+      }
+    }
+
+    const markerCounts = players.map((p) => markerCountsByPlayer[p.playerNumber] ?? 0);
+    const maxMarkers = Math.max(...markerCounts);
+    const markerLeaders = players.filter(
+      (p) => (markerCountsByPlayer[p.playerNumber] ?? 0) === maxMarkers
+    );
+
+    if (markerLeaders.length === 1 && maxMarkers > 0) {
+      return {
+        isGameOver: true,
+        winner: markerLeaders[0].playerNumber,
+        reason: 'last_player_standing',
+      };
+    }
+
+    // Final tie-breaker: last player to complete a valid turn action.
+    const lastActor = this.getLastActor(gameState);
+    if (lastActor !== undefined) {
+      return {
+        isGameOver: true,
+        winner: lastActor,
+        reason: 'last_player_standing',
+      };
+    }
+
+    // Safety fallback: in degenerate cases where no last actor can be
+    // determined (e.g. malformed game state), mark the game as completed
+    // without a specific winner.
+    return {
+      isGameOver: true,
+      reason: 'game_completed',
+    };
   }
 
   /**

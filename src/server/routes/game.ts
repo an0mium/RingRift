@@ -10,6 +10,13 @@ import { GameEngine } from '../game/GameEngine';
 
 const router = Router();
 
+// WebSocket server instance will be injected
+let wsServerInstance: any = null;
+
+export function setWebSocketServer(wsServer: any) {
+  wsServerInstance = wsServer;
+}
+
 // Apply rate limiting to game routes
 router.use(gameRateLimiter);
 
@@ -173,7 +180,9 @@ router.post(
         player1Id: userId,
         status: initialStatus,
         gameState: initialGameState as any,
-        rngSeed: gameData.seed, // Store seed in database if provided
+        // Store seed in database when provided; coerce missing seeds to null
+        // to satisfy Prisma's `number | null` type and avoid `undefined`.
+        rngSeed: gameData.seed ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
         ...(startedAt && { startedAt }),
@@ -190,6 +199,11 @@ router.post(
       aiCount: gameData.aiOpponents?.count ?? 0,
       status: initialStatus,
     });
+
+    // Broadcast to lobby if game is waiting for players
+    if (initialStatus === 'waiting' && wsServerInstance) {
+      wsServerInstance.broadcastLobbyEvent('lobby:game_created', game);
+    }
 
     res.status(201).json({
       success: true,
@@ -269,22 +283,31 @@ router.post(
       },
     });
 
+    // Broadcast player joined event to lobby
+    const currentPlayerCount = [
+      updatedGame.player1Id,
+      updatedGame.player2Id,
+      updatedGame.player3Id,
+      updatedGame.player4Id,
+    ].filter(Boolean).length;
+
+    if (wsServerInstance) {
+      wsServerInstance.broadcastLobbyEvent('lobby:game_joined', {
+        gameId,
+        playerCount: currentPlayerCount,
+      });
+    }
+
     // Update game engine
     const gameEngine = activeGames.get(gameId);
     if (gameEngine) {
       // Add player to game engine (simplified for now)
 
       // Check if game should start
-      const playerCount = [
-        updatedGame.player1Id,
-        updatedGame.player2Id,
-        updatedGame.player3Id,
-        updatedGame.player4Id,
-      ].filter(Boolean).length;
-      if (playerCount >= 2) {
+      if (currentPlayerCount >= 2) {
         // Minimum players to start
         // Update game status in database
-        await prisma.game.update({
+        const startedGame = await prisma.game.update({
           where: { id: gameId },
           data: {
             status: 'active' as any,
@@ -292,6 +315,11 @@ router.post(
             updatedAt: new Date(),
           },
         });
+
+        // Broadcast game started event to remove from lobby
+        if (wsServerInstance) {
+          wsServerInstance.broadcastLobbyEvent('lobby:game_started', { gameId });
+        }
       }
     }
 
@@ -350,6 +378,11 @@ router.post(
         },
       });
 
+      // Broadcast game ended/cancelled to lobby
+      if (wsServerInstance) {
+        wsServerInstance.broadcastLobbyEvent('lobby:game_cancelled', { gameId });
+      }
+
       logger.info('Player resigned from game', { gameId, userId });
 
       res.json({
@@ -365,10 +398,39 @@ router.post(
       else if (game.player3Id === userId) updateData.player3Id = null;
       else if (game.player4Id === userId) updateData.player4Id = null;
 
-      await prisma.game.update({
+      const updatedGame = await prisma.game.update({
         where: { id: gameId },
         data: updateData,
       });
+
+      // Check if game should be cancelled (no players left)
+      const remainingPlayers = [
+        updatedGame.player1Id,
+        updatedGame.player2Id,
+        updatedGame.player3Id,
+        updatedGame.player4Id,
+      ].filter(Boolean);
+
+      if (remainingPlayers.length === 0) {
+        // Cancel the game
+        await prisma.game.update({
+          where: { id: gameId },
+          data: { status: 'abandoned' as any, endedAt: new Date() },
+        });
+
+        // Broadcast game cancelled to lobby
+        if (wsServerInstance) {
+          wsServerInstance.broadcastLobbyEvent('lobby:game_cancelled', { gameId });
+        }
+      } else {
+        // Broadcast updated player count
+        if (wsServerInstance) {
+          wsServerInstance.broadcastLobbyEvent('lobby:game_joined', {
+            gameId,
+            playerCount: remainingPlayers.length,
+          });
+        }
+      }
 
       // Update game engine
       const gameEngine = activeGames.get(gameId);

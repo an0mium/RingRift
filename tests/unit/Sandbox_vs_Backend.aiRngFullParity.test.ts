@@ -20,10 +20,13 @@ import { AIEngine } from '../../src/server/game/ai/AIEngine';
 /**
  * Shared-RNG full AI parity harness (diagnostic / experimental).
  *
- * This suite is intentionally focused and currently skipped by default. It
- * is meant as a deeper diagnostic to explore how closely the sandbox AI and
- * backend local AI policy align when driven from the same initial state and
- * *aligned RNG streams*.
+ * This suite is intentionally focused and kept *minimal* so it can run as a
+ * CI-safe smoke test. Earlier documentation (see
+ * tests/TEST_SUITE_PARITY_PLAN.md §2.1, row
+ * Sandbox_vs_Backend.aiRngFullParity) described this harness as
+ * `describe.skip` / diagnostic-only; that referred to an older, much heavier
+ * version. The current implementation runs a short, deterministic sequence
+ * over a single curated seed.
  *
  * The existing suites already cover:
  *   - Canonical move + history parity via trace tests;
@@ -36,8 +39,8 @@ import { AIEngine } from '../../src/server/game/ai/AIEngine';
  *       - Sandbox via ClientSandboxEngine.maybeRunAITurn(rngSandbox);
  *       - Backend via GameEngine.getValidMoves +
  *         AIEngine.chooseLocalMoveFromCandidates(..., rngBackend);
- *   - Compare the resulting canonical moves using the same loose-matching
- *     semantics as the heuristic coverage harness.
+ *   - Compare the resulting canonical moves using loose-matching semantics
+ *     specific to this harness.
  *
  * IMPORTANT: sandbox and backend may consume RNG in different patterns. To
  * avoid unintended coupling from call-count differences, we use two

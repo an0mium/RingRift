@@ -19,7 +19,7 @@ import {
   isSandboxAiParityModeEnabled,
 } from '../../shared/utils/envFlags';
 import { findAllLinesOnBoard } from './sandboxLines';
-import { findDisconnectedRegionsOnBoard } from './sandboxTerritory';
+import { findDisconnectedRegions as findDisconnectedRegionsShared } from '../../shared/engine/territoryDetection';
 
 const SANDBOX_AI_CAPTURE_DEBUG_ENABLED = isSandboxAiCaptureDebugEnabled();
 const SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED = isSandboxAiStallDiagnosticsEnabled();
@@ -113,6 +113,13 @@ export interface SandboxAIHooks {
   setSelectedStackKey(key: string | undefined): void;
   getMustMoveFromStackKey(): string | undefined;
   applyCanonicalMove(move: Move): Promise<void>;
+  /**
+   * Parity hook: true when the sandbox engine has recorded a pending
+   * territory self-elimination for the current player in the current
+   * territory_processing cycle. Mirrors the backend
+   * GameEngine.pendingTerritorySelfElimination flag.
+   */
+  hasPendingTerritorySelfElimination(): boolean;
 }
 
 function getLineDecisionMovesForSandboxAI(gameState: GameState): Move[] {
@@ -215,7 +222,10 @@ function canProcessRegionForSandboxAI(
   return false;
 }
 
-function getTerritoryDecisionMovesForSandboxAI(gameState: GameState): Move[] {
+function getTerritoryDecisionMovesForSandboxAI(
+  gameState: GameState,
+  hooks: SandboxAIHooks
+): Move[] {
   const moves: Move[] = [];
 
   if (gameState.currentPhase !== 'territory_processing') {
@@ -225,27 +235,49 @@ function getTerritoryDecisionMovesForSandboxAI(gameState: GameState): Move[] {
   const movingPlayer = gameState.currentPlayer;
   const board = gameState.board;
 
-  const disconnected = findDisconnectedRegionsOnBoard(board);
-  if (!disconnected || disconnected.length === 0) {
+  const disconnected = findDisconnectedRegionsShared(board);
+  const eligible: Territory[] = disconnected
+    ? disconnected.filter((region) => canProcessRegionForSandboxAI(gameState, region, movingPlayer))
+    : [];
+
+  if (eligible.length > 0) {
+    eligible.forEach((region, index) => {
+      const representative = region.spaces[0];
+      const regionKey = representative ? positionToString(representative) : `region-${index}`;
+      moves.push({
+        id: `process-region-${index}-${regionKey}`,
+        type: 'process_territory_region',
+        player: movingPlayer,
+        disconnectedRegions: [region],
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: gameState.history.length + 1,
+      } as Move);
+    });
     return moves;
   }
 
-  const eligible: Territory[] = disconnected.filter((region) =>
-    canProcessRegionForSandboxAI(gameState, region, movingPlayer)
-  );
-
-  if (eligible.length === 0) {
+  // At this point, no eligible regions remain. Only surface explicit
+  // elimination decisions when the engine reports a pending self-elimination
+  // debt for this player, mirroring the backend
+  // GameEngine.pendingTerritorySelfElimination flag.
+  if (!hooks.hasPendingTerritorySelfElimination()) {
     return moves;
   }
 
-  eligible.forEach((region, index) => {
-    const representative = region.spaces[0];
-    const regionKey = representative ? positionToString(representative) : `region-${index}`;
+  // Generate eliminate_rings_from_stack decisions for all controlled stacks.
+  const playerStacks = hooks.getPlayerStacks(movingPlayer, board);
+  if (playerStacks.length === 0) {
+    return moves;
+  }
+
+  playerStacks.forEach((stack) => {
+    const stackKey = positionToString(stack.position);
     moves.push({
-      id: `process-region-${index}-${regionKey}`,
-      type: 'process_territory_region',
+      id: `eliminate-${stackKey}`,
+      type: 'eliminate_rings_from_stack',
       player: movingPlayer,
-      disconnectedRegions: [region],
+      to: stack.position,
       timestamp: new Date(),
       thinkTime: 0,
       moveNumber: gameState.history.length + 1,
@@ -482,9 +514,85 @@ export async function maybeRunAITurnSandbox(
     if (gameState.currentPhase === 'ring_placement') {
       const ringsInHand = current.ringsInHand ?? 0;
       if (ringsInHand <= 0) {
-        // With no rings in hand, backend RuleEngine never exposes a
-        // skip_placement move; treat this AI tick as a no-op and rely on
-        // the surrounding controller/turn engine to advance phases.
+        // With no rings in hand, ring_placement is not a real decision
+        // phase under the rules: the player must either move from
+        // existing stacks or, if completely blocked, undergo forced
+        // elimination. Leaving this as a pure no-op would violate the
+        // termination ladder and allow structural stalls when the
+        // surrounding controller does not advance phases on its own.
+        const boardForSkip = gameState.board;
+        const playerStacksForSkip = hooks.getPlayerStacks(current.playerNumber, boardForSkip);
+        const hasAnyActionFromStacks =
+          playerStacksForSkip.length > 0 &&
+          playerStacksForSkip.some((stack) =>
+            hooks.hasAnyLegalMoveOrCaptureFrom(stack.position, current.playerNumber, boardForSkip)
+          );
+
+        if (hasAnyActionFromStacks) {
+          // Legal moves exist from existing stacks: mirror backend
+          // RuleEngine.validateSkipPlacement by issuing an explicit
+          // skip_placement move so we always progress into the movement
+          // phase rather than silently stalling.
+          const stateForMove = hooks.getGameState();
+          const moveNumber = stateForMove.history.length + 1;
+          const sentinelTo = playerStacksForSkip[0]?.position ?? ({ x: 0, y: 0 } as Position);
+
+          const skipMove: Move = {
+            id: '',
+            type: 'skip_placement',
+            player: current.playerNumber,
+            from: undefined,
+            to: sentinelTo,
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber,
+          } as Move;
+
+          await hooks.applyCanonicalMove(skipMove);
+
+          lastAIMove = skipMove;
+          hooks.setLastAIMove(lastAIMove);
+        } else {
+          // No rings in hand and no legal moves/placements: this is a
+          // true forced-elimination situation. Delegate to the shared
+          // helper so we either eliminate a cap and advance to the next
+          // player or, in degenerate cases, at least log a diagnostic
+          // when state does not change.
+          const beforeElimState = hooks.getGameState();
+          const beforeElimHash = hashGameState(beforeElimState);
+
+          const eliminated = hooks.maybeProcessForcedEliminationForCurrentPlayer();
+          debugForcedEliminationAttempted = true;
+          debugForcedEliminationEliminated = eliminated;
+
+          const afterElimState = hooks.getGameState();
+          const afterElimHash = hashGameState(afterElimState);
+
+          if (
+            SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED &&
+            !sandboxStallLoggingSuppressed &&
+            !eliminated &&
+            beforeElimHash === afterElimHash &&
+            afterElimState.gameStatus === 'active'
+          ) {
+            // eslint-disable-next-line no-console
+            console.warn(
+              '[Sandbox AI Stall Diagnostic] Ring-placement (no rings) forced elimination did not change state',
+              {
+                boardType: gameState.boardType,
+                currentPlayer: gameState.currentPlayer,
+                currentPhase: gameState.currentPhase,
+                ringsInHand: gameState.players.map((p) => ({
+                  playerNumber: p.playerNumber,
+                  type: p.type,
+                  ringsInHand: p.ringsInHand,
+                  stacks: hooks.getPlayerStacks(p.playerNumber, gameState.board).length,
+                })),
+              }
+            );
+          }
+        }
+
         return;
       }
 
@@ -916,7 +1024,7 @@ export async function maybeRunAITurnSandbox(
       const decisionCandidates =
         gameState.currentPhase === 'line_processing'
           ? getLineDecisionMovesForSandboxAI(gameState)
-          : getTerritoryDecisionMovesForSandboxAI(gameState);
+          : getTerritoryDecisionMovesForSandboxAI(gameState, hooks);
 
       if (decisionCandidates.length === 0) {
         return;

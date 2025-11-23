@@ -3,11 +3,16 @@ RingRift AI Service - FastAPI Application
 Provides AI move selection and position evaluation endpoints
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, TypedDict
 import logging
+import time
+
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+
+from .metrics import AI_MOVE_LATENCY, AI_MOVE_REQUESTS, observe_ai_move_start
 
 from .ai.random_ai import RandomAI
 from .ai.heuristic_ai import HeuristicAI
@@ -126,6 +131,19 @@ async def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint for local/dev observability.
+
+    This exposes the default Prometheus text exposition format so that
+    `ai-service` can be scraped by a Prometheus-compatible collector. In
+    production this can be wired into a full metrics stack; in local/dev it
+    is primarily useful for ad-hoc debugging.
+    """
+    data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
+
+
 @app.post("/ai/move", response_model=MoveResponse)
 async def get_ai_move(request: MoveRequest):
     """
@@ -137,17 +155,125 @@ async def get_ai_move(request: MoveRequest):
     Returns:
         MoveResponse with selected move and evaluation
     """
+    start_time = time.time()
+
+    # Select AI type and canonical difficulty profile based on difficulty
+    # if not explicitly specified on the request. This keeps the Python
+    # service, TypeScript backend, and client-facing difficulty ladder
+    # aligned.
+    profile = _get_difficulty_profile(request.difficulty)
+    ai_type = request.ai_type or profile["ai_type"]
+    labels_ai_type, labels_difficulty = observe_ai_move_start(
+        ai_type.value,
+        request.difficulty,
+    )
+
     try:
-        import time
-        start_time = time.time()
+        
         
         # Select AI type and canonical difficulty profile based on difficulty
         # if not explicitly specified on the request. This keeps the Python
         # service, TypeScript backend, and client-facing difficulty ladder
         # aligned.
-        profile = _get_difficulty_profile(request.difficulty)
-        ai_type = request.ai_type or profile["ai_type"]
         
+        
+        # Derive seed from request or game state. When both are provided,
+        # prefer the explicit seed parameter for debugging/testing.
+        effective_seed: Optional[int] = request.seed
+        if effective_seed is None and hasattr(request.game_state, 'rng_seed'):
+            effective_seed = request.game_state.rng_seed
+        
+        # Get or create AI instance. When a seed is provided, we create a
+        # per-request instance instead of caching to ensure determinism.
+        # For unseeded requests, continue using the cached instances.
+        if effective_seed is not None:
+            # Per-request seeded AI instance (not cached)
+            heuristic_profile_id: Optional[str] = None
+            nn_model_id: Optional[str] = None
+
+            if ai_type == AIType.HEURISTIC:
+                heuristic_profile_id = profile.get("profile_id")
+
+            config = AIConfig(
+                difficulty=request.difficulty,
+                randomness=profile["randomness"],
+                think_time=profile["think_time_ms"],
+                rngSeed=effective_seed,
+                heuristic_profile_id=heuristic_profile_id,
+                nn_model_id=nn_model_id,
+            )
+            ai = _create_ai_instance(
+                ai_type,
+                request.player_number,
+                config,
+            )
+        else:
+            # Unseeded: use cached instance keyed by (type, difficulty, player)
+            ai_key = (
+                f"{ai_type.value}-{request.difficulty}-"
+                f"{request.player_number}"
+            )
+            
+            if ai_key not in ai_instances:
+                heuristic_profile_id = None
+                nn_model_id = None
+
+                if ai_type == AIType.HEURISTIC:
+                    heuristic_profile_id = profile.get("profile_id")
+
+                config = AIConfig(
+                    difficulty=request.difficulty,
+                    randomness=profile["randomness"],
+                    think_time=profile["think_time_ms"],
+                    rngSeed=None,
+                    heuristic_profile_id=heuristic_profile_id,
+                    nn_model_id=nn_model_id,
+                )
+                ai_instances[ai_key] = _create_ai_instance(
+                    ai_type,
+                    request.player_number,
+                    config,
+                )
+            
+            ai = ai_instances[ai_key]
+        
+        # Get move from AI
+        move = ai.select_move(request.game_state)
+        
+        # Evaluate position
+        evaluation = ai.evaluate_position(request.game_state)
+        
+        thinking_time = int((time.time() - start_time) * 1000)
+
+        # Record success metrics
+        duration_seconds = time.time() - start_time
+        AI_MOVE_REQUESTS.labels(labels_ai_type, labels_difficulty, "success").inc()
+        AI_MOVE_LATENCY.labels(labels_ai_type, labels_difficulty).observe(
+            duration_seconds
+        )
+        
+        logger.info(
+            f"AI move: type={ai_type.value}, difficulty={request.difficulty}, "
+            f"time={thinking_time}ms, eval={evaluation:.2f}"
+        )
+        
+        return MoveResponse(
+            move=move,
+            evaluation=evaluation,
+            thinking_time_ms=thinking_time,
+            ai_type=ai_type.value,
+            difficulty=request.difficulty
+        )
+        
+    except Exception as e:
+        # Record error metrics
+        duration_seconds = time.time() - start_time
+        AI_MOVE_REQUESTS.labels(labels_ai_type, labels_difficulty, "error").inc()
+        AI_MOVE_LATENCY.labels(labels_ai_type, labels_difficulty).observe(
+            duration_seconds
+        )
+        logger.error(f"Error generating AI move: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
         # Derive seed from request or game state. When both are provided,
         # prefer the explicit seed parameter for debugging/testing.
         effective_seed: Optional[int] = request.seed

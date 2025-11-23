@@ -159,6 +159,7 @@ describe('ClientSandboxEngine AI sandbox simulations (termination / stall checks
 
             try {
               const engine = createEngine(boardType, numPlayers);
+              const engineAny = engine as any;
 
               let stagnantSteps = 0;
               let lastProgress = computeProgressMetric(engine.getGameState());
@@ -206,6 +207,16 @@ describe('ClientSandboxEngine AI sandbox simulations (termination / stall checks
                 await engine.maybeRunAITurn();
 
                 const after = engine.getGameState();
+
+                // Assert board invariants after each AI action so any
+                // illegal stack/marker/territory coexistence is surfaced
+                // immediately in diagnostic runs.
+                if (engineAny && typeof engineAny.assertBoardInvariants === 'function') {
+                  engineAny.assertBoardInvariants(
+                    `sandbox-ai-sim:${scenarioLabel}:run=${run}:action=${i}`
+                  );
+                }
+
                 const afterHash = hashGameState(after);
                 const afterProgress = computeProgressMetric(after);
 

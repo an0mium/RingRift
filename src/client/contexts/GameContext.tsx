@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { io, Socket } from 'socket.io-client';
 import { toast } from 'react-hot-toast';
 import { BoardState, GameState, Move, PlayerChoice, GameResult } from '../../shared/types/game';
+import type { WebSocketErrorPayload } from '../../shared/types/websocket';
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -270,11 +271,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           setChatMessages((prev) => [...prev, payload]);
         });
 
-        socket.on('error', (payload: any) => {
-          const message = payload?.message || 'Game error';
-          console.error('Game socket error', payload);
-          setError(message);
-          toast.error(message);
+        socket.on('error', (payload: WebSocketErrorPayload | any) => {
+          if (payload && payload.type === 'error' && payload.code) {
+            console.warn('Game socket error', payload.code, payload.event, payload.message);
+            const message = payload.message || 'Game error';
+            setError(message);
+            toast.error(message);
+          } else {
+            const message = payload?.message || 'Game error';
+            console.error('Game socket error', payload);
+            setError(message);
+            toast.error(message);
+          }
           setIsConnecting(false);
         });
 

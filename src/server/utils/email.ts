@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { config } from '../config';
 
 interface EmailOptions {
   to: string;
@@ -31,7 +32,7 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
  * Send verification email
  */
 export const sendVerificationEmail = async (email: string, token: string): Promise<boolean> => {
-  const verificationLink = `${process.env.CLIENT_URL || 'http://localhost:3000'}/verify-email?token=${token}`;
+  const verificationLink = `${config.server.publicClientUrl}/verify-email?token=${token}`;
 
   return sendEmail({
     to: email,
@@ -50,7 +51,7 @@ export const sendVerificationEmail = async (email: string, token: string): Promi
  * Send password reset email
  */
 export const sendPasswordResetEmail = async (email: string, token: string): Promise<boolean> => {
-  const resetLink = `${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
+  const resetLink = `${config.server.publicClientUrl}/reset-password?token=${token}`;
 
   return sendEmail({
     to: email,

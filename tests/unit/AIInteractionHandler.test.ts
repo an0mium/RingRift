@@ -7,8 +7,10 @@ import {
   PlayerChoiceResponse,
   Position,
   RegionOrderChoice,
-  RingEliminationChoice
+  RingEliminationChoice,
 } from '../../src/shared/types/game';
+import { globalAIEngine } from '../../src/server/game/ai/AIEngine';
+import { logger } from '../../src/server/utils/logger';
 
 /**
  * Unit tests for AIInteractionHandler
@@ -19,6 +21,25 @@ import {
  * - Applies simple, deterministic heuristics for each choice type
  */
 
+jest.mock('../../src/server/game/ai/AIEngine', () => {
+  const mockGlobalAIEngine = {
+    getLineRewardChoice: jest.fn(),
+    getRingEliminationChoice: jest.fn(),
+    getRegionOrderChoice: jest.fn(),
+  };
+
+  return { globalAIEngine: mockGlobalAIEngine };
+});
+
+jest.mock('../../src/server/utils/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    debug: jest.fn(),
+  },
+}));
+
 describe('AIInteractionHandler', () => {
   const handler = new AIInteractionHandler();
 
@@ -26,8 +47,12 @@ describe('AIInteractionHandler', () => {
     id: 'choice-1',
     gameId: 'game-1',
     playerNumber: 1,
-    prompt: 'Test choice'
+    prompt: 'Test choice',
   } as const;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
   it('returns a PlayerChoiceResponse with matching choiceId and playerNumber', async () => {
     const choice: LineRewardChoice = {
@@ -60,9 +85,9 @@ describe('AIInteractionHandler', () => {
       ...baseChoice,
       type: 'line_order',
       options: [
-        { lineId: 'short', markerPositions: positionsB },
-        { lineId: 'long', markerPositions: positionsA }
-      ]
+        { moveId: 'm-short', lineId: 'short', markerPositions: positionsB },
+        { moveId: 'm-long', lineId: 'long', markerPositions: positionsA },
+      ],
     };
 
     const response = await handler.requestChoice(choice as PlayerChoice);
@@ -95,21 +120,24 @@ describe('AIInteractionHandler', () => {
       type: 'ring_elimination',
       options: [
         {
+          moveId: 'm-a',
           stackPosition: { x: 0, y: 0 },
           capHeight: 3,
-          totalHeight: 5
+          totalHeight: 5,
         },
         {
+          moveId: 'm-b',
           stackPosition: { x: 1, y: 1 },
           capHeight: 1,
-          totalHeight: 4
+          totalHeight: 4,
         },
         {
+          moveId: 'm-c',
           stackPosition: { x: 2, y: 2 },
           capHeight: 1,
-          totalHeight: 6
-        }
-      ]
+          totalHeight: 6,
+        },
+      ],
     };
 
     const response = await handler.requestChoice(choice as PlayerChoice);
@@ -127,16 +155,18 @@ describe('AIInteractionHandler', () => {
       type: 'region_order',
       options: [
         {
+          moveId: 'm-small',
           regionId: 'small',
           size: 3,
-          representativePosition: { x: 0, y: 0 }
+          representativePosition: { x: 0, y: 0 },
         },
         {
+          moveId: 'm-large',
           regionId: 'large',
           size: 7,
-          representativePosition: { x: 5, y: 5 }
-        }
-      ]
+          representativePosition: { x: 5, y: 5 },
+        },
+      ],
     };
 
     const response = await handler.requestChoice(choice as PlayerChoice);
@@ -154,14 +184,14 @@ describe('AIInteractionHandler', () => {
         {
           targetPosition: { x: 3, y: 3 },
           landingPosition: { x: 5, y: 5 },
-          capturedCapHeight: 2
+          capturedCapHeight: 2,
         },
         {
           targetPosition: { x: 4, y: 4 },
           landingPosition: { x: 6, y: 6 },
-          capturedCapHeight: 3
-        }
-      ]
+          capturedCapHeight: 3,
+        },
+      ],
     };
 
     const response = await handler.requestChoice(choice as PlayerChoice);
@@ -169,5 +199,86 @@ describe('AIInteractionHandler', () => {
 
     expect(selected.capturedCapHeight).toBe(3);
     expect(selected.targetPosition).toEqual({ x: 4, y: 4 });
+  });
+
+  it('uses AI service line_reward_option when it returns a valid option', async () => {
+    const choice: LineRewardChoice = {
+      ...baseChoice,
+      type: 'line_reward_option',
+      options: [
+        'option_1_collapse_all_and_eliminate',
+        'option_2_min_collapse_no_elimination',
+      ],
+    };
+
+    const mockEngine = globalAIEngine as unknown as {
+      getLineRewardChoice: jest.Mock;
+    };
+
+    mockEngine.getLineRewardChoice.mockResolvedValue('option_1_collapse_all_and_eliminate');
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as LineRewardChoice['options'][number];
+
+    expect(mockEngine.getLineRewardChoice).toHaveBeenCalledWith(
+      choice.playerNumber,
+      null,
+      choice.options
+    );
+    // Service choice should override the local "prefer option 2" heuristic
+    expect(selected).toBe('option_1_collapse_all_and_eliminate');
+  });
+
+  it('falls back to local heuristic and logs when AI service returns invalid line_reward_option', async () => {
+    const choice: LineRewardChoice = {
+      ...baseChoice,
+      type: 'line_reward_option',
+      options: [
+        'option_1_collapse_all_and_eliminate',
+        'option_2_min_collapse_no_elimination',
+      ],
+    };
+
+    const mockEngine = globalAIEngine as unknown as {
+      getLineRewardChoice: jest.Mock;
+    };
+
+    mockEngine.getLineRewardChoice.mockResolvedValue('not_a_valid_option' as any);
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as LineRewardChoice['options'][number];
+
+    // Fallback heuristic still prefers option 2
+    expect(selected).toBe('option_2_min_collapse_no_elimination');
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('AI service returned invalid option for line_reward_option'),
+      expect.objectContaining({
+        gameId: choice.gameId,
+        playerNumber: choice.playerNumber,
+        choiceId: choice.id,
+        choiceType: choice.type,
+      })
+    );
+  });
+
+  it('logs and throws when a generic choice has no options', async () => {
+    const choice = {
+      ...baseChoice,
+      type: 'unknown_choice_type',
+      options: [] as string[],
+    } as unknown as PlayerChoice;
+
+    await expect(handler.requestChoice(choice)).rejects.toThrow(
+      'PlayerChoice[unknown_choice_type] must have at least one option'
+    );
+
+    expect(logger.error).toHaveBeenCalledWith(
+      'AIInteractionHandler received choice with no options',
+      expect.objectContaining({
+        choiceId: baseChoice.id,
+        playerNumber: baseChoice.playerNumber,
+      })
+    );
   });
 });

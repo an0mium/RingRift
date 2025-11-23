@@ -1,10 +1,10 @@
 import express from 'express';
 import { createServer } from 'http';
+import path from 'path';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
 import { WebSocketServer } from './websocket/server';
 import { setupRoutes } from './routes';
 import { errorHandler } from './middleware/errorHandler';
@@ -13,10 +13,7 @@ import { logger } from './utils/logger';
 import { connectDatabase } from './database/connection';
 import { connectRedis } from './cache/redis';
 import client from 'prom-client';
-
-// Load environment variables
-dotenv.config();
-
+import { config } from './config';
 const app = express();
 const server = createServer(app);
 
@@ -39,7 +36,7 @@ app.use(
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+    origin: config.server.corsOrigin,
     credentials: true,
   })
 );
@@ -58,7 +55,7 @@ app.get('/health', (_req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    version: process.env.npm_package_version || '1.0.0',
+    version: config.app.version,
   });
 });
 
@@ -76,11 +73,32 @@ app.get('/metrics', async (_req, res) => {
   }
 });
 
-// API routes
-app.use('/api', setupRoutes());
+const clientBuildPath = path.resolve(__dirname, '../client');
+
+if (config.isProduction) {
+  app.use(express.static(clientBuildPath));
+}
 
 // WebSocket setup
-new WebSocketServer(server);
+const wsServer = new WebSocketServer(server);
+
+// API routes (pass wsServer for lobby broadcasting)
+app.use('/api', setupRoutes(wsServer));
+
+if (config.isProduction) {
+  app.get('*', (req, res, next) => {
+    if (
+      req.path.startsWith('/api') ||
+      req.path.startsWith('/socket.io') ||
+      req.path.startsWith('/metrics') ||
+      req.path.startsWith('/health')
+    ) {
+      return next();
+    }
+
+    res.sendFile(path.join(clientBuildPath, 'index.html'));
+  });
+}
 
 // Error handling
 app.use(errorHandler);
@@ -97,8 +115,59 @@ app.use('*', (_req, res) => {
   });
 });
 
+function enforceAppTopology() {
+  const topology = config.app.topology;
+  const nodeEnv = config.nodeEnv;
+
+  if (topology === 'single') {
+    logger.info(
+      'App topology: single-instance mode (RINGRIFT_APP_TOPOLOGY=single). ' +
+        'The server assumes it is the only app instance talking to this database and Redis ' +
+        'for authoritative game sessions.'
+    );
+    return;
+  }
+
+  const logContext = { topology, nodeEnv };
+
+  if (topology === 'multi-unsafe') {
+    const message =
+      'RINGRIFT_APP_TOPOLOGY=multi-unsafe: multi-instance deployment without sticky sessions ' +
+      'or shared state is unsupported. Each instance will maintain its own in-process game sessions.';
+
+    if (config.isProduction) {
+      logger.error(
+        `${message} Refusing to start in NODE_ENV=production. ` +
+          'Configure infrastructure-enforced sticky sessions and/or shared game state before using multiple app instances.',
+        logContext
+      );
+      throw new Error(
+        'Unsupported app topology "multi-unsafe" in production. Refusing to start with multiple app instances.'
+      );
+    }
+
+    logger.warn(
+      `${message} Continuing because NODE_ENV=${nodeEnv}. ` +
+        'This mode is intended only for development/experimentation.',
+      logContext
+    );
+    return;
+  }
+
+  if (topology === 'multi-sticky') {
+    logger.warn(
+      'RINGRIFT_APP_TOPOLOGY=multi-sticky: backend assumes infrastructure-enforced sticky sessions ' +
+        '(HTTP + WebSocket) for all game-affecting traffic to a given game. ' +
+        'Correctness is not guaranteed if sticky sessions are misconfigured or absent.',
+      logContext
+    );
+  }
+}
+
 async function startServer() {
   try {
+    enforceAppTopology();
+
     // Connect to database
     await connectDatabase();
     logger.info('Database connected successfully');
@@ -116,12 +185,12 @@ async function startServer() {
     }
 
     // Start server
-    const PORT = process.env.PORT || 3000;
+    const PORT = config.server.port;
 
     server.listen(PORT, () => {
       logger.info(`Server running on port ${PORT}`);
       logger.info(`WebSocket server attached to HTTP server on port ${PORT}`);
-      logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      logger.info(`Environment: ${config.nodeEnv}`);
     });
 
     // Graceful shutdown

@@ -8,6 +8,7 @@ import {
   GameState,
   Position,
   RingStack,
+  Move,
   PlayerChoice,
   PlayerChoiceResponseFor,
   CaptureDirectionChoice,
@@ -102,5 +103,46 @@ describe('ClientSandboxEngine BoardState invariants', () => {
     expect(() => {
       engineAny.assertBoardInvariants('stack on collapsed space');
     }).toThrow(/stack present on collapsed space/);
+  });
+
+  test('applyCanonicalMove enforces invariants for stack+marker overlap in test mode', async () => {
+    const engine = createEngine();
+    const engineAny = engine as any;
+    const state: GameState = engineAny.gameState as GameState;
+    const board = state.board;
+
+    const pos: Position = { x: 0, y: 0 };
+    const key = positionToString(pos);
+
+    const rings = [1];
+    const stack: RingStack = {
+      position: pos,
+      rings,
+      stackHeight: rings.length,
+      capHeight: rings.length,
+      controllingPlayer: 1
+    };
+
+    // Deliberately construct an illegal stack+marker overlap at the same key.
+    board.stacks.set(key, stack);
+    board.markers.set(key, {
+      player: 1,
+      position: pos,
+      type: 'regular'
+    });
+
+    const move: Move = {
+      id: 'm1',
+      type: 'place_ring',
+      player: 1,
+      to: { x: 1, y: 1 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1
+    };
+
+    // applyCanonicalMove should attempt to commit the move, detect the
+    // pre-existing invariant violation via assertBoardInvariants, and throw.
+    await expect(engine.applyCanonicalMove(move)).rejects.toThrow(/stack and marker coexist/);
   });
 });

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 
 let prisma: PrismaClient | null = null;
 
@@ -32,7 +33,7 @@ export const connectDatabase = async (): Promise<PrismaClient> => {
     });
 
     // Log database queries in development
-    if (process.env.NODE_ENV === 'development') {
+    if (config.isDevelopment) {
       (prisma as any).$on('query', (e: any) => {
         logger.debug('Database Query:', {
           query: e.query,

@@ -1,9 +1,11 @@
 /**
  * Client for communicating with the Python AI Service
  * Makes HTTP requests to the FastAPI microservice for AI move and choice selection.
+ * Includes circuit breaker pattern for resilience.
  */
 
 import axios, { AxiosInstance } from 'axios';
+import { config } from '../config';
 import {
   GameState,
   Move,
@@ -12,6 +14,69 @@ import {
   RegionOrderChoice,
 } from '../../shared/types/game';
 import { logger } from '../utils/logger';
+import { aiMoveLatencyHistogram } from '../utils/rulesParityMetrics';
+
+/**
+ * Circuit breaker to prevent hammering a failing AI service
+ */
+class CircuitBreaker {
+  private failureCount = 0;
+  private lastFailureTime = 0;
+  private isOpen = false;
+  private readonly threshold = 5; // failures before opening
+  private readonly timeout = 60000; // 1 minute cooldown
+
+  async execute<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.isOpen) {
+      const now = Date.now();
+      if (now - this.lastFailureTime > this.timeout) {
+        this.reset(); // Try again after timeout
+        logger.info('Circuit breaker transitioning from open to half-open');
+      } else {
+        throw new Error('Circuit breaker is open - AI service temporarily unavailable');
+      }
+    }
+
+    try {
+      const result = await fn();
+      this.reset();
+      return result;
+    } catch (error) {
+      this.recordFailure();
+      throw error;
+    }
+  }
+
+  private recordFailure(): void {
+    this.failureCount++;
+    this.lastFailureTime = Date.now();
+    if (this.failureCount >= this.threshold) {
+      this.isOpen = true;
+      logger.warn('Circuit breaker opened after repeated failures', {
+        failureCount: this.failureCount,
+        threshold: this.threshold,
+      });
+    }
+  }
+
+  private reset(): void {
+    if (this.failureCount > 0 || this.isOpen) {
+      logger.info('Circuit breaker reset', {
+        previousFailures: this.failureCount,
+        wasOpen: this.isOpen,
+      });
+    }
+    this.failureCount = 0;
+    this.isOpen = false;
+  }
+
+  getStatus(): { isOpen: boolean; failureCount: number } {
+    return {
+      isOpen: this.isOpen,
+      failureCount: this.failureCount,
+    };
+  }
+}
 
 export interface AIConfig {
   difficulty: number;
@@ -103,13 +168,16 @@ export interface RegionOrderChoiceResponsePayload {
 
 /**
  * Client for interacting with the Python AI microservice.
+ * Includes circuit breaker for resilience and timeout handling.
  */
 export class AIServiceClient {
   private client: AxiosInstance;
   private baseURL: string;
+  private circuitBreaker: CircuitBreaker;
 
   constructor(baseURL?: string) {
-    this.baseURL = baseURL || process.env.AI_SERVICE_URL || 'http://localhost:8001';
+    this.baseURL = baseURL || config.aiService.url;
+    this.circuitBreaker = new CircuitBreaker();
 
     this.client = axios.create({
       baseURL: this.baseURL,
@@ -123,10 +191,19 @@ export class AIServiceClient {
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
+        // Enhanced error logging with categorization
+        const errorType = this.categorizeError(error);
+        // Attach categorized error type so downstream callers (e.g. AIEngine)
+        // can emit structured fallback metrics without depending on axios internals.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (error as any).aiErrorType = errorType;
+
         logger.error('AI Service error:', {
+          type: errorType,
           message: error.message,
           response: error.response?.data,
           status: error.response?.status,
+          code: error.code,
         });
         throw error;
       }
@@ -134,7 +211,19 @@ export class AIServiceClient {
   }
 
   /**
-   * Get AI-selected move for current game state.
+   * Categorize error type for better diagnostics
+   */
+  private categorizeError(error: any): string {
+    if (error.code === 'ECONNREFUSED') return 'connection_refused';
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') return 'timeout';
+    if (error.response?.status === 500) return 'server_error';
+    if (error.response?.status === 503) return 'service_unavailable';
+    if (error.response?.status >= 400 && error.response?.status < 500) return 'client_error';
+    return 'unknown';
+  }
+
+  /**
+   * Get AI-selected move for current game state with circuit breaker protection.
    */
   async getAIMove(
     gameState: GameState,
@@ -144,50 +233,66 @@ export class AIServiceClient {
     seed?: number
   ): Promise<MoveResponse> {
     const startTime = performance.now();
-    try {
-      // Derive seed from gameState if not explicitly provided
-      const effectiveSeed = seed ?? gameState.rngSeed;
+    const difficultyLabel = String(difficulty ?? 'n/a');
 
-      const request: MoveRequest = {
-        game_state: gameState,
-        player_number: playerNumber,
-        difficulty,
-        ...(aiType && { ai_type: aiType }),
-        ...(effectiveSeed !== undefined && { seed: effectiveSeed }),
-      };
+    return this.circuitBreaker.execute(async () => {
+      try {
+        // Derive seed from gameState if not explicitly provided
+        const effectiveSeed = seed ?? gameState.rngSeed;
 
-      logger.info('Requesting AI move', {
-        playerNumber,
-        difficulty,
-        aiType,
-        phase: gameState.currentPhase,
-      });
+        const request: MoveRequest = {
+          game_state: gameState,
+          player_number: playerNumber,
+          difficulty,
+          ...(aiType && { ai_type: aiType }),
+          ...(effectiveSeed !== undefined && { seed: effectiveSeed }),
+        };
 
-      const response = await this.client.post<MoveResponse>('/ai/move', request);
-      const duration = performance.now() - startTime;
+        logger.info('Requesting AI move', {
+          playerNumber,
+          difficulty,
+          aiType,
+          phase: gameState.currentPhase,
+        });
 
-      logger.info('AI move received', {
-        aiType: response.data.ai_type,
-        thinkingTime: response.data.thinking_time_ms,
-        evaluation: response.data.evaluation,
-        latencyMs: Math.round(duration),
-      });
+        const response = await this.client.post<MoveResponse>('/ai/move', request);
+        const duration = performance.now() - startTime;
 
-      return response.data;
-    } catch (error) {
-      const duration = performance.now() - startTime;
-      logger.error('Failed to get AI move', {
-        error,
-        latencyMs: Math.round(duration),
-        playerNumber,
-        difficulty,
-      });
-      throw new Error(
-        `AI Service failed to generate move: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`
-      );
-    }
+        // Record latency for successful Python-service-backed move selection.
+        aiMoveLatencyHistogram.labels('python', difficultyLabel).observe(duration);
+
+        logger.info('AI move received', {
+          aiType: response.data.ai_type,
+          thinkingTime: response.data.thinking_time_ms,
+          evaluation: response.data.evaluation,
+          latencyMs: Math.round(duration),
+        });
+
+        return response.data;
+      } catch (error) {
+        const duration = performance.now() - startTime;
+
+        logger.error('Failed to get AI move', {
+          error,
+          latencyMs: Math.round(duration),
+          playerNumber,
+          difficulty,
+        });
+
+        throw new Error(
+          `AI Service failed to generate move: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`
+        );
+      }
+    });
+  }
+
+  /**
+   * Get circuit breaker status for monitoring
+   */
+  getCircuitBreakerStatus(): { isOpen: boolean; failureCount: number } {
+    return this.circuitBreaker.getStatus();
   }
 
   /**

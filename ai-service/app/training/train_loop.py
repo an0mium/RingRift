@@ -1,6 +1,6 @@
-import sys
 import os
 import shutil
+import json
 from typing import Optional
 
 from app.training.generate_data import generate_dataset  # noqa: E402
@@ -9,6 +9,26 @@ from app.models import AIConfig  # noqa: E402
 from app.ai.descent_ai import DescentAI  # noqa: E402
 from app.training.tournament import Tournament  # noqa: E402
 from app.training.config import TrainConfig  # noqa: E402
+from app.ai.heuristic_ai import HEURISTIC_WEIGHT_PROFILES  # noqa: E402
+
+
+def export_heuristic_profiles(log_dir: str) -> None:
+    """
+    Export the current heuristic weight profiles to a JSON file in the
+    configured training log directory. This keeps heuristic tuning as an
+    offline concern without changing runtime defaults.
+    """
+    try:
+        base_dir = os.getcwd()
+        out_path = os.path.join(
+            base_dir,
+            log_dir,
+            "heuristic_profiles.v1.json",
+        )
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(HEURISTIC_WEIGHT_PROFILES, f, indent=2, sort_keys=True)
+    except Exception as exc:
+        print("Warning: failed to export heuristic profiles:", str(exc))
 
 
 def run_training_loop(config: Optional[TrainConfig] = None):
@@ -23,25 +43,28 @@ def run_training_loop(config: Optional[TrainConfig] = None):
     # Use absolute paths
     base_dir = os.getcwd()
     data_file = os.path.join(
-        base_dir, config.data_dir, "self_play_data.npz"
+        base_dir,
+        config.data_dir,
+        "self_play_data.npz",
     )
     model_file = os.path.join(
-        base_dir, config.model_dir, "ringrift_v1.pth"
+        base_dir,
+        config.model_dir,
+        f"{config.model_id}.pth",
     )
     best_model_file = os.path.join(
-        base_dir, config.model_dir, "ringrift_best.pth"
+        base_dir,
+        config.model_dir,
+        f"{config.model_id}_best.pth",
     )
 
     # Initialize best model if not exists
     if not os.path.exists(best_model_file) and os.path.exists(model_file):
         shutil.copy(model_file, best_model_file)
 
-    # We loop indefinitely or for a fixed number of meta-iterations
-    # For now, let's just run one big loop or use a config parameter
-    # Assuming config.epochs_per_iter is actually meta-iterations here?
-    # The config names are a bit ambiguous.
-    # Let's assume we run for a fixed number of loops.
-    num_loops = 2
+    # Use the configured number of training iterations so callers can control
+    # how many self-play / training / evaluation cycles are run.
+    num_loops = config.iterations
 
     for i in range(num_loops):
         print(f"\n=== Iteration {i+1}/{num_loops} ===")
@@ -50,12 +73,26 @@ def run_training_loop(config: Optional[TrainConfig] = None):
         print("Generating self-play data...")
 
         # Initialize Descent AIs
-        # They will use the current neural net (if available) for evaluation
+        # They will use the current neural net (if available) for evaluation.
+        # Use rngSeed so that DescentAI/BaseAI derive a deterministic
+        # per-instance RNG for self-play games in the training loop.
         ai1 = DescentAI(
-            1, AIConfig(difficulty=5, think_time=500, randomness=0.1)
+            1,
+            AIConfig(
+                difficulty=5,
+                think_time=500,
+                randomness=0.1,
+                rngSeed=config.seed,
+            ),
         )
         ai2 = DescentAI(
-            2, AIConfig(difficulty=5, think_time=500, randomness=0.1)
+            2,
+            AIConfig(
+                difficulty=5,
+                think_time=500,
+                randomness=0.1,
+                rngSeed=config.seed,
+            ),
         )
 
         # Generate data
@@ -64,17 +101,22 @@ def run_training_loop(config: Optional[TrainConfig] = None):
             output_file=data_file,
             ai1=ai1,
             ai2=ai2,
-            board_type=config.board_type
+            board_type=config.board_type,
+            seed=config.seed,
         )
 
         # 2. Train Neural Net
         print("Training neural network...")
         # Train on current data, saving to candidate model file
-        candidate_model_file = model_file.replace(".pth", "_candidate.pth")
+        candidate_model_file = os.path.join(
+            base_dir,
+            config.model_dir,
+            f"{config.model_id}_candidate.pth",
+        )
         train_model(
             config=config,
             data_path=data_file,
-            save_path=candidate_model_file
+            save_path=candidate_model_file,
         )
         
         # 3. Evaluation (Tournament)
@@ -108,7 +150,12 @@ def run_training_loop(config: Optional[TrainConfig] = None):
             print("First model generated. Promoting to Best Model.")
             shutil.copy(candidate_model_file, best_model_file)
             shutil.copy(candidate_model_file, model_file)
-            
+
+        # Export the current heuristic weight profiles after each iteration so
+        # that offline tools can inspect/tune them without changing runtime
+        # defaults.
+        export_heuristic_profiles(config.log_dir)
+
         print("Iteration complete.")
 
 

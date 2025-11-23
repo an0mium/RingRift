@@ -1,5 +1,73 @@
 # RingRift Quick Start Guide
 
+## Game Completion
+
+When a game ends, you'll see a comprehensive victory screen showing:
+
+- **Winner and Victory Condition**: Clear indication of who won and how (ring elimination, territory majority, last player standing, or stalemate)
+- **Final Statistics**: Complete comparison of all players including:
+  - Rings on board (still in play)
+  - Rings lost (eliminated from play)
+  - Territory spaces controlled
+  - Total moves made
+- **Game Summary**: Board type, total turns played, player count, and rated status
+
+### Available Actions
+
+After viewing the victory screen, you can:
+- **Return to Lobby**: Start a new game or join an existing one
+- **Request Rematch**: Challenge the same players to another game (multiplayer only)
+- **Close**: View the final board state
+
+### Victory Conditions
+
+Games can end in several ways:
+
+1. **Ring Elimination** (🏆): Eliminate more than 50% of total rings in play
+2. **Territory Majority** (🏰): Control more than 50% of the board as collapsed territory
+3. **Last Player Standing** (👑): Be the only player who can still make legal moves
+4. **Stalemate Draw** (🤝): When no moves are possible, the winner is determined by:
+   - Most territory spaces (higher priority)
+   - Most rings eliminated (if territory is tied)
+   - Most markers remaining (if still tied)
+   - Last player to complete a valid action (final tiebreaker)
+
+---
+
+# RingRift Quick Start Guide
+
+## Understanding the Game HUD
+
+The heads-up display (HUD) provides real-time information about the game state:
+
+### Phase Indicator
+The colored banner at the top shows the current game phase with an icon and description:
+- 🎯 **Blue - Placement Phase**: Place your rings on the board
+- ⚡ **Green - Movement Phase**: Move a stack or capture opponent pieces
+- ⚔️ **Orange - Capture Phase**: Execute a capture move
+- 🔗 **Orange - Chain Capture**: Continue capturing or end your turn
+- 📏 **Purple - Line Reward**: Choose how to process your line
+- 🏰 **Pink - Territory Claim**: Choose regions to collapse
+
+### Turn Counter
+Displays the current turn number and move count to track game progress.
+
+### Player Cards
+Each player card shows:
+- **Name and Color**: Player identifier with color indicator
+- **AI Indicator**: Shows if player is AI-controlled, with difficulty level and type
+- **Current Turn Badge**: Highlights the active player
+- **Timer**: Countdown timer for timed games (turns red when under 1 minute)
+- **Ring Statistics**:
+  - In Hand: Rings available for placement
+  - On Board: Rings currently in play
+  - Lost: Permanently eliminated rings
+- **Territory Count**: Number of spaces controlled as territory
+
+### Connection Status
+Top bar shows WebSocket connection state and whether you're spectating.
+
+
 This guide focuses on getting a **local development environment** running quickly (backend + frontend) and then wiring up the **Python AI service** used for AI turns and some PlayerChoices.
 
 If you only want the AI microservice, skip to **[AI Service Quick Start](#ai-service-quick-start)**.
@@ -84,6 +152,8 @@ Once running, you should have:
 >
 > - Use `npm run dev:server` (or the `app` service in `docker compose up`) as the canonical backend entrypoint.
 > - Avoid starting additional ad-hoc scripts that also bind `3000` (for example, older WebSocket test harnesses or `ts-node src/server/index.ts` in a second terminal), as they can cause confusing WebSocket and `/game/:gameId` behaviour.
+>
+> The backend’s supported v1 deployment topology is a **single app instance** per environment. This is enforced via the `RINGRIFT_APP_TOPOLOGY` environment variable, which defaults to `single` in development. See “Deployment Topology (Backend)” in `README.md` for details.
 
 You can:
 
@@ -109,6 +179,45 @@ The lobby UI now supports creating games with AI opponents:
 4. **Play**: The AI will make moves automatically during its turns
 
 AI games are currently unrated. The AI thinking indicator shows when it's the AI's turn.
+
+### Finding and Joining Games
+
+The lobby shows all available games in real-time with powerful filtering and discovery features:
+
+**Filtering Options:**
+- **Board type**: Filter by square8, square19, or hexagonal boards
+- **Rated vs unrated**: Show only rated games or unrated games
+- **Player count**: Filter by 2, 3, or 4 player games
+- **Search**: Find games by creator name or game ID
+
+**Game Information:**
+Each game card displays:
+- Creator's name and rating
+- Board type and time control settings
+- Current players vs maximum capacity
+- Rated status indicator
+- Game status (waiting or in progress)
+
+**Available Actions:**
+- **Join**: Enter a waiting game (button disabled if game is full or you're the creator)
+- **Watch**: Spectate any game to observe gameplay
+- **Cancel**: Remove your own waiting game from the lobby
+
+**Real-Time Updates:**
+The lobby automatically updates when:
+- New games are created and appear in the list
+- Players join games (player count updates)
+- Games start (removed from lobby)
+- Games are cancelled (removed from lobby)
+
+**Sorting Options:**
+- Newest First (default)
+- Most Players
+- Board Type
+- Rated First
+
+No manual refresh needed - the lobby stays synchronized across all connected clients via WebSocket.
+
 
 To run tests while you work:
 
@@ -140,6 +249,10 @@ important variables are:
   - `ts` (default): TypeScript engine is authoritative.
   - `shadow`: TypeScript is authoritative, but Python engine runs in parallel for parity checks.
   - `python`: Python engine is authoritative for validation (experimental).
+- `RINGRIFT_APP_TOPOLOGY` – Controls the backend deployment topology:
+  - `single` (default): Single app instance per environment; supported and tested mode.
+  - `multi-unsafe`: Multiple app instances **without** sticky sessions or shared state; unsupported in production (the server will refuse to start when `NODE_ENV=production`).
+  - `multi-sticky`: Multiple app instances with **infrastructure-enforced sticky sessions** for all game-affecting HTTP + WebSocket traffic; still risky and intended for operators who understand and accept the trade-offs.
 - `PORT` – port the Node backend listens on (default `3000` in dev).
 
 ---
@@ -265,11 +378,14 @@ docker compose up -d
 By default you’ll have:
 
 - **App container (`app`)** listening on `http://localhost:3000`
+  - Runs as a **single instance** by default (`deploy.replicas: 1`) with `RINGRIFT_APP_TOPOLOGY=single`, meaning it assumes it is the only app instance talking to this database and Redis for authoritative game sessions.
 - **Nginx** proxy on `http://localhost/` (80) and `https://localhost/` (443), if configured
 - **PostgreSQL** on port `5432`
 - **Redis** on port `6379`
 - **Prometheus** on `http://localhost:9090`
 - **Grafana** on `http://localhost:3001`
+
+> If you manually scale the `app` service (for example, `docker compose up --scale app=2`), you are leaving the default, supported topology. Update `RINGRIFT_APP_TOPOLOGY` and ensure infrastructure-enforced sticky sessions for WebSocket + game-affecting HTTP traffic before doing so.
 
 ### 3.2 Logs & Shutdown
 

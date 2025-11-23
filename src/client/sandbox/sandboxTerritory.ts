@@ -558,7 +558,7 @@ export function getBorderMarkerPositionsForRegion(
  * rules. This function is pure with respect to GameState: callers must
  * update totalRingsEliminated themselves using the returned delta.
  */
-export function processDisconnectedRegionOnBoard(
+export function processDisconnectedRegionCoreOnBoard(
   board: BoardState,
   players: Player[],
   movingPlayer: number,
@@ -627,6 +627,28 @@ export function processDisconnectedRegionOnBoard(
     );
   }
 
+  return {
+    board: nextBoard,
+    players: nextPlayers,
+    totalRingsEliminatedDelta: internalRingsEliminated,
+  };
+}
+
+export function processDisconnectedRegionOnBoard(
+  board: BoardState,
+  players: Player[],
+  movingPlayer: number,
+  regionSpaces: Position[]
+): { board: BoardState; players: Player[]; totalRingsEliminatedDelta: number } {
+  // Legacy / non-move-driven helper: apply the core geometric consequences of
+  // processing a disconnected region and then immediately perform the mandatory
+  // self-elimination using forceEliminateCapOnBoard. This preserves the
+  // original sandbox semantics used by processDisconnectedRegionsForCurrentPlayerEngine.
+  const coreResult = processDisconnectedRegionCoreOnBoard(board, players, movingPlayer, regionSpaces);
+
+  const nextBoard = coreResult.board;
+  const nextPlayers = coreResult.players;
+
   // 6. Mandatory self-elimination: eliminate one cap from a moving-player stack
   // outside the region using the shared forceEliminateCapOnBoard helper.
   const movingStacks: RingStack[] = [];
@@ -643,7 +665,7 @@ export function processDisconnectedRegionOnBoard(
     movingStacks
   );
 
-  const totalDelta = internalRingsEliminated + elimResult.totalRingsEliminatedDelta;
+  const totalDelta = coreResult.totalRingsEliminatedDelta + elimResult.totalRingsEliminatedDelta;
 
   return {
     board: elimResult.board,

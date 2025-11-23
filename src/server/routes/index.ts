@@ -1,11 +1,16 @@
 import { Router } from 'express';
 import authRoutes from './auth';
-import gameRoutes from './game';
+import gameRoutes, { setWebSocketServer } from './game';
 import userRoutes from './user';
 import { authenticate } from '../middleware/auth';
 
-export const setupRoutes = (): Router => {
+export const setupRoutes = (wsServer?: any): Router => {
   const router = Router();
+
+  // Inject WebSocket server into game routes for lobby broadcasting
+  if (wsServer) {
+    setWebSocketServer(wsServer);
+  }
 
   // Public routes
   router.use('/auth', authRoutes);

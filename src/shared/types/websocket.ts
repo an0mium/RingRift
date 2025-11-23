@@ -31,11 +31,11 @@ export interface ServerToClientEvents {
   'matchmaking-status': (status: MatchmakingStatus) => void;
   'queue-position': (position: number) => void;
 
-  // System events
-  error: (error: SocketError) => void;
-  notification: (notification: Notification) => void;
-  'user-status': (userId: string, status: string) => void;
-  'server-message': (message: string) => void;
+    // System events
+    error: (error: WebSocketErrorPayload) => void;
+    notification: (notification: Notification) => void;
+    'user-status': (userId: string, status: string) => void;
+    'server-message': (message: string) => void;
 
   // Connection events
   connected: () => void;
@@ -238,11 +238,27 @@ export interface NotificationAction {
   data?: any;
 }
 
-export interface SocketError {
-  code: string;
+export type WebSocketErrorCode =
+  | 'INVALID_PAYLOAD'
+  | 'GAME_NOT_FOUND'
+  | 'ACCESS_DENIED'
+  | 'MOVE_REJECTED'
+  | 'CHOICE_REJECTED'
+  | 'INTERNAL_ERROR';
+
+export interface WebSocketErrorPayload {
+  type: 'error';
+  code: WebSocketErrorCode;
+  event?: string | undefined;
   message: string;
+}
+
+/**
+ * @deprecated Prefer WebSocketErrorPayload for new WebSocket error flows.
+ */
+export interface SocketError extends WebSocketErrorPayload {
   details?: any;
-  timestamp: Date;
+  timestamp?: Date;
 }
 
 export interface GameUpdate {

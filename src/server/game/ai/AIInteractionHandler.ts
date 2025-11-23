@@ -56,13 +56,24 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
         return this.selectRegionOrderOption(choice as RegionOrderChoice);
       case 'capture_direction':
         return this.selectCaptureDirectionOption(choice as CaptureDirectionChoice);
-      default:
+      default: {
         // Fallback: first option, if present. This mirrors the engine's
         // historical "first option" behaviour and ensures we always
-        // return a valid member of choice.options.
+        // return a valid member of choice.options. A choice with no
+        // options is a protocol violation and treated as a hard error.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const anyChoice = choice as any;
-        return anyChoice.options?.[0];
+        if (!anyChoice.options || anyChoice.options.length === 0) {
+          logger.error('AIInteractionHandler received choice with no options', {
+            choiceId: anyChoice.id,
+            choiceType: anyChoice.type,
+            playerNumber: anyChoice.playerNumber,
+          });
+          const choiceType = anyChoice.type ?? 'unknown';
+          throw new Error(`PlayerChoice[${choiceType}] must have at least one option`);
+        }
+        return anyChoice.options[0];
+      }
     }
   }
 
@@ -127,6 +138,18 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
       if (choice.options.includes(selected)) {
         return selected;
       }
+
+      logger.warn(
+        'AI service returned invalid option for line_reward_option; falling back to local heuristic',
+        {
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+          choiceType: choice.type,
+          optionsCount: choice.options.length,
+          invalidOption: selected,
+        }
+      );
     } catch (error) {
       // Service is unavailable or misconfigured for this player. Log a
       // structured warning and fall back to the local heuristic; this is
@@ -187,6 +210,18 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
       if (choice.options.includes(selected)) {
         return selected;
       }
+
+      logger.warn(
+        'AI service returned invalid option for ring_elimination; falling back to local heuristic',
+        {
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+          choiceType: choice.type,
+          optionsCount: choice.options.length,
+          invalidOption: selected,
+        }
+      );
     } catch (error) {
       // Service is unavailable or misconfigured for this player. Log a
       // structured warning and fall back to the local heuristic.
@@ -250,6 +285,18 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
       if (choice.options.includes(selected)) {
         return selected;
       }
+
+      logger.warn(
+        'AI service returned invalid option for region_order; falling back to local heuristic',
+        {
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+          choiceType: choice.type,
+          optionsCount: choice.options.length,
+          invalidOption: selected,
+        }
+      );
     } catch (error) {
       // Service is unavailable or misconfigured for this player. Log a
       // structured warning and fall back to the local heuristic.

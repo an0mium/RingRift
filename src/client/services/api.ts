@@ -6,9 +6,31 @@ import { Game, CreateGameRequest } from '../../shared/types/game';
  * API base URL:
  * - In typical dev/prod setups, we rely on same-origin `/api` (Vite dev proxy or nginx).
  * - VITE_API_URL is available for advanced setups (e.g. pointing the client at a remote API).
+ *   For browser builds, this is injected into the client bundle via `process.env.VITE_API_URL`
+ *   in [`vite.config.ts`](vite.config.ts:29).
  */
-const API_BASE_URL =
-  (import.meta as any).env?.VITE_API_URL || '/api';
+function getApiBaseUrl(): string {
+  const env =
+    typeof process !== 'undefined' && (process as any).env
+      ? ((process as any).env as Record<string, string | undefined>)
+      : {};
+
+  const explicit = env.VITE_API_URL;
+  if (explicit && typeof explicit === 'string') {
+    return explicit.replace(/\/$/, '');
+  }
+
+  // In the browser, prefer same-origin `/api` when no explicit base URL is configured.
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = window.location.origin.replace(/\/$/, '');
+    return `${origin}/api`;
+  }
+
+  // Jest / Node or other non-browser environments fall back to relative `/api`.
+  return '/api';
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Create axios instance with default config
 const api = axios.create({

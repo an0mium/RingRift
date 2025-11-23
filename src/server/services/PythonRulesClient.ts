@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { GameState, Move } from '../../shared/types/game';
 import { logger } from '../utils/logger';
+import { config } from '../config';
 
 export interface RulesEvalResponse {
   valid: boolean;
@@ -33,7 +34,7 @@ export class PythonRulesClient {
   private readonly client: AxiosInstance;
 
   constructor(baseURL?: string) {
-    const url = baseURL || process.env.AI_SERVICE_URL || 'http://localhost:8001';
+    const url = baseURL || config.aiService.url;
 
     this.client = axios.create({
       baseURL: url,

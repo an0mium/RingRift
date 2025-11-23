@@ -13,17 +13,22 @@ This service provides AI capabilities for the RingRift game through a RESTful AP
 
 ## Features
 
-- **Currently supported AI types (production)**:
+- **Currently supported AI types (canonical ladder)**:
   - RandomAI: Selects random valid moves (difficulty 1–2)
   - HeuristicAI: Uses strategic heuristics (difficulty 3–5)
+  - MinimaxAI: Depth-limited search with evaluation, used for difficulty 6–8
+  - MCTSAI: Monte Carlo tree search implementation, used for difficulty 9–10
+  - DescentAI: Local-descent evaluator used in some parity and evaluation tests
 
-- **Experimental / in-progress AI types**:
-  - MinimaxAI: Prototype implementation under test in [`minimax_ai.py`](ai-service/app/ai/minimax_ai.py:1) and [`test_minimax_ai.py`](ai-service/tests/test_minimax_ai.py:1).
-  - MCTS / NeuralNetAI: Prototype Monte Carlo tree search + neural net scaffolding in [`mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1) and [`neural_net.py`](ai-service/app/ai/neural_net.py:1).
+  These types are wired through the **canonical 1–10 difficulty ladder** defined in [`app/main.py`](ai-service/app/main.py) and mirrored in the TypeScript backend’s `AI_DIFFICULTY_PRESETS` in [`AIEngine.ts`](../src/server/game/ai/AIEngine.ts:1). For a given numeric difficulty, both the backend and service agree on the underlying AI type, randomness, and think-time budget.
 
-  > **Note:** These experimental types are not yet fully wired into the main `/ai/move` endpoint for all difficulty levels. The service currently relies primarily on `RandomAI` and `HeuristicAI` for production gameplay.
+- **Experimental / ML-focused work (in progress)**:
+  - NeuralNetAI scaffolding lives in [`neural_net.py`](ai-service/app/ai/neural_net.py:1) but is **not** yet part of the production `/ai/move` path.
+  - Future ML-backed engines (policy/value networks) will be added as new `AIType` variants and corresponding difficulty profiles.
 
-- **Difficulty Levels**: 1–10, mapped to AI profiles in the backend via [`AIServiceClient`](src/server/services/AIServiceClient.ts:1) and [`AIEngine`](src/server/game/ai/AIEngine.ts:1)
+- **Difficulty Levels**: 1–10, mapped consistently to AI profiles in both the backend and service via:
+  - Python: `_CANONICAL_DIFFICULTY_PROFILES` in [`app/main.py`](ai-service/app/main.py)
+  - TypeScript: `AI_DIFFICULTY_PRESETS` in [`AIEngine.ts`](../src/server/game/ai/AIEngine.ts:1)
 - **Position Evaluation**: Heuristic evaluation with detailed breakdown
 - **AI Caching**: Instance caching for performance
 - **Health Checks**: Container orchestration support

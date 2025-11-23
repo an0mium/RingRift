@@ -177,6 +177,19 @@ export function maybeProcessForcedEliminationForCurrentPlayerSandbox(
     return { state, turnState, eliminated: false };
   }
 
+  // Approximate per-player ring cap usage in the same way as the
+  // sandbox AI ring_placement policy: count all rings in stacks
+  // controlled by this player and compare against BOARD_CONFIGS.
+  // This keeps forced-elimination gating aligned with the AI's
+  // maxAvailableGlobal calculation so that situations where the AI
+  // treats the player as "at cap" do not get stuck because the
+  // turn engine still believes placements are available.
+  const boardConfig = BOARD_CONFIGS[state.boardType];
+  const ringsOnBoard = stacks.reduce((sum, stack) => sum + stack.rings.length, 0);
+  const perPlayerCap = boardConfig.ringsPerPlayer;
+  const remainingByCap = perPlayerCap - ringsOnBoard;
+  const atOrAboveCap = remainingByCap <= 0;
+
   // Determine whether this player has any legal non-capture moves or
   // captures available. When a must-move stack is being tracked during
   // the movement phase, we first check that specific stack; only if it
@@ -207,9 +220,18 @@ export function maybeProcessForcedEliminationForCurrentPlayerSandbox(
   }
 
   // Also check whether the player has any legal ring placements that
-  // satisfy the no-dead-placement rule.
+  // satisfy the no-dead-placement rule. When the player has reached
+  // or exceeded their per-player ring cap (as approximated by
+  // ringsOnBoard above), we treat placement as unavailable even if
+  // enumerateLegalRingPlacements reports potential positions. This
+  // keeps forced elimination aligned with the sandbox AI, which uses
+  // the same cap approximation to decide when placement is no longer
+  // an option.
   const hasAnyPlacement = (() => {
     if (player.ringsInHand <= 0) {
+      return false;
+    }
+    if (atOrAboveCap) {
       return false;
     }
     const placements = hooks.enumerateLegalRingPlacements(state, current);

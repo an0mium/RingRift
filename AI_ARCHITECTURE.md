@@ -16,9 +16,9 @@ The AI system operates as a dedicated microservice (`ai-service`) built with Pyt
 - **Microservice:** `ai-service/` (Python 3.11+)
 - **Communication:** REST API (`/ai/move`, `/ai/evaluate`, `/rules/evaluate_move`)
 - **Integration:**
-  - `AIEngine` (TypeScript) delegates to `AIServiceClient` for AI moves.
-  - `RulesBackendFacade` (TypeScript) delegates to `PythonRulesClient` for rules validation (shadow/authoritative modes).
-- **Fallback:** Local heuristics in `AIEngine` provide immediate responses if the service is unavailable or for simple decisions.
+  - [`AIEngine`](src/server/game/ai/AIEngine.ts:135) (TypeScript) delegates to [`AIServiceClient`](src/server/services/AIServiceClient.ts:170) for AI moves.
+  - [`RulesBackendFacade`](src/server/game/RulesBackendFacade.ts:1) (TypeScript) delegates to [`PythonRulesClient`](src/server/services/PythonRulesClient.ts:1) for rules validation (shadow/authoritative modes).
+- **Resilience:** Multi-tier fallback system ensures games never get stuck due to AI failures.
 - **UI Integration:** Full lobby and game UI support for AI opponent configuration and visualization.
 
 ### Difficulty-to-AI-Type Mapping
@@ -198,6 +198,238 @@ RingRift implements comprehensive per-game RNG seeding to enable:
 - **API:** `seed` parameter is optional in all requests
 - **Fallback:** Games without seed generate one automatically and log it for debugging
 - **No breaking changes:** All existing code paths continue to work
+
+---
+
+## 6. Error Handling & Resilience
+
+### Tiered Fallback Architecture
+
+The AI system implements a robust three-tier fallback hierarchy to ensure games never get stuck due to AI service failures:
+
+```
+Level 1: Python AI Service (RemoteAI)
+   ↓ (on failure: timeout, error, invalid move)
+Level 2: Local Heuristic AI (TypeScript)
+   ↓ (on failure: exception in local selection)
+Level 3: Random Valid Move Selection
+```
+
+**Implementation:** [`AIEngine.getAIMove()`](src/server/game/ai/AIEngine.ts:228)
+
+### Error Scenarios Handled
+
+#### Network & Service Failures
+
+- **Connection Refused:** AI service unreachable or not started
+  - Circuit breaker opens after 5 consecutive failures
+  - Automatic fallback to local heuristics
+  - Service availability re-tested after 60-second cooldown
+
+- **Timeouts:** AI service taking too long to respond
+  - Default timeout: 30 seconds (configured in [`AIServiceClient`](src/server/services/AIServiceClient.ts:179))
+  - Automatic fallback to local heuristics
+  - Logged with latency metrics for monitoring
+
+- **HTTP Errors:** Server errors (500, 503) from AI service
+  - Categorized and logged with error type
+  - Immediate fallback without retries
+  - Circuit breaker tracks failure patterns
+
+#### Invalid Move Responses
+
+- **Move Validation:** All AI-suggested moves are validated against the legal move list from [`RuleEngine`](src/server/game/RuleEngine.ts:1)
+  - Validates move type, player, positions, and special properties
+  - Deep equality check including hexagonal coordinates
+  - Invalid moves trigger automatic fallback
+
+- **Malformed Responses:** AI service returns null or unparseable moves
+  - Handled as service failure
+  - Immediate fallback to local heuristics
+
+- **Wrong Phase/Player:** AI suggests moves for incorrect game state
+  - Caught by move validation
+  - Fallback maintains game flow
+
+### Circuit Breaker Pattern
+
+**Implementation:** [`CircuitBreaker`](src/server/services/AIServiceClient.ts:20) class in AIServiceClient
+
+**Behavior:**
+- **Closed:** Normal operation, all requests attempt service
+- **Opening:** After 5 consecutive failures within 60 seconds
+- **Open:** Rejects requests immediately for 60 seconds
+- **Half-Open:** After timeout, allows test request to check recovery
+
+**Benefits:**
+- Prevents hammering failing AI service
+- Reduces cascade failures
+- Automatic recovery detection
+- Minimal latency when service is down
+
+### Fallback Strategy
+
+#### Level 1: Remote AI Service
+
+- Uses Python microservice for sophisticated AI
+- Supports all AI types (Random, Heuristic, Minimax, MCTS, Descent)
+- Provides evaluation scores and thinking time metrics
+- Protected by circuit breaker
+
+#### Level 2: Local Heuristic AI
+
+**Implementation:** [`AIEngine.selectLocalHeuristicMove()`](src/server/game/ai/AIEngine.ts:352)
+
+- Uses shared [`chooseLocalMoveFromCandidates()`](src/shared/engine/localAIMoveSelection.ts:1)
+- Prioritizes captures over movements
+- Prefers moves that advance game state
+- Deterministic with provided RNG
+- Always produces valid moves
+
+**Shared Policy:**
+- Same heuristics used by sandbox AI and backend fallback
+- Ensures consistent behavior across test/production
+- Maintains game parity for debugging
+
+#### Level 3: Random Selection
+
+- Last resort when both service and heuristics fail
+- Selects uniformly from valid moves using provided RNG
+- Guarantees game progression
+- Logs warning for monitoring
+
+### Diagnostics & Monitoring
+
+#### Per-Player Diagnostics
+
+**[`AIDiagnostics`](src/server/game/ai/AIEngine.ts:50) Interface:**
+
+```typescript
+{
+  serviceFailureCount: number;  // Times AI service failed
+  localFallbackCount: number;   // Times local heuristic was used
+}
+```
+
+**Access:** [`AIEngine.getDiagnostics(playerNumber)`](src/server/game/ai/AIEngine.ts:722)
+
+#### Per-Game Quality Mode
+
+[`GameSession`](src/server/game/GameSession.ts:42) tracks aggregate AI quality:
+
+- `normal`: AI service working as expected
+- `fallbackLocalAI`: Using local heuristics due to service issues
+- `rulesServiceDegraded`: Python rules engine failures detected
+
+**Access:** [`GameSession.getAIDiagnosticsSnapshotForTesting()`](src/server/game/GameSession.ts:832)
+
+#### Logging
+
+All AI failures are logged with context:
+
+```typescript
+logger.warn('Remote AI service failed, falling back to local heuristics', {
+  error: error.message,
+  playerNumber,
+  difficulty,
+});
+```
+
+**Log Levels:**
+- `info`: Normal operation, successful fallbacks
+- `warn`: Service failures, invalid moves, fallback usage
+- `error`: Fatal errors, game abandonment
+
+### Client-Side Error Handling
+
+#### Error Events
+
+[`GameSession`](src/server/game/GameSession.ts:759) emits `game_error` events when AI encounters fatal failures:
+
+```typescript
+socket.emit('game_error', {
+  message: 'AI encountered a fatal error. Game cannot continue.',
+  technical: error.message,
+  gameId
+});
+```
+
+#### UI Feedback
+
+[`GamePage`](src/client/pages/GamePage.tsx:1) displays error banners:
+- User-friendly error message
+- Technical details in development mode
+- Dismissible notification
+- Game marked as completed with abandonment
+
+### Sandbox AI Resilience
+
+[`sandboxAI.ts`](src/client/sandbox/sandboxAI.ts:1) implements comprehensive error handling:
+
+- Top-level try-catch in [`maybeRunAITurnSandbox()`](src/client/sandbox/sandboxAI.ts:437)
+- Error recovery in [`selectSandboxMovementMove()`](src/client/sandbox/sandboxAI.ts:392)
+- Fallback to random selection on errors
+- Never propagates exceptions to game engine
+- Logs all errors for debugging
+
+### Testing
+
+#### Unit Tests
+
+[`tests/unit/AIEngine.fallback.test.ts`](tests/unit/AIEngine.fallback.test.ts:1):
+- Service failure handling
+- Invalid move rejection
+- Circuit breaker behavior
+- Move validation logic
+- Diagnostics tracking
+- RNG determinism
+
+#### Integration Tests
+
+[`tests/integration/AIResilience.test.ts`](tests/integration/AIResilience.test.ts:1):
+- Complete game with AI service down
+- Intermittent failures
+- Circuit breaker integration
+- Performance under failure
+- Error recovery patterns
+
+### Operational Monitoring
+
+**Health Checks:**
+
+Endpoint: `/health/ai-service` (when implemented)
+- Checks [`AIServiceClient.healthCheck()`](src/server/services/AIServiceClient.ts:455)
+- Returns status: `healthy`, `degraded`, or `unavailable`
+
+**Metrics to Monitor:**
+
+1. **AI Service Availability:** Success rate of AI service calls
+2. **Fallback Usage:** Frequency of local heuristic usage
+3. **Circuit Breaker State:** Open/closed status and failure counts
+4. **Move Validation Failures:** Rate of invalid moves from AI service
+5. **Random Fallback Usage:** Should be near zero in production
+
+**Alert Thresholds:**
+
+- Service availability < 95%: Investigate AI service health
+- Fallback usage > 20%: Check network or service degradation
+- Circuit breaker open: Critical - AI service down
+- Invalid moves > 1%: AI service logic issue
+
+### Known Limitations
+
+1. **Fatal Failures:** If all three tiers fail (extremely rare), game is abandoned
+2. **Quality Degradation:** Local heuristics are weaker than trained AI
+3. **No Retry Logic:** Service failures trigger immediate fallback (by design for responsiveness)
+4. **Circuit Breaker State:** Shared across all games (not per-game isolation)
+
+### Future Enhancements
+
+1. **Adaptive Timeout:** Adjust timeout based on AI type and difficulty
+2. **Quality Metrics:** Track move quality when using fallbacks
+3. **Graceful Degradation:** Warn users when AI quality is degraded
+4. **Service Pool:** Load balance across multiple AI service instances
+5. **Caching:** Cache positions for common opening/endgame patterns
 
 ---
 

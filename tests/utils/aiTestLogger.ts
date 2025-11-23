@@ -35,6 +35,26 @@ const DEBUG_ENABLED =
   !!(process as any).env &&
   ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_AI_DEBUG ?? '');
 
+/**
+ * To avoid creating gigantic single-line log entries (which can overwhelm
+ * editors and test tooling), we soft-wrap JSON log records by character
+ * count. This preserves all information while ensuring no single line in
+ * the log file grows without bound.
+ */
+const MAX_LOG_JSON_LINE_LENGTH = 240;
+
+function wrapJsonForLog(json: string): string {
+  if (json.length <= MAX_LOG_JSON_LINE_LENGTH) {
+    return json;
+  }
+
+  const chunks: string[] = [];
+  for (let i = 0; i < json.length; i += MAX_LOG_JSON_LINE_LENGTH) {
+    chunks.push(json.slice(i, i + MAX_LOG_JSON_LINE_LENGTH));
+  }
+  return chunks.join('\n');
+}
+
 let hintedOnce = false;
 
 export type AiDiagnosticStream = string;
@@ -56,7 +76,14 @@ export function logAiDiagnostic(
   try {
     ensureLogDir();
     const filePath = path.join(AI_LOG_DIR, `${stream}.log`);
-    fs.appendFileSync(filePath, JSON.stringify(entry) + '\n', { encoding: 'utf8' });
+
+    // Wrap the JSON so no single physical line in the log file becomes
+    // extremely long. This keeps logs human-inspectable in editors and
+    // avoids overwhelming tools that stream log files.
+    const rawJson = JSON.stringify(entry);
+    const wrappedJson = wrapJsonForLog(rawJson);
+
+    fs.appendFileSync(filePath, wrappedJson + '\n', { encoding: 'utf8' });
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[AI-Tests] Failed to write diagnostic log file', err);
