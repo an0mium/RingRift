@@ -49,26 +49,42 @@ describe('GameEngine chain capture enforcement (TsChainCaptureState)', () => {
   /**
    * Drive any active chain_capture phase to completion by repeatedly applying
    * continue_capture_segment moves from GameEngine.getValidMoves.
+   *
+   * NOTE: We must re-fetch engineAny.gameState on each iteration because
+   * GameEngine.appendHistoryEntry() reassigns this.gameState to a new object.
+   * Caching the reference once at the start would cause us to read stale phase
+   * values and incorrectly skip chain continuation.
    */
   async function resolveChainIfPresent(engine: GameEngine): Promise<void> {
     const engineAny: any = engine;
-    const gameState = engineAny.gameState as any;
 
-    if (gameState.currentPhase !== 'chain_capture') {
+    // Re-fetch gameState reference - it may be reassigned by appendHistoryEntry
+    const getGameState = () => engineAny.gameState as any;
+
+    if (getGameState().currentPhase !== 'chain_capture') {
       return;
     }
 
     const MAX_STEPS = 16;
     let steps = 0;
 
-    while (gameState.currentPhase === 'chain_capture') {
+    while (getGameState().currentPhase === 'chain_capture') {
       steps++;
       if (steps > MAX_STEPS) {
         throw new Error('resolveChainIfPresent: exceeded maximum chain-capture steps');
       }
 
-      const currentPlayer = gameState.currentPlayer;
+      const currentPlayer = getGameState().currentPlayer;
       const moves = engine.getValidMoves(currentPlayer);
+
+      // Debug: log the actual moves returned
+      console.log('[resolveChainIfPresent] moves returned:', {
+        count: moves.length,
+        types: moves.map((m: any) => m.type),
+        phase: getGameState().currentPhase,
+        currentPlayer,
+      });
+
       const chainMoves = moves.filter((m: any) => m.type === 'continue_capture_segment');
 
       expect(chainMoves.length).toBeGreaterThan(0);

@@ -45,17 +45,34 @@ jest.mock('axios', () => ({
 
 // --- Helpers ------------------------------------------------------------
 
+// Storage for mock implementations
+let mockToken: string | null = null;
+let mockRemovedTokens: string[] = [];
+let mockHref = '/';
+
 function setMockToken(token: string | null) {
-  (global as any).localStorage = {
-    getItem: jest.fn(() => token),
-    removeItem: jest.fn(),
-  };
+  mockToken = token;
+  mockRemovedTokens = [];
 }
 
-// Provide a minimal window.location for redirect tests.
-(global as any).window = {
-  location: { href: '/' },
-};
+function getMockToken(): string | null {
+  return mockToken;
+}
+
+function mockRemoveItem(key: string) {
+  if (key === 'token') {
+    mockRemovedTokens.push(key);
+    mockToken = null;
+  }
+}
+
+function setMockHref(href: string) {
+  mockHref = href;
+}
+
+function getMockHref() {
+  return mockHref;
+}
 
 // --- Tests --------------------------------------------------------------
 
@@ -68,8 +85,10 @@ describe('client api axios interceptors', () => {
     setMockToken('TEST_TOKEN');
 
     // Simulate the interceptor that api.ts installs.
+    // Uses our mock functions instead of global.localStorage to avoid
+    // jsdom environment conflicts.
     const interceptor = (config: AxiosRequestConfig) => {
-      const token = (global as any).localStorage.getItem('token');
+      const token = getMockToken();
       if (token) {
         config.headers = config.headers || {};
         (config.headers as any).Authorization = `Bearer ${token}`;
@@ -89,7 +108,7 @@ describe('client api axios interceptors', () => {
     setMockToken(null);
 
     const interceptor = (config: AxiosRequestConfig) => {
-      const token = (global as any).localStorage.getItem('token');
+      const token = getMockToken();
       if (token) {
         config.headers = config.headers || {};
         (config.headers as any).Authorization = `Bearer ${token}`;
@@ -104,20 +123,15 @@ describe('client api axios interceptors', () => {
   });
 
   it('on 401 response clears token and redirects to /login', async () => {
-    const removeItem = jest.fn();
-    (global as any).localStorage = {
-      getItem: jest.fn(() => 'TEST_TOKEN'),
-      removeItem,
-    };
+    setMockToken('TEST_TOKEN');
+    setMockHref('/');
 
-    (global as any).window = {
-      location: { href: '/' },
-    };
-
+    // Simulate the error interceptor using mock functions to avoid
+    // jsdom "not implemented: navigation" errors.
     const errorInterceptor = async (error: any) => {
       if (error.response?.status === 401) {
-        (global as any).localStorage.removeItem('token');
-        (global as any).window.location.href = '/login';
+        mockRemoveItem('token');
+        setMockHref('/login');
       }
       return Promise.reject(error);
     };
@@ -126,7 +140,7 @@ describe('client api axios interceptors', () => {
 
     await expect(errorInterceptor(error)).rejects.toBe(error);
 
-    expect(removeItem).toHaveBeenCalledWith('token');
-    expect((global as any).window.location.href).toBe('/login');
+    expect(mockRemovedTokens).toContain('token');
+    expect(getMockHref()).toBe('/login');
   });
 });

@@ -215,7 +215,48 @@ As a result:
 
 ---
 
-## 6. Relationship to live rules and parity tests
+## 6. LPS and Ring Cap Alignment (R172, CLAR-003)
+
+### 6.1 LPS (Last Player Standing) Victory Handling
+
+The training code correctly handles LPS victories (R172) through the following mechanisms:
+
+- **Reward computation** ([`env.py`](ai-service/app/training/env.py:97)): Uses `state.winner` to assign rewards (+1 for winner, -1 for loser). Since LPS victories set `state.winner`, they receive the same appropriate rewards as elimination or territory victories.
+
+- **Tournament statistics** ([`tournament.py`](ai-service/app/training/tournament.py:41)): The `infer_victory_reason()` function categorizes victories by type:
+  - `"elimination"`: Player reached `victory_threshold` for eliminated rings.
+  - `"territory"`: Player reached `territory_victory_threshold` for collapsed spaces.
+  - `"last_player_standing"`: R172 LPS victory where `lps_exclusive_player_for_completed_round` matches the winner.
+  - `"structural"`: Global stalemate resolved by tie-breakers.
+  - `"unknown"`: Catch-all for edge cases.
+
+- **Data generation** ([`generate_data.py`](ai-service/app/training/generate_data.py:119)): Uses `state.winner` for outcome labels, correctly capturing LPS victories in training data.
+
+### 6.2 Own-Colour Ring Caps (CLAR-003)
+
+The `ringsPerPlayer` cap applies only to **own-colour rings** in play, not captured opponent rings:
+
+- **Canonical helper** ([`rules/core.py`](ai-service/app/rules/core.py:179)): The `count_rings_in_play_for_player()` function correctly counts only rings where `ring_owner == player_number`, plus `rings_in_hand`.
+
+- **Move generation** ([`game_engine.py`](ai-service/app/game_engine.py:1510)): Ring placement validation uses `count_rings_in_play_for_player()` to enforce the per-player cap correctly.
+
+- **State encoding**: The neural network encoding in [`neural_net.py`](ai-service/app/ai/neural_net.py:939) includes:
+  - Stack heights (normalized) for my/opponent stacks (channels 0/1)
+  - `rings_in_hand` per player (global features)
+  - `eliminated_rings` per player (global features)
+  
+  While the encoding doesn't directly track "own-colour rings on board" as a separate feature, the cap is enforced at move generation time, so only legal moves are presented to the AI.
+
+### 6.3 Test Coverage
+
+The alignment tests in [`test_training_lps_alignment.py`](ai-service/tests/test_training_lps_alignment.py:1) verify:
+- LPS victories give appropriate rewards.
+- Victory reason inference works correctly.
+- Own-colour ring counting excludes captured opponent rings.
+
+---
+
+## 7. Relationship to live rules and parity tests
 
 The territory generator is deliberately wired to the **same canonical rules logic** used by live games and TS parity fixtures:
 

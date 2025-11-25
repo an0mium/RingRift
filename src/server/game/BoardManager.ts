@@ -41,6 +41,40 @@ export class BoardManager {
   private validPositions: Set<string>;
   private adjacencyGraph: Map<string, string[]> = new Map();
 
+  // Internal counter used to track how many "repair" actions this
+  // BoardManager instance has performed while attempting to restore
+  // board invariants. A non-zero value is always a defect signal in
+  // tests: legal trajectories must never rely on repairs.
+  private repairCount: number = 0;
+
+  /**
+   * Internal helper used by invariant checks to record when we have to
+   * "repair" an illegal board state (for example, stack+marker overlap).
+   * This keeps the corrective behaviour itself unchanged while making
+   * every repair observable to tests and debug tooling.
+   */
+  private logRepair(kind: string, details?: unknown): void {
+    this.repairCount++;
+
+    // Keep runtime logging behaviour very similar to the previous
+    // console.error calls so existing diagnostics remain useful, but
+    // funnel everything through a single structured hook.
+    // eslint-disable-next-line no-console
+    console.error('[BoardManager] board repair', {
+      kind,
+      details,
+    });
+  }
+
+  /**
+   * Test-only helper: expose the number of repairs performed by this
+   * BoardManager instance so invariant tests can assert that legal
+   * trajectories never trigger repairs.
+   */
+  public getRepairCountForTesting(): number {
+    return this.repairCount;
+  }
+
   constructor(boardType: BoardType) {
     this.boardType = boardType;
     this.config = BOARD_CONFIGS[boardType];
@@ -102,10 +136,10 @@ export class BoardManager {
     // a borderline state, while still surfacing anomalies in test logs.
     for (const key of board.stacks.keys()) {
       if (board.markers.has(key)) {
-        // eslint-disable-next-line no-console
-        console.error('[BoardManager.assertBoardInvariants] Repairing stack+marker overlap', {
+        this.logRepair('stack_marker_overlap', {
           context,
           key,
+          source: 'assertBoardInvariants',
         });
         board.markers.delete(key);
       }
@@ -113,10 +147,10 @@ export class BoardManager {
 
     for (const key of board.markers.keys()) {
       if (board.collapsedSpaces.has(key)) {
-        // eslint-disable-next-line no-console
-        console.error('[BoardManager.assertBoardInvariants] Repairing marker on collapsed space', {
+        this.logRepair('marker_on_collapsed_space', {
           context,
           key,
+          source: 'assertBoardInvariants',
         });
         board.markers.delete(key);
       }
@@ -164,6 +198,10 @@ export class BoardManager {
   }
 
   createBoard(): BoardState {
+    // Starting from a fresh board state, also reset the internal repair
+    // counter so that tests can reason about repairs on a per-board basis.
+    this.repairCount = 0;
+
     return {
       stacks: new Map(),
       markers: new Map(),
@@ -453,15 +491,11 @@ export class BoardManager {
     if (board.markers.has(posKey)) {
       const existingMarker = board.markers.get(posKey);
 
-      // eslint-disable-next-line no-console
-      console.error(
-        '[BoardManager.setStack] Invariant violation: setting stack on position that already has a marker',
-        {
-          posKey,
-          stack,
-          existingMarker,
-        }
-      );
+      this.logRepair('setStack_on_marker', {
+        posKey,
+        stack,
+        existingMarker,
+      });
 
       board.markers.delete(posKey);
     }

@@ -30,7 +30,7 @@ from app.rules.mutators.line import LineMutator  # noqa: E402
 from app.rules.mutators.territory import TerritoryMutator  # noqa: E402
 from app.board_manager import BoardManager  # noqa: E402
 
-from tests.rules.test_utils import (
+from tests.rules.helpers import (
     _make_base_game_state,
     _make_place_ring_move,
 )

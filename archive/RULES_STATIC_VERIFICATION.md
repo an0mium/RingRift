@@ -958,11 +958,14 @@ The Python invariant makes this contract **executable**:
   `ai-service/tests/parity/`:
   - `test_active_no_moves_movement_forced_elimination_regression.py` (movement /
     forced-elimination entry).
-  - `test_active_no_moves_territory_processing_regression.py` (territory-processing
-    with no follow-up decisions).
   - `test_active_no_moves_movement_fully_eliminated_regression.py` (ACTIVE state
     with a fully eliminated current_player, now corrected by defensive turn
     rotation).
+  - `test_active_no_moves_movement_placements_only_regression.py` (MOVEMENT phase
+    with no movement/capture but legal ring placements, now treated as having a
+    global action instead of a strict failure).
+  - `test_active_no_moves_territory_processing_regression.py` (territory-processing
+    with no follow-up decisions).
   - `test_active_no_moves_line_processing_regression.py` (line-processing phase exit).
 
 Strict-invariant self-play soaks and the CI-friendly stability test in

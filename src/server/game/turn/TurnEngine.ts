@@ -121,7 +121,33 @@ export function advanceGameForCurrentPlayer(
     },
   };
 
+  const beforeSnapshot = {
+    currentPlayer: gameState.currentPlayer,
+    currentPhase: gameState.currentPhase,
+    gameStatus: gameState.gameStatus,
+  };
+
   const { nextState, nextTurn } = advanceTurnAndPhase(gameState, turnState, delegates);
+
+  const afterSnapshot = {
+    currentPlayer: nextState.currentPlayer,
+    currentPhase: nextState.currentPhase,
+    gameStatus: nextState.gameStatus,
+  };
+
+  if (
+    typeof process !== 'undefined' &&
+    (process as any).env &&
+    (process as any).env.NODE_ENV === 'test'
+  ) {
+    // eslint-disable-next-line no-console
+    console.log('[TurnTrace.backend.advanceGameForCurrentPlayer]', {
+      decision: 'advanceGameForCurrentPlayer',
+      reason: 'advanceTurnAndPhase',
+      before: beforeSnapshot,
+      after: afterSnapshot,
+    });
+  }
 
   // Mutate the provided GameState reference in-place so callers that
   // hold onto `gameState` (notably backend GameEngine) observe the
@@ -228,7 +254,11 @@ function hasValidPlacements(
   };
 
   const moves = ruleEngine.getValidMoves(tempState);
-  return moves.some((m) => m.type === 'place_ring' || m.type === 'skip_placement');
+  // Treat only actual place_ring actions as evidence of a real placement
+  // option. skip_placement is a bookkeeping-only move and should not
+  // prevent forced elimination or LPS tracking from considering the
+  // player "blocked" for placement purposes.
+  return moves.some((m) => m.type === 'place_ring');
 }
 
 /**

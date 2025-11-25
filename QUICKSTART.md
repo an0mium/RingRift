@@ -24,12 +24,12 @@ After viewing the victory screen, you can:
 
 Games can end in several ways:
 
-1. **Ring Elimination** (🏆): Eliminate more than 50% of total rings in play
-2. **Territory Majority** (🏰): Control more than 50% of the board as collapsed territory
-3. **Last Player Standing** (👑): Be the only player who can still make legal moves
-4. **Stalemate Draw** (🤝): When no moves are possible, the winner is determined by:
-   - Most territory spaces (higher priority)
-   - Most rings eliminated (if territory is tied)
+- **Ring Elimination** (🏆): Eliminate more than 50% of total rings in play
+- **Territory Majority** (🏰): Control more than 50% of the board as collapsed Territory
+- **Last Player Standing** (👑): Be the only player who can still make legal moves
+- **Stalemate Draw** (🤝): When no moves are possible, the winner is determined by:
+   - Most Territory spaces (higher priority)
+   - Most rings eliminated (if Territory is tied)
    - Most markers remaining (if still tied)
    - Last player to complete a valid action (final tiebreaker)
 
@@ -68,15 +68,15 @@ Each player card shows:
   - In Hand: Rings available for placement
   - On Board: Rings currently in play
   - Lost: Permanently eliminated rings
-- **Territory Count**: Number of spaces controlled as territory
+- **Territory Count**: Number of spaces controlled as Territory
 
 ### Connection Status
 
 Top bar shows WebSocket connection state and whether you're spectating.
 
-This guide focuses on getting a **local development environment** running quickly (backend + frontend) and then wiring up the **Python AI service** used for AI turns and some PlayerChoices.
+This guide focuses on getting a **local development environment** running quickly (backend + frontend) and then wiring up the **Python AI Service** used for AI turns and some PlayerChoices.
 
-If you only want the AI microservice, skip to **[AI Service Quick Start](#ai-service-quick-start)**.
+If you only want the AI Service, skip to **[AI Service Quick Start](#ai-service-quick-start)**.
 
 ---
 
@@ -111,7 +111,7 @@ Key values (defaults are usually fine for local dev):
 - `REDIS_URL` – Redis connection string.
 - `JWT_SECRET`, `JWT_REFRESH_SECRET` – any non-empty secrets for local usage.
 - `CORS_ORIGIN` – usually `http://localhost:5173` for the Vite dev client.
-- `AI_SERVICE_URL` – URL for the Python AI service. For local dev without Docker: `http://localhost:8001`. When running the full Docker Compose stack, the `app` service is configured to talk to `http://ai-service:8001` inside the Docker network.
+- `AI_SERVICE_URL` – URL for the Python AI Service. For local dev without Docker: `http://localhost:8001`. When running the full Docker Compose stack, the `app` service is configured to talk to `http://ai-service:8001` inside the Docker network.
 
 ### 1.4 Start Database & Redis (Docker)
 
@@ -252,7 +252,7 @@ important variables are:
   - Local dev + Docker: defaults to the `redis` service (`redis://redis:6379`).
 - `JWT_SECRET`, `JWT_REFRESH_SECRET` – secrets used to sign access and refresh tokens.
 - `CORS_ORIGIN` – allowed origin for the browser client (usually `http://localhost:5173` in dev).
-- `AI_SERVICE_URL` – base URL for the Python AI service:
+- `AI_SERVICE_URL` – base URL for the Python AI Service:
   - Local dev without Docker: `http://localhost:8001`
   - Docker Compose: `http://ai-service:8001` inside the `app` container (preconfigured in `docker-compose.yml`).
 - `RINGRIFT_RULES_MODE` – Controls the rules engine authority:
@@ -272,14 +272,14 @@ important variables are:
 
 ## 2. AI Service Quick Start
 
-The AI service is a separate **Python FastAPI microservice** in `ai-service/`. It is used by the backend through `AIEngine` and `AIServiceClient` for:
+The AI Service is a separate **Python FastAPI microservice** in `ai-service/`. It is used by the backend through `AIEngine` and `AIServiceClient` for:
 
 - AI move selection in backend games.
 - Several PlayerChoices (e.g. line reward, ring elimination, region order), alongside local heuristics.
 
 You have two primary ways to run it: **Python virtualenv (recommended for development)** or **Docker**.
 
-For training pipelines and dataset generation (including the territory/combined-margin generator used for heuristic and ML training), see the canonical reference in [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md:1).
+For training pipelines and dataset generation (including the Territory/combined-margin generator used for heuristic and ML training), see the canonical reference in [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md:1).
 
 ### 2.1 Option A – Python Virtual Environment (Recommended for Dev)
 
@@ -301,7 +301,7 @@ If you see a "permission denied" error, make the scripts executable:
 chmod +x ai-service/setup.sh ai-service/run.sh
 ```
 
-Once running, the AI service is available at:
+Once running, the AI Service is available at:
 
 - **Base URL:** http://localhost:8001
 - **API docs (Swagger):** http://localhost:8001/docs
@@ -319,7 +319,7 @@ AI_SERVICE_URL=http://localhost:8001
 
 The root `docker-compose.yml` now defines an `ai-service` service that will be
 started automatically when you run `docker compose up` (see section 3). If you
-want to run the AI service by itself (without the rest of the stack), you can
+want to run the AI Service by itself (without the rest of the stack), you can
 still build and run the container directly from the `ai-service` directory:
 
 ```bash
@@ -375,7 +375,7 @@ The root `docker-compose.yml` currently defines the **main application stack**:
 - `prometheus` – Prometheus TSDB
 - `grafana` – Grafana dashboards
 
-> The AI service is now included as the `ai-service` service; you do not need to
+> The AI Service is now included as the `ai-service` service; you do not need to
 > start it manually when using `docker compose up`. The `app` container is
 > configured with `AI_SERVICE_URL=http://ai-service:8001`.
 
@@ -416,7 +416,7 @@ docker compose down
 ```
 
 > When using Docker for everything, the `app` service is already configured with
-> `AI_SERVICE_URL=http://ai-service:8001`. If you choose to run the AI service
+> `AI_SERVICE_URL=http://ai-service:8001`. If you choose to run the AI Service
 > outside Docker instead, override this value in your `.env` (for example,
 > `http://host.docker.internal:8001`).
 
@@ -458,15 +458,15 @@ Once you have the app and AI service running, the most impactful next steps are:
 
 1. **Exercise the Sandbox and Backend Games**
    - Use `/sandbox` to explore rules, chain captures, lines, and territory in a local-only environment.
-   - Create a backend game from the lobby and play with an AI opponent (requires AI service).
-
-2. **Start Adding Scenario Tests**
-   - Mirror examples from `ringrift_complete_rules.md` into Jest tests in `tests/unit/`.
-   - Focus on chain capture edge cases, complex line/territory interactions, and hex-board quirks.
-
-3. **Improve HUD & Game UX**
-   - Enhance `GameHUD` and `GamePage` to show phase, current player, ring counts, and territory spaces.
-   - Wire `VictoryModal` consistently for both backend and sandbox games.
+   - Create a backend game from the lobby and play with an AI opponent (requires AI Service).
+   
+   2. **Start Adding Scenario Tests**
+      - Mirror examples from `ringrift_complete_rules.md` into Jest tests in `tests/unit/`.
+      - Focus on chain capture edge cases, complex line/Territory interactions, and hex-board quirks.
+   
+   3. **Improve HUD & Game UX**
+      - Enhance `GameHUD` and `GamePage` to show phase, current player, ring counts, and Territory spaces.
+      - Wire `VictoryModal` consistently for both backend and sandbox games.
 
 4. **Harden the AI Boundary**
    - Extend tests around `AIEngine`, `AIServiceClient`, and `AIInteractionHandler` to cover failure and timeout behaviour.
@@ -547,8 +547,8 @@ RingRift/
 │   │   ├── models/            # Pydantic models (see models/core.py; mirrors src/shared/types/game.ts)
 │   │   └── ai/                # AI implementations (random, heuristic, MCTS, descent, etc.)
 │   ├── setup.sh               # Create Python venv + install deps
-│   ├── run.sh                 # Start AI service with hot reload
-│   ├── Dockerfile             # AI service Docker image
+│   ├── run.sh                 # Start AI Service with hot reload
+│   ├── Dockerfile             # AI Service Docker image
 │   └── requirements.txt       # Python dependencies
 ├── src/server/                # Node backend (Express + Socket.IO + GameEngine)
 ├── src/client/                # React + Vite frontend
@@ -565,7 +565,7 @@ If you run into issues beyond what’s covered here, check the other docs in the
 
 ## 8. Staging Deployment (Docker Compose)
 
-This section describes how to run a **single-node staging stack** (backend, client, AI service, PostgreSQL, Redis, and observability) using Docker Compose.
+This section describes how to run a **single-node staging stack** (backend, client, AI Service, PostgreSQL, Redis, and observability) using Docker Compose.
 
 ### 8.1 Prerequisites
 
@@ -583,7 +583,7 @@ At minimum, ensure **all** of the following are set to non-placeholder values in
 - `JWT_REFRESH_SECRET`
 - `DB_PASSWORD`
 - `REDIS_PASSWORD` (if you enable Redis auth)
-- `AI_SERVICE_URL` (only needed when running the AI service outside Docker)
+- `AI_SERVICE_URL` (only needed when running the AI Service outside Docker)
 
 The default `.env.staging` values are suitable for **local-only staging** but should be rotated for any externally exposed deployment.
 
@@ -623,7 +623,7 @@ Once the stack is healthy, you should have:
   - Backend & client: `http://localhost:3000`
   - Health: `http://localhost:3000/health`
   - Metrics: `http://localhost:3000/metrics`
-- **AI service**:
+- **AI Service**:
   - Internal base URL (from inside Docker): `http://ai-service:8001`
   - From the host (for debugging): `http://localhost:8001`
   - Health: `http://localhost:8001/health`

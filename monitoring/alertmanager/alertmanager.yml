@@ -1,0 +1,280 @@
+# =============================================================================
+# RingRift Alertmanager Configuration
+# =============================================================================
+#
+# This is an example Alertmanager configuration for handling RingRift alerts.
+# Customize the receivers section with your actual notification channels.
+#
+# For production use:
+# - Replace placeholder URLs and tokens with real values
+# - Configure appropriate notification channels (Slack, PagerDuty, email)
+# - Set up proper routing based on severity and team
+# - Enable authentication for the web UI
+#
+# =============================================================================
+
+global:
+  # The smarthost and SMTP sender used for mail notifications.
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'alertmanager@ringrift.io'
+  smtp_auth_username: 'alertmanager@ringrift.io'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+  # The auth token for Slack
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+  # ResolveTimeout is the time after which an alert is declared resolved
+  # if it has not been updated.
+  resolve_timeout: 5m
+
+# The root route on which each incoming alert enters.
+route:
+  # The default receiver
+  receiver: 'default-receiver'
+  
+  # The labels by which incoming alerts are grouped together.
+  # All alerts with the same values for these labels will be batched together.
+  group_by: ['alertname', 'severity', 'team']
+  
+  # How long to initially wait before sending a notification
+  group_wait: 30s
+  
+  # How long to wait before sending a notification about new alerts
+  # that are added to a group of alerts for which an initial notification
+  # has already been sent.
+  group_interval: 5m
+  
+  # How long to wait before sending a notification again if it has already
+  # been sent successfully for an alert.
+  repeat_interval: 4h
+
+  # Child routes for specific routing
+  routes:
+    # -------------------------------------------------------------------------
+    # Critical alerts - immediate escalation
+    # -------------------------------------------------------------------------
+    - receiver: 'critical-alerts'
+      match:
+        severity: critical
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: false
+
+    # -------------------------------------------------------------------------
+    # Backend team alerts
+    # -------------------------------------------------------------------------
+    - receiver: 'backend-team'
+      match:
+        team: backend
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+
+    # -------------------------------------------------------------------------
+    # AI team alerts
+    # -------------------------------------------------------------------------
+    - receiver: 'ai-team'
+      match:
+        team: ai
+      group_wait: 1m
+      group_interval: 10m
+      repeat_interval: 4h
+
+    # -------------------------------------------------------------------------
+    # Product/info alerts - lower priority
+    # -------------------------------------------------------------------------
+    - receiver: 'product-team'
+      match:
+        team: product
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 12h
+
+    # -------------------------------------------------------------------------
+    # Info severity - minimal notifications
+    # -------------------------------------------------------------------------
+    - receiver: 'info-receiver'
+      match:
+        severity: info
+      group_wait: 10m
+      group_interval: 1h
+      repeat_interval: 24h
+
+# Inhibition rules allow to mute a set of alerts given that another alert is
+# firing. This prevents notification storms during cascading failures.
+inhibit_rules:
+  # If a critical alert is firing, inhibit warning alerts for the same alertname
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']
+
+  # If ServiceOffline is firing, inhibit ServiceDegraded and ServiceMinimalMode
+  - source_match:
+      alertname: 'ServiceOffline'
+    target_match_re:
+      alertname: 'ServiceDegraded|ServiceMinimalMode'
+    equal: ['service']
+
+  # If DatabaseDown is firing, inhibit database-related performance alerts
+  - source_match:
+      alertname: 'DatabaseDown'
+    target_match:
+      alertname: 'DatabaseResponseTimeSlow'
+
+  # If RedisDown is firing, inhibit Redis performance alerts
+  - source_match:
+      alertname: 'RedisDown'
+    target_match:
+      alertname: 'RedisResponseTimeSlow'
+
+  # If AIServiceDown is firing, inhibit AI-related alerts
+  - source_match:
+      alertname: 'AIServiceDown'
+    target_match_re:
+      alertname: 'AIFallbackRate.*|AIRequestHighLatency|AIErrorsIncreasing'
+
+# =============================================================================
+# Receivers - Configure your notification channels here
+# =============================================================================
+receivers:
+  # ---------------------------------------------------------------------------
+  # Default receiver (fallback)
+  # ---------------------------------------------------------------------------
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'ops@ringrift.io'
+        send_resolved: true
+        headers:
+          subject: '[RingRift Alert] {{ .GroupLabels.alertname }}'
+        html: |
+          {{ range .Alerts }}
+          <h3>{{ .Annotations.summary }}</h3>
+          <p><b>Description:</b> {{ .Annotations.description }}</p>
+          <p><b>Severity:</b> {{ .Labels.severity }}</p>
+          <p><b>Impact:</b> {{ .Annotations.impact }}</p>
+          {{ if .Annotations.runbook_url }}<p><b>Runbook:</b> <a href="{{ .Annotations.runbook_url }}">{{ .Annotations.runbook_url }}</a></p>{{ end }}
+          <hr>
+          {{ end }}
+
+  # ---------------------------------------------------------------------------
+  # Critical alerts - Multiple channels for immediate response
+  # ---------------------------------------------------------------------------
+  - name: 'critical-alerts'
+    # Slack notification
+    slack_configs:
+      - channel: '#ringrift-critical'
+        send_resolved: true
+        title: '🚨 CRITICAL: {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Impact:* {{ .Annotations.impact }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        actions:
+          - type: button
+            text: 'View in Grafana'
+            url: 'http://grafana.ringrift.io/d/ringrift-overview'
+          - type: button
+            text: 'Runbook'
+            url: '{{ (index .Alerts 0).Annotations.runbook_url }}'
+    
+    # Email notification
+    email_configs:
+      - to: 'oncall@ringrift.io'
+        send_resolved: true
+        headers:
+          subject: '🚨 [CRITICAL] {{ .GroupLabels.alertname }}'
+    
+    # PagerDuty integration (if configured)
+    # pagerduty_configs:
+    #   - service_key: '${PAGERDUTY_SERVICE_KEY}'
+    #     severity: 'critical'
+    #     description: '{{ .GroupLabels.alertname }}: {{ (index .Alerts 0).Annotations.summary }}'
+    #     details:
+    #       description: '{{ (index .Alerts 0).Annotations.description }}'
+    #       impact: '{{ (index .Alerts 0).Annotations.impact }}'
+    #       runbook: '{{ (index .Alerts 0).Annotations.runbook_url }}'
+
+  # ---------------------------------------------------------------------------
+  # Backend team alerts
+  # ---------------------------------------------------------------------------
+  - name: 'backend-team'
+    slack_configs:
+      - channel: '#ringrift-backend-alerts'
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}⚠️{{ else }}✅{{ end }} {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ if .Annotations.impact }}*Impact:* {{ .Annotations.impact }}{{ end }}
+          {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}danger{{ else }}warning{{ end }}{{ else }}good{{ end }}'
+    
+    email_configs:
+      - to: 'backend-team@ringrift.io'
+        send_resolved: true
+
+  # ---------------------------------------------------------------------------
+  # AI team alerts
+  # ---------------------------------------------------------------------------
+  - name: 'ai-team'
+    slack_configs:
+      - channel: '#ringrift-ai-alerts'
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}🤖⚠️{{ else }}🤖✅{{ end }} {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ if .Annotations.impact }}*Impact:* {{ .Annotations.impact }}{{ end }}
+          {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+    
+    email_configs:
+      - to: 'ai-team@ringrift.io'
+        send_resolved: true
+
+  # ---------------------------------------------------------------------------
+  # Product team alerts (lower priority)
+  # ---------------------------------------------------------------------------
+  - name: 'product-team'
+    slack_configs:
+      - channel: '#ringrift-product-alerts'
+        send_resolved: true
+        title: '📊 {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Summary:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+        color: '{{ if eq .Status "firing" }}#439FE0{{ else }}good{{ end }}'
+
+  # ---------------------------------------------------------------------------
+  # Info alerts (minimal notification)
+  # ---------------------------------------------------------------------------
+  - name: 'info-receiver'
+    slack_configs:
+      - channel: '#ringrift-info'
+        send_resolved: false
+        title: 'ℹ️ {{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          {{ .Annotations.summary }}
+          {{ end }}
+        color: '#808080'
+
+# =============================================================================
+# Templates (optional)
+# =============================================================================
+# templates:
+#   - '/etc/alertmanager/templates/*.tmpl'

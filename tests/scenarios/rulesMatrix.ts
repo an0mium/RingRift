@@ -834,6 +834,24 @@ export const victoryRuleScenarios: VictoryRuleScenario[] = [
     description:
       'Territory-control victory on square8: a player controls strictly more than half of all board spaces as collapsed territory in their color, satisfying the territoryVictoryThreshold and ending the game even if further eliminations or moves would be possible.',
   },
+  {
+    kind: 'victory',
+    boardType: 'square8',
+    victoryKind: 'forced-elimination',
+    players: [
+      { playerNumber: 1, ringsInHand: 0, eliminatedRings: 0 },
+      { playerNumber: 2, ringsInHand: 0, eliminatedRings: 0 },
+      { playerNumber: 3, ringsInHand: 0, eliminatedRings: 0 },
+    ],
+    stacks: [],
+    ref: {
+      id: 'Rules_13_3_last_player_standing_3p_unique_actor_square8',
+      rulesSections: ['§13.3'],
+      faqRefs: ['Q18', 'Q21'],
+    },
+    description:
+      'Three-player last-player-standing plateau on square8: over a full round of turns only Player 1 has any real actions (placements, movements, or overtaking captures), while Players 2 and 3 have none. After completing the round, R172 triggers a last_player_standing victory for Player 1.',
+  },
 ];
 
 export type RuleScenario =

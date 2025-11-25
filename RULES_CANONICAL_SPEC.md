@@ -97,27 +97,27 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - A marker is a color token occupying a cell that is not currently a stack or collapsed space.
   - Each marker belongs to exactly one player.
   - Markers are created only as departure markers from movement/capture (RR-CANON-R082).
-  - Markers may be flipped to another player or collapsed into territory as movement/capture passes over them.
+  - Markers may be flipped to another player or collapsed into Territory as movement/capture passes over them.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §§1.3, 3.2, 4.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§3.2.2, 8, 11, 12, 16.5–16.6.
 
 - **[RR-CANON-R031] Collapsed spaces.**
-  - A collapsed space is a cell permanently claimed as territory by exactly one player.
-  - Collapsed spaces may not contain stacks or markers, may not be moved through, and act as barriers for both movement and territory connectivity.
+  - A collapsed space is a cell permanently claimed as Territory by exactly one player.
+  - Collapsed spaces may not contain stacks or markers, may not be moved through, and act as barriers for both movement and Territory connectivity.
   - Collapsed spaces are created only by:
     - Line processing (RR-CANON-R120–R122).
     - Territory region processing (RR-CANON-R140–R146).
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §§1.3, 3–6; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§2.4, 3.1, 11–12, 16.8.
 
-### 1.5 Regions and territories
+### 1.5 Regions and Territories
 
-- **[RR-CANON-R040] Region for territory processing.**
+- **[RR-CANON-R040] Region for Territory processing.**
   - For a given board state, a **region** is a maximal set of non-collapsed cells connected via `territoryAdjacency`.
   - Regions may contain empty cells, markers, and stacks.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §6.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§12.1–12.2, 15.4 Q15.
 
 - **[RR-CANON-R041] Territory counts.**
   - Each player `P` has an integer `territorySpaces[P]` = number of collapsed spaces whose owner is `P`.
-  - This is used for territory-victory and stalemate tiebreaks.
+  - This is used for Territory-victory and stalemate tiebreaks.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §§1.3, 7.2, 7.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§11–13.2, 13.4.
 
 ---
@@ -173,7 +173,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 
 - **[RR-CANON-R062] Territory-control victory threshold.**
   - `territoryVictoryThreshold = floor(totalSpaces / 2) + 1`.
-  - A player wins by territory when their `territorySpaces[P]` reaches or exceeds `territoryVictoryThreshold`.
+  - A player wins by Territory when their `territorySpaces[P]` reaches or exceeds `territoryVictoryThreshold`.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.3, §7.2; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§13.2, 16.2.
 
 ---
@@ -192,7 +192,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 
 - **[RR-CANON-R071] Phase progression is deterministic.**
   - Phases always execute in the order of RR-CANON-R070.
-  - Within line and territory phases, player choices (which line/region to process next, and which self-elimination to apply) may affect future availability of lines/regions, but never the phase order.
+  - Within line and Territory phases, player choices (which line/region to process next, and which self-elimination to apply) may affect future availability of lines/regions, but never the phase order.
   - References: same as RR-CANON-R070.
 
 - **[RR-CANON-R072] Legal-action requirement and forced elimination entry.**
@@ -314,7 +314,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - Change direction between segments.
     - Reverse 180° over previously targeted stacks.
     - Capture multiple rings from the same stack over multiple segments, as long as legality is preserved each time.
-  - Line formation and territory disconnection created mid-chain are **not processed** until the entire chain (and movement phase) ends.
+  - Line formation and Territory disconnection created mid-chain are **not processed** until the entire chain (and movement phase) ends.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §4.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.3, 10.3, 15.3, 15.4 Q5, Q9, Q12.
 
 ---
@@ -349,7 +349,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - If P controls no eligible ring or cap (which cannot occur as long as P controls at least one stack), this state should be treated as unreachable in a correct engine; see Section 13.
     - **Case 2: len > requiredLen.**
       - P chooses Option 1 or Option 2:
-        - **Option 1 (max territory):** collapse **all len** markers in the line and then eliminate one ring or one cap as above.
+        - **Option 1 (max Territory):** collapse **all len** markers in the line and then eliminate one ring or one cap as above.
         - **Option 2 (ring preservation):** choose any contiguous subsegment of length requiredLen within the line; collapse exactly those requiredLen markers; eliminate **no** rings.
   - After each processed line, update all counters and recompute lines.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §5.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.5, 11.2–11.3, 15.4 Q7, Q22.
@@ -401,7 +401,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
        - For every cell in R, remove any stacks or markers and set the cell as a collapsed space owned by P.
     2. **Collapse border markers of the single border color B:**
        - Identify all markers of color B that lie on the border of R and are part of at least one blocking path used to establish physical disconnection.
-       - Collapse those markers to P-owned collapsed spaces (they become part of P's territory).
+       - Collapse those markers to P-owned collapsed spaces (they become part of P's Territory).
     3. **Eliminate internal rings:**
        - For every stack originally in R, remove all rings and credit them as eliminated to P.
     4. **Mandatory self-elimination:**
@@ -415,17 +415,17 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 ## 8. Victory and Game End
 
 - **[RR-CANON-R170] Ring-elimination victory.**
-  - After completing all phases of a player's turn (including line and territory processing), if any player P has `P.eliminatedRingsTotal ≥ victoryThreshold`, that player wins immediately by elimination.
+  - After completing all phases of a player's turn (including line and Territory processing), if any player P has `P.eliminatedRingsTotal ≥ victoryThreshold`, that player wins immediately by elimination.
   - Multiple players cannot simultaneously satisfy this because total eliminated rings cannot exceed 100% of rings in play.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:409) §7.1; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1204) §§13.1, 16.9.4.5.
 
 - **[RR-CANON-R171] Territory-control victory.**
-  - After a full turn, if any player P has `territorySpaces[P] ≥ territoryVictoryThreshold`, that player wins immediately by territory.
+  - After a full turn, if any player P has `territorySpaces[P] ≥ territoryVictoryThreshold`, that player wins immediately by Territory.
   - Multiple players cannot simultaneously satisfy this because thresholds are >50% of total spaces.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:417) §7.2; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1220) §§13.2, 16.2.
 
 - **[RR-CANON-R172] Last-player-standing victory.**
-  - Last-player-standing is a third formal victory condition, alongside ring-elimination (RR-CANON-R170) and territory-control (RR-CANON-R171).
+  - Last-player-standing is a third formal victory condition, alongside ring-elimination (RR-CANON-R170) and Territory-control (RR-CANON-R171).
   - For the purposes of this rule, a **real action** for a player P on their own turn means any legal:
     - ring placement (RR-CANON-R080–R082),
     - non-capture movement (RR-CANON-R090–R092), or
@@ -436,7 +436,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - There exists at least one full round of turns such that:
       - On each of P's turns in that round, P has at least one legal real action available at the start of their action; and
       - On every other player's turns in that same round, those players have **no** legal real action available at the start of their action (they may have only forced-elimination actions, or no legal actions at all); and
-    - Immediately after that round completes (including all line and territory processing), at the start of P's next turn P is still the only player who has any legal real action.
+    - Immediately after that round completes (including all line and Territory processing), at the start of P's next turn P is still the only player who has any legal real action.
   - Players who still have rings on the board (including rings buried inside mixed-colour stacks) but whose only legal actions on their turns are forced eliminations, or who have no legal actions at all, are **temporarily inactive** for last-player-standing purposes. They prevent an LPS victory until they have been continuously in this "no real actions" state on each of their turns throughout at least one qualifying full round as above. If any such player regains a real action (for example, by gaining control of a stack when a buried ring of theirs becomes the top ring) before the condition above has been met, the last-player-standing condition resets and must be re-satisfied from that point.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md:424) §7.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1228) §§13.3, 16.6, 16.9.4.5.
 
@@ -445,7 +445,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - This can occur only once no stacks remain on the board; otherwise forced elimination would be available to someone.
     - Convert all rings in hand for each player into eliminated rings credited to that player.
     - Rank players by, in order:
-      1. Most collapsed spaces (territory).
+      1. Most collapsed spaces (Territory).
       2. If tied, most eliminated rings (including converted rings in hand).
       3. If still tied, most markers on the board.
       4. If still tied, last player to have completed a valid turn action.
@@ -469,7 +469,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - E = total eliminated rings credited to any player.
   - Under all legal moves and forced eliminations:
     - Any movement or capture increases S by at least 1.
-    - Collapsing markers to territory preserves M + C.
+    - Collapsing markers to Territory preserves M + C.
     - Any elimination strictly increases E.
     - Forced elimination strictly increases E.
     - No rule ever decreases C or E.

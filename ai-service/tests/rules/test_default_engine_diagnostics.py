@@ -12,7 +12,7 @@ if ROOT not in sys.path:
 from app.models import Move, MoveType, Position, RingStack  # noqa: E402
 from app.game_engine import GameEngine  # noqa: E402
 from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
-from tests.rules.test_utils import _make_base_game_state  # noqa: E402
+from tests.rules.helpers import _make_base_game_state  # noqa: E402
 
 
 def test_capture_mutator_shadow_contract_uses_diff_mapping_keys(

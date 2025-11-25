@@ -60,7 +60,7 @@ class FakeSocket extends EventEmitter {
 
 let mockLastIoInstance: any = null;
 
-function setMockLastIoInstance(instance: any) {
+function mockSetLastIoInstance(instance: any) {
   mockLastIoInstance = instance;
 }
 
@@ -83,7 +83,7 @@ jest.mock('socket.io', () => {
     };
 
     constructor(..._args: any[]) {
-      setMockLastIoInstance(this);
+      mockSetLastIoInstance(this);
     }
 
     on(event: string, handler: (...args: any[]) => void) {

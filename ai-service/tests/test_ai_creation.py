@@ -11,7 +11,11 @@ from app.ai.heuristic_ai import HeuristicAI
 from app.ai.random_ai import RandomAI
 from app.ai.descent_ai import DescentAI
 
+# Test timeout guards to prevent hanging in CI
+TEST_TIMEOUT_SECONDS = 30
 
+
+@pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
 def test_select_ai_type():
     # Canonical mapping: 1→Random, 2→Heuristic, 3–6→Minimax, 7–8→MCTS, 9–10→Descent
     assert _select_ai_type(1) == AIType.RANDOM
@@ -25,6 +29,7 @@ def test_select_ai_type():
     assert _select_ai_type(10) == AIType.DESCENT
 
 
+@pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
 def test_difficulty_profile_mapping():
     """Canonical ladder profiles for difficulties 1–10."""
     profiles = {
@@ -53,6 +58,7 @@ def test_difficulty_profile_mapping():
         assert profile["profile_id"] == expected_profile_id
 
 
+@pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
 def test_difficulty_profile_clamping():
     """Out-of-range difficulties are clamped into [1, 10] consistently."""
     low = _get_difficulty_profile(0)
@@ -62,6 +68,7 @@ def test_difficulty_profile_clamping():
     assert high == _get_difficulty_profile(10)
 
 
+@pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
 def test_create_ai_instance():
     config = AIConfig(difficulty=5, randomness=0.1, rngSeed=None)
 

@@ -1,0 +1,75 @@
+# Version Control
+.git
+.gitignore
+
+# IDE and Editor
+.idea
+.vscode
+*.swp
+*.swo
+
+# Dependencies (rebuilt in container)
+node_modules
+ai-service/.venv
+ai-service/__pycache__
+ai-service/**/__pycache__
+ai-service/**/*.pyc
+
+# Build outputs (rebuilt in container)
+dist
+build
+*.tsbuildinfo
+
+# Test artifacts
+coverage
+.nyc_output
+logs/jest
+logs/pytest
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Development data
+uploads/*
+logs/*
+backups/*
+!uploads/.gitkeep
+!logs/.gitkeep
+!backups/.gitkeep
+
+# Documentation and non-essential files
+*.md
+!README.md
+docs/
+deprecated/
+
+# Test files
+tests/
+ai-service/tests/
+*.test.ts
+*.spec.ts
+*.test.tsx
+*.spec.tsx
+
+# CI/CD configuration
+.github/
+.husky/
+
+# Editor artifacts
+.DS_Store
+Thumbs.db
+
+# Playwright
+playwright-report/
+test-results/
+
+# Monitoring configs (mounted at runtime)
+monitoring/
+
+# Eslint artifacts
+eslint-report.json
+.eslintcache

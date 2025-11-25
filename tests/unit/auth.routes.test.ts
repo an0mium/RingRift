@@ -13,6 +13,9 @@ import { logger } from '../../src/server/utils/logger';
 // Stub out rate limiting so tests don't depend on Redis or global state.
 jest.mock('../../src/server/middleware/rateLimiter', () => ({
   authRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authLoginRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authRegisterRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authPasswordResetRateLimiter: (_req: any, _res: any, next: any) => next(),
   rateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
@@ -149,7 +152,7 @@ describe('Auth HTTP routes', () => {
         .expect(409);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('EMAIL_EXISTS');
+      expect(res.body.error.code).toBe('RESOURCE_EMAIL_EXISTS');
     });
 
     it('returns 409 USERNAME_EXISTS when username already taken', async () => {
@@ -177,7 +180,7 @@ describe('Auth HTTP routes', () => {
         .expect(409);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('USERNAME_EXISTS');
+      expect(res.body.error.code).toBe('RESOURCE_USERNAME_EXISTS');
     });
 
     it('rejects invalid registration payloads with 400 INVALID_REQUEST', async () => {
@@ -194,9 +197,10 @@ describe('Auth HTTP routes', () => {
         .expect(400);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('INVALID_REQUEST');
+      expect(res.body.error.code).toBe('VALIDATION_FAILED');
       expect(res.body.error).not.toHaveProperty('stack');
-      expect(res.body.error).not.toHaveProperty('details');
+      // Validation errors now include field-level details
+      expect(res.body.error.details).toBeDefined();
     });
   });
 
@@ -209,7 +213,7 @@ describe('Auth HTTP routes', () => {
         .send({ email: 'missing@example.com', password: 'Secret123' })
         .expect(401);
 
-      expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+      expect(res.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
     });
 
     // Inactive users should be rejected before password verification.
@@ -232,7 +236,7 @@ describe('Auth HTTP routes', () => {
         .send({ email: 'user1@example.com', password: 'Secret123' })
         .expect(401);
 
-      expect(res.body.error.code).toBe('ACCOUNT_DEACTIVATED');
+      expect(res.body.error.code).toBe('AUTH_ACCOUNT_DEACTIVATED');
     });
 
     it('returns 401 INVALID_CREDENTIALS for wrong password', async () => {
@@ -254,7 +258,7 @@ describe('Auth HTTP routes', () => {
         .send({ email: 'user1@example.com', password: 'Wrong123' })
         .expect(401);
 
-      expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+      expect(res.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
     });
 
     it('logs in successfully and returns tokens', async () => {
@@ -300,7 +304,7 @@ describe('Auth HTTP routes', () => {
           .send({ email, password: 'Wrong123' })
           .expect(401);
 
-        expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+        expect(res.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
       }
 
       const lockedRes = await request(app)
@@ -308,7 +312,7 @@ describe('Auth HTTP routes', () => {
         .send({ email, password: 'Wrong123' })
         .expect(429);
 
-      expect(lockedRes.body.error.code).toBe('LOGIN_LOCKED_OUT');
+      expect(lockedRes.body.error.code).toBe('AUTH_LOGIN_LOCKED_OUT');
     });
 
     it('resets failed-attempt counter after a successful login', async () => {
@@ -335,7 +339,7 @@ describe('Auth HTTP routes', () => {
           .send({ email, password: 'WrongPassword' })
           .expect(401);
 
-        expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+        expect(res.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
       }
 
       const successRes = await request(app)
@@ -351,7 +355,7 @@ describe('Auth HTTP routes', () => {
           .send({ email, password: 'WrongPassword' })
           .expect(401);
 
-        expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+        expect(res.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
       }
     });
 
@@ -374,7 +378,7 @@ describe('Auth HTTP routes', () => {
             .send({ email, password: 'Wrong123' })
             .expect(401);
 
-          expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+          expect(res.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
         }
 
         const lockedRes = await request(app)
@@ -382,7 +386,7 @@ describe('Auth HTTP routes', () => {
           .send({ email, password: 'Wrong123' })
           .expect(429);
 
-        expect(lockedRes.body.error.code).toBe('LOGIN_LOCKED_OUT');
+        expect(lockedRes.body.error.code).toBe('AUTH_LOGIN_LOCKED_OUT');
 
         const afterLockoutTime = new Date(
           baseTime.getTime() + (config.auth.lockoutDurationSeconds + 1) * 1000
@@ -394,7 +398,7 @@ describe('Auth HTTP routes', () => {
           .send({ email, password: 'Wrong123' })
           .expect(401);
 
-        expect(resAfter.body.error.code).toBe('INVALID_CREDENTIALS');
+        expect(resAfter.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
       } finally {
         config.auth.lockoutDurationSeconds = originalLockoutDuration;
         jest.useRealTimers();
@@ -413,7 +417,7 @@ describe('Auth HTTP routes', () => {
         .expect(500);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('DATABASE_UNAVAILABLE');
+      expect(res.body.error.code).toBe('SERVER_DATABASE_UNAVAILABLE');
     });
 
     it('rejects invalid email format with 400 INVALID_REQUEST and no stack leak', async () => {
@@ -425,9 +429,10 @@ describe('Auth HTTP routes', () => {
         .expect(400);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('INVALID_REQUEST');
+      expect(res.body.error.code).toBe('VALIDATION_FAILED');
       expect(res.body.error).not.toHaveProperty('stack');
-      expect(res.body.error).not.toHaveProperty('details');
+      // Validation errors now include field-level details
+      expect(res.body.error.details).toBeDefined();
     });
   });
 
@@ -437,7 +442,7 @@ describe('Auth HTTP routes', () => {
 
       const res = await request(app).post('/api/auth/refresh').send({}).expect(400);
 
-      expect(res.body.error.code).toBe('REFRESH_TOKEN_REQUIRED');
+      expect(res.body.error.code).toBe('AUTH_REFRESH_TOKEN_REQUIRED');
     });
 
     it('returns 401 INVALID_REFRESH_TOKEN when DB lookup fails', async () => {
@@ -468,12 +473,11 @@ describe('Auth HTTP routes', () => {
         .send({ refreshToken: 'SOME_TOKEN' })
         .expect(401);
 
-      expect(res.body.error.code).toBe('INVALID_REFRESH_TOKEN');
+      expect(res.body.error.code).toBe('AUTH_REFRESH_TOKEN_INVALID');
     });
 
-    // Happy-path refresh should rotate the stored token and return new tokens,
-    // and reuse of the old refresh token should be rejected.
-    it('refreshes tokens successfully and rejects reuse of the old refresh token', async () => {
+    // Happy-path refresh should rotate the stored token and return new tokens.
+    it('refreshes tokens successfully with token rotation', async () => {
       const hash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
       mockDb.users.push({
@@ -485,12 +489,15 @@ describe('Auth HTTP routes', () => {
         isActive: true,
         emailVerified: true,
         createdAt: new Date(),
+        tokenVersion: 0,
       });
 
       const existingRt = {
         id: 'rt-1',
         token: hash('OLD_REFRESH'),
         userId: 'user-1',
+        familyId: 'family-1',
+        revokedAt: null,
         expiresAt: new Date(Date.now() + 1000 * 60 * 60),
         user: {
           id: 'user-1',
@@ -520,33 +527,177 @@ describe('Auth HTTP routes', () => {
       expect(res.body.data.accessToken).toBe('ACCESS_TOKEN');
       expect(res.body.data.refreshToken).toBe('REFRESH_TOKEN');
 
-      // Old token should be deleted for this user; new one stored via deleteMany + create.
-      expect(prismaStub.refreshToken.deleteMany).toHaveBeenCalledWith({
-        where: { userId: 'user-1' },
+      // Old token should be marked as revoked (not deleted), new one created.
+      expect(prismaStub.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'rt-1' },
+        data: { revokedAt: expect.any(Date) },
       });
       expect(prismaStub.refreshToken.create).toHaveBeenCalled();
+    });
 
-      // Reusing the old refresh token should now fail with INVALID_REFRESH_TOKEN.
-      const reuseRes = await request(app)
+    // Reuse of a revoked token should trigger family revocation (security feature).
+    it('detects refresh token reuse and revokes entire token family', async () => {
+      const hash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
+
+      mockDb.users.push({
+        id: 'user-1',
+        email: 'user1@example.com',
+        username: 'user1',
+        passwordHash: 'hashed:Secret123',
+        role: 'USER',
+        isActive: true,
+        emailVerified: true,
+        createdAt: new Date(),
+        tokenVersion: 0,
+      });
+
+      // A token that was already revoked (rotated previously)
+      const revokedRt = {
+        id: 'rt-1',
+        token: hash('OLD_REFRESH'),
+        userId: 'user-1',
+        familyId: 'family-1',
+        revokedAt: new Date(Date.now() - 1000), // Already revoked
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+        user: {
+          id: 'user-1',
+          email: 'user1@example.com',
+          username: 'user1',
+          role: 'USER',
+          isActive: true,
+        },
+      };
+      mockDb.refreshTokens.push(revokedRt);
+
+      // Also add a newer token in the same family that's still valid
+      mockDb.refreshTokens.push({
+        id: 'rt-2',
+        token: hash('NEW_REFRESH'),
+        userId: 'user-1',
+        familyId: 'family-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      });
+
+      mockedAuth.verifyRefreshToken.mockReturnValue({
+        userId: 'user-1',
+        email: 'user1@example.com',
+        tokenVersion: 0,
+      } as any);
+
+      const app = createTestApp();
+
+      // Attempting to reuse the old (already revoked) token should fail
+      const res = await request(app)
         .post('/api/auth/refresh')
         .send({ refreshToken: 'OLD_REFRESH' })
         .expect(401);
 
-      expect(reuseRes.body.error.code).toBe('INVALID_REFRESH_TOKEN');
+      expect(res.body.error.code).toBe('AUTH_REFRESH_TOKEN_REUSED');
+
+      // The entire family should be revoked
+      expect(prismaStub.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { familyId: 'family-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+
+      // User's tokenVersion should be incremented to invalidate access tokens too
+      expect(prismaStub.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { tokenVersion: { increment: 1 } },
+      });
+    });
+
+    it('returns 401 REFRESH_TOKEN_EXPIRED for expired refresh tokens', async () => {
+      const hash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
+
+      mockDb.users.push({
+        id: 'user-1',
+        email: 'user1@example.com',
+        username: 'user1',
+        passwordHash: 'hashed:Secret123',
+        role: 'USER',
+        isActive: true,
+        emailVerified: true,
+        createdAt: new Date(),
+        tokenVersion: 0,
+      });
+
+      // An expired token
+      const expiredRt = {
+        id: 'rt-1',
+        token: hash('EXPIRED_REFRESH'),
+        userId: 'user-1',
+        familyId: 'family-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() - 1000), // Already expired
+        user: {
+          id: 'user-1',
+          email: 'user1@example.com',
+          username: 'user1',
+          role: 'USER',
+          isActive: true,
+        },
+      };
+      mockDb.refreshTokens.push(expiredRt);
+
+      mockedAuth.verifyRefreshToken.mockReturnValue({
+        userId: 'user-1',
+        email: 'user1@example.com',
+        tokenVersion: 0,
+      } as any);
+
+      const app = createTestApp();
+
+      const res = await request(app)
+        .post('/api/auth/refresh')
+        .send({ refreshToken: 'EXPIRED_REFRESH' })
+        .expect(401);
+
+      expect(res.body.error.code).toBe('AUTH_REFRESH_TOKEN_EXPIRED');
     });
   });
 
   describe('POST /api/auth/logout', () => {
-    it('requires authentication and returns success without mutating tokenVersion', async () => {
+    it('returns success and revokes the refresh token if provided', async () => {
+      const hash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
+
+      mockDb.refreshTokens.push({
+        id: 'rt-1',
+        token: hash('MY_REFRESH_TOKEN'),
+        userId: 'auth-user-1',
+        familyId: 'family-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      });
+
+      const app = createTestApp();
+
+      const res = await request(app)
+        .post('/api/auth/logout')
+        .send({ refreshToken: 'MY_REFRESH_TOKEN' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.message).toBe('Logged out successfully');
+
+      // The refresh token should be marked as revoked
+      expect(prismaStub.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: {
+          token: hash('MY_REFRESH_TOKEN'),
+          userId: 'auth-user-1',
+        },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('returns success even without a refresh token present', async () => {
       const app = createTestApp();
 
       const res = await request(app).post('/api/auth/logout').send({}).expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.message).toBe('Logged out successfully');
-
-      // Logout is stateless: it should not touch the user record in the DB.
-      expect(prismaStub.user.update).not.toHaveBeenCalled();
     });
 
     it('returns 401 TOKEN_REQUIRED when authentication fails', async () => {
@@ -560,7 +711,7 @@ describe('Auth HTTP routes', () => {
       const res = await request(app).post('/api/auth/logout').send({}).expect(401);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('TOKEN_REQUIRED');
+      expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
     });
   });
 
@@ -575,7 +726,7 @@ describe('Auth HTTP routes', () => {
       const res = await request(app).post('/api/auth/logout-all').send({}).expect(401);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('TOKEN_REQUIRED');
+      expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
     });
 
     it('increments tokenVersion and deletes all refresh tokens for the authenticated user', async () => {
@@ -646,7 +797,7 @@ describe('Auth HTTP routes', () => {
         .expect(400);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('INVALID_TOKEN');
+      expect(res.body.error.code).toBe('AUTH_TOKEN_INVALID');
     });
 
     it('forgot-password returns a generic success message for existing or unknown emails', async () => {
@@ -670,7 +821,175 @@ describe('Auth HTTP routes', () => {
         .expect(400);
 
       expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('INVALID_TOKEN');
+      expect(res.body.error.code).toBe('AUTH_TOKEN_INVALID');
+    });
+  });
+
+  describe('POST /api/auth/reset-password security', () => {
+    it('invalidates all tokens after password reset by incrementing tokenVersion', async () => {
+      const resetToken = 'valid-reset-token';
+
+      mockDb.users.push({
+        id: 'user-1',
+        email: 'user1@example.com',
+        username: 'user1',
+        passwordHash: 'hashed:OldPassword123',
+        role: 'USER',
+        isActive: true,
+        emailVerified: true,
+        createdAt: new Date(),
+        tokenVersion: 0,
+        passwordResetToken: resetToken,
+        passwordResetExpires: new Date(Date.now() + 1000 * 60 * 60), // Valid for 1 hour
+      });
+
+      // Add some refresh tokens that should be revoked
+      mockDb.refreshTokens.push({
+        id: 'rt-1',
+        token: 'some-token-hash',
+        userId: 'user-1',
+        familyId: 'family-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60),
+      });
+
+      const app = createTestApp();
+
+      const res = await request(app)
+        .post('/api/auth/reset-password')
+        .send({ token: resetToken, newPassword: 'NewSecure123' })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+
+      // tokenVersion should be incremented to invalidate existing access tokens
+      expect(prismaStub.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1' },
+          data: expect.objectContaining({
+            tokenVersion: { increment: 1 },
+          }),
+        })
+      );
+
+      // All refresh tokens should be revoked
+      expect(prismaStub.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('Token family tracking', () => {
+    it('creates new token family on login', async () => {
+      mockDb.users.push({
+        id: 'user-1',
+        email: 'user1@example.com',
+        username: 'user1',
+        passwordHash: 'hashed:Secret123',
+        role: 'USER',
+        isActive: true,
+        emailVerified: true,
+        createdAt: new Date(),
+        tokenVersion: 0,
+      });
+
+      const app = createTestApp();
+
+      await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'user1@example.com', password: 'Secret123' })
+        .expect(200);
+
+      // Check that a familyId was provided when creating the refresh token
+      expect(prismaStub.refreshToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          familyId: expect.any(String),
+        }),
+      });
+    });
+
+    it('creates new token family on registration', async () => {
+      const app = createTestApp();
+
+      await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'newuser@example.com',
+          username: 'newuser',
+          password: 'Secret123',
+          confirmPassword: 'Secret123',
+        })
+        .expect(201);
+
+      // Check that a familyId was provided when creating the refresh token
+      expect(prismaStub.refreshToken.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          familyId: expect.any(String),
+        }),
+      });
+    });
+  });
+
+  describe('Cookie handling', () => {
+    it('sets httpOnly cookie on login', async () => {
+      mockDb.users.push({
+        id: 'user-1',
+        email: 'user1@example.com',
+        username: 'user1',
+        passwordHash: 'hashed:Secret123',
+        role: 'USER',
+        isActive: true,
+        emailVerified: true,
+        createdAt: new Date(),
+        tokenVersion: 0,
+      });
+
+      const app = createTestApp();
+
+      const res = await request(app)
+        .post('/api/auth/login')
+        .send({ email: 'user1@example.com', password: 'Secret123' })
+        .expect(200);
+
+      // Check that Set-Cookie header is present with refreshToken
+      const cookies = res.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      expect(Array.isArray(cookies) ? cookies.join(';') : cookies).toContain('refreshToken=');
+      expect(Array.isArray(cookies) ? cookies.join(';') : cookies).toContain('HttpOnly');
+    });
+
+    it('sets httpOnly cookie on registration', async () => {
+      const app = createTestApp();
+
+      const res = await request(app)
+        .post('/api/auth/register')
+        .send({
+          email: 'newuser@example.com',
+          username: 'newuser',
+          password: 'Secret123',
+          confirmPassword: 'Secret123',
+        })
+        .expect(201);
+
+      // Check that Set-Cookie header is present with refreshToken
+      const cookies = res.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      expect(Array.isArray(cookies) ? cookies.join(';') : cookies).toContain('refreshToken=');
+      expect(Array.isArray(cookies) ? cookies.join(';') : cookies).toContain('HttpOnly');
+    });
+
+    it('clears cookie on logout', async () => {
+      const app = createTestApp();
+
+      const res = await request(app).post('/api/auth/logout').send({}).expect(200);
+
+      // Check that Set-Cookie header clears the refreshToken
+      const cookies = res.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      // A cleared cookie typically has an empty value or past expiry
+      const cookieStr = Array.isArray(cookies) ? cookies.join(';') : cookies;
+      expect(cookieStr).toMatch(/refreshToken=/);
     });
   });
 

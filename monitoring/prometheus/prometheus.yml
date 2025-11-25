@@ -1,0 +1,167 @@
+# =============================================================================
+# RingRift Prometheus Configuration
+# =============================================================================
+#
+# This is an example Prometheus configuration for monitoring RingRift.
+# Copy this to the root directory as prometheus.yml for use with docker-compose.
+#
+# For production use, customize:
+# - scrape_interval based on your needs
+# - alertmanager targets
+# - additional scrape targets (nginx, postgres exporters, etc.)
+#
+# =============================================================================
+
+global:
+  # How frequently to scrape targets
+  scrape_interval: 15s
+  
+  # How frequently to evaluate rules
+  evaluation_interval: 15s
+  
+  # Attach these labels to any time series or alerts when communicating with
+  # external systems (federation, remote storage, Alertmanager)
+  external_labels:
+    monitor: 'ringrift-monitor'
+    environment: '${ENVIRONMENT:-development}'
+
+# Rule files specifies a list of globs. Rules and alerts are read from
+# all matching files.
+rule_files:
+  - '/etc/prometheus/alerts.yml'
+  # Additional rule files can be added here
+  # - '/etc/prometheus/rules/*.yml'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+      # Timeout for sending alerts
+      timeout: 10s
+
+# Scrape configurations
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # Prometheus self-monitoring
+  # ---------------------------------------------------------------------------
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # RingRift Application (Node.js backend)
+  # ---------------------------------------------------------------------------
+  - job_name: 'ringrift-app'
+    static_configs:
+      - targets: ['app:3000']
+        labels:
+          service: 'ringrift'
+          component: 'backend'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    # Honor labels from the scraped target
+    honor_labels: true
+    # Relabel to add instance labels
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        regex: '([^:]+):\d+'
+        replacement: '${1}'
+
+  # ---------------------------------------------------------------------------
+  # RingRift AI Service (Python FastAPI)
+  # ---------------------------------------------------------------------------
+  - job_name: 'ringrift-ai-service'
+    static_configs:
+      - targets: ['ai-service:8001']
+        labels:
+          service: 'ringrift'
+          component: 'ai-service'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis (if using redis_exporter)
+  # Uncomment when redis_exporter is deployed
+  # ---------------------------------------------------------------------------
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'redis'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL (if using postgres_exporter)
+  # Uncomment when postgres_exporter is deployed
+  # ---------------------------------------------------------------------------
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'database'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # Nginx (if using nginx_exporter or VTS module)
+  # Uncomment when nginx metrics are available
+  # ---------------------------------------------------------------------------
+  # - job_name: 'nginx'
+  #   static_configs:
+  #     - targets: ['nginx-exporter:9113']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'nginx'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 30s
+
+  # ---------------------------------------------------------------------------
+  # Node Exporter (system metrics)
+  # Uncomment when node_exporter is deployed on hosts
+  # ---------------------------------------------------------------------------
+  # - job_name: 'node'
+  #   static_configs:
+  #     - targets: ['node-exporter:9100']
+  #       labels:
+  #         service: 'ringrift'
+  #         component: 'host'
+  #   metrics_path: '/metrics'
+  #   scrape_interval: 30s
+
+# =============================================================================
+# Storage Configuration (optional, for advanced setups)
+# =============================================================================
+# 
+# Remote write/read configuration for long-term storage or federation
+# Uncomment and configure for your storage backend
+#
+# remote_write:
+#   - url: "http://remote-storage:9201/write"
+#     remote_timeout: 30s
+#     queue_config:
+#       capacity: 10000
+#       max_shards: 5
+#       max_samples_per_send: 1000
+#
+# remote_read:
+#   - url: "http://remote-storage:9201/read"
+#     read_recent: true
+
+# =============================================================================
+# Storage Retention (command line flags)
+# =============================================================================
+#
+# Configure via command line flags in docker-compose.yml:
+#   --storage.tsdb.retention.time=200h  # How long to keep data
+#   --storage.tsdb.retention.size=10GB  # Maximum storage size
+#   --storage.tsdb.path=/prometheus     # Storage path

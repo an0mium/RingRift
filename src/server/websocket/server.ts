@@ -16,6 +16,7 @@ import {
   ServerToClientEvents,
 } from '../../shared/types/websocket';
 import { webSocketConnectionsGauge } from '../utils/rulesParityMetrics';
+import { getMetricsService } from '../services/MetricsService';
 import { verifyToken, validateUser } from '../middleware/auth';
 
 export interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClientEvents> {
@@ -219,7 +220,9 @@ export class WebSocketServer {
   private setupEventHandlers() {
     this.io.on('connection', (socket: AuthenticatedSocket) => {
       // Track active WebSocket connections for Prometheus metrics.
+      // We update both the legacy gauge and the MetricsService for consistency.
       webSocketConnectionsGauge.inc();
+      getMetricsService().incWebSocketConnections();
 
       logger.info('WebSocket connected', {
         userId: socket.userId,
@@ -770,6 +773,7 @@ export class WebSocketServer {
     // occurs in the 'connection' handler and should be called exactly once per
     // socket lifecycle.
     webSocketConnectionsGauge.dec();
+    getMetricsService().decWebSocketConnections();
 
     logger.info('WebSocket disconnected', {
       userId: socket.userId,

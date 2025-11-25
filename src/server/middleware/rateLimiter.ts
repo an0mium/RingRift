@@ -1,86 +1,234 @@
 import { Request, Response, NextFunction } from 'express';
-import { RateLimiterRedis } from 'rate-limiter-flexible';
+import { RateLimiterRedis, RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
 import { createError } from './errorHandler';
 import { logger } from '../utils/logger';
+import { getMetricsService } from '../services/MetricsService';
 
 // Redis client will be imported from cache/redis
 let redisClient: any = null;
 
-// Rate limiter configurations
-const rateLimiterConfigs = {
-  // General API rate limiting
+/**
+ * Rate limit configuration type for type safety
+ */
+export interface RateLimitConfig {
+  keyPrefix: string;
+  points: number; // Number of requests allowed
+  duration: number; // Window duration in seconds
+  blockDuration: number; // Block duration when exceeded in seconds
+}
+
+/**
+ * Environment-driven rate limit configurations.
+ * All values can be overridden via environment variables.
+ *
+ * Environment variables follow the pattern:
+ * RATE_LIMIT_{TYPE}_{SETTING}
+ * e.g., RATE_LIMIT_AUTH_POINTS, RATE_LIMIT_API_DURATION
+ */
+const getEnvNumber = (key: string, defaultValue: number): number => {
+  const value = process.env[key];
+  if (value === undefined) return defaultValue;
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) ? defaultValue : parsed;
+};
+
+export const getRateLimitConfigs = (): Record<string, RateLimitConfig> => ({
+  // General API rate limiting - standard operations (anonymous)
   api: {
-    storeClient: null, // Will be set when Redis is available
     keyPrefix: 'api_limit',
-    points: 100, // Number of requests
-    duration: 900, // Per 15 minutes (900 seconds)
-    blockDuration: 900, // Block for 15 minutes if limit exceeded
+    points: getEnvNumber('RATE_LIMIT_API_POINTS', 50), // requests for anonymous
+    duration: getEnvNumber('RATE_LIMIT_API_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_API_BLOCK_DURATION', 300), // 5 min block
   },
 
-  // Authentication endpoints (more restrictive)
+  // Higher limits for authenticated API users
+  apiAuthenticated: {
+    keyPrefix: 'api_auth_limit',
+    points: getEnvNumber('RATE_LIMIT_API_AUTH_POINTS', 200), // requests
+    duration: getEnvNumber('RATE_LIMIT_API_AUTH_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_API_AUTH_BLOCK_DURATION', 300), // 5 min block
+  },
+
+  // Authentication endpoints (most restrictive for security)
   auth: {
-    storeClient: null,
     keyPrefix: 'auth_limit',
-    points: 5, // Number of requests
-    duration: 900, // Per 15 minutes
-    blockDuration: 1800, // Block for 30 minutes
+    points: getEnvNumber('RATE_LIMIT_AUTH_POINTS', 10), // requests
+    duration: getEnvNumber('RATE_LIMIT_AUTH_DURATION', 900), // per 15 minutes
+    blockDuration: getEnvNumber('RATE_LIMIT_AUTH_BLOCK_DURATION', 1800), // 30 min block
+  },
+
+  // Login specifically - stricter
+  authLogin: {
+    keyPrefix: 'auth_login_limit',
+    points: getEnvNumber('RATE_LIMIT_AUTH_LOGIN_POINTS', 5), // attempts
+    duration: getEnvNumber('RATE_LIMIT_AUTH_LOGIN_DURATION', 900), // per 15 minutes
+    blockDuration: getEnvNumber('RATE_LIMIT_AUTH_LOGIN_BLOCK_DURATION', 1800), // 30 min block
+  },
+
+  // Registration - prevent spam account creation
+  authRegister: {
+    keyPrefix: 'auth_register_limit',
+    points: getEnvNumber('RATE_LIMIT_AUTH_REGISTER_POINTS', 3), // registrations
+    duration: getEnvNumber('RATE_LIMIT_AUTH_REGISTER_DURATION', 3600), // per hour
+    blockDuration: getEnvNumber('RATE_LIMIT_AUTH_REGISTER_BLOCK_DURATION', 3600), // 1 hour block
+  },
+
+  // Password reset - prevent abuse
+  authPasswordReset: {
+    keyPrefix: 'auth_pwd_reset_limit',
+    points: getEnvNumber('RATE_LIMIT_AUTH_PWD_RESET_POINTS', 3), // attempts
+    duration: getEnvNumber('RATE_LIMIT_AUTH_PWD_RESET_DURATION', 3600), // per hour
+    blockDuration: getEnvNumber('RATE_LIMIT_AUTH_PWD_RESET_BLOCK_DURATION', 3600), // 1 hour block
   },
 
   // Game actions (moderate limiting)
   game: {
-    storeClient: null,
     keyPrefix: 'game_limit',
-    points: 200, // Number of requests
-    duration: 60, // Per minute
-    blockDuration: 300, // Block for 5 minutes
+    points: getEnvNumber('RATE_LIMIT_GAME_POINTS', 200), // requests
+    duration: getEnvNumber('RATE_LIMIT_GAME_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_GAME_BLOCK_DURATION', 300), // 5 min block
+  },
+
+  // Game moves - need to be higher for active gameplay
+  gameMoves: {
+    keyPrefix: 'game_moves_limit',
+    points: getEnvNumber('RATE_LIMIT_GAME_MOVES_POINTS', 100), // moves
+    duration: getEnvNumber('RATE_LIMIT_GAME_MOVES_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_GAME_MOVES_BLOCK_DURATION', 60), // 1 min block
   },
 
   // WebSocket connections
   websocket: {
-    storeClient: null,
     keyPrefix: 'ws_limit',
-    points: 10, // Number of connections
-    duration: 60, // Per minute
-    blockDuration: 300, // Block for 5 minutes
+    points: getEnvNumber('RATE_LIMIT_WS_POINTS', 10), // connections
+    duration: getEnvNumber('RATE_LIMIT_WS_DURATION', 60), // per minute
+    blockDuration: getEnvNumber('RATE_LIMIT_WS_BLOCK_DURATION', 300), // 5 min block
   },
 
-  // Game creation quotas (per-user and per-IP)
+  // Game creation quotas (per-user)
   gameCreateUser: {
-    storeClient: null,
     keyPrefix: 'game_create_user',
-    points: 20, // Max games per user per window
-    duration: 600, // Per 10 minutes
-    blockDuration: 600,
+    points: getEnvNumber('RATE_LIMIT_GAME_CREATE_USER_POINTS', 20), // games
+    duration: getEnvNumber('RATE_LIMIT_GAME_CREATE_USER_DURATION', 600), // per 10 minutes
+    blockDuration: getEnvNumber('RATE_LIMIT_GAME_CREATE_USER_BLOCK_DURATION', 600),
   },
+
+  // Game creation quotas (per-IP for unauthenticated requests)
   gameCreateIp: {
-    storeClient: null,
     keyPrefix: 'game_create_ip',
-    points: 50, // Max game-create requests per IP per window
-    duration: 600, // Per 10 minutes
-    blockDuration: 600,
+    points: getEnvNumber('RATE_LIMIT_GAME_CREATE_IP_POINTS', 50), // requests
+    duration: getEnvNumber('RATE_LIMIT_GAME_CREATE_IP_DURATION', 600), // per 10 minutes
+    blockDuration: getEnvNumber('RATE_LIMIT_GAME_CREATE_IP_BLOCK_DURATION', 600),
   },
+});
+
+// Cache the configs to avoid re-parsing env vars on every request
+let cachedConfigs: Record<string, RateLimitConfig> | null = null;
+
+const getRateLimitConfigsCached = (): Record<string, RateLimitConfig> => {
+  if (!cachedConfigs) {
+    cachedConfigs = getRateLimitConfigs();
+  }
+  return cachedConfigs;
 };
 
-const rateLimiters: { [key: string]: RateLimiterRedis } = {};
+// Rate limiters - can be either Redis or Memory based
+const rateLimiters: { [key: string]: RateLimiterRedis | RateLimiterMemory } = {};
 
-// Initialize rate limiters
+// Flag to track whether we're using Redis or in-memory
+let usingRedis = false;
+
+/**
+ * Initialize rate limiters with Redis client.
+ * Falls back to in-memory limiters if Redis is not available.
+ */
 export const initializeRateLimiters = (redis: any) => {
   redisClient = redis;
+  usingRedis = !!redis;
 
-  Object.entries(rateLimiterConfigs).forEach(([key, config]) => {
-    rateLimiters[key] = new RateLimiterRedis({
-      ...config,
-      storeClient: redisClient,
+  const configs = getRateLimitConfigsCached();
+
+  Object.entries(configs).forEach(([key, config]) => {
+    if (redis) {
+      rateLimiters[key] = new RateLimiterRedis({
+        storeClient: redis,
+        keyPrefix: config.keyPrefix,
+        points: config.points,
+        duration: config.duration,
+        blockDuration: config.blockDuration,
+      });
+    } else {
+      // Fallback to in-memory limiter for development/testing
+      rateLimiters[key] = new RateLimiterMemory({
+        keyPrefix: config.keyPrefix,
+        points: config.points,
+        duration: config.duration,
+        blockDuration: config.blockDuration,
+      });
+    }
+  });
+
+  logger.info('Rate limiters initialized', {
+    mode: usingRedis ? 'redis' : 'memory',
+    limiterCount: Object.keys(rateLimiters).length,
+  });
+};
+
+/**
+ * Initialize in-memory rate limiters for development without Redis.
+ * This allows the server to start even when Redis is not available.
+ */
+export const initializeMemoryRateLimiters = () => {
+  const configs = getRateLimitConfigsCached();
+
+  Object.entries(configs).forEach(([key, config]) => {
+    rateLimiters[key] = new RateLimiterMemory({
+      keyPrefix: config.keyPrefix,
+      points: config.points,
+      duration: config.duration,
+      blockDuration: config.blockDuration,
     });
   });
 
-  logger.info('Rate limiters initialized');
+  usingRedis = false;
+  logger.info('In-memory rate limiters initialized (Redis not available)', {
+    limiterCount: Object.keys(rateLimiters).length,
+  });
 };
+
+/**
+ * Check if rate limiters are using Redis backing store.
+ */
+export const isUsingRedisRateLimiting = (): boolean => usingRedis;
 
 export interface RateLimitResult {
   allowed: boolean;
   retryAfter?: number;
+  limit?: number;
+  remaining?: number;
+  reset?: number; // Unix timestamp when limit resets
 }
+
+/**
+ * Set standard rate limit headers on a response.
+ * These headers inform clients of their quota status.
+ *
+ * Headers:
+ * - X-RateLimit-Limit: Maximum requests in the window
+ * - X-RateLimit-Remaining: Remaining requests in the window
+ * - X-RateLimit-Reset: Unix timestamp when the window resets
+ * - Retry-After: Seconds to wait before retrying (only on rate limit exceeded)
+ */
+export const setRateLimitHeaders = (
+  res: Response,
+  limit: number,
+  remaining: number,
+  resetTimestamp: number
+): void => {
+  res.set('X-RateLimit-Limit', String(limit));
+  res.set('X-RateLimit-Remaining', String(Math.max(0, remaining)));
+  res.set('X-RateLimit-Reset', String(resetTimestamp));
+};
 
 /**
  * Low-level helper used by HTTP routes and other callers that need to perform
@@ -99,6 +247,7 @@ export const consumeRateLimit = async (
   key: string
 ): Promise<RateLimitResult> => {
   const limiter = rateLimiters[limiterKey];
+  const config = getRateLimitConfigsCached()[limiterKey];
 
   if (!limiter) {
     logger.warn(`Rate limiter '${limiterKey}' not available, allowing request`, {
@@ -108,8 +257,15 @@ export const consumeRateLimit = async (
   }
 
   try {
-    await limiter.consume(key);
-    return { allowed: true };
+    const rateLimiterRes = await limiter.consume(key);
+    const resetTimestamp = Math.ceil(Date.now() / 1000 + rateLimiterRes.msBeforeNext / 1000);
+
+    return {
+      allowed: true,
+      limit: config?.points,
+      remaining: rateLimiterRes.remainingPoints,
+      reset: resetTimestamp,
+    };
   } catch (error: any) {
     // rate-limiter-flexible returns a special object with msBeforeNext when
     // the limit is exceeded. Treat all other errors as infrastructure
@@ -120,7 +276,13 @@ export const consumeRateLimit = async (
 
     if (typeof msBeforeNext === 'number') {
       const secs = Math.round(msBeforeNext / 1000) || 1;
-      return { allowed: false, retryAfter: secs };
+      return {
+        allowed: false,
+        retryAfter: secs,
+        limit: config?.points,
+        remaining: 0,
+        reset: Math.ceil(Date.now() / 1000 + secs),
+      };
     }
 
     logger.warn(`Rate limiter '${limiterKey}' error, allowing request`, {
@@ -131,32 +293,66 @@ export const consumeRateLimit = async (
   }
 };
 
-// Generic rate limiter middleware factory
-const createRateLimiter = (limiterKey: string) => {
+/**
+ * Calculate reset timestamp from RateLimiterRes
+ */
+const getResetTimestamp = (rateLimiterRes: RateLimiterRes): number => {
+  return Math.ceil(Date.now() / 1000 + rateLimiterRes.msBeforeNext / 1000);
+};
+
+/**
+ * Generic rate limiter middleware factory.
+ * Creates middleware that enforces rate limits and sets appropriate headers.
+ *
+ * @param limiterKey - Key to identify which rate limiter config to use
+ * @param options - Additional options for customization
+ */
+const createRateLimiter = (
+  limiterKey: string,
+  options: {
+    keyGenerator?: (req: Request) => string;
+    skipSuccessfulRequests?: boolean;
+  } = {}
+) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     const limiter = rateLimiters[limiterKey];
+    const config = getRateLimitConfigsCached()[limiterKey];
 
-    if (!limiter) {
+    if (!limiter || !config) {
       // If rate limiter is not available, allow the request but log warning
       logger.warn(`Rate limiter '${limiterKey}' not available, allowing request`);
       return next();
     }
 
     try {
-      const key = req.ip || 'unknown';
-      await limiter.consume(key);
+      // Generate key - default to IP, but can be customized
+      const key = options.keyGenerator ? options.keyGenerator(req) : (req.ip || 'unknown');
+      const rateLimiterRes = await limiter.consume(key);
+
+      // Set rate limit headers on successful consumption
+      const resetTimestamp = getResetTimestamp(rateLimiterRes);
+      setRateLimitHeaders(res, config.points, rateLimiterRes.remainingPoints, resetTimestamp);
+
       next();
     } catch (rejRes: any) {
+      // Rate limit exceeded - rejRes is a RateLimiterRes object
       const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
+      const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
+
+      // Set headers even on rate limit exceeded
+      setRateLimitHeaders(res, config.points, 0, resetTimestamp);
+      res.set('Retry-After', String(secs));
 
       logger.warn('Rate limit exceeded', {
         ip: req.ip,
+        userId: (req as any).user?.id,
         limiter: limiterKey,
         path: req.path,
         retryAfter: secs,
       });
 
-      res.set('Retry-After', String(secs));
+      // Record rate limit hit metric
+      getMetricsService().recordRateLimitHit(req.path, limiterKey);
 
       const error = createError(
         'Too many requests, please try again later',
@@ -177,34 +373,115 @@ const createRateLimiter = (limiterKey: string) => {
   };
 };
 
-// Specific rate limiter middlewares
+// Specific rate limiter middlewares for different endpoint types
 export const rateLimiter = createRateLimiter('api');
 export const authRateLimiter = createRateLimiter('auth');
+export const authLoginRateLimiter = createRateLimiter('authLogin');
+export const authRegisterRateLimiter = createRateLimiter('authRegister');
+export const authPasswordResetRateLimiter = createRateLimiter('authPasswordReset');
 export const gameRateLimiter = createRateLimiter('game');
+export const gameMovesRateLimiter = createRateLimiter('gameMoves');
 export const websocketRateLimiter = createRateLimiter('websocket');
 
-// Custom rate limiter for specific endpoints
-export const customRateLimiter = (points: number, duration: number, blockDuration?: number) => {
+/**
+ * Rate limiter that differentiates between authenticated and anonymous users.
+ * Authenticated users get higher limits.
+ *
+ * @param authenticatedKey - Limiter key for authenticated users
+ * @param anonymousKey - Limiter key for anonymous users (defaults to standard 'api')
+ */
+export const adaptiveRateLimiter = (
+  authenticatedKey: string = 'apiAuthenticated',
+  anonymousKey: string = 'api'
+) => {
   return async (req: Request, res: Response, next: NextFunction) => {
-    if (!redisClient) {
-      logger.warn('Redis client not available for custom rate limiter, allowing request');
+    // Choose limiter based on authentication status
+    const isAuthenticated = !!(req as any).user?.id;
+    const limiterKey = isAuthenticated ? authenticatedKey : anonymousKey;
+    const limiter = rateLimiters[limiterKey];
+    const config = getRateLimitConfigsCached()[limiterKey];
+
+    if (!limiter || !config) {
+      logger.warn(`Rate limiter '${limiterKey}' not available, allowing request`);
       return next();
     }
 
-    const limiter = new RateLimiterRedis({
-      storeClient: redisClient,
-      keyPrefix: 'custom_limit',
-      points,
-      duration,
-      blockDuration: blockDuration || duration,
-    });
-
     try {
-      const key = req.ip || 'unknown';
-      await limiter.consume(key);
+      // Use user ID for authenticated, IP for anonymous
+      const key = isAuthenticated ? (req as any).user.id : (req.ip || 'unknown');
+      const rateLimiterRes = await limiter.consume(key);
+
+      // Set rate limit headers
+      const resetTimestamp = getResetTimestamp(rateLimiterRes);
+      setRateLimitHeaders(res, config.points, rateLimiterRes.remainingPoints, resetTimestamp);
+
       next();
     } catch (rejRes: any) {
       const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
+      const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
+
+      setRateLimitHeaders(res, config.points, 0, resetTimestamp);
+      res.set('Retry-After', String(secs));
+
+      logger.warn('Adaptive rate limit exceeded', {
+        ip: req.ip,
+        userId: (req as any).user?.id,
+        limiter: limiterKey,
+        isAuthenticated,
+        path: req.path,
+        retryAfter: secs,
+      });
+
+      // Record rate limit hit metric
+      getMetricsService().recordRateLimitHit(req.path, limiterKey);
+
+      res.status(429).json({
+        success: false,
+        error: {
+          message: 'Too many requests, please try again later',
+          code: 'RATE_LIMIT_EXCEEDED',
+          retryAfter: secs,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    }
+  };
+};
+
+// Custom rate limiter for specific endpoints with runtime configuration
+export const customRateLimiter = (points: number, duration: number, blockDuration?: number) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    // Create limiter with appropriate storage
+    const limiter = redisClient
+      ? new RateLimiterRedis({
+          storeClient: redisClient,
+          keyPrefix: 'custom_limit',
+          points,
+          duration,
+          blockDuration: blockDuration || duration,
+        })
+      : new RateLimiterMemory({
+          keyPrefix: 'custom_limit',
+          points,
+          duration,
+          blockDuration: blockDuration || duration,
+        });
+
+    try {
+      const key = req.ip || 'unknown';
+      const rateLimiterRes = await limiter.consume(key);
+
+      // Set rate limit headers
+      const resetTimestamp = getResetTimestamp(rateLimiterRes);
+      setRateLimitHeaders(res, points, rateLimiterRes.remainingPoints, resetTimestamp);
+
+      next();
+    } catch (rejRes: any) {
+      const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
+      const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
+
+      setRateLimitHeaders(res, points, 0, resetTimestamp);
+      res.set('Retry-After', String(secs));
 
       logger.warn('Custom rate limit exceeded', {
         ip: req.ip,
@@ -214,7 +491,8 @@ export const customRateLimiter = (points: number, duration: number, blockDuratio
         retryAfter: secs,
       });
 
-      res.set('Retry-After', String(secs));
+      // Record rate limit hit metric
+      getMetricsService().recordRateLimitHit(req.path, 'custom');
 
       res.status(429).json({
         success: false,
@@ -229,12 +507,16 @@ export const customRateLimiter = (points: number, duration: number, blockDuratio
   };
 };
 
-// Rate limiter for user-specific actions (using user ID instead of IP)
+/**
+ * Rate limiter for user-specific actions (using user ID instead of IP).
+ * Useful for per-user quotas like game creation.
+ */
 export const userRateLimiter = (limiterKey: string) => {
   return async (req: Request, res: Response, next: NextFunction) => {
     const limiter = rateLimiters[limiterKey];
+    const config = getRateLimitConfigsCached()[limiterKey];
 
-    if (!limiter) {
+    if (!limiter || !config) {
       logger.warn(`Rate limiter '${limiterKey}' not available, allowing request`);
       return next();
     }
@@ -242,10 +524,19 @@ export const userRateLimiter = (limiterKey: string) => {
     try {
       // Use user ID if authenticated, otherwise fall back to IP
       const key = (req as any).user?.id || req.ip || 'unknown';
-      await limiter.consume(key);
+      const rateLimiterRes = await limiter.consume(key);
+
+      // Set rate limit headers
+      const resetTimestamp = getResetTimestamp(rateLimiterRes);
+      setRateLimitHeaders(res, config.points, rateLimiterRes.remainingPoints, resetTimestamp);
+
       next();
     } catch (rejRes: any) {
       const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
+      const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
+
+      setRateLimitHeaders(res, config.points, 0, resetTimestamp);
+      res.set('Retry-After', String(secs));
 
       logger.warn('User rate limit exceeded', {
         userId: (req as any).user?.id,
@@ -255,7 +546,8 @@ export const userRateLimiter = (limiterKey: string) => {
         retryAfter: secs,
       });
 
-      res.set('Retry-After', String(secs));
+      // Record rate limit hit metric
+      getMetricsService().recordRateLimitHit(req.path, limiterKey);
 
       res.status(429).json({
         success: false,
@@ -270,11 +562,17 @@ export const userRateLimiter = (limiterKey: string) => {
   };
 };
 
-// Fallback rate limiter when Redis is not available
+/**
+ * Fallback rate limiter when Redis is not available.
+ * Implements a simple sliding window algorithm in memory.
+ *
+ * This is kept for backwards compatibility but the preferred approach
+ * is to use initializeMemoryRateLimiters() which provides full feature parity.
+ */
 export const fallbackRateLimiter = (() => {
   const requests = new Map<string, { count: number; resetTime: number }>();
-  const WINDOW_SIZE = 15 * 60 * 1000; // 15 minutes
-  const MAX_REQUESTS = 100;
+  const WINDOW_SIZE = getEnvNumber('RATE_LIMIT_FALLBACK_WINDOW_MS', 15 * 60 * 1000); // 15 minutes
+  const MAX_REQUESTS = getEnvNumber('RATE_LIMIT_FALLBACK_MAX_REQUESTS', 100);
 
   return (req: Request, res: Response, next: NextFunction) => {
     const key = req.ip || 'unknown';
@@ -289,35 +587,77 @@ export const fallbackRateLimiter = (() => {
     }
 
     const current = requests.get(key);
+    const resetTimestamp = Math.ceil((now + WINDOW_SIZE) / 1000);
 
     if (!current) {
       requests.set(key, { count: 1, resetTime: now });
+      setRateLimitHeaders(res, MAX_REQUESTS, MAX_REQUESTS - 1, resetTimestamp);
       return next();
     }
 
     if (current.resetTime < windowStart) {
       requests.set(key, { count: 1, resetTime: now });
+      setRateLimitHeaders(res, MAX_REQUESTS, MAX_REQUESTS - 1, resetTimestamp);
       return next();
     }
 
     if (current.count >= MAX_REQUESTS) {
+      const retryAfter = Math.ceil((current.resetTime + WINDOW_SIZE - now) / 1000);
+      setRateLimitHeaders(res, MAX_REQUESTS, 0, Math.ceil((current.resetTime + WINDOW_SIZE) / 1000));
+      res.set('Retry-After', String(retryAfter));
+
       logger.warn('Fallback rate limit exceeded', {
         ip: req.ip,
         path: req.path,
         count: current.count,
       });
 
+      // Record rate limit hit metric
+      getMetricsService().recordRateLimitHit(req.path, 'fallback');
+
       return res.status(429).json({
         success: false,
         error: {
           message: 'Too many requests, please try again later',
           code: 'RATE_LIMIT_EXCEEDED',
+          retryAfter,
           timestamp: new Date().toISOString(),
         },
       });
     }
 
     current.count++;
+    setRateLimitHeaders(res, MAX_REQUESTS, MAX_REQUESTS - current.count, resetTimestamp);
     next();
   };
 })();
+
+/**
+ * Utility to reset rate limiters for testing purposes.
+ * Only available when not using Redis.
+ */
+export const __testResetRateLimiters = () => {
+  if (usingRedis) {
+    logger.warn('Cannot reset Redis-backed rate limiters in test mode');
+    return;
+  }
+
+  // Re-create all memory limiters
+  const configs = getRateLimitConfigsCached();
+  Object.entries(configs).forEach(([key, config]) => {
+    rateLimiters[key] = new RateLimiterMemory({
+      keyPrefix: config.keyPrefix,
+      points: config.points,
+      duration: config.duration,
+      blockDuration: config.blockDuration,
+    });
+  });
+};
+
+/**
+ * Get the current rate limit config for a specific limiter.
+ * Useful for tests and debugging.
+ */
+export const getRateLimitConfig = (limiterKey: string): RateLimitConfig | undefined => {
+  return getRateLimitConfigsCached()[limiterKey];
+};

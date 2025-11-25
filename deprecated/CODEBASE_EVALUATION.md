@@ -110,7 +110,7 @@ High‑level rating (current snapshot):
 3. **Documentation is unusually strong.**
 
 - `ringrift_complete_rules.md` / `ringrift_compact_rules.md` and
-  `RULES_TERMINATION_ANALYSIS.md` define the rules and S‑invariant precisely.
+  `docs/supplementary/RULES_TERMINATION_ANALYSIS.md` define the rules and S‑invariant precisely.
 - `CURRENT_STATE_ASSESSMENT.md`, `KNOWN_ISSUES.md`, `STRATEGIC_ROADMAP.md`, and `TODO.md` are kept in sync with the code and tests.
 - `RULES_SCENARIO_MATRIX.md` and `tests/README.md` map rules/FAQ sections to specific
   Jest suites.

@@ -21,6 +21,7 @@ import {
   hasAnyLegalMoveOrCaptureFromOnBoard,
   applyMarkerEffectsAlongPathOnBoard,
   MarkerPathHelpers,
+  countRingsInPlayForPlayer,
 } from '../../shared/engine/core';
 import { evaluateVictory } from '../../shared/engine/victoryLogic';
 import { enumerateCaptureMoves, CaptureBoardAdapters } from '../../shared/engine/captureLogic';
@@ -189,7 +190,7 @@ export class RuleEngine {
    *
    * This now delegates the geometric and path/landing checks to the shared
    * {@link enumerateSimpleMoveTargetsFromStack} helper so that backend
-   * semantics stay aligned with the sandbox and shared GameEngine:
+   * semantics stay aligned with the sandbox and shared core rules:
    *
    * - Straight-line movement along canonical directions only.
    * - Distance at least equal to stack height.
@@ -848,16 +849,12 @@ export class RuleEngine {
     const boardConfig = BOARD_CONFIGS[boardType];
     const allPositions = this.boardManager.getAllPositions();
 
-    // Compute rings on board for capacity checks, mirroring the legacy
-    // RuleEngine behaviour (crediting whole stacks to the controlling
-    // player). This keeps per-player caps consistent across hosts even
-    // though it slightly over-approximates rings for mixed-colour stacks.
-    const playerStacks = this.getPlayerStacks(player, board);
-    const ringsOnBoard = playerStacks.reduce((sum, pos) => {
-      const stackKey = positionToString(pos);
-      const stackAtPos = board.stacks.get(stackKey);
-      return sum + (stackAtPos ? stackAtPos.rings.length : 0);
-    }, 0);
+    // Compute own-colour rings for capacity checks: all rings of this
+    // player's colour on the board in any stack (regardless of which
+    // player currently controls those stacks), plus rings in hand. This
+    // matches the canonical ringsPerPlayer semantics (RR-CANON-R020).
+    const totalInPlay = countRingsInPlayForPlayer(gameState, player);
+    const ringsOnBoard = totalInPlay - playerState.ringsInHand;
 
     const remainingByCap = boardConfig.ringsPerPlayer - ringsOnBoard;
     const remainingBySupply = playerState.ringsInHand;

@@ -28,6 +28,7 @@ import {
   mutateEliminateStack,
 } from '../../src/shared/engine/mutators/TerritoryMutator';
 import { mutateTurnChange, mutatePhaseChange } from '../../src/shared/engine/mutators/TurnMutator';
+import { BoardManager } from '../../src/server/game/BoardManager';
 
 describe('Shared engine mutators – basic invariants and S-invariant', () => {
   const boardType: BoardType = 'square8';
@@ -357,5 +358,50 @@ describe('Shared engine mutators – basic invariants and S-invariant', () => {
     const afterS = snapshotS(after);
     expect(afterS).toBe(beforeS);
     expect(after.currentPhase).toBe('movement');
+  });
+
+  it('backend BoardManager invariants hold without repairs for a basic shared mutator sequence', () => {
+    const initial: GameState = createInitialGameState(
+      'mutator-backend-bridge',
+      boardType,
+      players,
+      timeControl
+    );
+
+    const place: PlaceRingAction = {
+      type: 'PLACE_RING',
+      playerId: 1,
+      position: { x: 0, y: 0 },
+      count: 1,
+    };
+
+    const withStack = mutatePlacement(initial, place);
+
+    const move: MoveStackAction = {
+      type: 'MOVE_STACK',
+      playerId: 1,
+      from: { x: 0, y: 0 },
+      to: { x: 0, y: 1 },
+    };
+
+    const afterMove = mutateMovement(withStack, move);
+
+    const backendManager = new BoardManager(boardType);
+
+    // Both intermediate and final boards produced by the shared mutators
+    // must satisfy backend BoardManager invariants without triggering any
+    // repairs. Any increment here would indicate a divergence between the
+    // shared engine mutators and backend board invariants on a legal
+    // trajectory.
+    (backendManager as any).assertBoardInvariants(
+      withStack.board as any,
+      'SharedMutators.mutatorSequence.withStack'
+    );
+    (backendManager as any).assertBoardInvariants(
+      afterMove.board as any,
+      'SharedMutators.mutatorSequence.afterMove'
+    );
+
+    expect(backendManager.getRepairCountForTesting()).toBe(0);
   });
 });

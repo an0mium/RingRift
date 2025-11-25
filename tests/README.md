@@ -25,11 +25,49 @@ tests/
 
 ## Running Tests
 
+### Test Profiles (P0-TEST-001)
+
+The test suite is split into two profiles to ensure CI reliability:
+
+#### Core Profile (`npm run test:core`)
+- **Purpose**: Fast, reliable tests for PR gates
+- **Runs**: All unit and integration tests EXCEPT heavy suites
+- **Duration**: Should complete in under 5 minutes
+- **Used by**: `npm run test:ci`
+
+#### Diagnostics Profile (`npm run test:diagnostics`)
+- **Purpose**: Heavy combinatorial/enumeration suites
+- **Runs**: Only the heavy diagnostic suites
+- **Duration**: May take 10+ minutes and require increased heap size
+- **Used by**: Nightly CI runs, manual debugging
+
+#### Heavy Suites (excluded from core)
+The following suites are excluded from `test:core` due to OOM/crash issues:
+
+1. **`captureSequenceEnumeration.test.ts`**
+   - Exhaustively enumerates capture sequences across many random boards
+   - Causes: `RangeError: Invalid string length`, Jest worker crashes
+
+2. **`GameEngine.decisionPhases.MoveDriven.test.ts`**
+   - Enumerates/simulates large state spaces for decision phase coverage
+   - Causes: Node heap OOM (`Allocation failed - JavaScript heap out of memory`)
+
+To run diagnostics with increased heap:
+```bash
+NODE_OPTIONS="--max-old-space-size=8192" npm run test:diagnostics
+```
+
 ### Basic Commands
 
 ```bash
-# Run all tests
+# Run all tests (local development)
 npm test
+
+# Run core tests only (excludes heavy suites) - RECOMMENDED FOR CI
+npm run test:core
+
+# Run heavy diagnostic suites only
+npm run test:diagnostics
 
 # Run tests in watch mode
 npm run test:watch
@@ -40,7 +78,7 @@ npm run test:coverage
 # Run tests with coverage in watch mode
 npm run test:coverage:watch
 
-# Run tests for CI/CD (optimized)
+# Run tests for CI/CD (uses core profile, optimized)
 npm run test:ci
 
 # Run only unit tests

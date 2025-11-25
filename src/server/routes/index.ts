@@ -1,9 +1,12 @@
 import { Router } from 'express';
+// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+const swaggerUi = require('swagger-ui-express');
 import authRoutes from './auth';
 import gameRoutes, { setWebSocketServer } from './game';
 import userRoutes from './user';
 import { authenticate } from '../middleware/auth';
 import { httpLogger } from '../utils/logger';
+import { swaggerSpec } from '../openapi/config';
 
 export const setupRoutes = (wsServer?: any): Router => {
   const router = Router();
@@ -12,6 +15,19 @@ export const setupRoutes = (wsServer?: any): Router => {
   if (wsServer) {
     setWebSocketServer(wsServer);
   }
+
+  // OpenAPI Documentation
+  // Swagger UI at /api/docs
+  router.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'RingRift API Documentation',
+  }));
+
+  // Raw OpenAPI spec at /api/docs.json
+  router.get('/docs.json', (_req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
 
   // Public routes
   router.use('/auth', authRoutes);
@@ -63,7 +79,10 @@ export const setupRoutes = (wsServer?: any): Router => {
         auth: '/api/auth',
         games: '/api/games',
         users: '/api/users',
+        docs: '/api/docs',
       },
+      documentation: '/api/docs',
+      openApiSpec: '/api/docs.json',
       timestamp: new Date().toISOString(),
     });
   });

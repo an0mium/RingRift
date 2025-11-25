@@ -8,6 +8,7 @@ import {
   Territory,
   LineInfo,
   RingStack,
+  MarkerInfo,
   positionToString
 } from '../../src/shared/types/game';
 
@@ -96,17 +97,28 @@ describe('GameEngine territory + line processing (hexagonal)', () => {
       board.stacks.set(key, stack);
     }
 
-    // Stub border markers returned by getBorderMarkerPositions; we don't
-    // rely on true geometry here, only on the fact that these spaces are
-    // collapsed as part of territory processing.
+    // Place actual markers at border positions adjacent to the region.
+    // The shared helper getBorderMarkerPositionsForRegion looks for actual
+    // markers on the board adjacent to region spaces, so we must place them
+    // rather than stubbing a method that isn't called.
+    //
+    // Hex adjacency for {x:0, y:0, z:0} includes {x:-1, y:1, z:0}
+    // Hex adjacency for {x:1, y:-1, z:0} includes {x:2, y:-2, z:0}
     const borderPositions: Position[] = [
       { x: 2, y: -2, z: 0 },
       { x: -1, y: 1, z: 0 }
     ];
 
-    jest
-      .spyOn(boardManager as any, 'getBorderMarkerPositions')
-      .mockImplementation((_spaces: unknown, _boardState: unknown) => borderPositions as any);
+    // Place P1 markers at border positions
+    for (const p of borderPositions) {
+      const key = positionToString(p);
+      const markerInfo: MarkerInfo = {
+        player: 1,
+        position: p,
+        type: 'regular'
+      };
+      board.markers.set(key, markerInfo);
+    }
 
     const territoryRegion: Territory = {
       spaces: regionSpaces,
@@ -168,11 +180,12 @@ describe('GameEngine territory + line processing (hexagonal)', () => {
     expect(gameState.totalRingsEliminated).toBe(0);
 
     // --- 4. Run combined post-move processing on hex board (no capture) ---
-    await (engineAny as any).processAutomaticConsequences({
-      captures: [],
-      territoryChanges: [],
-      lineCollapses: []
-    });
+    await (engineAny as any).processAutomaticConsequences();
+
+    // Re-fetch the updated gameState and board after processing, since
+    // processAutomaticConsequences replaces this.gameState with a new object.
+    const updatedGameState: GameState = (engineAny as any).gameState;
+    const updatedBoard = updatedGameState.board;
 
     const keysFrom = (positions: Position[]) =>
       new Set(positions.map(p => positionToString(p)));
@@ -193,24 +206,24 @@ describe('GameEngine territory + line processing (hexagonal)', () => {
     // 1. All interior region spaces collapsed for P1 and empty of stacks.
     for (const p of regionSpaces) {
       const key = positionToString(p);
-      expect(board.collapsedSpaces.get(key)).toBe(1);
-      expect(board.stacks.get(key)).toBeUndefined();
+      expect(updatedBoard.collapsedSpaces.get(key)).toBe(1);
+      expect(updatedBoard.stacks.get(key)).toBeUndefined();
     }
 
     // 2. All border positions collapsed for P1.
     for (const p of borderPositions) {
       const key = positionToString(p);
-      expect(board.collapsedSpaces.get(key)).toBe(1);
+      expect(updatedBoard.collapsedSpaces.get(key)).toBe(1);
     }
 
     // 3. All line positions collapsed for P1 (line processing).
     for (const p of linePositions) {
       const key = positionToString(p);
-      expect(board.collapsedSpaces.get(key)).toBe(1);
+      expect(updatedBoard.collapsedSpaces.get(key)).toBe(1);
     }
 
     // 4. All stacks inside the region should be eliminated.
-    const collapsedForP1 = Array.from(board.collapsedSpaces.values()).filter(v => v === 1).length;
+    const collapsedForP1 = Array.from(updatedBoard.collapsedSpaces.values()).filter(v => v === 1).length;
 
     // We do not assert a precise territorySpaces count on hex here,
     // since collapsed spaces may include additional positions beyond
@@ -218,7 +231,7 @@ describe('GameEngine territory + line processing (hexagonal)', () => {
     // are gone and elimination accounting behaves as expected.
 
     // 5. All stacks inside the region should be eliminated.
-    const stacksInRegion = Array.from(board.stacks.keys()).filter(k => interiorKeys.has(k));
+    const stacksInRegion = Array.from(updatedBoard.stacks.keys()).filter(k => interiorKeys.has(k));
     expect(stacksInRegion.length).toBe(0);
 
     // 6. Eliminated ring counts should at least include the internal
@@ -227,8 +240,8 @@ describe('GameEngine territory + line processing (hexagonal)', () => {
     //    rings may be attributed, but never fewer than the internal
     //    region eliminations.
     const minEliminatedForP1 = 3;
-    expect(gameState.board.eliminatedRings[1]).toBeGreaterThanOrEqual(minEliminatedForP1);
-    expect(gameState.players[0].eliminatedRings).toBeGreaterThanOrEqual(minEliminatedForP1);
-    expect(gameState.totalRingsEliminated).toBeGreaterThanOrEqual(minEliminatedForP1);
+    expect(updatedGameState.board.eliminatedRings[1]).toBeGreaterThanOrEqual(minEliminatedForP1);
+    expect(updatedGameState.players[0].eliminatedRings).toBeGreaterThanOrEqual(minEliminatedForP1);
+    expect(updatedGameState.totalRingsEliminated).toBeGreaterThanOrEqual(minEliminatedForP1);
   });
 });

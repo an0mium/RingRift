@@ -13,6 +13,7 @@ prometheus_client==0.20.0
 # Development tools
 pytest==8.3.4
 pytest-asyncio==0.24.0
+pytest-timeout==2.3.1  # Global test timeout for CI safety
 black==24.10.0
 flake8==7.1.1
 

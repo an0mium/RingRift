@@ -12,6 +12,7 @@ import {
   GameStatus,
   LineInfo,
   Territory,
+  BOARD_CONFIGS,
 } from '../../src/shared/types/game';
 import { GameEngine } from '../../src/shared/engine/GameEngine';
 import {
@@ -1583,6 +1584,276 @@ function generateMultiRegionTerritoryFixtureForBoard(
   };
 }
 
+/**
+ * Ring-cap plateau fixture: exact-cap case on square8.
+ *
+ * P1 has exactly ringsPerPlayer own-colour rings on the board (including
+ * rings buried inside mixed-colour stacks) and no rings in hand. Captured
+ * opponent rings are present in mixed stacks but must not count against P1's
+ * own-colour cap. Any additional place_ring attempt for P1 is therefore
+ * rejected by the shared placement validator.
+ */
+function generateRingcapExactPlateauFixtureForSquare8(
+  baseState: EngineGameState,
+  version: FixtureVersion
+): StateActionFixture {
+  const boardType: BoardType = 'square8';
+
+  const state = JSON.parse(JSON.stringify(baseState)) as any;
+  state.currentPlayer = 1;
+  state.currentPhase = 'ring_placement';
+  state.board.stacks = new Map();
+  state.board.markers = new Map();
+  state.board.collapsedSpaces = new Map();
+  state.board.territories = new Map();
+  state.board.formedLines = [];
+  state.board.eliminatedRings = {
+    1: 0,
+    2: 0,
+  };
+
+  // Pure P1 stacks: four stacks of height 4 → 16 own-colour rings.
+  const pureP1Positions: Position[] = [
+    { x: 0, y: 0 },
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: 1, y: 1 },
+  ];
+
+  for (const pos of pureP1Positions) {
+    const key = `${pos.x},${pos.y}`;
+    const rings = [1, 1, 1, 1];
+    state.board.stacks.set(key, {
+      position: pos,
+      rings,
+      stackHeight: rings.length,
+      capHeight: rings.length,
+      controllingPlayer: 1,
+    });
+  }
+
+  // Mixed stack: top P2 ring with two buried P1 rings (2 additional own-colour).
+  const mixedPos: Position = { x: 3, y: 3 };
+  state.board.stacks.set('3,3', {
+    position: mixedPos,
+    rings: [2, 1, 1],
+    stackHeight: 3,
+    capHeight: 1,
+    controllingPlayer: 2,
+  });
+
+  // Pure opponent stack for additional context.
+  const oppPos: Position = { x: 5, y: 5 };
+  state.board.stacks.set('5,5', {
+    position: oppPos,
+    rings: [2, 2, 2],
+    stackHeight: 3,
+    capHeight: 3,
+    controllingPlayer: 2,
+  });
+
+  // Player supplies: P1 has no rings in hand but 18 own-colour rings on board.
+  state.players = state.players.map((p: any) => {
+    if (p.playerNumber === 1) {
+      return {
+        ...p,
+        ringsInHand: 0,
+        eliminatedRings: 0,
+        territorySpaces: 0,
+      };
+    }
+    if (p.playerNumber === 2) {
+      return {
+        ...p,
+        eliminatedRings: 0,
+        territorySpaces: 0,
+      };
+    }
+    return p;
+  });
+
+  const fixtureState = toFixtureState(state as EngineGameState, boardType);
+
+  const move: Move = {
+    id: 'fixture-square8-2p-ringcap-exact-plateau',
+    type: 'place_ring',
+    player: 1,
+    to: { x: 4, y: 4 },
+    placedOnStack: false,
+    placementCount: 1,
+    timestamp: new Date(0),
+    thinkTime: 0,
+    moveNumber: 1,
+  };
+
+  const action: PlaceRingAction = {
+    type: 'PLACE_RING',
+    playerId: move.player,
+    position: move.to,
+    count: move.placementCount ?? 1,
+  };
+
+  const tsValidation = validatePlacement(state as EngineGameState, action);
+
+  const expected: StateActionExpected = {
+    tsValid: tsValidation.valid,
+    tsValidation,
+  };
+
+  return {
+    id: 'square8_2p.ringcap_exact_plateau',
+    version,
+    boardType,
+    description:
+      'Ring-cap exact plateau on square8 where P1 already has ringsPerPlayer own-colour rings on the board and cannot place another ring.',
+    state: fixtureState,
+    move,
+    expected,
+  };
+}
+
+/**
+ * Ring-cap plateau fixture: near-cap mixed-stack case on square8.
+ *
+ * P1 has ringsPerPlayer - 2 own-colour rings on the board, many captured
+ * opponent-colour rings in the same tall stack, and exactly 2 rings in
+ * hand. Captured opponent rings must not count against P1’s own-colour cap,
+ * so a multi-ring placement that hits the cap remains legal.
+ */
+function generateRingcapMixedPlateauFixtureForSquare8(
+  baseState: EngineGameState,
+  version: FixtureVersion
+): StateActionFixture {
+  const boardType: BoardType = 'square8';
+
+  const state = JSON.parse(JSON.stringify(baseState)) as any;
+  state.currentPlayer = 1;
+  state.currentPhase = 'ring_placement';
+  state.board.stacks = new Map();
+  state.board.markers = new Map();
+  state.board.collapsedSpaces = new Map();
+  state.board.territories = new Map();
+  state.board.formedLines = [];
+  state.board.eliminatedRings = {
+    1: 0,
+    2: 0,
+  };
+
+  const perPlayerCap = BOARD_CONFIGS[boardType].ringsPerPlayer;
+  const ownOnBoard = perPlayerCap - 2;
+  const capturedOpponent = 10;
+
+  const tallPos: Position = { x: 0, y: 0 };
+  const rings: number[] = [
+    // Top segment: own-colour rings forming the cap run.
+    ...new Array(ownOnBoard).fill(1),
+    // Buried captured opponent rings below.
+    ...new Array(capturedOpponent).fill(2),
+  ];
+
+  state.board.stacks.set('0,0', {
+    position: tallPos,
+    rings,
+    stackHeight: rings.length,
+    capHeight: ownOnBoard,
+    controllingPlayer: 1,
+  });
+
+  // Additional opponent-only stack for context.
+  state.board.stacks.set('7,7', {
+    position: { x: 7, y: 7 },
+    rings: [2, 2],
+    stackHeight: 2,
+    capHeight: 2,
+    controllingPlayer: 2,
+  });
+
+  // Player supplies: P1 has exactly 2 rings in hand; P2 retains base supply.
+  state.players = state.players.map((p: any) => {
+    if (p.playerNumber === 1) {
+      return {
+        ...p,
+        ringsInHand: 2,
+        eliminatedRings: 0,
+        territorySpaces: 0,
+      };
+    }
+    if (p.playerNumber === 2) {
+      return {
+        ...p,
+        eliminatedRings: 0,
+        territorySpaces: 0,
+      };
+    }
+    return p;
+  });
+
+  const fixtureState = toFixtureState(state as EngineGameState, boardType);
+
+  // Canonical near-cap test move: P1 places 2 rings onto an empty cell,
+  // bringing their on-board own-colour count up to the per-player cap.
+  const placementTarget: Position = { x: 4, y: 4 };
+
+  const move: Move = {
+    id: 'fixture-square8-2p-ringcap-mixed-plateau',
+    type: 'place_ring',
+    player: 1,
+    to: placementTarget,
+    placedOnStack: false,
+    placementCount: 2,
+    timestamp: new Date(0),
+    thinkTime: 0,
+    moveNumber: 1,
+  };
+
+  const action: PlaceRingAction = {
+    type: 'PLACE_RING',
+    playerId: move.player,
+    position: move.to,
+    count: move.placementCount ?? 1,
+  };
+
+  const tsValidation = validatePlacement(state as EngineGameState, action);
+
+  const engine = new GameEngine(state as EngineGameState);
+  const event = engine.processAction(action);
+  if (event.type !== 'ACTION_PROCESSED') {
+    return {
+      id: 'square8_2p.ringcap_mixed_plateau',
+      version,
+      boardType,
+      description:
+        'Near-cap mixed-stack plateau on square8 where captured opponent rings do not count against P1 own-colour ring cap.',
+      state: fixtureState,
+      move,
+      expected: {
+        tsValid: tsValidation.valid,
+        tsValidation,
+      },
+    };
+  }
+
+  const engineAfter = engine.getGameState();
+  const sharedAfter = toSharedState(engineAfter, boardType);
+
+  const expected: StateActionExpected = {
+    tsValid: tsValidation.valid,
+    tsValidation,
+    tsNext: snapshotState(sharedAfter),
+  };
+
+  return {
+    id: 'square8_2p.ringcap_mixed_plateau',
+    version,
+    boardType,
+    description:
+      'Near-cap mixed-stack plateau on square8 where captured opponent rings do not count against P1 own-colour ring cap.',
+    state: fixtureState,
+    move,
+    expected,
+  };
+}
+
 function writeFixtures(outDir: string, fixtures: { name: string; data: unknown }[]): void {
   mkdirSync(outDir, { recursive: true });
 
@@ -1845,6 +2116,22 @@ function generateV2Fixtures(): void {
         data: multiRegionTrace,
       }
     );
+
+    if (boardType === 'square8') {
+      const exactCapFixture = generateRingcapExactPlateauFixtureForSquare8(baseState, 'v2');
+      const mixedCapFixture = generateRingcapMixedPlateauFixtureForSquare8(baseState, 'v2');
+
+      fixtures.push(
+        {
+          name: 'state_action.square8_2p.ringcap_exact_plateau.json',
+          data: exactCapFixture,
+        },
+        {
+          name: 'state_action.square8_2p.ringcap_mixed_plateau.json',
+          data: mixedCapFixture,
+        }
+      );
+    }
   }
 
   if (fixtures.length > 0) {

@@ -23,7 +23,7 @@ from app.game_engine import GameEngine  # noqa: E402
 from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
 from app.training.env import RingRiftEnv  # noqa: E402
 from app.board_manager import BoardManager  # noqa: E402
-from tests.rules.test_utils import _make_base_game_state  # noqa: E402
+from tests.rules.helpers import _make_base_game_state  # noqa: E402
 
 
 @pytest.mark.parametrize("board_type", [BoardType.SQUARE8, BoardType.SQUARE19])

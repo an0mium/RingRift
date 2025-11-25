@@ -2,8 +2,8 @@
 
 This backlog captures concrete follow-up work for the RingRift AI system across TypeScript, Python, and documentation. It is intended as a ticket-ready index; architectural context and rationale live in **`AI_ARCHITECTURE.md`** (canonical overview) and historical deep dives:
 
-- `AI In Depth Improvement Analysis.md` (historical, detailed review)
-- `ai-service/AI_ASSESSMENT_REPORT.md` (Python AI service–focused review)
+- `archive/AI In Depth Improvement Analysis.md` (historical, detailed review)
+- `deprecated/AI_ASSESSMENT_REPORT.md` (Python AI service–focused review)
 
 Status markers:
 
@@ -418,9 +418,9 @@ Canonical mapping (see `AI_ARCHITECTURE.md` §1.2):
     - Includes a high-level roadmap linked to this backlog.
 
 - [ ] **Mark older AI docs as historical / auxiliary**
-  - At the top of `AI In Depth Improvement Analysis.md`, add a banner:
-    - “Historical deep-dive; see `AI_ARCHITECTURE.md` and `AI_IMPROVEMENT_BACKLOG.md` for current behaviour and tasks.”
-  - At the top of `ai-service/AI_ASSESSMENT_REPORT.md`, add a similar banner focused on the Python AI service.
+  - At the top of `archive/AI In Depth Improvement Analysis.md`, add a banner:
+    - “Historical deep-dive; see `AI_ARCHITECTURE.md` and `docs/supplementary/AI_IMPROVEMENT_BACKLOG.md` for current behaviour and tasks.”
+  - At the top of `deprecated/AI_ASSESSMENT_REPORT.md`, add a similar banner focused on the Python AI service.
 
 - [ ] **Keep docs and code in lockstep**
   - For any future change to:
@@ -429,7 +429,7 @@ Canonical mapping (see `AI_ARCHITECTURE.md` §1.2):
     - RNG/seed behaviour.
   - Require updates to:
     - `AI_ARCHITECTURE.md`.
-    - `AI_IMPROVEMENT_BACKLOG.md` (if it affects roadmap).
+    - `docs/supplementary/AI_IMPROVEMENT_BACKLOG.md` (if it affects roadmap).
     - Relevant comments in TS and Python code.
   - Use the following **difficulty-ladder governance checklist** whenever the 1–10 ladder
     is modified:

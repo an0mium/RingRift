@@ -7,120 +7,204 @@ import {
   AuthorizationError,
 } from '../../shared/validation/schemas';
 import { config } from '../config';
+import {
+  ApiError,
+  ErrorCodes,
+  normalizeErrorCode,
+  ErrorCodeToStatus,
+  ErrorCodeMessages,
+} from '../errors';
+import type { ApiErrorResponse, ValidationErrorDetail, ErrorCode } from '../errors';
 
+/**
+ * Legacy AppError interface for backward compatibility with existing code.
+ * New code should use ApiError class instead.
+ */
 export interface AppError extends Error {
   statusCode?: number;
   code?: string;
   isOperational?: boolean;
 }
 
-export const errorHandler = (error: AppError, req: Request, res: Response, _next: NextFunction) => {
-  let statusCode = error.statusCode || 500;
-  let message = error.message || 'Internal Server Error';
-  let code = error.code || 'INTERNAL_ERROR';
+/**
+ * Express Request with requestId attached by middleware.
+ */
+interface RequestWithId extends Request {
+  requestId?: string;
+}
 
-  // Handle specific error types
-  if (error instanceof ZodError) {
-    statusCode = 400;
-    code = 'INVALID_REQUEST';
-    // Use the first issue message when available, fall back to generic message
-    if (error.issues?.length > 0) {
-      message = error.issues[0]?.message || message;
-    }
-  } else if (error instanceof ValidationError) {
-    statusCode = 400;
-    code = 'INVALID_REQUEST';
-  } else if (error instanceof AuthenticationError) {
-    statusCode = 401;
-    code = 'AUTHENTICATION_ERROR';
-  } else if (error instanceof AuthorizationError) {
-    statusCode = 403;
-    code = 'AUTHORIZATION_ERROR';
-  } else if (error.name === 'JsonWebTokenError') {
-    statusCode = 401;
-    code = 'INVALID_TOKEN';
-    message = 'Invalid authentication token';
-  } else if (error.name === 'TokenExpiredError') {
-    statusCode = 401;
-    code = 'TOKEN_EXPIRED';
-    message = 'Authentication token has expired';
-  } else if (error.name === 'CastError') {
-    statusCode = 400;
-    code = 'INVALID_ID';
-    message = 'Invalid ID format';
-  } else if (error.name === 'MongoError' && (error as any).code === 11000) {
-    statusCode = 409;
-    code = 'DUPLICATE_ENTRY';
-    message = 'Duplicate entry found';
-  } else if (
-    error.code === 'AI_SERVICE_TIMEOUT' ||
-    error.code === 'AI_SERVICE_UNAVAILABLE' ||
-    error.code === 'AI_SERVICE_ERROR' ||
-    error.code === 'AI_SERVICE_OVERLOADED'
-  ) {
-    // Map AI dependency failures onto well-defined 5xx responses while
-    // preserving any explicit statusCode that upstream callers provided.
-    if (error.statusCode && error.statusCode >= 500 && error.statusCode <= 599) {
-      statusCode = error.statusCode;
-    } else if (error.code === 'AI_SERVICE_ERROR') {
-      statusCode = 502;
-    } else {
-      statusCode = 503;
-    }
-    code = error.code;
-  } else if (error.code === 'DATABASE_UNAVAILABLE') {
-    // Database connectivity issues are treated as temporary 5xx errors so that
-    // clients and operators can distinguish them from generic 500s.
-    statusCode = error.statusCode || 503;
-    code = 'DATABASE_UNAVAILABLE';
+/**
+ * Map ZodError to standardized validation error details.
+ */
+function mapZodErrorToDetails(error: ZodError): ValidationErrorDetail[] {
+  return error.issues.map((issue) => ({
+    field: issue.path.join('.'),
+    message: issue.message,
+    code: issue.code,
+  }));
+}
+
+/**
+ * Determine error code from legacy error types.
+ */
+function getErrorCodeFromLegacy(error: Error): ErrorCode {
+  const anyError = error as any;
+
+  // Check for explicit code property
+  if (anyError.code) {
+    return normalizeErrorCode(anyError.code);
   }
 
-  // Log error with correlation id when available
-  if (statusCode >= 500) {
-    logger.error(
-      'Server Error:',
-      withRequestContext(req as any, {
-        error: error.message,
-        stack: error.stack,
-        url: req.url,
-        method: req.method,
-        ip: req.ip,
-        userAgent: req.get('User-Agent'),
-      })
-    );
+  // Handle JWT errors
+  if (error.name === 'JsonWebTokenError') {
+    return ErrorCodes.AUTH_TOKEN_INVALID;
+  }
+  if (error.name === 'TokenExpiredError') {
+    return ErrorCodes.AUTH_TOKEN_EXPIRED;
+  }
+
+  // Handle MongoDB/Prisma errors
+  if (error.name === 'CastError') {
+    return ErrorCodes.VALIDATION_INVALID_ID;
+  }
+  if (error.name === 'MongoError' && anyError.code === 11000) {
+    return ErrorCodes.RESOURCE_ALREADY_EXISTS;
+  }
+
+  // Handle custom error types from validation schemas
+  if (error instanceof ValidationError) {
+    return ErrorCodes.VALIDATION_FAILED;
+  }
+  if (error instanceof AuthenticationError) {
+    return ErrorCodes.AUTH_TOKEN_INVALID;
+  }
+  if (error instanceof AuthorizationError) {
+    return ErrorCodes.AUTH_FORBIDDEN;
+  }
+
+  return ErrorCodes.SERVER_INTERNAL_ERROR;
+}
+
+/**
+ * Centralized error handler middleware.
+ *
+ * Converts all errors to standardized API error response format:
+ * ```json
+ * {
+ *   "success": false,
+ *   "error": {
+ *     "code": "AUTH_INVALID_CREDENTIALS",
+ *     "message": "Invalid credentials",
+ *     "details": [...],  // For validation errors
+ *     "requestId": "abc-123",
+ *     "timestamp": "2024-01-01T00:00:00.000Z"
+ *   }
+ * }
+ * ```
+ *
+ * In development mode, additional debug information (stack trace) may be included.
+ * In production, stack traces are never exposed to clients.
+ */
+export const errorHandler = (
+  error: Error | ApiError | AppError,
+  req: RequestWithId,
+  res: Response,
+  _next: NextFunction
+) => {
+  // Get correlation ID from request (attached by middleware)
+  const requestId = req.requestId;
+
+  // Convert to ApiError if not already
+  let apiError: ApiError;
+  let validationDetails: ValidationErrorDetail[] | undefined;
+
+  if (error instanceof ApiError) {
+    // Already an ApiError, use as-is
+    apiError = error;
+  } else if (error instanceof ZodError) {
+    // Zod validation error
+    validationDetails = mapZodErrorToDetails(error);
+    apiError = new ApiError({
+      code: ErrorCodes.VALIDATION_FAILED,
+      message: validationDetails[0]?.message || 'Validation failed',
+      details: validationDetails,
+    });
   } else {
-    logger.warn(
-      'Client Error:',
-      withRequestContext(req as any, {
-        error: error.message,
-        url: req.url,
-        method: req.method,
-        ip: req.ip,
-        statusCode,
-      })
-    );
+    // Convert legacy error to ApiError
+    const errorCode = getErrorCodeFromLegacy(error);
+    const anyError = error as AppError;
+
+    apiError = new ApiError({
+      code: errorCode,
+      message: error.message || ErrorCodeMessages[errorCode],
+      statusCode: anyError.statusCode || ErrorCodeToStatus[errorCode],
+      cause: error,
+      isOperational: anyError.isOperational ?? true,
+    });
   }
 
-  // Send error response
-  const includeDebugDetails = config.isDevelopment && statusCode >= 500;
+  // Log error with correlation ID and context
+  const logContext = withRequestContext(req, {
+    error: apiError.message,
+    code: apiError.code,
+    statusCode: apiError.statusCode,
+    url: req.url,
+    method: req.method,
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    ...(apiError.cause && { originalError: apiError.cause.message }),
+    ...(apiError.cause?.stack && { stack: apiError.cause.stack }),
+  });
 
-  const errorResponse = {
-    success: false,
-    error: {
-      message,
-      code,
-      timestamp: new Date().toISOString(),
-      ...(includeDebugDetails && {
-        stack: error.stack,
-        details: error,
-      }),
-    },
-  };
+  // Log at appropriate level based on status code
+  if (apiError.statusCode >= 500) {
+    logger.error('Server Error:', logContext);
+  } else if (apiError.statusCode >= 400) {
+    logger.warn('Client Error:', logContext);
+  } else {
+    logger.info('Error:', logContext);
+  }
 
-  res.status(statusCode).json(errorResponse);
+  // Build response using ApiError's toResponse method
+  const response = apiError.toResponse(requestId);
+
+  // In development, include debug details for 5xx errors
+  if (config.isDevelopment && apiError.statusCode >= 500) {
+    const debugResponse = response as ApiErrorResponse & {
+      error: ApiErrorResponse['error'] & {
+        stack?: string;
+        debug?: Record<string, unknown>;
+      };
+    };
+    if (apiError.cause?.stack) {
+      debugResponse.error.stack = apiError.cause.stack;
+    } else if (apiError.stack) {
+      debugResponse.error.stack = apiError.stack;
+    }
+    res.status(apiError.statusCode).json(debugResponse);
+    return;
+  }
+
+  // Send standardized error response
+  res.status(apiError.statusCode).json(response);
 };
 
-// Async error wrapper
+// ============================================================================
+// Backward Compatibility Layer
+// ============================================================================
+
+/**
+ * Async error wrapper for route handlers.
+ * Catches errors from async handlers and passes them to the error handler.
+ *
+ * @example
+ * ```ts
+ * router.get('/users', asyncHandler(async (req, res) => {
+ *   const users = await getUsers();
+ *   res.json({ success: true, data: users });
+ * }));
+ * ```
+ */
 type AsyncRequestHandler = (req: Request, res: Response, next: NextFunction) => Promise<any> | any;
 
 export const asyncHandler = (fn: AsyncRequestHandler) => {
@@ -129,19 +213,38 @@ export const asyncHandler = (fn: AsyncRequestHandler) => {
   };
 };
 
-// Create custom error
-export const createError = (message: string, statusCode: number = 500, code?: string): AppError => {
+/**
+ * Create a custom error.
+ *
+ * @deprecated Use `new ApiError({ code, message })` instead.
+ * This function is kept for backward compatibility with existing code.
+ */
+export const createError = (message: string, statusCode: number = 500, code?: string): AppError | ApiError => {
+  // If a standardized code is provided, use ApiError
+  if (code) {
+    const normalizedCode = normalizeErrorCode(code);
+    return new ApiError({
+      code: normalizedCode,
+      message,
+      statusCode,
+    });
+  }
+
+  // Fallback for legacy usage without code
   const error: AppError = new Error(message);
   error.statusCode = statusCode;
-  if (code) {
-    error.code = code;
-  }
   error.isOperational = true;
   return error;
 };
 
-// Not found handler
+/**
+ * Not found handler middleware.
+ * Handles requests to undefined routes with standardized error response.
+ */
 export const notFoundHandler = (req: Request, _res: Response, next: NextFunction) => {
-  const error = createError(`Route ${req.originalUrl} not found`, 404, 'NOT_FOUND');
+  const error = new ApiError({
+    code: ErrorCodes.RESOURCE_ROUTE_NOT_FOUND,
+    message: `Route ${req.originalUrl} not found`,
+  });
   next(error);
 };

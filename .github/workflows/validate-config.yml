@@ -1,0 +1,116 @@
+name: Validate Deployment Config
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'docker-compose*.yml'
+      - 'Dockerfile'
+      - '.env.example'
+      - 'src/server/config/env.ts'
+      - 'scripts/validate-deployment-config.ts'
+  pull_request:
+    paths:
+      - 'docker-compose*.yml'
+      - 'Dockerfile'
+      - '.env.example'
+      - 'src/server/config/env.ts'
+      - 'scripts/validate-deployment-config.ts'
+
+jobs:
+  validate:
+    name: Validate Deployment Configurations
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run deployment config validation
+        run: npm run validate:deployment
+
+      - name: Verify docker-compose syntax
+        run: |
+          # Install docker-compose v2 if not present
+          docker compose version || echo "Docker Compose not available, skipping syntax check"
+          
+          # Validate docker-compose.yml syntax
+          if command -v docker &> /dev/null; then
+            echo "Validating docker-compose.yml syntax..."
+            docker compose -f docker-compose.yml config --quiet && echo "✅ docker-compose.yml is valid"
+            
+            echo "Validating docker-compose.staging.yml syntax..."
+            docker compose -f docker-compose.yml -f docker-compose.staging.yml config --quiet && echo "✅ docker-compose.staging.yml is valid"
+          fi
+
+      - name: Check for hardcoded secrets
+        run: |
+          echo "Scanning for potential hardcoded secrets..."
+          
+          # Check docker-compose files for common secret patterns
+          if grep -rE "(password|secret|key)=['\"]?[a-zA-Z0-9]{8,}['\"]?" docker-compose*.yml 2>/dev/null | grep -v '\${'; then
+            echo "⚠️ Warning: Potential hardcoded secrets found (review above)"
+          else
+            echo "✅ No obvious hardcoded secrets in docker-compose files"
+          fi
+          
+          # This is informational only - validation script checks more thoroughly
+
+      - name: Validate Dockerfile
+        run: |
+          echo "Checking Dockerfile best practices..."
+          
+          # Check for HEALTHCHECK
+          if grep -q "HEALTHCHECK" Dockerfile; then
+            echo "✅ Dockerfile has HEALTHCHECK instruction"
+          else
+            echo "⚠️ Warning: Dockerfile missing HEALTHCHECK instruction"
+          fi
+          
+          # Check for non-root user
+          if grep -q "USER " Dockerfile && ! grep -q "USER root" Dockerfile; then
+            echo "✅ Dockerfile runs as non-root user"
+          else
+            echo "⚠️ Warning: Dockerfile may run as root"
+          fi
+          
+          # Check for multi-stage build
+          if grep -q "AS builder\|AS runtime" Dockerfile; then
+            echo "✅ Dockerfile uses multi-stage build"
+          else
+            echo "⚠️ Warning: Consider using multi-stage build"
+          fi
+
+  # Optional: Build test to ensure Docker images can be built
+  build-test:
+    name: Test Docker Build
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build app image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ringrift:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

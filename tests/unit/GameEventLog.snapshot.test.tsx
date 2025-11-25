@@ -8,6 +8,7 @@ import {
   Move,
   Position,
   ProgressSnapshot,
+  GameResult,
 } from '../../src/shared/types/game';
 
 function pos(x: number, y: number, z?: number): Position {
@@ -92,5 +93,26 @@ describe('GameEventLog snapshot', () => {
     );
 
     expect(html).toMatchSnapshot();
+  });
+
+  it('renders an LPS victory line with a clear label', () => {
+    const history: GameHistoryEntry[] = [];
+    const systemEvents: string[] = [];
+
+    const victoryState: GameResult = {
+      winner: 1,
+      reason: 'last_player_standing',
+      finalScore: {
+        ringsEliminated: {},
+        territorySpaces: {},
+        ringsRemaining: {},
+      },
+    };
+
+    const html = renderToString(
+      <GameEventLog history={history} systemEvents={systemEvents} victoryState={victoryState} />
+    );
+
+    expect(html).toContain('wins by Last Player Standing');
   });
 });

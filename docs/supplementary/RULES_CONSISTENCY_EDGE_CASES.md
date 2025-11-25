@@ -8,8 +8,8 @@ The focus is **not** to redo full static or dynamic verification, but to sit on 
 
 - Canonical rules `RR‑CANON‑R001–R191` in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:36).
 - Implementation mapping in [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:1).
-- Static analysis in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:1).
-- Scenario and soak analysis in [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1).
+- Static analysis in [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:1).
+- Scenario and soak analysis in [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:1).
 
 Code behaviour is inferred primarily from the shared engine and orchestration:
 
@@ -75,7 +75,7 @@ Each subsection lists:
   - After forced‑elimination pre‑pass, sandbox chooses starting phase by `ringsInHand > 0 ? 'ring_placement' : 'movement'`, **without** re‑checking whether any legal placements actually exist. This can produce states where `currentPhase === 'ring_placement'` but the only legal action is effectively to skip and move.
 - **Python**
   - Python’s `GameEngine` mirrors backend enumeration for placements/movements/captures, and exposes a FORCED_ELIMINATION move whenever stacks exist but no actions are legal.
-  - A strict “no active player without a legal move or forced elimination” invariant (see [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:918)) ensures dynamically that every ACTIVE state offers at least one action to the `current_player`, including forced elimination.
+  - A strict “no active player without a legal move or forced elimination” invariant (see [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:918)) ensures dynamically that every ACTIVE state offers at least one action to the `current_player`, including forced elimination.
 
 #### 2.1.3 Classification & impact
 
@@ -266,7 +266,7 @@ This section answers the five explicitly requested questions, with cross‑refer
 
 - **RR‑CANON:** Ring counts and caps (`R020–R023`, `R060–R062`, `R080–R082`) in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:61).
 - **Code:** `ringsPerPlayer` cap enforced using **total height of stacks controlled by the player**, not the count of rings of that colour, in:
-  - Backend placement validator and enumeration (see [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:755)).
+  - Backend placement validator and enumeration (see [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:755)).
   - Sandbox `hasAnyPlacement` and forced‑elimination gating via [`TypeScript.sandboxTurnEngine`](src/client/sandbox/sandboxTurnEngine.ts:122,278).
 - **Assessment:**
   - The implementation counts **all rings in stacks whose top ring the player controls**, including buried opponent rings, when enforcing a per‑player cap based on `BOARD_CONFIGS[boardType].ringsPerPlayer`.
@@ -362,7 +362,7 @@ Each entry below lists RR‑CANON references, code touchpoints, observed vs inte
 ### CCE‑002 – Placement cap approximation counts all rings in controlled stacks
 
 - **RR‑CANON rules:** `R020–R023`, `R060–R062`, `R080–R082` ([`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:61)).
-- **Code / tests:** Shared placement validator and RuleEngine enumeration described in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:755); sandbox `hasAnyPlacement` and forced‑elimination gating in [`TypeScript.sandboxTurnEngine`](src/client/sandbox/sandboxTurnEngine.ts:122,278); AI / Python parity tests around placement capacity in `ai-service/tests/**`.
+- **Code / tests:** Shared placement validator and RuleEngine enumeration described in [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:755); sandbox `hasAnyPlacement` and forced‑elimination gating in [`TypeScript.sandboxTurnEngine`](src/client/sandbox/sandboxTurnEngine.ts:122,278); AI / Python parity tests around placement capacity in `ai-service/tests/**`.
 - **Interaction / edge case:** Near‑cap states with tall mixed‑colour stacks under a player’s control (many captured opponent rings under a small own‑colour cap) where total stack heights exceed `ringsPerPlayer` even though few own‑colour rings are actually on the board.
 - **Intended behaviour (RR‑CANON):** Caps conceptually apply to rings of that player’s colour; as long as ring conservation is respected, additional placements of own‑colour rings should be legal up to the physical supply.
 - **Observed behaviour:** Implementation forbids further placements once the sum of **heights** of controlled stacks reaches `ringsPerPlayer`, regardless of ring colours within those stacks.
@@ -474,7 +474,7 @@ Each entry below lists RR‑CANON references, code touchpoints, observed vs inte
 
 ## 5. Coverage of High‑Risk Areas from Prior Reports
 
-High‑risk themes identified in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:975) and [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:665) are addressed as follows:
+High‑risk themes identified in [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:975) and [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:665) are addressed as follows:
 
 - **Board invariant repair (SCEN‑BOARD‑001):** Covered by `CCE‑001`. Classified as an `Implementation compromise` with Medium severity; recommendation is to instrument and treat repairs as test failures on legal traces.
 - **Sandbox turn / placement semantics (SCEN‑TURN‑001/SCEN‑PLACEMENT‑002):** Covered by `CCE‑003`. Classified as `Intentional but under‑documented`, sandbox‑only, with recommendations for explicit parity tests and optional internal `skip_placement`.

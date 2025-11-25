@@ -49,27 +49,54 @@ describe('RulesMatrix → ClientSandboxEngine victory scenarios (sandbox)', () =
     return new ClientSandboxEngine({ config, interactionHandler: handler });
   }
 
+  function createThreePlayerEngine(): ClientSandboxEngine {
+    const config: SandboxConfig = {
+      boardType,
+      numPlayers: 3,
+      playerKinds: ['human', 'human', 'human'],
+    };
+
+    const handler: SandboxInteractionHandler = {
+      async requestChoice<TChoice extends PlayerChoice>(
+        choice: TChoice
+      ): Promise<PlayerChoiceResponseFor<TChoice>> {
+        const anyChoice = choice as any;
+        const options: any[] = (anyChoice.options as any[]) ?? [];
+        const selectedOption = options.length > 0 ? options[0] : undefined;
+
+        return {
+          choiceId: anyChoice.id,
+          playerNumber: anyChoice.playerNumber,
+          choiceType: anyChoice.type,
+          selectedOption,
+        } as PlayerChoiceResponseFor<TChoice>;
+      },
+    };
+
+    return new ClientSandboxEngine({ config, interactionHandler: handler });
+  }
+
   const scenarios: VictoryRuleScenario[] = victoryRuleScenarios.filter(
     (s) =>
       s.ref.id === 'Rules_13_1_ring_elimination_threshold_square8' ||
-      s.ref.id === 'Rules_13_2_territory_control_threshold_square8'
+      s.ref.id === 'Rules_13_2_territory_control_threshold_square8' ||
+      s.ref.id === 'Rules_13_3_last_player_standing_3p_unique_actor_square8'
   );
 
   test.each<VictoryRuleScenario>(scenarios)(
-    '%s → sandbox checkAndApplyVictory matches victory threshold semantics',
+    '%s → sandbox victory semantics match rules/FAQ expectations',
     (scenario) => {
-      const engine = createEngine();
-      const engineAny: any = engine;
-      const state: GameState = engineAny.gameState as GameState;
-
-      // Reset any existing victory state.
-      engineAny.victoryResult = null;
-      state.gameStatus = 'active';
-      (state as any).winner = undefined;
-
-      const player1 = state.players.find((p) => p.playerNumber === 1)!;
-
       if (scenario.ref.id === 'Rules_13_1_ring_elimination_threshold_square8') {
+        const engine = createEngine();
+        const engineAny: any = engine;
+        const state: GameState = engineAny.gameState as GameState;
+
+        // Reset any existing victory state.
+        engineAny.victoryResult = null;
+        state.gameStatus = 'active';
+        (state as any).winner = undefined;
+
+        const player1 = state.players.find((p) => p.playerNumber === 1)!;
         const threshold = state.victoryThreshold;
         player1.eliminatedRings = threshold;
         state.board.eliminatedRings[1] = threshold;
@@ -86,6 +113,16 @@ describe('RulesMatrix → ClientSandboxEngine victory scenarios (sandbox)', () =
         expect(finalState.gameStatus).toBe('completed');
         expect(finalState.winner).toBe(1);
       } else if (scenario.ref.id === 'Rules_13_2_territory_control_threshold_square8') {
+        const engine = createEngine();
+        const engineAny: any = engine;
+        const state: GameState = engineAny.gameState as GameState;
+
+        // Reset any existing victory state.
+        engineAny.victoryResult = null;
+        state.gameStatus = 'active';
+        (state as any).winner = undefined;
+
+        const player1 = state.players.find((p) => p.playerNumber === 1)!;
         const threshold = state.territoryVictoryThreshold;
         player1.territorySpaces = threshold;
 
@@ -97,6 +134,48 @@ describe('RulesMatrix → ClientSandboxEngine victory scenarios (sandbox)', () =
         expect(result).not.toBeNull();
         expect(result!.reason).toBe('territory_control');
         expect(result!.winner).toBe(1);
+        expect(finalState.gameStatus).toBe('completed');
+        expect(finalState.winner).toBe(1);
+      } else if (
+        scenario.ref.id === 'Rules_13_3_last_player_standing_3p_unique_actor_square8'
+      ) {
+        const engine = createThreePlayerEngine();
+        const engineAny: any = engine;
+        const state: GameState = engineAny.gameState as GameState;
+
+        // Ensure LPS starts from an active game.
+        engineAny.victoryResult = null;
+        state.gameStatus = 'active';
+        (state as any).winner = undefined;
+
+        const realActionByPlayer: Record<number, boolean> = { 1: true, 2: false, 3: false };
+        engineAny.hasAnyRealActionForPlayer = jest.fn(
+          (playerNumber: number) => !!realActionByPlayer[playerNumber]
+        );
+
+        const startInteractiveTurn = (playerNumber: number): GameResult | null => {
+          state.currentPlayer = playerNumber;
+          state.currentPhase = 'ring_placement';
+          engineAny.handleStartOfInteractiveTurn();
+          return engine.getVictoryResult();
+        };
+
+        let result = startInteractiveTurn(1);
+        expect(result).toBeNull();
+
+        result = startInteractiveTurn(2);
+        expect(result).toBeNull();
+
+        result = startInteractiveTurn(3);
+        expect(result).toBeNull();
+
+        result = startInteractiveTurn(1);
+
+        expect(result).not.toBeNull();
+        expect(result!.reason).toBe('last_player_standing');
+        expect(result!.winner).toBe(1);
+
+        const finalState = engine.getGameState();
         expect(finalState.gameStatus).toBe('completed');
         expect(finalState.winner).toBe(1);
       } else {

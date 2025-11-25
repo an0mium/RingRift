@@ -11,7 +11,12 @@ import {
 } from '../middleware/auth';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
-import { authRateLimiter } from '../middleware/rateLimiter';
+import {
+  authRateLimiter,
+  authLoginRateLimiter,
+  authRegisterRateLimiter,
+  authPasswordResetRateLimiter,
+} from '../middleware/rateLimiter';
 import { logger, httpLogger, redactEmail } from '../utils/logger';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email';
 import {
@@ -26,6 +31,37 @@ import { getCacheService, CacheKeys } from '../cache/redis';
 import { config } from '../config';
 
 const router = Router();
+
+/**
+ * Refresh token expiry in milliseconds (7 days).
+ * This is used consistently across all token creation points.
+ */
+const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Cookie options for secure refresh token handling.
+ * In production: httpOnly, secure (HTTPS only), sameSite=strict
+ * In development: httpOnly, sameSite=lax (allows localhost testing)
+ */
+const getRefreshTokenCookieOptions = (): {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'strict' | 'lax' | 'none';
+  maxAge: number;
+  path: string;
+} => ({
+  httpOnly: true,
+  secure: config.isProduction,
+  sameSite: config.isProduction ? 'strict' : 'lax',
+  maxAge: REFRESH_TOKEN_EXPIRY_MS,
+  path: '/api/auth', // Only send cookie to auth endpoints
+});
+
+/**
+ * Generate a new token family ID for tracking refresh token chains.
+ * Each login creates a new family; rotated tokens inherit the family.
+ */
+const generateFamilyId = (): string => crypto.randomUUID();
 
 type FailedLoginRecord = {
   count: number;
@@ -197,12 +233,69 @@ const resetLoginFailures = async (email: string): Promise<void> => {
   inMemoryLockouts.delete(normalizedEmail);
 };
 
-// Apply rate limiting to all auth routes
+// Apply general auth rate limiting to all routes
 router.use(authRateLimiter);
 
-// Register
+/**
+ * @openapi
+ * /auth/register:
+ *   post:
+ *     summary: Register a new user account
+ *     description: |
+ *       Creates a new user account with the provided credentials.
+ *       A verification email will be sent to the provided email address.
+ *       Returns access and refresh tokens upon successful registration.
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/RegisterRequest'
+ *     responses:
+ *       201:
+ *         description: User registered successfully
+ *         headers:
+ *           Set-Cookie:
+ *             schema:
+ *               type: string
+ *             description: httpOnly refresh token cookie
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       409:
+ *         description: Email or username already exists
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               emailExists:
+ *                 summary: Email already registered
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: RESOURCE_EMAIL_EXISTS
+ *                     message: Email already registered
+ *               usernameExists:
+ *                 summary: Username already taken
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: RESOURCE_USERNAME_EXISTS
+ *                     message: Username already taken
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/register',
+  authRegisterRateLimiter,
   asyncHandler(async (req: Request, res: Response) => {
     const { email, username, password } = RegisterSchema.parse(req.body);
 
@@ -285,9 +378,9 @@ router.post(
       tokenVersion,
     });
 
-    // Store refresh token in database if the model is available. In some
-    // dev setups the RefreshToken model/table may not exist; in that case
-    // we log and continue rather than throwing a hard runtime error.
+    // Store refresh token in database with token family tracking.
+    // Each registration creates a new token family for rotation tracking.
+    const familyId = generateFamilyId();
     try {
       const refreshTokenModel = (prisma as any).refreshToken;
       if (refreshTokenModel && typeof refreshTokenModel.create === 'function') {
@@ -303,7 +396,8 @@ router.post(
           data: {
             token: hashedToken,
             userId: user.id,
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            familyId,
+            expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
           },
         });
       } else {
@@ -333,11 +427,17 @@ router.post(
       email: redactEmail(user.email),
     });
 
+    // Set refresh token as httpOnly cookie for security
+    res.cookie('refreshToken', refreshToken, getRefreshTokenCookieOptions());
+
     res.status(201).json({
       success: true,
       data: {
         user,
         accessToken,
+        // Note: refreshToken still included in body for backward compatibility
+        // and for clients that prefer to manage tokens themselves.
+        // The httpOnly cookie provides an additional secure transport.
         refreshToken,
       },
       message: 'User registered successfully',
@@ -345,9 +445,75 @@ router.post(
   })
 );
 
-// Login
+/**
+ * @openapi
+ * /auth/login:
+ *   post:
+ *     summary: Authenticate user and get tokens
+ *     description: |
+ *       Authenticates a user with email and password.
+ *       Returns access and refresh tokens upon successful authentication.
+ *       Implements login lockout after multiple failed attempts.
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/LoginRequest'
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         headers:
+ *           Set-Cookie:
+ *             schema:
+ *               type: string
+ *             description: httpOnly refresh token cookie
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/AuthResponse'
+ *       400:
+ *         $ref: '#/components/responses/BadRequest'
+ *       401:
+ *         description: Invalid credentials or account deactivated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               invalidCredentials:
+ *                 summary: Invalid credentials
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_INVALID_CREDENTIALS
+ *                     message: Invalid credentials
+ *               accountDeactivated:
+ *                 summary: Account deactivated
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_ACCOUNT_DEACTIVATED
+ *                     message: Account is deactivated
+ *       429:
+ *         description: Too many failed attempts - account locked
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: AUTH_LOGIN_LOCKED_OUT
+ *                 message: Too many failed login attempts. Please try again later.
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/login',
+  authLoginRateLimiter,
   asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = LoginSchema.parse(req.body);
     const normalizedEmail = email.trim().toLowerCase();
@@ -452,9 +618,9 @@ router.post(
       tokenVersion,
     });
 
-    // Store refresh token in database if the model is available. In some
-    // dev setups the RefreshToken model/table may not exist; in that case
-    // we log and continue rather than throwing a hard runtime error.
+    // Store refresh token in database with a new token family.
+    // Each login creates a new family for rotation tracking.
+    const familyId = generateFamilyId();
     try {
       const refreshTokenModel = (prisma as any).refreshToken;
       if (refreshTokenModel && typeof refreshTokenModel.create === 'function') {
@@ -470,7 +636,8 @@ router.post(
           data: {
             token: hashedToken,
             userId: user.id,
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            familyId,
+            expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
           },
         });
       } else {
@@ -510,11 +677,15 @@ router.post(
     // Strip the passwordHash field before returning the user payload
     const { passwordHash: _, ...userWithoutPassword } = user;
 
+    // Set refresh token as httpOnly cookie for security
+    res.cookie('refreshToken', refreshToken, getRefreshTokenCookieOptions());
+
     res.json({
       success: true,
       data: {
         user: userWithoutPassword,
         accessToken,
+        // Note: refreshToken still included in body for backward compatibility
         refreshToken,
       },
       message: 'Login successful',
@@ -522,24 +693,98 @@ router.post(
   })
 );
 
-// Refresh token
+/**
+ * @openapi
+ * /auth/refresh:
+ *   post:
+ *     summary: Refresh access token
+ *     description: |
+ *       Exchanges a valid refresh token for new access and refresh tokens.
+ *       Implements token rotation - each refresh token can only be used once.
+ *       Detects token reuse attacks and invalidates the entire token family.
+ *
+ *       The refresh token can be provided in:
+ *       - Request body (refreshToken field)
+ *       - httpOnly cookie (set automatically by login/register)
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/RefreshTokenRequest'
+ *     responses:
+ *       200:
+ *         description: Tokens refreshed successfully
+ *         headers:
+ *           Set-Cookie:
+ *             schema:
+ *               type: string
+ *             description: New httpOnly refresh token cookie
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/TokenRefreshResponse'
+ *       400:
+ *         description: Refresh token required but not provided
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: AUTH_REFRESH_TOKEN_REQUIRED
+ *                 message: Refresh token required
+ *       401:
+ *         description: Invalid, expired, or reused refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               invalidToken:
+ *                 summary: Invalid token
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_REFRESH_TOKEN_INVALID
+ *                     message: Invalid refresh token
+ *               expiredToken:
+ *                 summary: Token expired
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_REFRESH_TOKEN_EXPIRED
+ *                     message: Refresh token has expired
+ *               tokenReused:
+ *                 summary: Token reuse detected
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_REFRESH_TOKEN_REUSED
+ *                     message: Refresh token has been revoked due to suspicious activity
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/refresh',
   asyncHandler(async (req: Request, res: Response) => {
-    const parsed = RefreshTokenSchema.safeParse(req.body);
-
-    if (!parsed.success) {
-      const firstIssue = parsed.error.issues[0];
-      if (firstIssue?.path[0] === 'refreshToken' && firstIssue.code === 'invalid_type') {
-        // Preserve the specific error code used by existing consumers when the
-        // token field is entirely missing from the payload.
-        throw createError('Refresh token required', 400, 'REFRESH_TOKEN_REQUIRED');
+    // Accept refresh token from cookie OR request body for flexibility
+    let refreshToken = req.cookies?.refreshToken;
+    
+    if (!refreshToken) {
+      const parsed = RefreshTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        const firstIssue = parsed.error.issues[0];
+        if (firstIssue?.path[0] === 'refreshToken' && firstIssue.code === 'invalid_type') {
+          throw createError('Refresh token required', 400, 'REFRESH_TOKEN_REQUIRED');
+        }
+        throw createError('Invalid request', 400, 'INVALID_REQUEST');
       }
-
-      throw createError('Invalid request', 400, 'INVALID_REQUEST');
+      refreshToken = parsed.data.refreshToken;
     }
-
-    const { refreshToken } = parsed.data;
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -554,17 +799,13 @@ router.post(
     await validateUser(decoded.userId, decoded.tokenVersion);
 
     const prismaAny = prisma as any;
-
-    // Check if refresh token exists in database using its hashed value.
     const hashedToken = hashRefreshToken(refreshToken);
 
+    // Look up the token, including revoked ones to detect reuse attacks
     const storedToken = await prismaAny.refreshToken.findFirst({
       where: {
         token: hashedToken,
         userId: decoded.userId,
-        expiresAt: {
-          gt: new Date(),
-        },
       },
       include: {
         user: {
@@ -583,15 +824,51 @@ router.post(
       throw createError('Invalid refresh token', 401, 'INVALID_REFRESH_TOKEN');
     }
 
+    // SECURITY: Detect refresh token reuse attack
+    // If a previously rotated (revoked) token is being reused, this indicates
+    // the token chain has been compromised. Revoke the entire token family.
+    if (storedToken.revokedAt) {
+      httpLogger.warn(req, 'Refresh token reuse detected - potential token theft', {
+        event: 'refresh_token_reuse',
+        userId: decoded.userId,
+        familyId: storedToken.familyId,
+        tokenId: storedToken.id,
+        revokedAt: storedToken.revokedAt,
+      });
+
+      // Revoke ALL tokens in this family to prevent further abuse
+      if (storedToken.familyId) {
+        await prismaAny.refreshToken.updateMany({
+          where: { familyId: storedToken.familyId },
+          data: { revokedAt: new Date() },
+        });
+      }
+
+      // Also increment tokenVersion to invalidate all access tokens
+      await prismaAny.user.update({
+        where: { id: decoded.userId },
+        data: { tokenVersion: { increment: 1 } },
+      });
+
+      throw createError(
+        'Refresh token has been revoked due to suspicious activity',
+        401,
+        'REFRESH_TOKEN_REUSED'
+      );
+    }
+
+    // Check expiry (only for non-revoked tokens)
+    if (new Date() > storedToken.expiresAt) {
+      throw createError('Refresh token has expired', 401, 'REFRESH_TOKEN_EXPIRED');
+    }
+
     if (!storedToken.user.isActive) {
       throw createError('Account is deactivated', 401, 'ACCOUNT_DEACTIVATED');
     }
 
     const tokenVersion = typeof decoded.tokenVersion === 'number' ? decoded.tokenVersion : 0;
 
-    // Generate new tokens carrying forward the same tokenVersion. If the
-    // user's tokenVersion has been bumped (via /logout-all), the earlier
-    // validateUser call will already have rejected this request.
+    // Generate new tokens carrying forward the same tokenVersion and family.
     const newAccessToken = generateToken({
       id: storedToken.user.id,
       email: storedToken.user.email,
@@ -605,20 +882,27 @@ router.post(
 
     const newHashedToken = hashRefreshToken(newRefreshToken);
 
-    // Delete all existing refresh tokens for this user and store the new one,
-    // enforcing a single active refresh token per user.
+    // Rotate the refresh token: mark old one as revoked, create new one
+    // This allows us to detect reuse of the old token later.
     await prisma.$transaction([
-      prismaAny.refreshToken.deleteMany({
-        where: { userId: storedToken.user.id },
+      // Mark the current token as revoked (not deleted, for reuse detection)
+      prismaAny.refreshToken.update({
+        where: { id: storedToken.id },
+        data: { revokedAt: new Date() },
       }),
+      // Create the new token in the same family
       prismaAny.refreshToken.create({
         data: {
           token: newHashedToken,
           userId: storedToken.user.id,
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+          familyId: storedToken.familyId || generateFamilyId(),
+          expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
         },
       }),
     ]);
+
+    // Set new refresh token as httpOnly cookie
+    res.cookie('refreshToken', newRefreshToken, getRefreshTokenCookieOptions());
 
     res.json({
       success: true,
@@ -631,14 +915,89 @@ router.post(
   })
 );
 
-// Logout
+/**
+ * @openapi
+ * /auth/logout:
+ *   post:
+ *     summary: Logout current session
+ *     description: |
+ *       Revokes the current refresh token and clears the refresh token cookie.
+ *       The access token will remain valid until it expires, but the refresh
+ *       token cannot be used to obtain new tokens.
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 description: Optional - refresh token to revoke (if not using cookie)
+ *     responses:
+ *       200:
+ *         description: Logged out successfully
+ *         headers:
+ *           Set-Cookie:
+ *             schema:
+ *               type: string
+ *             description: Clears the refresh token cookie
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Logged out successfully
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ */
 router.post(
   '/logout',
   authenticate,
-  asyncHandler(async (_req: AuthenticatedRequest, res: Response) => {
-    // For stateless access tokens, logout is a client-driven operation: the
-    // browser discards its tokens. The server simply confirms that the
-    // authenticated request was accepted without mutating tokenVersion.
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const prisma = getDatabaseClient();
+    
+    // Best-effort: revoke the refresh token if present
+    const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
+    
+    if (prisma && refreshToken) {
+      try {
+        const hashedToken = hashRefreshToken(refreshToken);
+        const prismaAny = prisma as any;
+        
+        // Mark the token as revoked (not deleted) for reuse detection
+        await prismaAny.refreshToken.updateMany({
+          where: {
+            token: hashedToken,
+            userId: req.user?.id,
+          },
+          data: { revokedAt: new Date() },
+        });
+      } catch (err) {
+        // Log but don't fail the logout
+        httpLogger.warn(req, 'Failed to revoke refresh token on logout', {
+          userId: req.user?.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Clear the refresh token cookie
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: config.isProduction,
+      sameSite: config.isProduction ? 'strict' : 'lax',
+      path: '/api/auth',
+    });
+
     res.json({
       success: true,
       message: 'Logged out successfully',
@@ -646,7 +1005,40 @@ router.post(
   })
 );
 
-// Logout all devices
+/**
+ * @openapi
+ * /auth/logout-all:
+ *   post:
+ *     summary: Logout from all devices
+ *     description: |
+ *       Invalidates all existing access and refresh tokens for the user.
+ *       Increments the user's tokenVersion, which causes all previously
+ *       issued tokens to fail validation. Use this when:
+ *       - User suspects account compromise
+ *       - User wants to sign out everywhere
+ *       - Security incident response
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logged out from all devices
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Logged out from all devices successfully
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/logout-all',
   authenticate,
@@ -692,7 +1084,60 @@ router.post(
   })
 );
 
-// Verify email
+/**
+ * @openapi
+ * /auth/verify-email:
+ *   post:
+ *     summary: Verify email address
+ *     description: |
+ *       Verifies the user's email address using the token sent via email.
+ *       The token expires after 24 hours.
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/VerifyEmailRequest'
+ *     responses:
+ *       200:
+ *         description: Email verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Email verified successfully
+ *       400:
+ *         description: Invalid or expired verification token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               tokenRequired:
+ *                 summary: Token required
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_VERIFICATION_TOKEN_REQUIRED
+ *                     message: Verification token required
+ *               invalidToken:
+ *                 summary: Invalid or expired token
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_VERIFICATION_INVALID
+ *                     message: Invalid or expired verification token
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/verify-email',
   asyncHandler(async (req: Request, res: Response) => {
@@ -750,9 +1195,67 @@ router.post(
   })
 );
 
-// Request password reset
+/**
+ * @openapi
+ * /auth/forgot-password:
+ *   post:
+ *     summary: Request password reset
+ *     description: |
+ *       Sends a password reset email to the specified address if an account exists.
+ *       For security, the response is the same whether or not an account exists.
+ *       The reset token expires after 1 hour.
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ForgotPasswordRequest'
+ *     responses:
+ *       200:
+ *         description: Password reset email sent (if account exists)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: If an account exists with this email, a password reset link has been sent.
+ *       400:
+ *         description: Email required
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: VALIDATION_EMAIL_REQUIRED
+ *                 message: Email required
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ *       500:
+ *         description: Failed to send email
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: SERVER_EMAIL_SEND_FAILED
+ *                 message: Failed to send password reset email
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/forgot-password',
+  authPasswordResetRateLimiter,
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = ForgotPasswordSchema.safeParse(req.body);
 
@@ -817,8 +1320,66 @@ router.post(
   })
 );
 
+/**
+ * @openapi
+ * /auth/reset-password:
+ *   post:
+ *     summary: Reset password with token
+ *     description: |
+ *       Resets the user's password using a valid reset token.
+ *       Upon success, all existing sessions are invalidated (tokenVersion incremented).
+ *       This ensures that any compromised sessions cannot be used.
+ *     tags: [Authentication]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ResetPasswordRequest'
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Password reset successfully
+ *       400:
+ *         description: Invalid token or weak password
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               invalidToken:
+ *                 summary: Invalid or expired token
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_RESET_TOKEN_INVALID
+ *                     message: Invalid or expired password reset token
+ *               weakPassword:
+ *                 summary: Password too weak
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: AUTH_WEAK_PASSWORD
+ *                     message: Password must be at least 8 characters long
+ *       429:
+ *         $ref: '#/components/responses/TooManyRequests'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/reset-password',
+  authPasswordResetRateLimiter,
   asyncHandler(async (req: Request, res: Response) => {
     const parsed = ResetPasswordSchema.safeParse(req.body);
 
@@ -859,17 +1420,35 @@ router.post(
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
-    // Update user
+    const prismaAny = prisma as any;
+
+    // Update user password and increment tokenVersion to invalidate all existing
+    // tokens. This is a critical security measure: when a user resets their
+    // password, all previous sessions should be invalidated.
     await prisma.user.update({
       where: { id: user.id },
       data: {
         passwordHash: hashedPassword,
         passwordResetToken: null,
         passwordResetExpires: null,
+        tokenVersion: { increment: 1 },
       },
     });
 
-    httpLogger.info(req, 'Password reset successfully', {
+    // Also revoke all refresh tokens for this user
+    try {
+      await prismaAny.refreshToken.updateMany({
+        where: { userId: user.id },
+        data: { revokedAt: new Date() },
+      });
+    } catch (err) {
+      httpLogger.warn(req, 'Failed to revoke refresh tokens on password reset', {
+        userId: user.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    httpLogger.info(req, 'Password reset successfully - all sessions invalidated', {
       userId: user.id,
       email: redactEmail(user.email),
     });

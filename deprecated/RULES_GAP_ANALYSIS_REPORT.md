@@ -1,3 +1,5 @@
+> **DEPRECATED**: This document is no longer maintained. Please refer to [RULES_CANONICAL_SPEC.md](../RULES_CANONICAL_SPEC.md) or the current documentation in the root directory.
+
 # ⚠️ DEPRECATED: RingRift Rules Gap Analysis Report
 
 > **⚠️ HISTORICAL DOCUMENT. For current status and plans, see `TODO.md` and `STRATEGIC_ROADMAP.md`.**
@@ -69,9 +71,9 @@ One minor divergence was identified regarding the **Forced Elimination** mechani
 
 1.  **Refactor Forced Elimination:** Update `TurnEngine.ts` and `GameEngine.ts` to support a `ForcedEliminationChoice` interaction, allowing the player to select which stack to eliminate when blocked. This will align the implementation fully with the rules and remove the current auto-selection simplification.
 2.  **Verify "Active Player" Definition:** Ensure `BoardManager.ts`'s definition of "active player" (players with stacks on board) aligns perfectly with edge cases where a player might have 0 stacks but rings in hand (though such a player wouldn't provide representation anyway, so this is likely correct).
-3.  **Track this divergence explicitly:** Add a small P1 rules/engine‑parity entry to [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:1) and/or [`TODO.md`](TODO.md:26) so that the forced‑elimination choice gap is visible alongside other parity and termination work.
+3.  **Track this divergence explicitly:** Add a small P1 rules/engine‑parity entry to [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1) and/or [`TODO.md`](../TODO.md:26) so that the forced‑elimination choice gap is visible alongside other parity and termination work.
 
-> **OPEN QUESTION:** The written rules state that the player chooses which stack’s cap to eliminate when blocked, but the current backend implementation auto‑selects the first available stack. Maintainers should decide whether to treat the rules spec as authoritative (and update the engine to surface a `ForcedEliminationChoice`) or to intentionally relax the rules and update [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) accordingly. Until that decision is made, treat this as a known divergence and avoid relying on the auto‑selection behaviour in long‑term UI copy or AI heuristics.
+> **OPEN QUESTION:** The written rules state that the player chooses which stack’s cap to eliminate when blocked, but the current backend implementation auto‑selects the first available stack. Maintainers should decide whether to treat the rules spec as authoritative (and update the engine to surface a `ForcedEliminationChoice`) or to intentionally relax the rules and update [`ringrift_complete_rules.md`](../ringrift_complete_rules.md:1) accordingly. Until that decision is made, treat this as a known divergence and avoid relying on the auto‑selection behaviour in long‑term UI copy or AI heuristics.
 
 ## Conclusion
 

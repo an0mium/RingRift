@@ -7,10 +7,10 @@ This document consolidates the architectural overview, technical assessment, and
 
 Historical deep-dive documents:
 
-- `AI In Depth Improvement Analysis.md` – extensive analysis and review (historical; may describe older ladders/behaviour).
-- `ai-service/AI_ASSESSMENT_REPORT.md` – Python AI service–focused assessment (historical snapshot).
+- `archive/AI In Depth Improvement Analysis.md` – extensive analysis and review (historical; may describe older ladders/behaviour).
+- `deprecated/AI_ASSESSMENT_REPORT.md` – Python AI service–focused assessment (historical snapshot).
 
-For an up-to-date, ticket-ready roadmap, see **`AI_IMPROVEMENT_BACKLOG.md`**, which groups concrete tasks by theme (difficulty ladder, RNG/determinism, rules parity, search performance, NN robustness, behaviour tuning, tooling, and documentation).
+For an up-to-date, ticket-ready roadmap, see **`docs/supplementary/AI_IMPROVEMENT_BACKLOG.md`**, which groups concrete tasks by theme (difficulty ladder, RNG/determinism, rules parity, search performance, NN robustness, behaviour tuning, tooling, and documentation).
 
 ---
 
@@ -32,9 +32,9 @@ The AI system operates as a dedicated microservice (`ai-service`) built with Pyt
 
 At runtime there are three tightly coupled layers that share the **same rules semantics** but serve different roles:
 
-- **Shared TypeScript rules engine (canonical)**
+- **Shared TypeScript Rules Engine (canonical)**
   - Core game types (including `GameState`, `BoardState`, `Move`, and enums for phases and move types) live in [`game.ts`](src/shared/types/game.ts:1) and engine-specific type helpers in [`types.ts`](src/shared/engine/types.ts:1).
-  - Movement, capture, lines, and territory are implemented as pure helpers under [`src/shared/engine`](src/shared/engine/core.ts:1):
+  - Movement, capture, lines, and Territory are implemented as pure helpers under [`src/shared/engine`](src/shared/engine/core.ts:1):
     - Movement / reachability: [`movementLogic.ts`](src/shared/engine/movementLogic.ts:1), [`movementApplication.ts`](src/shared/engine/movementApplication.ts:1).
     - Capture / chains: [`captureLogic.ts`](src/shared/engine/captureLogic.ts:1), [`captureChainHelpers.ts`](src/shared/engine/captureChainHelpers.ts:1).
     - Lines: [`lineDetection.ts`](src/shared/engine/lineDetection.ts:1), [`lineDecisionHelpers.ts`](src/shared/engine/lineDecisionHelpers.ts:1).
@@ -44,8 +44,8 @@ At runtime there are three tightly coupled layers that share the **same rules se
     - The client-local sandbox engine in [`ClientSandboxEngine.ts`](src/client/sandbox/ClientSandboxEngine.ts:1).
     - Rules/FAQ parity tests under `tests/unit/*shared.test.ts` and `tests/scenarios/RulesMatrix.*.test.ts`.
 
-- **Python rules engine and mutators (AI service)**
-  - The Python AI service embeds a rules engine that mirrors the shared TS engine:
+- **Python Rules Engine and mutators (AI Service)**
+  - The Python AI Service embeds a Rules Engine that mirrors the shared TS engine:
     - Canonical Python engine orchestration: [`GameEngine`](ai-service/app/game_engine.py:33).
     - Board-level helpers (including disconnected-region detection): [`BoardManager.find_disconnected_regions()`](ai-service/app/board_manager.py:171).
     - Rules façade and shadow-contract mutators: [`DefaultRulesEngine`](ai-service/app/rules/default_engine.py:23), [`TerritoryMutator`](ai-service/app/rules/mutators/territory.py:6) and the other mutators under `ai-service/app/rules/mutators/`.
@@ -53,21 +53,21 @@ At runtime there are three tightly coupled layers that share the **same rules se
   - Territory semantics are deliberately wired to mirror the TS shared helpers:
     - TS geometry and region detection: [`territoryDetection.ts`](src/shared/engine/territoryDetection.ts:1) ↔ Python [`BoardManager.find_disconnected_regions`](ai-service/app/board_manager.py:171).
     - TS region application and Q23 outside-stack prerequisite: [`territoryProcessing.ts`](src/shared/engine/territoryProcessing.ts:1) and [`territoryDecisionHelpers.ts`](src/shared/engine/territoryDecisionHelpers.ts:1) ↔ Python [`GameEngine._apply_territory_claim()`](ai-service/app/game_engine.py:2718).
-    - Explicit territory self-elimination decisions: TS [`enumerateTerritoryEliminationMoves()`](src/shared/engine/territoryDecisionHelpers.ts:402) ↔ Python [`TerritoryMutator`](ai-service/app/rules/mutators/territory.py:6) and [`GameEngine._apply_forced_elimination()`](ai-service/app/game_engine.py:2988).
+    - Explicit Territory self-elimination decisions: TS [`enumerateTerritoryEliminationMoves()`](src/shared/engine/territoryDecisionHelpers.ts:402) ↔ Python [`TerritoryMutator`](ai-service/app/rules/mutators/territory.py:6) and [`GameEngine._apply_forced_elimination()`](ai-service/app/game_engine.py:2988).
 
 - **Training and dataset-generation pipelines (Python)**
   - General self-play dataset generation (policy/value, NN-style) is implemented in [`generate_data.py`](ai-service/app/training/generate_data.py:1) using:
     - The same Python [`GameEngine`](ai-service/app/game_engine.py:33) and [`RingRiftEnv`](ai-service/app/training/env.py:6) used by online AI search.
     - `DescentAI` and the neural network encoders from `ai-service/app/ai/`.
-  - The **territory/combined-margin dataset generator** for heuristic training is implemented in [`generate_territory_dataset.py`](ai-service/app/training/generate_territory_dataset.py:1):
+  - The **Territory/combined-margin dataset generator** for heuristic training is implemented in [`generate_territory_dataset.py`](ai-service/app/training/generate_territory_dataset.py:1):
     - Builds a fresh `GameState` via [`RingRiftEnv`](ai-service/app/training/env.py:6) (which in turn uses [`create_initial_state()`](ai-service/app/training/generate_data.py:21)).
     - Uses [`GameEngine.get_valid_moves()`](ai-service/app/game_engine.py:45) and [`GameEngine.apply_move()`](ai-service/app/game_engine.py:117) as the single source of rules for self-play.
     - Serialises **pre-move** snapshots of the Python `GameState` along each trajectory with per-player scalar targets derived from the final board via [`_final_combined_margin()`](ai-service/app/training/generate_territory_dataset.py:79).
     - Emits one JSONL record per `(state, player)` with `game_state`, `player_number`, `target`, `time_weight`, and engine/AI metadata (`engine_mode`, `num_players`, `ai_type_pN`, `ai_difficulty_pN`).
-  - Training jobs and the live AI/rules service therefore share:
-    - The same Python `GameEngine` implementation for all rules, including territory and forced elimination.
+  - Training jobs and the live AI/Rules Service therefore share:
+    - The same Python `GameEngine` implementation for all rules, including Territory and forced elimination.
     - The same `GameState` / `Move` model surface (mirroring TS [`GameState`](src/shared/types/game.ts:1)).
-    - The same territory stack, now guarded by TS↔Python parity tests (see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1) and Python parity suites under `ai-service/tests/parity/` and [`test_territory_forced_elimination_divergence.py`](ai-service/tests/test_territory_forced_elimination_divergence.py:1)).
+    - The same Territory stack, now guarded by TS↔Python parity tests (see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1) and Python parity suites under `ai-service/tests/parity/` and [`test_territory_forced_elimination_divergence.py`](ai-service/tests/test_territory_forced_elimination_divergence.py:1)).
 
 For a deeper, rules-focused mapping between TS and Python (including how parity fixtures and mutator contracts are enforced), see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1). For detailed CLI usage and dataset schemas for training, see [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md:1). For the forced-elimination / TerritoryMutator divergence and its guard rails, see [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:1).
 
@@ -77,7 +77,7 @@ The system provides a unified difficulty scale (1–10) that automatically selec
 
 - **TypeScript backend:** `AI_DIFFICULTY_PRESETS` and `selectAITypeForDifficulty()` in
   [`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts)
-- **Python AI service:** `_CANONICAL_DIFFICULTY_PROFILES` and `_select_ai_type()` in
+- **Python AI Service:** `_CANONICAL_DIFFICULTY_PROFILES` and `_select_ai_type()` in
   [`ai-service/app/main.py`](ai-service/app/main.py)
 
 These two tables are kept in **lockstep** and are covered by unit tests on both sides
@@ -118,8 +118,8 @@ behaviour across TS and Python.
 **Production-supported tactical engines (behind the `AIType`/`AIServiceClient.AIType` enum):**
 
 1.  **RandomAI** (`random`): Baseline engine for testing and very low difficulty.
-2.  **HeuristicAI** (`heuristic`): Rule-based evaluation using weighted factors (stack control, territory, mobility).
-3.  **MinimaxAI** (`minimax`): Alpha–beta search with move ordering and quiescence. Wired into the canonical difficulty ladder for difficulties 3–6 via the Python service’s `_CANONICAL_DIFFICULTY_PROFILES`, using `AIType.MINIMAX` with a bounded `think_time_ms` search budget.
+2.  **HeuristicAI** (`heuristic`): Rule-based evaluation using weighted factors (stack control, Territory, mobility).
+3.  **MinimaxAI** (`minimax`): Alpha–beta search with move ordering and quiescence. Wired into the canonical difficulty ladder for difficulties 3–6 via the Python Service’s `_CANONICAL_DIFFICULTY_PROFILES`, using `AIType.MINIMAX` with a bounded `think_time_ms` search budget.
 4.  **MCTSAI** (`mcts`): Monte Carlo Tree Search with PUCT and RAVE, using the shared neural network for value/policy where weights are available. Selected by the ladder for difficulties 7–8.
 5.  **DescentAI** (`descent`): UBFM/Descent-style tree search that also consumes the shared neural network for guidance and learning logs. Selected by the ladder for difficulties 9–10.
 
@@ -372,7 +372,7 @@ RingRift implements comprehensive per-game RNG seeding to enable:
   - All sandbox AI helpers (`maybeRunAITurnSandbox`, movement/decision builders) use `rng: () => this.rng.next()` and
     the same `localAIMoveSelection` policy as the backend.
 
-**Python Implementation (AI Service):**
+- **Python Implementation (AI Service):**
 
 - Python uses `random.Random` instances for determinism:
   - [`BaseAI`](ai-service/app/ai/base.py) initialises `self.rng` from `AIConfig.rng_seed`.
@@ -393,12 +393,12 @@ RingRift implements comprehensive per-game RNG seeding to enable:
   4. Python constructs `AIConfig(rng_seed=seed)` and seeds its internal `Random` instance.
 
 This wiring guarantees that, for a fixed `Game.rngSeed` and identical game history, the TS backend and
-Python service see the same RNG stream per game, modulo any non-determinism in low-level NN/GPU ops.
+Python Service see the same RNG stream per game, modulo any non-determinism in low-level NN/GPU ops.
 
 **Legacy / Non-Canonical RNG Usage:**
 
 - `Math.random` is still used in a few **non-semantic** or legacy places:
-  - UUID / debug ID helpers in rules modules (`GameEngine.generateUUID`, capture/territory helpers).
+  - UUID / debug ID helpers in rules modules (`GameEngine.generateUUID`, capture/Territory helpers).
   - Unused legacy AI base class [`AIPlayer`](src/server/game/ai/AIPlayer.ts), which is explicitly
     documented as **not part of the production AI pipeline** and must not be reintroduced without an
     injected RNG refactor.
@@ -428,7 +428,7 @@ Python service see the same RNG stream per game, modulo any non-determinism in l
     sequences for identical seeds and states.
 
 Together, these tests form the basis of the RNG determinism contract: **same seed + same history ⇒ same moves**
-across TS backend, sandbox engine, and Python AI service.
+across TS backend, sandbox engine, and Python AI Service.
 
 ### Determinism Guarantees
 
@@ -437,7 +437,7 @@ across TS backend, sandbox engine, and Python AI service.
 - AI move selection with same seed + same game state
 - Random tie-breaking in move evaluation
 - MCTS exploration with same seed
-- Line reward and territory processing choices
+- Line reward and Territory processing choices
 
 **What is NOT deterministic:**
 
@@ -477,7 +477,7 @@ across TS backend, sandbox engine, and Python AI service.
 
 ### Tiered Fallback Architecture
 
-The AI system implements a robust three-tier fallback hierarchy to ensure games never get stuck due to AI service failures:
+The AI system implements a robust three-tier fallback hierarchy to ensure games never get stuck due to AI Service failures:
 
 ```
 Level 1: Python AI Service (RemoteAI)
@@ -493,17 +493,17 @@ Level 3: Random Valid Move Selection
 
 #### Network & Service Failures
 
-- **Connection Refused:** AI service unreachable or not started
+- **Connection Refused:** AI Service unreachable or not started
   - Circuit breaker opens after 5 consecutive failures
   - Automatic fallback to local heuristics
   - Service availability re-tested after 60-second cooldown
 
-- **Timeouts:** AI service taking too long to respond
+- **Timeouts:** AI Service taking too long to respond
   - Default timeout: 30 seconds (configured in [`AIServiceClient`](src/server/services/AIServiceClient.ts:179))
   - Automatic fallback to local heuristics
   - Logged with latency metrics for monitoring
 
-- **HTTP Errors:** Server errors (500, 503) from AI service
+- **HTTP Errors:** Server errors (500, 503) from AI Service
   - Categorized and logged with error type
   - Immediate fallback without retries
   - Circuit breaker tracks failure patterns
@@ -515,7 +515,7 @@ Level 3: Random Valid Move Selection
   - Deep equality check including hexagonal coordinates
   - Invalid moves trigger automatic fallback
 
-- **Malformed Responses:** AI service returns null or unparseable moves
+- **Malformed Responses:** AI Service returns null or unparseable moves
   - Handled as service failure
   - Immediate fallback to local heuristics
 
@@ -536,7 +536,7 @@ Level 3: Random Valid Move Selection
 
 **Benefits:**
 
-- Prevents hammering failing AI service
+- Prevents hammering failing AI Service
 - Reduces cascade failures
 - Automatic recovery detection
 - Minimal latency when service is down
@@ -581,7 +581,7 @@ Level 3: Random Valid Move Selection
 
 ```typescript
 {
-  serviceFailureCount: number; // Times AI service failed
+  serviceFailureCount: number; // Times AI Service failed
   localFallbackCount: number; // Times local heuristic was used
 }
 ```
@@ -592,9 +592,9 @@ Level 3: Random Valid Move Selection
 
 [`GameSession`](src/server/game/GameSession.ts:42) tracks aggregate AI quality:
 
-- `normal`: AI service working as expected
+- `normal`: AI Service working as expected
 - `fallbackLocalAI`: Using local heuristics due to service issues
-- `rulesServiceDegraded`: Python rules engine failures detected
+- `rulesServiceDegraded`: Python Rules Engine failures detected
 
 **Access:** [`GameSession.getAIDiagnosticsSnapshotForTesting()`](src/server/game/GameSession.ts:832)
 
@@ -603,7 +603,7 @@ Level 3: Random Valid Move Selection
 All AI failures are logged with context:
 
 ```typescript
-logger.warn('Remote AI service failed, falling back to local heuristics', {
+logger.warn('Remote AI Service failed, falling back to local heuristics', {
   error: error.message,
   playerNumber,
   difficulty,
@@ -666,7 +666,7 @@ socket.emit('game_error', {
 
 [`tests/integration/AIResilience.test.ts`](tests/integration/AIResilience.test.ts:1):
 
-- Complete game with AI service down
+- Complete game with AI Service down
 - Intermittent failures
 - Circuit breaker integration
 - Performance under failure
@@ -683,18 +683,18 @@ Endpoint: `/health/ai-service` (when implemented)
 
 **Metrics to Monitor:**
 
-1. **AI Service Availability:** Success rate of AI service calls
+1. **AI Service Availability:** Success rate of AI Service calls
 2. **Fallback Usage:** Frequency of local heuristic usage
 3. **Circuit Breaker State:** Open/closed status and failure counts
-4. **Move Validation Failures:** Rate of invalid moves from AI service
+4. **Move Validation Failures:** Rate of invalid moves from AI Service
 5. **Random Fallback Usage:** Should be near zero in production
 
 **Alert Thresholds:**
 
-- Service availability < 95%: Investigate AI service health
+- Service availability < 95%: Investigate AI Service health
 - Fallback usage > 20%: Check network or service degradation
-- Circuit breaker open: Critical - AI service down
-- Invalid moves > 1%: AI service logic issue
+- Circuit breaker open: Critical - AI Service down
+- Invalid moves > 1%: AI Service logic issue
 
 ### Known Limitations
 
@@ -708,7 +708,7 @@ Endpoint: `/health/ai-service` (when implemented)
 1. **Adaptive Timeout:** Adjust timeout based on AI type and difficulty
 2. **Quality Metrics:** Track move quality when using fallbacks
 3. **Graceful Degradation:** Warn users when AI quality is degraded
-4. **Service Pool:** Load balance across multiple AI service instances
+4. **Service Pool:** Load balance across multiple AI Service instances
 5. **Caching:** Cache positions for common opening/endgame patterns
 
 ---
@@ -744,10 +744,10 @@ Endpoint: `/health/ai-service` (when implemented)
 ## 4. Rules Completeness in AI Service
 
 - **Status:** **Mostly Complete**
-- **Implemented:** Ring placement, movement, capturing (including chains), line formation, territory claiming, forced elimination, and victory conditions.
+- **Implemented:** Ring placement, movement, capturing (including chains), line formation, Territory claiming, forced elimination, and victory conditions.
 - **Simplifications:**
   - **Line Formation:** Automatically chooses to collapse all markers and eliminate from the largest stack (biasing against "Option 2").
-  - **Territory Claim:** Automatically claims territory without user choice nuances.
+  - **Territory Claim:** Automatically claims Territory without user choice nuances.
 
 **Recommendation:** Update `GameEngine` to support branching for Line Formation and Territory Claim choices to fully match the game's strategic depth.
 
@@ -758,7 +758,7 @@ Endpoint: `/health/ai-service` (when implemented)
 This section describes how we treat `HeuristicAI` as a _trainable, versioned
 component_ rather than a one-off hand-tuned evaluator, and how that interacts
 with RingRift’s specific rules (ring placement, chain captures, lines,
-territory, forced elimination, and dual victory conditions).
+Territory, forced elimination, and dual victory conditions).
 
 ### 5.1 Goals
 
@@ -773,7 +773,7 @@ territory, forced elimination, and dual victory conditions).
   - Line formation, including overlength lines and Option 1 vs Option 2
     rewards.
   - Territory regions, collapsed spaces, and forced **self-elimination**.
-  - Dual victory conditions (eliminated rings vs territory) and the
+  - Dual victory conditions (eliminated rings vs Territory) and the
     S-invariant.
 
 ### 5.2 RingRift-specific signal design
@@ -786,7 +786,7 @@ should make these signals _quantitatively_ correct and well-balanced:
     creating stacks with no legal moves).
   - Penalise hoarding too many rings in hand once the board is sufficiently
     developed.
-  - Prefer placements that increase future mobility and line/territory
+  - Prefer placements that increase future mobility and line/Territory
     potential rather than isolated stacks.
 
 - **Movement & chain captures**
@@ -830,7 +830,7 @@ should make these signals _quantitatively_ correct and well-balanced:
     losing:
     - Prefer eliminating rings from stacks that are tactically dead or
       strategically redundant.
-    - Avoid eliminating rings from critical stacks that anchor territory
+    - Avoid eliminating rings from critical stacks that anchor Territory
       regions or key lines.
 
 - **Victory and S-invariant**
@@ -852,7 +852,7 @@ We use a **teacher-based + outcome-based** strategy for training
   - Use stronger engines (MCTS+NN, deeper Minimax, or Descent) as teachers.
   - For sampled states from real games and curated scenarios, record:
     - A scalar evaluation from the teacher (`v_teacher ≈ P(win | state)`).
-    - Auxiliary labels (e.g. expected eliminated-rings margin, territory
+    - Auxiliary labels (e.g. expected eliminated-rings margin, Territory
       advantage, estimated moves-to-win).
 
 - **Outcome-based targets**
@@ -866,7 +866,7 @@ We use a **teacher-based + outcome-based** strategy for training
     - FAQ scenario tests (`tests/scenarios/FAQ_*.test.ts`).
     - Plateau/stalemate scenarios (`test_ai_plateau_progress.py`,
       `ForcedEliminationAndStalemate.test.ts`).
-    - Line and territory parity fixtures (`Seed14Move35LineParity`,
+    - Line and Territory parity fixtures (`Seed14Move35LineParity`,
       `test_line_and_territory_scenario_parity.py`).
   - For each scenario, record states where humans or designers have a
     _preferred move_ or _clear judgement_ (e.g. "Option 2 is safer here").
@@ -886,7 +886,7 @@ feature terms. We optimise this in two stages:
 1. **Base weight fit**
    - Solve a regularised regression problem:
      - Inputs: feature vectors from `_extract_features` (or higher-level
-       aggregates such as stack/territory summaries).
+       aggregates such as stack/Territory summaries).
      - Targets: teacher-based scalar values or outcome-based labels.
    - Use simple methods (ridge regression, small MLP with L2 regularisation)
      to obtain a _balanced_ `heuristic_v1_balanced` weight profile.
@@ -896,8 +896,8 @@ feature terms. We optimise this in two stages:
 2. **Personas**
    - Define persona-specific deltas on top of the balanced profile:
      - **Aggressive:** upweight capture and elimination terms; slightly
-       downweight territory-safety.
-     - **Territorial:** upweight territory and line-formation terms; slightly
+       downweight Territory-safety.
+     - **Territorial:** upweight Territory and line-formation terms; slightly
        downweight short-term elimination.
      - **Defensive:** upweight vulnerability and safety terms; penalise risky
        sacrifices.
@@ -908,7 +908,7 @@ feature terms. We optimise this in two stages:
 Trained weights are stored in a small `heuristic_weights.py` (Python) and
 mirrored in TS (for improved fallback) where needed. Versioning is handled
 explicitly (e.g. `heuristic_v1`, `heuristic_v2`) and documented in
-`AI_IMPROVEMENT_BACKLOG.md` §6.4.
+`docs/supplementary/AI_IMPROVEMENT_BACKLOG.md` §6.4.
 
 ### 5.5 TS fallback AI & sandbox alignment
 
@@ -926,7 +926,7 @@ The long-term plan is to **bring TS fallback closer to the trained heuristic**
 while keeping it cheap and deterministic:
 
 - Port a _small subset_ of `HeuristicAI`’s features to TS (e.g. stack control,
-  basic territory, vulnerability) and expose them via a light-weight
+  basic Territory, vulnerability) and expose them via a light-weight
   evaluation function.
 - Use the same trained weight profiles (or a coarser TS-only approximation) so
   fallback behaviour roughly matches Python `HeuristicAI` at the same
@@ -937,7 +937,7 @@ while keeping it cheap and deterministic:
 As of November 2025 the first TS-side pieces are in place:
 
 - `src/shared/engine/heuristicEvaluation.ts` implements
-  `evaluateHeuristicState` (stack control/height, simple territory, local
+  `evaluateHeuristicState` (stack control/height, simple Territory, local
   vulnerability) and now defines a small set of **v1 personas** mirroring the
   Python `heuristic_weights.py` ids:
   - `heuristic_v1_balanced`
@@ -973,5 +973,5 @@ This stub is intentionally not called from production code yet; it exists to
 lock down the API surface for future heuristic-driven selection
 (`AIEngine`/sandbox) while keeping current behaviour and RNG parity unchanged.
 
-These steps are tracked in `AI_IMPROVEMENT_BACKLOG.md` (§1.3 and §6.4) and will
+These steps are tracked in `docs/supplementary/AI_IMPROVEMENT_BACKLOG.md` (§1.3 and §6.4) and will
 be rolled out incrementally to preserve determinism and test coverage.

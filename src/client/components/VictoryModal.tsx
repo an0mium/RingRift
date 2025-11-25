@@ -122,11 +122,20 @@ function getVictoryMessage(info: VictoryInfo): { title: string; description: str
         title: `🏰 ${winnerName} Wins!`,
         description: 'Victory by controlling majority of the board',
       };
-    case 'last_player_standing':
+    case 'last_player_standing': {
+      const baseTitle = '👑 Last Player Standing';
+      const subject = info.userWon
+        ? 'You'
+        : info.winner
+          ? info.winner.username || `Player ${info.winner.playerNumber}`
+          : 'The winner';
+      const verb = info.userWon ? 'were' : 'was';
+
       return {
-        title: `👑 ${winnerName} Wins!`,
-        description: 'Victory as the last player remaining',
+        title: baseTitle,
+        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns. All other players had no legal moves.`,
       };
+    }
     case 'timeout':
       return {
         title: `⏰ ${winnerName} Wins!`,

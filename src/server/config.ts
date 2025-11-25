@@ -8,95 +8,43 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 import { getRulesMode } from '../shared/utils/envFlags';
+import {
+  isPlaceholderSecret,
+  SECRET_MIN_LENGTHS,
+  validateSecretsOrThrow,
+} from './utils/secretsValidation';
+import {
+  NodeEnvSchema,
+  AppTopologySchema,
+  parseEnv,
+  getEffectiveNodeEnv,
+} from './config/env';
 
 // Load .env into process.env before we read anything from it.
 dotenv.config();
 
-const NodeEnvSchema = z.enum(['development', 'test', 'production']);
-const AppTopologySchema = z.enum(['single', 'multi-unsafe', 'multi-sticky']);
-
-/**
- * Placeholder or example JWT secrets that are safe for local development but
- * MUST NOT be used in production. These values intentionally mirror the
- * examples in `.env.example` and `docker-compose.yml`.
- */
-const PLACEHOLDER_JWT_SECRETS = new Set<string>([
-  'your-super-secret-jwt-key-change-this-in-production',
-  'your-super-secret-refresh-key-change-this-in-production',
-  'change-this-secret',
-  'change-this-refresh-secret',
-  'changeme',
-  'CHANGEME',
-]);
-
-function isPlaceholderJwtSecret(value: string | undefined | null): boolean {
-  if (!value) return false;
-  const normalized = value.trim();
-  if (!normalized) return false;
-  return PLACEHOLDER_JWT_SECRETS.has(normalized);
+// Parse the raw environment with comprehensive Zod schema validation.
+// Uses the centralized schema from config/env.ts for consistency.
+const envResult = parseEnv(process.env as Record<string, string | undefined>);
+if (!envResult.success) {
+  console.error('❌ Invalid environment configuration:');
+  for (const error of envResult.errors!) {
+    console.error(`  - ${error.path || 'root'}: ${error.message}`);
+  }
+  process.exit(1);
 }
+const env = envResult.data!;
 
-const EnvSchema = z.object({
-  NODE_ENV: NodeEnvSchema.default('development'),
-  PORT: z.coerce.number().default(3000),
-
-  CORS_ORIGIN: z.string().default('http://localhost:5173'),
-  CLIENT_URL: z.string().default('http://localhost:3000'),
-  ALLOWED_ORIGINS: z.string().default('http://localhost:5173,http://localhost:3000'),
-
-  DATABASE_URL: z.string().optional(),
-
-  REDIS_URL: z.string().optional(),
-  REDIS_PASSWORD: z.string().optional(),
-
-  JWT_SECRET: z.string().optional(),
-  JWT_REFRESH_SECRET: z.string().optional(),
-  JWT_EXPIRES_IN: z.string().default('7d'),
-  JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
-
-  AI_SERVICE_URL: z.string().optional(),
-  // Per-request timeouts for AI service interactions (in milliseconds).
-  // These defaults are intentionally modest so that dependency failures
-  // surface quickly and do not stall game flows.
-  AI_SERVICE_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
-  AI_RULES_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
-  // Node-local cap on concurrent AI HTTP requests. This provides basic
-  // backpressure so that a single game or user cannot saturate the AI
-  // service and starve others.
-  AI_MAX_CONCURRENT_REQUESTS: z.coerce.number().int().positive().default(16),
-
-  LOG_LEVEL: z.string().default('info'),
-  RINGRIFT_APP_TOPOLOGY: AppTopologySchema.default('single'),
-
-  // Exposed by npm during `npm run` invocations; used for health/version
-  // endpoints. Optional and safe to default when missing (e.g. direct node
-  // invocations).
-  npm_package_version: z.string().optional(),
-
-  // Auth login lockout / abuse-protection. These defaults are intentionally
-  // conservative so that local development is not painful while still
-  // providing basic protection in production.
-  AUTH_MAX_FAILED_LOGIN_ATTEMPTS: z.coerce.number().int().positive().default(10),
-  AUTH_FAILED_LOGIN_WINDOW_SECONDS: z.coerce.number().int().positive().default(900), // 15 minutes
-  AUTH_LOCKOUT_DURATION_SECONDS: z.coerce.number().int().positive().default(900), // 15 minutes
-  // When unset, login lockout is enabled by default. Set to "false" or "0"
-  // to disable globally.
-  AUTH_LOGIN_LOCKOUT_ENABLED: z.string().optional(),
-});
-
-// Parse the raw environment with basic type coercion and defaults.
-const env = EnvSchema.parse(process.env);
-
+// Determine effective node environment.
 // When running under Jest, JEST_WORKER_ID is always defined. In that case we
 // treat the effective nodeEnv as "test" even if NODE_ENV was set to
 // "development" via a .env file, so that test-only switches (e.g. timer
 // suppression in GameEngine) behave correctly.
+const nodeEnv = getEffectiveNodeEnv(env);
 const isJestRuntime =
   typeof process !== 'undefined' &&
   !!(process as any).env &&
   (process as any).env.JEST_WORKER_ID !== undefined;
-
-const nodeEnv: z.infer<typeof NodeEnvSchema> = isJestRuntime ? 'test' : env.NODE_ENV;
 const isProduction = nodeEnv === 'production';
 const isTest = nodeEnv === 'test';
 const isDevelopment = nodeEnv === 'development';
@@ -142,9 +90,14 @@ if (isProduction) {
     !jwtSecret || !jwtSecret.trim() || !jwtRefreshSecret || !jwtRefreshSecret.trim();
 
   const usingPlaceholder =
-    isPlaceholderJwtSecret(jwtSecret) || isPlaceholderJwtSecret(jwtRefreshSecret);
+    isPlaceholderSecret(jwtSecret) || isPlaceholderSecret(jwtRefreshSecret);
 
-  if (missingOrEmpty || usingPlaceholder) {
+  // Check minimum length requirement for production (32+ characters)
+  const minLength = SECRET_MIN_LENGTHS.JWT_SECRET || 32;
+  const jwtTooShort = jwtSecret && jwtSecret.trim().length < minLength;
+  const refreshTooShort = jwtRefreshSecret && jwtRefreshSecret.trim().length < minLength;
+
+  if (missingOrEmpty || usingPlaceholder || jwtTooShort || refreshTooShort) {
     const problems: string[] = [];
     if (missingOrEmpty) {
       problems.push('JWT secrets must be non-empty');
@@ -154,11 +107,17 @@ if (isProduction) {
         'JWT secrets must not use placeholder values from .env.example or docker-compose.yml'
       );
     }
+    if (jwtTooShort) {
+      problems.push(`JWT_SECRET must be at least ${minLength} characters`);
+    }
+    if (refreshTooShort) {
+      problems.push(`JWT_REFRESH_SECRET must be at least ${minLength} characters`);
+    }
 
     throw new Error(
       `Invalid JWT configuration for NODE_ENV=production: ${problems.join(
         '; '
-      )}. Please set JWT_SECRET and JWT_REFRESH_SECRET to strong, unique values.`
+      )}. Please set JWT_SECRET and JWT_REFRESH_SECRET to strong, unique values (minimum ${minLength} characters).`
     );
   }
 }
@@ -301,6 +260,18 @@ const preliminaryConfig = {
 
 export type AppConfig = z.infer<typeof ConfigSchema>;
 
+// Run comprehensive secrets validation (will throw on critical errors in production).
+// In test/development, this logs warnings but doesn't fail for missing optional secrets.
+// This is done before the final config parse to provide better error messages.
+if (!isJestRuntime) {
+  // Skip secrets validation in Jest to avoid test interference; tests should
+  // use validateSecretsOrThrow directly with controlled env vars.
+  validateSecretsOrThrow(isProduction);
+}
+
 // Parse and freeze the final config so downstream code gets a fully
 // validated, immutable view.
 export const config: AppConfig = Object.freeze(ConfigSchema.parse(preliminaryConfig));
+
+// Re-export validation utilities for use in tests and other modules.
+export { validateSecretsOrThrow, validateAllSecrets, isPlaceholderSecret } from './utils/secretsValidation';

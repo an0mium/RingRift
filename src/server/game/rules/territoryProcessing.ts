@@ -1,3 +1,21 @@
+/**
+ * Legacy backend territory processing module.
+ *
+ * **IMPORTANT:** This file exists primarily to provide the backend-specific
+ * orchestration layer (player interaction, GameState updates) around the
+ * canonical shared territory helpers. The actual territory semantics (region
+ * detection, collapse logic, border enumeration) are defined in:
+ *
+ * - {@link ../../../shared/engine/territoryDetection.ts} - Region detection
+ * - {@link ../../../shared/engine/territoryProcessing.ts} - Collapse logic
+ * - {@link ../../../shared/engine/territoryBorders.ts} - Border markers
+ * - {@link ../../../shared/engine/territoryDecisionHelpers.ts} - Decision helpers
+ *
+ * All territory-processing logic in this file delegates to those shared modules.
+ * Do NOT add new territory processing logic here; extend the shared helpers instead.
+ *
+ * @module server/game/rules/territoryProcessing
+ */
 import {
   GameState,
   Territory,
@@ -131,7 +149,12 @@ export async function processDisconnectedRegionsForCurrentPlayer(
       region = eligibleRegions[0];
     } else {
       const choice: RegionOrderChoice = {
-        id: generateUUID(),
+        id: generateUUID(
+          'region_order',
+          gameState.id,
+          gameState.history.length,
+          eligibleRegions.length
+        ),
         gameId: gameState.id,
         playerNumber: movingPlayer,
         type: 'region_order',
@@ -139,7 +162,7 @@ export async function processDisconnectedRegionsForCurrentPlayer(
         options: eligibleRegions.map((r, index) => {
           const representative = r.spaces[0];
           const regionKey = representative ? positionToString(representative) : `region-${index}`;
-
+ 
           return {
             regionId: String(index),
             size: r.spaces.length,
@@ -188,6 +211,14 @@ export async function processDisconnectedRegionsForCurrentPlayer(
 /**
  * Self-elimination prerequisite: player must have at least one stack
  * outside the disconnected region.
+ *
+ * @deprecated This internal helper is DEAD CODE and is not called anywhere.
+ * Use {@link filterProcessableTerritoryRegions} from
+ * `src/shared/engine/territoryProcessing.ts` instead, which provides identical
+ * semantics and is the canonical source of truth for all engines.
+ *
+ * This function is retained temporarily for reference but will be removed
+ * in a future cleanup pass.
  */
 function canProcessDisconnectedRegion(
   gameState: GameState,
@@ -277,11 +308,14 @@ async function processOneDisconnectedRegion(
   return gameState;
 }
 
-// Local UUID generator mirroring GameEngine.generateUUID
-function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+// Local deterministic identifier helper for territory-related choices.
+// This deliberately avoids any RNG so that core rules behaviour remains
+// fully deterministic (RR‑CANON R190). Callers pass structured context
+// (game id, history length, candidate count, etc.) so IDs remain unique
+// and stable for parity/diagnostic tooling.
+function generateUUID(...parts: Array<string | number | undefined>): string {
+  return parts
+    .filter((part) => part !== undefined)
+    .map((part) => String(part))
+    .join('|');
 }

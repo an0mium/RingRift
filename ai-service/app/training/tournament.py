@@ -21,6 +21,70 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# Victory reason categories for statistics tracking.
+# These align with the canonical game engine victory conditions (R172, etc.):
+# - "elimination": Player reached victory_threshold for eliminated rings.
+# - "territory": Player reached territory_victory_threshold.
+# - "last_player_standing": R172 LPS victory - sole player with real
+#   actions for two consecutive rounds.
+# - "structural": Global stalemate resolved by tie-breakers.
+# - "unknown": Catch-all for edge cases.
+VICTORY_REASONS = [
+    "elimination",
+    "territory",
+    "last_player_standing",
+    "structural",
+    "unknown",
+]
+
+
+def infer_victory_reason(game_state: GameState) -> str:
+    """Infer the victory reason from the final game state.
+
+    This mirrors the victory condition ladder in GameEngine._check_victory:
+    1. Ring elimination victory (victory_threshold reached).
+    2. Territory victory (territory_victory_threshold reached).
+    3. LPS victory (lps_exclusive_player_for_completed_round matched winner).
+    4. Structural termination (no stacks, tie-breaker resolution).
+
+    Args:
+        game_state: The final GameState after the game has finished.
+
+    Returns:
+        One of the VICTORY_REASONS strings.
+    """
+    if game_state.game_status != GameStatus.FINISHED:
+        return "unknown"
+
+    winner = game_state.winner
+    if winner is None:
+        return "unknown"
+
+    # Check ring elimination victory.
+    elim_rings = game_state.board.eliminated_rings
+    eliminated_for_winner = elim_rings.get(str(winner), 0)
+    if eliminated_for_winner >= game_state.victory_threshold:
+        return "elimination"
+
+    # Check territory victory.
+    territory_counts: Dict[int, int] = {}
+    for p_id in game_state.board.collapsed_spaces.values():
+        territory_counts[p_id] = territory_counts.get(p_id, 0) + 1
+    threshold = game_state.territory_victory_threshold
+    if territory_counts.get(winner, 0) >= threshold:
+        return "territory"
+
+    # Check LPS victory (R172).
+    if game_state.lps_exclusive_player_for_completed_round == winner:
+        return "last_player_standing"
+
+    # Structural termination (no stacks remaining or tie-breaker resolution).
+    if not game_state.board.stacks:
+        return "structural"
+
+    return "unknown"
+
+
 class Tournament:
     def __init__(
         self,
@@ -36,6 +100,11 @@ class Tournament:
         # Simple Elo-like rating system for candidate (A) vs best (B).
         self.k_elo = k_elo
         self.ratings = {"A": 1500.0, "B": 1500.0}
+        # Victory reason statistics: counts by reason for analysis.
+        # Tracks R172 LPS wins separately from elimination/territory.
+        self.victory_reasons: Dict[str, int] = {
+            reason: 0 for reason in VICTORY_REASONS
+        }
         
     def _create_ai(self, player_number: int, model_path: str) -> DescentAI:
         """Create an AI instance with specific model weights.
@@ -91,8 +160,12 @@ class Tournament:
             ai1 = self._create_ai(1, p1_model)
             ai2 = self._create_ai(2, p2_model)
             
-            winner = self._play_game(ai1, ai2)
-            
+            winner, final_state = self._play_game(ai1, ai2)
+
+            # Track victory reason for LPS and other victory types.
+            victory_reason = infer_victory_reason(final_state)
+            self.victory_reasons[victory_reason] += 1
+
             if winner == 1:
                 self.results[p1_label] += 1
                 self._update_elo(p1_label)
@@ -102,7 +175,7 @@ class Tournament:
             else:
                 self.results["Draw"] += 1
                 self._update_elo(None)
-                
+
             if winner == 1:
                 winner_label_str = p1_label
             elif winner == 2:
@@ -110,14 +183,16 @@ class Tournament:
             else:
                 winner_label_str = "Draw"
             logger.info(
-                "Game %d/%d: Winner %s (%s)",
+                "Game %d/%d: Winner %s (%s) via %s",
                 i + 1,
                 self.num_games,
                 winner,
                 winner_label_str,
+                victory_reason,
             )
-            
+
         logger.info("Tournament finished. Results: %s", self.results)
+        logger.info("Victory reasons: %s", self.victory_reasons)
         logger.info(
             "Final Elo ratings: A=%.1f, B=%.1f",
             self.ratings["A"],
@@ -125,28 +200,34 @@ class Tournament:
         )
         return self.results
 
-    def _play_game(self, ai1: DescentAI, ai2: DescentAI) -> Optional[int]:
-        """Play a single game"""
+    def _play_game(
+        self, ai1: DescentAI, ai2: DescentAI
+    ) -> tuple[Optional[int], GameState]:
+        """Play a single game and return (winner, final_state).
+
+        Returns:
+            A tuple of (winner player number or None, final GameState).
+        """
         # Initialize game state
         state = self._create_initial_state()
         move_count = 0
-        
+
         while state.game_status == GameStatus.ACTIVE and move_count < 200:
             current_player = state.current_player
             ai = ai1 if current_player == 1 else ai2
-            
+
             move = ai.select_move(state)
-            
+
             if not move:
                 # No moves available, current player loses
                 state.winner = 2 if current_player == 1 else 1
                 state.game_status = GameStatus.FINISHED
                 break
-                
+
             state = GameEngine.apply_move(state, move)
             move_count += 1
-            
-        return state.winner
+
+        return state.winner, state
 
     def _update_elo(self, winner_label: Optional[str]) -> None:
         """Update Elo-like ratings for candidate (A) and best (B)."""
@@ -230,6 +311,8 @@ class Tournament:
             chainCaptureState=None,
             mustMoveFromStackKey=None,
             zobristHash=None,
+            lpsRoundIndex=0,
+            lpsExclusivePlayerForCompletedRound=None,
         )
 
 

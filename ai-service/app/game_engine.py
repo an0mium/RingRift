@@ -15,6 +15,7 @@ from .models import (
 from .board_manager import BoardManager
 from .ai.zobrist import ZobristHash
 from .rules.geometry import BoardGeometry
+from .rules.core import count_rings_in_play_for_player
 
 
 DEBUG_ENGINE = os.environ.get("RINGRIFT_DEBUG_ENGINE") == "1"
@@ -292,14 +293,48 @@ class GameEngine:
             if p_id not in territory_counts:
                 territory_counts[p_id] = 0
             territory_counts[p_id] += 1
-            
+             
         for p_id, count in territory_counts.items():
             if count >= game_state.territory_victory_threshold:
                 game_state.game_status = GameStatus.FINISHED
                 game_state.winner = p_id
                 return
 
-        # 3. Global structural terminality
+        # 3. Early last-player-standing victory (R172).
+        candidate = game_state.lps_exclusive_player_for_completed_round
+        if (
+            candidate is not None
+            and game_state.current_player == candidate
+            and GameEngine._has_real_action_for_player(game_state, candidate)
+        ):
+            board = game_state.board
+            others_have_actions = False
+            for player in game_state.players:
+                if player.player_number == candidate:
+                    continue
+                has_stacks = any(
+                    stack.controlling_player == player.player_number
+                    for stack in board.stacks.values()
+                )
+                if not has_stacks and player.rings_in_hand <= 0:
+                    continue
+                if GameEngine._has_real_action_for_player(
+                    game_state,
+                    player.player_number,
+                ):
+                    others_have_actions = True
+                    break
+
+            # If no other player with material has any real action, candidate wins.
+            if not others_have_actions:
+                game_state.game_status = GameStatus.FINISHED
+                game_state.winner = candidate
+                return
+
+            # Candidate condition failed; require a fresh qualifying round.
+            game_state.lps_exclusive_player_for_completed_round = None
+
+        # 4. Global structural terminality
         # Fallback termination is triggered only when there are no stacks on
         # the board and no rings in hand for any player. This mirrors the TS
         # RuleEngine.checkGameEnd semantics and avoids ending games
@@ -487,12 +522,16 @@ class GameEngine:
             MoveType.LINE_FORMATION,
             MoveType.CHOOSE_LINE_OPTION,
         ):
-            # TS shared GameEngine does not change phase after line-processing
-            # decisions; it leaves the game in LINE_PROCESSING and delegates
-            # turn/phase advancement to higher-level orchestrators. To stay in
-            # parity with the TS fixtures, we treat these moves as
-            # phase-preserving and do not auto-advance here.
-            pass
+            # After processing a line decision, check if there are more lines
+            # for the current player to process. If not, advance to territory
+            # processing (which may end the turn if no territories either).
+            # This mirrors the TS TurnEngine behaviour where line_processing
+            # automatically advances when no further decisions remain.
+            remaining_lines = GameEngine._get_line_processing_moves(
+                game_state, current_player
+            )
+            if not remaining_lines:
+                GameEngine._advance_to_territory_processing(game_state)
 
         elif last_move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
             # ELIMINATE_RINGS_FROM_STACK in the parity fixtures corresponds to
@@ -630,6 +669,9 @@ class GameEngine:
                 game_state.current_player = candidate.player_number
                 game_state.current_phase = GamePhase.MOVEMENT
                 game_state.must_move_from_stack_key = None
+                GameEngine._update_lps_round_tracking_for_current_player(
+                    game_state,
+                )
                 return
 
             # Found the next active player with some material and at least one
@@ -648,6 +690,9 @@ class GameEngine:
             else:
                 game_state.current_phase = GamePhase.MOVEMENT
 
+            GameEngine._update_lps_round_tracking_for_current_player(
+                game_state,
+            )
             return
 
         # If we exhaust all players without finding any with material, then
@@ -1431,8 +1476,9 @@ class GameEngine:
 
         This mirrors the TS RuleEngine.getValidRingPlacements +
         validateRingPlacement semantics:
- 
-        - Respect per-player ring caps derived from BOARD_CONFIGS.ringsPerPlayer.
+
+        - Respect per-player ring caps derived from BOARD_CONFIGS.ringsPerPlayer,
+          based on own-colour rings in play (board + hand).
         - Allow multi-ring placement (1–3 rings) on empty spaces.
         - Allow exactly 1 ring per placement on existing stacks.
         - Enforce no-dead-placement by simulating MOVEMENT-phase
@@ -1459,15 +1505,10 @@ class GameEngine:
         # TS-aligned per-player cap (BOARD_CONFIGS[boardType].ringsPerPlayer)
         per_player_cap = GameEngine._estimate_rings_per_player(game_state)
 
-        # Count rings on board for this player using controlling-player stacks,
-        # mirroring RuleEngine.getPlayerStacks + rings.length.
-        player_stacks = BoardManager.get_player_stacks(
-            board,
-            player_number,
-        )
-        rings_on_board = 0
-        for stack in player_stacks:
-            rings_on_board += len(stack.rings)
+        # Own-colour rings in play for this player (board + hand), mirroring
+        # the shared TS core.countRingsInPlayForPlayer helper semantics.
+        total_in_play = count_rings_in_play_for_player(game_state, player_number)
+        rings_on_board = max(0, total_in_play - rings_in_hand)
 
         remaining_by_cap = per_player_cap - rings_on_board
         max_available_global = min(remaining_by_cap, rings_in_hand)
@@ -1525,7 +1566,7 @@ class GameEngine:
                         placement_count,
                     )
                 )
- 
+
                 if not GameEngine._has_any_movement_or_capture_after_hypothetical_placement(
                     game_state,
                     player_number,
@@ -1826,6 +1867,86 @@ class GameEngine:
         if GameEngine._has_valid_captures(game_state, player_number):
             return True
         return False
+
+    @staticmethod
+    def _has_real_action_for_player(
+        game_state: GameState,
+        player_number: int,
+    ) -> bool:
+        """
+        R172 real-action availability predicate for LPS.
+
+        A player has a real action if they have at least one legal placement,
+        non-capture movement, or overtaking capture available on their turn.
+        Forced elimination and line/territory decision moves do not count.
+        """
+        return GameEngine._has_valid_actions(game_state, player_number)
+
+    @staticmethod
+    def _update_lps_round_tracking_for_current_player(
+        game_state: GameState,
+    ) -> None:
+        """
+        Update last-player-standing (R172) round tracking for the current
+        player.
+
+        This mirrors the TS GameEngine LPS tracking helper by:
+        - Computing whether the current player has any real actions.
+        - Recording that fact in lps_current_round_actor_mask.
+        - When all active players have been seen in this round, determining
+          whether exactly one player had real actions and, if so, recording
+          them as lps_exclusive_player_for_completed_round.
+        """
+        if game_state.game_status != GameStatus.ACTIVE:
+            return
+
+        board = game_state.board
+
+        # Active players are those with at least one stack or a ring in hand.
+        active_players: List[int] = []
+        for player in game_state.players:
+            has_stacks = any(
+                stack.controlling_player == player.player_number
+                for stack in board.stacks.values()
+            )
+            if has_stacks or player.rings_in_hand > 0:
+                active_players.append(player.player_number)
+
+        if not active_players:
+            return
+
+        active_set = set(active_players)
+        mask = game_state.lps_current_round_actor_mask
+
+        # Drop any stale entries for players who are no longer active.
+        stale_keys = [pid for pid in list(mask.keys()) if pid not in active_set]
+        if stale_keys:
+            mask.clear()
+            game_state.lps_exclusive_player_for_completed_round = None
+
+        current = game_state.current_player
+        if current not in active_set:
+            return
+
+        has_real_action = GameEngine._has_real_action_for_player(
+            game_state,
+            current,
+        )
+        mask[current] = has_real_action
+
+        # When we've recorded an entry for every active player, a round completes.
+        if all(pid in mask for pid in active_set):
+            true_players = [
+                pid for pid, value in mask.items()
+                if value and pid in active_set
+            ]
+            if len(true_players) == 1:
+                game_state.lps_exclusive_player_for_completed_round = true_players[0]
+            else:
+                game_state.lps_exclusive_player_for_completed_round = None
+
+            game_state.lps_round_index += 1
+            mask.clear()
 
     @staticmethod
     def _get_forced_elimination_moves(

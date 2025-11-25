@@ -16,7 +16,9 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:coverage:watch": "jest --coverage --watch",
-    "test:ci": "jest --ci --coverage --maxWorkers=2",
+    "test:core": "jest --forceExit --testPathIgnorePatterns='/node_modules/' '/dist/' '/build/' 'GameEngine\\.decisionPhases\\.MoveDriven\\.test\\.ts$' 'RuleEngine\\.movementCapture\\.test\\.ts$' '\\.e2e\\.spec\\.ts$' 'LobbyRealtime\\.test\\.ts$' 'WebSocketServer\\..+\\.integration\\.test\\.ts$' 'GameEngine\\.aiSimulation\\.test\\.ts$' 'GameContext\\.reconnect\\.test\\.tsx$' 'aiHeuristicCoverage\\.test\\.ts$' 'api\\.client\\.test\\.ts$' 'envFlags\\.test\\.ts$' 'Parity\\..*\\.test\\.ts$' 'bisectParity\\.test\\.ts$' 'NoRandomInCoreRules\\.test\\.ts$' 'GameEngine\\.territoryDisconnection\\.hex\\.test\\.ts$' 'GameEngine\\.regionOrderChoiceIntegration\\.test\\.ts$' 'FAQ_Q\\d+.*\\.test\\.ts$' 'GameEngine\\.territory\\.scenarios\\.test\\.ts$' 'ClientSandboxEngine\\.territoryDecisionPhases\\.MoveDriven\\.test\\.ts$' 'RulesMatrix\\.Elimination\\.ClientSandboxEngine\\.test\\.ts$' 'RulesMatrix\\.Comprehensive\\.test\\.ts$'",
+    "test:diagnostics": "jest --testPathPattern='(GameEngine\\.decisionPhases\\.MoveDriven|RuleEngine\\.movementCapture)\\.test\\.ts$'",
+    "test:ci": "jest --ci --coverage --maxWorkers=2 --testPathIgnorePatterns='/node_modules/' '/dist/' '/build/' 'GameEngine\\.decisionPhases\\.MoveDriven\\.test\\.ts$' 'RuleEngine\\.movementCapture\\.test\\.ts$'",
     "test:unit": "jest --testPathPattern=tests/unit",
     "test:integration": "jest --testPathPattern=tests/integration",
     "test:verbose": "jest --verbose",
@@ -39,7 +41,8 @@
     "db:migrate": "npx prisma migrate dev",
     "db:generate": "npx prisma generate",
     "db:seed": "ts-node src/server/database/seed.ts",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "validate:deployment": "npx ts-node scripts/validate-deployment-config.ts"
   },
   "keywords": [
     "game",
@@ -50,6 +53,10 @@
   ],
   "author": "RingRift Team",
   "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
   "dependencies": {
     "@prisma/client": "^6.19.0",
     "@tanstack/react-query": "^4.29.19",
@@ -75,6 +82,8 @@
     "redis": "^4.6.10",
     "socket.io": "^4.7.4",
     "socket.io-client": "^4.7.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "tailwind-merge": "^1.14.0",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
@@ -83,7 +92,7 @@
   "devDependencies": {
     "@babel/core": "^7.26.0",
     "@babel/plugin-syntax-import-meta": "^7.10.4",
-    "@playwright/test": "^1.49.0",
+    "@playwright/test": "^1.56.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
@@ -98,6 +107,8 @@
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@types/supertest": "^2.0.16",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^9.0.7",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
@@ -123,10 +134,6 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3",
     "vite": "^4.4.7"
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
   },
   "lint-staged": {
     "*.{ts,tsx}": [

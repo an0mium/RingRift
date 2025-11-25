@@ -6,6 +6,7 @@
   "state": {
     "boardType": "square8",
     "id": "rules-parity-square8-2p",
+    "rngSeed": 192055301,
     "board": {
       "stacks": {},
       "markers": {},
@@ -73,14 +74,16 @@
     "currentPhase": "line_processing",
     "currentPlayer": 1,
     "moveHistory": [],
+    "history": [],
     "gameStatus": "waiting",
+    "spectators": [],
     "timeControl": {
       "initialTime": 600,
       "increment": 5,
       "type": "blitz"
     },
-    "createdAt": "2025-11-21T17:41:01.298Z",
-    "lastMoveAt": "2025-11-21T17:41:01.298Z",
+    "createdAt": "2025-11-25T04:27:27.992Z",
+    "lastMoveAt": "2025-11-25T04:27:27.992Z",
     "isRated": false,
     "maxPlayers": 2,
     "totalRingsInPlay": 0,
@@ -132,21 +135,6 @@
     "tsValid": true,
     "tsValidation": {
       "valid": true
-    },
-    "tsNext": {
-      "boardType": "square8",
-      "currentPhase": "line_processing",
-      "currentPlayer": 1,
-      "gameStatus": "waiting",
-      "totalRingsInPlay": 0,
-      "totalRingsEliminated": 0,
-      "victoryThreshold": 19,
-      "territoryVictoryThreshold": 33,
-      "markers": 0,
-      "collapsed": 4,
-      "eliminated": 0,
-      "S": 4,
-      "stateHash": "1:line_processing:waiting#1:18:0:0|2:18:0:0###0,0:1|0,1:1|0,2:1|0,3:1"
     }
   }
 }

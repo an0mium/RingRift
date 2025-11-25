@@ -225,6 +225,10 @@ describe('BoardManager', () => {
           boardManager.setCollapsedSpace(pos(1, 1), 1, board);
           boardManager.collapseMarker(pos(2, 2), 1, board);
         }).not.toThrow();
+
+        // Legal trajectories built from core mutators must never rely on the
+        // defensive repair pass.
+        expect(boardManager.getRepairCountForTesting()).toBe(0);
       });
 
       it('should throw when a stack exists on a collapsed space elsewhere on the board', () => {
@@ -247,7 +251,7 @@ describe('BoardManager', () => {
         }).toThrow(/invariant violation/i);
       });
 
-      it('should throw when a marker and collapsed space coexist on the same cell', () => {
+      it('repairs a marker+collapsed overlap elsewhere on the board when touched by a core mutator', () => {
         // Construct an illegal marker + collapsed overlap
         addMarker(board, pos(2, 2), 1);
         addCollapsedSpace(board, pos(2, 2), 1);
@@ -260,9 +264,23 @@ describe('BoardManager', () => {
           controllingPlayer: 1,
         };
 
+        const key = '2,2';
+        const beforeRepairs = boardManager.getRepairCountForTesting();
+
         expect(() => {
+          // Any core mutator that triggers invariant checks must first repair
+          // the illegal marker+collapsed overlap, but this repair should not
+          // surface as a hard invariant failure.
           boardManager.setStack(pos(0, 0), safeStack, board);
-        }).toThrow(/invariant violation/i);
+        }).not.toThrow();
+
+        const afterRepairs = boardManager.getRepairCountForTesting();
+        expect(afterRepairs).toBe(beforeRepairs + 1);
+
+        // The marker at the illegal cell has been removed, while the collapsed
+        // territory remains.
+        expect(board.markers.has(key)).toBe(false);
+        expect(board.collapsedSpaces.has(key)).toBe(true);
       });
 
       it('should repair and log when placing a stack on a marker while still enforcing invariants', () => {
@@ -277,12 +295,70 @@ describe('BoardManager', () => {
           controllingPlayer: 1,
         };
 
+        const beforeRepairs = boardManager.getRepairCountForTesting();
+
         // The implementation removes the marker before asserting invariants,
         // so the resulting state is legal and no error is thrown, but the
         // invariant helper still protects against wider board corruption.
         expect(() => {
           boardManager.setStack(pos(3, 3), stack, board);
         }).not.toThrow();
+
+        const afterRepairs = boardManager.getRepairCountForTesting();
+
+        // This path is expected to trigger exactly one additional repair:
+        // the pre-existing marker on the landing cell is removed before the
+        // stack is placed.
+        expect(afterRepairs).toBe(beforeRepairs + 1);
+      });
+
+      it('repairs a directly injected stack+marker overlap via assertBoardInvariants and counts the repair', () => {
+        const illegalPos = pos(4, 4);
+        const key = `${illegalPos.x},${illegalPos.y}`;
+
+        // Construct an illegal state directly on the BoardState: both a stack
+        // and a marker on the same cell. This bypasses the normal mutators so
+        // we exercise the defensive repair pass inside assertBoardInvariants.
+        addStack(board, illegalPos, 1, 1);
+        addMarker(board, illegalPos, 1);
+
+        expect(board.stacks.has(key)).toBe(true);
+        expect(board.markers.has(key)).toBe(true);
+
+        const beforeRepairs = boardManager.getRepairCountForTesting();
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (boardManager as any).assertBoardInvariants(board as any, 'test_stack_marker_overlap');
+
+        // After the repair pass, the overlap is resolved and the repair counter
+        // has been incremented exactly once.
+        expect(board.stacks.has(key)).toBe(true);
+        expect(board.markers.has(key)).toBe(false);
+
+        const afterRepairs = boardManager.getRepairCountForTesting();
+        expect(afterRepairs).toBe(beforeRepairs + 1);
+      });
+
+      it('repairs a directly injected marker+collapsed overlap via assertBoardInvariants and counts the repair', () => {
+        const illegalPos = pos(5, 5);
+        const key = `${illegalPos.x},${illegalPos.y}`;
+
+        addMarker(board, illegalPos, 1);
+        addCollapsedSpace(board, illegalPos, 1);
+
+        expect(board.markers.has(key)).toBe(true);
+        expect(board.collapsedSpaces.has(key)).toBe(true);
+
+        const beforeRepairs = boardManager.getRepairCountForTesting();
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (boardManager as any).assertBoardInvariants(board as any, 'test_marker_collapsed_overlap');
+
+        expect(board.markers.has(key)).toBe(false);
+        expect(board.collapsedSpaces.has(key)).toBe(true);
+
+        const afterRepairs = boardManager.getRepairCountForTesting();
+        expect(afterRepairs).toBe(beforeRepairs + 1);
       });
     });
   });

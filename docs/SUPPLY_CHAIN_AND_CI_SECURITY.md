@@ -2,7 +2,7 @@
 
 **Status:** Design-only (future work under S-05.F.x; no CI/Docker changes applied yet)
 
-**Related docs:** [`docs/SECURITY_THREAT_MODEL.md`](./SECURITY_THREAT_MODEL.md:1), [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:155), [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](./DATA_LIFECYCLE_AND_PRIVACY.md:1), [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md:1), [`FINAL_ARCHITECT_REPORT.md`](../FINAL_ARCHITECT_REPORT.md:1)
+**Related docs:** [`docs/SECURITY_THREAT_MODEL.md`](./SECURITY_THREAT_MODEL.md:1), [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:155), [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](./DATA_LIFECYCLE_AND_PRIVACY.md:1), [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md:1), [`archive/FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:1)
 
 This document defines a focused plan for hardening RingRift’s supply chain and CI/CD pipeline. It elaborates on the S-05.F backlog item from [`docs/SECURITY_THREAT_MODEL.md`](./SECURITY_THREAT_MODEL.md:188) and is scoped to:
 

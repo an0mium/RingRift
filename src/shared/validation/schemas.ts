@@ -1,6 +1,189 @@
 import { z } from 'zod';
 import { Request } from 'express';
 
+// ====================================================================
+// CONSTANTS
+// ====================================================================
+
+/** Maximum length for user-generated content to prevent DoS via large payloads */
+export const MAX_USER_CONTENT_LENGTH = 10000;
+
+/** Maximum username length */
+export const MAX_USERNAME_LENGTH = 20;
+
+/** Minimum username length */
+export const MIN_USERNAME_LENGTH = 3;
+
+/** Maximum email length */
+export const MAX_EMAIL_LENGTH = 255;
+
+/** Minimum password length */
+export const MIN_PASSWORD_LENGTH = 8;
+
+/** Maximum password length */
+export const MAX_PASSWORD_LENGTH = 128;
+
+/** Maximum chat message length */
+export const MAX_CHAT_MESSAGE_LENGTH = 500;
+
+// ====================================================================
+// COMMON REUSABLE SCHEMAS
+// ====================================================================
+
+/**
+ * UUID v4 validation schema. Used for entity IDs (games, users, etc.)
+ */
+export const UUIDSchema = z
+  .string()
+  .uuid('Invalid ID format')
+  .min(1, 'ID is required');
+
+/**
+ * Safe string schema that strips dangerous characters for XSS prevention.
+ * Use for user-generated content that will be displayed.
+ */
+export const SafeStringSchema = z
+  .string()
+  .transform((val) => sanitizeString(val));
+
+/**
+ * Pagination query parameters schema.
+ * Used across list endpoints for consistent pagination handling.
+ */
+export const PaginationQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+  sortBy: z.string().max(50).optional(),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export type PaginationQueryInput = z.infer<typeof PaginationQuerySchema>;
+
+/**
+ * Game ID URL parameter validation.
+ */
+export const GameIdParamSchema = z.object({
+  gameId: UUIDSchema,
+});
+
+export type GameIdParamInput = z.infer<typeof GameIdParamSchema>;
+
+/**
+ * Game listing query parameters schema.
+ * Used for filtering games in list/lobby endpoints.
+ */
+export const GameListingQuerySchema = z.object({
+  status: z.enum(['waiting', 'active', 'completed', 'abandoned', 'paused']).optional(),
+  boardType: z.enum(['square8', 'square19', 'hexagonal']).optional(),
+  maxPlayers: z.coerce.number().int().min(2).max(4).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export type GameListingQueryInput = z.infer<typeof GameListingQuerySchema>;
+
+/**
+ * User search query parameters schema.
+ */
+export const UserSearchQuerySchema = z.object({
+  q: z
+    .string()
+    .min(1, 'Search query is required')
+    .max(100, 'Search query too long')
+    .transform((val) => sanitizeString(val)),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+export type UserSearchQueryInput = z.infer<typeof UserSearchQuerySchema>;
+
+/**
+ * Leaderboard query parameters schema.
+ */
+export const LeaderboardQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+export type LeaderboardQueryInput = z.infer<typeof LeaderboardQuerySchema>;
+
+// ====================================================================
+// SANITIZATION UTILITIES
+// ====================================================================
+
+/**
+ * Sanitizes a string by removing or escaping potentially dangerous characters.
+ * This provides defense-in-depth against XSS even when content is properly escaped on output.
+ *
+ * @param input - The raw user input string
+ * @returns Sanitized string safe for storage
+ */
+export function sanitizeString(input: string): string {
+  if (typeof input !== 'string') {
+    return '';
+  }
+
+  return (
+    input
+      // Remove null bytes
+      .replace(/\0/g, '')
+      // Normalize Unicode to prevent homoglyph attacks
+      .normalize('NFC')
+      // Trim excessive whitespace
+      .trim()
+  );
+}
+
+/**
+ * Sanitizes user-generated content that may be displayed in HTML contexts.
+ * Escapes HTML entities to prevent XSS attacks.
+ *
+ * NOTE: This should be used as a defense-in-depth measure. The primary XSS
+ * prevention should be proper output encoding by the rendering layer (React, etc.)
+ *
+ * @param input - The raw user input string
+ * @returns HTML-escaped string
+ */
+export function sanitizeHtmlContent(input: string): string {
+  if (typeof input !== 'string') {
+    return '';
+  }
+
+  const htmlEntities: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#x27;',
+    '/': '&#x2F;',
+    '`': '&#x60;',
+    '=': '&#x3D;',
+  };
+
+  return sanitizeString(input).replace(/[&<>"'`=/]/g, (char) => htmlEntities[char] || char);
+}
+
+/**
+ * Creates a schema for user-generated content with XSS sanitization.
+ *
+ * @param maxLength - Maximum allowed length (default: MAX_CHAT_MESSAGE_LENGTH)
+ * @param minLength - Minimum required length (default: 1)
+ */
+export function createSanitizedStringSchema(
+  maxLength: number = MAX_CHAT_MESSAGE_LENGTH,
+  minLength: number = 1
+): z.ZodEffects<z.ZodString, string, string> {
+  return z
+    .string()
+    .min(minLength)
+    .max(maxLength)
+    .transform((val) => sanitizeString(val.trim()));
+}
+
+// ====================================================================
+// GAME SCHEMAS
+// ====================================================================
+
 // Position validation
 export const PositionSchema = z.object({
   x: z.number().int().min(0),

@@ -27,6 +27,10 @@ describe('BoardManager stack/marker exclusivity invariants', () => {
 
     expect(board.markers.has(key)).toBe(true);
     expect(board.stacks.has(key)).toBe(false);
+
+    // Pure marker placement via the legal mutator must never trigger backend
+    // board repairs; any repair here would indicate a hidden invariant defect.
+    expect(manager.getRepairCountForTesting()).toBe(0);
   });
 
   it('setMarker on cell with stack removes stack and leaves only marker', () => {
@@ -51,6 +55,11 @@ describe('BoardManager stack/marker exclusivity invariants', () => {
 
     expect(board.stacks.has(key)).toBe(false);
     expect(board.markers.has(key)).toBe(true);
+
+    // This exclusivity behaviour is part of the core mutator semantics
+    // (marker replaces stack) rather than a defensive repair; the repair
+    // counter must therefore remain zero.
+    expect(manager.getRepairCountForTesting()).toBe(0);
   });
 
   it('setMarker on collapsed cell is ignored and leaves collapsed space intact', () => {
@@ -69,5 +78,9 @@ describe('BoardManager stack/marker exclusivity invariants', () => {
     expect(board.collapsedSpaces.has(key)).toBe(true);
     expect(board.markers.has(key)).toBe(false);
     expect(board.stacks.has(key)).toBe(false);
+
+    // Ignoring an illegal marker placement on collapsed territory is defined
+    // behaviour for setMarker itself and must not be implemented via a repair.
+    expect(manager.getRepairCountForTesting()).toBe(0);
   });
 });

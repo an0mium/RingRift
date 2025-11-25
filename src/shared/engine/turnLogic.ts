@@ -236,12 +236,36 @@ export function advanceTurnAndPhase(
         const stacks = delegates.getPlayerStacks(workingState, currentPlayerNumber);
         const hasStacks = stacks.length > 0;
 
+        // Debug logging for parity investigation
+        if (
+          typeof process !== 'undefined' &&
+          (process as any).env &&
+          (process as any).env.NODE_ENV === 'test'
+        ) {
+          // eslint-disable-next-line no-console
+          console.log('[turnLogic.advanceTurnAndPhase.while] player=', currentPlayerNumber,
+            'hasStacks=', hasStacks, 'stackCount=', stacks.length,
+            'ringsInHand=', currentPlayer.ringsInHand,
+            'willSkip=', !hasStacks && currentPlayer.ringsInHand === 0);
+        }
+
         if (!hasStacks && currentPlayer.ringsInHand === 0) {
           // Player has no stacks on the board and no rings in hand;
           // they can never act again this game. Skip them and advance
           // to the next player. Global terminality (e.g. all players
           // out of material) is handled by host-level victory logic.
           const nextPlayerNumber = delegates.getNextPlayerNumber(workingState, currentPlayerNumber);
+          // Debug: log skip for parity debugging
+          if (
+            typeof process !== 'undefined' &&
+            (process as any).env &&
+            (process as any).env.NODE_ENV === 'test'
+          ) {
+            // eslint-disable-next-line no-console
+            console.log('[turnLogic.advanceTurnAndPhase] SKIP player', currentPlayerNumber, 
+              'hasStacks=', hasStacks, 'ringsInHand=', currentPlayer.ringsInHand, 
+              '-> next=', nextPlayerNumber);
+          }
           workingState = { ...workingState, currentPlayer: nextPlayerNumber };
           skips += 1;
           continue;
@@ -257,6 +281,20 @@ export function advanceTurnAndPhase(
 
       nextState = workingState;
       nextTurn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+      if (
+        typeof process !== 'undefined' &&
+        (process as any).env &&
+        ((process as any).env.NODE_ENV === 'test' ||
+          ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? ''))
+      ) {
+        // eslint-disable-next-line no-console
+        console.log('[turnLogic.advanceTurnAndPhase.territory_processing.after]', {
+          nextPlayer: nextState.currentPlayer,
+          nextPhase: nextState.currentPhase,
+        });
+      }
+
       break;
     }
 

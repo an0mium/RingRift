@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 from datetime import datetime
 
 import numpy as np
+import pytest
 import torch
 
 from app.ai.descent_ai import DescentAI
@@ -16,6 +17,9 @@ from app.models import (
     BoardState,
     Player,
 )
+
+# Test timeout guards to prevent hanging in CI
+TEST_TIMEOUT_SECONDS = 30
 
 
 class TestDescentAIHex(unittest.TestCase):
@@ -95,6 +99,7 @@ class TestDescentAIHex(unittest.TestCase):
             zobristHash=None,
         )
 
+    @pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
     def test_select_move_uses_hex_network_for_hex_board(self) -> None:
         """Selecting a move on a hex board should hit the hex NN path.
 

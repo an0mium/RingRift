@@ -227,6 +227,8 @@ Typical `termination_reason` values:
 
 2. **Create a new test** under `ai-service/tests/invariants/`, following the pattern of:
    - `test_active_no_moves_movement_forced_elimination_regression.py`
+   - `test_active_no_moves_movement_fully_eliminated_regression.py`
+   - `test_active_no_moves_movement_placements_only_regression.py`
    - `test_active_no_moves_territory_processing_regression.py`
 
 3. Inside the test:

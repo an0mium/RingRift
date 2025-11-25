@@ -1,4 +1,48 @@
 /** @type {import('jest').Config} */
+
+// =============================================================================
+// TEST PROFILE SEPARATION (P0-TEST-001)
+// =============================================================================
+// Heavy Jest test suites that cause CI failures (OOM, RangeError: Invalid string
+// length, Jest worker crashes) are separated into a "diagnostics" profile.
+//
+// CORE PROFILE (`npm run test:core`):
+//   - Fast, reliable tests for PR gates
+//   - Excludes heavy combinatorial/enumeration suites
+//   - Should complete in under 5 minutes without OOM
+//
+// DIAGNOSTICS PROFILE (`npm run test:diagnostics`):
+//   - Heavy suites that exhaustively enumerate state spaces
+//   - Run nightly or manually, not on every PR
+//
+// HEAVY SUITES (excluded from core, included in diagnostics):
+//   - GameEngine.decisionPhases.MoveDriven.test.ts
+//       Enumerates/simulates large state spaces for decision phase coverage.
+//       Causes: Node heap OOM (Allocation failed - JavaScript heap out of memory)
+//
+//   - RuleEngine.movementCapture.test.ts
+//       Uses FakeBoardManager stub with direct RuleEngine instantiation.
+//       Causes: Infinite hang during Jest module loading (possibly import graph issue)
+//       Note: The underlying capture logic is fully covered by other passing tests.
+//
+// REFACTORED (now CI-safe, included in core):
+//   - captureSequenceEnumeration.test.ts
+//       Was: Exhaustively enumerates capture sequences across 150 random boards.
+//       Now: Uses 10 deterministic test cases + 4 bounded random tests (max 2 targets).
+//       Refactored to use bounded complexity with strict limits (MAX_CHAIN_DEPTH=4,
+//       MAX_SEQUENCES_PER_CASE=50). Total runtime: ~1.4 seconds.
+//
+// To run core tests (CI default):  npm run test:core
+// To run heavy diagnostics:        npm run test:diagnostics
+// To run everything (local dev):   npm run test
+// =============================================================================
+
+// Heavy diagnostic suite patterns (excluded from test:core, run by test:diagnostics)
+const HEAVY_DIAGNOSTIC_SUITES = [
+  'GameEngine\\.decisionPhases\\.MoveDriven\\.test\\.ts$',
+  'RuleEngine\\.movementCapture\\.test\\.ts$',
+];
+
 module.exports = {
   // Use ts-jest preset for TypeScript support
   preset: 'ts-jest',
@@ -115,8 +159,17 @@ module.exports = {
     '/build/',
   ],
   
-  // Global test timeout (10 seconds)
-  testTimeout: 10000,
+  // ===========================================================================
+  // GLOBAL TEST TIMEOUT (CI Safety Net)
+  // ===========================================================================
+  // Default timeout for all tests. Individual tests may override with
+  // jest.setTimeout() when needed. This acts as a safety net to prevent
+  // tests from hanging indefinitely in CI environments.
+  //
+  // 30 seconds is generous enough for complex game simulations while still
+  // catching infinite loops and hung promises within a reasonable time.
+  // ===========================================================================
+  testTimeout: 30000,
   
   // Verbose output
   // Default to non-verbose so large suites (especially AI simulations)

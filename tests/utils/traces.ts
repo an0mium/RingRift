@@ -463,7 +463,7 @@ export async function replayTraceOnBackend(trace: GameTrace): Promise<GameTrace>
  * the same boardType and player count; all players are treated as AI for
  * replay purposes.
  */
-function createSandboxEngineFromInitialState(initial: GameState): ClientSandboxEngine {
+export function createSandboxEngineFromInitialState(initial: GameState): ClientSandboxEngine {
   const boardType = initial.boardType;
   const numPlayers = initial.players.length;
 

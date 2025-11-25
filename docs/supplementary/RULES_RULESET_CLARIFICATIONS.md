@@ -2,12 +2,12 @@
 
 This document records remaining or newly-identified rules clarifications (`CLAR-XXX`) from the second-pass Lead Integrator audit.
 
-It is intended to complement the canonical rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1), the prior audit in [`FINAL_RULES_AUDIT_REPORT.md`](FINAL_RULES_AUDIT_REPORT.md:1), and the analysis artefacts:
+It is intended to complement the canonical rules in [`RULES_CANONICAL_SPEC.md`](../../RULES_CANONICAL_SPEC.md:1), the prior audit in [`archive/FINAL_RULES_AUDIT_REPORT.md`](../../archive/FINAL_RULES_AUDIT_REPORT.md:1), and the analysis artefacts:
 
-- [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:1)
-- [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:1)
-- [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1)
-- [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:1)
+- [`RULES_IMPLEMENTATION_MAPPING.md`](../../RULES_IMPLEMENTATION_MAPPING.md:1)
+- [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:1)
+- [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:1)
+- [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:1)
 
 Only items that are **not fully resolved** in Sections 11–12 of [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:489) are included here. Each CLAR entry is structured for use by an orchestrator agent to ask the human rules author targeted questions.
 
@@ -47,7 +47,7 @@ RR-CANON-R090 defines movement availability in terms of stacks that "satisfy RR-
 
 **Current implementation behaviour**
 
-- All known movement logic in the TypeScript and Python engines implements movement availability using exactly the semantics described in RR-CANON-R091 and RR-CANON-R092, as mapped in [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:254) §3.4 and analysed in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:811) §2.4 and [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:227) §2.4.
+- All known movement logic in the TypeScript and Python engines implements movement availability using exactly the semantics described in RR-CANON-R091 and RR-CANON-R092, as mapped in [`RULES_IMPLEMENTATION_MAPPING.md`](../../RULES_IMPLEMENTATION_MAPPING.md:254) §3.4 and analysed in [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:811) §2.4 and [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:227) §2.4.
 - No code, tests, or documentation refer to a distinct RR-CANON-R093 behaviour. The system behaves as if Interpretation A is correct.
 
 **Recommended clarification / questions for rules author**
@@ -71,8 +71,8 @@ RR-CANON-R090 defines movement availability in terms of stacks that "satisfy RR-
 - [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:425) – RR-CANON-R172 Last-player-standing victory: defines an explicit early victory condition when exactly one player has any legal action on their next turn and all others have none.
 - [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1228) §13.3 Last Player Standing – narrative description and examples of last-player-standing as a primary victory path alongside elimination and territory.
 - [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1897) §16.6 and [`ringrift_complete_rules.md`](ringrift_complete_rules.md:2101) §16.9.4.5 – summaries that restate last-player-standing as a distinct victory path.
-- [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:381) §3.8 – notes that victory logic encodes elimination, territory, last-player-standing, and stalemate in `victoryLogic.evaluateVictory()`.
-- [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:316) CCE-006 – explicitly calls out that RR-CANON-R172 is **not** fully implemented; engines effectively play to completion and rely on elimination, territory, or bare-board stalemate.
+- [`RULES_IMPLEMENTATION_MAPPING.md`](../../RULES_IMPLEMENTATION_MAPPING.md:381) §3.8 – notes that victory logic encodes elimination, territory, last-player-standing, and stalemate in `victoryLogic.evaluateVictory()`.
+- [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:316) CCE-006 – explicitly calls out that RR-CANON-R172 is **not** fully implemented; engines effectively play to completion and rely on elimination, territory, or bare-board stalemate.
 
 **Problem description**
 
@@ -109,7 +109,7 @@ This is consistent and terminating, but diverges from the literal reading of RR-
   - Ring-elimination and territory thresholds, and
   - Global stalemate only once **no stacks remain**, at which point rings in hand are converted to eliminated rings and the tie-break ladder runs (territory → eliminated rings → markers → last actor).
 - There is **no explicit check** implementing RR-CANON-R172 as written; instead, the system relies on continued play, forced elimination (RR-CANON-R100), and eventual stalemate or threshold victories.
-- Python `GameEngine` mirrors this behaviour; strict invariants focus on "no active player without a move or forced elimination" rather than early last-player-standing victories, as described in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:873) §3.3 and [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:665) §4.1.
+- Python `GameEngine` mirrors this behaviour; strict invariants focus on "no active player without a move or forced elimination" rather than early last-player-standing victories, as described in [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:873) §3.3 and [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:665) §4.1.
 
 **Recommended clarification / questions for rules author**
 
@@ -137,8 +137,8 @@ This is consistent and terminating, but diverges from the literal reading of RR-
 - [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:61) – RR-CANON-R020 rings per player; [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:218) RR-CANON-R081 and [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:225) RR-CANON-R082 reference a per-player `ringsPerPlayer` maximum when placing.
 - [`ringrift_compact_rules.md`](ringrift_compact_rules.md:18) §1.1 version table – defines `ringsPerPlayer` = 18 (square8) or 36 (square19/hexagonal).
 - [`ringrift_complete_rules.md`](ringrift_complete_rules.md:342) §3.2.1 – states "Each player has 36 rings (for 19x19 and Hexagonal versions; 18 for 8x8)".
-- [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:755) §2.3.3 – describes the current implementation approximation: per-player ring cap counts **all rings in stacks controlled by a player**, including captured rings of other colours, when deciding whether further placements are allowed (CCE-002).
-- [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:365) CCE-002 – classifies this as an "implementation compromise" and recommends either canonising or tightening it.
+- [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:755) §2.3.3 – describes the current implementation approximation: per-player ring cap counts **all rings in stacks controlled by a player**, including captured rings of other colours, when deciding whether further placements are allowed (CCE-002).
+- [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:365) CCE-002 – classifies this as an "implementation compromise" and recommends either canonising or tightening it.
 
 **Problem description**
 
@@ -169,7 +169,7 @@ The current implementation adopts a conservative approximation: it treats the su
 
 - Backend and sandbox placement validation (`validatePlacementOnBoard` and `RuleEngine.getValidRingPlacements`) approximate a player’s "rings on board" as the **sum of heights** of stacks where that player is the controlling colour; captured rings of other colours buried in those stacks contribute to this total.
 - When that total reaches `ringsPerPlayer` for the board type, additional placements may be rejected even if the player technically still has own-colour rings in hand and relatively few own-colour rings on the board.
-- Python rules engine mirrors this behaviour for parity, as documented in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:755) and [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:666).
+- Python rules engine mirrors this behaviour for parity, as documented in [`archive/RULES_STATIC_VERIFICATION.md`](../../archive/RULES_STATIC_VERIFICATION.md:755) and [`archive/RULES_DYNAMIC_VERIFICATION.md`](../../archive/RULES_DYNAMIC_VERIFICATION.md:666).
 
 **Recommended clarification / questions for rules author**
 

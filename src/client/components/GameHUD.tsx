@@ -489,6 +489,24 @@ export function GameHUD({
         </div>
       )}
 
+      {/* Victory Conditions Helper */}
+      <div
+        className="mt-3 px-4 py-2 bg-slate-800/60 border border-slate-700 rounded-lg text-[11px] text-slate-300 leading-snug"
+        data-testid="victory-conditions-help"
+      >
+        <div className="font-semibold text-slate-100 mb-1">Victory</div>
+        <div>
+          • Elimination – eliminate {'>'}50% of all rings.
+        </div>
+        <div>
+          • Territory – control {'>'}50% of all board spaces.
+        </div>
+        <div>
+          • Last Player Standing – after a full round you are the only player able to make real
+          moves (placements, movements, or captures).
+        </div>
+      </div>
+
       {/* Player Cards */}
       <div className="mt-4 space-y-3">
         {gameState.players.map((player) => (

@@ -36,7 +36,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 - ⚠️ **Chain captures enforced engine-side; more edge-case tests still needed** – GameEngine maintains internal chain-capture state and uses `CaptureDirectionChoice` via `PlayerInteractionManager` to drive mandatory continuation when multiple follow-up captures exist. Core behaviour is covered by focused unit/integration tests, but additional rule/FAQ scenarios (e.g. complex 180° and cyclic patterns) and full UI/AI flows still need to be exercised and encoded as named scenarios.
 - ⚠️ **UI is functional but not polished** – Board rendering, a local sandbox, and backend game mode exist for 8x8, 19x19, and hex boards. Backend games now support “click source, click highlighted destination” moves and server-driven choices, and AI opponents can take turns. However, the HUD, timers, post-game flows, and multiplayer UX (spectators, reconnection, chat) still need refinement.
 - ⚠️ **Testing is still evolving relative to rules complexity** – Dedicated Jest suites now cover the client-local sandbox engine (movement, captures, lines, territory, victory), backend engine/interaction paths, and a rules/FAQ scenario matrix (`RULES_SCENARIO_MATRIX.md`) including dedicated FAQ suites under `tests/scenarios/FAQ_*.test.ts`. Several seeded trace-parity suites and multi-host/AI fuzz harnesses remain diagnostic or partial rather than hard CI gates; see `CURRENT_STATE_ASSESSMENT.md` and `KNOWN_ISSUES.md` for details.
-- ⚠️ **AI service integration is move- and choice-focused but still evolving** – The Python AI microservice is integrated into the turn loop via `AIEngine`/`AIServiceClient` and `WebSocketServer.maybePerformAITurn`, so AI players can select moves in backend games. The service is also used for several PlayerChoices (`line_reward_option`, `ring_elimination`, `region_order`) behind `globalAIEngine`/`AIInteractionHandler`, with remaining choices currently answered via local heuristics. Higher-difficulty tactical behaviour and ML-based agents are future work.
+- ⚠️ **AI Service integration is move- and choice-focused but still evolving** – The Python AI Service is integrated into the turn loop via `AIEngine`/`AIServiceClient` and `WebSocketServer.maybePerformAITurn`, so AI players can select moves in backend games. The service is also used for several PlayerChoices (`line_reward_option`, `ring_elimination`, `region_order`) behind `globalAIEngine`/`AIInteractionHandler`, with remaining choices currently answered via local heuristics. Higher-difficulty tactical behaviour and ML-based agents are future work.
 
 ### 🎯 What This Means
 
@@ -44,9 +44,9 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 
 - Create games via the HTTP API and from the React lobby (including AI opponent configuration).
 - Play backend-driven games end-to-end using the React client (BoardView + GamePage) with click-to-move and server-validated moves.
-- Have AI opponents take turns in backend games via the Python AI service and/or local heuristics, using the unified `AIProfile` / `aiOpponents` pipeline.
-- Process lines and territory disconnection, forced elimination, and hex boards through the shared GameEngine.
-- Track full game state (phases, players, rings, territory, timers) and broadcast updates over WebSockets.
+- Have AI opponents take turns in backend games via the Python AI Service and/or local heuristics, using the unified `AIProfile` / `aiOpponents` pipeline.
+- Process lines and Territory disconnection, forced elimination, and hex boards through the shared GameEngine.
+- Track full game state (phases, players, rings, Territory, timers) and broadcast updates over WebSockets.
 - Run full, rules-complete games in the `/sandbox` route using the client-local `ClientSandboxEngine` with simple random-choice AI for all PlayerChoices, reusing the same BoardView/ChoiceDialog/VictoryModal patterns as backend games.
 
 **Cannot Reliably Do (yet):**
@@ -54,7 +54,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 - Rely on tests for full rule coverage (scenario/edge-case tests and coverage are still incomplete).
 - Guarantee every chain capture and PlayerChoice edge case from the rules/FAQ is battle-tested and bug-free.
 - Offer a fully polished UX (HUD, timers, post-game flows, and lobby/matchmaking are still basic).
-- Use the AI service for all PlayerChoice decisions (several choices are still answered via local heuristics only).
+- Use the AI Service for all PlayerChoice decisions (several choices are still answered via local heuristics only).
 - Provide production-grade multiplayer with robust lobbies, matchmaking, reconnection UX, spectators, and chat.
 
 **For complete assessment, see [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md)**  
@@ -71,7 +71,7 @@ To understand the project and know which documents are authoritative for each ar
 
 - `ringrift_complete_rules.md` – **The authoritative rulebook.** Full, narrative rules for players and designers.
 - `ringrift_compact_rules.md` – Compact, implementation-oriented spec for engine/AI authors.
-- `RULES_ANALYSIS_PHASE2.md` – Consistency and strategic assessment of the rules.
+- `archive/RULES_ANALYSIS_PHASE2.md` – Consistency and strategic assessment of the rules.
 
 ### For Developers (Architecture, Status, Setup)
 
@@ -86,19 +86,19 @@ To understand the project and know which documents are authoritative for each ar
 
 essment.md` – Comprehensive architecture review and future design plans.
 
-- `AI_ARCHITECTURE.md` – AI service architecture, assessment, and improvement plans (with cross-links to training pipelines and incidents).
-- `RULES_ENGINE_ARCHITECTURE.md` – Python rules engine architecture and rollout strategy.
+- `AI_ARCHITECTURE.md` – AI Service architecture, assessment, and improvement plans (with cross-links to training pipelines and incidents).
+- `RULES_ENGINE_ARCHITECTURE.md` – Python Rules Engine architecture and rollout strategy.
 
 - **Subsystem Guides**
   - `tests/README.md` – Jest setup, test structure, and the rules/FAQ → scenario test matrix.
   - `RULES_SCENARIO_MATRIX.md` – Canonical mapping of rules/FAQ sections to specific Jest test suites.
-  - `ai-service/README.md` – Python AI microservice (Random/Heuristic AI, endpoints, setup).
-  - [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md:1) – AI service training pipelines, self-play and territory dataset generation CLIs, JSONL schema, and seed behaviour.
+  - `ai-service/README.md` – Python AI Service (Random/Heuristic AI, endpoints, setup).
+  - [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md:1) – AI Service training pipelines, self-play and Territory dataset generation CLIs, JSONL schema, and seed behaviour.
   - `CONTRIBUTING.md` – Contribution workflow and historical phase breakdown.
 
 - **Historical Plans & Evaluations**
   - [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md:1) – Incident report for the TerritoryMutator vs `GameEngine.apply_move()` divergence and its fix, with tests and follow-up tasks.
-  - Docs under `deprecated/` – Earlier architecture and improvement plans, preserved for context only.
+  - Docs under `archive/` and `deprecated/` – Earlier architecture and improvement plans, preserved for context only.
 
 ### 🔗 Developer Quick Links
 
@@ -183,7 +183,7 @@ The codebase currently provides:
 - Infrastructure setup and configuration (Docker, database, Redis, WebSockets, logging, authentication)
 - Fully typed shared game state and rules data structures
 - A largely implemented GameEngine + BoardManager + RuleEngine for all board types
-- A Python AI service wired into backend AI turns via `AIEngine` / `AIServiceClient`
+- A Python AI Service wired into backend AI turns via `AIEngine` / `AIServiceClient`
 - A React client (LobbyPage + GamePage + BoardView + ChoiceDialog + GameHUD) that can:
   - Create backend games (including AI opponents) via the HTTP API and lobby UI
   - Connect to backend games over WebSockets and play via click-to-move
@@ -252,7 +252,7 @@ npm run dev:client  # Frontend on :5173 by default (Vite)
 
 - **Backend API + WebSocket server**: `npm run dev:server` → http://localhost:3000 (or `PORT` from `.env`).
 - **Frontend (Vite dev server)**: `npm run dev:client` → http://localhost:5173.
-- **Python AI service**: From the project root, `cd ai-service && ./run.sh` → http://localhost:8001.
+- **Python AI Service**: From the project root, `cd ai-service && ./run.sh` → http://localhost:8001.
 
 To avoid flaky behaviour in `/game/:gameId` and WebSocket tests, ensure that you only have **one** Node.js backend process listening on port `3000` at a time. Use `npm run dev:server` (or `docker compose up` for the `app` service) as the canonical entrypoint, and avoid starting additional ad‑hoc servers that also bind `3000`.
 
@@ -313,8 +313,8 @@ The `/sandbox` route is backed by a fully rules-complete, client-local engine (`
   - Mandatory chain captures (with `capture_direction` choices).
   - Line detection & processing with graduated rewards.
   - Territory disconnection on square + hex boards (including color-disconnection and self-elimination prerequisite).
-  - Ring-elimination and territory-control victories, surfaced via the shared `VictoryModal`.
-- **How it’s tested:** Dedicated Jest suites under `tests/unit/ClientSandboxEngine.*.test.ts` cover chain captures, placement/forced elimination, line processing, territory disconnection (square + hex), region order, and victory conditions.
+  - Ring-elimination and Territory-control victories, surfaced via the shared `VictoryModal`.
+  - **How it’s tested:** Dedicated Jest suites under `tests/unit/ClientSandboxEngine.*.test.ts` cover chain captures, placement/forced elimination, line processing, Territory disconnection (square + hex), region order, and victory conditions.
 
 Use the sandbox when:
 
@@ -355,16 +355,16 @@ For contributors looking for the most impactful work, the near-term focus areas 
 1. **Scenario-driven tests (rules & FAQ parity)**
    - Add Jest tests that encode specific examples from `ringrift_complete_rules.md` and the FAQ (Q1–Q24), especially:
      - Complex chain capture patterns (180° reversals, cycles) on 8×8 and 19×19.
-     - Combined line + territory situations that involve multiple PlayerChoices in one turn.
-     - Hex-board edge cases for lines, territory, and forced elimination.
-   - Mirror high-value Rust tests from `RingRift Rust/ringrift/tests/` (starting with chain capture and territory) into Jest where feasible.
-
-2. **HUD & game lifecycle polish (GamePage/GameHUD)**
-   - Implement a richer HUD in `GameHUD` for both backend and sandbox games:
-     - Clear current player + phase indicators.
-     - Ring counts (in hand/on board/eliminated) per player.
-     - Territory-space counts, driven from `board.collapsedSpaces` and GameState.
-     - Timers (display-only for now) based on `timeControl` and per-player `timeRemaining`.
+     - Combined line + Territory situations that involve multiple PlayerChoices in one turn.
+     - Hex-board edge cases for lines, Territory, and forced elimination.
+     - Mirror high-value Rust tests from `RingRift Rust/ringrift/tests/` (starting with chain capture and Territory) into Jest where feasible.
+     
+     2. **HUD & game lifecycle polish (GamePage/GameHUD)**
+        - Implement a richer HUD in `GameHUD` for both backend and sandbox games:
+          - Clear current player + phase indicators.
+          - Ring counts (in hand/on board/eliminated) per player.
+          - Territory-space counts, driven from `board.collapsedSpaces` and GameState.
+          - Timers (display-only for now) based on `timeControl` and per-player `timeRemaining`.
    - Improve end-of-game UX using `VictoryModal` for both backend and sandbox modes, with a clear route back to the lobby.
 
 3. **AI boundary hardening & observability**
@@ -399,7 +399,7 @@ For a detailed, task-level view, see `TODO.md` (especially Phase 0/1/3S near-ter
 ### AI Integration _(planned/partially implemented)_
 
 - **Difficulty Levels**: AI profiles with difficulty ratings
-- **Smart Opponents**: Python service-backed RandomAI + HeuristicAI (production-ready)
+- **Smart Opponents**: Python AI Service-backed RandomAI + HeuristicAI (production-ready)
 - **Experimental AI**: Minimax and MCTS implementations exist but are experimental (see `ai-service/README.md`)
 - **Mixed Games**: Human-AI combinations supported
 - **Future Work**: Stronger tactical AI and learning algorithms

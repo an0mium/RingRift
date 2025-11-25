@@ -313,7 +313,7 @@ During the investigation, we also observed separate, **unrelated** issues:
 - These failures:
   - Do **not** involve `TerritoryMutator`, `DefaultRulesEngine`, or `GameEngine._apply_forced_elimination`.
   - Do **not** affect the territory dataset generator or territory-processing semantics.
-  - Remain tracked in the general AI/engine test backlog (see [`AI_IMPROVEMENT_BACKLOG.md`](AI_IMPROVEMENT_BACKLOG.md:1) and [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:1)).
+  - Remain tracked in the general AI/engine test backlog (see [`docs/supplementary/AI_IMPROVEMENT_BACKLOG.md`](supplementary/AI_IMPROVEMENT_BACKLOG.md:1) and [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1)).
 
 They are explicitly **out of scope** for this incident and should be treated as separate engineering tasks.
 

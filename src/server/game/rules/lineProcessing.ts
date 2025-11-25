@@ -50,7 +50,12 @@ export async function processLinesForCurrentPlayer(
       lineToProcess = playerLines[0];
     } else {
       const choice: LineOrderChoice = {
-        id: generateUUID(),
+        id: generateUUID(
+          'line_order',
+          gameState.id,
+          gameState.history.length,
+          playerLines.length
+        ),
         gameId: gameState.id,
         playerNumber: gameState.currentPlayer,
         type: 'line_order',
@@ -118,7 +123,12 @@ async function processOneLine(
     }
 
     const choice: LineRewardChoice = {
-      id: generateUUID(),
+      id: generateUUID(
+        'line_reward',
+        gameState.id,
+        gameState.history.length,
+        line.positions.length
+      ),
       gameId: gameState.id,
       playerNumber: gameState.currentPlayer,
       type: 'line_reward_option',
@@ -199,7 +209,12 @@ export async function eliminatePlayerRingOrCapWithChoice(
   }
 
   const choice: RingEliminationChoice = {
-    id: generateUUID(),
+    id: generateUUID(
+      'ring_elimination',
+      gameState.id,
+      gameState.history.length,
+      playerStacks.length
+    ),
     gameId: gameState.id,
     playerNumber: player,
     type: 'ring_elimination',
@@ -339,11 +354,14 @@ export function updatePlayerTerritorySpaces(
   return gameState;
 }
 
-// Local UUID generator mirroring GameEngine.generateUUID
-function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+// Local deterministic identifier helper for line/territory-related choices.
+// This deliberately avoids any RNG so that core rules behaviour remains
+// fully deterministic (RR‑CANON R190). Callers pass structured context
+// (game id, history length, candidate count, etc.) so IDs remain unique
+// and stable for parity/diagnostic tooling.
+function generateUUID(...parts: Array<string | number | undefined>): string {
+  return parts
+    .filter((part) => part !== undefined)
+    .map((part) => String(part))
+    .join('|');
 }

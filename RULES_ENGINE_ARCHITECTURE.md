@@ -14,7 +14,7 @@ This document defines the architecture of the Python rules engine within the AI 
 RingRift maintains two implementations of the game rules:
 
 1.  **TypeScript Engine (Canonical):** Located in `src/shared/engine/`. Used by the Node.js backend (`GameEngine.ts`) and the client sandbox (`ClientSandboxEngine.ts`). This is the current source of truth.
-2.  **Python Engine (AI/Shadow):** Located in `ai-service/app/game_engine.py`. Used for AI search/evaluation and currently being rolled out as a shadow validator for the backend.
+- **Python Engine (AI/Shadow):** Located in `ai-service/app/game_engine.py`. Used for AI search/evaluation and currently being rolled out as a shadow validator for the backend.
 
 ### Shared Rules Engine as Single Source of Truth
 
@@ -47,7 +47,7 @@ important groups are:
   - Board‑level placement mutators: [`PlacementMutator.ts`](src/shared/engine/mutators/PlacementMutator.ts:1)
 
 - **Victory**
-  - Ring‑elimination, territory‑majority, and stalemate ladder: [`victoryLogic.ts`](src/shared/engine/victoryLogic.ts:51)
+  - Ring‑elimination, Territory‑majority, and stalemate ladder: [`victoryLogic.ts`](src/shared/engine/victoryLogic.ts:51)
 
 - **Turn sequencing**
   - Shared phase/turn state machine: [`turnLogic.ts`](src/shared/engine/turnLogic.ts:132)
@@ -70,11 +70,11 @@ At runtime there are three TypeScript layers:
   - Adapt persistent `GameSession` state into the shared helpers.
   - Call validators/mutators from the shared engine to apply canonical moves.
   - Handle IO concerns: WebSockets, HTTP APIs, database persistence, Python
-    rules/AI service calls, metrics, etc.
+    Rules/AI Service calls, metrics, etc.
 
 - **Client sandbox host (`ClientSandboxEngine`)** – browser‑side engine in
   [`ClientSandboxEngine.ts`](src/client/sandbox/ClientSandboxEngine.ts:1) that:
-  - Uses the same shared helpers for movement, captures, lines, territory,
+  - Uses the same shared helpers for movement, captures, lines, Territory,
     victory, and turn progression.
   - Provides local experimentation, AI‑vs‑AI simulations, and RulesMatrix / FAQ
     scenario playback.
@@ -158,14 +158,14 @@ truth:
 ### Python Engine Structure
 
 - [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py:1): Core orchestration, move generation, state transitions, and turn logic.
-- [`ai-service/app/board_manager.py`](ai-service/app/board_manager.py:1): Board-level utilities (hashing, S-invariant, line detection, territory regions).
+- [`ai-service/app/board_manager.py`](ai-service/app/board_manager.py:1): Board-level utilities (hashing, S-invariant, line detection, Territory regions).
 - [`ai-service/app/rules/default_engine.py`](ai-service/app/rules/default_engine.py:1): Adapter that delegates to `GameEngine` while routing key move types through dedicated mutators under _shadow contracts_.
 - [`ai-service/app/models/`](ai-service/app/models/__init__.py:1): Pydantic models mirroring the TypeScript shared engine types.
 
 ### TypeScript Integration
 
-- [`src/server/game/RulesBackendFacade.ts`](src/server/game/RulesBackendFacade.ts:1): The primary entry point for the backend. It abstracts the choice between the local TS engine and the Python service based on `RINGRIFT_RULES_MODE` while always applying moves via the canonical shared-engine–backed `GameEngine`.
-- [`src/server/services/PythonRulesClient.ts`](src/server/services/PythonRulesClient.ts:1): Handles HTTP communication with the Python AI service (`/rules/evaluate_move`).
+- [`src/server/game/RulesBackendFacade.ts`](src/server/game/RulesBackendFacade.ts:1): The primary entry point for the backend. It abstracts the choice between the local TS engine and the Python Service based on `RINGRIFT_RULES_MODE` while always applying moves via the canonical shared-engine–backed `GameEngine`.
+- [`src/server/services/PythonRulesClient.ts`](src/server/services/PythonRulesClient.ts:1): Handles HTTP communication with the Python AI Service (`/rules/evaluate_move`).
 
 ### Parity Mechanisms
 
@@ -188,7 +188,7 @@ To ensure the Python engine behaves exactly like the TypeScript engine:
 | **Placement** | Multi-ring, no-dead-placement check         | Mirrors TS placement rules          | ✅ Parity |
 | **Lines**     | Exact vs Overlength rewards                 | Mirrors TS line processing          | ✅ Parity |
 | **Territory** | Disconnection, self-elimination prereq      | Mirrors TS territory logic          | ✅ Parity |
-| **Victory**   | Ring elimination, territory control         | Mirrors TS victory checks           | ✅ Parity |
+| **Victory**   | Ring elimination, Territory control         | Mirrors TS victory checks           | ✅ Parity |
 
 **Verification:**
 
@@ -218,7 +218,7 @@ Additionally, TS-generated trace fixtures are replayed through both engines:
   - `test_default_engine_matches_game_engine_when_replaying_ts_traces` asserts
     full-state lockstep between `DefaultRulesEngine.apply_move` and
     `GameEngine.apply_move` for every move in the TS traces (captures,
-    line-processing, territory, etc.).
+    line-processing, Territory, etc.).
   - `test_default_engine_mutator_first_matches_game_engine_on_ts_traces` runs
     the same traces with `DefaultRulesEngine(mutator_first=True)`, exercising
     the full mutator-first orchestration path while still comparing the
@@ -230,7 +230,7 @@ Additionally, TS-generated trace fixtures are replayed through both engines:
     asserts that mutator-first mode stays aligned with `GameEngine.apply_move`.
   - `test_mutator_first_process_territory_region_synthetic` mirrors the
     synthetic disconnected-region scenario from the equivalence tests but with
-    `mutator_first=True`, ensuring territory processing plus downstream
+    `mutator_first=True`, ensuring Territory processing plus downstream
     forced-elimination are consistent.
 
 - `ai-service/tests/rules/test_default_engine_flags.py` verifies configuration
@@ -386,7 +386,7 @@ The Python engine is evolving towards a purely functional, mutator-driven archit
 
 ## 5. Canonical Territory, Q23, Elimination, and S-Invariant Semantics
 
-This section documents the canonical semantics for **territory disconnection**, **Q23 self-elimination**, **elimination bookkeeping**, and the **S-invariant** as implemented by the TypeScript sandbox and shared engine. The backend GameEngine and Python engine are required to match these behaviours.
+This section documents the canonical semantics for **Territory disconnection**, **Q23 self-elimination**, **elimination bookkeeping**, and the **S-invariant** as implemented by the TypeScript sandbox and shared engine. The backend GameEngine and Python engine are required to match these behaviours.
 
 ### 5.0 Board Cell Exclusivity Invariants
 
@@ -395,21 +395,21 @@ Across all engines (backend TS, sandbox TS, Python), **each board cell is exclus
 - A cell may be **empty**, or
 - It may contain **exactly one stack** (one `RingStack`), or
 - It may contain **exactly one marker** (a single `Marker` entry), or
-- It may be marked as **collapsed territory** (`collapsedSpaces` entry for one player),
+- It may be marked as **collapsed Territory** (`collapsedSpaces` entry for one player),
 
 but **never any combination** of these at the same time.
 
 Concretely:
 
-- **No stack on collapsed territory:** if a position is in `board.collapsedSpaces`, `board.stacks` must not have an entry for the same key.
+- **No stack on collapsed Territory:** if a position is in `board.collapsedSpaces`, `board.stacks` must not have an entry for the same key.
 - **No stack + marker coexistence:** if `board.stacks` has a stack at a key, `board.markers` must not have a marker at that key.
-- **No marker on collapsed territory:** if `board.collapsedSpaces` contains a key, `board.markers` must not contain that key.
+- **No marker on collapsed Territory:** if `board.collapsedSpaces` contains a key, `board.markers` must not contain that key.
 
 The following implementation points enforce these invariants:
 
 - Backend `BoardManager.setCollapsedSpace` removes any stack and marker before inserting a `collapsedSpaces` entry.
 - Backend `BoardManager.setStack` now logs and then **removes any existing marker** before setting a stack at that position.
-- Sandbox `ClientSandboxEngine.collapseMarker` and `collapseLineMarkers` clear both stacks and markers when creating collapsed territory.
+- Sandbox `ClientSandboxEngine.collapseMarker` and `collapseLineMarkers` clear both stacks and markers when creating collapsed Territory.
 - Sandbox placement (`tryPlaceRings`) rejects any attempt to place a stack on top of a marker, keeping stack/marker maps disjoint.
 - The sandbox test helper `ClientSandboxEngine.assertBoardInvariants` asserts these conditions under Jest when `NODE_ENV=test`.
 
@@ -429,7 +429,7 @@ These exclusivity rules are considered **part of the rules contract** and must b
 - Backend helpers:
   [`BoardManager.ts`](src/server/game/BoardManager.ts:1),
   [`GameEngine.ts`](src/server/game/GameEngine.ts:1) – both delegate to the
-  shared territory helpers above rather than maintaining a separate
+  shared Territory helpers above rather than maintaining a separate
   server‑local implementation.
 
 **Board geometries:**
@@ -451,7 +451,7 @@ The shared `territoryDetection` implementation is the normative algorithm for de
 
 **Intent (FAQ Q23):**
 
-> A player may only collapse and score a disconnected territory region they control if they have at least one stack or cap **outside** that region from which the mandatory self-elimination cost can be paid.
+> A player may only collapse and score a disconnected Territory region they control if they have at least one stack or cap **outside** that region from which the mandatory self-elimination cost can be paid.
 
 We distinguish two cases for the controlling (moving) player:
 
@@ -465,7 +465,7 @@ We distinguish two cases for the controlling (moving) player:
 - **Positive Q23 (eligible):**
   - The player has **at least one** stack or cap **outside** the region.
   - Result: the region **may be processed** for that player:
-    - All interior empty spaces collapse into controlled territory.
+    - All interior empty spaces collapse into controlled Territory.
     - All interior stacks belonging to any player are eliminated according to the elimination rules (below).
     - The controlling player pays a self-elimination cost from outside the region.
 
@@ -481,15 +481,15 @@ We distinguish two cases for the controlling (moving) player:
 
 Elimination in RingRift falls into three broad categories:
 
-1. **Self-elimination (territory cost):**
-   - Occurs when a player processes a territory region they control under positive Q23.
+1. **Self-elimination (Territory cost):**
+   - Occurs when a player processes a Territory region they control under positive Q23.
    - The cost is paid by removing one of the player's own stacks or caps **outside** the region.
    - Canonical behaviour (sandbox + `CaptureMutator.mutateEliminateStack`):
      - If a **cap** is chosen, the **entire capped stack** is removed and the player is credited with `capHeight` eliminated rings.
      - If a plain stack (no cap) is chosen, its entire height is removed and contributes that many rings.
 
 2. **Internal eliminations (inside the region):**
-   - All stacks inside the collapsing territory region are eliminated when the region is processed.
+   - All stacks inside the collapsing Territory region are eliminated when the region is processed.
    - Each eliminated stack contributes its full height (or cap height when relevant) to `eliminatedRings`.
    - Ownership of eliminated stacks determines how scores/metrics are attributed, but for S-invariant purposes only the count of eliminated rings matters.
 
@@ -511,8 +511,8 @@ Across all categories:
 Where:
 
 - `markers` = total count of non-empty marker cells on the board (all players).
-- `collapsedSpaces` = number of spaces that have been converted into collapsed territory.
-- `eliminatedRings` = cumulative count of rings removed from stacks via capture, self-elimination, line processing, or territory collapse.
+- `collapsedSpaces` = number of spaces that have been converted into collapsed Territory.
+- `eliminatedRings` = cumulative count of rings removed from stacks via capture, self-elimination, line processing, or Territory collapse.
 
 **Properties:**
 
@@ -523,9 +523,9 @@ Where:
 **Guard-rail tests:**
 
 - `tests/unit/SharedMutators.invariants.test.ts` verifies that shared mutators respect S-invariant properties.
-- `tests/unit/GameEngine.aiSimulation.test.ts` (and debug variants) ensure that automatic consequence processing (lines + territory + forced elimination) never violates non-decreasing `S`.
+- `tests/unit/GameEngine.aiSimulation.test.ts` (and debug variants) ensure that automatic consequence processing (lines + Territory + forced elimination) never violates non-decreasing `S`.
 
-Any change to territory, capture, or elimination logic must keep these invariants intact.
+Any change to Territory, capture, or elimination logic must keep these invariants intact.
 
 ### 5.5 Worked Examples (Informal)
 
@@ -536,7 +536,7 @@ The following examples are encoded as tests and serve as _living specifications_
   - Scenario: a 3x3 interior region is fully surrounded by Player 1's markers. Player 1 has at least one stack outside the region.
   - Expected behaviour:
     - Region is detected as disconnected and eligible (positive Q23).
-    - All 9 interior spaces collapse to territory; `board.collapsedSpaces` has value `1` at those coordinates.
+    - All 9 interior spaces collapse to Territory; `board.collapsedSpaces` has value `1` at those coordinates.
     - All interior stacks are eliminated; `board.stacks` has no entries at those locations.
     - One outside Player 1 stack is self-eliminated according to `mutateEliminateStack` semantics.
     - `S` increases appropriately due to new `collapsedSpaces` and `eliminatedRings`.
@@ -558,21 +558,21 @@ The following examples are encoded as tests and serve as _living specifications_
 
 ### 5.6 Backend Pipeline Ordering (Territory vs Lines)
 
-The backend GameEngine and sandbox must agree on the **effective order** in which territory and line processing are applied after a move:
+The backend GameEngine and sandbox must agree on the **effective order** in which Territory and line processing are applied after a move:
 
 - Canonical intention:
-  - Disconnected territory regions that become eligible as a result of a move should be processed in a way that is consistent with sandbox behaviour and Q23.
-  - Line formation and capture consequences must also be applied, but must not create artefacts that violate Q23 semantics (e.g., erasing all outside stacks _before_ territory is evaluated when sandbox would not).
+  - Disconnected Territory regions that become eligible as a result of a move should be processed in a way that is consistent with sandbox behaviour and Q23.
+  - Line formation and capture consequences must also be applied, but must not create artefacts that violate Q23 semantics (e.g., erasing all outside stacks _before_ Territory is evaluated when sandbox would not).
 
 - Current backend implementation (TS):
-  - `GameEngine.processAutomaticConsequences` calls into territory processing and line processing in a carefully chosen order so that:
+  - `GameEngine.processAutomaticConsequences` calls into Territory processing and line processing in a carefully chosen order so that:
     - Territory disconnection tests (`GameEngine.territoryDisconnection.*.test.ts`) match sandbox expectations for square8, square19, and hex.
     - Parity suites (`TerritoryParity.GameEngine_vs_Sandbox.test.ts`, Seed 17 parity tests) remain green.
 
 Any future changes to this ordering **must**:
 
 - Be validated first against the sandbox oracle tests (`ClientSandboxEngine.territoryDisconnection.*`, `sandboxTerritory.*`), and
-- Maintain green status for the backend territory suites and parity checks listed above.
+- Maintain green status for the backend Territory suites and parity checks listed above.
 
 These semantics are the authoritative contract for later phases (AI parity, WebSocket/RulesBackendFacade integration, Python parity) and must remain stable unless intentionally revised alongside their tests.
 
@@ -588,7 +588,7 @@ This section documents where **board invariants** and the **termination ladder**
 
 - Core ownership: `src/server/game/BoardManager.ts`.
 - Key responsibilities:
-  - Maintain board geometry, stacks, markers, and collapsed territories.
+  - Maintain board geometry, stacks, markers, and collapsed Territories.
   - Provide mutators such as `setStack`, `removeStack`, `setMarker`, `removeMarker`, `collapseMarker`, `setCollapsedSpace`.
   - Discover disconnected regions and border markers.
 - Invariant helper:
@@ -631,7 +631,7 @@ This section documents where **board invariants** and the **termination ladder**
 - Repair behaviour in hot mutators:
   - `setStack` removes any marker on the destination cell **before** placing the stack, then calls `assertBoardInvariants`.
   - `setCollapsedSpace` removes any stack or marker before marking the cell as collapsed, then calls `assertBoardInvariants`.
-  - `collapseMarker` removes the marker and any stack on that cell, sets collapsed territory, and then calls `assertBoardInvariants`.
+  - `collapseMarker` removes the marker and any stack on that cell, sets collapsed Territory, and then calls `assertBoardInvariants`.
 
 **Sandbox (client-side TS):**
 
@@ -676,11 +676,11 @@ This section documents where **board invariants** and the **termination ladder**
 
 - Usage:
   - Called from AI-simulation and debug harnesses after each AI turn.
-  - Ensures sandbox-side logic never produces illegal stack/marker/territory overlaps.
+  - Ensures sandbox-side logic never produces illegal stack/marker/Territory overlaps.
 - Mutators that preserve invariants by construction:
   - Placement (`tryPlaceRings`) rejects placement on markers or collapsed spaces.
-  - Line collapse (`collapseLineMarkers`) removes stacks and markers before collapsing to territory.
-  - `collapseMarker` in `ClientSandboxEngine` removes both marker and stack, then sets collapsed territory.
+  - Line collapse (`collapseLineMarkers`) removes stacks and markers before collapsing to Territory.
+  - `collapseMarker` in `ClientSandboxEngine` removes both marker and stack, then sets collapsed Territory.
   - Territory processing (`sandboxTerritory.ts` / `sandboxTerritoryEngine.ts`) removes stacks/markers before collapsing region spaces and border markers.
 
 Together, these guarantees mean that **any** invariant violation that does slip through is surfaced immediately in tests on both backend and sandbox paths, and repair logic in hot mutators ensures new overlaps are corrected before they become latent bugs.
@@ -720,7 +720,7 @@ both backend and sandbox engines.
 ### 6.3 Termination Ladder & Sandbox AI Control Flow
 
 The **rules-level termination ladder**, as captured in
-`RULES_TERMINATION_ANALYSIS.md`, is:
+`docs/supplementary/RULES_TERMINATION_ANALYSIS.md`, is:
 
 1. If a player can **move**, they must move.
 2. If they cannot move and cannot place, they must undergo **forced
@@ -856,13 +856,13 @@ ladder and detect stalls:
 
 Together, these tests and diagnostics ensure that the **practical** behaviour
 of the sandbox AI matches the theoretical termination guarantees in
-`RULES_TERMINATION_ANALYSIS.md`.
+`docs/supplementary/RULES_TERMINATION_ANALYSIS.md`.
 
 ---
 
 ## 7. References
 
-- Sandbox territory & elimination:
+- Sandbox Territory & elimination:
   - `src/client/sandbox/ClientSandboxEngine.ts`
   - `src/client/sandbox/sandboxTerritory.ts`
   - `src/client/sandbox/sandboxTerritoryEngine.ts`
@@ -878,12 +878,12 @@ of the sandbox AI matches the theoretical termination guarantees in
 - Backend:
   - [`BoardManager.ts`](src/server/game/BoardManager.ts:1)
   - [`GameEngine.ts`](src/server/game/GameEngine.ts:1)
-- Python rules engine:
+- Python Rules Engine:
   - [`board_manager.py`](ai-service/app/board_manager.py:1)
   - [`territory.py`](ai-service/app/rules/mutators/territory.py:1)
   - [`capture.py`](ai-service/app/rules/mutators/capture.py:1)
 - Termination & sandbox AI:
-  - `RULES_TERMINATION_ANALYSIS.md`
+  - `docs/supplementary/RULES_TERMINATION_ANALYSIS.md`
   - `src/client/sandbox/sandboxAI.ts`
   - `src/client/sandbox/sandboxTurnEngine.ts`
   - `tests/unit/ClientSandboxEngine.aiSingleSeedDebug.test.ts`

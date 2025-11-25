@@ -177,8 +177,12 @@ describe('VictoryModal', () => {
       />
     );
 
-    expect(screen.getByText(/Bob Wins!/)).toBeInTheDocument();
-    expect(screen.getByText(/Victory as the last player remaining/)).toBeInTheDocument();
+    // LPS is surfaced as a distinct victory mode with a dedicated title
+    // and explanation of the “real moves for a full round” condition.
+    expect(screen.getByText(/Last Player Standing/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/only player able to make real moves \(placements, movements, or captures\)/)
+    ).toBeInTheDocument();
   });
 
   it('should show draw message for stalemate', () => {

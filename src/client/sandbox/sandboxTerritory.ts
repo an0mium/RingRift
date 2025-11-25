@@ -1,3 +1,27 @@
+/**
+ * Legacy sandbox territory helpers.
+ *
+ * **IMPORTANT:** This file exists primarily as a thin adapter layer between
+ * the sandbox engine (ClientSandboxEngine) and the canonical shared territory
+ * helpers. The actual territory semantics (region detection, collapse logic,
+ * border enumeration) are defined in:
+ *
+ * - {@link ../../shared/engine/territoryDetection.ts} - Region detection
+ * - {@link ../../shared/engine/territoryProcessing.ts} - Collapse logic
+ * - {@link ../../shared/engine/territoryBorders.ts} - Border markers
+ * - {@link ../../shared/engine/territoryDecisionHelpers.ts} - Decision helpers
+ *
+ * **Exported functions** in this file are wrappers that delegate to those
+ * shared modules and remain in use by ClientSandboxEngine and sandboxTerritoryEngine.
+ *
+ * **Internal helpers** marked with `@deprecated` are DEAD CODE that was
+ * superseded when the shared helpers were introduced. They are retained
+ * temporarily for reference but will be removed in a future cleanup pass.
+ *
+ * Do NOT add new territory processing logic here; extend the shared helpers instead.
+ *
+ * @module client/sandbox/sandboxTerritory
+ */
 import {
   BoardState,
   BoardType,
@@ -196,9 +220,16 @@ function getRepresentedPlayers(regionSpaces: Position[], board: BoardState): Set
   return represented;
 }
 
-// NOTE: Deprecated - region detection now delegates to shared/engine/territoryDetection.
-// This helper is kept temporarily for reference and can be removed once remaining
-// tests are fully stabilised.
+/**
+ * @deprecated This internal helper is DEAD CODE and is not called anywhere.
+ * Region detection now delegates to `findDisconnectedRegions` from
+ * `src/shared/engine/territoryDetection.ts`.
+ *
+ * This function is retained temporarily for reference but will be removed
+ * in a future cleanup pass.
+ *
+ * @internal
+ */
 function exploreRegionWithBorderColor(
   board: BoardState,
   start: Position,
@@ -267,9 +298,16 @@ function exploreRegionWithBorderColor(
   return region;
 }
 
-// NOTE: Deprecated - region detection now delegates to shared/engine/territoryDetection.
-// This helper is kept temporarily for reference and can be removed once remaining
-// tests are fully stabilised.
+/**
+ * @deprecated This internal helper is DEAD CODE and is not called anywhere.
+ * Region detection now delegates to `findDisconnectedRegions` from
+ * `src/shared/engine/territoryDetection.ts`.
+ *
+ * This function is retained temporarily for reference but will be removed
+ * in a future cleanup pass.
+ *
+ * @internal
+ */
 function exploreRegionWithoutMarkerBorder(
   board: BoardState,
   start: Position,
@@ -340,9 +378,16 @@ function isRegionBorderedByCollapsedOnly(regionSpaces: Position[], board: BoardS
   return true;
 }
 
-// NOTE: Deprecated - region detection now delegates to shared/engine/territoryDetection.
-// This helper is kept temporarily for reference and can be removed once remaining
-// tests are fully stabilised.
+/**
+ * @deprecated This internal helper is DEAD CODE and is not called anywhere.
+ * Region detection now delegates to `findDisconnectedRegions` from
+ * `src/shared/engine/territoryDetection.ts`.
+ *
+ * This function is retained temporarily for reference but will be removed
+ * in a future cleanup pass.
+ *
+ * @internal
+ */
 function findRegionsWithBorderColor(
   board: BoardState,
   borderColor: number,
@@ -382,9 +427,16 @@ function findRegionsWithBorderColor(
   return disconnected;
 }
 
-// NOTE: Deprecated - region detection now delegates to shared/engine/territoryDetection.
-// This helper is kept temporarily for reference and can be removed once remaining
-// tests are fully stabilised.
+/**
+ * @deprecated This internal helper is DEAD CODE and is not called anywhere.
+ * Region detection now delegates to `findDisconnectedRegions` from
+ * `src/shared/engine/territoryDetection.ts`.
+ *
+ * This function is retained temporarily for reference but will be removed
+ * in a future cleanup pass.
+ *
+ * @internal
+ */
 function findRegionsWithoutMarkerBorder(
   board: BoardState,
   activePlayers: Set<number>

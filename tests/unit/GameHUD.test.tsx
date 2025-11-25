@@ -1,7 +1,8 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
 import { GameHUD } from '../../src/client/components/GameHUD';
-import { GameState, Player, BoardState } from '../../shared/types/game';
+import { GameState, Player, BoardState } from '../../src/shared/types/game';
 
 // Helper to create a minimal test GameState
 function createTestGameState(overrides: Partial<GameState> = {}): GameState {
@@ -244,5 +245,18 @@ describe('GameHUD', () => {
       const phaseIndicator = container.querySelector('[class*="bg-"]');
       expect(phaseIndicator).toBeInTheDocument();
     });
+  });
+
+  it('should surface all three victory modes copy', () => {
+    const gameState = createTestGameState();
+    const currentPlayer = gameState.players[0];
+
+    render(<GameHUD gameState={gameState} currentPlayer={currentPlayer} />);
+
+    const helper = screen.getByTestId('victory-conditions-help');
+    expect(helper).toBeInTheDocument();
+    expect(screen.getByText(/Elimination – eliminate/)).toBeInTheDocument();
+    expect(screen.getByText(/Territory – control/)).toBeInTheDocument();
+    expect(screen.getByText(/Last Player Standing/)).toBeInTheDocument();
   });
 });

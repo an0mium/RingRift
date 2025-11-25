@@ -2,6 +2,7 @@
  * Client for communicating with the Python AI Service
  * Makes HTTP requests to the FastAPI microservice for AI move and choice selection.
  * Includes circuit breaker pattern for resilience.
+ * Integrated with ServiceStatusManager for graceful degradation.
  */
 
 import axios, { AxiosInstance } from 'axios';
@@ -15,6 +16,7 @@ import {
 } from '../../shared/types/game';
 import { logger } from '../utils/logger';
 import { aiMoveLatencyHistogram } from '../utils/rulesParityMetrics';
+import { getServiceStatusManager } from './ServiceStatusManager';
 
 /**
  * High-level error codes surfaced by the AI service client. These are used
@@ -86,6 +88,20 @@ class CircuitBreaker {
       isOpen: this.isOpen,
       failureCount: this.failureCount,
     };
+  }
+
+  /**
+   * Check if the circuit breaker is currently open.
+   */
+  isCircuitOpen(): boolean {
+    if (this.isOpen) {
+      const now = Date.now();
+      if (now - this.lastFailureTime > this.timeout) {
+        return false; // Would transition to half-open
+      }
+      return true;
+    }
+    return false;
   }
 }
 
@@ -332,6 +348,9 @@ export class AIServiceClient {
           // Record latency for successful Python-service-backed move selection.
           aiMoveLatencyHistogram.labels('python', difficultyLabel).observe(duration);
 
+          // Update ServiceStatusManager on success
+          this.updateServiceStatus('healthy', undefined, Math.round(duration));
+
           logger.info('AI move received', {
             aiType: response.data.ai_type,
             thinkingTime: response.data.thinking_time_ms,
@@ -392,6 +411,13 @@ export class AIServiceClient {
           if (aiErrorType) {
             structuredError.aiErrorType = aiErrorType;
           }
+
+          // Update ServiceStatusManager on failure
+          this.updateServiceStatus(
+            aiErrorType === 'timeout' ? 'degraded' : 'unhealthy',
+            structuredError.message,
+            Math.round(performance.now() - startTime)
+          );
 
           throw structuredError;
         }
@@ -605,14 +631,54 @@ export class AIServiceClient {
   }
 
   /**
+   * Update the ServiceStatusManager with current AI service status.
+   * This is called after each AI service interaction.
+   */
+  private updateServiceStatus(
+    status: 'healthy' | 'degraded' | 'unhealthy',
+    error?: string,
+    latencyMs?: number
+  ): void {
+    try {
+      const statusManager = getServiceStatusManager();
+      statusManager.updateServiceStatus('aiService', status, error, latencyMs);
+    } catch (e) {
+      // Don't fail AI operations if status manager update fails
+      logger.debug('Failed to update service status manager', {
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  /**
    * Check if AI service is healthy.
    */
   async healthCheck(): Promise<boolean> {
+    const startTime = performance.now();
     try {
       const response = await this.client.get('/health');
-      return response.data.status === 'healthy';
+      const latencyMs = Math.round(performance.now() - startTime);
+      const isHealthy = response.data.status === 'healthy';
+      
+      // Update status manager based on health check result
+      this.updateServiceStatus(
+        isHealthy ? 'healthy' : 'degraded',
+        isHealthy ? undefined : 'Health check returned non-healthy status',
+        latencyMs
+      );
+      
+      return isHealthy;
     } catch (error) {
+      const latencyMs = Math.round(performance.now() - startTime);
       logger.error('AI Service health check failed', { error });
+      
+      // Update status manager on health check failure
+      this.updateServiceStatus(
+        'unhealthy',
+        error instanceof Error ? error.message : 'Health check failed',
+        latencyMs
+      );
+      
       return false;
     }
   }
@@ -645,6 +711,13 @@ export class AIServiceClient {
       logger.error('Failed to get service info', { error });
       return null;
     }
+  }
+
+  /**
+   * Check if the AI service is currently available (not circuit-broken).
+   */
+  isServiceAvailable(): boolean {
+    return !this.circuitBreaker.isCircuitOpen();
   }
 }
 

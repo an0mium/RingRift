@@ -194,8 +194,9 @@ describe('FAQ Q16-Q18: Victory Conditions & Control Transfer', () => {
       
       gameState.board.markers.clear();
       
-      // 4-marker line that will collapse
-      for (let x = 0; x < 4; x++) {
+      // Exact-length line (3 markers for square8) that will collapse AND eliminate
+      // Exact-length lines MUST collapse and eliminate, vs overlength which defaults to Option 2
+      for (let x = 0; x < 3; x++) {
         gameState.board.markers.set(`${x},0`, {
           position: { x, y: 0 },
           player: 1,
@@ -221,8 +222,8 @@ describe('FAQ Q16-Q18: Victory Conditions & Control Transfer', () => {
       const result = await engine.makeMove(lineMoves[0]);
       expect(result.success).toBe(true);
       
-      // After processing:
-      // - territorySpaces: 31 + 4 = 35 (>32, territory victory!)
+      // After processing exact-length line:
+      // - territorySpaces: 31 + 3 = 34 (>32, territory victory!)
       // - eliminatedRings: 26 + 2 = 28 (>27, elimination victory!)
       
       // Verify both thresholds are exceeded

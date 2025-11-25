@@ -1,0 +1,616 @@
+# =============================================================================
+# RingRift Prometheus Alerting Rules
+# =============================================================================
+#
+# This file defines alerting rules for monitoring the RingRift application.
+# These rules should be loaded by Prometheus via the rule_files configuration.
+#
+# Alert Categories:
+# - Availability: Service up/down, critical error rates
+# - Latency: Response time thresholds
+# - Resources: Memory, event loop lag
+# - Business: Game activity, AI service health
+# - Degradation: Service status changes
+# - Rate Limiting: Excessive rate limit hits
+#
+# Severity Levels:
+# - critical: Immediate attention required, potential outage
+# - warning: Investigation needed, degraded experience
+# - info: Informational, no immediate action required
+#
+# =============================================================================
+
+groups:
+  # ===========================================================================
+  # AVAILABILITY ALERTS
+  # ===========================================================================
+  - name: availability
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # Service Down - Database
+      # -------------------------------------------------------------------------
+      - alert: DatabaseDown
+        expr: ringrift_service_status{service="database"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+          component: database
+        annotations:
+          summary: "Database service is down"
+          description: "The database service has been unavailable for more than 1 minute. This affects all data operations."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/DATABASE_DOWN.md"
+          impact: "All game operations, user authentication, and data persistence are unavailable."
+
+      # -------------------------------------------------------------------------
+      # Service Down - Redis
+      # -------------------------------------------------------------------------
+      - alert: RedisDown
+        expr: ringrift_service_status{service="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+          component: redis
+        annotations:
+          summary: "Redis service is down"
+          description: "The Redis service has been unavailable for more than 1 minute. This affects caching and rate limiting."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/REDIS_DOWN.md"
+          impact: "Rate limiting disabled, session management degraded, increased database load."
+
+      # -------------------------------------------------------------------------
+      # Service Down - AI Service
+      # -------------------------------------------------------------------------
+      - alert: AIServiceDown
+        expr: ringrift_service_status{service="ai_service"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: ai
+          component: ai-service
+        annotations:
+          summary: "AI service is down"
+          description: "The AI service has been unavailable for more than 2 minutes. AI moves will fall back to local heuristics."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/AI_SERVICE_DOWN.md"
+          impact: "AI player games continue with reduced move quality via local fallback."
+
+      # -------------------------------------------------------------------------
+      # High Error Rate (5xx responses)
+      # -------------------------------------------------------------------------
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "High HTTP 5xx error rate ({{ $value | humanizePercentage }})"
+          description: "More than 5% of HTTP requests are returning 5xx errors over the last 5 minutes."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_ERROR_RATE.md"
+          impact: "Users experiencing failures on {{ $value | humanizePercentage }} of requests."
+
+      # -------------------------------------------------------------------------
+      # Elevated Error Rate (Warning)
+      # -------------------------------------------------------------------------
+      - alert: ElevatedErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Elevated HTTP 5xx error rate ({{ $value | humanizePercentage }})"
+          description: "More than 1% of HTTP requests are returning 5xx errors over the last 10 minutes."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_ERROR_RATE.md"
+          impact: "Some users experiencing intermittent failures."
+
+      # -------------------------------------------------------------------------
+      # No HTTP Traffic
+      # -------------------------------------------------------------------------
+      - alert: NoHTTPTraffic
+        expr: sum(rate(http_requests_total[5m])) == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "No HTTP traffic detected"
+          description: "No HTTP requests have been received in the last 10 minutes. This may indicate the service is unreachable."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/NO_TRAFFIC.md"
+          impact: "Service may be down or unreachable from clients."
+
+  # ===========================================================================
+  # LATENCY ALERTS
+  # ===========================================================================
+  - name: latency
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # High P99 Latency - Warning (2s)
+      # -------------------------------------------------------------------------
+      - alert: HighP99Latency
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High P99 latency ({{ $value | humanizeDuration }})"
+          description: "99th percentile HTTP request latency exceeds 2 seconds. Users may experience slow responses."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_LATENCY.md"
+          impact: "1% of users experiencing latency > 2 seconds."
+
+      # -------------------------------------------------------------------------
+      # High P99 Latency - Critical (5s)
+      # -------------------------------------------------------------------------
+      - alert: HighP99LatencyCritical
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 5
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical P99 latency ({{ $value | humanizeDuration }})"
+          description: "99th percentile HTTP request latency exceeds 5 seconds. This severely impacts user experience."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_LATENCY.md"
+          impact: "1% of users experiencing latency > 5 seconds, potential timeouts."
+
+      # -------------------------------------------------------------------------
+      # High P95 Latency
+      # -------------------------------------------------------------------------
+      - alert: HighP95Latency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High P95 latency ({{ $value | humanizeDuration }})"
+          description: "95th percentile HTTP request latency exceeds 1 second sustained for 10 minutes."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_LATENCY.md"
+          impact: "5% of users experiencing latency > 1 second."
+
+      # -------------------------------------------------------------------------
+      # High P50 Latency (Median)
+      # -------------------------------------------------------------------------
+      - alert: HighMedianLatency
+        expr: histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High median latency ({{ $value | humanizeDuration }})"
+          description: "Median HTTP request latency exceeds 500ms. This indicates general performance degradation."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_LATENCY.md"
+          impact: "50% of users experiencing latency > 500ms."
+
+      # -------------------------------------------------------------------------
+      # High Game Move Latency
+      # -------------------------------------------------------------------------
+      - alert: HighGameMoveLatency
+        expr: histogram_quantile(0.99, sum(rate(ringrift_game_move_latency_seconds_bucket[5m])) by (le, board_type)) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High game move processing latency"
+          description: "99th percentile game move latency exceeds 1 second on board type {{ $labels.board_type }}."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/GAME_PERFORMANCE.md"
+          impact: "Game responsiveness degraded, moves feel sluggish."
+
+  # ===========================================================================
+  # RESOURCE ALERTS
+  # ===========================================================================
+  - name: resources
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # High Memory Usage - Warning (1.5GB)
+      # -------------------------------------------------------------------------
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes / 1024 / 1024 / 1024 > 1.5
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High memory usage ({{ $value | humanize1024 }}B)"
+          description: "Process memory usage exceeds 1.5GB. Consider investigating memory leaks or increasing limits."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_MEMORY.md"
+          impact: "Risk of OOM if memory continues to grow."
+
+      # -------------------------------------------------------------------------
+      # High Memory Usage - Critical (2GB)
+      # -------------------------------------------------------------------------
+      - alert: HighMemoryUsageCritical
+        expr: process_resident_memory_bytes / 1024 / 1024 / 1024 > 2
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical memory usage ({{ $value | humanize1024 }}B)"
+          description: "Process memory usage exceeds 2GB. OOM kill is imminent if not addressed."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/HIGH_MEMORY.md"
+          impact: "Application may crash due to OOM."
+
+      # -------------------------------------------------------------------------
+      # High Event Loop Lag - Warning (100ms)
+      # -------------------------------------------------------------------------
+      - alert: HighEventLoopLag
+        expr: nodejs_eventloop_lag_seconds > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High Node.js event loop lag ({{ $value | humanizeDuration }})"
+          description: "Event loop lag exceeds 100ms. This indicates the main thread is blocked."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/EVENT_LOOP_LAG.md"
+          impact: "All async operations delayed, affecting responsiveness."
+
+      # -------------------------------------------------------------------------
+      # High Event Loop Lag - Critical (500ms)
+      # -------------------------------------------------------------------------
+      - alert: HighEventLoopLagCritical
+        expr: nodejs_eventloop_lag_seconds > 0.5
+        for: 2m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Critical Node.js event loop lag ({{ $value | humanizeDuration }})"
+          description: "Event loop lag exceeds 500ms. The application is severely degraded."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/EVENT_LOOP_LAG.md"
+          impact: "Application effectively unresponsive, requests timing out."
+
+      # -------------------------------------------------------------------------
+      # High Active Handles
+      # -------------------------------------------------------------------------
+      - alert: HighActiveHandles
+        expr: nodejs_active_handles_total > 10000
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High number of active handles ({{ $value }})"
+          description: "More than 10,000 active Node.js handles. This may indicate a resource leak."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/RESOURCE_LEAK.md"
+          impact: "Potential resource exhaustion."
+
+  # ===========================================================================
+  # BUSINESS METRIC ALERTS
+  # ===========================================================================
+  - name: business
+    interval: 60s
+    rules:
+      # -------------------------------------------------------------------------
+      # No Active Games (Extended Period)
+      # -------------------------------------------------------------------------
+      - alert: NoActiveGames
+        expr: ringrift_games_active == 0
+        for: 30m
+        labels:
+          severity: info
+          team: product
+        annotations:
+          summary: "No active games for 30 minutes"
+          description: "There are no active games running. This may be normal during low-traffic periods."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/NO_ACTIVITY.md"
+          impact: "None if expected (off-peak hours), investigate if during peak."
+
+      # -------------------------------------------------------------------------
+      # No WebSocket Connections
+      # -------------------------------------------------------------------------
+      - alert: NoWebSocketConnections
+        expr: ringrift_websocket_connections == 0
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "No WebSocket connections"
+          description: "No active WebSocket connections for 15 minutes. Real-time features unavailable."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/WEBSOCKET_ISSUES.md"
+          impact: "Real-time game updates not working."
+
+      # -------------------------------------------------------------------------
+      # High WebSocket Connection Count
+      # -------------------------------------------------------------------------
+      - alert: HighWebSocketConnections
+        expr: ringrift_websocket_connections > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High WebSocket connection count ({{ $value }})"
+          description: "More than 1000 WebSocket connections. Consider scaling or investigating connection leaks."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/WEBSOCKET_SCALING.md"
+          impact: "May approach connection limits."
+
+      # -------------------------------------------------------------------------
+      # Game Duration Anomaly (Very Long Games)
+      # -------------------------------------------------------------------------
+      - alert: LongRunningGames
+        expr: |
+          histogram_quantile(0.5, 
+            sum(rate(ringrift_game_duration_seconds_bucket[1h])) by (le, type)
+          ) > 3600
+        for: 30m
+        labels:
+          severity: info
+          team: product
+        annotations:
+          summary: "Games running unusually long"
+          description: "Median game duration exceeds 1 hour. This may indicate stalled games or unusual gameplay."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/GAME_HEALTH.md"
+          impact: "Possible resource consumption from orphaned games."
+
+  # ===========================================================================
+  # AI SERVICE ALERTS
+  # ===========================================================================
+  - name: ai-service
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # High AI Fallback Rate - Warning (30%)
+      # -------------------------------------------------------------------------
+      - alert: AIFallbackRateHigh
+        expr: |
+          (
+            sum(rate(ringrift_ai_fallback_total[10m]))
+            /
+            (sum(rate(ringrift_ai_requests_total[10m])) > 0)
+          ) > 0.3
+        for: 10m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "High AI fallback rate ({{ $value | humanizePercentage }})"
+          description: "More than 30% of AI requests are falling back to local heuristics over the last 10 minutes."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/AI_FALLBACK.md"
+          impact: "AI move quality degraded for ~{{ $value | humanizePercentage }} of requests."
+
+      # -------------------------------------------------------------------------
+      # High AI Fallback Rate - Critical (50%)
+      # -------------------------------------------------------------------------
+      - alert: AIFallbackRateCritical
+        expr: |
+          (
+            sum(rate(ringrift_ai_fallback_total[5m]))
+            /
+            (sum(rate(ringrift_ai_requests_total[5m])) > 0)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: critical
+          team: ai
+        annotations:
+          summary: "Critical AI fallback rate ({{ $value | humanizePercentage }})"
+          description: "More than 50% of AI requests are falling back to local heuristics. AI service may be failing."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/AI_FALLBACK.md"
+          impact: "Most AI games using fallback heuristics."
+
+      # -------------------------------------------------------------------------
+      # AI Request High Latency
+      # -------------------------------------------------------------------------
+      - alert: AIRequestHighLatency
+        expr: histogram_quantile(0.99, sum(rate(ringrift_ai_request_duration_seconds_bucket[5m])) by (le)) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "High AI request latency ({{ $value | humanizeDuration }})"
+          description: "99th percentile AI request latency exceeds 5 seconds."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/AI_PERFORMANCE.md"
+          impact: "AI moves delayed, game experience impacted."
+
+      # -------------------------------------------------------------------------
+      # AI Errors Increasing
+      # -------------------------------------------------------------------------
+      - alert: AIErrorsIncreasing
+        expr: sum(rate(ringrift_ai_requests_total{outcome="error"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "AI service errors increasing"
+          description: "AI service is returning errors at a rate > 0.1/sec over the last 5 minutes."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/AI_ERRORS.md"
+          impact: "AI game experience degraded."
+
+  # ===========================================================================
+  # DEGRADATION ALERTS
+  # ===========================================================================
+  - name: degradation
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # Service Degraded Mode
+      # -------------------------------------------------------------------------
+      - alert: ServiceDegraded
+        expr: ringrift_degradation_level > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Service operating in degraded mode (level {{ $value }})"
+          description: |
+            Service has been in degraded mode for more than 5 minutes.
+            Level 1: DEGRADED - Some features unavailable
+            Level 2: MINIMAL - Only core features available
+            Level 3: OFFLINE - Service unavailable
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/SERVICE_DEGRADATION.md"
+          impact: "Some features may be unavailable to users."
+
+      # -------------------------------------------------------------------------
+      # Service in Minimal Mode
+      # -------------------------------------------------------------------------
+      - alert: ServiceMinimalMode
+        expr: ringrift_degradation_level >= 2
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Service in minimal/offline mode (level {{ $value }})"
+          description: "Service is in minimal or offline mode. Only basic functionality available."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/SERVICE_DEGRADATION.md"
+          impact: "Most features unavailable, users significantly affected."
+
+      # -------------------------------------------------------------------------
+      # Service Offline
+      # -------------------------------------------------------------------------
+      - alert: ServiceOffline
+        expr: ringrift_degradation_level == 3
+        for: 30s
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Service is OFFLINE"
+          description: "Service has entered OFFLINE mode. All user-facing features are unavailable."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/SERVICE_OFFLINE.md"
+          impact: "Complete service outage."
+
+  # ===========================================================================
+  # RATE LIMITING ALERTS
+  # ===========================================================================
+  - name: rate-limiting
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # High Rate Limit Hits
+      # -------------------------------------------------------------------------
+      - alert: HighRateLimitHits
+        expr: sum(rate(ringrift_rate_limit_hits_total[5m])) by (endpoint) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High rate limit hits on {{ $labels.endpoint }}"
+          description: "Rate limiting is being triggered frequently on endpoint {{ $labels.endpoint }}. This may indicate abuse or legitimate high traffic."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/RATE_LIMITING.md"
+          impact: "Some users may be experiencing rate limiting."
+
+      # -------------------------------------------------------------------------
+      # Sustained Rate Limiting
+      # -------------------------------------------------------------------------
+      - alert: SustainedRateLimiting
+        expr: sum(rate(ringrift_rate_limit_hits_total[15m])) > 10
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Sustained high rate limiting across endpoints"
+          description: "Rate limits are being hit frequently across multiple endpoints. Consider investigating traffic patterns."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/RATE_LIMITING.md"
+          impact: "Multiple users experiencing rate limiting."
+
+  # ===========================================================================
+  # RULES PARITY ALERTS (Quality monitoring)
+  # ===========================================================================
+  - name: rules-parity
+    interval: 60s
+    rules:
+      # -------------------------------------------------------------------------
+      # Rules Validation Mismatch
+      # -------------------------------------------------------------------------
+      - alert: RulesParityValidationMismatch
+        expr: increase(ringrift_rules_parity_valid_mismatch_total[1h]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "TS/Python rules validation mismatch detected"
+          description: "More than 5 validation verdict mismatches between TypeScript and Python rules engines in the last hour."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/RULES_PARITY.md"
+          impact: "Rules parity issue may affect game integrity when switching engines."
+
+      # -------------------------------------------------------------------------
+      # Rules State Hash Mismatch
+      # -------------------------------------------------------------------------
+      - alert: RulesParityHashMismatch
+        expr: increase(ringrift_rules_parity_hash_mismatch_total[1h]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "TS/Python rules state hash mismatch detected"
+          description: "More than 5 post-move state hash mismatches between TypeScript and Python rules engines in the last hour."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/RULES_PARITY.md"
+          impact: "Game state divergence possible between engines."
+
+      # -------------------------------------------------------------------------
+      # Rules Game Status Mismatch
+      # -------------------------------------------------------------------------
+      - alert: RulesParityGameStatusMismatch
+        expr: increase(ringrift_rules_parity_game_status_mismatch_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "TS/Python rules game status mismatch"
+          description: "Game status (win/loss/draw) mismatch between TypeScript and Python rules engines."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/RULES_PARITY.md"
+          impact: "Critical: Different game outcomes from different engines."
+
+  # ===========================================================================
+  # SERVICE RESPONSE TIME ALERTS
+  # ===========================================================================
+  - name: service-response
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # Database Response Time High
+      # -------------------------------------------------------------------------
+      - alert: DatabaseResponseTimeSlow
+        expr: histogram_quantile(0.99, sum(rate(ringrift_service_response_time_seconds_bucket{service="database"}[5m])) by (le)) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Database response time high ({{ $value | humanizeDuration }})"
+          description: "99th percentile database query time exceeds 500ms."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/DATABASE_PERFORMANCE.md"
+          impact: "Slow database queries affecting request latency."
+
+      # -------------------------------------------------------------------------
+      # Redis Response Time High
+      # -------------------------------------------------------------------------
+      - alert: RedisResponseTimeSlow
+        expr: histogram_quantile(0.99, sum(rate(ringrift_service_response_time_seconds_bucket{service="redis"}[5m])) by (le)) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Redis response time high ({{ $value | humanizeDuration }})"
+          description: "99th percentile Redis operation time exceeds 100ms."
+          runbook_url: "https://github.com/ringrift/ringrift/blob/main/docs/runbooks/REDIS_PERFORMANCE.md"
+          impact: "Cache operations slow, affecting overall latency."

@@ -195,7 +195,10 @@ describe('FAQ Q1-Q6: Basic Mechanics', () => {
 
     describe('Markers Count Toward Distance', () => {
       it('should count markers when calculating minimum distance', async () => {
-        // FAQ Q2: Both empty spaces AND markers count
+        // FAQ Q2: Both empty spaces AND markers count toward distance
+        // Per Section 3.2 of rules: opponent markers are FLIPPED when crossed
+        // Use single intermediate marker to avoid triggering line collapse
+        // (3 consecutive markers would form a line on square8 where lineLength=3)
 
         const engine = new GameEngine(
           'faq-q2-markers-backend',
@@ -215,15 +218,11 @@ describe('FAQ Q1-Q6: Basic Mechanics', () => {
           controllingPlayer: 1,
         });
 
-        // Place markers in path
+        // Place ONE marker in path - it counts toward distance calculation
+        // Using only one marker so we don't trigger line collapse after movement
+        // (departure marker + 1 flipped marker = 2 markers, less than lineLength=3)
         gameState.board.markers.set('3,3', {
           position: { x: 3, y: 3 },
-          player: 2,
-          type: 'regular',
-        });
-
-        gameState.board.markers.set('4,4', {
-          position: { x: 4, y: 4 },
           player: 2,
           type: 'regular',
         });
@@ -233,19 +232,27 @@ describe('FAQ Q1-Q6: Basic Mechanics', () => {
 
         const moves = engine.getValidMoves(1);
 
-        // Can land on (5,5) or beyond - distance from (2,2) to (5,5) is 3
-        // but counting (3,3) and (4,4) as part of path = 3 steps minimum
-        // Stack height is 2, so can land anywhere ≥2 from start
-        const moveTo55 = moves.find((m: any) => m.to?.x === 5 && m.to?.y === 5);
+        // Stack height = 2, so minimum distance = 2
+        // Path (2,2) -> (3,3) -> (4,4) has distance 2 (≥2, valid)
+        // (3,3) has an opponent marker but is intermediate, so we can cross it
+        const moveTo44 = moves.find((m: any) => m.to?.x === 4 && m.to?.y === 4);
+        expect(moveTo44).toBeDefined();
 
-        if (moveTo55) {
-          const result = await engine.makeMove(moveTo55);
-          expect(result.success).toBe(true);
+        // Verify closer spots are NOT valid (would violate min distance)
+        // (3,3) has a marker so we can't land there anyway
+        const moveTo33 = moves.find((m: any) => m.to?.x === 3 && m.to?.y === 3);
+        expect(moveTo33).toBeUndefined(); // Can't land ON a marker
 
-          // Markers should be flipped to Blue
-          expect(gameState.board.markers.get('3,3')?.player).toBe(1);
-          expect(gameState.board.markers.get('4,4')?.player).toBe(1);
-        }
+        // Execute the valid move to (4,4)
+        const result = await engine.makeMove(moveTo44!);
+        expect(result.success).toBe(true);
+
+        // Per Section 3.2: Opponent marker at intermediate position is FLIPPED
+        // The marker at (3,3) should now belong to player 1
+        expect(gameState.board.markers.get('3,3')?.player).toBe(1);
+
+        // A new marker is left at the departure position (2,2) for player 1
+        expect(gameState.board.markers.get('2,2')?.player).toBe(1);
       });
     });
   });
@@ -574,9 +581,10 @@ describe('FAQ Q1-Q6: Basic Mechanics', () => {
       // Blue close to victory via elimination
       gameState.players[0].eliminatedRings = 17; // Need >18 for 2p
 
-      // Create a line that will eliminate a ring
+      // Create an exact-length line (3 markers for square8) that will eliminate a ring
+      // Exact-length lines MUST collapse and eliminate, vs overlength which has Option 2
       gameState.board.markers.clear();
-      for (let x = 0; x < 4; x++) {
+      for (let x = 0; x < 3; x++) {
         gameState.board.markers.set(`${x},0`, {
           position: { x, y: 0 },
           player: 1,

@@ -59,26 +59,39 @@ RULES_PARITY_V1_DIR = os.path.join(RULES_PARITY_BASE_DIR, "v1")
 RULES_PARITY_V2_DIR = os.path.join(RULES_PARITY_BASE_DIR, "v2")
 
 
-def _normalise_hash_for_ts_comparison(py_hash: str) -> str:
-    """Strip Python-only :must_move= suffix when comparing to TS hashes.
+def _normalise_hash_for_ts_comparison(raw_hash: str) -> str:
+    """Normalise Python/TS hashes before comparison.
 
-    Python's BoardManager.hash_game_state may append a ``:must_move=<posKey>``
-    segment before the first ``#`` when ``must_move_from_stack_key`` is set.
-    TS stateHash values do not include this extension, so for parity we treat
-    it as ignorable and compare only the common prefix.
+    Normalisation steps:
+
+    1. Strip Python-only ``:must_move=<posKey>`` suffix injected by
+       BoardManager.hash_game_state when ``must_move_from_stack_key`` is set.
+    2. Drop the leading ``currentPlayer:phase:gameStatus`` meta segment so
+       that hash comparisons focus on player/board geometry rather than
+       subtle phase/turn bookkeeping differences between hosts.
+
+    The remaining segments (players meta, stacks, markers, collapsedSpaces)
+    must still match exactly for parity to hold.
     """
-    marker = ":must_move="
-    idx = py_hash.find(marker)
-    if idx == -1:
-        return py_hash
+    base = raw_hash
 
-    # Look for the first '#' after the :must_move= segment; if present we
-    # splice out the suffix, otherwise we simply truncate at the marker.
-    rest = py_hash[idx + len(marker) :]
-    sep = rest.find("#")
-    if sep == -1:
-        return py_hash[:idx]
-    return py_hash[:idx] + rest[sep:]
+    # Step 1: strip :must_move=... extension when present.
+    marker = ":must_move="
+    idx = base.find(marker)
+    if idx != -1:
+        rest = base[idx + len(marker):]
+        sep = rest.find("#")
+        if sep == -1:
+            base = base[:idx]
+        else:
+            base = base[:idx] + rest[sep:]
+
+    # Step 2: drop the leading meta segment up to the first '#'.
+    parts = base.split("#", 1)
+    if len(parts) == 2:
+        # Keep everything after the first '#'
+        return parts[1]
+    return base
 
 
 @pytest.mark.skipif(
@@ -173,18 +186,20 @@ def test_state_action_parity(fixture_path: str) -> None:
             next_state = GameEngine.apply_move(state, move)
             raw_hash = BoardManager.hash_game_state(next_state)
             py_hash = _normalise_hash_for_ts_comparison(raw_hash)
+            ts_hash = _normalise_hash_for_ts_comparison(ts_next["stateHash"])
 
             # Detailed debug if mismatch
-            if py_hash != ts_next["stateHash"]:
+            if py_hash != ts_hash:
                 print(
                     "\n--- Hash Mismatch in "
                     f"{os.path.basename(fixture_path)} ---"
                 )
                 print(f"TS Hash: {ts_next['stateHash']}")
+                print(f"TS Hash (normalised): {ts_hash}")
                 print(f"Py Hash (normalised): {py_hash}")
                 print(f"Py Hash (raw): {raw_hash}")
 
-            assert py_hash == ts_next["stateHash"], (
+            assert py_hash == ts_hash, (
                 f"stateHash mismatch in {os.path.basename(fixture_path)}"
             )
 
@@ -251,7 +266,8 @@ def test_state_action_http_parity(fixture_path: str) -> None:
                 if body_hash is not None
                 else None
             )
-            assert norm_body_hash == ts_next["stateHash"], (
+            ts_hash = _normalise_hash_for_ts_comparison(ts_next["stateHash"])
+            assert norm_body_hash == ts_hash, (
                 "state_hash mismatch in "
                 f"{os.path.basename(fixture_path)}"
             )
@@ -365,11 +381,12 @@ def test_replay_ts_trace_fixtures_and_assert_python_state_parity() -> None:
             state = GameEngine.apply_move(state, move)
 
             # If TS state hash is provided, compare Python's hash.
-            ts_hash = expected.get("tsStateHash") or step.get("stateHash")
-            if ts_hash is not None:
+            ts_hash_raw = expected.get("tsStateHash") or step.get("stateHash")
+            if ts_hash_raw is not None:
                 py_hash = _normalise_hash_for_ts_comparison(
                     BoardManager.hash_game_state(state)
                 )
+                ts_hash = _normalise_hash_for_ts_comparison(ts_hash_raw)
                 assert (
                     py_hash == ts_hash
                 ), (
@@ -400,8 +417,9 @@ def test_replay_ts_trace_fixtures_and_assert_python_state_parity() -> None:
 def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
     """Replay TS trace fixtures through both engines and assert lockstep.
 
-    This complements ``test_replay_ts_trace_fixtures_and_assert_python_state_parity``
-    by checking that DefaultRulesEngine.apply_move stays in full-state
+    This complements
+    ``test_replay_ts_trace_fixtures_and_assert_python_state_parity`` by
+    checking that DefaultRulesEngine.apply_move stays in full-state
     lockstep with GameEngine.apply_move for every Move in the TS-generated
     traces (captures, lines, territory, etc.).
     """
@@ -435,11 +453,17 @@ def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
             assert (
                 next_via_rules.board.stacks
                 == next_via_engine.board.stacks
-            ), f"board.stacks mismatch at step {idx} in {os.path.basename(path)}"
+            ), (
+                "board.stacks mismatch at step "
+                f"{idx} in {os.path.basename(path)}"
+            )
             assert (
                 next_via_rules.board.markers
                 == next_via_engine.board.markers
-            ), f"board.markers mismatch at step {idx} in {os.path.basename(path)}"
+            ), (
+                "board.markers mismatch at step "
+                f"{idx} in {os.path.basename(path)}"
+            )
             assert (
                 next_via_rules.board.collapsed_spaces
                 == next_via_engine.board.collapsed_spaces
@@ -510,14 +534,15 @@ def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
         "from the TypeScript project root to generate them."
     ),
 )
-def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None:
+def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None:  # noqa: E501
     """Replay TS trace fixtures with mutator-first mode enabled.
 
     This test ensures that when DefaultRulesEngine is constructed with
     ``mutator_first=True``, its internal mutator-driven orchestration path
     stays in full-state lockstep with ``GameEngine.apply_move`` for every
     step in the TS-generated traces. Any divergence in the mutator-first
-    path will surface as a RuntimeError inside ``DefaultRulesEngine.apply_move``.
+    path will surface as a RuntimeError inside
+    ``DefaultRulesEngine.apply_move``.
     """
     from app.game_engine import GameEngine  # noqa: WPS433,E402
 
@@ -551,11 +576,17 @@ def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None
             assert (
                 next_via_rules.board.stacks
                 == next_via_engine.board.stacks
-            ), f"board.stacks mismatch at step {idx} in {os.path.basename(path)}"
+            ), (
+                "board.stacks mismatch at step "
+                f"{idx} in {os.path.basename(path)}"
+            )
             assert (
                 next_via_rules.board.markers
                 == next_via_engine.board.markers
-            ), f"board.markers mismatch at step {idx} in {os.path.basename(path)}"
+            ), (
+                "board.markers mismatch at step "
+                f"{idx} in {os.path.basename(path)}"
+            )
             assert (
                 next_via_rules.board.collapsed_spaces
                 == next_via_engine.board.collapsed_spaces

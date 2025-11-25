@@ -28,6 +28,7 @@ import {
   computeProgressSnapshot,
   summarizeBoard,
   hashGameState,
+  countRingsInPlayForPlayer,
 } from '../../shared/engine/core';
 import { canProcessTerritoryRegion } from '../../shared/engine/territoryProcessing';
 import { enumerateTerritoryEliminationMoves } from '../../shared/engine/territoryDecisionHelpers';
@@ -185,6 +186,19 @@ export class ClientSandboxEngine {
   // Test-only checkpoint hook used by parity/diagnostic harnesses to capture
   // GameState snapshots at key points inside canonical move application and
   // post-movement processing. When unset, all debugCheckpoint calls are no-ops.
+  /**
+   * Host-internal metadata for last-player-standing (R172) detection.
+   * These fields track, per round, which players had any real actions
+   * available (placement, non-capture movement, or overtaking capture)
+   * at the start of their most recent interactive turn. They are kept
+   * off of GameState so sandbox snapshots and wire formats remain
+   * unchanged.
+   */
+  private _lpsRoundIndex: number = 0;
+  private _lpsCurrentRoundActorMask: Map<number, boolean> = new Map();
+  private _lpsCurrentRoundFirstPlayer: number | null = null;
+  private _lpsExclusivePlayerForCompletedRound: number | null = null;
+
   private _debugCheckpointHook?: ((label: string, state: GameState) => void) | undefined;
 
   /**
@@ -602,11 +616,44 @@ export class ClientSandboxEngine {
       getMarkerOwner: (pos, board) => this.getMarkerOwner(pos, board),
     };
 
+    const state = this.gameState;
+    const player = state.players.find((p) => p.playerNumber === playerNumber);
+    if (!player || player.ringsInHand <= 0) {
+      return [];
+    }
+
+    const boardType = state.boardType;
+    const boardConfig = BOARD_CONFIGS[boardType];
+
+    // Own-colour supply accounting: total rings of this player's colour
+    // currently in play (on the board in any stack, regardless of control,
+    // plus in hand) must never exceed ringsPerPlayer. We derive an
+    // own-colour board count for the placement context from this.
+    const totalInPlay = countRingsInPlayForPlayer(state, playerNumber);
+    const ringsOnBoard = totalInPlay - player.ringsInHand;
+    const remainingByCap = boardConfig.ringsPerPlayer - ringsOnBoard;
+    const remainingBySupply = player.ringsInHand;
+    const maxAvailableGlobal = Math.min(remainingByCap, remainingBySupply);
+
+    if (maxAvailableGlobal <= 0) {
+      return [];
+    }
+
+    const ctx = {
+      boardType,
+      player: playerNumber,
+      ringsInHand: player.ringsInHand,
+      ringsPerPlayerCap: boardConfig.ringsPerPlayer,
+      ringsOnBoard,
+      maxAvailableGlobal,
+    };
+
     return enumerateLegalRingPlacements(
-      this.gameState.boardType,
-      this.gameState.board,
+      boardType,
+      state.board,
       playerNumber,
-      view
+      view,
+      ctx
     );
   }
 
@@ -625,6 +672,330 @@ export class ClientSandboxEngine {
       playerNumber,
       (pos: Position) => this.isValidPosition(pos)
     );
+  }
+
+  /**
+   * R172 helper: true if the given player has any real action available
+   * at the start of their turn (placement, non-capture movement, or
+   * overtaking capture). Forced elimination and decision moves do not
+   * count as real actions.
+   */
+  private hasAnyRealActionForPlayer(playerNumber: number): boolean {
+    if (this.gameState.gameStatus !== 'active') {
+      return false;
+    }
+
+    const player = this.gameState.players.find(
+      (p) => p.playerNumber === playerNumber
+    );
+    if (!player) {
+      return false;
+    }
+
+    if (!this.playerHasMaterial(playerNumber)) {
+      return false;
+    }
+
+    // Ring placement
+    const placements = this.enumerateLegalRingPlacements(playerNumber);
+    if (placements.length > 0) {
+      return true;
+    }
+
+    // Non-capture movement
+    const simpleMoves = this.enumerateSimpleMovementLandings(playerNumber);
+    if (simpleMoves.length > 0) {
+      return true;
+    }
+
+    // Overtaking capture from any controlled stack
+    const board = this.gameState.board;
+    for (const stack of board.stacks.values()) {
+      if (stack.controllingPlayer !== playerNumber) continue;
+      const segments = this.enumerateCaptureSegmentsFrom(
+        stack.position,
+        playerNumber
+      );
+      if (segments.length > 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * True if the player has any material left: at least one controlled
+   * stack or at least one ring in hand.
+   */
+  private playerHasMaterial(playerNumber: number): boolean {
+    const board = this.gameState.board;
+    const player = this.gameState.players.find(
+      (p) => p.playerNumber === playerNumber
+    );
+    const hasStacks = Array.from(board.stacks.values()).some(
+      (stack) => stack.controllingPlayer === playerNumber
+    );
+    const ringsInHand = player?.ringsInHand ?? 0;
+    return hasStacks || ringsInHand > 0;
+  }
+
+  /**
+   * Update last-player-standing round tracking for the current player.
+   *
+   * This mirrors the backend and Python LPS helpers by:
+   * - Computing whether the current player has any real actions.
+   * - Recording that fact in _lpsCurrentRoundActorMask.
+   * - When all active players have been seen in this round, determining
+   *   whether exactly one player had real actions and, if so, recording
+   *   them as _lpsExclusivePlayerForCompletedRound.
+   */
+  private updateLpsRoundTrackingForCurrentPlayer(): void {
+    if (this.gameState.gameStatus !== 'active') {
+      return;
+    }
+
+    const state = this.gameState;
+    const current = state.currentPlayer;
+
+    const activePlayers = state.players
+      .filter((p) => this.playerHasMaterial(p.playerNumber))
+      .map((p) => p.playerNumber);
+
+    if (activePlayers.length === 0) {
+      return;
+    }
+
+    const activeSet = new Set(activePlayers);
+    if (!activeSet.has(current)) {
+      return;
+    }
+
+    const first = this._lpsCurrentRoundFirstPlayer;
+    const startingNewCycle =
+      first === null || !activeSet.has(first);
+
+    if (startingNewCycle) {
+      this._lpsRoundIndex += 1;
+      this._lpsCurrentRoundFirstPlayer = current;
+      this._lpsCurrentRoundActorMask.clear();
+      this._lpsExclusivePlayerForCompletedRound = null;
+    } else if (
+      current === first &&
+      this._lpsCurrentRoundActorMask.size > 0
+    ) {
+      // Completed the previous round; finalise it before starting a new one.
+      this.finalizeCompletedLpsRound(activePlayers);
+      this._lpsRoundIndex += 1;
+      this._lpsCurrentRoundActorMask.clear();
+      this._lpsCurrentRoundFirstPlayer = current;
+    }
+
+    const hasRealAction = this.hasAnyRealActionForPlayer(current);
+    this._lpsCurrentRoundActorMask.set(current, hasRealAction);
+  }
+
+  /**
+   * Finalise a completed round by determining whether exactly one active
+   * player had any real actions throughout the round.
+   */
+  private finalizeCompletedLpsRound(activePlayers: number[]): void {
+    const truePlayers: number[] = [];
+    for (const pid of activePlayers) {
+      if (this._lpsCurrentRoundActorMask.get(pid)) {
+        truePlayers.push(pid);
+      }
+    }
+
+    if (truePlayers.length === 1) {
+      this._lpsExclusivePlayerForCompletedRound = truePlayers[0];
+    } else {
+      this._lpsExclusivePlayerForCompletedRound = null;
+    }
+  }
+
+  /**
+   * Build a GameResult for a last-player-standing victory, mirroring the
+   * sandboxVictory score aggregation used for other victory reasons.
+   */
+  private buildLastPlayerStandingResult(winner: number): GameResult {
+    const state = this.gameState;
+    const board = state.board;
+
+    const perPlayer: {
+      [playerNumber: number]: {
+        ringsRemaining: number;
+        territorySpaces: number;
+        ringsEliminated: number;
+      };
+    } = {};
+
+    for (const p of state.players) {
+      perPlayer[p.playerNumber] = {
+        ringsRemaining: 0,
+        territorySpaces: p.territorySpaces,
+        ringsEliminated: p.eliminatedRings,
+      };
+    }
+
+    for (const stack of board.stacks.values()) {
+      const owner = stack.controllingPlayer;
+      const entry = perPlayer[owner];
+      if (entry) {
+        entry.ringsRemaining += stack.stackHeight;
+      }
+    }
+
+    const ringsRemaining: { [playerNumber: number]: number } = {};
+    const territorySpaces: { [playerNumber: number]: number } = {};
+    const ringsEliminated: { [playerNumber: number]: number } = {};
+
+    for (const p of state.players) {
+      const entry = perPlayer[p.playerNumber];
+      ringsRemaining[p.playerNumber] = entry ? entry.ringsRemaining : 0;
+      territorySpaces[p.playerNumber] = entry ? entry.territorySpaces : 0;
+      ringsEliminated[p.playerNumber] = entry ? entry.ringsEliminated : 0;
+    }
+
+    return {
+      winner,
+      reason: 'last_player_standing',
+      finalScore: {
+        ringsEliminated,
+        territorySpaces,
+        ringsRemaining,
+      },
+    };
+  }
+
+  /**
+   * Check whether R172 is satisfied at the start of the current player's
+   * interactive turn and, if so, end the sandbox game with an LPS result.
+   */
+  private maybeEndGameByLastPlayerStanding(): void {
+    if (this.gameState.gameStatus !== 'active') {
+      return;
+    }
+
+    const phase = this.gameState.currentPhase;
+    if (
+      phase !== 'ring_placement' &&
+      phase !== 'movement' &&
+      phase !== 'capture' &&
+      phase !== 'chain_capture'
+    ) {
+      return;
+    }
+
+    const candidate = this._lpsExclusivePlayerForCompletedRound;
+    if (candidate == null) {
+      return;
+    }
+
+    const state = this.gameState;
+    if (state.currentPlayer !== candidate) {
+      return;
+    }
+
+    if (!this.hasAnyRealActionForPlayer(candidate)) {
+      // Candidate no longer has real actions; require a fresh qualifying round.
+      this._lpsExclusivePlayerForCompletedRound = null;
+      return;
+    }
+
+    const board = state.board;
+    let othersHaveActions = false;
+
+    for (const p of state.players) {
+      if (p.playerNumber === candidate) {
+        continue;
+      }
+      if (!this.playerHasMaterial(p.playerNumber)) {
+        continue;
+      }
+      if (this.hasAnyRealActionForPlayer(p.playerNumber)) {
+        othersHaveActions = true;
+        break;
+      }
+    }
+
+    if (othersHaveActions) {
+      // Another player with material regained a real action before R172 fired.
+      this._lpsExclusivePlayerForCompletedRound = null;
+      return;
+    }
+
+    const result = this.buildLastPlayerStandingResult(candidate);
+
+    this.gameState = {
+      ...state,
+      gameStatus: 'completed',
+      winner: candidate,
+      // Normalise terminal phase away from decision phases for UI/parity.
+      currentPhase: 'ring_placement',
+    };
+    this.victoryResult = result;
+
+    // Reset round tracking after a terminal LPS outcome.
+    this._lpsCurrentRoundActorMask.clear();
+    this._lpsCurrentRoundFirstPlayer = null;
+    this._lpsExclusivePlayerForCompletedRound = null;
+  }
+
+  /**
+   * Host-level hook invoked whenever a new interactive turn begins for
+   * the current player. This is where LPS tracking and checks are wired
+   * into the sandbox turn lifecycle.
+   */
+  private handleStartOfInteractiveTurn(): void {
+    if (this.gameState.gameStatus !== 'active') {
+      return;
+    }
+
+    const phase = this.gameState.currentPhase;
+    if (
+      phase !== 'ring_placement' &&
+      phase !== 'movement' &&
+      phase !== 'capture' &&
+      phase !== 'chain_capture'
+    ) {
+      return;
+    }
+
+    const beforeSnapshot = {
+      currentPlayer: this.gameState.currentPlayer,
+      currentPhase: this.gameState.currentPhase,
+      gameStatus: this.gameState.gameStatus,
+      lpsRoundIndex: this._lpsRoundIndex,
+      lpsCurrentRoundFirstPlayer: this._lpsCurrentRoundFirstPlayer,
+      lpsExclusivePlayerForCompletedRound: this._lpsExclusivePlayerForCompletedRound,
+    };
+
+    this.updateLpsRoundTrackingForCurrentPlayer();
+    this.maybeEndGameByLastPlayerStanding();
+
+    const afterSnapshot = {
+      currentPlayer: this.gameState.currentPlayer,
+      currentPhase: this.gameState.currentPhase,
+      gameStatus: this.gameState.gameStatus,
+      lpsRoundIndex: this._lpsRoundIndex,
+      lpsCurrentRoundFirstPlayer: this._lpsCurrentRoundFirstPlayer,
+      lpsExclusivePlayerForCompletedRound: this._lpsExclusivePlayerForCompletedRound,
+    };
+
+    if (
+      typeof process !== 'undefined' &&
+      (process as any).env &&
+      (process as any).env.NODE_ENV === 'test'
+    ) {
+      // eslint-disable-next-line no-console
+      console.log('[TurnTrace.sandbox.handleStartOfInteractiveTurn]', {
+        decision: 'handleStartOfInteractiveTurn',
+        reason: 'start_interactive_turn',
+        before: beforeSnapshot,
+        after: afterSnapshot,
+      });
+    }
   }
 
   // === Internal helpers ===
@@ -828,21 +1199,23 @@ export class ClientSandboxEngine {
 
   private startTurnForCurrentPlayer(): void {
     const hooks = this.createSandboxTurnHooks();
-
+ 
     const turnStateBefore: SandboxTurnState = {
       hasPlacedThisTurn: this._hasPlacedThisTurn,
       mustMoveFromStackKey: this._mustMoveFromStackKey,
     };
-
+ 
     const { state, turnState } = startTurnForCurrentPlayerSandbox(
       this.gameState,
       turnStateBefore,
       hooks
     );
-
+ 
     this.gameState = state;
     this._hasPlacedThisTurn = turnState.hasPlacedThisTurn;
     this._mustMoveFromStackKey = turnState.mustMoveFromStackKey;
+
+    this.handleStartOfInteractiveTurn();
   }
 
   private maybeProcessForcedEliminationForCurrentPlayer(): boolean {
@@ -868,21 +1241,23 @@ export class ClientSandboxEngine {
 
   private advanceTurnAndPhaseForCurrentPlayer(): void {
     const hooks = this.createSandboxTurnHooks();
-
+ 
     const turnStateBefore: SandboxTurnState = {
       hasPlacedThisTurn: this._hasPlacedThisTurn,
       mustMoveFromStackKey: this._mustMoveFromStackKey,
     };
-
+ 
     const { state, turnState } = advanceTurnAndPhaseForCurrentPlayerSandbox(
       this.gameState,
       turnStateBefore,
       hooks
     );
-
+ 
     this.gameState = state;
     this._hasPlacedThisTurn = turnState.hasPlacedThisTurn;
     this._mustMoveFromStackKey = turnState.mustMoveFromStackKey;
+
+    this.handleStartOfInteractiveTurn();
   }
 
   private forceEliminateCap(playerNumber: number): void {
@@ -1217,6 +1592,14 @@ export class ClientSandboxEngine {
     // next AI turn. This keeps sandbox traces aligned with backend
     // move-driven decision phases.
     if (this.gameState.currentPhase === 'line_processing') {
+      if (
+        typeof process !== 'undefined' &&
+        (process as any).env &&
+        (process as any).env.NODE_ENV === 'test'
+      ) {
+        // eslint-disable-next-line no-console
+        console.log('[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: line_processing');
+      }
       return;
     }
 
@@ -1225,6 +1608,15 @@ export class ClientSandboxEngine {
 
     // Same traceMode handling for territory_processing
     if (this.gameState.currentPhase === 'territory_processing') {
+      if (
+        typeof process !== 'undefined' &&
+        (process as any).env &&
+        (process as any).env.NODE_ENV === 'test'
+      ) {
+        // eslint-disable-next-line no-console
+        console.log('[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: territory_processing',
+          'currentPlayer=', this.gameState.currentPlayer);
+      }
       return;
     }
 
@@ -1244,6 +1636,16 @@ export class ClientSandboxEngine {
       ...this.gameState,
       currentPhase: 'territory_processing',
     };
+
+    if (
+      typeof process !== 'undefined' &&
+      (process as any).env &&
+      (process as any).env.NODE_ENV === 'test'
+    ) {
+      // eslint-disable-next-line no-console
+      console.log('[ClientSandboxEngine.advanceAfterMovement] Calling advanceTurnAndPhaseForCurrentPlayer',
+        'currentPlayer=', this.gameState.currentPlayer);
+    }
 
     this.advanceTurnAndPhaseForCurrentPlayer();
     this.debugCheckpoint('after-advanceTurnAndPhaseForCurrentPlayer');
@@ -1889,10 +2291,33 @@ export class ClientSandboxEngine {
             };
           }
         } else {
-          // No legal continuations remain; the capture chain is complete. Run
-          // the same post-movement processing used for normal movement so
-          // history snapshots observe the next-player interactive phase.
-          await this.advanceAfterMovement();
+          // No legal continuations remain; the capture chain is complete.
+          // Process lines and territory consequences but do NOT advance the
+          // turn yet - that happens AFTER appendHistoryEntry in applyCanonicalMove
+          // to match backend GameEngine ordering where history is recorded BEFORE
+          // advanceGame().
+          await this.processLinesForCurrentPlayer();
+          if (this.gameState.currentPhase === 'line_processing') {
+            applied = true;
+            break;
+          }
+
+          await this.processDisconnectedRegionsForCurrentPlayer();
+          if (this.gameState.currentPhase === 'territory_processing') {
+            applied = true;
+            break;
+          }
+
+          this.checkAndApplyVictory();
+
+          // Set phase to territory_processing so the caller knows to advance
+          // the turn after recording history.
+          if (this.gameState.gameStatus === 'active') {
+            this.gameState = {
+              ...this.gameState,
+              currentPhase: 'territory_processing',
+            };
+          }
         }
 
         applied = true;
@@ -1963,7 +2388,7 @@ export class ClientSandboxEngine {
 
             if (lineLength === requiredLength) {
               // Exact-length choose_line_reward: treat as Option 1 – collapse all and
-              // defer elimination to an explicit eliminate_rings_from_stack Move.
+              // defer elimination to a separate Move.
               const collapsed = collapseLineMarkersOnBoard(
                 board,
                 players,
@@ -2035,7 +2460,7 @@ export class ClientSandboxEngine {
 
             // After applying a line decision in non-trace mode, keep the previous
             // behaviour: continue processing remaining lines, then hand off to
-            // territory processing or the next player's turn.
+            // territory processing or the next player.
             const remainingLines = this.findAllLines(this.gameState.board).filter(
               (line) => line.player === move.player
             );
@@ -2324,6 +2749,38 @@ export class ClientSandboxEngine {
     });
 
     if (changed) {
+      // For capture completions (when phase is territory_processing after
+      // applyCanonicalMoveInternal ran line/territory processing), advance
+      // the turn BEFORE recording history to prepare for the next player.
+      // This matches backend behavior where advanceGame() runs before
+      // appendHistoryEntry(), so phaseAfter captures the next player's turn.
+      //
+      // IMPORTANT: Only advance if there are NO pending territory decisions.
+      // If eligible disconnected regions exist, we must wait for explicit
+      // process_territory_region moves before advancing.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        this.gameState.currentPhase === 'territory_processing' &&
+        (move.type === 'overtaking_capture' || move.type === 'continue_capture_segment')
+      ) {
+        // Check for pending territory regions before advancing
+        const disconnected = findDisconnectedRegionsOnBoard(this.gameState.board);
+        const eligible = disconnected.filter((region) =>
+          this.canProcessDisconnectedRegion(
+            region.spaces,
+            move.player,
+            this.gameState.board
+          )
+        );
+
+        // Only advance if no eligible regions are pending
+        if (eligible.length === 0) {
+          this.advanceTurnAndPhaseForCurrentPlayer();
+        }
+      }
+
+      // Record history AFTER advancing the turn for captures.
+      // This matches backend ordering where history is recorded after advanceGame().
       this.appendHistoryEntry(beforeStateForHistory, move);
     }
   }

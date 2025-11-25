@@ -97,7 +97,9 @@ describe('shared placement validator and mutator', () => {
       expect(tooMany.maxPlacementCount).toBe(1);
       // Either capacity or count error is acceptable; we primarily care that
       // the requested count is rejected once the global cap is effectively 1.
-      expect(tooMany.code === 'INVALID_COUNT' || tooMany.code === 'NO_RINGS_AVAILABLE').toBe(true);
+      expect(tooMany.code === 'INVALID_COUNT' || tooMany.code === 'NO_RINGS_AVAILABLE').toBe(
+        true
+      );
     });
 
     test('existing stack: only single-ring placements are accepted', () => {
@@ -130,6 +132,79 @@ describe('shared placement validator and mutator', () => {
       expect(twoRings.valid).toBe(false);
       expect(twoRings.maxPlacementCount).toBe(1);
       expect(twoRings.code).toBe('INVALID_COUNT');
+    });
+
+    test('mixed stacks: opponent-colour rings in your stacks do not count against your cap', () => {
+      const board = createEmptyBoard(boardType);
+      const stackPos: Position = { x: 0, y: 0 };
+      const stackKey = positionToString(stackPos);
+
+      const perPlayerCap = BOARD_CONFIGS[boardType].ringsPerPlayer;
+
+      const ownOnBoard = perPlayerCap - 2;
+      const capturedOpponentRings = 10;
+
+      const rings: number[] = [
+        ...new Array(ownOnBoard).fill(1),
+        ...new Array(capturedOpponentRings).fill(2),
+      ];
+
+      const mixedStack: RingStack = {
+        position: stackPos,
+        rings,
+        stackHeight: rings.length,
+        capHeight: ownOnBoard,
+        controllingPlayer: 1,
+      };
+      board.stacks.set(stackKey, mixedStack);
+
+      const ctx: PlacementContext = {
+        boardType,
+        player: 1,
+        ringsInHand: 2,
+        ringsPerPlayerCap: perPlayerCap,
+      };
+
+      const target: Position = { x: 7, y: 7 };
+
+      const res = validatePlacementOnBoard(board, target, 2, ctx);
+
+      expect(res.valid).toBe(true);
+      expect(res.maxPlacementCount).toBeGreaterThanOrEqual(2);
+    });
+
+    test('exact cap: no further placements once own-colour rings in play reach ringsPerPlayer', () => {
+      const board = createEmptyBoard(boardType);
+      const stackPos: Position = { x: 0, y: 0 };
+      const stackKey = positionToString(stackPos);
+
+      const perPlayerCap = BOARD_CONFIGS[boardType].ringsPerPlayer;
+
+      const rings: number[] = new Array(perPlayerCap).fill(1);
+
+      const cappedStack: RingStack = {
+        position: stackPos,
+        rings,
+        stackHeight: rings.length,
+        capHeight: perPlayerCap,
+        controllingPlayer: 1,
+      };
+      board.stacks.set(stackKey, cappedStack);
+
+      const ctx: PlacementContext = {
+        boardType,
+        player: 1,
+        ringsInHand: 1,
+        ringsPerPlayerCap: perPlayerCap,
+      };
+
+      const target: Position = { x: 7, y: 7 };
+
+      const res = validatePlacementOnBoard(board, target, 1, ctx);
+
+      expect(res.valid).toBe(false);
+      expect(res.maxPlacementCount).toBe(0);
+      expect(res.code).toBe('NO_RINGS_AVAILABLE');
     });
   });
 

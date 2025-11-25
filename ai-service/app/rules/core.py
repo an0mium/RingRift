@@ -3,8 +3,47 @@ Shared core utilities for RingRift rules.
 Mirrors src/shared/engine/core.ts
 """
 
-from typing import List, Optional, Protocol, Any, Dict
+from typing import List, Optional, Protocol, Any, Dict, NamedTuple
 from app.models import Position, BoardType, GameState, BoardState
+
+
+class BoardConfig(NamedTuple):
+    """Board configuration matching TS BOARD_CONFIGS."""
+    size: int
+    total_spaces: int
+    rings_per_player: int
+    line_length: int
+
+
+# Mirrors src/shared/types/game.ts BOARD_CONFIGS
+BOARD_CONFIGS: Dict[BoardType, BoardConfig] = {
+    BoardType.SQUARE8: BoardConfig(
+        size=8,
+        total_spaces=64,
+        rings_per_player=18,
+        line_length=3,
+    ),
+    BoardType.SQUARE19: BoardConfig(
+        size=19,
+        total_spaces=361,
+        rings_per_player=36,
+        line_length=4,
+    ),
+    BoardType.HEXAGONAL: BoardConfig(
+        size=11,
+        total_spaces=331,
+        rings_per_player=36,
+        line_length=4,
+    ),
+}
+
+
+def get_line_length_for_board(board_type: BoardType) -> int:
+    """
+    Return the required line length for the given board type.
+    Mirrors TS BOARD_CONFIGS[boardType].lineLength
+    """
+    return BOARD_CONFIGS[board_type].line_length
 
 
 class BoardView(Protocol):
@@ -133,8 +172,37 @@ def compute_progress_snapshot(state: GameState) -> Dict[str, int]:
         "markers": markers,
         "collapsed": collapsed,
         "eliminated": eliminated,
-        "S": S
+        "S": S,
     }
+
+
+def count_rings_in_play_for_player(
+    state: GameState,
+    player_number: int,
+) -> int:
+    """
+    Count all rings of a given player's colour that are currently in play.
+
+    Mirrors the TypeScript core.countRingsInPlayForPlayer helper:
+
+    - Iterate all stacks on the board and count rings whose value equals
+      ``player_number`` (including buried rings, not just the cap).
+    - Add the player's rings_in_hand, if present in ``state.players``.
+    """
+    rings_on_board = 0
+    for stack in state.board.stacks.values():
+        # Rings are stored bottom→top as player numbers.
+        for ring_owner in stack.rings:
+            if ring_owner == player_number:
+                rings_on_board += 1
+
+    rings_in_hand = 0
+    for player in state.players:
+        if player.player_number == player_number:
+            rings_in_hand = player.rings_in_hand
+            break
+
+    return rings_on_board + rings_in_hand
 
 
 def hash_game_state(state: GameState) -> str:
@@ -166,10 +234,12 @@ def hash_game_state(state: GameState) -> str:
 
     meta = f"{state.current_player}:{current_phase}:{game_status}"
 
-    return "#".join([
-        meta,
-        players_meta,
-        "|".join(board_summary["stacks"]),
-        "|".join(board_summary["markers"]),
-        "|".join(board_summary["collapsedSpaces"])
-    ])
+    return "#".join(
+        [
+            meta,
+            players_meta,
+            "|".join(board_summary["stacks"]),
+            "|".join(board_summary["markers"]),
+            "|".join(board_summary["collapsedSpaces"]),
+        ]
+    )

@@ -463,6 +463,6 @@ npm test -- Sandbox_vs_Backend.seed5.traceDebug.test.ts
 
 ## References
 
-- Original task: [`REMAINING_IMPLEMENTATION_TASKS.md:113`](REMAINING_IMPLEMENTATION_TASKS.md:113)
+- Original task: [`docs/drafts/REMAINING_IMPLEMENTATION_TASKS.md:113`](../docs/drafts/REMAINING_IMPLEMENTATION_TASKS.md:113)
 - Known issues: [`KNOWN_ISSUES.md:104`](KNOWN_ISSUES.md:104)
 - Prior work: [`P0_TASK_18_STEP_3_SUMMARY.md`](P0_TASK_18_STEP_3_SUMMARY.md:1)

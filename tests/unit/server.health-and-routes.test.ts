@@ -7,6 +7,11 @@ import { logger, httpLogger } from '../../src/server/utils/logger';
 import { errorHandler } from '../../src/server/middleware/errorHandler';
 import '../../src/server/utils/rulesParityMetrics';
 import * as rateLimiterModule from '../../src/server/middleware/rateLimiter';
+import {
+  HealthCheckService,
+  isServiceReady,
+  HealthCheckResponse,
+} from '../../src/server/services/HealthCheckService';
 
 // Minimal Prisma-like stub used for protected-game route tests.
 // We only implement the subset touched by src/server/routes/game.ts in
@@ -94,16 +99,18 @@ function createTestApp() {
   // a correlation id.
   app.use(requestContext as any);
 
-  // Health check endpoint (lightweight mirror of src/server/index.ts)
-  app.get('/health', (_req, res) => {
-    res.status(200).json({
-      status: 'healthy',
-      // Use concrete runtime values; the test asserts only on types and
-      // the presence of these fields, not their exact values.
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-      version: process.env.npm_package_version || 'test',
-    });
+  // Health check endpoints - liveness probe (mirrors src/server/index.ts)
+  // These are placed BEFORE any rate limiting in the real server.
+  app.get(['/health', '/healthz'], (_req, res) => {
+    const status = HealthCheckService.getLivenessStatus();
+    res.status(200).json(status);
+  });
+
+  // Readiness probe endpoint (mirrors src/server/index.ts)
+  app.get(['/ready', '/readyz'], async (_req, res) => {
+    const status = await HealthCheckService.getReadinessStatus();
+    const httpStatus = isServiceReady(status) ? 200 : 503;
+    res.status(httpStatus).json(status);
   });
 
   // Prometheus metrics endpoint (lightweight mirror of src/server/index.ts).
@@ -125,19 +132,102 @@ function createTestApp() {
 }
 
 describe('Server health and API info routes', () => {
-  it('GET /health responds with healthy status and basic metadata', async () => {
-    const app = createTestApp();
+  describe('Liveness probe endpoints', () => {
+    it('GET /health responds with healthy status and basic metadata', async () => {
+      const app = createTestApp();
 
-    const res = await request(app).get('/health').expect(200);
+      const res = await request(app).get('/health').expect(200);
 
-    expect(res.body).toMatchObject({
-      status: 'healthy',
+      expect(res.body).toMatchObject({
+        status: 'healthy',
+      });
+
+      // Ensure the shape matches the contract without asserting exact values.
+      expect(typeof res.body.timestamp).toBe('string');
+      expect(typeof res.body.uptime).toBe('number');
+      expect(typeof res.body.version).toBe('string');
+      // Liveness should NOT include detailed checks (to be fast)
+      expect(res.body.checks).toBeUndefined();
     });
 
-    // Ensure the shape matches the contract without asserting exact values.
-    expect(typeof res.body.timestamp).toBe('string');
-    expect(typeof res.body.uptime).toBe('number');
-    expect(typeof res.body.version).toBe('string');
+    it('GET /healthz responds identically to /health (Kubernetes convention)', async () => {
+      const app = createTestApp();
+
+      const res = await request(app).get('/healthz').expect(200);
+
+      expect(res.body).toMatchObject({
+        status: 'healthy',
+      });
+      expect(typeof res.body.timestamp).toBe('string');
+      expect(typeof res.body.uptime).toBe('number');
+      expect(typeof res.body.version).toBe('string');
+    });
+  });
+
+  describe('Readiness probe endpoints', () => {
+    it('GET /ready responds with health status and dependency checks', async () => {
+      const app = createTestApp();
+
+      const res = await request(app).get('/ready');
+
+      // Status code depends on actual dependency state - just verify structure
+      expect([200, 503]).toContain(res.status);
+
+      expect(res.body).toMatchObject({
+        status: expect.stringMatching(/^(healthy|degraded|unhealthy)$/),
+      });
+
+      expect(typeof res.body.timestamp).toBe('string');
+      expect(typeof res.body.uptime).toBe('number');
+      expect(typeof res.body.version).toBe('string');
+      // Readiness SHOULD include detailed checks
+      expect(res.body.checks).toBeDefined();
+    });
+
+    it('GET /readyz responds identically to /ready (Kubernetes convention)', async () => {
+      const app = createTestApp();
+
+      const res = await request(app).get('/readyz');
+
+      expect([200, 503]).toContain(res.status);
+      expect(res.body).toMatchObject({
+        status: expect.stringMatching(/^(healthy|degraded|unhealthy)$/),
+      });
+      expect(res.body.checks).toBeDefined();
+    });
+
+    it('returns 503 when service is unhealthy', async () => {
+      // Create an unhealthy response mock
+      const unhealthyResponse: HealthCheckResponse = {
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        uptime: 100,
+        checks: {
+          database: { status: 'unhealthy', error: 'Connection refused' },
+        },
+      };
+
+      // Verify isServiceReady returns false for unhealthy
+      expect(isServiceReady(unhealthyResponse)).toBe(false);
+    });
+
+    it('returns 200 when service is degraded (can still serve traffic)', async () => {
+      // Create a degraded response mock
+      const degradedResponse: HealthCheckResponse = {
+        status: 'degraded',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0',
+        uptime: 100,
+        checks: {
+          database: { status: 'healthy', latency: 5 },
+          redis: { status: 'degraded', error: 'Not connected' },
+        },
+      };
+
+      // Verify isServiceReady returns true for degraded
+      expect(isServiceReady(degradedResponse)).toBe(true);
+    });
   });
 
   it('GET /api returns API metadata and endpoint map', async () => {
@@ -211,7 +301,7 @@ describe('Protected game route authorization', () => {
     const res = await request(app).get('/api/games/game-1').expect(401);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('TOKEN_REQUIRED');
+    expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
   });
 
   it('GET /api/games/:gameId/moves returns 401 TOKEN_REQUIRED when unauthenticated', async () => {
@@ -220,12 +310,13 @@ describe('Protected game route authorization', () => {
     const res = await request(app).get('/api/games/game-1/moves').expect(401);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('TOKEN_REQUIRED');
+    expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
   });
 
   it('GET /api/games/:gameId denies access to non-participants when spectators are disabled', async () => {
+    const validGameId = '550e8400-e29b-41d4-a716-446655440001';
     mockPrisma.game.findUnique.mockResolvedValueOnce({
-      id: 'game-1',
+      id: validGameId,
       player1Id: 'other-user',
       player2Id: null,
       player3Id: null,
@@ -241,17 +332,18 @@ describe('Protected game route authorization', () => {
     const app = createTestApp();
 
     const res = await request(app)
-      .get('/api/games/game-1')
+      .get(`/api/games/${validGameId}`)
       .set('Authorization', 'Bearer user-1')
       .expect(403);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('ACCESS_DENIED');
+    expect(res.body.error.code).toBe('RESOURCE_ACCESS_DENIED');
   });
 
   it('GET /api/games/:gameId/moves reuses the same participant-or-spectator invariant', async () => {
+    const validGameId = '550e8400-e29b-41d4-a716-446655440002';
     mockPrisma.game.findUnique.mockResolvedValueOnce({
-      id: 'game-1',
+      id: validGameId,
       player1Id: 'other-user',
       player2Id: null,
       player3Id: null,
@@ -262,17 +354,18 @@ describe('Protected game route authorization', () => {
     const app = createTestApp();
 
     const res = await request(app)
-      .get('/api/games/game-1/moves')
+      .get(`/api/games/${validGameId}/moves`)
       .set('Authorization', 'Bearer user-1')
       .expect(403);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('ACCESS_DENIED');
+    expect(res.body.error.code).toBe('RESOURCE_ACCESS_DENIED');
   });
 
   it('POST /api/games/:gameId/leave denies non-participants with ACCESS_DENIED', async () => {
+    const validGameId = '550e8400-e29b-41d4-a716-446655440003';
     mockPrisma.game.findUnique.mockResolvedValueOnce({
-      id: 'game-1',
+      id: validGameId,
       player1Id: 'other-user',
       player2Id: null,
       player3Id: null,
@@ -283,12 +376,12 @@ describe('Protected game route authorization', () => {
     const app = createTestApp();
 
     const res = await request(app)
-      .post('/api/games/game-1/leave')
+      .post(`/api/games/${validGameId}/leave`)
       .set('Authorization', 'Bearer user-1')
       .expect(403);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('ACCESS_DENIED');
+    expect(res.body.error.code).toBe('RESOURCE_ACCESS_DENIED');
   });
 });
 
@@ -360,7 +453,7 @@ describe('Game creation quotas', () => {
       .expect(429);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('GAME_CREATE_RATE_LIMITED');
+    expect(res.body.error.code).toBe('RATE_LIMIT_GAME_CREATE');
     expect(mockPrisma.game.create).not.toHaveBeenCalled();
   });
 });
@@ -372,6 +465,6 @@ describe('Protected user routes', () => {
     const res = await request(app).delete('/api/users/me').expect(401);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('TOKEN_REQUIRED');
+    expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
   });
 });

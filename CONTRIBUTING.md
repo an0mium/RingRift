@@ -67,7 +67,7 @@ Before contributing, please review:
 
 - [ ] Add marker placement when rings move
 - [ ] Implement marker flipping (opponent markers → your color)
-- [ ] Implement marker collapsing (your markers → claimed territory)
+- [ ] Implement marker collapsing (your markers → claimed Territory)
 - [ ] Add same-color marker removal on landing
 - [ ] Write tests for marker interactions
 
@@ -75,7 +75,7 @@ Before contributing, please review:
 
 #### 1.3 Fix Movement Validation (CRITICAL)
 
-**Estimated Time:** 2-3 days  
+**Estimated Time:** 2-3 days
 **Files:** `src/server/game/RuleEngine.ts`
 
 - [ ] Enforce minimum distance = stack height
@@ -88,7 +88,7 @@ Before contributing, please review:
 
 #### 1.4 Fix Game Phase Transitions (HIGH)
 
-**Estimated Time:** 1-2 days  
+**Estimated Time:** 1-2 days
 **Files:** `src/shared/types/game.ts`, `src/server/game/GameEngine.ts`
 
 - [ ] Remove `main_game` phase, add `line_processing` phase
@@ -100,7 +100,7 @@ Before contributing, please review:
 
 #### 1.5 Complete Capture System (HIGH)
 
-**Estimated Time:** 3-4 days  
+**Estimated Time:** 3-4 days
 **Files:** `src/server/game/GameEngine.ts`, `src/server/game/RuleEngine.ts`
 
 - [ ] Distinguish overtaking vs elimination captures
@@ -114,7 +114,7 @@ Before contributing, please review:
 
 #### 1.6 Implement Line Formation (HIGH)
 
-**Estimated Time:** 3-4 days  
+**Estimated Time:** 3-4 days
 **Files:** `src/server/game/GameEngine.ts`, `src/server/game/BoardManager.ts`
 
 - [ ] Fix line detection (4+ for 8x8, 5+ for 19x19/hex)
@@ -128,7 +128,7 @@ Before contributing, please review:
 
 #### 1.7 Implement Territory Disconnection (HIGH)
 
-**Estimated Time:** 4-5 days  
+**Estimated Time:** 4-5 days
 **Files:** `src/server/game/RuleEngine.ts`, `src/server/game/BoardManager.ts`
 
 - [ ] Implement `findDisconnectedRegions()` with Von Neumann adjacency
@@ -142,7 +142,7 @@ Before contributing, please review:
 
 #### 1.8 Add Forced Elimination (MEDIUM)
 
-**Estimated Time:** 1 day  
+**Estimated Time:** 1 day
 **Files:** `src/server/game/GameEngine.ts`, `src/server/game/RuleEngine.ts`
 
 - [ ] Detect when player has no valid moves but controls stacks
@@ -153,7 +153,7 @@ Before contributing, please review:
 
 #### 1.9 Fix Player State Updates (MEDIUM)
 
-**Estimated Time:** 1 day  
+**Estimated Time:** 1 day
 **Files:** `src/server/game/GameEngine.ts`
 
 - [ ] Update `ringsInHand` on placement
@@ -181,7 +181,7 @@ Before contributing, please review:
 - [ ] Test RuleEngine movement validation
 - [ ] Test RuleEngine capture validation
 - [ ] Test RuleEngine line formation
-- [ ] Test RuleEngine territory disconnection
+- [ ] Test RuleEngine Territory disconnection
 - [ ] Test GameEngine state transitions
 
 #### 2.2 Integration Tests
@@ -191,7 +191,7 @@ Before contributing, please review:
 - [ ] Test complete turn sequence
 - [ ] Test ring placement → movement → capture flow
 - [ ] Test line formation → ring elimination
-- [ ] Test territory disconnection → ring elimination
+- [ ] Test Territory disconnection → ring elimination
 - [ ] Test chain capture sequences
 - [ ] Test forced elimination scenarios
 
@@ -201,7 +201,7 @@ Before contributing, please review:
 
 - [ ] Test 180° reversal capture pattern (FAQ example)
 - [ ] Test cyclic capture pattern (FAQ example)
-- [ ] Test territory disconnection example (Section 16.8.6)
+- [ ] Test Territory disconnection example (Section 16.8.6)
 - [ ] Test graduated line rewards
 - [ ] Test victory conditions
 - [ ] Test edge cases from FAQ (Q1-Q24)

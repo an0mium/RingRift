@@ -30,19 +30,46 @@ export const mockDb = {
 // Minimal Prisma-like client stub for tests.
 const userModelStub = {
   findFirst: jest.fn(async (args: any) => {
-    if (!args || !args.where || !args.where.OR) return null;
-    const { email, username } = args.where.OR.reduce(
-      (acc: any, cond: any) => ({
-        email: cond.email ?? acc.email,
-        username: cond.username ?? acc.username,
-      }),
-      { email: undefined, username: undefined }
-    );
-    return (
-      mockDb.users.find(
-        (u) => (email && u.email === email) || (username && u.username === username)
-      ) || null
-    );
+    if (!args || !args.where) return null;
+    
+    // Handle OR-based queries (for checking existing users by email/username)
+    if (args.where.OR) {
+      const { email, username } = args.where.OR.reduce(
+        (acc: any, cond: any) => ({
+          email: cond.email ?? acc.email,
+          username: cond.username ?? acc.username,
+        }),
+        { email: undefined, username: undefined }
+      );
+      return (
+        mockDb.users.find(
+          (u) => (email && u.email === email) || (username && u.username === username)
+        ) || null
+      );
+    }
+    
+    // Handle password reset token queries
+    if (args.where.passwordResetToken) {
+      const token = args.where.passwordResetToken;
+      const expiresGt = args.where.passwordResetExpires?.gt;
+      
+      return mockDb.users.find((u) => {
+        if (u.passwordResetToken !== token) return false;
+        if (expiresGt && u.passwordResetExpires) {
+          // Check if the token hasn't expired
+          return u.passwordResetExpires > expiresGt;
+        }
+        return true;
+      }) || null;
+    }
+    
+    // Handle generic field-based queries
+    return mockDb.users.find((u) => {
+      for (const [key, value] of Object.entries(args.where)) {
+        if (u[key] !== value) return false;
+      }
+      return true;
+    }) || null;
   }),
   findUnique: jest.fn(async (args: any) => {
     if (!args || !args.where) return null;
@@ -102,22 +129,38 @@ const refreshTokenModelStub = {
   create: jest.fn(async (args: any) => {
     const token = {
       id: `rt-${mockDb.refreshTokens.length + 1}`,
+      revokedAt: null,
+      familyId: null,
       ...args.data,
     };
     mockDb.refreshTokens.push(token);
     return token;
   }),
   findFirst: jest.fn(async (args: any) => {
-    const { token, userId, expiresAt } = args.where;
-    return (
-      mockDb.refreshTokens.find((rt) => {
-        if (token && rt.token !== token) return false;
-        if (userId && rt.userId !== userId) return false;
-        if (expiresAt?.gt && !(rt.expiresAt instanceof Date)) return false;
-        if (expiresAt?.gt && rt.expiresAt <= expiresAt.gt) return false;
-        return true;
-      }) || null
-    );
+    const { token, userId, expiresAt } = args.where || {};
+    const found = mockDb.refreshTokens.find((rt) => {
+      if (token && rt.token !== token) return false;
+      if (userId && rt.userId !== userId) return false;
+      // Only check expiry if explicitly requested (for non-revoked token lookups)
+      if (expiresAt?.gt && !(rt.expiresAt instanceof Date)) return false;
+      if (expiresAt?.gt && rt.expiresAt <= expiresAt.gt) return false;
+      return true;
+    }) || null;
+
+    // If args.include.user is present, attach the user to the result
+    if (found && args.include?.user) {
+      const user = mockDb.users.find((u) => u.id === found.userId);
+      if (user) {
+        found.user = args.include.user.select
+          ? Object.fromEntries(
+              Object.entries(user).filter(([k]) =>
+                Object.keys(args.include.user.select).includes(k)
+              )
+            )
+          : user;
+      }
+    }
+    return found;
   }),
   delete: jest.fn(async (args: any) => {
     const { id } = args.where;
@@ -140,6 +183,33 @@ const refreshTokenModelStub = {
       return false;
     });
     return { count: before - mockDb.refreshTokens.length };
+  }),
+  update: jest.fn(async (args: any) => {
+    const { id } = args.where;
+    const idx = mockDb.refreshTokens.findIndex((rt) => rt.id === id);
+    if (idx === -1) return null;
+    const current = mockDb.refreshTokens[idx];
+    mockDb.refreshTokens[idx] = { ...current, ...args.data };
+    return mockDb.refreshTokens[idx];
+  }),
+  updateMany: jest.fn(async (args: any) => {
+    if (!args || !args.where) {
+      return { count: 0 };
+    }
+    const { token, userId, familyId } = args.where;
+    let count = 0;
+    mockDb.refreshTokens = mockDb.refreshTokens.map((rt) => {
+      let matches = true;
+      if (token && rt.token !== token) matches = false;
+      if (userId && rt.userId !== userId) matches = false;
+      if (familyId && rt.familyId !== familyId) matches = false;
+      if (matches) {
+        count++;
+        return { ...rt, ...args.data };
+      }
+      return rt;
+    });
+    return { count };
   }),
 };
 

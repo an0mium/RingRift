@@ -147,6 +147,24 @@ export function advanceTurnAndPhaseForCurrentPlayerSandbox(
     delegates
   );
 
+  if (
+    typeof process !== 'undefined' &&
+    (process as any).env &&
+    (process as any).env.NODE_ENV === 'test'
+  ) {
+    // eslint-disable-next-line no-console
+    console.log('[SandboxTurnEngine.advanceTurnAndPhaseForCurrentPlayerSandbox.after]', {
+      before: {
+        currentPlayer: state.currentPlayer,
+        currentPhase: state.currentPhase,
+      },
+      after: {
+        currentPlayer: nextState.currentPlayer,
+        currentPhase: nextState.currentPhase,
+      },
+    });
+  }
+
   return {
     state: nextState,
     turnState: nextTurn as SandboxTurnState,

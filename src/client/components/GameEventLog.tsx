@@ -86,10 +86,39 @@ function describeHistoryEntry(entry: GameHistoryEntry): string {
 
 function describeVictory(victory?: GameResult | null): string | null {
   if (!victory) return null;
-  const winner =
-    typeof victory.winner === 'number' ? `Winner: P${victory.winner}` : 'Result: draw / no winner';
-  const reason = victory.reason.replace(/_/g, ' ');
-  return `${winner} — ${reason}`;
+
+  const formatReason = (reason: GameResult['reason']): string => {
+    switch (reason) {
+      case 'ring_elimination':
+        return 'Ring Elimination';
+      case 'territory_control':
+        return 'Territory Control';
+      case 'last_player_standing':
+        return 'Last Player Standing';
+      case 'timeout':
+        return 'Timeout';
+      case 'resignation':
+        return 'Resignation';
+      case 'abandonment':
+        return 'Abandonment';
+      case 'draw':
+        return 'Draw';
+      default:
+        return reason.replace(/_/g, ' ');
+    }
+  };
+
+  const reasonLabel = formatReason(victory.reason);
+
+  if (victory.winner === undefined) {
+    if (victory.reason === 'draw') {
+      return 'Game ended in a draw.';
+    }
+    return `Result: ${reasonLabel}`;
+  }
+
+  // Winner known: surface a concise "wins by" message so LPS is clearly visible.
+  return `Player P${victory.winner} wins by ${reasonLabel}`;
 }
 
 export function GameEventLog({

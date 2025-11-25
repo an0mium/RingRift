@@ -2,7 +2,7 @@
 
 ## 1. Introduction & Method
 
-This document derives dynamic test scenarios from the canonical RingRift rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) and uses the mapping in [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md) plus the static analysis in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md) and [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md) to reason about runtime behaviour.
+This document derives dynamic test scenarios from the canonical RingRift rules in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) and uses the mapping in [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md) plus the static analysis in [`archive/RULES_STATIC_VERIFICATION.md`](../archive/RULES_STATIC_VERIFICATION.md) and [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md) to reason about runtime behaviour.
 
 The focus is **dynamic verification** rather than code inspection:
 
@@ -11,7 +11,7 @@ The focus is **dynamic verification** rather than code inspection:
   - Describe an initial game-state pattern, actions taken, and the expected canonical result under RR-CANON.
   - Map to existing Jest tests and Python AI invariants, identifying overlaps and mismatches.
   - Identify **gaps** where important behaviours are not directly exercised, and design concrete tests (names, files, assertions) for a Code-mode agent to implement.
-- For high-risk areas called out in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md) we simulate step-by-step runtime behaviour, including hypothetical bug states (e.g. board repairs, forced-elimination edge cases, sandbox-only flows).
+- For high-risk areas called out in [`archive/RULES_STATIC_VERIFICATION.md`](../archive/RULES_STATIC_VERIFICATION.md) we simulate step-by-step runtime behaviour, including hypothetical bug states (e.g. board repairs, forced-elimination edge cases, sandbox-only flows).
 
 No tests were executed and no non-markdown files were modified. Behaviour is inferred from RR-CANON, the TypeScript and Python engine structure, and the existing test harnesses.
 
@@ -53,7 +53,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - **Location**: new backend invariant suite, e.g. [`tests/unit/BoardManager.invariants.repairCounter.test.ts`](tests/unit/BoardManager.invariants.repairCounter.test.ts:1)
   - **Structure**
     - Instrument `BoardManager` (in test build only) with a `repairCount` counter incremented whenever a marker/stack/collapsed overlap is repaired.
-    - Replay several long seeded backend vs sandbox parity traces (e.g. existing `seed5` and `seed17` traces referenced in [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md)) through [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92).
+    - Replay several long seeded backend vs sandbox parity traces (e.g. existing `seed5` and `seed17` traces referenced in [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md)) through [`TypeScript.GameEngine`](src/server/game/GameEngine.ts:92).
     - **Assert**: `repairCount === 0` for all steps.
   - **Dynamic intent**
     - Turn any occurrence of SCEN-BOARD-001 into a **hard test failure** instead of a silent correction.
@@ -162,7 +162,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
 - **Expected result (RR-CANON)**
   - Placement is **optional**; both `place_ring` and an explicit `skip_placement` action are legal (RR-CANON-R080).
 - **Existing coverage**
-  - RuleEngine placement/skip validation (unit tests) and RulesMatrix placement scenarios referenced in [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:146).
+  - RuleEngine placement/skip validation (unit tests) and RulesMatrix placement scenarios referenced in [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md:146).
 - **Gaps / proposed tests**
   - **Sandbox representation asymmetry**: sandbox does not surface `skip_placement` as a first-class move.
   - **Proposed sandbox test**
@@ -186,7 +186,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - Placement is **illegal** by RR-CANON-R081–R082 (no-dead-placement).
   - Legal placements must either use fewer rings or a different cell so that at least one move or capture exists.
 - **Existing coverage**
-  - Shared validator tests (not included in the snippet) referenced in [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:236) and movement/FAQ suites.
+  - Shared validator tests (not included in the snippet) referenced in [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md:236) and movement/FAQ suites.
 - **Gaps / proposed tests**
   - Add a dedicated shared-validator test:
     - **Name**: `validatePlacementOnBoard_rejects_dead_high_stack_even_when_capacity_allows`
@@ -208,7 +208,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
   - If the cap is interpreted as **“own-colour rings only”**, further placements might still be legal.
   - The current TS implementation approximates the cap as **“total rings in P1-controlled stacks”**, potentially forbidding additional placements.
 - **Existing coverage**
-  - No direct dynamic tests target this approximation; it is treated as benign in [`RULES_STATIC_VERIFICATION.md`](RULES_STATIC_VERIFICATION.md:755).
+  - No direct dynamic tests target this approximation; it is treated as benign in [`archive/RULES_STATIC_VERIFICATION.md`](../archive/RULES_STATIC_VERIFICATION.md:755).
 - **Gaps / proposed tests**
   - **Test name**: `placement_cap_approximation_with_mixed_colour_stacks`
   - **Location**: new shared rules test [`tests/unit/PlacementCap.mixedColourStack.test.ts`](tests/unit/PlacementCap.mixedColourStack.test.ts:1).
@@ -313,7 +313,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - Stack heights and caps after the chain match the FAQ diagram (Blue ends with height 6; Red at B shrinks to 1).
 - **Existing coverage**
   - Backend dynamic chain in `Q15.3.1: 180-Degree Reversal Pattern` in [`tests/scenarios/FAQ_Q15.test.ts`](tests/scenarios/FAQ_Q15.test.ts:30).
-  - Additional scenario coverage in `ComplexChainCaptures` and `RulesMatrix.ChainCapture` suites referenced by [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:92).
+  - Additional scenario coverage in `ComplexChainCaptures` and `RulesMatrix.ChainCapture` suites referenced by [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md:92).
 - **Gaps / proposed tests**
   - **Shared-helper parity**: capture-chain enumeration is still partly wired through legacy [`TypeScript.captureChainEngine`](src/server/game/rules/captureChainEngine.ts:45) and sandbox-specific logic.
   - **Proposed test**
@@ -427,7 +427,7 @@ This cluster is mostly structural; dynamic risks arise when illegal states are s
     - Region spaces and border markers collapse to P1 territory.
     - One P1 ring or cap outside is eliminated as self-elimination.
 - **Existing coverage**
-  - Numeric invariants at the rules layer in `territoryProcessing.rules` and sandbox equivalents referenced from [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:252).
+  - Numeric invariants at the rules layer in `territoryProcessing.rules` and sandbox equivalents referenced from [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md:252).
   - Data-only scenario validation in [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts:19).
 - **Gaps / proposed tests**
   - No significant gaps; behaviour is already exercised in both backend and sandbox.
@@ -596,7 +596,7 @@ RR-CANON-R020–R023 and R060–R062 define per-player ring counts by colour; ri
 - Implement SCEN-PLACEMENT-004 as a TS/Python parity test:
   - TS engine uses the current approximation; Python engine can be toggled between strict and approximate interpretations.
   - Compare legal placement sets between the two interpretations.
-- Decide canonically whether the approximation is intended semantics; if so, encode that decision in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md) and treat strict-by-colour variants as alternative rules.
+- Decide canonically whether the approximation is intended semantics; if so, encode that decision in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) and treat strict-by-colour variants as alternative rules.
 
 ### 3.3 Sandbox-Only Behaviours
 

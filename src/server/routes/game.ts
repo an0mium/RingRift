@@ -2,9 +2,14 @@ import { Router, Response } from 'express';
 import { getDatabaseClient } from '../database/connection';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
-import { gameRateLimiter, consumeRateLimit } from '../middleware/rateLimiter';
+import { consumeRateLimit, adaptiveRateLimiter } from '../middleware/rateLimiter';
 import { httpLogger, logger } from '../utils/logger';
-import { CreateGameSchema, CreateGameInput } from '../../shared/validation/schemas';
+import {
+  CreateGameSchema,
+  CreateGameInput,
+  GameIdParamSchema,
+  GameListingQuerySchema,
+} from '../../shared/validation/schemas';
 import { AiOpponentsConfig } from '../../shared/types/game';
 import { GameEngine } from '../game/GameEngine';
 
@@ -17,8 +22,9 @@ export function setWebSocketServer(wsServer: any) {
   wsServerInstance = wsServer;
 }
 
-// Apply rate limiting to game routes
-router.use(gameRateLimiter);
+// Apply adaptive rate limiting to game routes
+// Authenticated users get higher limits than anonymous
+router.use(adaptiveRateLimiter('game', 'api'));
 
 // Active games storage (in production, this would be in Redis)
 const activeGames = new Map<string, GameEngine>();
@@ -75,17 +81,91 @@ const assertUserIsGameParticipant = (userId: string, game: GameParticipantSnapsh
   }
 };
 
-// Get user's games
+/**
+ * @openapi
+ * /games:
+ *   get:
+ *     summary: Get user's games
+ *     description: |
+ *       Returns a paginated list of games the authenticated user is participating in.
+ *       Can be filtered by game status.
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [waiting, active, completed, abandoned, paused]
+ *         description: Filter by game status
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Number of results per page
+ *       - in: query
+ *         name: offset
+ *         schema:
+ *           type: integer
+ *           minimum: 0
+ *           default: 0
+ *         description: Pagination offset
+ *     responses:
+ *       200:
+ *         description: Games retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     games:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Game'
+ *                     pagination:
+ *                       $ref: '#/components/schemas/Pagination'
+ *       400:
+ *         description: Invalid query parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: VALIDATION_INVALID_QUERY_PARAMS
+ *                 message: Invalid query parameters
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.get(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    // Validate query parameters with schema
+    const queryResult = GameListingQuerySchema.safeParse(req.query);
+    if (!queryResult.success) {
+      throw createError('Invalid query parameters', 400, 'INVALID_QUERY_PARAMS');
+    }
+    const { status, limit, offset } = queryResult.data;
+
     const prisma = getDatabaseClient();
     if (!prisma) {
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
     const userId = req.user!.id;
-    const { status, limit = 10, offset = 0 } = req.query;
 
     const whereClause: any = {
       OR: [
@@ -109,8 +189,8 @@ router.get(
         player4: { select: { id: true, username: true, rating: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: Number(limit),
-      skip: Number(offset),
+      take: limit,
+      skip: offset,
     });
 
     const total = await prisma.game.count({ where: whereClause });
@@ -121,20 +201,88 @@ router.get(
         games,
         pagination: {
           total,
-          limit: Number(limit),
-          offset: Number(offset),
-          hasMore: Number(offset) + Number(limit) < total,
+          limit,
+          offset,
+          hasMore: offset + limit < total,
         },
       },
     });
   })
 );
 
-// Get specific game
+/**
+ * @openapi
+ * /games/{gameId}:
+ *   get:
+ *     summary: Get specific game
+ *     description: |
+ *       Returns detailed information about a specific game including players and move history.
+ *       Only participants and spectators (when enabled) can access this endpoint.
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: gameId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Game ID
+ *     responses:
+ *       200:
+ *         description: Game retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     game:
+ *                       $ref: '#/components/schemas/Game'
+ *       400:
+ *         description: Invalid game ID format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: GAME_INVALID_ID
+ *                 message: Invalid game ID format
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Access denied (not a participant and spectators not allowed)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: GAME_ACCESS_DENIED
+ *                 message: Access denied
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.get(
   '/:gameId',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { gameId } = req.params;
+    // Validate gameId parameter
+    const paramResult = GameIdParamSchema.safeParse(req.params);
+    if (!paramResult.success) {
+      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
+    }
+    const { gameId } = paramResult.data;
     const userId = req.user!.id;
 
     const prisma = getDatabaseClient();
@@ -173,7 +321,95 @@ router.get(
   })
 );
 
-// Create new game
+/**
+ * @openapi
+ * /games:
+ *   post:
+ *     summary: Create new game
+ *     description: |
+ *       Creates a new game with the specified settings.
+ *       The authenticated user becomes player 1 (game creator).
+ *
+ *       Rate limited:
+ *       - 5 games per hour per user
+ *       - 10 games per hour per IP address
+ *
+ *       AI games:
+ *       - Cannot be rated (isRated must be false)
+ *       - Start immediately with AI opponents
+ *       - Must provide difficulty for each AI opponent
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CreateGameRequest'
+ *     responses:
+ *       201:
+ *         description: Game created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     game:
+ *                       $ref: '#/components/schemas/Game'
+ *                 message:
+ *                   type: string
+ *                   example: Game created successfully
+ *       400:
+ *         description: Invalid game configuration
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               aiUnrated:
+ *                 summary: AI games must be unrated
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: GAME_AI_UNRATED
+ *                     message: AI games cannot be rated
+ *               invalidAiConfig:
+ *                 summary: Invalid AI configuration
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: VALIDATION_INVALID_AI_CONFIG
+ *                     message: Must provide difficulty for each AI opponent
+ *               invalidDifficulty:
+ *                 summary: Invalid difficulty level
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: VALIDATION_INVALID_DIFFICULTY
+ *                     message: AI difficulty must be between 1 and 10
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       429:
+ *         description: Rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: RATE_LIMIT_GAME_CREATE
+ *                 message: Too many games created in a short period. Please try again later.
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -303,14 +539,97 @@ router.post(
   })
 );
 
-// Join game
+/**
+ * @openapi
+ * /games/{gameId}/join:
+ *   post:
+ *     summary: Join a game
+ *     description: |
+ *       Joins an existing game that is waiting for players.
+ *       The user is assigned to the next available player slot.
+ *       When enough players have joined, the game starts automatically.
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: gameId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Game ID to join
+ *     responses:
+ *       200:
+ *         description: Joined game successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     game:
+ *                       $ref: '#/components/schemas/Game'
+ *                 message:
+ *                   type: string
+ *                   example: Joined game successfully
+ *       400:
+ *         description: Cannot join game
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             examples:
+ *               invalidId:
+ *                 summary: Invalid game ID
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: GAME_INVALID_ID
+ *                     message: Invalid game ID format
+ *               notJoinable:
+ *                 summary: Game not accepting players
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: GAME_NOT_JOINABLE
+ *                     message: Game is not accepting players
+ *               alreadyJoined:
+ *                 summary: Already in game
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: GAME_ALREADY_JOINED
+ *                     message: Already joined this game
+ *               gameFull:
+ *                 summary: Game is full
+ *                 value:
+ *                   success: false
+ *                   error:
+ *                     code: GAME_FULL
+ *                     message: Game is full
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/:gameId/join',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { gameId } = req.params;
-    // Simple join - no additional data needed for now
+    // Validate gameId parameter
+    const paramResult = GameIdParamSchema.safeParse(req.params);
+    if (!paramResult.success) {
+      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
+    }
+    const { gameId } = paramResult.data;
     const userId = req.user!.id;
-
     const prisma = getDatabaseClient();
     if (!prisma) {
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
@@ -427,11 +746,85 @@ router.post(
   })
 );
 
-// Leave game
+/**
+ * @openapi
+ * /games/{gameId}/leave:
+ *   post:
+ *     summary: Leave or resign from a game
+ *     description: |
+ *       Leaves a waiting game or resigns from an active game.
+ *
+ *       If the game is **waiting**:
+ *       - User is removed from their player slot
+ *       - If no players remain, the game is cancelled
+ *
+ *       If the game is **active**:
+ *       - This counts as a resignation
+ *       - The game ends immediately
+ *       - Rating changes are applied (if rated)
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: gameId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Game ID to leave
+ *     responses:
+ *       200:
+ *         description: Left/resigned from game successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Left game successfully
+ *       400:
+ *         description: Invalid game ID format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: GAME_INVALID_ID
+ *                 message: Invalid game ID format
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         description: Not a participant in this game
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: GAME_ACCESS_DENIED
+ *                 message: Access denied
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.post(
   '/:gameId/leave',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { gameId } = req.params;
+    // Validate gameId parameter
+    const paramResult = GameIdParamSchema.safeParse(req.params);
+    if (!paramResult.success) {
+      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
+    }
+    const { gameId } = paramResult.data;
     const userId = req.user!.id;
 
     const prisma = getDatabaseClient();
@@ -542,11 +935,72 @@ router.post(
   })
 );
 
-// Get game moves
+/**
+ * @openapi
+ * /games/{gameId}/moves:
+ *   get:
+ *     summary: Get game moves
+ *     description: |
+ *       Returns all moves made in a game, ordered by move number.
+ *       Only participants and spectators (when enabled) can access this endpoint.
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: gameId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Game ID
+ *     responses:
+ *       200:
+ *         description: Moves retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     moves:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Move'
+ *       400:
+ *         description: Invalid game ID format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: GAME_INVALID_ID
+ *                 message: Invalid game ID format
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       403:
+ *         $ref: '#/components/responses/Forbidden'
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.get(
   '/:gameId/moves',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { gameId } = req.params;
+    // Validate gameId parameter
+    const paramResult = GameIdParamSchema.safeParse(req.params);
+    if (!paramResult.success) {
+      throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
+    }
+    const { gameId } = paramResult.data;
     const userId = req.user!.id;
 
     const prisma = getDatabaseClient();
@@ -590,16 +1044,88 @@ router.get(
   })
 );
 
-// Get available games to join
+/**
+ * @openapi
+ * /games/lobby/available:
+ *   get:
+ *     summary: Get available games to join
+ *     description: |
+ *       Returns a list of games that are waiting for players.
+ *       Excludes games where the authenticated user is already a participant.
+ *     tags: [Games]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: boardType
+ *         schema:
+ *           type: string
+ *           enum: [square8, square19, hexagonal]
+ *         description: Filter by board type
+ *       - in: query
+ *         name: maxPlayers
+ *         schema:
+ *           type: integer
+ *           minimum: 2
+ *           maximum: 4
+ *         description: Filter by max players
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         description: Maximum results to return
+ *     responses:
+ *       200:
+ *         description: Available games retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     games:
+ *                       type: array
+ *                       items:
+ *                         $ref: '#/components/schemas/Game'
+ *       400:
+ *         description: Invalid query parameters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Error'
+ *             example:
+ *               success: false
+ *               error:
+ *                 code: VALIDATION_INVALID_QUERY_PARAMS
+ *                 message: Invalid query parameters
+ *       401:
+ *         $ref: '#/components/responses/Unauthorized'
+ *       503:
+ *         $ref: '#/components/responses/ServiceUnavailable'
+ */
 router.get(
   '/lobby/available',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    // Validate query parameters
+    const queryResult = GameListingQuerySchema.safeParse(req.query);
+    if (!queryResult.success) {
+      throw createError('Invalid query parameters', 400, 'INVALID_QUERY_PARAMS');
+    }
+    const { boardType, maxPlayers, limit } = queryResult.data;
+
     const prisma = getDatabaseClient();
     if (!prisma) {
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
-    const { boardType, maxPlayers } = req.query;
     const userId = req.user!.id;
 
     const whereClause: any = {
@@ -620,7 +1146,7 @@ router.get(
     }
 
     if (maxPlayers) {
-      whereClause.maxPlayers = Number(maxPlayers);
+      whereClause.maxPlayers = maxPlayers;
     }
 
     const games = await prisma.game.findMany({
@@ -632,7 +1158,7 @@ router.get(
         player4: { select: { id: true, username: true, rating: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: limit,
     });
 
     res.json({

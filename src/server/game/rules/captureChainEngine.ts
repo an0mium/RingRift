@@ -169,7 +169,12 @@ export async function chooseCaptureDirectionFromState(
   }
 
   const choice: CaptureDirectionChoice = {
-    id: generateUUID(),
+    id: generateUUID(
+      'capture_direction',
+      gameState.id,
+      chainState.segments.length,
+      options.length
+    ),
     gameId: gameState.id,
     playerNumber: chainState.playerNumber,
     type: 'capture_direction',
@@ -200,11 +205,14 @@ export async function chooseCaptureDirectionFromState(
   return matched || options[0];
 }
 
-// Local UUID generator mirroring GameEngine.generateUUID
-function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+// Local deterministic identifier helper for capture-direction choices.
+// This deliberately avoids any RNG so that core rules behaviour remains
+// fully deterministic (RR‑CANON R190). Callers should pass in structured
+// context (e.g. game id, segment index, option count) so IDs remain
+// unique and stable for parity/diagnostic tooling.
+function generateUUID(...parts: Array<string | number | undefined>): string {
+  return parts
+    .filter((part) => part !== undefined)
+    .map((part) => String(part))
+    .join('|');
 }

@@ -232,7 +232,7 @@ Key directions:
 - **Goal:** Make game access rules explicit and verifiable for all HTTP endpoints and WebSocket events, including future spectator and rating features.
 - **Scope:** Backend and tests around [`game`](../src/server/routes/game.ts:1), [`WebSocketServer`](../src/server/websocket/server.ts:1), [`GameSession`](../src/server/game/GameSession.ts:1), and related services such as [`RatingService`](../src/server/services/RatingService.ts:1).
 - **Risk level:** High – Authorization errors can expose hidden information or allow manipulation of other players’ games and ratings.
-- **Dependencies:** Builds on the current multiplayer lifecycle and session-management design in [`FINAL_ARCHITECT_REPORT.md`](../FINAL_ARCHITECT_REPORT.md:1632).
+- **Dependencies:** Builds on the current multiplayer lifecycle and session-management design in [`archive/FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:1632).
 
 Key directions:
 
@@ -271,7 +271,7 @@ Key directions:
 - **Goal:** Establish pragmatic policies for how long user and game data are retained and how user data can be deleted or exported if needed.
 - **Scope:** Backend, DB schema and migrations, and operator documentation such as [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md:1).
 - **Risk level:** Medium – Important for future regulatory alignment and for limiting the impact of potential data leaks.
-- **Dependencies:** Builds on current backup/restore and migration guidance in [`FINAL_ARCHITECT_REPORT.md`](../FINAL_ARCHITECT_REPORT.md:267).
+- **Dependencies:** Builds on current backup/restore and migration guidance in [`archive/FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:267).
 - **Design details:** The concrete data inventory, retention/anonymisation rules, and user data workflows for S‑05.E are defined in [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](./DATA_LIFECYCLE_AND_PRIVACY.md:1).
 
 Key directions:
@@ -285,7 +285,7 @@ Key directions:
 - **Goal:** Reduce supply-chain risk and make CI/CD guarantees about what code and images reach production explicit.
 - **Scope:** CI workflows under [`.github/workflows`](../.github/workflows/ci.yml:1), Docker build pipeline, and contributor documentation.
 - **Risk level:** Medium – Becomes more important as the player base and contributor count grow.
-- **Dependencies:** Builds on existing CI practices and security scanning noted in [`FINAL_ARCHITECT_REPORT.md`](../FINAL_ARCHITECT_REPORT.md:838).
+- **Dependencies:** Builds on existing CI practices and security scanning noted in [`archive/FINAL_ARCHITECT_REPORT.md`](../archive/FINAL_ARCHITECT_REPORT.md:838).
 - **Design details:** The supply-chain & CI/CD threat overview, current controls/gaps, and S‑05.F.x implementation tracks are defined in [`docs/SUPPLY_CHAIN_AND_CI_SECURITY.md`](./SUPPLY_CHAIN_AND_CI_SECURITY.md:1).
 
 Key directions:

@@ -137,5 +137,17 @@ model RefreshToken {
   expiresAt DateTime
   createdAt DateTime @default(now())
 
+  // Token family tracking for refresh token rotation and reuse detection.
+  // All tokens in the same family share a familyId. When a token is rotated,
+  // the new token inherits the same familyId. If a token from an old family
+  // is reused, the entire family is revoked (security measure against token theft).
+  familyId  String?
+
+  // Marks the token as revoked. Instead of deleting, we mark as revoked to
+  // detect reuse attacks: if a revoked token is presented, we know the token
+  // chain has been compromised and should revoke the entire family.
+  revokedAt DateTime?
+
+  @@index([familyId])
   @@map("refresh_tokens")
 }

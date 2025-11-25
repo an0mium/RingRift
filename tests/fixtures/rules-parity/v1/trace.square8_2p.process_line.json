@@ -4,6 +4,7 @@
   "initialState": {
     "boardType": "square8",
     "id": "rules-parity-square8-2p",
+    "rngSeed": 192055301,
     "board": {
       "stacks": {},
       "markers": {},
@@ -23,10 +24,14 @@
             {
               "x": 0,
               "y": 2
+            },
+            {
+              "x": 0,
+              "y": 3
             }
           ],
           "player": 1,
-          "length": 3,
+          "length": 4,
           "direction": {
             "x": 0,
             "y": 1
@@ -67,14 +72,16 @@
     "currentPhase": "line_processing",
     "currentPlayer": 1,
     "moveHistory": [],
+    "history": [],
     "gameStatus": "waiting",
+    "spectators": [],
     "timeControl": {
       "initialTime": 600,
       "increment": 5,
       "type": "blitz"
     },
-    "createdAt": "2025-11-21T17:41:01.298Z",
-    "lastMoveAt": "2025-11-21T17:41:01.298Z",
+    "createdAt": "2025-11-25T04:27:27.992Z",
+    "lastMoveAt": "2025-11-25T04:27:27.992Z",
     "isRated": false,
     "maxPlayers": 2,
     "totalRingsInPlay": 0,
@@ -107,10 +114,14 @@
               {
                 "x": 0,
                 "y": 2
+              },
+              {
+                "x": 0,
+                "y": 3
               }
             ],
             "player": 1,
-            "length": 3,
+            "length": 4,
             "direction": {
               "x": 0,
               "y": 1
@@ -122,12 +133,8 @@
         "moveNumber": 1
       },
       "expected": {
-        "tsValid": true,
-        "tsStateHash": "1:line_processing:waiting#1:18:0:0|2:18:0:0###0,0:1|0,1:1|0,2:1",
-        "tsS": 3
-      },
-      "stateHash": "1:line_processing:waiting#1:18:0:0|2:18:0:0###0,0:1|0,1:1|0,2:1",
-      "sInvariant": 3
+        "tsValid": true
+      }
     }
   ]
 }

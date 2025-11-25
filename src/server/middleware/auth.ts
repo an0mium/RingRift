@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { getDatabaseClient } from '../database/connection';
 import { createError } from './errorHandler';
-import { logger } from '../utils/logger';
+import { logger, getRequestContext } from '../utils/logger';
 import { config } from '../config';
 
 export interface AuthenticatedRequest extends Request {
@@ -24,6 +24,17 @@ export interface VerifiedAccessToken {
   tokenVersion?: number;
 }
 
+/**
+ * Update the AsyncLocalStorage context with user ID after authentication.
+ * This allows all subsequent logs within the request to include the userId.
+ */
+const updateContextWithUserId = (userId: string): void => {
+  const context = getRequestContext();
+  if (context) {
+    context.userId = userId;
+  }
+};
+
 export const authenticate = async (
   req: AuthenticatedRequest,
   _res: Response,
@@ -40,6 +51,15 @@ export const authenticate = async (
     const user = await validateUser(decoded.userId, decoded.tokenVersion);
 
     req.user = user;
+
+    // Update the AsyncLocalStorage context with the user ID for log correlation
+    updateContextWithUserId(user.id);
+
+    logger.debug('User authenticated', {
+      userId: user.id,
+      username: user.username,
+    });
+
     next();
   } catch (error) {
     next(error);
@@ -58,12 +78,17 @@ export const optionalAuth = async (
       const decoded = verifyToken(token);
       const user = await validateUser(decoded.userId, decoded.tokenVersion);
       req.user = user;
+
+      // Update the AsyncLocalStorage context with the user ID for log correlation
+      updateContextWithUserId(user.id);
     }
 
     next();
   } catch (error) {
     // For optional auth, we don't fail on invalid tokens
-    logger.warn('Optional auth failed:', error);
+    logger.warn('Optional auth failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     next();
   }
 };

@@ -24,6 +24,7 @@ import {
   computeProgressSnapshot,
   summarizeBoard,
   hashGameState,
+  countRingsInPlayForPlayer,
 } from '../../shared/engine/core';
 import {
   filterProcessableTerritoryRegions,
@@ -80,14 +81,15 @@ declare const setTimeout: (callback: () => void, ms: number) => any;
 
 declare const clearTimeout: (timer: any) => void;
 
-// Using a simple UUID generator for now
-function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
+ // Deterministic identifier helper for moves and choice payloads.
+ // This deliberately avoids any RNG so that core engine behaviour
+ // remains fully deterministic (RR‑CANON R190).
+ function generateUUID(...parts: Array<string | number | undefined>): string {
+   return parts
+     .filter((part) => part !== undefined)
+     .map((part) => String(part))
+     .join('|');
+ }
 
 export class GameEngine {
   private gameState: GameState;
@@ -140,6 +142,18 @@ export class GameEngine {
    * reward eliminations.
    */
   private pendingLineRewardElimination: boolean = false;
+
+  /**
+   * Host-internal metadata for last-player-standing (R172) detection.
+   * These fields track, per round, which players had any real actions
+   * available (placement, non-capture movement, or overtaking capture)
+   * at the start of their most recent interactive turn. They are kept
+   * off of GameState so snapshots and wire formats remain unchanged.
+   */
+  private lpsRoundIndex: number = 0;
+  private lpsCurrentRoundActorMask: Map<number, boolean> = new Map();
+  private lpsCurrentRoundFirstPlayer: number | null = null;
+  private lpsExclusivePlayerForCompletedRound: number | null = null;
 
   constructor(
     gameId: string,
@@ -237,12 +251,25 @@ export class GameEngine {
       eliminatedRings: { ...board.eliminatedRings },
     };
 
+    const clonedPlayers = state.players.map((p) => ({ ...p }));
+
+    // Normalise totalRingsEliminated for external snapshots so that it
+    // always reflects the sum of board.eliminatedRings. This keeps the
+    // S-invariant bookkeeping (S = markers + collapsed + eliminated)
+    // consistent for parity/debug tooling even if internal counters
+    // drift transiently during complex elimination sequences.
+    const eliminatedFromBoard = Object.values(clonedBoard.eliminatedRings ?? {}).reduce(
+      (sum, value) => sum + value,
+      0
+    );
+
     return {
       ...state,
+      totalRingsEliminated: eliminatedFromBoard,
       board: clonedBoard,
       moveHistory: [...state.moveHistory],
       history: [...state.history],
-      players: state.players.map((p) => ({ ...p })),
+      players: clonedPlayers,
       spectators: [...state.spectators],
     };
   }
@@ -508,8 +535,29 @@ export class GameEngine {
     ) {
       await this.applyDecisionMove(fullMove);
 
-      // After applying a decision move, re-check victory conditions. This mirrors
-      // the post-move pipeline used for normal placement/movement/capture
+      // After a decision move, if we find ourselves in an automatic
+      // bookkeeping phase (line_processing / territory_processing) with
+      // **no** canonical decision moves available for the active player,
+      // advance the turn via the shared TurnEngine and drain any
+      // remaining automatic phases. This mirrors the sandbox turn
+      // engine, which never exposes a decision phase with zero legal
+      // actions; callers always see either an interactive phase with at
+      // least one move or a terminal game state.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        (this.gameState.currentPhase === 'line_processing' ||
+          this.gameState.currentPhase === 'territory_processing')
+      ) {
+        const autoPhaseMoves = this.getValidMoves(this.gameState.currentPlayer);
+        if (autoPhaseMoves.length === 0) {
+          this.advanceGame();
+          await this.stepAutomaticPhasesForTesting();
+        }
+      }
+
+      // After applying a decision move (and draining any empty automatic
+      // phases), re-check victory conditions. This mirrors the
+      // post-move pipeline used for normal placement/movement/capture
       // actions so that eliminations caused by line processing or territory
       // disconnection can immediately end the game (FAQ Q6 / §13 Ring
       // Elimination Victory), even when those effects are expressed as explicit
@@ -524,6 +572,26 @@ export class GameEngine {
       if (gameEndCheck.isGameOver) {
         const endResult = this.endGame(gameEndCheck.winner, gameEndCheck.reason || 'unknown');
         decisionGameResult = endResult.gameResult;
+      }
+
+      // After decision moves that advance through automatic phases (e.g.
+      // territory processing completing via eliminate_rings_from_stack),
+      // we must also check for last-player-standing victory (R172). This
+      // mirrors the LPS check performed after regular moves and ensures
+      // that LPS victory fires at the same point as the sandbox engine.
+      if (!decisionGameResult && this.gameState.gameStatus === 'active') {
+        const phase = this.gameState.currentPhase;
+        if (
+          phase === 'ring_placement' ||
+          phase === 'movement' ||
+          phase === 'capture' ||
+          phase === 'chain_capture'
+        ) {
+          const lpsResult = this.runLpsCheckForCurrentInteractiveTurn();
+          if (lpsResult) {
+            decisionGameResult = lpsResult;
+          }
+        }
       }
 
       // Record a structured history entry for the decision so parity/debug
@@ -653,14 +721,21 @@ export class GameEngine {
           this.gameState.currentPhase = 'chain_capture';
           chainContinuationAvailable = true;
         } else {
-          // Chain is exhausted; clear state and fall through to normal
-          // post-move processing.
+          // Chain is exhausted; clear state and reset phase to 'capture'
+          // so that advanceGame() can properly advance the turn. Without
+          // this reset, the phase would remain 'chain_capture' but with
+          // no chainCaptureState, causing getValidMoves() to return empty
+          // and leaving the game stuck.
           this.chainCaptureState = undefined;
+          this.gameState.currentPhase = 'capture';
         }
       } else {
         // Defensive: if we somehow lack a chain state after a capture
-        // segment, clear it and treat this as a standalone capture.
+        // segment, clear it, reset phase, and treat this as a standalone capture.
         this.chainCaptureState = undefined;
+        if (this.gameState.currentPhase === 'chain_capture') {
+          this.gameState.currentPhase = 'capture';
+        }
       }
     } else {
       // Any non-capture move clears any stale chain state (defensive safety).
@@ -791,21 +866,91 @@ export class GameEngine {
       };
     }
 
-    // Advance to next phase/player
-    this.advanceGame();
-    this.debugCheckpoint('after-advanceGame');
-
-    // Step through automatic bookkeeping phases (line_processing and
-    // territory_processing) so the post-move snapshot and history entry
-    // reflect the same next-player interactive phase that the sandbox
-    // engine records in its traces.
+    // Advance to next phase/player and hand control to the shared
+    // turn engine. In move-driven decision mode we mirror the sandbox
+    // ClientSandboxEngine.advanceAfterMovement behaviour by treating
+    // post-movement/capture consequences as having completed the
+    // current player's automatic line/territory bookkeeping before we
+    // consult the turn sequencer:
     //
-    // NOTE: In move-driven decision phases, we still need to check if
-    // we're in a decision phase with NO actual decisions available (e.g.,
-    // no lines to process, no regions to collapse) and advance past it.
-    // But we must NOT auto-apply decision moves that should be explicit.
-    await this.stepAutomaticPhasesForTesting();
-    this.debugCheckpoint('after-stepAutomaticPhasesForTesting');
+    //   - When the move was a movement or capture segment and no
+    //     explicit decision-phase moves were exposed, we normalise the
+    //     phase to 'territory_processing' and let the shared TurnEngine
+    //     advance from that boundary. This matches the sandbox, which
+    //     always calls advanceTurnAndPhaseForCurrentPlayerSandbox from
+    //     territory_processing after advanceAfterMovement.
+    //   - Legacy / non-move-driven flows retain the original path:
+    //     advance from the current interactive phase and then drain any
+    //     empty decision phases via stepAutomaticPhasesForTesting.
+    if (
+      this.useMoveDrivenDecisionPhases &&
+      (fullMove.type === 'move_stack' ||
+        fullMove.type === 'move_ring' ||
+        fullMove.type === 'overtaking_capture' ||
+        fullMove.type === 'continue_capture_segment' ||
+        fullMove.type === 'build_stack')
+    ) {
+      // Normalise to the end-of-turn bookkeeping boundary before
+      // consulting the shared turn engine so that any forced
+      // elimination / skipping is computed from the same phase as in
+      // the sandbox trace engine.
+      this.gameState = {
+        ...this.gameState,
+        currentPhase: 'territory_processing',
+      };
+
+      this.advanceGame();
+      this.debugCheckpoint('after-advanceGame');
+    } else {
+      this.advanceGame();
+      this.debugCheckpoint('after-advanceGame');
+
+      // Step through automatic bookkeeping phases (line_processing and
+      // territory_processing) so the post-move snapshot and history
+      // entry reflect the same next-player interactive phase that the
+      // sandbox engine records in its traces.
+      //
+      // NOTE: In move-driven decision phases, we still need to check if
+      // we're in a decision phase with NO actual decisions available
+      // (e.g., no lines to process, no regions to collapse) and advance
+      // past it. But we must NOT auto-apply decision moves that should
+      // be explicit.
+      await this.stepAutomaticPhasesForTesting();
+      this.debugCheckpoint('after-stepAutomaticPhasesForTesting');
+    }
+
+    // After all automatic phases have completed and the shared turn
+    // engine has selected the next active player/phase, evaluate the
+    // last-player-standing condition (R172) before exposing the new
+    // interactive turn to callers.
+    if (this.gameState.gameStatus === 'active') {
+      const phase = this.gameState.currentPhase;
+      if (
+        phase === 'ring_placement' ||
+        phase === 'movement' ||
+        phase === 'capture' ||
+        phase === 'chain_capture'
+      ) {
+        // Record start-of-turn availability for the new active player.
+        this.updateLpsTrackingForCurrentTurn();
+        const lpsResult = this.maybeEndGameByLastPlayerStanding();
+        if (lpsResult) {
+          this.debugCheckpoint('after-lps-check');
+
+          // Record a structured history entry for the canonical move
+          // that produced the terminal LPS state so parity/debug
+          // tooling sees a complete trace.
+          this.appendHistoryEntry(beforeStateForHistory, fullMove);
+
+          return {
+            success: true,
+            gameResult: lpsResult,
+            gameState: this.getGameState(),
+          };
+        }
+      }
+    }
+
     this.debugCheckpoint('end-of-move');
 
     // Start next player's timer
@@ -1197,11 +1342,14 @@ export class GameEngine {
    *     overlength lines (each with `collapsedMarkers` populated).
    */
   private getValidLineProcessingMoves(playerNumber: number): Move[] {
-    // Base process_line decisions from the shared helper. We prefer the
-    // board cache when present; when `formedLines` is empty the helper
-    // re-runs detection via findAllLines.
+    // Base process_line decisions from the shared helper. For phase
+    // scheduling we rely on fresh geometry (detect_now) so that a stale
+    // formedLines cache can never cause the engine to enter
+    // `line_processing` when no canonical lines actually exist for the
+    // current player. The helper will still consult the cache internally
+    // when it is known to be valid.
     const processMoves = enumerateProcessLineMoves(this.gameState, playerNumber, {
-      detectionMode: 'use_board_cache',
+      detectionMode: 'detect_now',
     });
 
     // Reward decisions are driven per line index using the same detection
@@ -2060,6 +2208,12 @@ export class GameEngine {
       console.log(`[GameEngine] advanceGame: mustMove is ${this.mustMoveFromStackKey}`);
     }
 
+    // Note: skipping players who have no stacks and no rings in hand is now
+    // handled centrally by the shared turnLogic.advanceTurnAndPhase helper
+    // (via TurnEngine). We rely on that shared sequencing so backend and
+    // sandbox rotate turns using exactly the same material-based skipping
+    // rules, avoiding host-specific double-skips.
+
     // Whenever we leave the territory_processing or line_processing phases
     // for the current player, clear any pending self-elimination flags so
     // the next interactive turn starts with a clean slate.
@@ -2138,18 +2292,13 @@ export class GameEngine {
     this.gameState.gameStatus = 'completed';
     this.gameState.winner = winner;
 
-    // Normalise terminal bookkeeping phases so that callers never observe a
-    // completed game still "in" line_processing or territory_processing.
-    // The sandbox engine likewise reports terminal states with
-    // currentPhase === 'ring_placement', and parity tests compare snapshots
-    // after victory. This keeps backend vs sandbox victory snapshots aligned
-    // without affecting in-game phase transitions.
-    if (
-      this.gameState.currentPhase === 'territory_processing' ||
-      this.gameState.currentPhase === 'line_processing'
-    ) {
-      this.gameState.currentPhase = 'ring_placement';
-    }
+    // Normalise all terminal states so that callers never observe a completed
+    // game in an internal bookkeeping or interactive phase. The sandbox engine
+    // likewise reports terminal states with currentPhase === 'ring_placement',
+    // and parity tests compare snapshots after victory. Using a single canonical
+    // phase for completed games keeps backend vs sandbox victory snapshots
+    // aligned without affecting in-game phase transitions.
+    this.gameState.currentPhase = 'ring_placement';
 
     // Clear all timers
     for (const timer of this.moveTimers.values()) {
@@ -2554,6 +2703,253 @@ export class GameEngine {
   }
 
   /**
+   * Determine whether the specified player currently has any "real"
+   * actions available in the sense of R172: at least one legal ring
+   * placement, non-capture movement, or overtaking capture. This helper
+   * deliberately ignores bookkeeping-only moves such as skip_placement,
+   * forced-elimination decisions, and line/territory processing moves.
+   */
+  private hasAnyRealActionForPlayer(state: GameState, playerNumber: number): boolean {
+    if (state.gameStatus !== 'active') {
+      return false;
+    }
+
+    const playerState = state.players.find((p) => p.playerNumber === playerNumber);
+    if (!playerState) {
+      return false;
+    }
+
+    // 1) Ring placement (place_ring).
+    if (playerState.ringsInHand > 0) {
+      const tempPlacementState: GameState = {
+        ...state,
+        currentPlayer: playerNumber,
+        currentPhase: 'ring_placement',
+      };
+
+      const placementMoves = this.ruleEngine.getValidMoves(tempPlacementState);
+      if (placementMoves.some((m) => m.type === 'place_ring')) {
+        return true;
+      }
+    }
+
+    // 2) Non-capture movement.
+    const tempMovementState: GameState = {
+      ...state,
+      currentPlayer: playerNumber,
+      currentPhase: 'movement',
+    };
+    const movementMoves = this.ruleEngine.getValidMoves(tempMovementState);
+    if (
+      movementMoves.some(
+        (m) => m.type === 'move_stack' || m.type === 'move_ring' || m.type === 'build_stack'
+      )
+    ) {
+      return true;
+    }
+
+    // 3) Overtaking capture.
+    const tempCaptureState: GameState = {
+      ...state,
+      currentPlayer: playerNumber,
+      currentPhase: 'capture',
+    };
+    const captureMoves = this.ruleEngine.getValidMoves(tempCaptureState);
+    return captureMoves.some((m) => m.type === 'overtaking_capture');
+  }
+
+  /**
+   * Internal helper for LPS tracking: true when the given player still
+   * has any rings of their own colour on the board or in hand.
+   */
+  private playerHasMaterial(playerNumber: number): boolean {
+    const totalInPlay = countRingsInPlayForPlayer(this.gameState, playerNumber);
+    return totalInPlay > 0;
+  }
+
+  /**
+   * Update per-round last-player-standing tracking at the start of the
+   * current player's interactive turn. This should be called after the
+   * shared turn engine has selected the next active player and phase,
+   * and after any forced eliminations for the previous player have been
+   * applied.
+   */
+  private updateLpsTrackingForCurrentTurn(): void {
+    const state = this.gameState;
+    if (state.gameStatus !== 'active') {
+      return;
+    }
+
+    const phase = state.currentPhase;
+    if (
+      phase !== 'ring_placement' &&
+      phase !== 'movement' &&
+      phase !== 'capture' &&
+      phase !== 'chain_capture'
+    ) {
+      return;
+    }
+
+    const currentPlayer = state.currentPlayer;
+
+    // Mirror sandbox LPS semantics by filtering to the active-player
+    // set (players who still have material) and tracking rounds over
+    // this set only. This keeps lpsRoundIndex, round leaders, and
+    // actor masks aligned between hosts even as players drop out.
+    const activePlayers = state.players
+      .filter((p) => this.playerHasMaterial(p.playerNumber))
+      .map((p) => p.playerNumber);
+
+    if (activePlayers.length === 0) {
+      return;
+    }
+
+    const activeSet = new Set(activePlayers);
+    if (!activeSet.has(currentPlayer)) {
+      // Current player has no material; they are not part of the LPS
+      // round and should be ignored for tracking purposes.
+      return;
+    }
+
+    const first = this.lpsCurrentRoundFirstPlayer;
+    const startingNewCycle = first === null || !activeSet.has(first);
+
+    if (startingNewCycle) {
+      // Either this is the very first LPS round or the previous round
+      // leader is no longer in the active set (e.g. eliminated). Start
+      // a fresh round anchored at the current player.
+      this.lpsRoundIndex += 1;
+      this.lpsCurrentRoundFirstPlayer = currentPlayer;
+      this.lpsCurrentRoundActorMask.clear();
+      this.lpsExclusivePlayerForCompletedRound = null;
+    } else if (currentPlayer === first && this.lpsCurrentRoundActorMask.size > 0) {
+      // We have looped back to the first player seen in this cycle;
+      // finalise the previous round summary over the active-player
+      // set before starting a new one.
+      this.finalizeCompletedLpsRound(activePlayers);
+      this.lpsRoundIndex += 1;
+      this.lpsCurrentRoundActorMask.clear();
+      this.lpsCurrentRoundFirstPlayer = currentPlayer;
+    }
+
+    const hasRealAction = this.hasAnyRealActionForPlayer(state, currentPlayer);
+    this.lpsCurrentRoundActorMask.set(currentPlayer, hasRealAction);
+  }
+
+  /**
+   * Finalise the summary for the just-completed round of turns and record
+   * whether there was a unique player who had real actions available on
+   * every turn in that round while all other players were inactive.
+   */
+  private finalizeCompletedLpsRound(activePlayers: number[]): void {
+    if (activePlayers.length === 0) {
+      this.lpsExclusivePlayerForCompletedRound = null;
+      return;
+    }
+
+    const truePlayers: number[] = [];
+    for (const pid of activePlayers) {
+      if (this.lpsCurrentRoundActorMask.get(pid)) {
+        truePlayers.push(pid);
+      }
+    }
+
+    if (truePlayers.length === 1) {
+      this.lpsExclusivePlayerForCompletedRound = truePlayers[0];
+    } else {
+      this.lpsExclusivePlayerForCompletedRound = null;
+    }
+  }
+
+  /**
+   * Evaluate the last-player-standing victory condition (R172) at the
+   * start of the current player's interactive turn, given any candidate
+   * derived from the most recently completed round. When satisfied, this
+   * ends the game with reason 'last_player_standing'.
+   */
+  private maybeEndGameByLastPlayerStanding(): GameResult | undefined {
+    const state = this.gameState;
+    if (state.gameStatus !== 'active') {
+      return undefined;
+    }
+
+    const phase = state.currentPhase;
+    if (
+      phase !== 'ring_placement' &&
+      phase !== 'movement' &&
+      phase !== 'capture' &&
+      phase !== 'chain_capture'
+    ) {
+      return undefined;
+    }
+
+    const candidate = this.lpsExclusivePlayerForCompletedRound;
+    if (candidate === null || candidate === undefined) {
+      return undefined;
+    }
+
+    if (state.currentPlayer !== candidate) {
+      return undefined;
+    }
+
+    // Candidate must still have at least one real action.
+    if (!this.hasAnyRealActionForPlayer(state, candidate)) {
+      this.lpsExclusivePlayerForCompletedRound = null;
+      return undefined;
+    }
+
+    // All other players who still have material must have no real actions.
+    const othersHaveRealActions = state.players.some((p) => {
+      if (p.playerNumber === candidate) {
+        return false;
+      }
+      if (!this.playerHasMaterial(p.playerNumber)) {
+        return false;
+      }
+      return this.hasAnyRealActionForPlayer(state, p.playerNumber);
+    });
+
+    if (othersHaveRealActions) {
+      this.lpsExclusivePlayerForCompletedRound = null;
+      return undefined;
+    }
+
+    const endResult = this.endGame(candidate, 'last_player_standing');
+    return endResult.gameResult;
+  }
+
+  /**
+   * Shared helper to run LPS tracking + victory check for the current
+   * state when we have just selected a new interactive turn. This
+   * mirrors the sandbox handleStartOfInteractiveTurn wiring and is safe
+   * to call multiple times; when the game is not active or the phase is
+   * not interactive it is a no-op.
+   *
+   * NOTE: When invoked from test-only helpers such as
+   * stepAutomaticPhasesForTesting, we intentionally do not append an
+   * additional history entry; the canonical move that led to this state
+   * has already been recorded.
+   */
+  private runLpsCheckForCurrentInteractiveTurn(): GameResult | undefined {
+    if (this.gameState.gameStatus !== 'active') {
+      return undefined;
+    }
+
+    const phase = this.gameState.currentPhase;
+    if (
+      phase !== 'ring_placement' &&
+      phase !== 'movement' &&
+      phase !== 'capture' &&
+      phase !== 'chain_capture'
+    ) {
+      return undefined;
+    }
+
+    this.updateLpsTrackingForCurrentTurn();
+    return this.maybeEndGameByLastPlayerStanding();
+  }
+
+  /**
    * Test-only helper: resolve a late-detected "blocked with no moves"
    * situation for the current player.
    *
@@ -2782,6 +3178,7 @@ export class GameEngine {
    * treat these internal bookkeeping phases as "no legal move" stalls.
    */
   public async stepAutomaticPhasesForTesting(): Promise<void> {
+    // First, handle line_processing and territory_processing automatic phases
     while (
       this.gameState.gameStatus === 'active' &&
       (this.gameState.currentPhase === 'line_processing' ||
@@ -2809,10 +3206,124 @@ export class GameEngine {
 
       // Legacy mode: automatically apply the first available decision move.
       // This mimics the default behaviour of the legacy automatic pipeline
-      // (first line, first region, default elimination) but drives it via
+      // (first line, first region, default elimination) and drives it via
       // the unified Move model.
       const move = moves[0];
       await this.applyDecisionMove(move);
+    }
+
+    // In move-driven decision-phase mode, interactive forced-elimination and
+    // skip semantics are handled centrally by the shared TurnEngine and
+    // turnLogic at turn start, just as in the sandbox engine. The
+    // interactive loop below is therefore only used for legacy/non-move-driven
+    // flows.
+    if (this.useMoveDrivenDecisionPhases) {
+      return;
+    }
+
+    // Additionally, handle the case where we're in an interactive phase
+    // but the current player has no valid moves (e.g., they're blocked or eliminated).
+    // The sandbox's advanceTurnAndPhase logic applies forced elimination at turn start;
+    // we replicate that here by checking ALL types of moves (placement, movement,
+    // capture) regardless of current phase, not just phase-specific moves.
+
+    // Diagnostic: log entry state for end-of-game debugging
+    const STEP_DEBUG = this.gameState.totalRingsEliminated >= 28;
+    if (STEP_DEBUG) {
+      // eslint-disable-next-line no-console
+      console.log('[GameEngine.stepAutomaticPhasesForTesting] entry', {
+        currentPlayer: this.gameState.currentPlayer,
+        currentPhase: this.gameState.currentPhase,
+        gameStatus: this.gameState.gameStatus,
+        totalRingsEliminated: this.gameState.totalRingsEliminated,
+        stackCount: this.gameState.board.stacks.size,
+      });
+    }
+
+    while (
+      this.gameState.gameStatus === 'active' &&
+      (this.gameState.currentPhase === 'movement' ||
+        this.gameState.currentPhase === 'ring_placement' ||
+        this.gameState.currentPhase === 'capture')
+    ) {
+      const currentPlayer = this.gameState.currentPlayer;
+      const playerState = this.gameState.players.find((p) => p.playerNumber === currentPlayer);
+      const stacksForCurrent = this.boardManager.getPlayerStacks(
+        this.gameState.board,
+        currentPlayer
+      );
+      const hasStacks = stacksForCurrent.length > 0;
+      const hasRingsInHand = playerState && playerState.ringsInHand > 0;
+
+      // Check for "real" actions across ALL types (not just current phase moves)
+      // to match sandbox's maybeProcessForcedEliminationForCurrentPlayerSandbox:
+      // 1) Placement: ringsInHand > 0 AND getValidMoves in ring_placement has place_ring
+      // 2) Movement: stacks exist AND getValidMoves in movement has real moves
+      // 3) Capture: stacks exist AND getValidMoves in capture has overtaking_capture
+
+      let hasPlacement = false;
+      if (hasRingsInHand) {
+        const tempPlacement: GameState = {
+          ...this.gameState,
+          currentPlayer,
+          currentPhase: 'ring_placement',
+        };
+        const placementMoves = this.ruleEngine.getValidMoves(tempPlacement);
+        hasPlacement = placementMoves.some((m) => m.type === 'place_ring');
+      }
+
+      let hasMovement = false;
+      if (hasStacks) {
+        const tempMovement: GameState = {
+          ...this.gameState,
+          currentPlayer,
+          currentPhase: 'movement',
+        };
+        const movementMoves = this.ruleEngine.getValidMoves(tempMovement);
+        hasMovement = movementMoves.some(
+          (m) =>
+            m.type === 'move_stack' ||
+            m.type === 'move_ring' ||
+            m.type === 'build_stack'
+        );
+      }
+
+      let hasCapture = false;
+      if (hasStacks) {
+        const tempCapture: GameState = {
+          ...this.gameState,
+          currentPlayer,
+          currentPhase: 'capture',
+        };
+        const captureMoves = this.ruleEngine.getValidMoves(tempCapture);
+        hasCapture = captureMoves.some((m) => m.type === 'overtaking_capture');
+      }
+
+      const hasRealAction = hasPlacement || hasMovement || hasCapture;
+
+      if (hasRealAction) {
+        // Player has at least one real action available; leave them in
+        // the current interactive phase. LPS tracking and victory checks
+        // are handled centrally at the end of makeMove, after a single
+        // call to stepAutomaticPhasesForTesting.
+        return;
+      }
+
+      // Player has no real actions. Check if they have material for forced elimination.
+      if (hasStacks || hasRingsInHand) {
+        // Apply forced elimination (Section 4.4 / compact rules 2.3)
+        this.eliminatePlayerRingOrCap(currentPlayer);
+
+        // Check victory conditions after the forced elimination
+        const gameEndCheck = this.ruleEngine.checkGameEnd(this.gameState);
+        if (gameEndCheck.isGameOver) {
+          this.endGame(gameEndCheck.winner, gameEndCheck.reason || 'forced_elimination');
+          return;
+        }
+      }
+
+      // No real actions available - advance to skip this player.
+      this.advanceGame();
     }
   }
 }

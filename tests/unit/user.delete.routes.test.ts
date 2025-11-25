@@ -9,6 +9,9 @@ import { mockDb, prismaStub, resetPrismaMockDb } from '../utils/prismaTestUtils'
 // Stub out rate limiting so tests don't depend on Redis or global state.
 jest.mock('../../src/server/middleware/rateLimiter', () => ({
   authRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authLoginRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authRegisterRateLimiter: (_req: any, _res: any, next: any) => next(),
+  authPasswordResetRateLimiter: (_req: any, _res: any, next: any) => next(),
   rateLimiter: (_req: any, _res: any, next: any) => next(),
 }));
 
@@ -92,7 +95,7 @@ describe('User account deletion HTTP route', () => {
     const res = await request(app).delete('/api/users/me').send({}).expect(401);
 
     expect(res.body.success).toBe(false);
-    expect(res.body.error.code).toBe('TOKEN_REQUIRED');
+    expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
     expect(mockDb.users.length).toBe(initialUserCount);
   });
 
@@ -250,7 +253,7 @@ describe('User account deletion HTTP route', () => {
     // because the email no longer exists; both this and ACCOUNT_DEACTIVATED
     // represent a blocked login, which satisfies S-05.E.1 for this slice.
     expect(
-      res.body.error.code === 'ACCOUNT_DEACTIVATED' || res.body.error.code === 'INVALID_CREDENTIALS'
+      res.body.error.code === 'AUTH_ACCOUNT_DEACTIVATED' || res.body.error.code === 'AUTH_INVALID_CREDENTIALS'
     ).toBe(true);
 
     // No new tokens should be issued.

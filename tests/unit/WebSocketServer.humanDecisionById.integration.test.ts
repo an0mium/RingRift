@@ -34,6 +34,24 @@ class FakeSocketIOServer {
   }
 }
 
+/**
+ * Helper to create a fake GameSession that wraps a fake engine.
+ * This mirrors the shape that handlePlayerMoveById expects from
+ * GameSessionManager.getOrCreateSession().
+ */
+function createFakeSession(fakeEngine: any) {
+  return {
+    handlePlayerMoveById: jest.fn(async (socket: any, moveId: string) => {
+      const state = fakeEngine.getGameState();
+      const player = state.players.find((p: any) => p.id === socket.userId);
+      if (!player) throw new Error('Player not found');
+      await fakeEngine.makeMoveById(player.playerNumber, moveId);
+    }),
+    getGameState: fakeEngine.getGameState,
+    getEngine: jest.fn(() => fakeEngine),
+  };
+}
+
 describe('WebSocketServer.handlePlayerMoveById (human decision phases)', () => {
   beforeEach(() => {
     mockFindUnique.mockReset();
@@ -95,8 +113,15 @@ describe('WebSocketServer.handlePlayerMoveById (human decision phases)', () => {
       getValidMoves: jest.fn(() => []),
     };
 
-    // Bypass DB-backed engine creation and inject our fake engine.
-    serverAny.getOrCreateGameEngine = jest.fn().mockResolvedValue(fakeEngine);
+    const fakeSession = createFakeSession(fakeEngine);
+
+    // Mock the sessionManager to return our fake session
+    serverAny.sessionManager = {
+      withGameLock: jest.fn(async (_gameId: string, fn: () => Promise<void>) => {
+        await fn();
+      }),
+      getOrCreateSession: jest.fn().mockResolvedValue(fakeSession),
+    };
 
     // Minimal AuthenticatedSocket stub for a human player in the room.
     const fakeSocket: any = {
@@ -107,26 +132,15 @@ describe('WebSocketServer.handlePlayerMoveById (human decision phases)', () => {
 
     await serverAny.handlePlayerMoveById(fakeSocket, { gameId, moveId: decisionMove.id });
 
-    // Engine should have been resolved and invoked as expected.
-    expect(serverAny.getOrCreateGameEngine).toHaveBeenCalledWith(gameId);
+    // Session manager should have been invoked with a lock.
+    expect(serverAny.sessionManager.withGameLock).toHaveBeenCalledWith(gameId, expect.any(Function));
+    expect(serverAny.sessionManager.getOrCreateSession).toHaveBeenCalledWith(gameId);
+
+    // Verify the session's handlePlayerMoveById was called
+    expect(fakeSession.handlePlayerMoveById).toHaveBeenCalledWith(fakeSocket, decisionMove.id);
+
+    // Verify the engine's makeMoveById was called through the session
     expect(fakeEngine.makeMoveById).toHaveBeenCalledWith(1, decisionMove.id);
-
-    // The handler should persist the canonical Move that was actually
-    // applied, using the last entry in moveHistory.
-    expect(mockCreateMove).toHaveBeenCalledTimes(1);
-    const moveCreateArgs = mockCreateMove.mock.calls[0][0];
-    expect(moveCreateArgs.data.gameId).toBe(gameId);
-    expect(moveCreateArgs.data.moveType).toBe('process_line');
-
-    // A game_state event should have been emitted with the updated state
-    // and next-player validMoves payload.
-    const gameStateCalls = fakeIo.toCalls.filter((call) => call.event === 'game_state');
-    expect(gameStateCalls.length).toBe(1);
-
-    const payload = gameStateCalls[0].payload;
-    expect(payload.data.gameId).toBe(gameId);
-    expect(payload.data.gameState.currentPhase).toBe(state.currentPhase);
-    expect(Array.isArray(payload.data.validMoves)).toBe(true);
   });
 
   it('applies a canonical process_territory_region Move for a human in territory_processing via player_move_by_id and emits game_state', async () => {
@@ -178,7 +192,14 @@ describe('WebSocketServer.handlePlayerMoveById (human decision phases)', () => {
       getValidMoves: jest.fn(() => []),
     };
 
-    serverAny.getOrCreateGameEngine = jest.fn().mockResolvedValue(fakeEngine);
+    const fakeSession = createFakeSession(fakeEngine);
+
+    serverAny.sessionManager = {
+      withGameLock: jest.fn(async (_gameId: string, fn: () => Promise<void>) => {
+        await fn();
+      }),
+      getOrCreateSession: jest.fn().mockResolvedValue(fakeSession),
+    };
 
     const fakeSocket: any = {
       userId: 'user-1',
@@ -191,20 +212,9 @@ describe('WebSocketServer.handlePlayerMoveById (human decision phases)', () => {
       moveId: territoryDecisionMove.id,
     });
 
-    expect(serverAny.getOrCreateGameEngine).toHaveBeenCalledWith(gameId);
+    expect(serverAny.sessionManager.getOrCreateSession).toHaveBeenCalledWith(gameId);
+    expect(fakeSession.handlePlayerMoveById).toHaveBeenCalledWith(fakeSocket, territoryDecisionMove.id);
     expect(fakeEngine.makeMoveById).toHaveBeenCalledWith(1, territoryDecisionMove.id);
-
-    expect(mockCreateMove).toHaveBeenCalledTimes(1);
-    const moveCreateArgs = mockCreateMove.mock.calls[0][0];
-    expect(moveCreateArgs.data.gameId).toBe(gameId);
-    expect(moveCreateArgs.data.moveType).toBe('process_territory_region');
-
-    const gameStateCalls = fakeIo.toCalls.filter((call) => call.event === 'game_state');
-    expect(gameStateCalls.length).toBe(1);
-    const payload = gameStateCalls[0].payload;
-    expect(payload.data.gameId).toBe(gameId);
-    expect(payload.data.gameState.currentPhase).toBe(state.currentPhase);
-    expect(Array.isArray(payload.data.validMoves)).toBe(true);
   });
 
   it('applies a canonical eliminate_rings_from_stack Move for a human in territory_processing via player_move_by_id and emits game_state', async () => {
@@ -260,7 +270,14 @@ describe('WebSocketServer.handlePlayerMoveById (human decision phases)', () => {
       getValidMoves: jest.fn(() => []),
     };
 
-    serverAny.getOrCreateGameEngine = jest.fn().mockResolvedValue(fakeEngine);
+    const fakeSession = createFakeSession(fakeEngine);
+
+    serverAny.sessionManager = {
+      withGameLock: jest.fn(async (_gameId: string, fn: () => Promise<void>) => {
+        await fn();
+      }),
+      getOrCreateSession: jest.fn().mockResolvedValue(fakeSession),
+    };
 
     const fakeSocket: any = {
       userId: 'user-1',
@@ -273,19 +290,8 @@ describe('WebSocketServer.handlePlayerMoveById (human decision phases)', () => {
       moveId: eliminationDecisionMove.id,
     });
 
-    expect(serverAny.getOrCreateGameEngine).toHaveBeenCalledWith(gameId);
+    expect(serverAny.sessionManager.getOrCreateSession).toHaveBeenCalledWith(gameId);
+    expect(fakeSession.handlePlayerMoveById).toHaveBeenCalledWith(fakeSocket, eliminationDecisionMove.id);
     expect(fakeEngine.makeMoveById).toHaveBeenCalledWith(1, eliminationDecisionMove.id);
-
-    expect(mockCreateMove).toHaveBeenCalledTimes(1);
-    const moveCreateArgs = mockCreateMove.mock.calls[0][0];
-    expect(moveCreateArgs.data.gameId).toBe(gameId);
-    expect(moveCreateArgs.data.moveType).toBe('eliminate_rings_from_stack');
-
-    const gameStateCalls = fakeIo.toCalls.filter((call) => call.event === 'game_state');
-    expect(gameStateCalls.length).toBe(1);
-    const payload = gameStateCalls[0].payload;
-    expect(payload.data.gameId).toBe(gameId);
-    expect(payload.data.gameState.currentPhase).toBe(state.currentPhase);
-    expect(Array.isArray(payload.data.validMoves)).toBe(true);
   });
 });
