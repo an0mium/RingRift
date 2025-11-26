@@ -318,6 +318,13 @@ export const EnvSchema = z.object({
   /** Rules engine mode */
   RINGRIFT_RULES_MODE: RulesModeSchema.optional(),
 
+  /** Enable orchestrator adapter for turn processing */
+  ORCHESTRATOR_ADAPTER_ENABLED: z
+    .string()
+    .optional()
+    .transform((val) => val === 'true' || val === '1')
+    .default('false'),
+
   // ===================================================================
   // GAME CONFIGURATION
   // ===================================================================
@@ -447,7 +454,9 @@ export function loadEnvOrExit(
  */
 export function getEffectiveNodeEnv(rawEnv: RawEnv): NodeEnv {
   const isJestRuntime =
-    typeof process !== 'undefined' && !!(process as any).env && (process as any).env.JEST_WORKER_ID !== undefined;
+    typeof process !== 'undefined' &&
+    !!(process as any).env &&
+    (process as any).env.JEST_WORKER_ID !== undefined;
 
   return isJestRuntime ? 'test' : rawEnv.NODE_ENV;
 }

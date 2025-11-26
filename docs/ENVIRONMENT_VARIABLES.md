@@ -538,6 +538,48 @@ Enable health check endpoints.
 
 Prometheus metrics server port.
 
+### `ORCHESTRATOR_ADAPTER_ENABLED`
+
+| Property | Value                     |
+| -------- | ------------------------- |
+| Type     | `boolean`                 |
+| Values   | `true`, `false`, `1`, `0` |
+| Default  | `false`                   |
+| Required | No                        |
+
+Enable the orchestrator adapter for unified turn processing.
+
+When enabled, the server and sandbox engines use the canonical orchestrator
+(`src/shared/engine/orchestration/`) via adapter wrappers instead of the
+legacy turn processing pipelines. This allows for gradual migration to the
+unified architecture.
+
+**Rollout Strategy:**
+
+| Phase | Environment         | Duration      | Actions                                          |
+| ----- | ------------------- | ------------- | ------------------------------------------------ |
+| 1     | Development         | 1 week        | Enable flag, run full test suite, verify parity  |
+| 2     | Staging             | 2 weeks       | Enable flag, run AI tournaments, monitor metrics |
+| 3     | Production (Canary) | 1 week        | Enable for 10% of games, monitor for divergence  |
+| 4     | Production (Full)   | Ongoing       | Enable for all games, monitor metrics            |
+| 5     | Legacy Removal      | After 4 weeks | Remove legacy code paths per elimination plan    |
+
+**Monitoring Checklist:**
+
+- [ ] No increase in game errors/exceptions
+- [ ] No divergence in move validation (cross-platform parity)
+- [ ] No performance regression (AI response time)
+- [ ] No difference in game outcomes (victory distribution)
+
+**Rollback:**
+Set `ORCHESTRATOR_ADAPTER_ENABLED=false` to immediately revert to legacy path.
+No data migration required - flag is purely behavioral.
+
+**Related Documentation:**
+
+- [Legacy Code Elimination Plan](./drafts/LEGACY_CODE_ELIMINATION_PLAN.md)
+- [Phase 3 Adapter Migration Report](./drafts/PHASE3_ADAPTER_MIGRATION_REPORT.md)
+
 ---
 
 ## Game Configuration

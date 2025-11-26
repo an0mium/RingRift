@@ -56,6 +56,12 @@ import {
   TurnEngineDeps,
   TurnEngineHooks,
 } from './turn/TurnEngine';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Orchestrator Adapter Feature Flag
+// ═══════════════════════════════════════════════════════════════════════════
+// Check config for feature flag to enable orchestrator adapter by default
+const ORCHESTRATOR_ADAPTER_ENABLED_BY_CONFIG = config.featureFlags.orchestratorAdapterEnabled;
 import {
   TurnEngineAdapter,
   StateAccessor,
@@ -117,8 +123,10 @@ export class GameEngine {
    * Phase 3 Rules Engine Consolidation - see:
    * - docs/drafts/RULES_ENGINE_CONSOLIDATION_DESIGN.md
    * - docs/drafts/PHASE3_ADAPTER_MIGRATION_REPORT.md
+   *
+   * Phase 5: Now reads default from config.featureFlags.orchestratorAdapterEnabled
    */
-  private useOrchestratorAdapter: boolean = false;
+  private useOrchestratorAdapter: boolean = ORCHESTRATOR_ADAPTER_ENABLED_BY_CONFIG;
   /**
    * Per-turn placement state: when a ring placement occurs, we track that
    * fact and remember which stack must be moved this turn. This mirrors

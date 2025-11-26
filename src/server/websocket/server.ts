@@ -902,7 +902,9 @@ export class WebSocketServer {
         const session = this.sessionManager.getSession(gameId);
         if (session) {
           const gameState = session.getGameState();
-          const player = gameState.players.find((p) => p.id === userId);
+          const player = gameState.players.find(
+            (p: { id: string; playerNumber: number }) => p.id === userId
+          );
 
           // Only set up reconnection window for actual players, not spectators
           if (player && !gameState.spectators.includes(userId)) {
@@ -1006,6 +1008,64 @@ export class WebSocketServer {
   ): PlayerConnectionState | undefined {
     const key = `${gameId}:${userId}`;
     return this.playerConnectionStates.get(key);
+  }
+
+  /**
+   * Aggregate in-memory diagnostics for a given game, combining the
+   * GameSession-derived projections (when available) with the current
+   * connection state machine snapshots. This method is intentionally
+   * loosely typed and uses the public testing/diagnostics accessors on
+   * GameSession so that HTTP routes and incident tooling can consume a
+   * compact view without tightening coupling.
+   */
+  public getGameDiagnosticsForGame(gameId: string): {
+    sessionStatus: any | null;
+    lastAIRequestState: any | null;
+    aiDiagnostics: any | null;
+    connections: Record<string, PlayerConnectionState>;
+    hasInMemorySession: boolean;
+  } {
+    const session = this.sessionManager.getSession(gameId) as any | undefined;
+
+    const connections: Record<string, PlayerConnectionState> = {};
+    const prefix = `${gameId}:`;
+    for (const [key, state] of this.playerConnectionStates.entries()) {
+      if (key.startsWith(prefix)) {
+        const userId = key.slice(prefix.length);
+        connections[userId] = state;
+      }
+    }
+
+    if (!session) {
+      return {
+        sessionStatus: null,
+        lastAIRequestState: null,
+        aiDiagnostics: null,
+        connections,
+        hasInMemorySession: false,
+      };
+    }
+
+    const sessionStatus =
+      typeof session.getSessionStatusSnapshot === 'function'
+        ? session.getSessionStatusSnapshot()
+        : null;
+    const lastAIRequestState =
+      typeof session.getLastAIRequestStateForTesting === 'function'
+        ? session.getLastAIRequestStateForTesting()
+        : null;
+    const aiDiagnostics =
+      typeof session.getAIDiagnosticsSnapshotForTesting === 'function'
+        ? session.getAIDiagnosticsSnapshotForTesting()
+        : null;
+
+    return {
+      sessionStatus,
+      lastAIRequestState,
+      aiDiagnostics,
+      connections,
+      hasInMemorySession: true,
+    };
   }
 
   // Lobby broadcast methods

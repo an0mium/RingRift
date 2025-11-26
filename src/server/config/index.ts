@@ -1,21 +1,41 @@
 /**
- * Configuration Module Index
+ * Configuration Module - Canonical Entry Point
  *
- * This module re-exports the main application configuration and
- * environment utilities for convenient access throughout the codebase.
+ * This is the single canonical entry point for all application configuration.
+ * All server code should import from this module:
  *
  * Usage:
  *   import { config } from './config';
  *   // or
  *   import { config, validateSecretsOrThrow } from './config';
+ *   // or for topology enforcement
+ *   import { config, enforceAppTopology } from './config';
+ *
+ * Architecture:
+ * - `env.ts` - Raw environment variable schema definitions
+ * - `unified.ts` - Config assembly and validation logic
+ * - `topology.ts` - Deployment topology enforcement
+ * - `index.ts` (this file) - Canonical re-export point
  */
 
-// Re-export configuration from the main config module (parent directory)
-// This maintains backward compatibility with existing imports
-export { config } from '../config';
-export type { AppConfig } from '../config';
+// ============================================================================
+// Primary Configuration Export
+// ============================================================================
 
-// Re-export environment validation utilities
+// Export the main configuration object from unified module
+export { config } from './unified';
+export type { AppConfig } from './unified';
+
+// ============================================================================
+// Topology Enforcement
+// ============================================================================
+
+export { enforceAppTopology } from './topology';
+
+// ============================================================================
+// Environment Schema & Utilities
+// ============================================================================
+
 export {
   EnvSchema,
   NodeEnvSchema,
@@ -33,9 +53,20 @@ export {
   isProductionLike,
 } from './env';
 
-export type { RawEnv, EnvValidationResult, NodeEnv, AppTopology, RulesMode, LogLevel, LogFormat } from './env';
+export type {
+  RawEnv,
+  EnvValidationResult,
+  NodeEnv,
+  AppTopology,
+  RulesMode,
+  LogLevel,
+  LogFormat,
+} from './env';
 
-// Re-export secrets validation utilities
+// ============================================================================
+// Secrets Validation Utilities
+// ============================================================================
+
 export {
   validateSecretsOrThrow,
   validateAllSecrets,

@@ -14,7 +14,7 @@ import { logger } from './utils/logger';
 import { connectDatabase } from './database/connection';
 import { connectRedis } from './cache/redis';
 import client from 'prom-client';
-import { config } from './config';
+import { config, enforceAppTopology } from './config';
 import { HealthCheckService, isServiceReady } from './services/HealthCheckService';
 import { getMetricsService } from './services/MetricsService';
 import { getServiceStatusManager, DegradationLevel } from './services/ServiceStatusManager';
@@ -150,58 +150,9 @@ app.use('*', (_req, res) => {
   });
 });
 
-function enforceAppTopology() {
-  const topology = config.app.topology;
-  const nodeEnv = config.nodeEnv;
-
-  if (topology === 'single') {
-    logger.info(
-      'App topology: single-instance mode (RINGRIFT_APP_TOPOLOGY=single). ' +
-        'The server assumes it is the only app instance talking to this database and Redis ' +
-        'for authoritative game sessions.'
-    );
-    return;
-  }
-
-  const logContext = { topology, nodeEnv };
-
-  if (topology === 'multi-unsafe') {
-    const message =
-      'RINGRIFT_APP_TOPOLOGY=multi-unsafe: multi-instance deployment without sticky sessions ' +
-      'or shared state is unsupported. Each instance will maintain its own in-process game sessions.';
-
-    if (config.isProduction) {
-      logger.error(
-        `${message} Refusing to start in NODE_ENV=production. ` +
-          'Configure infrastructure-enforced sticky sessions and/or shared game state before using multiple app instances.',
-        logContext
-      );
-      throw new Error(
-        'Unsupported app topology "multi-unsafe" in production. Refusing to start with multiple app instances.'
-      );
-    }
-
-    logger.warn(
-      `${message} Continuing because NODE_ENV=${nodeEnv}. ` +
-        'This mode is intended only for development/experimentation.',
-      logContext
-    );
-    return;
-  }
-
-  if (topology === 'multi-sticky') {
-    logger.warn(
-      'RINGRIFT_APP_TOPOLOGY=multi-sticky: backend assumes infrastructure-enforced sticky sessions ' +
-        '(HTTP + WebSocket) for all game-affecting traffic to a given game. ' +
-        'Correctness is not guaranteed if sticky sessions are misconfigured or absent.',
-      logContext
-    );
-  }
-}
-
 async function startServer() {
   try {
-    enforceAppTopology();
+    enforceAppTopology(config);
 
     // Connect to database
     await connectDatabase();
