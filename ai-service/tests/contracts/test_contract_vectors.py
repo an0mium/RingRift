@@ -51,6 +51,9 @@ VECTOR_CATEGORIES = [
     "line_detection",
     "territory",
     "chain_capture",
+    # Orchestrator-driven territory processing (region + self-elimination)
+    # uses its own bundle/category in v2 vectors.
+    "territory_processing",
 ]
 
 

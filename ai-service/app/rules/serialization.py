@@ -236,7 +236,14 @@ def serialize_move(move: Move) -> Dict[str, Any]:
 
 
 def deserialize_move(data: Dict[str, Any]) -> Move:
-    """Deserialize a Move from JSON dict."""
+    """Deserialize a Move from JSON dict.
+
+    This mirrors the TypeScript contract move format from
+    src/shared/engine/contracts/serialization.ts and preserves
+    decision-phase metadata such as formedLines, disconnectedRegions,
+    collapsedMarkers, and eliminatedRings so that parity tests can
+    reconstruct rich decision moves exactly.
+    """
     # Parse move type
     move_type_str = data.get("type", "place_ring")
     move_type = MoveType(move_type_str)
@@ -265,7 +272,10 @@ def deserialize_move(data: Dict[str, Any]) -> Move:
         else None
     )
 
-    # Build move kwargs dict to allow "from" alias
+    # Build move kwargs dict to allow "from" alias and preserve
+    # additional decision/metadata fields. Pydantic will coerce the
+    # raw dict/list payloads into the appropriate typed models based
+    # on field aliases (e.g. formedLines → LineInfo[], disconnectedRegions → Territory[]).
     move_kwargs: Dict[str, Any] = {
         "id": data.get("id", "test-move"),
         "type": move_type,
@@ -278,8 +288,22 @@ def deserialize_move(data: Dict[str, Any]) -> Move:
         "placementCount": data.get("placementCount"),
         "placedOnStack": data.get("placedOnStack"),
     }
+
     if from_pos is not None:
         move_kwargs["from"] = from_pos
+
+    # Preserve line / territory decision metadata when present.
+    if "formedLines" in data:
+        move_kwargs["formedLines"] = data["formedLines"]
+    if "collapsedMarkers" in data:
+        move_kwargs["collapsedMarkers"] = data["collapsedMarkers"]
+    if "claimedTerritory" in data:
+        move_kwargs["claimedTerritory"] = data["claimedTerritory"]
+    if "disconnectedRegions" in data:
+        move_kwargs["disconnectedRegions"] = data["disconnectedRegions"]
+    if "eliminatedRings" in data:
+        move_kwargs["eliminatedRings"] = data["eliminatedRings"]
+
     return Move(**move_kwargs)  # type: ignore[arg-type]
 
 

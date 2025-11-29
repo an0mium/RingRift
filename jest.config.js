@@ -153,10 +153,15 @@ module.exports = {
   },
   
   // Ignore patterns
+  // NOTE: E2E Playwright specs live under tests/e2e and are executed via
+  // `npm run test:e2e` / Playwright directly, not via Jest. We exclude them
+  // here so that "npm test" only runs Jest-based unit/contract/integration
+  // suites (see tests/TEST_LAYERS.md for layering).
   testPathIgnorePatterns: [
     '/node_modules/',
     '/dist/',
     '/build/',
+    '<rootDir>/tests/e2e/',
   ],
   
   // ===========================================================================

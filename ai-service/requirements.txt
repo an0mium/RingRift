@@ -5,7 +5,7 @@ pydantic==2.10.5
 
 # Utilities
 python-dotenv==1.0.0
-aiohttp==3.11.11
+aiohttp==3.12.14
 redis==5.2.1
 httpx==0.27.2
 prometheus_client==0.20.0
@@ -24,7 +24,7 @@ scikit-learn==1.6.1
 
 # Deep Learning for Self-Improving AI
 # PyTorch - Neural networks for position evaluation and policy learning
-torch==2.6.0
+torch==2.8.0
 torchvision==0.21.0
 
 # TensorBoard - Training monitoring and visualization

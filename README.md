@@ -210,20 +210,14 @@ The rules engine has been consolidated into a single canonical implementation wi
 Contract tests ensure parity between TypeScript and Python implementations:
 
 ```bash
-# TypeScript contract tests (14 vectors)
+# TypeScript contract tests over the v2 contract vectors
 npm test -- tests/contracts/contractVectorRunner.test.ts
 
-# Python contract tests (15 tests, 12 vectors)
+# Python contract tests over the same v2 contract vectors
 ./scripts/run-python-contract-tests.sh
 ```
 
-Test vectors are located in [`tests/fixtures/contract-vectors/v2/`](tests/fixtures/contract-vectors/v2/) and cover:
-
-- Placement (3 vectors)
-- Movement (3 vectors)
-- Capture (2 vectors)
-- Line detection (2 vectors)
-- Territory (2 vectors)
+The canonical contract vectors live in [`tests/fixtures/contract-vectors/v2/`](tests/fixtures/contract-vectors/v2/). They currently cover placement, movement, capture, line detection, and territory scenarios and are kept in sync with the shared TypeScript engine and Python rules engine.
 
 ## ⚠️ Development Notice
 
@@ -233,7 +227,7 @@ The codebase currently provides:
 
 - Infrastructure setup and configuration (Docker, database, Redis, WebSockets, logging, authentication)
 - Fully typed shared game state and rules data structures
-- A largely implemented GameEngine + BoardManager + RuleEngine for all board types
+- A shared TypeScript rules engine (helpers → aggregates → turn orchestrator) with a backend `GameEngine` host wired via `TurnEngineAdapter`; the legacy `RuleEngine` remains only for fenced diagnostics and archived tests
 - A Python AI Service wired into backend AI turns via `AIEngine` / `AIServiceClient`
 - A React client (LobbyPage + GamePage + BoardView + ChoiceDialog + GameHUD) that can:
   - Create backend games (including AI opponents) via the HTTP API and lobby UI
@@ -550,7 +544,7 @@ The WebSocket layer sits on top of `GameEngine` and `PlayerInteractionManager`, 
 
 ### Game Security
 
-- Move validation on server via `RuleEngine` and `GameEngine`
+- Move validation on server via `GameEngine` + `TurnEngineAdapter` over the shared TypeScript rules engine (legacy `RuleEngine` is retained only for fenced diagnostics and archived tests)
 - Game state integrity checks
 - WebSocket authentication via JWT
 
@@ -582,11 +576,22 @@ The WebSocket layer sits on top of `GameEngine` and `PlayerInteractionManager`, 
 ### Backend Testing
 
 ```bash
-npm test                   # Run all Jest tests
-npm run test:watch         # Watch mode
-npm run test:coverage      # Coverage report
-npm run test:unit          # Unit tests (tests/unit)
-npm run test:integration   # Integration tests (tests/integration if present)
+npm test                        # Run all Jest tests
+npm run test:watch              # Watch mode
+npm run test:coverage           # Coverage report
+npm run test:unit               # Unit tests (tests/unit)
+npm run test:integration        # Integration tests (tests/integration)
+
+# Rules- and orchestrator-focused lanes
+npm run test:ts-rules-engine    # TS rules-level suites (shared engine + orchestrator)
+npm run test:orchestrator-parity # Curated orchestrator-ON parity bundle (shared tests, contracts, RulesMatrix, FAQ, key territory tests)
+
+# Additional CI lanes
+npm run test:ts-parity          # Trace/host parity and RNG-oriented suites (diagnostic)
+npm run test:ts-integration     # Integration suites (WebSocket, routes, full game flows)
+
+# Single-source-of-truth (SSoT) guardrails
+npm run ssot-check              # Docs/env/CI/rules SSoT checks and legacy-path fences
 ```
 
 ### Trace parity & GameTrace
@@ -620,7 +625,7 @@ npm test
 
 ### Test Coverage Goals
 
-- Unit tests for game logic (BoardManager, RuleEngine, GameEngine)
+- Unit tests for game logic (shared TS engine aggregates + GameEngine host; legacy `RuleEngine` only where needed for archived diagnostics)
 - Integration tests for API endpoints and WebSocket flows
 - AI boundary tests (AIEngine, AIServiceClient, AIInteractionHandler)
 - UI-level tests for critical components (BoardView, GamePage, ChoiceDialog, VictoryModal)
@@ -655,9 +660,14 @@ npm test
 ### CI/CD Pipeline
 
 - GitHub Actions workflow in `.github/workflows/ci.yml` with jobs for:
-  - Lint + type check
-  - Jest tests + coverage upload to Codecov
-  - Build (server + client)
+  - **Lint and Type Check** – ESLint + TypeScript compilation for server/client.
+  - **TS Rules Engine (rules-level)** – runs `npm run test:ts-rules-engine` with the shared TS engine + orchestrator adapter forced ON.
+  - **TS Orchestrator Parity (adapter-ON)** – runs `npm run test:orchestrator-parity` over a curated, high-signal subset of suites (shared tests, contract vectors, RulesMatrix, FAQ scenarios, critical territory/disconnection tests). This job is intended to be a required gate for `main`.
+  - **TS Parity / TS Integration** – additional Jest lanes for trace/host parity and integration tests (WebSocket, routes, full game flows).
+  - **SSoT Drift Guards** – runs `npm run ssot-check` to enforce docs/env/CI/rules SSoT and fence legacy `RuleEngine` / sandbox helpers.
+  - **Python lanes** – Python rules-parity, core tests, and dependency audit for `ai-service`.
+  - **E2E Tests** – Playwright E2E tests against a full Dockerised stack.
+  - **Build (server + client)** and Docker build jobs for packaging.
   - Security scans (npm audit + Snyk)
 - Docker build verification via `docker/build-push-action`
 

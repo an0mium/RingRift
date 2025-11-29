@@ -554,6 +554,32 @@ latest project assessment. They should be kept in sync with
   - [ ] Aggregate per-user stats (wins/losses, rating if enabled).
   - [ ] Expose a minimal leaderboard view in the client.
 
+### Track 6 – Dev UX Evaluation & Dependency Modernization (P1)
+
+- [ ] Operationalize dev stack startup for UX evaluation
+  - [ ] Document a one-page "Start the Stack" recipe (Docker, AI service, `npm run dev`)
+  - [ ] Ensure `.env` includes correct `DATABASE_URL`, `AI_SERVICE_URL`, and any orchestrator/feature flags
+  - [ ] Verify that backend + client start cleanly and can be restarted without manual cleanup
+- [ ] Run structured UX walkthroughs
+  - [ ] Auth flows: register, login, logout, and common error cases
+  - [ ] Lobby flows: game creation/joining (AI vs human), reconnection, and spectator behavior
+  - [ ] Game flows: HUD clarity, event log usefulness, resignation/victory handling
+  - [ ] Sandbox flows: scenario setup (placement/movement/capture/territory/victory) and debug affordances
+- [ ] Synthesize UX findings into a prioritized plan
+  - [ ] Compile UX issues per surface (auth, lobby, game, sandbox) with severity labels
+  - [ ] Tag items that relate to orchestrator rollout, TS↔Python rules parity, or AI service behavior
+  - [ ] Identify 1–2 "first slice" UX improvements that are low risk but high leverage
+- [ ] Perform dependency modernization pass
+  - [ ] For Node/TS (root `package.json`):
+    - [ ] Run `npm outdated` and capture current vs latest versions
+    - [ ] Update dependencies to the latest compatible versions (prefer automated tools like `npm update` / `npm-check-updates`)
+    - [ ] Re-run Jest + Playwright suites and fix any breakages introduced by tooling/runtime bumps
+  - [ ] For Python (`ai-service/requirements.txt`):
+    - [ ] Run `pip-audit -r requirements.txt` to confirm security status
+    - [ ] Upgrade packages to the latest versions compatible with the current Python/runtime stack
+    - [ ] Re-run pytest (rules/parity, training, and invariants) and address any regressions
+  - [ ] Document any intentionally deferred major-version upgrades and their rationale (e.g. FastAPI/Starlette constraints or Python version support)
+
 ### Suggested 2–4 Week Execution Plan (Guidance)
 
 These are not strict milestones but a suggested ordering that can be

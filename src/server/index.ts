@@ -200,7 +200,7 @@ async function startServer() {
             orchestratorAdapterEnabled: orchestratorEnabled,
             rolloutPercentage: config.featureFlags.orchestrator.rolloutPercentage,
             shadowModeEnabled: config.featureFlags.orchestrator.shadowModeEnabled,
-            rulesMode: config.rulesEngine.rulesMode,
+            rulesMode: config.rules.mode,
           }
         );
       }

@@ -1,0 +1,252 @@
+{
+  "version": "v2",
+  "generated": "2025-11-28T23:30:21.878Z",
+  "count": 2,
+  "categories": ["territory_processing"],
+  "vectors": [
+    {
+      "id": "territory_processing.mijhwjzi.tm2h",
+      "version": "v2",
+      "category": "territory_processing",
+      "description": "Territory region processing (two-space region, square8)",
+      "tags": [
+        "territory",
+        "territory_processing",
+        "orchestrator",
+        "parity",
+        "sequence:territory.region.self_elim.square8"
+      ],
+      "source": "generated",
+      "createdAt": "2025-11-28T23:30:21.870Z",
+      "input": {
+        "state": {
+          "gameId": "contract-territory-composite",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "0,0": {
+                "position": {
+                  "x": 0,
+                  "y": 0
+                },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              },
+              "1,0": {
+                "position": {
+                  "x": 1,
+                  "y": 0
+                },
+                "rings": [2, 2, 2],
+                "stackHeight": 3,
+                "capHeight": 3,
+                "controllingPlayer": 2
+              },
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 0,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 0,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "territory-composite-region",
+          "type": "process_territory_region",
+          "player": 1,
+          "to": {
+            "x": 0,
+            "y": 0
+          },
+          "disconnectedRegions": [
+            {
+              "spaces": [
+                {
+                  "x": 0,
+                  "y": 0
+                },
+                {
+                  "x": 1,
+                  "y": 0
+                }
+              ],
+              "controllingPlayer": 0,
+              "isDisconnected": true
+            }
+          ],
+          "timestamp": "2025-11-28T23:30:21.866Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "stackCount": 1,
+          "markerCount": 0,
+          "collapsedCount": 2,
+          "sInvariantDelta": 7,
+          "player1RingsInHand": 0,
+          "player1EliminatedRings": 5,
+          "player2RingsInHand": 0,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "territory_processing.mijhwjzq.ktgk",
+      "version": "v2",
+      "category": "territory_processing",
+      "description": "Territory self-elimination after region processing (square8)",
+      "tags": [
+        "territory",
+        "territory_processing",
+        "orchestrator",
+        "parity",
+        "sequence:territory.region.self_elim.square8"
+      ],
+      "source": "generated",
+      "createdAt": "2025-11-28T23:30:21.878Z",
+      "input": {
+        "state": {
+          "gameId": "contract-territory-composite",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {
+              "0,0": 1,
+              "1,0": 1
+            },
+            "eliminatedRings": {
+              "1": 5,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 0,
+              "eliminatedRings": 5,
+              "territorySpaces": 2,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 0,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 5
+        },
+        "move": {
+          "id": "eliminate-3,3",
+          "type": "eliminate_rings_from_stack",
+          "player": 1,
+          "to": {
+            "x": 3,
+            "y": 3
+          },
+          "eliminatedRings": [
+            {
+              "player": 1,
+              "count": 1
+            }
+          ],
+          "eliminationFromStack": {
+            "position": {
+              "x": 3,
+              "y": 3
+            },
+            "capHeight": 1,
+            "totalHeight": 1
+          },
+          "timestamp": "2025-11-28T23:30:21.869Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "completed",
+          "stackCount": 0,
+          "markerCount": 0,
+          "collapsedCount": 2,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 0,
+          "player1EliminatedRings": 6,
+          "player2RingsInHand": 0,
+          "player2EliminatedRings": 0,
+          "victoryWinner": null
+        }
+      }
+    }
+  ]
+}

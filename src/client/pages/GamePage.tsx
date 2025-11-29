@@ -1484,6 +1484,14 @@ export default function GamePage() {
     territorySpaces: player.territorySpaces,
     isCurrent: player.playerNumber === sandboxCurrentPlayerNumber,
   }));
+  const sandboxModeNotes = [
+    `Board: ${boardDisplayLabel}`,
+    `${humanSeatCount} human seat${humanSeatCount === 1 ? '' : 's'} · ${aiSeatCount} AI`,
+    sandboxEngine
+      ? 'Engine parity mode with local AI and choice handler.'
+      : 'Legacy local sandbox fallback (no backend).',
+    'Runs entirely in-browser; use "Change Setup" to switch configurations.',
+  ];
   const sandboxHudViewModel = {
     players: sandboxHudPlayers,
     phaseDetails: sandboxPhaseDetails,
@@ -1506,14 +1514,6 @@ export default function GamePage() {
       controllingPlayer: stack.controllingPlayer,
     };
   })();
-  const sandboxModeNotes = [
-    `Board: ${boardDisplayLabel}`,
-    `${humanSeatCount} human seat${humanSeatCount === 1 ? '' : 's'} · ${aiSeatCount} AI`,
-    sandboxEngine
-      ? 'Engine parity mode with local AI and choice handler.'
-      : 'Legacy local sandbox fallback (no backend).',
-    'Runs entirely in-browser; use "Change Setup" to switch configurations.',
-  ];
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-4">

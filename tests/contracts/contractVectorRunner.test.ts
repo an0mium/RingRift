@@ -97,22 +97,32 @@ function groupVectorsBySequenceTag(
 
 /**
  * Convert a contract vector move to the Move type expected by processTurn.
+ *
+ * IMPORTANT: contract moves may carry additional decision-specific fields
+ * (e.g. disconnectedRegions for process_territory_region, eliminationFromStack
+ * for eliminate_rings_from_stack). We must preserve those fields when
+ * reconstructing the Move, otherwise the orchestrator/aggregates may treat
+ * the move as a no-op (because key context is missing).
  */
 function convertVectorMove(vectorMove: ContractTestVector['input']['move']): Move {
-  return {
-    id: vectorMove.id,
-    type: vectorMove.type as Move['type'],
-    player: vectorMove.player,
-    from: vectorMove.from,
-    to: vectorMove.to,
-    captureTarget: vectorMove.captureTarget,
-    placedOnStack: vectorMove.placedOnStack,
-    placementCount: vectorMove.placementCount,
-    formedLines: vectorMove.formedLines,
-    timestamp: new Date(vectorMove.timestamp),
-    thinkTime: vectorMove.thinkTime ?? 0,
-    moveNumber: vectorMove.moveNumber,
-  } as Move;
+  // Start from a shallow copy so we preserve any extra properties that are not
+  // explicitly listed in the core Move type (such as disconnectedRegions,
+  // eliminationFromStack, collapsedMarkers, etc.).
+  const base: any = { ...vectorMove };
+
+  // Normalise timestamp to a Date instance; fall back to "now" if missing.
+  if (base.timestamp) {
+    base.timestamp = new Date(base.timestamp as string);
+  } else {
+    base.timestamp = new Date();
+  }
+
+  // Normalise thinkTime to a number.
+  if (base.thinkTime == null) {
+    base.thinkTime = 0;
+  }
+
+  return base as Move;
 }
 
 /**
