@@ -15,6 +15,7 @@ import type {
   RingStack,
   MarkerInfo,
 } from '../../types/game';
+import { computeProgressSnapshot } from '../core';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -307,14 +308,8 @@ export function computeStateDiff(before: GameState, after: GameState): Record<st
   diff.collapsedCountDelta = after.board.collapsedSpaces.size - before.board.collapsedSpaces.size;
 
   // S-invariant
-  const sInvariantBefore =
-    before.board.markers.size +
-    before.board.collapsedSpaces.size +
-    before.players.reduce((sum, p) => sum + p.eliminatedRings, 0);
-  const sInvariantAfter =
-    after.board.markers.size +
-    after.board.collapsedSpaces.size +
-    after.players.reduce((sum, p) => sum + p.eliminatedRings, 0);
+  const sInvariantBefore = computeProgressSnapshot(before).S;
+  const sInvariantAfter = computeProgressSnapshot(after).S;
   diff.sInvariantDelta = sInvariantAfter - sInvariantBefore;
 
   return diff;

@@ -215,6 +215,17 @@ S = markers + collapsedSpaces + eliminatedRings
 
 This value should be non-decreasing across turns (monotonic increase with game progress).
 
+Implementation details:
+
+- S is computed via the shared helper `computeProgressSnapshot(state).S` from `src/shared/engine/core.ts`.
+- Each call to `processTurn` records `sInvariantBefore` and `sInvariantAfter` in `ProcessingMetadata`,
+  which is exposed both to hosts (e.g. `GameEngine` via `TurnEngineAdapter`) and to contract
+  schemas (`ProcessingMetadata` in `src/shared/engine/contracts/validators.ts`).
+- These fields are used by:
+  - the orchestrator invariant soak harness (`scripts/run-orchestrator-soak.ts`);
+  - S-invariant regression tests (`tests/unit/OrchestratorSInvariant.regression.test.ts`);
+  - contract vectors (`sInvariantDelta` assertions in `tests/fixtures/contract-vectors/v2/**`).
+
 ## Phase State Machine
 
 The turn processing phases follow this flow:

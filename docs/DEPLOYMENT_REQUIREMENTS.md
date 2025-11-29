@@ -40,7 +40,7 @@ This document outlines the requirements and configuration for deploying RingRift
 
 ### Prerequisites
 
-- **Node.js**: v22+ (as specified in package.json engines)
+- **Node.js**: v18+ (tested primarily with v22.x; see `engines.node` in `package.json`)
 - **npm**: v9+
 - **Docker**: v20+ (for containerized services)
 - **Docker Compose**: v2+
@@ -83,6 +83,29 @@ LOG_FORMAT=pretty
 LOG_LEVEL=debug
 AI_FALLBACK_ENABLED=true
 ```
+
+### Test & Log Handling Conventions
+
+For Jest, Playwright, and Python test runs, prefer **log redirection + safe viewing** to keep local and CI output manageable:
+
+- Redirect noisy commands to files under `logs/` or `test-results/` and inspect them via `scripts/safe-view.js`:
+
+  ```bash
+  # Example: Playwright E2E (Chromium only)
+  npx playwright test --project=chromium \
+    > logs/playwright/latest.chromium.log 2>&1
+
+  node scripts/safe-view.js \
+    logs/playwright/latest.chromium.log \
+    logs/playwright/latest.chromium.view.txt --max-lines=400
+  ```
+
+- This pattern is used for:
+  - Jest full-suite runs (`npm run test:all:quiet:log`).
+  - Python AI-service tests (`npm run test:python:quiet:log`).
+  - Playwright E2E baselines and upgrade guardrails.
+
+See `docs/DEPENDENCY_UPGRADE_PLAN.md` for the wave-based dependency upgrade strategy and the specific guardrail test subsets (Jest + Playwright + Python) expected per upgrade wave.
 
 ---
 
@@ -180,6 +203,29 @@ All services must pass health checks before the app starts:
    - **REQUIRES** infrastructure-enforced sticky sessions
    - Load balancer must route all requests from same client to same backend
    - WebSocket connections must be sticky
+
+### Rules Mode & Orchestrator Flags
+
+The backend hosts the canonical shared TypeScript rules engine via the
+orchestrator and `TurnEngineAdapter`. In production and staging, we treat the
+shared engine as authoritative:
+
+```env
+RINGRIFT_RULES_MODE=ts
+ORCHESTRATOR_ADAPTER_ENABLED=true
+ORCHESTRATOR_ROLLOUT_PERCENTAGE=100
+ORCHESTRATOR_SHADOW_MODE_ENABLED=false
+```
+
+Notes:
+
+- `RINGRIFT_RULES_MODE=ts` ensures all rules traffic uses the shared TS engine
+  rather than any legacy paths.
+- `ORCHESTRATOR_ADAPTER_ENABLED=true` and
+  `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100` keep `GameEngine.makeMove()` on the
+  `TurnEngineAdapter` path for live games.
+- Shadow/legacy modes are reserved for **diagnostic/non-production** use and
+  should not be enabled in production without an explicit incident playbook.
 
 ### Secrets Management
 
@@ -369,6 +415,49 @@ This checks:
 
 Validation runs automatically on push/PR via `.github/workflows/validate-config.yml`.
 
+### Recommended Validation Commands by Environment
+
+While CI covers most validation, operators should be able to re-run a focused
+subset of checks against the **exact image/build** being promoted:
+
+- **Development / Local QA**
+
+  ```bash
+  # Core Jest suites (rules, routes, components)
+  npm run test:core
+
+  # Rules- and orchestrator-focused Jest lanes
+  npm run test:ts-rules-engine
+  npm run test:orchestrator-parity
+
+  # Fast Playwright smoke (auth + helpers + sandbox host)
+  npm run test:e2e:smoke
+  ```
+
+- **Staging (pre-production candidate)**
+
+  ```bash
+  # Run on the staged app image or container shell
+  npm run test:ts-rules-engine
+  npm run test:orchestrator-parity
+  npm run soak:orchestrator:smoke   # strict invariant smoke on square8
+  npm run test:e2e:smoke
+  ```
+
+- **AI Service (Python)**
+
+  ```bash
+  cd ai-service
+  pytest tests/test_self_play_stability.py::test_self_play_mixed_2p_square8_stability -q
+  pytest tests/contracts/test_contract_vectors.py -q
+  ```
+
+These commands complement `npm run validate:deployment` by exercising:
+
+- The shared TS rules engine + orchestrator under Jest.
+- Key WebSocket/auth/sandbox flows under Playwright.
+- Python rules/AI parity and strict no-move invariants.
+
 ### Manual Checklist
 
 Before any production deployment:
@@ -380,6 +469,7 @@ Before any production deployment:
 - [ ] Backup strategy is in place
 - [ ] Monitoring is configured
 - [ ] Rollback plan is documented
+- [ ] Orchestrator invariant smoke soak (`npm run soak:orchestrator:smoke`) has been run against the target image and investigated if any violations are reported (see `docs/STRICT_INVARIANT_SOAKS.md`)
 
 ---
 

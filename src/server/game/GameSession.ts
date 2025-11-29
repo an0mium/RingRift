@@ -676,7 +676,7 @@ export class GameSession {
     await this.maybePerformAITurn();
   }
 
-  private async persistMove(playerId: string, moveData: any, result: any): Promise<void> {
+  private async persistMove(playerId: string, _moveData: any, result: any): Promise<void> {
     const updatedState = this.gameEngine.getGameState();
     const lastMove = updatedState.moveHistory[updatedState.moveHistory.length - 1];
 
@@ -1101,7 +1101,7 @@ export class GameSession {
    */
   private async persistAIMove(
     playerNumber: number,
-    moveType: Move['type'] | undefined,
+    _moveType: Move['type'] | undefined,
     result: any
   ): Promise<void> {
     try {

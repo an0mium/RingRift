@@ -9,6 +9,7 @@ import {
   waitForGameReady,
   waitForNetworkIdle,
   goToLobby,
+  goToSandbox,
   goToHome,
 } from './helpers/test-utils';
 import { LoginPage, RegisterPage, HomePage, GamePage } from './pages';
@@ -171,7 +172,7 @@ test.describe('E2E Helpers Smoke Tests', () => {
 
       const gamePage = new GamePage(page);
       await expect(gamePage.boardView).toBeVisible();
-      await expect(gamePage.connectionStatus).toBeVisible();
+      await expect(gamePage.connectionStatus).toContainText('Connection: Connected');
     });
   });
 
@@ -192,6 +193,16 @@ test.describe('E2E Helpers Smoke Tests', () => {
 
       // Home should show welcome message
       await expect(page.getByRole('heading', { name: /Welcome to RingRift/i })).toBeVisible();
+    });
+
+    test('goToSandbox navigates to sandbox pre-game page', async ({ page }) => {
+      await goToSandbox(page);
+
+      // Heading is asserted inside goToSandbox; here we also sanity-check
+      // that the sandbox pre-game controls are present.
+      await expect(page.getByRole('button', { name: /Launch Game/i })).toBeVisible({
+        timeout: 10_000,
+      });
     });
   });
 });

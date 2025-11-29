@@ -28,7 +28,10 @@ export class GamePage {
 
     // Initialize locators
     this.boardView = page.getByTestId('board-view');
-    this.connectionStatus = page.locator('text=/Connection/i');
+    // Narrow connection status to the HUD label ("Connection: …") so that
+    // Playwright strict mode does not match event-log entries like
+    // "Connection restored".
+    this.connectionStatus = page.getByTestId('game-hud').getByText('Connection:', { exact: false });
     this.turnIndicator = page.locator('text=/Turn/i');
     this.gameLogSection = page.locator('text=/Game log/i');
     this.recentMovesSection = page.locator('text=/Recent moves/i');
@@ -51,7 +54,11 @@ export class GamePage {
    */
   async waitForReady(timeout = 20_000): Promise<void> {
     await expect(this.boardView).toBeVisible({ timeout });
-    await expect(this.connectionStatus).toBeVisible({ timeout: 15_000 });
+    // Require the HUD connection label to report "Connected" so that we
+    // only proceed once the WebSocket has stabilised at least once.
+    await expect(this.connectionStatus).toContainText('Connection: Connected', {
+      timeout: 20_000,
+    });
     await expect(this.turnIndicator).toBeVisible({ timeout: 10_000 });
   }
 
@@ -174,7 +181,9 @@ export class GamePage {
    * Assert that the connection status shows connected.
    */
   async assertConnected(): Promise<void> {
-    await expect(this.connectionStatus).toBeVisible({ timeout: 10_000 });
+    await expect(this.connectionStatus).toContainText('Connection: Connected', {
+      timeout: 10_000,
+    });
   }
 
   /**

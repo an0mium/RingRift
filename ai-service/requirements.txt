@@ -1,21 +1,28 @@
+# AI service Python dependencies
+# NOTE: This file is kept in sync with the narrative/status document
+# `ai-service/DEPENDENCY_UPDATES.md` and the cross-repo plan in
+# `docs/DEPENDENCY_UPGRADE_PLAN.md`. When changing pins here, update
+# those docs (and re-run the guardrail test subsets) so that code,
+# environment, and documentation remain aligned.
+
 # Core FastAPI dependencies (Python 3.13 compatible)
-fastapi==0.115.5
-uvicorn[standard]==0.34.0
+fastapi==0.122.0
+uvicorn[standard]==0.38.0
 pydantic==2.10.5
 
 # Utilities
-python-dotenv==1.0.0
+python-dotenv==1.2.1
 aiohttp==3.12.14
-redis==5.2.1
-httpx==0.27.2
-prometheus_client==0.20.0
+redis==7.1.0
+httpx==0.28.1
+prometheus_client==0.23.1
 
-# Development tools
-pytest==8.3.4
-pytest-asyncio==0.24.0
-pytest-timeout==2.3.1  # Global test timeout for CI safety
-black==24.10.0
-flake8==7.1.1
+# Development tools (Wave 3-A tooling stack validated with pytest 9.x)
+pytest==9.0.1
+pytest-asyncio==1.3.0
+pytest-timeout==2.4.0  # Global test timeout for CI safety
+black==25.11.0
+flake8==7.3.0
 
 # Core ML/Data Science libraries (Latest versions with numpy 2.x)
 numpy==2.2.1
@@ -24,7 +31,9 @@ scikit-learn==1.6.1
 
 # Deep Learning for Self-Improving AI
 # PyTorch - Neural networks for position evaluation and policy learning
-torch==2.8.0
+# Note: torchvision 0.21.0 requires torch==2.6.0; this pair is validated for
+# Python 3.10/3.11 and numpy 2.2.x via Wave 3-D (dl-torch) guardrails.
+torch==2.6.0
 torchvision==0.21.0
 
 # TensorBoard - Training monitoring and visualization

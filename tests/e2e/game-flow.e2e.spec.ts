@@ -1,13 +1,5 @@
 import { test, expect } from '@playwright/test';
-import {
-  generateTestUser,
-  registerAndLogin,
-  createGame,
-  waitForGameReady,
-  clickValidPlacementTarget,
-  waitForMoveLog,
-  goToLobby,
-} from './helpers/test-utils';
+import { createBackendGameFromLobby } from './helpers/test-utils';
 import { GamePage } from './pages';
 
 /**
@@ -34,16 +26,6 @@ import { GamePage } from './pages';
  *
  * RUN COMMAND: npm run test:e2e -- --timeout 60000
  */
-
-/**
- * Creates a backend AI game from the lobby and waits for the game page to load.
- * Returns the game URL for reference.
- */
-async function createBackendGameFromLobby(page: import('@playwright/test').Page): Promise<string> {
-  await registerAndLogin(page);
-  await createGame(page);
-  return page.url();
-}
 
 test.describe('Backend game flow E2E', () => {
   // Increase timeout for game operations that involve WebSocket and DB

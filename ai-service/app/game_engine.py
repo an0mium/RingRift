@@ -529,26 +529,42 @@ class GameEngine:
             # This mirrors the TS TurnEngine behaviour where line_processing
             # automatically advances when no further decisions remain.
             remaining_lines = GameEngine._get_line_processing_moves(
-                game_state, current_player
+                game_state,
+                current_player,
             )
             if not remaining_lines:
                 GameEngine._advance_to_territory_processing(game_state)
-
+ 
         elif last_move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
-            # ELIMINATE_RINGS_FROM_STACK in the parity fixtures corresponds to
-            # the TS ELIMINATE_STACK action, which immediately ends the
-            # current player's turn and rotates to the next player's
-            # ring_placement phase. Mirror that by delegating to _end_turn.
-            GameEngine._end_turn(game_state)
-
+            # Explicit ELIMINATE_RINGS_FROM_STACK decisions are phase-preserving
+            # in the orchestrator-aligned semantics; they do not rotate the
+            # turn. Any terminal status is detected by _check_victory.
+            pass
+ 
+        elif last_move.type == MoveType.PROCESS_TERRITORY_REGION:
+            # After processing a disconnected territory region via an explicit
+            # PROCESS_TERRITORY_REGION decision, rotate to the next seat and
+            # start them in the ring_placement phase without applying forced
+            # elimination gating. This mirrors the TS orchestrator behaviour
+            # exercised by the v2 territory_processing contract vectors.
+            players = game_state.players
+            if players:
+                current_index = 0
+                for i, p in enumerate(players):
+                    if p.player_number == game_state.current_player:
+                        current_index = i
+                        break
+                next_index = (current_index + 1) % len(players)
+                game_state.current_player = players[next_index].player_number
+                game_state.current_phase = GamePhase.RING_PLACEMENT
+                game_state.must_move_from_stack_key = None
+ 
         elif last_move.type in (
-            MoveType.PROCESS_TERRITORY_REGION,
             MoveType.TERRITORY_CLAIM,
             MoveType.CHOOSE_TERRITORY_OPTION,
         ):
-            # Territory region processing and related choices are
-            # phase-preserving in the parity fixtures; end-of-turn rotation is
-            # handled explicitly via ELIMINATE_RINGS_FROM_STACK.
+            # Territory option choices are phase-preserving; explicit turn
+            # rotation is driven by PROCESS_TERRITORY_REGION / elimination.
             pass
 
     @staticmethod
@@ -2703,47 +2719,82 @@ class GameEngine:
     @staticmethod
     def _apply_territory_claim(game_state: GameState, move: Move):
         """
-        Apply a territory claim move (TS-aligned territory processing).
-
+        Apply a territory claim move (TS-orchestrator-aligned territory processing).
+    
         Mirrors TS territoryProcessing.processOneDisconnectedRegion:
-
-        1) Identify the disconnected region associated with this move using
-           BoardManager.find_disconnected_regions and the representative
-           position carried in move.to.
+    
+        1) Identify the disconnected region associated with this move, using
+           the explicit `move.disconnectedRegions` metadata when present and
+           falling back to BoardManager.find_disconnected_regions when
+           metadata is absent.
         2) Eliminate all rings inside the region, crediting ALL eliminated
            rings to the moving player.
         3) Collapse all spaces in the region, plus any border markers, to
            the moving player's colour.
         4) Update the moving player's territory_spaces by the total number
            of newly collapsed spaces (region + border markers).
-        5) Perform mandatory self-elimination of one ring/cap from the
-           moving player, preferring stacks outside the region when
-           available and falling back to rings in hand.
+    
+        NOTE: Mandatory self-elimination is modelled as a separate
+        ELIMINATE_RINGS_FROM_STACK / FORCED_ELIMINATION move in the
+        orchestrator-aligned contract vectors and is therefore NOT applied
+        inside this helper.
         """
         board = game_state.board
         player = move.player
-
-        # 1. Re-identify target region by representative position.
-        regions = BoardManager.find_disconnected_regions(board, player)
+    
+        # 1. Identify target region, preferring explicit decision geometry.
         target_region = None
         move_key = move.to.to_key()
-        for region in regions:
-            if region.spaces and region.spaces[0].to_key() == move_key:
-                target_region = region
-                break
-
+    
+        # 1a. Prefer explicit disconnectedRegions geometry carried on the Move.
+        explicit_regions = list(getattr(move, "disconnected_regions", None) or [])
+        if explicit_regions:
+            for region in explicit_regions:
+                if any(space.to_key() == move_key for space in region.spaces):
+                    target_region = region
+                    break
+            if target_region is None:
+                # Fall back to the first supplied region if no space matched `to`.
+                target_region = explicit_regions[0]
+    
+            _debug(
+                "DEBUG: _apply_territory_claim using explicit disconnected "
+                f"region at {move_key} with {len(target_region.spaces)} spaces "
+                f"for P{player}\n"
+            )
+        else:
+            # 1b. Fallback: rediscover regions from the board state and match
+            #     by representative position, preserving legacy behaviour for
+            #     callers that do not provide explicit geometry.
+            regions = BoardManager.find_disconnected_regions(board, player)
+            for region in regions:
+                if region.spaces and region.spaces[0].to_key() == move_key:
+                    target_region = region
+                    break
+    
+            if target_region:
+                _debug(
+                    "DEBUG: _apply_territory_claim using discovered "
+                    f"disconnected region at {move_key} with "
+                    f"{len(target_region.spaces)} spaces for P{player}\n"
+                )
+    
         if not target_region:
+            _debug(
+                "DEBUG: _apply_territory_claim found no matching disconnected "
+                f"region for move at {move_key} by P{player}\n"
+            )
             return
-
-        # 1a. Compute region key set for later checks (e.g., outside stacks).
+    
+        # 1c. Compute region key set for later checks (e.g., outside stacks)
+        #     and gather border markers.
         region_keys = {p.to_key() for p in target_region.spaces}
-
-        # 1b. Get border markers for this region.
+    
         border_markers = BoardManager.get_border_marker_positions(
             target_region.spaces,
             board,
         )
-
+    
         # 2. Eliminate all rings within the region, crediting them to the
         #    moving player. We repeatedly call _eliminate_top_ring_at until
         #    no stack remains at each space.
@@ -2757,7 +2808,7 @@ class GameEngine:
                     pos,
                     credited_player=player,
                 )
-
+    
         # 3. Collapse all spaces in the region to the moving player's colour.
         zobrist = ZobristHash()
         for pos in target_region.spaces:
@@ -2773,7 +2824,7 @@ class GameEngine:
             BoardManager.set_collapsed_space(pos, player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
-
+    
         # 4. Collapse all border markers to the moving player's colour.
         for pos in border_markers:
             key = pos.to_key()
@@ -2786,7 +2837,7 @@ class GameEngine:
             BoardManager.set_collapsed_space(pos, player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
-
+    
         # 5. Update territory_spaces for the moving player.
         spaces_gained = len(target_region.spaces) + len(border_markers)
         if spaces_gained > 0:
@@ -2794,47 +2845,7 @@ class GameEngine:
                 if ps.player_number == player:
                     ps.territory_spaces += spaces_gained
                     break
-
-        # 6. Mandatory self-elimination (one ring or cap from moving player).
-        player_stacks = BoardManager.get_player_stacks(board, player)
-
-        # Prefer stacks outside the processed region when choosing a cap
-        # to eliminate from, to mirror the "self-sacrifice outside the
-        # disconnected region" intent in the rules.
-        outside_stacks = [
-            s for s in player_stacks if s.position.to_key() not in region_keys
-        ]
-        chosen_stack = outside_stacks[0] if outside_stacks else (
-            player_stacks[0] if player_stacks else None
-        )
-
-        if chosen_stack:
-            # Eliminate the entire cap from the chosen stack, one ring at a
-            # time, crediting all eliminations to the moving player. This
-            # mirrors the default path in eliminatePlayerRingOrCap.
-            cap_height = chosen_stack.cap_height
-            stack_pos = chosen_stack.position
-            for _ in range(cap_height):
-                GameEngine._eliminate_top_ring_at(
-                    game_state,
-                    stack_pos,
-                    credited_player=player,
-                )
-        else:
-            # No stacks remain; eliminate a single ring from rings_in_hand
-            # if available, crediting it to the moving player.
-            for ps in game_state.players:
-                if ps.player_number == player:
-                    if ps.rings_in_hand > 0:
-                        ps.rings_in_hand -= 1
-                        ps.eliminated_rings += 1
-                        game_state.total_rings_eliminated += 1
-                        key = str(player)
-                        board.eliminated_rings[key] = (
-                            board.eliminated_rings.get(key, 0) + 1
-                        )
-                    break
-
+    
     @staticmethod
     def _generate_all_positions(
         board_type: BoardType, size: int

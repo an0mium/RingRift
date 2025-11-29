@@ -156,8 +156,7 @@ export const EnvSchema = z.object({
   AI_FALLBACK_ENABLED: z
     .string()
     .optional()
-    .transform((val) => val !== 'false' && val !== '0')
-    .default('true'),
+    .transform((val) => (val === undefined ? true : val !== 'false' && val !== '0')),
 
   // ===================================================================
   // RATE LIMITING
@@ -302,15 +301,13 @@ export const EnvSchema = z.object({
   ENABLE_METRICS: z
     .string()
     .optional()
-    .transform((val) => val !== 'false' && val !== '0')
-    .default('true'),
+    .transform((val) => (val === undefined ? true : val !== 'false' && val !== '0')),
 
   /** Enable health check endpoints */
   ENABLE_HEALTH_CHECKS: z
     .string()
     .optional()
-    .transform((val) => val !== 'false' && val !== '0')
-    .default('true'),
+    .transform((val) => (val === undefined ? true : val !== 'false' && val !== '0')),
 
   /** Metrics server port */
   METRICS_PORT: z.coerce.number().int().min(1).max(65535).default(9090),
@@ -436,12 +433,34 @@ export function parseEnv(
   const result = EnvSchema.safeParse(env);
 
   if (!result.success) {
+    // Zod 4 exposes `issues`, older versions used `errors`. Support both defensively.
+    const zodError = result.error as unknown as {
+      issues?: Array<{ path: (string | number)[]; message: string }>;
+      errors?: Array<{ path: (string | number)[]; message: string }>;
+    };
+
+    const issues = Array.isArray(zodError.issues)
+      ? zodError.issues
+      : Array.isArray((zodError as any).errors)
+        ? (zodError as any).errors
+        : [];
+
+    const errors =
+      issues.length > 0
+        ? issues.map((e: { path: (string | number)[]; message: string }) => ({
+            path: e.path.join('.'),
+            message: e.message,
+          }))
+        : [
+            {
+              path: '',
+              message: result.error.message,
+            },
+          ];
+
     return {
       success: false,
-      errors: result.error.errors.map((e) => ({
-        path: e.path.join('.'),
-        message: e.message,
-      })),
+      errors,
     };
   }
 

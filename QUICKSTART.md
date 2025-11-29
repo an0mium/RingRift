@@ -240,6 +240,7 @@ To run tests while you work:
 npm test                  # All Jest tests
 npm run test:watch        # Watch mode
 npm run test:coverage     # Coverage report
+npm run test:e2e:smoke    # Fast Playwright E2E smoke (auth + helpers + sandbox)
 ```
 
 > For a deeper understanding of what is implemented and where the gaps are, see `CURRENT_STATE_ASSESSMENT.md` and `README.md`.

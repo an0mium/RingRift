@@ -79,6 +79,7 @@ RingRift is a monorepo-style project with three main components:
 - **Environment variables reference:** [docs/ENVIRONMENT_VARIABLES.md](./ENVIRONMENT_VARIABLES.md:1) – complete reference for all configuration options, defaults, and validation rules.
 - **Database operations & migrations:** [docs/OPERATIONS_DB.md](./OPERATIONS_DB.md:1)
 - **Deployment requirements:** [docs/DEPLOYMENT_REQUIREMENTS.md](./DEPLOYMENT_REQUIREMENTS.md:1) – infrastructure requirements per environment.
+- **Dependency upgrade plan:** [docs/DEPENDENCY_UPGRADE_PLAN.md](./DEPENDENCY_UPGRADE_PLAN.md:1) – wave-based Node/TypeScript and Python dependency upgrade strategy, including test guardrails and log-handling conventions.
 - **Environment setup & staging stack:** [QUICKSTART.md](../QUICKSTART.md:71)
 
 ## 📋 Deployment Runbooks

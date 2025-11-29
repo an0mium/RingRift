@@ -62,10 +62,12 @@ class TestDescentAIMemoryIntegration:
         )
 
         # With 1GB max memory, 30% inference, 50% of that for TT:
-        # 1GB * 0.3 * 0.5 = 0.15GB = ~157MB for TT
-        # At 200 bytes per entry, that's ~785,000 entries
+        # 1GB * 0.3 * 0.5 = 0.15GB = ~157MB for TT.
+        # DescentAI currently uses a conservative entry_size_estimate of
+        # 10000 bytes per entry (to account for large children_value maps),
+        # so we derive the expected max_entries from that value.
         expected_tt_bytes = small_config.get_transposition_table_limit_bytes()
-        expected_max_entries = max(1000, expected_tt_bytes // 200)
+        expected_max_entries = max(1000, expected_tt_bytes // 10000)
 
         assert ai.transposition_table.max_entries == expected_max_entries
 

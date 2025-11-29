@@ -469,7 +469,7 @@ export class RuleEngine {
       // Defensive diagnostic: this should not occur if RuleEngine validation
       // and the shared validator are in sync. Log and treat as a no-op rather
       // than attempting a partial/manual mutation.
-      // eslint-disable-next-line no-console
+
       console.error('[RuleEngine.processCapture] CaptureAggregate.applyCapture failed', {
         reason: result.reason,
         moveType: move.type,
@@ -1430,5 +1430,15 @@ export class RuleEngine {
     // diagnostics and future rule-engine extensions.
     void this.isPathClear;
     void this.isStraightLineMovement;
+
+    // Keep legacy diagnostics-only helpers and type adapters referenced so that
+    // ts-node/TypeScript with noUnusedLocals can compile backend entrypoints
+    // (including orchestrator soak harnesses) without treating them as dead code.
+    void this.processChainReactions;
+    void this.canProcessDisconnectedRegionForRules;
+    void this.hasAnyLegalMoveOrCaptureFrom;
+
+    const _debugRingStack: RingStack | null = null;
+    void _debugRingStack;
   }
 }

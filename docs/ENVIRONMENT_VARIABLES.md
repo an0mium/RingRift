@@ -1038,14 +1038,16 @@ cron.schedule('0 3 * * *', async () => {
 
 These flags are for development and debugging only. **Do not enable in production.**
 
-| Variable                                       | Default | Description                             |
-| ---------------------------------------------- | ------- | --------------------------------------- |
-| `RINGRIFT_ENABLE_SANDBOX_AI_STALL_DIAGNOSTICS` | `false` | Enable sandbox AI stall diagnostics     |
-| `RINGRIFT_SANDBOX_CAPTURE_DEBUG`               | `false` | Enable sandbox capture debug logging    |
-| `RINGRIFT_SANDBOX_AI_CAPTURE_DEBUG`            | `false` | Enable sandbox AI capture debug logging |
-| `RINGRIFT_SANDBOX_AI_TRACE_MODE`               | `false` | Enable sandbox AI trace mode            |
-| `RINGRIFT_SANDBOX_AI_PARITY_MODE`              | `false` | Enable sandbox AI parity mode           |
-| `RINGRIFT_LOCAL_AI_HEURISTIC_MODE`             | `false` | Enable local AI heuristic mode          |
+| Variable                                       | Default | Description                                                                                              |
+| ---------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------- |
+| `RINGRIFT_ENABLE_SANDBOX_AI_STALL_DIAGNOSTICS` | `false` | Enable sandbox AI stall diagnostics                                                                      |
+| `RINGRIFT_SANDBOX_CAPTURE_DEBUG`               | `false` | Enable sandbox capture debug logging                                                                     |
+| `RINGRIFT_SANDBOX_AI_CAPTURE_DEBUG`            | `false` | Enable sandbox AI capture debug logging                                                                  |
+| `RINGRIFT_SANDBOX_AI_TRACE_MODE`               | `false` | Enable sandbox AI trace mode                                                                             |
+| `RINGRIFT_SANDBOX_AI_PARITY_MODE`              | `false` | Enable sandbox AI parity mode                                                                            |
+| `RINGRIFT_LOCAL_AI_HEURISTIC_MODE`             | `false` | Enable local AI heuristic mode                                                                           |
+| `RINGRIFT_TRACE_DEBUG`                         | `false` | Enable high-detail trace logging (capture, territory, orchestrator S-invariant) to logs/console in tests |
+| `RINGRIFT_AI_DEBUG`                            | `false` | Mirror AI diagnostics from logs/ai/\*.log to the console for local debugging                             |
 
 ---
 

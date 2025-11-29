@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { type Request, type Response, type NextFunction } from 'express';
 import { createServer } from 'http';
 import path from 'path';
 import compression from 'compression';
@@ -71,7 +71,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
  * Fast response with minimal checks.
  * Used by orchestrators to restart dead containers.
  */
-app.get(['/health', '/healthz'], (_req, res) => {
+app.get(['/health', '/healthz'], (_req: Request, res: Response) => {
   const status = HealthCheckService.getLivenessStatus();
   res.status(200).json(status);
 });
@@ -83,7 +83,7 @@ app.get(['/health', '/healthz'], (_req, res) => {
  * Returns 503 if critical dependencies (database) are unavailable.
  * Used by orchestrators to remove instances from service endpoints.
  */
-app.get(['/ready', '/readyz'], async (_req, res) => {
+app.get(['/ready', '/readyz'], async (_req: Request, res: Response) => {
   const status = await HealthCheckService.getReadinessStatus();
   const httpStatus = isServiceReady(status) ? 200 : 503;
   res.status(httpStatus).json(status);
@@ -95,7 +95,7 @@ app.use(rateLimiter);
 // Prometheus metrics endpoint
 // Uses MetricsService which consolidates all custom metrics with the default
 // Node.js metrics (memory, CPU, event loop, GC) from prom-client.
-app.get('/metrics', async (_req, res) => {
+app.get('/metrics', async (_req: Request, res: Response) => {
   try {
     res.set('Content-Type', metricsService.getContentType());
     const metrics = await metricsService.getMetrics();
@@ -121,7 +121,10 @@ const wsServer = new WebSocketServer(server);
 app.use('/api', setupRoutes(wsServer));
 
 if (config.isProduction) {
-  app.get('*', (req, res, next) => {
+  // Express 5 uses path-to-regexp v8, which no longer accepts a bare "*" path.
+  // Use an explicit wildcard under the root path so we can continue to serve
+  // the SPA index.html for any non-API / non-metrics / non-health route.
+  app.get('/*', (req: Request, res: Response, next: NextFunction) => {
     if (
       req.path.startsWith('/api') ||
       req.path.startsWith('/socket.io') ||
@@ -138,8 +141,9 @@ if (config.isProduction) {
 // Error handling
 app.use(errorHandler);
 
-// 404 handler
-app.use('*', (_req, res) => {
+// 404 handler (must be last). In Express 5, omit the path string to avoid
+// path-to-regexp errors and match all remaining unmatched routes.
+app.use((_req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     error: {

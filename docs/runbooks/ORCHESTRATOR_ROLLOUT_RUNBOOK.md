@@ -245,12 +245,16 @@ After any rollout or rollback action:
    - Create a few games with AI/human players.
    - Exercise capture, lines, territory, and victory conditions.
    - Verify no spike in 5xx or orchestrator errors.
+   - Optionally run a short orchestrator soak to re-check core invariants under the TS engine:
+     - `npm run soak:orchestrator:smoke` (single short backend game on square8, fails on invariant violation), or
+     - `npm run soak:orchestrator -- --boardTypes=square8 --gamesPerBoard=5 --failOnViolation`
+     - See [`docs/STRICT_INVARIANT_SOAKS.md`](../STRICT_INVARIANT_SOAKS.md) §2.3–2.4 for details on orchestrator soaks and related SLOs.
 
 ---
 
 ## 7. References
 
-- **Design & Feature Flags:**  
+- **Design & Feature Flags:**
   `docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md`
 
 - **Shared Engine & Adapters:**
@@ -265,3 +269,277 @@ After any rollout or rollback action:
 - **Metrics:**
   - `src/server/services/MetricsService.ts`
   - `monitoring/prometheus/alerts.yml`
+
+---
+
+## 8. Step-by-step operator playbook
+
+This section gives an end-to-end, phase-oriented playbook for orchestrator rollout
+and rollback. It is a human-facing view over the environment phases and SLOs
+defined in `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (§6 and §8).
+
+### 8.1 Pre-deploy checklist (before promoting a build)
+
+Run this checklist **before** promoting a new build to staging or production.
+
+1. **CI gates (SLO-CI-ORCH-PARITY)**
+   - Confirm the latest `main` build has a green `orchestrator-parity` job in
+     CI (see `ORCHESTRATOR_ROLLOUT_PLAN.md` §6.2):
+     - `npm run test:orchestrator-parity:ts`
+     - `./scripts/run-python-contract-tests.sh --verbose`
+   - If this job is red or flaky:
+     - Do **not** promote the build.
+     - Triage and fix tests or underlying rules changes first.
+
+2. **Short orchestrator soak (SLO-CI-ORCH-SHORT-SOAK)**
+   - On the exact commit to be deployed, run a short soak locally or in CI:
+     ```bash
+     npm run soak:orchestrator -- --boardTypes=square8 --gamesPerBoard=5 --failOnViolation=true
+     ```
+   - Verify:
+     - Exit code is `0`.
+     - `results/orchestrator_soak_summary.json` reports
+       `totalInvariantViolations == 0`.
+   - If any violation is reported:
+     - Treat this as an SLO breach.
+     - Do not promote the build until the invariant bug is understood and
+       addressed (often via a regression test).
+
+3. **Staging readiness**
+   - Confirm staging configuration supports orchestrator-only posture:
+     - `ORCHESTRATOR_ADAPTER_ENABLED=true`
+     - `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
+     - `RINGRIFT_RULES_MODE=ts`
+   - Check that staging dashboards and alerts for:
+     - `ringrift_orchestrator_error_rate`
+     - `ringrift_orchestrator_shadow_mismatch_rate`
+     - `ringrift_orchestrator_circuit_breaker_state`
+     - rules-parity metrics
+       are present and show reasonable baselines.
+
+4. **Monitoring and alert configuration**
+   - Ensure the following alerts are defined and routed correctly (see
+     `monitoring/prometheus/alerts.yml` and `docs/ALERTING_THRESHOLDS.md`):
+     - `OrchestratorCircuitBreakerOpen`
+     - `OrchestratorErrorRateWarning`
+     - `OrchestratorShadowMismatches`
+     - `RulesParity*` alerts
+   - Confirm on-call knows which Slack channels and runbooks are linked.
+
+5. **Feature flag / env var plan**
+   - For the target environment (staging or production), decide and document:
+     - Desired `ORCHESTRATOR_ROLLOUT_PERCENTAGE` for the next step.
+     - Desired `ORCHESTRATOR_SHADOW_MODE_ENABLED` value.
+     - Any allow/deny list changes in `OrchestratorRolloutService`.
+   - Ensure you have a **rollback plan** (see §8.5) before making any change.
+
+### 8.2 Phase 1 – Staging-only orchestrator
+
+**Goal:** Run orchestrator as the only rules path in staging and hold SLOs
+steady before touching production.
+
+**Steps:**
+
+1. **Enable orchestrator-only in staging**
+   - Set:
+     ```bash
+     kubectl set env deployment/ringrift-api \
+       ORCHESTRATOR_ADAPTER_ENABLED=true \
+       ORCHESTRATOR_ROLLOUT_PERCENTAGE=100 \
+       RINGRIFT_RULES_MODE=ts \
+       ORCHESTRATOR_SHADOW_MODE_ENABLED=false
+     ```
+   - Verify via:
+     ```bash
+     curl -sS APP_BASE/health
+     curl -sS APP_BASE/ready
+     curl -sS APP_BASE/api/admin/orchestrator/status
+     ```
+
+2. **Bake-in period**
+   - Allow at least **24 hours** (preferably 24–72h) of normal staging traffic.
+   - Monitor:
+     - `ringrift_orchestrator_error_rate{environment="staging"}`
+     - `ringrift_orchestrator_circuit_breaker_state`
+     - `ringrift_orchestrator_shadow_mismatch_rate` (if you enable shadow
+       experiments in staging)
+     - rules-parity dashboards scoped to staging.
+
+3. **SLO check**
+   - Confirm the staging SLOs from `ORCHESTRATOR_ROLLOUT_PLAN.md` §6.3:
+     - Error rate well below 0.1% over the bake-in window.
+     - No `OrchestratorCircuitBreakerOpen` alerts.
+     - No new invariant or game-status parity incidents.
+
+4. **Decision**
+   - If all staging SLOs are green → you may move to Phase 2 (production shadow).
+   - If SLOs are breached:
+     - Hold in Phase 1 and debug (rules parity, invariants, game health).
+     - If necessary, roll back to a pre-orchestrator image or disable the
+       adapter in staging (returning to Phase 0 posture).
+
+### 8.3 Phase 2 – Production shadow mode
+
+**Goal:** Run orchestrator in **shadow** alongside the legacy engine in
+production, compare decisions, and observe parity and performance.
+
+**Steps:**
+
+1. **Enable shadow mode in production**
+   - Ensure legacy remains authoritative:
+     - `RINGRIFT_RULES_MODE=shadow` (or equivalent configuration)
+   - Enable orchestrator in shadow:
+     ```bash
+     kubectl set env deployment/ringrift-api \
+       ORCHESTRATOR_ADAPTER_ENABLED=true \
+       ORCHESTRATOR_SHADOW_MODE_ENABLED=true
+     ```
+
+2. **Observe parity and latency**
+   - Monitor:
+     - `ringrift_orchestrator_shadow_mismatch_rate`
+     - `ringrift_orchestrator_error_rate`
+     - Any `RulesParity*` alerts.
+     - Orchestrator vs legacy latency in the admin status endpoint
+       (`avgLegacyLatencyMs` vs `avgOrchestratorLatencyMs`).
+
+3. **SLO check**
+   - Over at least **24 hours** of production traffic:
+     - Shadow mismatch rate stays below ~0.1%, no
+       `OrchestratorShadowMismatches` alerts.
+     - No `RulesParityGameStatusMismatch` alerts in production.
+     - Orchestrator and legacy show comparable latency.
+
+4. **Decision**
+   - If SLOs remain green → proceed to Phase 3 (incremental rollout).
+   - If mismatches or parity incidents appear:
+     - Disable shadow (`ORCHESTRATOR_SHADOW_MODE_ENABLED=false`) and return
+       to Phase 1 posture (orchestrator-only in staging only).
+     - Investigate via `RULES_PARITY.md` and contract vectors.
+
+### 8.4 Phase 3 – Incremental production rollout
+
+**Goal:** Move production from legacy to orchestrator as the authoritative
+engine in controlled steps.
+
+**Steps:**
+
+1. **Confirm preconditions**
+   - Phase 1 and Phase 2 have been stable.
+   - No open P0/P1 incidents involving orchestrator, invariants, or rules parity.
+   - On-call is aware of the planned change window.
+
+2. **Increase rollout percentage in small steps**
+   - Example sequence: 0% → 10% → 25% → 50% → 100%.
+   - At each step:
+     ```bash
+     kubectl set env deployment/ringrift-api ORCHESTRATOR_ROLLOUT_PERCENTAGE=25
+     ```
+   - Wait at least one or two error windows (e.g. 15–30m) at the new level.
+
+3. **Observe metrics and SLOs**
+   - During each observation window, check:
+     - `ringrift_orchestrator_error_rate`
+     - HTTP 5xx rate on game endpoints.
+     - `ringrift_orchestrator_circuit_breaker_state`
+     - `ringrift_orchestrator_shadow_mismatch_rate` (if shadow still enabled).
+     - Rules-parity and game-health dashboards.
+
+4. **Per-step decision**
+   - If metrics and SLOs are healthy → optionally advance to the next
+     percentage.
+   - If error rate or mismatches rise:
+     - Pause further increases and hold at the current percentage.
+     - For serious issues, roll back to a lower percentage (or 0%) and
+       investigate per §§4–5.
+
+5. **Reaching 100%**
+   - Only move to 100% rollout when:
+     - Several lower-percentage steps have been stable.
+     - Orchestrator-specific and global SLOs remain comfortably within
+       budgets.
+
+### 8.5 Rollback procedure by phase
+
+Use this as a quick map for **where to roll back to**:
+
+- **From Phase 3 (incremental rollout)**:
+  - **Minor degradation (warning alerts only):**
+    - Reduce `ORCHESTRATOR_ROLLOUT_PERCENTAGE` (e.g. `50 → 10 → 0`) and
+      continue monitoring.
+  - **Major incident (P0/P1, circuit breaker open, invariant violations):**
+    - Set:
+      ```bash
+      kubectl set env deployment/ringrift-api \
+        ORCHESTRATOR_ROLLOUT_PERCENTAGE=0 \
+        ORCHESTRATOR_ADAPTER_ENABLED=false
+      ```
+    - This returns production effectively to Phase 2 or Phase 1 posture,
+      depending on whether you keep shadow enabled for diagnostics.
+
+- **From Phase 2 (shadow mode issues)**:
+  - If shadow mismatches or parity alerts are firing:
+    - Disable shadow only:
+      ```bash
+      kubectl set env deployment/ringrift-api ORCHESTRATOR_SHADOW_MODE_ENABLED=false
+      ```
+    - Keep staging orchestrator-only and continue debugging under the
+      parity runbook.
+
+- **From Phase 1 (staging-only issues)**:
+  - If staging SLOs are breached:
+    - Option 1 (softer): keep orchestrator enabled but stop promoting
+      builds until fixed.
+    - Option 2 (harder rollback): disable orchestrator in staging and
+      redeploy a known-good image, effectively returning to Phase 0.
+
+After any rollback, follow §6 **Verification After Changes** and the relevant
+incident runbooks (availability, latency, resources, rules parity).
+
+### 8.6 Incident handling checklist (orchestrator-focused)
+
+Use this as a quick supplement to §§4–5 when you suspect an orchestrator-specific
+problem:
+
+1. **Classify the incident**
+   - Is the primary signal:
+     - Global HTTP error rate (`HighErrorRate` / `ElevatedErrorRate`)?
+     - Orchestrator-specific (`OrchestratorCircuitBreakerOpen`,
+       `OrchestratorErrorRateWarning`, `OrchestratorShadowMismatches`)?
+     - Rules parity (`RulesParity*` alerts)?
+   - Use `GAME_HEALTH.md` and `AI_ARCHITECTURE.md` to distinguish:
+     - Rules/orchestrator defects vs.
+     - AI/inference problems vs.
+     - Infra (DB/Redis/latency) issues.
+
+2. **Check orchestrator posture**
+   - Confirm current flags via `/api/admin/orchestrator/status`:
+     - `adapterEnabled`
+     - `rolloutPercentage`
+     - `shadowModeEnabled`
+   - Map the environment to Phase 1/2/3 from `ORCHESTRATOR_ROLLOUT_PLAN.md`.
+
+3. **Run targeted diagnostics (when safe)**
+   - For suspected invariant or rules issues:
+     - Run a short orchestrator soak against the current image
+       (`npm run soak:orchestrator -- --boardTypes=square8 --gamesPerBoard=5 --failOnViolation=true`).
+   - For suspected parity issues:
+     - Consult `RULES_PARITY.md` and consider running a small parity subset
+       or targeted contract vectors.
+
+4. **Apply the appropriate rollback**
+   - Use §8.5 or §§4–5 to choose:
+     - Percentage reduction.
+     - Shadow disablement.
+     - Full adapter kill switch.
+   - Avoid ad-hoc combinations; always aim to land in a clearly defined
+     phase (1, 2, or 3).
+
+5. **Close the loop**
+   - After stabilising the system:
+     - Ensure SLOs from `ORCHESTRATOR_ROLLOUT_PLAN.md` §6 are back within
+       budget.
+     - Update any incident docs under `docs/incidents/**` with:
+       - Phase before/after.
+       - Flag values used.
+       - Whether short soaks or parity tests caught the issue.

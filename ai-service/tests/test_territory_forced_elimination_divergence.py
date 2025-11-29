@@ -186,9 +186,8 @@ def _make_non_forced_elimination_state() -> tuple[GameState, Move]:
 
 
 def test_territory_forced_elimination_divergence_pattern() -> None:
-    """Reproduce the divergence pattern between TerritoryMutator and the
-    canonical GameEngine.apply_move when host-level forced elimination
-    occurs after an ELIMINATE_RINGS_FROM_STACK move.
+    """Verify that no host-level forced elimination occurs after an explicit
+    ELIMINATE_RINGS_FROM_STACK decision in the orchestrator-aligned flow.
     """
     state, move = _make_forced_elimination_state()
 
@@ -203,17 +202,13 @@ def test_territory_forced_elimination_divergence_pattern() -> None:
         == next_via_engine.board.stacks.get("5,5")
     )
 
-    # Canonical path performs an additional forced elimination on the next
-    # blocked player, so it must eliminate strictly more rings overall.
-    assert (
-        next_via_engine.total_rings_eliminated
-        > mut_state.total_rings_eliminated
-    )
-
-    # That extra elimination should affect the next player's stack, which is
-    # removed entirely on the canonical path but untouched in the mutator path.
+    # No additional host-level forced elimination should occur; both paths
+    # eliminate exactly one ring in total, and the next player's stack
+    # remains intact.
+    assert next_via_engine.total_rings_eliminated == 1
+    assert mut_state.total_rings_eliminated == 1
     assert mut_state.board.stacks.get("0,0") is not None
-    assert next_via_engine.board.stacks.get("0,0") is None
+    assert next_via_engine.board.stacks.get("0,0") is not None
 
 
 def test_default_engine_no_forced_elim_strict_contract() -> None:

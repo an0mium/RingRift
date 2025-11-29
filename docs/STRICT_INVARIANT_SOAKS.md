@@ -63,8 +63,17 @@ python scripts/run_self_play_soak.py \
   --seed 42 \
   --log-jsonl logs/selfplay/soak.square8_2p.mixed.jsonl \
   --summary-json logs/selfplay/soak.square8_2p.mixed.summary.json \
-  [--gc-interval 50]
+  [--gc-interval 50] [--fail-on-anomaly]
 ```
+
+When invoked as a CLI, `run_self_play_soak.py` prints a JSON configuration
+summary (including whether `STRICT_NO_MOVE_INVARIANT` is enabled) at startup;
+capturing this banner in logs is recommended when analysing failures from
+long-running soaks or comparing runs across different machines. When
+`--fail-on-anomaly` is passed, the script will exit with a non-zero status
+code if any game terminates with an invariant/engine anomaly such as
+`no_legal_moves_for_current_player` or `step_exception:...`, which is useful
+for automated gates or scheduled jobs.
 
 Important knobs for memory/CPU safety:
 
@@ -155,6 +164,115 @@ python scripts/run_self_play_soak.py \
 ```
 
 For **deeper offline soaks**, prefer running several independent small batches (e.g. 20–50 games each) rather than a single monolithic run, and aggregate their JSONL logs via `cat` or simple scripts.
+
+### 2.3 Orchestrator Soak Harness (`soak:orchestrator`)
+
+In addition to the Python self-play harness, the TS shared-engine orchestrator has a lightweight soak harness that drives many random games through a real backend host (`GameEngine` with the orchestrator adapter enabled) while checking core invariants and emitting a JSON summary suitable for local inspection or future CI/monitoring.
+
+> **Note:** As of this QA task the soak harness exercises the orchestrator via the backend `GameEngine` only. A symmetric sandbox-based entrypoint (`ClientSandboxEngine`) can be reintroduced in a later task once the client build surface under `ts-node` is fully clean.
+
+- Commands:
+  - `npm run soak:orchestrator`
+  - `npm run soak:orchestrator:smoke` (single short backend game on square8, fails on invariant violation)
+  - Examples:
+    - `npm run soak:orchestrator -- --boardTypes=square8,square19 --gamesPerBoard=25`
+    - `npm run soak:orchestrator -- --boardTypes=hexagonal --gamesPerBoard=10 --maxTurns=750 --randomSeed=1234 --outputPath=results/orchestrator_soak_smoke.json`
+    - `npm run soak:orchestrator -- --failOnViolation` (non-zero exit if any invariant violation is detected)
+    - `npm run soak:orchestrator -- --boardTypes=square8 --gamesPerBoard=5 --debug` (short run with strict S-invariant trace logs enabled via `RINGRIFT_TRACE_DEBUG=1`)
+
+- Behaviour:
+  - Runs multiple short self-play games per board type against the TS orchestrator via the backend `GameEngine`, selecting random legal moves from `getValidMoves`.
+  - Enforces an **ACTIVE-no-move invariant**: whenever `gameStatus == 'active'`, `getValidMoves` for the current player must return at least one move, and there must never be an `ACTIVE` state with zero legal actions.
+  - Verifies **orchestrator move validation**: every move returned by `getValidMoves` is re-validated via the shared orchestrator’s `validateMove`; any disagreement between host and orchestrator is recorded.
+  - Checks **S-invariant** and elimination monotonicity on each turn (`S = markers + collapsedSpaces + eliminatedRings`, `totalRingsEliminated` non-decreasing), plus basic board sanity (no negative stack heights, `stackHeight === rings.length`, `0 ≤ capHeight ≤ stackHeight`, and non-negative `eliminatedRings` per player).
+    - When invoked with `--debug` (or `--traceDebug`), the harness also forces `RINGRIFT_TRACE_DEBUG=1` for the run so that `GameEngine.appendHistoryEntry` and related hooks emit detailed `STRICT_S_INVARIANT_DECREASE` and elimination-bookkeeping trace logs without requiring manual env wiring.
+  - Treats hitting `--maxTurns` without termination as a soft anomaly (recorded in the summary as a max-turns timeout).
+
+- Output:
+  - Writes a machine-readable summary to `results/orchestrator_soak_summary.json` (or the configured `--outputPath`) with per-board/per-host stats:
+    - games run,
+    - completed vs `maxTurns` timeouts,
+    - game-length distribution (min / median / p95 / max),
+    - total invariant violations.
+  - Includes a bounded set of violation traces (up to 50 per run), each containing:
+    - `id`, `message`,
+    - `boardType`, `hostMode`, `gameId`, `gameIndex`, `seed`, `turnIndex`,
+    - `gameStatus`, `currentPlayer`, `currentPhase`,
+    - S components (`markers`, `collapsed`, `eliminatedRings`, `totalRingsEliminated`, `sInvariant`),
+    - `movesTail`: the last few moves leading into the violation.
+
+- Expected outcome on a healthy build:
+  - 0 invariant violations (including **no** `S_INVARIANT_DECREASED` events).
+  - Most games terminate naturally well before `--maxTurns`, with only a small tail of long-running games.
+
+Debugging: if violations occur, use the summary fields `boardType`, `hostMode`, `gameIndex`, `seed`, `turnIndex`, and `movesTail` to reproduce or triage the failing game via:
+
+- Orchestrator scenario tests and backend vs sandbox orchestrator parity suites.
+- Python contract tests and parity fixtures (for cross-language confirmation).
+- **Targeted Jest regression harness**:
+  - `tests/unit/OrchestratorSInvariant.regression.test.ts` contains one or
+    more seeded backend‑orchestrator games (see the `REGRESSION_SEEDS`
+    constant in that file) that were promoted directly from
+    `S_INVARIANT_DECREASED` entries in `results/orchestrator_soak_smoke.json`.
+    Each test replays the exact move sequence via `GameEngine` +
+    `TurnEngineAdapter` and asserts that `computeProgressSnapshot(state).S`
+    never decreases.
+  - All regression cases are initially marked `it.skip` so CI remains green
+    while the underlying bug is being investigated. When working locally,
+    you can temporarily un‑skip an individual seed (or use `it.only`) and run
+    the dedicated script:
+
+    ```bash
+    npm run test:orchestrator:s-invariant
+    ```
+
+    which wraps:
+
+    ```bash
+    RINGRIFT_TRACE_DEBUG=1 \
+    jest --runInBand tests/unit/OrchestratorSInvariant.regression.test.ts
+    ```
+
+    to emit detailed `STRICT_S_INVARIANT_DECREASE` logs from
+    `GameEngine.appendHistoryEntry` for the failing turn. Once the
+    S‑invariant bug is fixed, remove `.skip` on these tests to turn them into
+    permanent guardrails.
+
+### 2.4 How orchestrator soaks relate to rollout SLOs
+
+The TS orchestrator soak harness is a **gating tool**, not just a diagnostic:
+
+- **Pre-release / pre-deploy gate (short soak):**
+  - A short run such as:
+    - `npm run soak:orchestrator -- --boardTypes=square8 --gamesPerBoard=5 --failOnViolation=true`
+  - acts as a concrete implementation of the
+    `SLO-CI-ORCH-SHORT-SOAK` SLO defined in
+    [`ORCHESTRATOR_ROLLOUT_PLAN.md`](ORCHESTRATOR_ROLLOUT_PLAN.md:1):
+    - Exit code must be `0`.
+    - `results/orchestrator_soak_summary.json` must report
+      `totalInvariantViolations == 0`.
+  - If this short soak fails, the corresponding build **must not** be promoted
+    to staging or production until the invariant violations are triaged and
+    fixed or explicitly waived.
+
+- **Staging / production guardrail (scheduled or on-demand):**
+  - Optional longer or nightly soaks (larger `--gamesPerBoard`, additional
+    board types) against staging or production images provide early warning
+    for regressions tied to specific seeds or board configurations.
+  - These runs back the `SLO-STAGE-ORCH-INVARIANTS` and
+    `SLO-PROD-ORCH-INVARIANTS` SLOs in
+    [`ORCHESTRATOR_ROLLOUT_PLAN.md`](ORCHESTRATOR_ROLLOUT_PLAN.md:1):
+    - Any **new** invariant violation pattern discovered in these soaks should
+      be turned into a regression test (TS or Python) and investigated before
+      further rollout.
+    - Multiple soak failures in a short period are a signal to pause rollout
+      or roll back to a safer phase (see the environment phases in
+      [`ORCHESTRATOR_ROLLOUT_PLAN.md`](ORCHESTRATOR_ROLLOUT_PLAN.md:1)).
+
+You do **not** need to re-state the full orchestrator rollout design here; treat
+[`ORCHESTRATOR_ROLLOUT_PLAN.md`](ORCHESTRATOR_ROLLOUT_PLAN.md:1) as the SLO and
+gating SSoT, and this document as the operational recipe for running strict
+invariant and soak jobs.
 
 ---
 
@@ -274,6 +392,7 @@ To keep CI runs bounded while still exercising strict-invariant semantics:
 - **Heavier soaks**:
   - Prefer running `run_self_play_soak.py` locally or in dedicated long-running jobs (outside the primary CI path).
   - Use `--difficulty-band light`, `--gc-interval`, and moderate `--max-moves` for invariant coverage.
+  - When wiring these soaks into scheduled jobs or non-blocking CI lanes, pass `--fail-on-anomaly` so runs exit non-zero on strict-invariant / engine anomalies; for the TS orchestrator harness, use `--failOnViolation` on `scripts/run-orchestrator-soak.ts` (or `npm run soak:orchestrator:smoke`) to get equivalent gating behaviour.
 
 When tuning these parameters for a new environment, monitor:
 

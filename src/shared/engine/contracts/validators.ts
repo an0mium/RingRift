@@ -260,7 +260,10 @@ export const ZodSerializedBoardStateSchema = z.object({
   stacks: z.record(z.string(), ZodRingStackSchema),
   markers: z.record(z.string(), ZodMarkerSchema),
   collapsedSpaces: z.record(z.string(), z.number().int().min(1)),
-  eliminatedRings: z.record(z.coerce.string(), z.number().int().min(0)),
+  // Keys are already JSON object keys (strings); coercion is unnecessary and
+  // incompatible with Zod 4's stricter record key constraints, so we accept
+  // plain string keys here.
+  eliminatedRings: z.record(z.string(), z.number().int().min(0)),
   formedLines: z.array(z.unknown()).optional(),
 });
 
@@ -523,9 +526,21 @@ export function parseMoveResult(data: unknown): ZodMoveResult {
 /**
  * Format a Zod error into a human-readable string.
  */
-export function formatZodError(error: z.ZodError): string {
-  return error.errors
-    .map((e) => {
+export function formatZodError(error: z.ZodError | undefined | null): string {
+  const zodError = error as z.ZodError | undefined;
+  // Zod 4 exposes `issues`; older versions used `errors`. Support both defensively.
+  const issues = zodError?.issues ?? (zodError as any)?.errors;
+
+  if (!issues || !Array.isArray(issues)) {
+    // Fallback for unexpected inputs; preserve basic error information if present.
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    return 'Invalid data';
+  }
+
+  return issues
+    .map((e: { path: (string | number)[]; message: string }) => {
       const path = e.path.length > 0 ? `${e.path.join('.')}: ` : '';
       return `${path}${e.message}`;
     })

@@ -166,7 +166,7 @@ validatePlacementOnBoard(
 validatePlacement(state: GameState, action: PlaceRingAction): ValidationResult
 validateSkipPlacement(state: GameState, action: SkipPlacementAction): ValidationResult
 
-// Application (TODO: stub in placementHelpers.ts)
+// Application (canonical helpers in PlacementAggregate / placementHelpers.ts; production-backed)
 applyPlacementMove(state: GameState, move: Move): PlacementApplicationOutcome
 evaluateSkipPlacementEligibility(state: GameState, player: number): SkipPlacementEligibilityResult
 ```
@@ -488,12 +488,12 @@ validatePlacement(state: GameState, action: PlaceRingAction): ValidationResult
 validateSkipPlacement(state: GameState, action: SkipPlacementAction): ValidationResult
 
 // Application helpers
-// NOTE: As of November 2025 the **implemented** canonical helpers live in
+// NOTE: As of November 2025 the canonical placement helpers live in
 // `src/shared/engine/aggregates/PlacementAggregate.ts` and are wired into the
 // orchestrator as `applyPlacementMoveAggregate` and
 // `evaluateSkipPlacementEligibilityAggregate`. The functions exported from
-// `placementHelpers.ts` are **design-time stubs** and must not be consumed
-// directly by hosts until P0 Task 21 finishes wiring them to the aggregates.
+// `placementHelpers.ts` are fully implemented, production-backed shims over
+// this aggregate and are used by both backend and sandbox hosts.
 applyPlacementMove(state: GameState, move: Move): PlacementApplicationOutcome
 evaluateSkipPlacementEligibility(state: GameState, player: number): SkipPlacementEligibilityResult
 ```
@@ -597,7 +597,7 @@ computeProgressSnapshot(state: GameState): ProgressSnapshot
 
 **Location:** [`orchestration/`](../src/shared/engine/orchestration/)
 
-The orchestration layer provides a single, canonical entry point for all turn processing, delegating to domain aggregates in deterministic order and surfacing **pending decisions** as canonical `Move[]` options.
+The orchestration layer provides a single, canonical entry point for all turn processing, delegating to domain aggregates in deterministic order and surfacing **pending decisions** as canonical `Move[]` options. For host-driven rules interactions, these orchestrator functions are the only canonical entrypoints for applying moves, validating candidate moves, and enumerating legal actions; backend and sandbox hosts must treat this surface as the lifecycle and rules-surface SSoT for turn processing.
 
 ```typescript
 // Main Entry Points (canonical orchestrator)
@@ -661,6 +661,25 @@ interface PendingDecision {
   /** UI/transport-oriented context (board highlights, copy, etc.) */
   context: DecisionContext;
 }
+
+/**
+ * ProcessingMetadata semantics:
+ *
+ * - `sInvariantBefore` / `sInvariantAfter` are the canonical S‑invariant values
+ *   computed via `computeProgressSnapshot(state).S` from `src/shared/engine/core.ts`.
+ *   They use the same definition as contract vectors and invariant soaks:
+ *
+ *     S = markers + collapsedSpaces + eliminatedRings
+ *
+ *   where `eliminatedRings` is derived from `totalRingsEliminated` /
+ *   `board.eliminatedRings` when present. These fields are intended to be
+ *   **monotone non‑decreasing** over legal moves and are consumed by:
+ *
+ *   - orchestrator invariant soaks (`scripts/run-orchestrator-soak.ts`);
+ *   - S‑invariant regression tests
+ *     (`tests/unit/OrchestratorSInvariant.regression.test.ts`);
+ *   - contract vector assertions (`sInvariantDelta` in v2 fixtures).
+ */
 ```
 
 > **Victory reasons:** The orchestrator's `VictoryState.reason` union is a superset of the
@@ -720,7 +739,7 @@ async function applyMoveViaOrchestrator(
 **Adapters:**
 
 Two adapters wrap the orchestrator for specific runtime contexts and are the
-_primary_ consumers of this API for live games:
+only sanctioned production integration layers for this API in live games:
 
 1. **Backend Adapter:** [`TurnEngineAdapter.ts`](../src/server/game/turn/TurnEngineAdapter.ts)
    - Wraps the orchestrator with WebSocket/session concerns and persistence.
@@ -735,6 +754,16 @@ _primary_ consumers of this API for live games:
    - Controlled by a feature flag that allows switching between legacy sandbox flows and the orchestrator-backed path.
 
 In both cases, **`Move` remains the canonical action**, and all decision/choice flows are thin wrappers over orchestrator-provided `Move` options.
+
+Beneath the orchestrator, the domain aggregates and helper modules under `src/shared/engine/**` form the rules-semantics SSoT for their respective domains:
+
+- [`MovementAggregate`](../src/shared/engine/aggregates/MovementAggregate.ts:1) together with [`movementLogic.ts`](../src/shared/engine/movementLogic.ts:1) for non-capturing movement.
+- [`CaptureAggregate`](../src/shared/engine/aggregates/CaptureAggregate.ts:1) together with [`captureLogic.ts`](../src/shared/engine/captureLogic.ts:1) and [`captureChainHelpers.ts`](../src/shared/engine/captureChainHelpers.ts:1) for capture and chain-capture semantics.
+- [`PlacementAggregate`](../src/shared/engine/aggregates/PlacementAggregate.ts:1) together with [`placementHelpers.ts`](../src/shared/engine/placementHelpers.ts:1) for placement and no-dead-placement.
+- Line helpers such as [`lineDecisionHelpers.ts`](../src/shared/engine/lineDecisionHelpers.ts:1) and territory helpers such as [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts:1).
+- Victory helpers such as [`victoryLogic.ts`](../src/shared/engine/victoryLogic.ts:1) and [`VictoryAggregate`](../src/shared/engine/aggregates/VictoryAggregate.ts:1).
+
+Hosts should treat these aggregates and helpers as the **only authoritative implementation** of movement, capture, placement, line, territory, and victory semantics; alternative host-side implementations are reserved for diagnostics and test harnesses only. For consolidation and rollout details, see [`docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`](../docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md:1) and [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](../docs/ORCHESTRATOR_ROLLOUT_PLAN.md:1).
 
 ##### 3.9.0a High-level turn + decision flow (diagram)
 
@@ -1299,7 +1328,7 @@ This API specification defines a stable, narrow boundary for the canonical RingR
 
 **Completed (November 2025):**
 
-1. ✅ T1-W1-C: Introduce canonical placement helpers in `aggregates/PlacementAggregate.ts` (mirrored as `applyPlacementMoveAggregate` / `evaluateSkipPlacementEligibilityAggregate` and used by the orchestrator). The older `placementHelpers.ts` exports remain documented design-time stubs until hosts are fully migrated.
+1. ✅ T1-W1-C: Introduce canonical placement helpers in `aggregates/PlacementAggregate.ts` (mirrored as `applyPlacementMoveAggregate` / `evaluateSkipPlacementEligibilityAggregate` and used by the orchestrator). The `placementHelpers.ts` exports are now fully wired to this aggregate as production-backed shims and are in active use by backend and sandbox hosts.
 2. ✅ T1-W1-D: Create adapter layer specifications for each host
 3. ✅ Orchestration layer complete with `processTurn()` / `processTurnAsync()`
 4. ✅ Backend and sandbox adapters implemented

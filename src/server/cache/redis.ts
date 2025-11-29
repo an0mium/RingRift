@@ -271,7 +271,11 @@ export class CacheService {
 
   async sIsMember(key: string, member: string): Promise<boolean> {
     try {
-      return await this.client.sIsMember(key, member);
+      const result = await this.client.sIsMember(key, member);
+      // redis.sIsMember returns 1 when the member exists, 0 otherwise.
+      // Normalizing to a boolean keeps the public API consistent with the
+      // rest of CacheService (e.g. `exists`).
+      return result === 1;
     } catch (error) {
       logger.error(`Cache sIsMember error for key ${key}, member ${member}:`, error);
       return false;

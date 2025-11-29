@@ -705,6 +705,15 @@ export function mutatePlacement(state: GameState, action: PlaceRingAction): Game
     toSpend
   );
 
+  // Defensive invariant: a ring placement must never "un-collapse" existing
+  // territory. Collapsed spaces represent persistent territory control and
+  // are only released via explicit territory-processing decisions. If the
+  // board-level placement mutator ever produces a board with fewer collapsed
+  // spaces than the input, preserve the original collapsedSpaces map.
+  if (updatedBoard.collapsedSpaces.size < state.board.collapsedSpaces.size) {
+    updatedBoard.collapsedSpaces = new Map(state.board.collapsedSpaces);
+  }
+
   const newState: GameState & { totalRingsInPlay: number; lastMoveAt: Date } = {
     ...(state as GameState & { totalRingsInPlay: number; lastMoveAt: Date }),
     board: updatedBoard,

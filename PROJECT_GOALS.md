@@ -69,7 +69,7 @@ RingRift is a web-based multiplayer abstract strategy game where 2-4 players com
 | **Comprehensive test coverage** | 1000+ tests across TypeScript and Python codebases                                                       | Confidence in correctness     |
 | **Rules/FAQ scenario matrix**   | Test cases derived directly from [`ringrift_complete_rules.md`](ringrift_complete_rules.md) FAQ examples | Ensures rules fidelity        |
 | **Contract testing**            | Cross-language parity validated by shared test vectors                                                   | Guarantees engine consistency |
-| **Parity harnesses**            | Backend ↔ sandbox ↔ Python engine behavior validation                                                  | Catches divergence early      |
+| **Parity harnesses**            | Backend ↔ sandbox ↔ Python engine behavior validation                                                    | Catches divergence early      |
 | **CI/CD pipeline**              | Automated testing, linting, security scanning on every change                                            | Maintains quality bar         |
 
 ---
@@ -90,13 +90,15 @@ From [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:144-149):
 
 ### 4.2 Test Coverage Requirements
 
-| Category                  | Requirement              | Current Status                        |
-| ------------------------- | ------------------------ | ------------------------------------- |
-| **TypeScript tests**      | All passing              | 1195+ tests passing                   |
-| **Python tests**          | All passing              | 245 tests passing                     |
-| **Contract vectors**      | 100% parity              | 12 vectors, 100% pass rate            |
-| **Rules scenario matrix** | All FAQ examples covered | Coverage in progress                  |
-| **Integration tests**     | Core workflows passing   | AI resilience, reconnection, sessions |
+| Category                  | Requirement              | Current Status                                                                                             |
+| ------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| **TypeScript tests**      | All passing              | All TypeScript test suites passing; see `CURRENT_STATE_ASSESSMENT.md` for live counts and coverage details |
+| **Python tests**          | All passing              | All Python test suites passing; see `CURRENT_STATE_ASSESSMENT.md` for live counts and coverage details     |
+| **Contract vectors**      | 100% parity              | Contract-based TS↔Python parity suites passing                                                             |
+| **Rules scenario matrix** | All FAQ examples covered | Coverage in progress                                                                                       |
+| **Integration tests**     | Core workflows passing   | AI resilience, reconnection, sessions                                                                      |
+
+> **Note:** Live test counts and coverage breakdowns are maintained in [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:236). This document is not the single source of truth for those numbers; it records only the high-level requirements.
 
 ### 4.3 Feature Completion Criteria
 

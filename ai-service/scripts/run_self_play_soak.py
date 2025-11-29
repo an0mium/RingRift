@@ -75,7 +75,10 @@ from app.models import (  # type: ignore  # noqa: E402
     GameStatus,
 )
 from app.training.env import RingRiftEnv  # type: ignore  # noqa: E402
-from app.game_engine import GameEngine  # type: ignore  # noqa: E402
+from app.game_engine import (  # type: ignore  # noqa: E402
+    GameEngine,
+    STRICT_NO_MOVE_INVARIANT,
+)
 
 
 @dataclass
@@ -596,6 +599,22 @@ def _summarise(records: List[GameRecord]) -> Dict[str, Any]:
     }
 
 
+def _has_anomalies(records: List[GameRecord]) -> bool:
+    """Return True if any record encodes an invariant/engine anomaly.
+
+    This matches the semantics used by the CLI `--fail-on-anomaly` flag:
+    only hard invariants or engine exceptions (not normal terminations such
+    as max-moves cutoffs or completed games) are treated as anomalies.
+    """
+    anomalous_reasons = {"no_legal_moves_for_current_player"}
+    anomalous_prefixes = ("step_exception:", "error_reset")
+    return any(
+        (rec.termination_reason in anomalous_reasons)
+        or rec.termination_reason.startswith(anomalous_prefixes)
+        for rec in records
+    )
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -678,10 +697,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--verbose",
         type=int,
-        default=0,
+        default=1,
         help=(
             "If >0, print a progress line every N games with the latest "
-            "status/length info."
+            "status/length info. Default: 1 (print after every game); "
+            "set to 0 to disable progress output."
         ),
     )
     parser.add_argument(
@@ -691,6 +711,15 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "If >0, clear GameEngine move caches and run gc.collect() "
             "every N games to bound memory usage in long soaks."
+        ),
+    )
+    parser.add_argument(
+        "--fail-on-anomaly",
+        action="store_true",
+        help=(
+            "If set, exit with non-zero status if any game terminates with "
+            "an invariant/engine anomaly such as 'no_legal_moves_for_current_player' "
+            "or 'step_exception:...'. Intended for automated gates or scheduled jobs."
         ),
     )
     parser.add_argument(
@@ -779,6 +808,24 @@ def _parse_args() -> argparse.Namespace:
 
 def main() -> None:  # pragma: no cover - CLI entrypoint
     args = _parse_args()
+
+    config_summary = {
+        "num_games": args.num_games,
+        "board_type": args.board_type,
+        "engine_mode": args.engine_mode,
+        "difficulty_band": getattr(args, "difficulty_band", "canonical"),
+        "num_players": args.num_players,
+        "max_moves": args.max_moves,
+        "seed": args.seed,
+        "log_jsonl": args.log_jsonl,
+        "summary_json": args.summary_json,
+        "gc_interval": args.gc_interval,
+        "strict_no_move_invariant": bool(STRICT_NO_MOVE_INVARIANT),
+    }
+
+    print("Self-play soak harness starting with config:")
+    print(json.dumps(config_summary, indent=2, sort_keys=True))
+
     records = run_self_play_soak(args)
     summary = _summarise(records)
 
@@ -789,6 +836,15 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
         os.makedirs(os.path.dirname(args.summary_json) or ".", exist_ok=True)
         with open(args.summary_json, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, sort_keys=True)
+
+    if args.fail_on_anomaly:
+        if _has_anomalies(records):
+            print(
+                "Self-play soak detected invariant/engine anomalies; "
+                "exiting with non-zero status due to --fail-on-anomaly.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover

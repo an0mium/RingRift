@@ -1,6 +1,6 @@
 # RingRift Testing Guide
 
-> **Doc Status (2025-11-27): Active (test meta-doc, non-semantics)**
+> **Doc Status (2025-11-29): Active (test meta-doc, non-semantics)**
 >
 > **Role:** High-level guide to the RingRift TS+Python test suites: how they are structured, how to run them in different profiles (core/diagnostics/CI), and where to start when adding or debugging tests. This doc is a **test/meta reference only** – it explains how tests are organised and which commands/environments to use; it does **not** define game rules or lifecycle semantics.
 >
@@ -26,7 +26,7 @@ tests/
 ├── TEST_SUITE_PARITY_PLAN.md # Parity test planning
 ├── __mocks__/                # Jest module mocks
 ├── contracts/                # Contract test runners (TS side)
-├── e2e/                      # End-to-end Playwright tests
+├── e2e/                      # End-to-end Playwright tests (helpers, POMs, flows)
 ├── fixtures/                 # Test fixtures and contract vectors
 │   └── contract-vectors/v2/  # Contract test vectors (placement, movement, capture, etc.)
 ├── integration/              # Integration tests (full game flows, WebSocket)
@@ -134,6 +134,41 @@ npm test -- ClientSandboxEngine
 # Run only GameEngine territory/region tests
 npm test -- GameEngine.territoryDisconnection
 ```
+
+#### Orchestrator-focused lanes
+
+In addition to the core scripts above, a set of orchestrator- and rules-focused
+lanes are wired into CI as primary gates:
+
+```bash
+# TS rules-level suites (shared engine + orchestrator)
+npm run test:ts-rules-engine
+
+# Curated orchestrator-ON parity bundle (shared tests, contracts, RulesMatrix,
+# FAQ, key backend/sandbox territory disconnection tests)
+npm run test:orchestrator-parity
+
+# Additional CI lanes
+npm run test:ts-parity        # Trace/host parity and RNG-oriented suites
+npm run test:ts-integration   # Routes/WebSocket/full game-flow integration
+
+# Orchestrator invariant smoke + S-invariant regression harness
+npm run soak:orchestrator:smoke    # Single short backend game; fails on invariant violations
+npm run test:orchestrator:s-invariant  # Seeded S-invariant regression tests promoted from soak
+
+# Single-source-of-truth guardrails (docs/env/CI/rules + fences)
+npm run ssot-check
+```
+
+CI runs these lanes with the orchestrator adapter forced ON:
+
+- `RINGRIFT_RULES_MODE=ts`
+- `ORCHESTRATOR_ADAPTER_ENABLED=true`
+- `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
+- `ORCHESTRATOR_SHADOW_MODE_ENABLED=false`
+
+and the **TS Orchestrator Parity (adapter‑ON)** job is intended to be a required
+status check for `main` alongside the core `TS Rules Engine (rules-level)` lane.
 
 ### High-Level Testing Overview (by purpose)
 
@@ -408,7 +443,7 @@ assertPositionCollapsed(board, pos(5, 5), expectedPlayer);
 
 ### Constants
 
-```typescript
+````typescript
 import { BOARD_CONFIGS, SQUARE_POSITIONS, HEX_POSITIONS, GAME_PHASES } from '../utils/fixtures';
 
 // Board configurations
@@ -423,7 +458,90 @@ const hexCenter = HEX_POSITIONS.center;
 GAME_PHASES.forEach((phase) => {
   /* ... */
 });
+
+## Playwright E2E tests and helpers (`tests/e2e`)
+
+The `tests/e2e` directory contains Playwright tests, shared helpers, and
+Page Object Models (POMs) for end‑to‑end coverage of auth, lobby, game
+flows, and the sandbox host:
+
+- `tests/e2e/helpers/test-utils.ts` – canonical E2E helper surface:
+  - Auth helpers: `generateTestUser`, `registerUser`, `loginUser`,
+    `registerAndLogin`, `logout`.
+  - Backend readiness: `waitForApiReady(page)` polls the backend `/ready`
+    endpoint (using `E2E_API_BASE_URL` or `http://localhost:3000`) before
+    any auth/game calls to avoid Vite proxy 500s during startup.
+  - Game helpers: `createGame`, `createBackendGameFromLobby`,
+    `waitForGameReady`, `waitForWebSocketConnection`, `joinGame`,
+    `clickValidPlacementTarget`, `makeMove`, `placePiece`.
+  - Navigation helpers: `goToHome`, `goToLobby`, `goToGame`, `goToSandbox`
+    (navigates to `/sandbox` and asserts the sandbox pre‑game heading).
+  - Board/log assertions: `assertBoardState`, `assertPlayerTurn`,
+    `assertGamePhase`, `assertMoveLogged`, `waitForMoveLog`.
+  - Multi‑player helpers: `setupMultiplayerGame`, `coordinateTurn`,
+    `waitForTurn`, `isPlayerTurn`, `makeRingPlacement`, `cleanupMultiplayerGame`.
+
+- `tests/e2e/helpers/index.ts` – re‑exports the helpers and POMs so tests
+  can import from a single module:
+
+  ```ts
+  import {
+    registerAndLogin,
+    createGame,
+    waitForGameReady,
+    goToLobby,
+    goToSandbox,
+    GamePage,
+  } from './helpers';
+````
+
+- `tests/e2e/pages/*.ts` – Page Object Models:
+  - `LoginPage`, `RegisterPage`, `HomePage` – auth + landing flows.
+  - `GamePage` – `/game/:gameId` host; encapsulates board selectors, game
+    log, and HUD connection state:
+    - `waitForReady()` waits for board + `"Connection: Connected"` +
+      turn indicator, mirroring `waitForGameReady`.
+    - `assertConnected()` asserts the HUD reports a stable `"Connection: Connected"`
+      state rather than a transient reconnect message.
+
+### E2E helper smoke tests
+
+The `tests/e2e/helpers.smoke.e2e.spec.ts` suite provides a fast sanity
+check that the helpers and POMs are wired correctly:
+
+- Verifies `generateTestUser` structure/uniqueness.
+- Exercises `LoginPage`/`RegisterPage` navigation.
+- Confirms `registerAndLogin` yields an authenticated session and that
+  `HomePage.assertUsernameDisplayed` handles responsive layouts.
+- Creates a backend AI game via `createGame` and checks `GamePage.waitForReady`.
+- Asserts `waitForGameReady` waits for core UI + HUD connection state.
+- Exercises navigation helpers:
+  - `goToLobby` (after auth).
+  - `goToHome` (from login).
+  - `goToSandbox` (ensures the sandbox pre‑game view and “Launch Game”
+    control are present).
+
+For a quick E2E sanity run in local dev or CI, use the Playwright smoke
+script:
+
+```bash
+npm run test:e2e:smoke
 ```
+
+which runs:
+
+- `auth.e2e.spec.ts` – core auth flows.
+- `helpers.smoke.e2e.spec.ts` – helper and POM wiring.
+- `sandbox.e2e.spec.ts` – `/sandbox` host “Launch Game” path into `/game/:gameId`.
+
+When adding new E2E helpers or POM capabilities, prefer to:
+
+- Export them via `tests/e2e/helpers/index.ts` for discoverability.
+- Add a small assertion to `helpers.smoke.e2e.spec.ts` so that changes to
+  routes or headings are caught early without depending on heavier game
+  flow suites.
+
+````
 
 ## Backend route tests & Prisma stub harness
 
@@ -493,7 +611,7 @@ describe('Auth HTTP routes', () => {
     // ... call route and assert on 409 + EMAIL_EXISTS
   });
 });
-```
+````
 
 When adding new route tests (for example `user`/`game` routes):
 

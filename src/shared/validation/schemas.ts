@@ -9,7 +9,7 @@ import { Request } from 'express';
 export const MAX_USER_CONTENT_LENGTH = 10000;
 
 /** Maximum username length */
-export const MAX_USERNAME_LENGTH = 20;
+export const MAX_USERNAME_LENGTH = 32;
 
 /** Minimum username length */
 export const MIN_USERNAME_LENGTH = 3;
@@ -33,18 +33,13 @@ export const MAX_CHAT_MESSAGE_LENGTH = 500;
 /**
  * UUID v4 validation schema. Used for entity IDs (games, users, etc.)
  */
-export const UUIDSchema = z
-  .string()
-  .uuid('Invalid ID format')
-  .min(1, 'ID is required');
+export const UUIDSchema = z.string().uuid('Invalid ID format').min(1, 'ID is required');
 
 /**
  * Safe string schema that strips dangerous characters for XSS prevention.
  * Use for user-generated content that will be displayed.
  */
-export const SafeStringSchema = z
-  .string()
-  .transform((val) => sanitizeString(val));
+export const SafeStringSchema = z.string().transform((val) => sanitizeString(val));
 
 /**
  * Pagination query parameters schema.
@@ -172,7 +167,7 @@ export function sanitizeHtmlContent(input: string): string {
 export function createSanitizedStringSchema(
   maxLength: number = MAX_CHAT_MESSAGE_LENGTH,
   minLength: number = 1
-): z.ZodEffects<z.ZodString, string, string> {
+) {
   return z
     .string()
     .min(minLength)
@@ -192,9 +187,14 @@ export const PositionSchema = z.object({
 });
 
 // Move validation
-// NOTE: This is a simplified wire-level move payload and is intentionally
-// narrower than the internal Move type. It is aligned with MovePayload
-// in src/shared/types/game.ts.
+// NOTE:
+// - This is the simplified wire-level move payload used by WebSockets/HTTP
+//   (`MovePayload` in src/shared/types/game.ts), not the full internal Move.
+// - It intentionally omits decision-only move types such as
+//   'process_line', 'choose_line_reward', 'process_territory_region', and
+//   'eliminate_rings_from_stack', which are carried by separate
+//   player-choice/decision payloads rather than the generic player_move
+//   channel.
 export const MoveSchema = z.object({
   moveType: z.enum([
     'place_ring',
@@ -228,6 +228,7 @@ export type MoveInput = z.infer<typeof MoveSchema>;
 export const CreateGameSchema = z.object({
   boardType: z.enum(['square8', 'square19', 'hexagonal']),
   timeControl: z.object({
+    type: z.enum(['blitz', 'rapid', 'classical']),
     initialTime: z.number().min(60).max(7200), // 1 minute to 2 hours
     increment: z.number().min(0).max(60), // Max 60 seconds increment
   }),
@@ -254,8 +255,8 @@ export const RegisterSchema = z
   .object({
     username: z
       .string()
-      .min(3, 'Username must be at least 3 characters')
-      .max(20, 'Username must be at most 20 characters')
+      .min(MIN_USERNAME_LENGTH, `Username must be at least ${MIN_USERNAME_LENGTH} characters`)
+      .max(MAX_USERNAME_LENGTH, `Username must be at most ${MAX_USERNAME_LENGTH} characters`)
       .regex(
         /^[a-zA-Z0-9_-]+$/,
         'Username can only contain letters, numbers, underscores, and hyphens'
@@ -311,8 +312,8 @@ export const ResetPasswordSchema = z.object({
 export const UpdateProfileSchema = z.object({
   username: z
     .string()
-    .min(3, 'Username must be at least 3 characters')
-    .max(20, 'Username must be at most 20 characters')
+    .min(MIN_USERNAME_LENGTH, `Username must be at least ${MIN_USERNAME_LENGTH} characters`)
+    .max(MAX_USERNAME_LENGTH, `Username must be at most ${MAX_USERNAME_LENGTH} characters`)
     .regex(
       /^[a-zA-Z0-9_-]+$/,
       'Username can only contain letters, numbers, underscores, and hyphens'
@@ -364,7 +365,7 @@ export const ChatMessageSchema = z.object({
   content: z
     .string()
     .min(1, 'Message cannot be empty')
-    .max(500, 'Message must be at most 500 characters')
+    .max(MAX_CHAT_MESSAGE_LENGTH, `Message must be at most ${MAX_CHAT_MESSAGE_LENGTH} characters`)
     .trim(),
   type: z.enum(['game', 'spectator', 'private']).default('game'),
   recipientId: z.string().uuid().optional(),
@@ -480,7 +481,7 @@ export const PaginationSchema = z.object({
 export const SearchSchema = z.object({
   query: z.string().min(1).max(100),
   type: z.enum(['users', 'games', 'tournaments']).optional(),
-  filters: z.record(z.any()).optional(),
+  filters: z.record(z.string(), z.any()).optional(),
 });
 
 // File upload validation

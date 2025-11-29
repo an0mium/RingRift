@@ -592,6 +592,13 @@ npm run test:ts-integration     # Integration suites (WebSocket, routes, full ga
 
 # Single-source-of-truth (SSoT) guardrails
 npm run ssot-check              # Docs/env/CI/rules SSoT checks and legacy-path fences
+
+# Orchestrator invariant soaks (TS shared engine, backend host)
+npm run soak:orchestrator       # Multi-game invariant soak (S, structure, ACTIVE-no-move)
+npm run soak:orchestrator:smoke # Single short backend game on square8, fails fast on violations
+
+# Orchestrator S-invariant regression harness (seeded, diagnostic)
+npm run test:orchestrator:s-invariant  # Replays seeded backend games promoted from soak S_INVARIANT_DECREASED traces
 ```
 
 ### Trace parity & GameTrace

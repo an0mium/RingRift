@@ -1,5 +1,5 @@
-import type { GameState, Move, Position, BoardState, BoardType } from '../types/game';
-import { BOARD_CONFIGS, positionToString } from '../types/game';
+import type { GameState, Move, Position, BoardState } from '../types/game';
+import { positionToString } from '../types/game';
 import { hasAnyLegalMoveOrCaptureFromOnBoard, MovementBoardView, calculateCapHeight } from './core';
 import { isValidPosition } from './validators/utils';
 

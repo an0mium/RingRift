@@ -14,14 +14,7 @@
  */
 
 import { logger } from '../utils/logger';
-import type {
-  GameState,
-  GamePhase,
-  GameStatus,
-  RingStack,
-  Position,
-} from '../../shared/types/game';
-import { positionToString } from '../../shared/types/game';
+import type { GameState, RingStack } from '../../shared/types/game';
 
 /**
  * Result of applying a move through an engine.

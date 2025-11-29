@@ -9,16 +9,21 @@
  * - docs/drafts/RULES_ENGINE_CONSOLIDATION_DESIGN.md
  * - docs/drafts/PHASE3_ADAPTER_MIGRATION_AUDIT.md
  *
- * MIGRATION STATUS: Proof-of-concept implementation
- * This file demonstrates the adapter pattern. Full integration requires:
- * 1. GameEngine.makeMove() to delegate here
- * 2. Wiring to actual WebSocket/interaction handlers
- * 3. History persistence integration
+ * MIGRATION STATUS: Phase A – backend orchestrator path live
+ *
+ * - In non-test environments, GameEngine.makeMove() now delegates to this
+ *   adapter by default (see GameEngine.processMoveViaAdapter and
+ *   config.isTest / useOrchestratorAdapter).
+ * - Decision handling is currently test-only (auto-select or throw); the
+ *   production WebSocket interaction layer will wire a real DecisionHandler
+ *   for interactive phases in a later phase.
+ * - Event emission is intentionally minimal (`game:state_update`,
+ *   `game:ended`) and can be extended to drive richer spectator updates and
+ *   history persistence once rollout is fully complete.
  */
 
-import type { GameState, Move, GameResult, Position } from '../../../shared/types/game';
+import type { GameState, Move, GameResult } from '../../../shared/types/game';
 import type {
-  ProcessTurnResult,
   TurnProcessingDelegates,
   PendingDecision,
   VictoryState,
@@ -181,6 +186,32 @@ export class TurnEngineAdapter {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+
+      const TRACE_DEBUG_ENABLED =
+        typeof process !== 'undefined' &&
+        !!(process as any).env &&
+        ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+
+      if (TRACE_DEBUG_ENABLED) {
+        const isDecisionHandlerError = errorMessage.includes(
+          'DecisionHandler.requestDecision called for'
+        );
+        const isEliminationTargetDecisionError = errorMessage.includes('elimination_target');
+
+        console.error('[TurnEngineAdapter.processMove] orchestrator error', {
+          moveType: move.type,
+          player: move.player,
+          from: move.from,
+          to: move.to,
+          currentPhase: beforeState.currentPhase,
+          currentPlayer: beforeState.currentPlayer,
+          gameStatus: beforeState.gameStatus,
+          errorMessage,
+          isDecisionHandlerError,
+          isEliminationTargetDecisionError,
+        });
+      }
+
       return {
         success: false,
         nextState: beforeState,

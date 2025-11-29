@@ -6,7 +6,7 @@
   "state": {
     "boardType": "square8",
     "id": "rules-parity-square8-2p-v2",
-    "rngSeed": 717304079,
+    "rngSeed": 591217373,
     "board": {
       "stacks": {
         "0,0": {
@@ -14,12 +14,7 @@
             "x": 0,
             "y": 0
           },
-          "rings": [
-            1,
-            1,
-            1,
-            1
-          ],
+          "rings": [1, 1, 1, 1],
           "stackHeight": 4,
           "capHeight": 4,
           "controllingPlayer": 1
@@ -29,12 +24,7 @@
             "x": 1,
             "y": 0
           },
-          "rings": [
-            1,
-            1,
-            1,
-            1
-          ],
+          "rings": [1, 1, 1, 1],
           "stackHeight": 4,
           "capHeight": 4,
           "controllingPlayer": 1
@@ -44,12 +34,7 @@
             "x": 0,
             "y": 1
           },
-          "rings": [
-            1,
-            1,
-            1,
-            1
-          ],
+          "rings": [1, 1, 1, 1],
           "stackHeight": 4,
           "capHeight": 4,
           "controllingPlayer": 1
@@ -59,12 +44,7 @@
             "x": 1,
             "y": 1
           },
-          "rings": [
-            1,
-            1,
-            1,
-            1
-          ],
+          "rings": [1, 1, 1, 1],
           "stackHeight": 4,
           "capHeight": 4,
           "controllingPlayer": 1
@@ -74,11 +54,7 @@
             "x": 3,
             "y": 3
           },
-          "rings": [
-            2,
-            1,
-            1
-          ],
+          "rings": [2, 1, 1],
           "stackHeight": 3,
           "capHeight": 1,
           "controllingPlayer": 2
@@ -88,11 +64,7 @@
             "x": 5,
             "y": 5
           },
-          "rings": [
-            2,
-            2,
-            2
-          ],
+          "rings": [2, 2, 2],
           "stackHeight": 3,
           "capHeight": 3,
           "controllingPlayer": 2
@@ -144,8 +116,8 @@
       "increment": 5,
       "type": "blitz"
     },
-    "createdAt": "2025-11-25T04:27:28.032Z",
-    "lastMoveAt": "2025-11-25T04:27:28.032Z",
+    "createdAt": "2025-11-29T18:07:48.162Z",
+    "lastMoveAt": "2025-11-29T18:07:48.162Z",
     "isRated": false,
     "maxPlayers": 2,
     "totalRingsInPlay": 0,

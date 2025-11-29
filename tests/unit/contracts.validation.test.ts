@@ -69,7 +69,10 @@ describe('Contract Validation', () => {
       const result = validatePosition({ x: 3.5, y: 5 });
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error).toContain('integer');
+        // Zod 4 error message: "Invalid input: expected int, received number".
+        // We assert on "expected int" to avoid overfitting to the exact phrasing
+        // while still verifying that non-integer coordinates are rejected.
+        expect(result.error).toContain('expected int');
       }
     });
 
@@ -767,6 +770,30 @@ describe('Contract Validation', () => {
       const result = validateProcessTurnResponse({
         ...validResponse,
         status: 'invalid_status',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('should accept S-invariant metadata when present', () => {
+      const result = validateProcessTurnResponse({
+        ...validResponse,
+        metadata: {
+          ...validResponse.metadata,
+          sInvariantBefore: 5,
+          sInvariantAfter: 6,
+        },
+      });
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject negative S-invariant metadata values', () => {
+      const result = validateProcessTurnResponse({
+        ...validResponse,
+        metadata: {
+          ...validResponse.metadata,
+          sInvariantBefore: -1,
+          sInvariantAfter: -2,
+        },
       });
       expect(result.success).toBe(false);
     });

@@ -396,20 +396,228 @@ The remaining orchestrator rollout and legacy shutdown work is organised into fo
 
 - Documentation-only changes; rollback is straightforward via `git revert` but unlikely to be needed.
 
-## 6. Tests, Metrics, and Rollback Summary
+## 6. SLOs, tests, metrics, and rollback summary
 
-### 6.1 Test suites
+This section defines orchestrator‑specific SLOs and error budgets and then restates
+the supporting tests, metrics, and rollback levers that enforce them. Alert
+thresholds in [`ALERTING_THRESHOLDS.md`](ALERTING_THRESHOLDS.md:1) and
+[`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1) are
+intentionally a little looser than these SLO targets so that on‑call receives
+early warning before the error budget is exhausted.
 
-For each phase, the following suites must be green:
+### 6.1 Orchestrator SLO overview
+
+The SLOs below are intentionally small in number and map directly to concrete
+metrics or CI jobs:
+
+- CI gating SLOs (per‑release):
+  - `SLO-CI-ORCH-PARITY` – orchestrator parity CI job always green for releases.
+  - `SLO-CI-ORCH-SHORT-SOAK` – short orchestrator soak has **zero** invariant
+    violations before a release can be promoted.
+
+- Staging SLOs (orchestrator‑only staging, used to gate promotion to production):
+  - `SLO-STAGE-ORCH-ERROR` – orchestrator error fraction in staging stays well
+    below overall HTTP error SLOs.
+  - `SLO-STAGE-ORCH-PARITY` – shadow and TS↔Python parity mismatches in staging
+    are effectively zero.
+  - `SLO-STAGE-ORCH-INVARIANTS` – no new orchestrator invariant violations in
+    staging or short soaks.
+
+- Production SLOs (orchestrator‑specific):
+  - `SLO-PROD-ORCH-ERROR` – orchestrator‑related errors on game requests stay
+    below global availability SLOs.
+  - `SLO-PROD-ORCH-INVARIANTS` – no new invariant violations attributable to the
+    orchestrator in production or in nightly soaks.
+  - `SLO-PROD-RULES-PARITY` – runtime TS↔Python rules‑parity incidents are
+    extremely rare and never affect game outcomes.
+
+Each SLO is defined more precisely below with a name, metric, target, window,
+and a rough error budget.
+
+### 6.2 CI SLOs (pre‑merge and pre‑release)
+
+**SLO-CI-ORCH-PARITY – Orchestrator parity CI gate**
+
+- **Metric:** Status of the `orchestrator-parity` GitHub Actions job defined in
+  [`.github/workflows/ci.yml`](.github/workflows/ci.yml:1), which runs
+  `npm run test:orchestrator-parity:ts` and
+  `./scripts/run-python-contract-tests.sh --verbose`.
+- **Target:** For any commit that will be:
+  - merged to `main`, and
+  - promoted to staging or production,
+    the `orchestrator-parity` job must be green.
+- **Window:** Per‑commit / per‑release candidate.
+- **Error budget:** 0 red jobs for release candidates. Any red run on `main`
+  blocks promotion until fixed. If the job is flaky (multiple red runs in a
+  week for unrelated commits), treat that as SLO debt and prioritise
+  hardening the tests rather than weakening the SLO.
+
+**SLO-CI-ORCH-SHORT-SOAK – Short orchestrator soak**
+
+- **Metric:** Exit status and invariant summary from the short orchestrator soak:
+  - Command (example):
+    `npm run soak:orchestrator -- --boardTypes=square8 --gamesPerBoard=5 --failOnViolation=true`
+  - Summary file: [`results/orchestrator_soak_summary.json`](../results/orchestrator_soak_summary.json:1).
+- **Target:**
+  - `totalInvariantViolations == 0` and no S‑invariant or host‑consistency
+    violations recorded in the summary.
+  - Process exit code `0` (no `--failOnViolation` failure).
+- **Window:** Must be run on the exact commit being promoted:
+  - At least once before tagging a release that will go to staging or production.
+  - Optionally as part of a nightly job against `main`.
+- **Error budget:** 0. Any invariant violation in the short soak is an SLO
+  breach and **must** block promotion until the underlying rules bug is
+  understood and fixed or explicitly waived.
+
+These CI SLOs correspond to **Phase 0 – Pre‑requisites** in the environment
+rollout plan (see §8).
+
+### 6.3 Staging SLOs (orchestrator‑only staging)
+
+Staging runs with the orchestrator as the only rules path:
+
+- `ORCHESTRATOR_ADAPTER_ENABLED=true`
+- `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
+- `RINGRIFT_RULES_MODE=ts`
+- `ORCHESTRATOR_SHADOW_MODE_ENABLED` toggled on/off for experiments only.
+
+The SLOs below are primarily used to **gate promotion** from staging to
+production.
+
+**SLO-STAGE-ORCH-ERROR – Staging orchestrator error rate**
+
+- **Metric:** `ringrift_orchestrator_error_rate{environment="staging"}` – the
+  fraction of orchestrator‑handled requests that failed in the most recent
+  error window, as exposed by [`MetricsService`](../src/server/services/MetricsService.ts:1).
+- **Target:**
+  `ringrift_orchestrator_error_rate <= 0.001` (0.1%) over a trailing 24‑hour window.
+- **Window:** 24h trailing, evaluated via e.g.:
+  - `max_over_time(ringrift_orchestrator_error_rate{environment="staging"}[24h])`.
+- **Error budget (staging):**
+  - At most one short spike above `0.001` lasting < 10 minutes in a 24‑hour
+    period.
+  - Any sustained period `>= 0.01` (1%) for 10 minutes or more, or any
+    `OrchestratorCircuitBreakerOpen` alert in staging, is considered an SLO
+    breach and blocks promotion to production.
+
+**SLO-STAGE-ORCH-PARITY – Staging orchestrator parity and shadow mismatches**
+
+- **Metrics:**
+  - `ringrift_orchestrator_shadow_mismatch_rate{environment="staging"}`
+  - Rules‑parity counters in the `rules-parity` alert group, for staging
+    traffic or scheduled parity jobs:
+    - `ringrift_rules_parity_valid_mismatch_total`
+    - `ringrift_rules_parity_hash_mismatch_total`
+    - `ringrift_rules_parity_game_status_mismatch_total`
+- **Target:**
+  - `ringrift_orchestrator_shadow_mismatch_rate <= 0.001` (0.1%) whenever
+    shadow is enabled in staging.
+  - Over any 24‑hour period in staging:
+    - Validation/hash mismatches:
+      `increase(..._valid_mismatch_total[24h]) <= 5` and
+      `increase(..._hash_mismatch_total[24h]) <= 5`
+    - Game‑status mismatches:
+      `increase(..._game_status_mismatch_total[24h]) == 0`
+- **Window:** 24h trailing.
+- **Error budget (staging):**
+  - 0 game‑status mismatches.
+  - At most a handful of validation/hash mismatches during early rollout,
+    all investigated and either fixed or documented as expected legacy
+    behaviour before promotion.
+
+**SLO-STAGE-ORCH-INVARIANTS – Staging invariant violations**
+
+- **Metrics:**
+  - (Planned) `ringrift_orchestrator_invariant_violations_total{environment="staging"}`.
+  - In‑cluster logs derived from orchestrator invariant guards and from
+    `npm run soak:orchestrator` runs against staging images.
+- **Target:**
+  - No **new** invariant violation types in staging.
+  - Short orchestrator soaks against the staging image behave like CI short
+    soaks: `totalInvariantViolations == 0`.
+- **Window:** 7d trailing for trend analysis; hard gate is per‑release soak.
+- **Error budget (staging):**
+  - Discovery of a single new invariant‐violation pattern is acceptable as
+    long as it is immediately triaged and turned into a regression test,
+    but promotion to production is paused until fixed or explicitly waived.
+
+### 6.4 Production SLOs (orchestrator‑specific)
+
+Production SLOs are phrased in terms of orchestrator‑specific metrics and sit
+under the broader availability and latency SLOs documented in
+[`ALERTING_THRESHOLDS.md`](ALERTING_THRESHOLDS.md:1).
+
+**SLO-PROD-ORCH-ERROR – Production orchestrator error rate**
+
+- **Metrics:**
+  - `ringrift_orchestrator_error_rate{environment="production"}`.
+  - HTTP error‑rate fraction for game move endpoints, approximated by:
+    ```promql
+    sum(rate(http_requests_total{route=~"/api/game/.+",status=~"5.."}[5m]))
+      /
+    sum(rate(http_requests_total{route=~"/api/game/.+"}[5m]))
+    ```
+- **Target:**
+  - `ringrift_orchestrator_error_rate <= 0.005` (0.5%) over a 28‑day window.
+  - Game move HTTP 5xx fraction `<= 0.01` (1%) over the same window.
+- **Window:** 28 days trailing.
+- **Error budget (production):**
+  - Roughly 0.5% of orchestrator‑handled moves in a 28‑day period may fail
+    before the SLO is considered breached.
+  - Practically: more than **one** orchestrator‑specific P1 incident or more
+    than **three** `OrchestratorErrorRateWarning` episodes lasting > 10m in a
+    28‑day period should trigger a rollout freeze and possibly a rollback to
+    the previous phase.
+
+**SLO-PROD-ORCH-INVARIANTS – Production invariant violations**
+
+- **Metrics:**
+  - (Planned) `ringrift_orchestrator_invariant_violations_total{environment="production"}`.
+  - Logs and soak summaries derived from the orchestrator soak harness
+    running periodically against production images
+    (see [`STRICT_INVARIANT_SOAKS.md`](STRICT_INVARIANT_SOAKS.md:1)).
+- **Target:**
+  - No invariant violations attributable to the orchestrator in production
+    logs.
+  - Short soaks run against the production image continue to report
+    `totalInvariantViolations == 0`.
+- **Window:** 28 days trailing for production logs; per‑run for soaks.
+- **Error budget (production):**
+  - Any new invariant violation observed in production should be treated as
+    an SLO breach for rollout purposes:
+    - Freeze further rollout or deprecations.
+    - Escalate to rules maintainers to add a regression test and fix the
+      bug before resuming rollout.
+
+**SLO-PROD-RULES-PARITY – Runtime TS↔Python rules parity**
+
+- **Metrics:** Same `rules-parity` metrics as in staging, but restricted to
+  the production environment.
+- **Target:**
+  - No production `RulesParityGameStatusMismatch` alerts.
+  - Validation/hash mismatches `<= 5` per 24h and limited to known,
+    documented historical cases (see `docs/PARITY_SEED_TRIAGE.md`).
+- **Window:** 28 days trailing, with fine‑grained 1h / 24h views for
+  debugging.
+- **Error budget (production):**
+  - 0 game‑status mismatch incidents affecting real games.
+  - If more than 2 parity‑related incidents occur in a quarter, consider:
+    - Reducing use of the Python engine in production traffic.
+    - Tightening parity tests and contract vectors before further rollout.
+
+### 6.5 Test suites
+
+For each phase (implementation Phases A–D and environment Phases 0–4), the
+following suites must be green:
 
 - **TypeScript**
   - Unit and integration tests: `tests/unit/**`.
-  - Scenario and FAQ matrix tests: `tests/scenarios/**` (including RulesMatrix territory and line tests).
+  - Scenario and FAQ matrix tests: `tests/scenarios/**` (including RulesMatrix
+    territory and line tests).
   - Parity tests:
     - Backend vs sandbox parity (`tests/unit/Backend_vs_Sandbox.*` where present).
     - Orchestrator adapter tests for backend and sandbox.
-
-  - Contract tests: `tests/contracts/**` and TS-side contract runners.
+  - Contract tests: `tests/contracts/**` and TS‑side contract runners.
 
 - **Python**
   - Core rules and engine tests under `ai-service/tests/**`.
@@ -418,11 +626,18 @@ For each phase, the following suites must be green:
     - `ai-service/tests/parity/test_chain_capture_parity.py`.
     - `ai-service/tests/contracts/test_contract_vectors.py`.
 
-### 6.2 Metrics and observability
+These suites are part of the **SLO enforcement mechanism**: failing tests
+invalidate `SLO-CI-ORCH-PARITY` and halt rollout until fixed.
 
-Across Phases A–C, the following metrics must be monitored, as described in `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`, `docs/runbooks/RULES_PARITY.md`, and `docs/runbooks/GAME_HEALTH.md`:
+### 6.6 Metrics and observability
 
-- Orchestrator-specific metrics:
+Across implementation Phases A–C and environment Phases 0–4, the following
+metrics must be monitored, as described in
+[`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md:1),
+[`docs/runbooks/RULES_PARITY.md`](runbooks/RULES_PARITY.md:1), and
+[`docs/runbooks/GAME_HEALTH.md`](runbooks/GAME_HEALTH.md:1):
+
+- Orchestrator‑specific metrics:
   - `ringrift_orchestrator_error_rate`.
   - `ringrift_orchestrator_circuit_breaker_state`.
   - `ringrift_orchestrator_rollout_percentage`.
@@ -434,11 +649,15 @@ Across Phases A–C, the following metrics must be monitored, as described in `d
   - WebSocket connection and error metrics.
 
 - Rules parity metrics:
-  - `rulesParityMetrics` counters surfaced by `RulesBackendFacade` in shadow mode and by TS↔Python parity jobs.
+  - `rulesParityMetrics` counters surfaced by `RulesBackendFacade` in shadow
+    mode and by TS↔Python parity jobs.
 
-Target thresholds should align with v1.0 SLOs in [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:76) and the thresholds in `monitoring/prometheus/alerts.yml`.
+Target thresholds should align with v1.0 user‑visible SLOs in
+[`PROJECT_GOALS.md`](../PROJECT_GOALS.md:76) and the thresholds in
+[`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1),
+while remaining consistent with the orchestrator SLOs in §§6.2–6.4.
 
-### 6.3 Rollback levers
+### 6.7 Rollback levers
 
 Rollbacks should rely on:
 
@@ -452,10 +671,17 @@ Rollbacks should rely on:
 
 - Git and deployment practices:
   - Each phase implemented in focused, reversible commits or pull requests.
-  - Staging deployments gated on a full green test suite and healthy orchestrator metrics.
-  - Production deployments using the existing deployment runbooks and rollback procedures in `docs/runbooks/DEPLOYMENT_ROUTINE.md` and `docs/runbooks/DEPLOYMENT_ROLLBACK.md`.
+  - Staging deployments gated on a full green test suite and healthy
+    orchestrator metrics.
+  - Production deployments using the existing deployment runbooks and
+    rollback procedures in
+    [`docs/runbooks/DEPLOYMENT_ROUTINE.md`](runbooks/DEPLOYMENT_ROUTINE.md:1)
+    and [`docs/runbooks/DEPLOYMENT_ROLLBACK.md`](runbooks/DEPLOYMENT_ROLLOUT.md:1).
 
-### 6.4 Test / CI profiles (orchestrator vs legacy/shadow)
+These levers define the rollback targets referenced in the environment phases
+(§8).
+
+### 6.8 Test / CI profiles (orchestrator vs legacy/shadow)
 
 To keep semantics and CI signals consistent, test and CI jobs should be
 organised around a small set of standard profiles:
@@ -467,30 +693,70 @@ organised around a small set of standard profiles:
     - `ORCHESTRATOR_SHADOW_MODE_ENABLED=false` (unless a job is explicitly a shadow test)
     - `RINGRIFT_RULES_MODE=ts`
   - TS:
-    - Core/unit/integration suites (`npm run test:core`, `npm run test:ci`), including `.shared` helpers, contract vectors, RulesMatrix/FAQ scenarios, and adapter‑level tests.
+    - Core/unit/integration suites (`npm run test:core`, `npm run test:ci`),
+      including `.shared` helpers, contract vectors, RulesMatrix/FAQ
+      scenarios, and adapter‑level tests.
   - Python:
-    - `pytest` over `ai-service/tests/**`, including contracts and fixture‑driven parity.
+    - `pytest` over `ai-service/tests/**`, including contracts and
+      fixture‑driven parity.
   - Policy:
-    - These jobs are the **only** ones allowed to block merges; any failure here is a hard gate.
+    - These jobs are the **only** ones allowed to block merges; any failure
+      here is a hard gate and a direct `SLO-CI-ORCH-PARITY` breach.
 
 - **Legacy / SHADOW diagnostics**
   - Env (examples; exact wiring may vary by job):
     - `ORCHESTRATOR_ADAPTER_ENABLED=true`
     - `ORCHESTRATOR_SHADOW_MODE_ENABLED=true`
-    - `RINGRIFT_RULES_MODE=shadow` or `legacy` for explicitly marked diagnostic runs.
-    - `ORCHESTRATOR_ROLLOUT_PERCENTAGE` set according to the experiment (often < 100 in staging).
+    - `RINGRIFT_RULES_MODE=shadow` or `legacy` for explicitly marked
+      diagnostic runs.
+    - `ORCHESTRATOR_ROLLOUT_PERCENTAGE` set according to the experiment
+      (often < 100 in staging).
   - TS:
-    - Selected parity/trace suites and host‑comparison tests that are explicitly tagged as **diagnostic** (see `tests/README.md`, `tests/TEST_SUITE_PARITY_PLAN.md`).
+    - Selected parity/trace suites and host‑comparison tests that are
+      explicitly tagged as **diagnostic** (see `tests/README.md`,
+      `tests/TEST_SUITE_PARITY_PLAN.md`).
   - Python:
     - Optional additional parity / soak tests over TS‑generated fixtures.
   - Policy:
-    - These jobs are **non‑canonical** and must not redefine semantics; when they disagree with the orchestrator‑ON profile and `.shared` tests, treat traces as derived and update or archive them.
-    - Failures here should open investigation tickets but do not automatically block merges unless explicitly promoted.
+    - These jobs are **non‑canonical** and must not redefine semantics; when
+      they disagree with the orchestrator‑ON profile and `.shared` tests,
+      treat traces as derived and update or archive them.
+    - Failures here should open investigation tickets but do not
+      automatically block merges unless explicitly promoted.
 
 When adding new CI jobs or local profiles, align them with one of these two
 buckets and keep their environment flags documented so it is always clear
 whether a given failure is in the canonical orchestrator‑ON lane or in a
 diagnostic legacy/SHADOW lane.
+
+### 6.9 Orchestrator Parity CI Job (`orchestrator-parity`)
+
+The orchestrator parity CI gate is implemented as the `orchestrator-parity` job
+in [`.github/workflows/ci.yml`](.github/workflows/ci.yml:1). It runs under the
+**orchestrator‑ON** profile described above and is required for
+orchestrator‑first rollout and TS↔Python parity guarantees.
+
+- **TS orchestrator/host tests:**
+  - Command: `npm run test:orchestrator-parity:ts`
+  - Scope: backend and sandbox orchestrator multi‑phase scenarios plus core
+    lines/territory unit suites:
+    - [`tests/scenarios/Orchestrator.Backend.multiPhase.test.ts`](tests/scenarios/Orchestrator.Backend.multiPhase.test.ts:1)
+    - [`tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts`](tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts:1)
+    - [`tests/unit/GameEngine.lines.scenarios.test.ts`](tests/unit/GameEngine.lines.scenarios.test.ts:1)
+    - [`tests/unit/ClientSandboxEngine.lines.test.ts`](tests/unit/ClientSandboxEngine.lines.test.ts:1)
+    - [`tests/unit/territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts:1)
+    - [`tests/unit/GameEngine.territoryDisconnection.test.ts`](tests/unit/GameEngine.territoryDisconnection.test.ts:1)
+    - [`tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts`](tests/unit/ClientSandboxEngine.territoryDisconnection.hex.test.ts:1)
+
+- **Python contract vectors:**
+  - Command (from repo root): `./scripts/run-python-contract-tests.sh --verbose`
+  - Uses [`ai-service/requirements.txt`](ai-service/requirements.txt:1) and
+    [`ai-service/tests/contracts/test_contract_vectors.py`](ai-service/tests/contracts/test_contract_vectors.py:1)
+    to validate Python rules behaviour against shared TS contract vectors.
+
+Failures in this job indicate either an orchestrator/host regression in the TS
+engine or a TS↔Python contract vector divergence, and **must block merges**
+until resolved. They are treated as direct `SLO-CI-ORCH-PARITY` violations.
 
 ## 7. Track A Orchestrator Rollout Overview
 
@@ -601,3 +867,270 @@ Once all phases are complete, **all production and sandbox rules paths will rout
 - `TurnEngineAdapter` and `SandboxOrchestratorAdapter` as the exclusive host integration layers.
 
 Legacy rules pipelines in backend and sandbox hosts will be fully removed or quarantined as diagnostics-only helpers, and documentation will accurately reflect the orchestrator-first architecture.
+
+## 8. Environment rollout phases and SLO gating
+
+The implementation phases in §5 focus on **code structure** (making adapters
+canonical and fencing legacy helpers). This section defines complementary
+**environment rollout phases** that describe how orchestrator‑first is enabled,
+baked in, and eventually made the only production rules path, using the SLOs
+from §6 as gates.
+
+### 8.1 Phase map (summary)
+
+| Phase                              | Environment posture                                          | Typical environment    | Key SLO gates                                                                | Primary rollback target                                           |
+| ---------------------------------- | ------------------------------------------------------------ | ---------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| 0 – Pre‑requisites                 | Legacy or mixed, orchestrator available but not relied on    | CI, dev, early staging | `SLO-CI-ORCH-PARITY`, `SLO-CI-ORCH-SHORT-SOAK` green                         | N/A (baseline)                                                    |
+| 1 – Staging‑only orchestrator      | Staging uses orchestrator for all games                      | Staging                | `SLO-STAGE-ORCH-ERROR`, `SLO-STAGE-ORCH-PARITY`, `SLO-STAGE-ORCH-INVARIANTS` | Phase 0 (disable orchestrator in staging)                         |
+| 2 – Production shadow              | Legacy engine authoritative, orchestrator running in shadow  | Production             | `SLO-PROD-RULES-PARITY` (no new incidents), shadow mismatch rate near zero   | Phase 1 (keep staging orchestrator‑only, turn off shadow in prod) |
+| 3 – Incremental production rollout | Orchestrator authoritative for a slice of production traffic | Production             | `SLO-PROD-ORCH-ERROR`, `SLO-PROD-ORCH-INVARIANTS`, `SLO-PROD-RULES-PARITY`   | Phase 2 or Phase 1 depending on severity                          |
+| 4 – Legacy path shutdown           | Orchestrator is the only production rules path               | Staging and production | All SLOs stable over multiple windows                                        | Phase 3 (feature‑flag rollback only)                              |
+
+```mermaid
+flowchart LR
+  P0[Phase 0 Pre requisites] --> P1[Phase 1 Staging orchestrator only]
+  P1 --> P2[Phase 2 Production shadow]
+  P2 --> P3[Phase 3 Incremental production rollout]
+  P3 --> P4[Phase 4 Legacy path shutdown]
+
+  P3 -->|SLO breach| P2
+  P2 -->|SLO breach| P1
+  P1 -->|Severe incident| P0
+```
+
+### 8.2 Phase 0 – Pre‑requisites
+
+**Preconditions**
+
+- Implementation Phases A and B are functionally complete enough that:
+  - Backend and sandbox can run fully via `TurnEngineAdapter` and
+    `SandboxOrchestratorAdapter`.
+  - Legacy rules pipelines exist only as test/diagnostics scaffolding.
+- CI SLOs are enforced:
+  - `SLO-CI-ORCH-PARITY` and `SLO-CI-ORCH-SHORT-SOAK` are wired into CI
+    (or into a pre‑release pipeline) and must be green for any release
+    candidate.
+- Python contract vectors and parity suites are green.
+
+**Observability requirements**
+
+Before moving beyond Phase 0, the following must exist:
+
+- Dashboards that show, at minimum:
+  - Orchestrator error rate and circuit‑breaker status.
+  - Orchestrator rollout percentage and shadow mismatch rate.
+  - Game move latency and key HTTP/availability/error SLOs.
+  - Rules‑parity metrics for TS↔Python.
+- Alerts configured as in
+  [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1)
+  for:
+  - `OrchestratorCircuitBreakerOpen`
+  - `OrchestratorErrorRateWarning`
+  - `OrchestratorShadowMismatches`
+  - `RulesParity*` mismatches.
+
+**SLO checks and gating**
+
+- A release may proceed out of Phase 0 only if:
+  - CI SLOs are met for the candidate commit.
+  - No open P0/P1 incidents related to rules parity or orchestrator invariant
+    violations remain.
+
+**Rollback triggers**
+
+- Not applicable; Phase 0 is the baseline for other phases. If a later phase
+  is rolled back “all the way”, the environment returns to Phase 0 posture
+  (orchestrator disabled or used only for diagnostics).
+
+### 8.3 Phase 1 – Staging‑only orchestrator
+
+In Phase 1, the **staging environment** runs orchestrator‑first exclusively:
+
+- `ORCHESTRATOR_ADAPTER_ENABLED=true`
+- `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
+- `RINGRIFT_RULES_MODE=ts`
+- Legacy rules pipelines are not used for staging traffic.
+
+**Preconditions**
+
+- All Phase 0 preconditions and CI SLOs hold.
+- Orchestrator‑only backend and sandbox paths are stable under local and CI
+  load.
+- Dashboards and alerts for orchestrator metrics are live in staging.
+
+**Observability requirements**
+
+- Staging dashboards must show, at minimum:
+  - `ringrift_orchestrator_error_rate{environment="staging"}`
+  - `ringrift_orchestrator_shadow_mismatch_rate{environment="staging"}` (when
+    shadow is enabled for experiments).
+  - Game move latency and HTTP error‑rate breakdowns.
+  - Rules‑parity metrics scoped to staging.
+
+**SLO‑driven entry/exit criteria**
+
+- **Entry to Phase 1 (staging orchestrator‑only):**
+  - `SLO-CI-ORCH-PARITY` and `SLO-CI-ORCH-SHORT-SOAK` satisfied on the
+    candidate build.
+  - No active critical rules‑parity or invariant incidents.
+- **Exit from Phase 1 (promotion towards production shadow or rollout):**
+  - `SLO-STAGE-ORCH-ERROR`, `SLO-STAGE-ORCH-PARITY`, and
+    `SLO-STAGE-ORCH-INVARIANTS` are all met for at least **24–72 hours** of
+    normal staging traffic:
+    - No `OrchestratorCircuitBreakerOpen` alerts in staging.
+    - No new invariant or game‑status parity incidents.
+
+**Rollback and destination**
+
+- If staging SLOs are breached:
+  - **Soft rollback:** keep orchestrator enabled but stop promoting new builds
+    until the issue is fixed.
+  - **Hard rollback to Phase 0:** set
+    `ORCHESTRATOR_ADAPTER_ENABLED=false` or
+    `RINGRIFT_RULES_MODE=legacy` in staging and redeploy a known‑good image.
+
+### 8.4 Phase 2 – Production shadow / mirroring
+
+In Phase 2, production continues to use the **legacy rules path as
+authoritative**, but the orchestrator runs in **shadow** for some or all
+sessions so that results can be compared.
+
+Typical configuration:
+
+- `ORCHESTRATOR_ADAPTER_ENABLED=true`
+- `ORCHESTRATOR_SHADOW_MODE_ENABLED=true`
+- `RINGRIFT_RULES_MODE=shadow`
+- `ORCHESTRATOR_ROLLOUT_PERCENTAGE` may remain 0 (no orchestrator‑authoritative
+  games) while shadow runs for a configurable fraction of traffic.
+
+**Preconditions**
+
+- Phase 1 has been successful for at least 24–72 hours.
+- Staging SLOs remain green.
+- Shadow‑mode comparison logic and metrics
+  (e.g. `ringrift_orchestrator_shadow_mismatch_rate`) are wired and visible
+  in dashboards for both staging and production.
+
+**Observability requirements**
+
+- Dashboards for production must surface:
+  - Shadow mismatch rate and total comparisons.
+  - Orchestrator vs legacy latency comparisons.
+  - Rules‑parity metrics scoped to production parity harnesses.
+
+**SLO‑driven entry/exit criteria**
+
+- **Entry to Phase 2:**
+  - Staging SLOs green.
+  - No open P0/P1 parity or invariant incidents.
+- **Exit from Phase 2 (towards Phase 3 incremental rollout):**
+  - Over at least **24 hours** of production shadow traffic:
+    - `ringrift_orchestrator_shadow_mismatch_rate <= 0.001` and no
+      `OrchestratorShadowMismatches` alerts.
+    - No `RulesParityGameStatusMismatch` alerts in production.
+    - Any validation/hash mismatches are understood and either fixed or
+      documented as expected legacy behaviour.
+
+**Rollback and destination**
+
+- If shadow SLOs are breached:
+  - Disable shadow mode in production
+    (`ORCHESTRATOR_SHADOW_MODE_ENABLED=false`,
+    `RINGRIFT_RULES_MODE=ts` or `legacy` as appropriate) and return to Phase 1
+    posture (orchestrator used only in staging).
+  - Investigate under the rules‑parity runbook before re‑enabling shadow.
+
+### 8.5 Phase 3 – Incremental production rollout
+
+Phase 3 gradually makes the orchestrator authoritative for real production
+games, controlled by `ORCHESTRATOR_ROLLOUT_PERCENTAGE`. A typical sequence is:
+
+- 0% → 10% → 25% → 50% → 100%
+
+with an observation window between each step.
+
+**Preconditions**
+
+- Phase 2 has been stable for at least 24 hours.
+- `SLO-PROD-RULES-PARITY` holds (no unexplained parity incidents).
+- Production dashboards and alerts for orchestrator metrics are healthy and
+  frequently consulted by on‑call.
+
+**Staged rollout steps**
+
+For each percentage increase:
+
+1. **Pre‑check SLOs and alerts**
+   - Ensure there are **no active** `OrchestratorCircuitBreakerOpen`,
+     `OrchestratorErrorRateWarning`, or `OrchestratorShadowMismatches`
+     alerts.
+   - Confirm:
+     - `ringrift_orchestrator_error_rate` is near 0.
+     - HTTP error‑rate and game‑move latency SLOs are within normal bounds.
+2. **Apply the change**
+   - Update the environment, for example:
+     ```bash
+     kubectl set env deployment/ringrift-api ORCHESTRATOR_ROLLOUT_PERCENTAGE=25
+     ```
+3. **Observation window**
+   - Wait at least **2–3 error‑rate windows** (e.g. 15–30 minutes) with real
+     traffic at the new percentage.
+   - Re‑check:
+     - Orchestrator error rate and HTTP 5xx share on game endpoints.
+     - Shadow mismatch rate (if still enabled).
+     - Rules‑parity and game‑health dashboards.
+4. **Decide to advance, hold, or roll back**
+   - Advance only if SLOs remain green and no new alerts appear.
+   - Hold or roll back if:
+     - `ringrift_orchestrator_error_rate > 0.01` (1%) for > 10 minutes.
+     - Any new invariant or parity incident appears.
+
+**Rollback and destination**
+
+- **Minor SLO breach:** reduce
+  `ORCHESTRATOR_ROLLOUT_PERCENTAGE` (e.g. from 50% back to 10%) but keep
+  orchestrator enabled; re‑evaluate later.
+- **Major SLO breach or incident:** set
+  `ORCHESTRATOR_ROLLOUT_PERCENTAGE=0` and/or
+  `ORCHESTRATOR_ADAPTER_ENABLED=false` and return to Phase 2 (shadow‑only) or
+  Phase 1 (staging‑only orchestrator) depending on severity.
+
+### 8.6 Phase 4 – Legacy path shutdown
+
+In Phase 4 the orchestrator is the **only** rules path in both staging and
+production; legacy pipelines are deleted or fully quarantined as diagnostics,
+as described in implementation Phase C.
+
+**Preconditions**
+
+- `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100` in production for a sustained period
+  (e.g. several weeks) with:
+  - `SLO-PROD-ORCH-ERROR`, `SLO-PROD-ORCH-INVARIANTS`, and
+    `SLO-PROD-RULES-PARITY` all met.
+  - No orchestrator‑specific P0/P1 incidents in that period.
+- All critical runbooks (`ORCHESTRATOR_ROLLOUT_RUNBOOK.md`,
+  `RULES_PARITY.md`, `GAME_HEALTH.md`, incident docs under
+  `docs/incidents/`) have been exercised at least once under orchestrator‑ON.
+
+**Observability and SLO checks**
+
+- Monitoring continues as in Phase 3; the main change is that legacy
+  pipelines are no longer available for low‑risk rollbacks.
+- Error budgets for orchestrator‑specific SLOs must be respected more
+  strictly; exceeding them may require:
+  - Re‑enabling a legacy path from git history, or
+  - Temporarily routing a small subset of games to a Python‑backed rules
+    mirror, depending on product decisions.
+
+**Rollback and destination**
+
+- Once Phase 4 is reached, rollback is primarily **feature‑flag and
+  deployment‑based**:
+  - Reduce rollout percentage or disable the adapter if legacy code has not
+    yet been physically removed.
+  - If code has been deleted, rollback consists of deploying a previous
+    release that still contained the legacy path (effectively returning the
+    environment to Phase 3 posture).
+
+At the end of Phase 4, orchestrator‑first is the long‑term steady state, and
+legacy rules paths are treated as historical artefacts only.

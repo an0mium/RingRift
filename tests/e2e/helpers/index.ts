@@ -44,7 +44,7 @@ export {
 } from './test-utils';
 
 // Navigation helpers
-export { goToLobby, goToGame, goToHome } from './test-utils';
+export { goToLobby, goToSandbox, goToGame, goToHome } from './test-utils';
 
 // Error handling helpers
 export { assertErrorMessage, assertNoErrors } from './test-utils';

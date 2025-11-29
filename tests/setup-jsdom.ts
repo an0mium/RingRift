@@ -3,6 +3,16 @@
  * Runs BEFORE test framework is installed
  */
 
+import { MessageChannel as NodeMessageChannel } from 'worker_threads';
+
+// Ensure MessageChannel is available for React 18+/19 scheduling logic in
+// environments where jsdom does not provide it by default. We alias Node's
+// worker_threads implementation onto the global object so that React's
+// server/browser bundles (used by react-dom/server) can rely on it.
+if (typeof (globalThis as any).MessageChannel === 'undefined') {
+  (globalThis as any).MessageChannel = NodeMessageChannel as unknown as typeof MessageChannel;
+}
+
 // Mock import.meta for Vite-specific code
 // This must be set on the global object before any modules are loaded
 Object.defineProperty(global, 'importMeta', {

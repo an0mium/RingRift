@@ -135,6 +135,10 @@ class TestDescentAIHex(unittest.TestCase):
             np.zeros((10, 21, 21), dtype=np.float32),
             np.zeros((10,), dtype=np.float32),
         )
+        # Ensure evaluate_position returns a numeric value so that the
+        # DescentAI.evaluate_position clamping logic operates on floats
+        # rather than MagicMock instances.
+        self.ai.neural_net.evaluate_position.return_value = 0.0
 
         # Hex encoder: always map moves to index 0 in the (small) policy
         # vector returned by the fake hex model.

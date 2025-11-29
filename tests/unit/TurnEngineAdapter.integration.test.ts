@@ -14,6 +14,7 @@ import {
   createAutoSelectDecisionHandler,
 } from '../../src/server/game/turn/TurnEngineAdapter';
 import type { GameState, Move, Position, Player, TimeControl } from '../../src/shared/types/game';
+import type { VictoryState } from '../../src/shared/engine/orchestration/types';
 import { createInitialGameState } from '../../src/shared/engine/initialState';
 import { positionToString } from '../../src/shared/engine';
 
@@ -337,6 +338,98 @@ describe('TurnEngineAdapter', () => {
       // Should have emitted at least a state_update event
       const stateUpdateEvent = events.find((e) => e.event === 'game:state_update');
       expect(stateUpdateEvent).toBeDefined();
+    });
+  });
+
+  describe('Victory mapping', () => {
+    it('maps VictoryState into backend GameResult shape', () => {
+      const state = createTestState();
+      const handler = createAutoSelectDecisionHandler();
+
+      const stateAccessor = {
+        getGameState: () => state,
+        updateGameState: (_newState: GameState) => {
+          // no-op for this mapping test
+        },
+        getPlayerInfo: (playerNumber: number) => {
+          const player = state.players.find((p) => p.playerNumber === playerNumber);
+          return player ? { type: player.type } : undefined;
+        },
+      };
+
+      const adapter = new TurnEngineAdapter({
+        stateAccessor,
+        decisionHandler: handler,
+      }) as any;
+
+      const victory: VictoryState = {
+        isGameOver: true,
+        winner: 1,
+        reason: 'ring_elimination',
+        scores: [
+          {
+            player: 1,
+            eliminatedRings: 5,
+            territorySpaces: 10,
+            ringsOnBoard: 3,
+            ringsInHand: 2,
+            markerCount: 0,
+            isEliminated: false,
+          },
+          {
+            player: 2,
+            eliminatedRings: 2,
+            territorySpaces: 5,
+            ringsOnBoard: 4,
+            ringsInHand: 1,
+            markerCount: 0,
+            isEliminated: false,
+          },
+        ],
+        tieBreaker: undefined,
+      };
+
+      const result = adapter.convertVictoryToGameResult(victory);
+
+      expect(result).toEqual({
+        winner: 1,
+        reason: 'ring_elimination',
+        finalScore: {
+          ringsEliminated: { 1: 5, 2: 2 },
+          territorySpaces: { 1: 10, 2: 5 },
+          ringsRemaining: { 1: 5, 2: 5 },
+        },
+      });
+    });
+
+    it('returns undefined GameResult when winner is undefined', () => {
+      const state = createTestState();
+      const handler = createAutoSelectDecisionHandler();
+
+      const stateAccessor = {
+        getGameState: () => state,
+        updateGameState: (_newState: GameState) => {},
+        getPlayerInfo: (playerNumber: number) => {
+          const player = state.players.find((p) => p.playerNumber === playerNumber);
+          return player ? { type: player.type } : undefined;
+        },
+      };
+
+      const adapter = new TurnEngineAdapter({
+        stateAccessor,
+        decisionHandler: handler,
+      }) as any;
+
+      const victory: VictoryState = {
+        isGameOver: true,
+        winner: undefined,
+        reason: 'stalemate_resolution',
+        scores: [],
+        tieBreaker: undefined,
+      };
+
+      const result = adapter.convertVictoryToGameResult(victory);
+      expect(result).toBeUndefined();
     });
   });
 });

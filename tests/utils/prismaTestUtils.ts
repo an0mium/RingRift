@@ -31,7 +31,7 @@ export const mockDb = {
 const userModelStub = {
   findFirst: jest.fn(async (args: any) => {
     if (!args || !args.where) return null;
-    
+
     // Handle OR-based queries (for checking existing users by email/username)
     if (args.where.OR) {
       const { email, username } = args.where.OR.reduce(
@@ -47,29 +47,41 @@ const userModelStub = {
         ) || null
       );
     }
-    
+
     // Handle password reset token queries
     if (args.where.passwordResetToken) {
       const token = args.where.passwordResetToken;
       const expiresGt = args.where.passwordResetExpires?.gt;
-      
-      return mockDb.users.find((u) => {
-        if (u.passwordResetToken !== token) return false;
-        if (expiresGt && u.passwordResetExpires) {
-          // Check if the token hasn't expired
-          return u.passwordResetExpires > expiresGt;
+
+      return (
+        mockDb.users.find((u) => {
+          if (u.passwordResetToken !== token) return false;
+          if (expiresGt && u.passwordResetExpires) {
+            // Check if the token hasn't expired
+            return u.passwordResetExpires > expiresGt;
+          }
+          return true;
+        }) || null
+      );
+    }
+
+    // Handle generic field-based queries, including soft-delete semantics.
+    return (
+      mockDb.users.find((u) => {
+        for (const [key, value] of Object.entries(args.where)) {
+          // For deletedAt: null, treat undefined and null as equivalent so that
+          // tests can omit deletedAt on active users while routes still filter
+          // with { deletedAt: null }.
+          if (key === 'deletedAt' && value === null) {
+            if (u.deletedAt === null || typeof u.deletedAt === 'undefined') continue;
+            return false;
+          }
+
+          if ((u as any)[key] !== value) return false;
         }
         return true;
-      }) || null;
-    }
-    
-    // Handle generic field-based queries
-    return mockDb.users.find((u) => {
-      for (const [key, value] of Object.entries(args.where)) {
-        if (u[key] !== value) return false;
-      }
-      return true;
-    }) || null;
+      }) || null
+    );
   }),
   findUnique: jest.fn(async (args: any) => {
     if (!args || !args.where) return null;
@@ -138,14 +150,15 @@ const refreshTokenModelStub = {
   }),
   findFirst: jest.fn(async (args: any) => {
     const { token, userId, expiresAt } = args.where || {};
-    const found = mockDb.refreshTokens.find((rt) => {
-      if (token && rt.token !== token) return false;
-      if (userId && rt.userId !== userId) return false;
-      // Only check expiry if explicitly requested (for non-revoked token lookups)
-      if (expiresAt?.gt && !(rt.expiresAt instanceof Date)) return false;
-      if (expiresAt?.gt && rt.expiresAt <= expiresAt.gt) return false;
-      return true;
-    }) || null;
+    const found =
+      mockDb.refreshTokens.find((rt) => {
+        if (token && rt.token !== token) return false;
+        if (userId && rt.userId !== userId) return false;
+        // Only check expiry if explicitly requested (for non-revoked token lookups)
+        if (expiresAt?.gt && !(rt.expiresAt instanceof Date)) return false;
+        if (expiresAt?.gt && rt.expiresAt <= expiresAt.gt) return false;
+        return true;
+      }) || null;
 
     // If args.include.user is present, attach the user to the result
     if (found && args.include?.user) {
@@ -220,7 +233,6 @@ export const prismaStub = {
     // Support array-of-promises style used in some routes (for example auth refresh).
     if (Array.isArray(arg)) {
       for (const op of arg) {
-        // eslint-disable-next-line no-await-in-loop
         await op;
       }
       return undefined;

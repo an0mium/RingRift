@@ -131,12 +131,24 @@ api.interceptors.response.use(
 
       const url: string = error.config?.url || '';
 
-      // For most 401s (auth/profile/etc.) we redirect back to /login.
-      // However, for game creation endpoints (used by the public /sandbox
-      // flow when no user is logged in), we do NOT redirect; callers
-      // are expected to catch the 401 and fall back to a pure local
-      // sandbox instead of being bounced back to /login.
-      if (!url.startsWith('/games')) {
+      // For most 401s (profile, protected game APIs, etc.) we redirect back
+      // to /login so that expired/invalid tokens bounce the user cleanly
+      // into the auth flow.
+      //
+      // However, there are a few important exceptions where the caller
+      // needs to handle the 401 explicitly without a hard navigation:
+      // - Auth endpoints (/auth/login, /auth/register, /auth/refresh):
+      //   the login/register pages interpret INVALID_CREDENTIALS and other
+      //   error codes to either show inline errors or redirect to the
+      //   register flow. A global window.location redirect here would race
+      //   with that logic and break E2E flows.
+      // - Game creation endpoints under /games (used by the public /sandbox
+      //   flow when no user is logged in): callers fall back to a pure
+      //   local sandbox rather than being forced to /login.
+      const isGameEndpoint = url.startsWith('/games');
+      const isAuthEndpoint = url.startsWith('/auth');
+
+      if (!isGameEndpoint && !isAuthEndpoint) {
         window.location.href = '/login';
       }
     }

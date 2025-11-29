@@ -110,12 +110,12 @@ describe('Layout', () => {
 
     it('renders logout button when authenticated', () => {
       renderWithRouter();
-      expect(screen.getByRole('button', { name: /log out/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /logout/i })).toBeInTheDocument();
     });
 
     it('calls logout when logout button is clicked', () => {
       renderWithRouter();
-      const logoutButton = screen.getByRole('button', { name: /log out/i });
+      const logoutButton = screen.getByRole('button', { name: /logout/i });
       fireEvent.click(logoutButton);
       expect(mockLogout).toHaveBeenCalledTimes(1);
     });

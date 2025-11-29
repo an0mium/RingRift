@@ -1,11 +1,11 @@
 # RingRift TODO / Task Tracker
 
-> **Doc Status (2025-11-28): Active (execution/backlog tracker)**
+> **Doc Status (2025-11-29): Active (execution/backlog tracker)**
 >
 > - Canonical high-level task/backlog tracker for near- and mid-term work.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** November 28, 2025
+**Last Updated:** November 29, 2025
 
 This file is the canonical high-level task tracker for the project.
 When it disagrees with older planning docs (for example files under
@@ -127,6 +127,14 @@ This phase consolidated the rules engine architecture across 4 sub-phases:
       eliminated rings, ensure it is reflected in
       [`computeProgressSnapshot`](src/shared/engine/core.ts) and covered by
       tests.
+- [ ] Add explicit S-invariant coverage for orchestrator multi-phase flows:
+  - [ ] `chain_capture` + `continue_capture_segment` (backend + sandbox)
+  - [ ] `territory_processing` with mandatory self-elimination (backend + sandbox)
+- [ ] Add an AI-service S-invariant parity check:
+  - [ ] Mirror one or two core S-invariant scenarios in Python
+        (e.g. `ai-service/tests/test_territory_forced_elimination_divergence.py`
+        and line/territory parity tests) and assert the same S deltas as the
+        TS engine.
 
 ### P0.4 – Unified Move model for all player-chosen decisions (backend + sandbox)
 
@@ -312,16 +320,41 @@ Planned work:
         Pylance cannot infer the dynamic `__init__` parameters, to keep the
         signal-to-noise ratio of editor diagnostics high.
 
-### P0.6 – Canonical Orchestrator Production Hardening (NEW)
+### P0.6 – Canonical Orchestrator Production Hardening
 
-Post-remediation work to fully enable the orchestrator in production:
+Post-remediation work to fully enable the orchestrator in production. Code‑level wiring,
+metrics, and CI gates are now in place; remaining work is primarily operational and
+cleanup of legacy paths.
 
-- [ ] Enable `useOrchestratorAdapter` feature flag in staging environment
-- [ ] Run comprehensive parity tests with orchestrator enabled
-- [ ] Monitor for any divergences in game outcomes
-- [ ] Enable `useOrchestratorAdapter` in production after validation
-- [ ] Remove legacy turn processing code paths once orchestrator is stable
-- [ ] Add orchestrator-specific metrics and observability
+- [x] Introduce centralized `OrchestratorRolloutService` and env‑driven flags
+      (`ORCHESTRATOR_ADAPTER_ENABLED`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE`,
+      `ORCHESTRATOR_SHADOW_MODE_ENABLED`) with loud warnings when the adapter
+      is disabled in `NODE_ENV=production` (see
+      [`src/server/index.ts`](src/server/index.ts) and
+      [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](docs/ORCHESTRATOR_ROLLOUT_PLAN.md)).
+- [x] Add a dedicated TS orchestrator‑parity Jest profile
+      (`npm run test:orchestrator-parity`) and CI job
+      **TS Orchestrator Parity (adapter‑ON)** that runs with the adapter forced
+      on and is wired as a required check for `main`.
+- [x] Add SSoT guardrails and fences to keep orchestrator semantics canonical:
+  - [x] `rules-ssot-check.ts` restricts direct `RuleEngine` imports to
+        whitelisted diagnostics/legacy sites.
+  - [x] `rules-ssot-check.ts` also enforces that diagnostics‑only sandbox helpers
+        (`sandboxCaptureSearch`, etc.) are not imported from production hosts.
+  - [x] `docs-link-ssot`, `ci-config-ssot`, `env-doc-ssot`, and related checks
+        are green.
+- [x] Add orchestrator‑specific metrics and observability:
+  - [x] Session‑level metrics via `OrchestratorRolloutService` and
+        `MetricsService` (e.g. `recordOrchestratorSession`, legacy vs
+        orchestrator move counts).
+  - [x] Client and server logging when legacy or shadow paths are exercised.
+- [ ] Operate the orchestrator adapter at 100% in staging/production (env/config
+      change and monitoring task; code support is in place).
+- [ ] Monitor for divergences in game outcomes and AI quality using the new
+      metrics (including legacy vs orchestrator move counters and parity suites).
+- [ ] Remove legacy turn‑processing code paths once orchestrator behaviour is
+      stable and all high‑signal parity suites remain green; keep any needed
+      harnesses under `archive/` and ensure SSOT checks prevent regressions.
 
 ## Phase 3 – Multiplayer Polish (P1)
 
@@ -337,7 +370,7 @@ Post-remediation work to fully enable the orchestrator in production:
       `tests/unit/`, and cross-link them from
       [`tests/README.md`](tests/README.md).
 
-### P1.2 – Game HUD & GamePage UX
+### P1.2 – Game HUD & Game Host UX
 
 - [x] Enhance [`GameHUD`](src/client/components/GameHUD.tsx) to show:
   - Current player and phase.
@@ -345,9 +378,12 @@ Post-remediation work to fully enable the orchestrator in production:
   - Territory spaces per player.
   - Basic timer readout derived from `timeControl` and `timeRemaining`.
 - [ ] Ensure the same HUD behaviour is shared between backend games
-      (`/game/:gameId`) and sandbox games (`/sandbox`).
-- [x] Add a minimal per-game event log in
-      [`GamePage`](src/client/pages/GamePage.tsx) for moves, PlayerChoices,
+      (`/game/:gameId` and `/spectate/:gameId` via
+      [`BackendGameHost`](src/client/pages/BackendGameHost.tsx)) and
+      sandbox games (`/sandbox` via
+      [`SandboxGameHost`](src/client/pages/SandboxGameHost.tsx)).
+- [x] Add a minimal per-game event log in the game host shell
+      (`BackendGameHost` / `SandboxGameHost`) for moves, PlayerChoices,
       and `game_over` events (using `GameEventLog` + system events).
 
 ### P1.3 – Lobby, Spectators, and Chat
@@ -376,7 +412,9 @@ Post-remediation work to fully enable the orchestrator in production:
   - [ ] [`LoadingSpinner.tsx`](src/client/components/LoadingSpinner.tsx) and small UI primitives under `src/client/components/ui/`.
 - [ ] Add targeted unit tests for key pages that currently rely primarily on E2E coverage:
   - [ ] [`LobbyPage.tsx`](src/client/pages/LobbyPage.tsx) – lobby filters, game list, and navigation wiring.
-  - [ ] [`GamePage.tsx`](src/client/pages/GamePage.tsx) – HUD + event log sidebar wiring (including `GameEventLog` and chat panel toggles).
+  - [ ] [`BackendGameHost.tsx`](src/client/pages/BackendGameHost.tsx) and
+        [`SandboxGameHost.tsx`](src/client/pages/SandboxGameHost.tsx) – host‑level HUD + event
+        log/chat wiring (including `GameEventLog` and chat panel toggles).
 
 For the full gap analysis, see **Focus Area 5: Test Coverage Gaps** in
 [`docs/PASS15_ASSESSMENT_REPORT.md`](docs/PASS15_ASSESSMENT_REPORT.md).
@@ -426,6 +464,16 @@ For the full gap analysis, see **Focus Area 5: Test Coverage Gaps** in
 - [ ] Gradually tighten Jest coverage thresholds in
       [`jest.config.js`](jest.config.js) once the scenario matrix and
       parity suites are stable.
+- [ ] CI gating refinement:
+  - [ ] After several consecutive green runs, decide whether to promote
+        `TS Parity` and `TS Integration` lanes to required checks in the
+        `main` ruleset, or document why they remain informational.
+- [ ] Security/dependency audit configuration:
+  - [ ] Capture current `npm audit` / `pip-audit` status in docs (including
+        the applied `aiohttp` / `torch` fixes).
+  - [ ] Document the intentionally deferred FastAPI/Starlette upgrade and
+        Python 3.13 constraint, including how `pip-audit` is run in CI and
+        which vulnerability IDs (if any) are temporarily ignored.
 
 This file is intentionally concise; for deeper narrative context and
 ongoing issue lists, refer to
@@ -571,14 +619,20 @@ latest project assessment. They should be kept in sync with
   - [ ] Identify 1–2 "first slice" UX improvements that are low risk but high leverage
 - [ ] Perform dependency modernization pass
   - [ ] For Node/TS (root `package.json`):
-    - [ ] Run `npm outdated` and capture current vs latest versions
+    - [x] Run `npm outdated` and capture current vs latest versions
     - [ ] Update dependencies to the latest compatible versions (prefer automated tools like `npm update` / `npm-check-updates`)
     - [ ] Re-run Jest + Playwright suites and fix any breakages introduced by tooling/runtime bumps
   - [ ] For Python (`ai-service/requirements.txt`):
-    - [ ] Run `pip-audit -r requirements.txt` to confirm security status
-    - [ ] Upgrade packages to the latest versions compatible with the current Python/runtime stack
-    - [ ] Re-run pytest (rules/parity, training, and invariants) and address any regressions
-  - [ ] Document any intentionally deferred major-version upgrades and their rationale (e.g. FastAPI/Starlette constraints or Python version support)
+    - [x] Run `pip-audit -r requirements.txt` to confirm security status
+    - [x] Upgrade security‑critical packages to patched versions compatible with the current Python/runtime stack (e.g. `aiohttp`, `torch`) and re‑run pytest / contract tests.
+    - [ ] Perform a broader modernization pass on remaining outdated packages and re-run pytest (rules/parity, training, and invariants) to address any regressions.
+  - [x] Document any intentionally deferred major‑version upgrades and their rationale (e.g. FastAPI/Starlette constraints on `starlette` for Python 3.13, to be revisited with a future stack update)
+  - [ ] Plan Jest stabilization order (post Node Wave A / Python Wave P1) and keep this list updated as suites are fixed:
+    - [ ] **Auth & account flows:** `tests/unit/auth.routes.test.ts`, `tests/unit/user.delete.routes.test.ts`, plus `tests/integration/accountDeletion.test.ts`.
+    - [ ] **Orchestrator multiphase & AI integration:** `tests/scenarios/Orchestrator.Backend.multiPhase.test.ts`, `tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts`, `tests/integration/GameSession.aiOrchestrator.integration.test.ts` (once re-enabled), and `tests/unit/GameSession.aiRequestState.test.ts`.
+    - [ ] **Core rules semantics (high-signal):** multi-ring placement and landing-on-own-marker semantics (`tests/unit/RuleEngine.placementMultiRing.test.ts`, `tests/unit/GameEngine.landingOnOwnMarker.test.ts`, `tests/unit/MovementAggregate.shared.test.ts`, `tests/unit/movement.shared.test.ts`, `tests/unit/GameEngine.movement.shared.test.ts`).
+    - [ ] **Board/UX surfaces:** `tests/unit/components/BoardView.test.tsx`, `tests/unit/GameContext.reconnect.test.tsx`, `tests/unit/LobbyPage.test.tsx`, and HUD/event-log suites.
+    - [ ] **Heuristics and AI surfaces:** `tests/unit/heuristicEvaluation.test.ts`, `tests/unit/heuristicEvaluation.shared.test.ts`, `tests/unit/heuristicParity.shared.test.ts`, `tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`, plus the Python side `tests/test_heuristic_ai.py` and `tests/test_heuristic_parity.py` (now green after Wave P1).
 
 ### Suggested 2–4 Week Execution Plan (Guidance)
 

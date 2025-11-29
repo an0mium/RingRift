@@ -30,7 +30,6 @@ import {
   validateEliminateStack,
 } from '../../src/shared/engine/validators/TerritoryValidator';
 import {
-  GameState as EngineGameState,
   PlaceRingAction,
   MoveStackAction,
   OvertakingCaptureAction,
@@ -47,6 +46,23 @@ import {
   summarizeBoard,
   hashGameState,
 } from '../../src/shared/engine/core';
+
+// Import the canonical shared engine aggregate as an untyped module so we can
+// call applyProcessTerritoryRegionDecision without fighting subtle type
+// differences between shared GameState flavours used in tests vs engine.
+
+const sharedEngine = require('../../src/shared/engine') as any;
+
+// NOTE: The fixture generator is a test-only script that stitches together
+// shared-engine helpers and host-level GameEngine using structurally
+// compatible GameState objects from `src/shared/types/game.ts`. To avoid
+// brittle cross-module `GameState` type mismatches under
+// `exactOptionalPropertyTypes`, we treat the engine-facing GameState as
+// `any` within this script.
+// This keeps production code strictly typed while allowing the generator
+// to compile without TS_NODE_TRANSPILE_ONLY.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EngineGameState = any;
 import { moveToGameAction } from '../../src/shared/engine/moveActionAdapter';
 
 /**
@@ -965,42 +981,14 @@ function generateProcessTerritoryFixture(engineState: EngineGameState): StateAct
 
   const tsValidation = validateProcessTerritory(state, action);
 
-  // Deep clone state for engine execution to avoid side-effects on fixtureState
-  // (TerritoryMutator currently mutates territory objects in place)
-
-  // Instead, let's just clone the territory object in the state passed to engine.
-  const stateForEngine = {
-    ...state,
-    board: {
-      ...state.board,
-      territories: new Map(),
-    },
-  };
-  // eslint-disable-next-line no-restricted-syntax
-  for (const [k, v] of state.board.territories) {
-    stateForEngine.board.territories.set(k, { ...v });
-  }
-
-  const engine = new GameEngine(stateForEngine);
-  const event = engine.processAction(action);
-
-  if (event.type !== 'ACTION_PROCESSED') {
-    return {
-      id: 'square8_2p.process_territory',
-      version: 'v1',
-      boardType,
-      description: 'Player 1 processes disconnected territory.',
-      state: fixtureState,
-      move,
-      expected: {
-        tsValid: tsValidation.valid,
-        tsValidation,
-      },
-    };
-  }
-
-  const engineAfter = engine.getGameState();
-  const sharedAfter = toSharedState(engineAfter, boardType);
+  // For v1 territory-processing parity we anchor expectations on the
+  // canonical shared helper semantics rather than the legacy GameEngine
+  // TerritoryMutator. This keeps the fixture aligned with
+  // applyProcessTerritoryRegionDecision (and, by extension, the Python
+  // GameEngine._apply_territory_claim port).
+  const sharedBefore = toSharedState(state as EngineGameState, boardType);
+  const outcome = sharedEngine.applyProcessTerritoryRegionDecision(sharedBefore, move);
+  const sharedAfter = outcome.nextState as SharedGameState;
 
   return {
     id: 'square8_2p.process_territory',
@@ -1534,40 +1522,14 @@ function generateMultiRegionTerritoryFixtureForBoard(
 
   const tsValidation = validateProcessTerritory(state, action);
 
-  // Clone territories into a fresh Map for the engine to avoid mutating
-  // the fixture state, mirroring the v1 territory fixture pattern.
-  const stateForEngine = {
-    ...state,
-    board: {
-      ...state.board,
-      territories: new Map<string, Territory>(),
-    },
-  };
-  // eslint-disable-next-line no-restricted-syntax
-  for (const [k, v] of state.board.territories as Map<string, Territory>) {
-    stateForEngine.board.territories.set(k, { ...v });
-  }
-
-  const engine = new GameEngine(stateForEngine as EngineGameState);
-  const event = engine.processAction(action);
-
-  if (event.type !== 'ACTION_PROCESSED') {
-    return {
-      id: `${boardType}_2p.process_territory.multi_region`,
-      version,
-      boardType,
-      description: `Multi-region territory_processing scenario on ${boardType} board with multiple disconnected regions.`,
-      state: fixtureState,
-      move,
-      expected: {
-        tsValid: tsValidation.valid,
-        tsValidation,
-      },
-    };
-  }
-
-  const engineAfter = engine.getGameState();
-  const sharedAfter = toSharedState(engineAfter, boardType);
+  // For v2 multi-region territory-processing parity we anchor expectations on
+  // the canonical shared helper semantics (applyProcessTerritoryRegionDecision)
+  // rather than the legacy GameEngine TerritoryMutator pipeline. This keeps
+  // the fixtures aligned with the same helper that Python
+  // GameEngine._apply_territory_claim is ported from.
+  const sharedBefore = toSharedState(state as EngineGameState, boardType);
+  const outcome = sharedEngine.applyProcessTerritoryRegionDecision(sharedBefore, move);
+  const sharedAfter = outcome.nextState as SharedGameState;
 
   return {
     id: `${boardType}_2p.process_territory.multi_region`,

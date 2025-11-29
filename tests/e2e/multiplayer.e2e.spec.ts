@@ -117,8 +117,8 @@ test.describe('Multiplayer Game E2E', () => {
     });
 
     await test.step('Wait for game to load', async () => {
-      await expect(page.getByTestId('board-view')).toBeVisible({ timeout: 20_000 });
-      await expect(page.locator('text=/Connection/i')).toBeVisible({ timeout: 15_000 });
+      const gamePage = new GamePage(page);
+      await gamePage.waitForReady(20_000);
     });
   }
 
@@ -191,8 +191,11 @@ test.describe('Multiplayer Game E2E', () => {
       });
 
       await test.step('Both players see connection status', async () => {
-        await expect(player1Page.locator('text=/Connection/i')).toBeVisible({ timeout: 10_000 });
-        await expect(player2Page.locator('text=/Connection/i')).toBeVisible({ timeout: 10_000 });
+        const p1GamePage = new GamePage(player1Page);
+        const p2GamePage = new GamePage(player2Page);
+
+        await p1GamePage.assertConnected();
+        await p2GamePage.assertConnected();
       });
     });
 
@@ -469,7 +472,8 @@ test.describe('Multiplayer Game E2E', () => {
         await expect(player1Page.getByTestId('board-view')).toBeVisible();
 
         // Connection should be re-established
-        await expect(player1Page.locator('text=/Connection/i')).toBeVisible({ timeout: 15_000 });
+        const p1GamePage = new GamePage(player1Page);
+        await p1GamePage.assertConnected();
       });
     });
 

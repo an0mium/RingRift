@@ -8,6 +8,7 @@
  */
 
 import { Page, expect } from '@playwright/test';
+import { HomePage, GamePage } from '../pages';
 
 // ============================================================================
 // Types
@@ -53,6 +54,48 @@ export async function waitForNetworkIdle(page: Page, timeout = 5000): Promise<vo
   await page.waitForLoadState('networkidle', { timeout });
 }
 
+/**
+ * Waits for the backend API (behind the Vite dev proxy) to be ready.
+ *
+ * In dev/E2E runs, Playwright starts tests as soon as the Vite client is
+ * available at http://localhost:5173, but the Express API on port 3000 may
+ * still be connecting to Postgres/Redis. During this window, calls like
+ * `/api/auth/register` will fail with a Vite proxy 500/ECONNREFUSED, which
+ * surfaces in the UI as a generic "Request failed with status code 500".
+ *
+ * To make auth flows robust, we explicitly poll the backend `/ready`
+ * readiness endpoint until we get a successful JSON response, indicating
+ * that the backend is accepting requests and its critical dependencies are
+ * available. We call the backend directly on its port (3000 in dev) instead
+ * of going through the Vite proxy so that this check reflects real API
+ * readiness, not just the client dev server being up.
+ */
+export async function waitForApiReady(page: Page, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      const apiBaseUrl = process.env.E2E_API_BASE_URL || 'http://localhost:3000';
+      const url = `${apiBaseUrl.replace(/\/$/, '')}/ready`;
+      const response = await page.request.get(url);
+      if (response.ok()) {
+        return;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+
+    // Small backoff before retrying
+    await page.waitForTimeout(500);
+  }
+
+  throw new Error(
+    `Backend API did not become ready within ${timeoutMs}ms` +
+      (lastError ? ` (last error: ${String(lastError)})` : '')
+  );
+}
+
 // ============================================================================
 // Authentication Helpers
 // ============================================================================
@@ -67,6 +110,7 @@ export async function registerUser(
   email: string,
   password: string
 ): Promise<void> {
+  await waitForApiReady(page);
   await page.goto('/register');
   await expect(page.getByRole('heading', { name: /create an account/i })).toBeVisible();
 
@@ -87,6 +131,7 @@ export async function registerUser(
  * Waits for successful redirect to home page after login.
  */
 export async function loginUser(page: Page, email: string, password: string): Promise<void> {
+  await waitForApiReady(page);
   await page.goto('/login');
   await expect(page.getByRole('heading', { name: /login/i })).toBeVisible();
 
@@ -121,7 +166,15 @@ export async function logout(page: Page): Promise<void> {
 export async function registerAndLogin(page: Page): Promise<TestUser> {
   const user = generateTestUser();
   await registerUser(page, user.username, user.email, user.password);
-  await expect(page.getByText(user.username)).toBeVisible({ timeout: 10_000 });
+
+  // After registration, ensure we are in the authenticated shell and that the
+  // correct username is rendered in the nav. The username element may be
+  // hidden on smaller viewports due to responsive classes (e.g. `hidden sm:flex`),
+  // so we assert presence within the nav rather than strict visibility.
+  const homePage = new HomePage(page);
+  await homePage.assertAuthenticated();
+  await homePage.assertUsernameDisplayed(user.username);
+
   return user;
 }
 
@@ -134,8 +187,11 @@ export async function registerAndLogin(page: Page): Promise<TestUser> {
  * Looks for connection status indicator in the game HUD.
  */
 export async function waitForWebSocketConnection(page: Page, timeout = 15_000): Promise<void> {
-  // The HUD displays "Connection:" followed by status
-  await expect(page.locator('text=/Connection/i')).toBeVisible({ timeout });
+  // The HUD displays "Connection: Connected" when the WebSocket has
+  // successfully established and is not in a reconnecting state.
+  const connectionLabel = page.getByTestId('game-hud').getByText('Connection:', { exact: false });
+
+  await expect(connectionLabel).toContainText('Connection: Connected', { timeout });
 }
 
 /**
@@ -143,14 +199,8 @@ export async function waitForWebSocketConnection(page: Page, timeout = 15_000): 
  * This includes board rendering and connection establishment.
  */
 export async function waitForGameReady(page: Page, timeout = 20_000): Promise<void> {
-  // Wait for board to be visible
-  await expect(page.getByTestId('board-view')).toBeVisible({ timeout });
-
-  // Wait for connection status
-  await waitForWebSocketConnection(page, timeout);
-
-  // Wait for turn indicator
-  await expect(page.locator('text=/Turn/i')).toBeVisible({ timeout: 10_000 });
+  const gamePage = new GamePage(page);
+  await gamePage.waitForReady(timeout);
 }
 
 // ============================================================================
@@ -183,14 +233,25 @@ export async function createGame(page: Page, options: CreateGameOptions = {}): P
     await boardSelect.selectOption(boardType);
   }
 
-  // Submit game creation with default settings (human vs AI)
+  // For backend AI games, the server does not allow rated games. The lobby
+  // defaults to "Rated game" checked, so when vsAI=true we explicitly
+  // uncheck that box to create an unrated AI game.
+  if (vsAI) {
+    const ratedCheckbox = page.getByRole('checkbox', { name: /Rated game/i });
+    if (await ratedCheckbox.isChecked()) {
+      await ratedCheckbox.uncheck();
+    }
+  }
+
+  // Submit game creation with configured settings (human vs AI)
   await page.getByRole('button', { name: /^Create Game$/i }).click();
 
   // Wait for redirect to game page
   await page.waitForURL('**/game/**', { timeout: 30_000 });
 
-  // Verify board is rendered
-  await expect(page.getByTestId('board-view')).toBeVisible({ timeout: 15_000 });
+  // Verify board is rendered. Allow extra time for backend game +
+  // WebSocket/session initialisation in slower environments.
+  await expect(page.getByTestId('board-view')).toBeVisible({ timeout: 30_000 });
 
   // Extract game ID from URL
   const url = page.url();
@@ -368,6 +429,16 @@ export async function goToLobby(page: Page): Promise<void> {
 }
 
 /**
+ * Navigates to the sandbox page.
+ */
+export async function goToSandbox(page: Page): Promise<void> {
+  await page.goto('/sandbox');
+  await expect(
+    page.getByRole('heading', { name: /Start a RingRift Game \(Local Sandbox\)/i })
+  ).toBeVisible({ timeout: 10_000 });
+}
+
+/**
  * Navigates to a specific game by ID.
  */
 export async function goToGame(page: Page, gameId: string): Promise<void> {
@@ -487,7 +558,10 @@ export async function setupMultiplayerGame(browser: Browser): Promise<Multiplaye
 
   await page1.getByRole('button', { name: /^Create Game$/i }).click();
   await page1.waitForURL('**/game/**', { timeout: 30_000 });
-  await expect(page1.getByTestId('board-view')).toBeVisible({ timeout: 15_000 });
+
+  // Wait for Player 1's game view to be fully ready (board + connected HUD).
+  const p1GamePage = new GamePage(page1);
+  await p1GamePage.waitForReady(30_000);
 
   // Extract game ID
   const url = page1.url();
@@ -497,10 +571,10 @@ export async function setupMultiplayerGame(browser: Browser): Promise<Multiplaye
   }
   const gameId = match[1];
 
-  // Player 2 joins the game
+  // Player 2 joins the game and waits for a fully ready view.
   await page2.goto(`/game/${gameId}`);
-  await expect(page2.getByTestId('board-view')).toBeVisible({ timeout: 20_000 });
-  await expect(page2.locator('text=/Connection/i')).toBeVisible({ timeout: 15_000 });
+  const p2GamePage = new GamePage(page2);
+  await p2GamePage.waitForReady(20_000);
 
   return {
     player1: { context: context1, page: page1, user: user1 },

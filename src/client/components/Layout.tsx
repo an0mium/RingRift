@@ -58,13 +58,7 @@ export default function Layout() {
                     <span className="text-slate-400">Rating {user.rating}</span>
                   )}
                 </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={logout}
-                  aria-label="Log out"
-                >
+                <Button type="button" variant="secondary" size="sm" onClick={logout}>
                   Logout
                 </Button>
               </>

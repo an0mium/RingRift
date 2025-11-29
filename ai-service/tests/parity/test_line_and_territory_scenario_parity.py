@@ -230,16 +230,19 @@ def test_line_and_territory_scenario_parity(board_type: BoardType) -> None:
             == initial_territory + 1
         )
 
-        # Elimination accounting: 1 from region (P2) + 2 from P1 self-elim.
+        # Elimination accounting: 1 ring from the region (P2 stack) credited
+        # to Player 1. Mandatory self-elimination is now modelled as a separate
+        # explicit ELIMINATE_RINGS_FROM_STACK decision rather than being baked
+        # into PROCESS_TERRITORY_REGION.
         delta_elim_p1 = (
             player1_after_territory.eliminated_rings - initial_eliminated
         )
         delta_total_elim = (
             state.total_rings_eliminated - initial_total_eliminated
         )
-        assert delta_elim_p1 == 3
-        assert delta_total_elim == 3
-        assert board.eliminated_rings.get("1") == 3
+        assert delta_elim_p1 == 1
+        assert delta_total_elim == 1
+        assert board.eliminated_rings.get("1") == 1
 
     finally:
         BoardManager.find_all_lines = orig_find_all_lines

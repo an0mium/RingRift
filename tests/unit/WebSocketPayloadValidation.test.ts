@@ -147,6 +147,17 @@ describe('WebSocket payload validation with Zod', () => {
     });
   });
 
+  it('accepts valid join_game payload and forwards to handler without emitting an error', () => {
+    const { serverAny, socket } = setupServerAndSocket();
+    const joinSpy = jest.spyOn(serverAny, 'handleJoinGame').mockResolvedValue(undefined);
+
+    socket.trigger('join_game', { gameId: 'game-1' });
+
+    expect(joinSpy).toHaveBeenCalledTimes(1);
+    const errorEvents = socket.emittedEvents.filter((e) => e.event === 'error');
+    expect(errorEvents.length).toBe(0);
+  });
+
   it('rejects player_move payloads with malformed move and does not call handlePlayerMove', () => {
     const { serverAny, socket } = setupServerAndSocket();
     const moveSpy = jest.spyOn(serverAny, 'handlePlayerMove');
@@ -176,6 +187,26 @@ describe('WebSocket payload validation with Zod', () => {
     });
   });
 
+  it('accepts valid player_move payload and forwards to handler without emitting an error', () => {
+    const { serverAny, socket } = setupServerAndSocket();
+    const moveSpy = jest.spyOn(serverAny, 'handlePlayerMove').mockResolvedValue(undefined);
+
+    const goodPayload = {
+      gameId: 'game-1',
+      move: {
+        moveType: 'place_ring',
+        position: '{"x":0,"y":0}',
+        moveNumber: 1,
+      },
+    };
+
+    socket.trigger('player_move', goodPayload);
+
+    expect(moveSpy).toHaveBeenCalledTimes(1);
+    const errorEvents = socket.emittedEvents.filter((e) => e.event === 'error');
+    expect(errorEvents.length).toBe(0);
+  });
+
   it('rejects chat_message payloads missing text and does not call handleChatMessage', () => {
     const { serverAny, socket } = setupServerAndSocket();
     const chatSpy = jest.spyOn(serverAny, 'handleChatMessage');
@@ -199,6 +230,22 @@ describe('WebSocket payload validation with Zod', () => {
       event: 'chat_message',
       message: expect.any(String),
     });
+  });
+
+  it('accepts valid chat_message payload and forwards to handler without emitting an error', () => {
+    const { serverAny, socket } = setupServerAndSocket();
+    const chatSpy = jest.spyOn(serverAny, 'handleChatMessage').mockResolvedValue(undefined);
+
+    const goodPayload = {
+      gameId: 'game-1',
+      text: 'Hello world',
+    };
+
+    socket.trigger('chat_message', goodPayload);
+
+    expect(chatSpy).toHaveBeenCalledTimes(1);
+    const errorEvents = socket.emittedEvents.filter((e) => e.event === 'error');
+    expect(errorEvents.length).toBe(0);
   });
 
   it('rejects player_choice_response payloads missing choiceId and does not reach interaction handler', () => {

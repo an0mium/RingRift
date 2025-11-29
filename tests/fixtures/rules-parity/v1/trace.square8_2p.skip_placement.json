@@ -4,7 +4,7 @@
   "initialState": {
     "boardType": "square8",
     "id": "rules-parity-square8-2p",
-    "rngSeed": 192055301,
+    "rngSeed": 1097836522,
     "board": {
       "stacks": {
         "3,3": {
@@ -12,9 +12,7 @@
             "x": 3,
             "y": 3
           },
-          "rings": [
-            1
-          ],
+          "rings": [1],
           "stackHeight": 1,
           "capHeight": 1,
           "controllingPlayer": 1
@@ -66,8 +64,8 @@
       "increment": 5,
       "type": "blitz"
     },
-    "createdAt": "2025-11-25T04:27:27.992Z",
-    "lastMoveAt": "2025-11-25T04:27:27.992Z",
+    "createdAt": "2025-11-29T18:07:48.149Z",
+    "lastMoveAt": "2025-11-29T18:07:48.149Z",
     "isRated": false,
     "maxPlayers": 2,
     "totalRingsInPlay": 0,

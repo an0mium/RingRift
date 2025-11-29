@@ -13,7 +13,7 @@
  * via the /metrics endpoint for Prometheus scraping.
  */
 
-import client, { Registry, Counter, Histogram, Gauge, Summary } from 'prom-client';
+import client, { Registry, Counter, Histogram, Gauge } from 'prom-client';
 import { logger } from '../utils/logger';
 import { DegradationLevel, ServiceName, ServiceHealthStatus } from './ServiceStatusManager';
 import { shadowComparator } from './ShadowModeComparator';

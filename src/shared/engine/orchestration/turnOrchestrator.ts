@@ -11,7 +11,7 @@
 import type { GameState, GamePhase, Move, Territory, Position } from '../../types/game';
 import { positionToString } from '../../types/game';
 
-import { hashGameState } from '../core';
+import { hashGameState, computeProgressSnapshot } from '../core';
 
 import type {
   ProcessTurnResult,
@@ -73,10 +73,7 @@ import { countRingsOnBoardForPlayer } from '../core';
  * S = markers + collapsedSpaces + eliminatedRings (should be non-decreasing)
  */
 function computeSInvariant(state: GameState): number {
-  const markers = state.board.markers.size;
-  const collapsed = state.board.collapsedSpaces.size;
-  const eliminated = state.players.reduce((sum, p) => sum + p.eliminatedRings, 0);
-  return markers + collapsed + eliminated;
+  return computeProgressSnapshot(state).S;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -244,6 +241,7 @@ export function processTurn(state: GameState, move: Move): ProcessTurnResult {
   }
 
   // Finalize metadata
+  const sInvariantAfter = computeSInvariant(stateMachine.gameState);
   const metadata: ProcessingMetadata = {
     processedMove: move,
     phasesTraversed: stateMachine.processingState.phasesTraversed,
@@ -251,8 +249,40 @@ export function processTurn(state: GameState, move: Move): ProcessTurnResult {
     regionsProcessed: 0,
     durationMs: Date.now() - startTime,
     sInvariantBefore,
-    sInvariantAfter: computeSInvariant(stateMachine.gameState),
+    sInvariantAfter,
   };
+
+  // Under trace-debug runs, log any strict S-invariant decreases that occur wholly
+  // inside the orchestrator. This helps distinguish shared-engine bookkeeping
+  // issues from host/adapter integration drift.
+  const TRACE_DEBUG_ENABLED =
+    typeof process !== 'undefined' &&
+    !!(process as any).env &&
+    ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+
+  if (
+    TRACE_DEBUG_ENABLED &&
+    state.gameStatus === 'active' &&
+    stateMachine.gameState.gameStatus === 'active' &&
+    sInvariantAfter < sInvariantBefore
+  ) {
+    const progressBefore = computeProgressSnapshot(state);
+    const progressAfter = computeProgressSnapshot(stateMachine.gameState);
+
+    // eslint-disable-next-line no-console
+    console.log('[turnOrchestrator.processTurn] STRICT_S_INVARIANT_DECREASE', {
+      moveType: move.type,
+      player: move.player,
+      phaseBefore: state.currentPhase,
+      phaseAfter: stateMachine.gameState.currentPhase,
+      statusBefore: state.gameStatus,
+      statusAfter: stateMachine.gameState.gameStatus,
+      progressBefore,
+      progressAfter,
+      stateHashBefore: hashGameState(state),
+      stateHashAfter: hashGameState(stateMachine.gameState),
+    });
+  }
 
   return {
     nextState: stateMachine.gameState,

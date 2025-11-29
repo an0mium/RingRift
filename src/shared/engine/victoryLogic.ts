@@ -128,7 +128,7 @@ export function evaluateVictory(state: GameState): VictoryResult {
     (p) => p.eliminatedRings + (treatHandAsEliminated ? p.ringsInHand : 0)
   );
   const maxEliminated = Math.max(...eliminationScores);
-  const eliminationLeaders = players.filter((player, idx) => {
+  const eliminationLeaders = players.filter((_, idx) => {
     return eliminationScores[idx] === maxEliminated;
   });
 

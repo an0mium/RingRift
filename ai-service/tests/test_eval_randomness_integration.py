@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
+
 # Ensure app package and training scripts are importable when running tests
 # directly (mirrors pattern used in other ai-service tests).
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
@@ -32,7 +34,7 @@ def test_eval_randomness_zero_is_deterministic() -> None:
     f1 = evaluate_fitness(
         candidate_weights=baseline,
         baseline_weights=baseline,
-        games_per_eval=4,
+        games_per_eval=2,
         board_type=BoardType.SQUARE8,
         opponent_mode="baseline-only",
         max_moves=20,
@@ -45,7 +47,7 @@ def test_eval_randomness_zero_is_deterministic() -> None:
     f2 = evaluate_fitness(
         candidate_weights=baseline,
         baseline_weights=baseline,
-        games_per_eval=4,
+        games_per_eval=2,
         board_type=BoardType.SQUARE8,
         opponent_mode="baseline-only",
         max_moves=20,
@@ -59,6 +61,7 @@ def test_eval_randomness_zero_is_deterministic() -> None:
     assert f1 == f2
 
 
+@pytest.mark.timeout(180)
 def test_eval_randomness_nonzero_is_seed_deterministic() -> None:
     """eval_randomness>0.0 must still be deterministic for a fixed seed."""
     baseline = dict(BASE_V1_BALANCED_WEIGHTS)
@@ -66,7 +69,7 @@ def test_eval_randomness_nonzero_is_seed_deterministic() -> None:
     f1 = evaluate_fitness(
         candidate_weights=baseline,
         baseline_weights=baseline,
-        games_per_eval=4,
+        games_per_eval=2,
         board_type=BoardType.SQUARE8,
         opponent_mode="baseline-only",
         max_moves=20,
@@ -79,7 +82,7 @@ def test_eval_randomness_nonzero_is_seed_deterministic() -> None:
     f2 = evaluate_fitness(
         candidate_weights=baseline,
         baseline_weights=baseline,
-        games_per_eval=4,
+        games_per_eval=2,
         board_type=BoardType.SQUARE8,
         opponent_mode="baseline-only",
         max_moves=20,

@@ -1,16 +1,20 @@
 import React, { Suspense, lazy } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuth } from './contexts/AuthContext';
 import Layout from './components/Layout';
 import LoadingSpinner from './components/LoadingSpinner';
 
 // Lazy load pages for code splitting
-// GamePage is the heaviest component (2100+ lines), benefits most from lazy loading
-const GamePage = lazy(() => import('./pages/GamePage'));
 const LobbyPage = lazy(() => import('./pages/LobbyPage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
+const BackendGameHost = lazy(() =>
+  import('./pages/BackendGameHost').then((m) => ({ default: m.BackendGameHost }))
+);
+const SandboxGameHost = lazy(() =>
+  import('./pages/SandboxGameHost').then((m) => ({ default: m.SandboxGameHost }))
+);
 
 // Auth pages are lightweight and frequently first-loaded, keep synchronous
 import HomePage from './pages/HomePage';
@@ -24,6 +28,20 @@ function PageLoader() {
       <LoadingSpinner size="lg" />
     </div>
   );
+}
+
+type BackendGameHostRouteParams = {
+  gameId: string;
+};
+
+function BackendGameHostRoute() {
+  const { gameId } = useParams<BackendGameHostRouteParams>();
+
+  if (!gameId) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <BackendGameHost gameId={gameId} />;
 }
 
 function App() {
@@ -55,15 +73,15 @@ function App() {
           <Route path="/login" element={!user ? <LoginPage /> : <Navigate to="/" />} />
           <Route path="/register" element={!user ? <RegisterPage /> : <Navigate to="/" />} />
           {/* Public sandbox route (no auth required) */}
-          <Route path="/sandbox" element={<GamePage />} />
-          {/* Public spectator route (read-only, reuses GamePage HUD + log) */}
-          <Route path="/spectate/:gameId" element={<GamePage />} />
+          <Route path="/sandbox" element={<SandboxGameHost />} />
+          {/* Public spectator route (read-only, backend host) */}
+          <Route path="/spectate/:gameId" element={<BackendGameHostRoute />} />
 
           {/* Protected routes */}
           <Route path="/" element={user ? <Layout /> : <Navigate to="/login" />}>
             <Route index element={<HomePage />} />
             <Route path="lobby" element={<LobbyPage />} />
-            <Route path="game/:gameId" element={<GamePage />} />
+            <Route path="game/:gameId" element={<BackendGameHostRoute />} />
             <Route path="profile" element={<ProfilePage />} />
             <Route path="leaderboard" element={<LeaderboardPage />} />
           </Route>

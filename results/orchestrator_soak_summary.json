@@ -1,0 +1,64 @@
+{
+  "timestamp": "2025-11-29T18:02:48.354Z",
+  "config": {
+    "boardTypes": ["square8", "square19", "hexagonal"],
+    "gamesPerBoard": 5,
+    "maxTurns": 500,
+    "randomSeed": 1355286237,
+    "mode": "backend",
+    "outputPath": "results/orchestrator_soak_summary.json",
+    "failOnViolation": true,
+    "enableTraceDebug": false
+  },
+  "overall": {
+    "totalGames": 15,
+    "completedGames": 15,
+    "maxTurnsGames": 0,
+    "invariantViolations": 0
+  },
+  "buckets": [
+    {
+      "boardType": "square8",
+      "hostMode": "backend",
+      "totalGames": 5,
+      "completedGames": 5,
+      "maxTurnsGames": 0,
+      "invariantViolations": 0,
+      "gameLength": {
+        "min": 49,
+        "max": 61,
+        "median": 52,
+        "p95": 53
+      }
+    },
+    {
+      "boardType": "square19",
+      "hostMode": "backend",
+      "totalGames": 5,
+      "completedGames": 5,
+      "maxTurnsGames": 0,
+      "invariantViolations": 0,
+      "gameLength": {
+        "min": 159,
+        "max": 222,
+        "median": 185,
+        "p95": 220
+      }
+    },
+    {
+      "boardType": "hexagonal",
+      "hostMode": "backend",
+      "totalGames": 5,
+      "completedGames": 5,
+      "maxTurnsGames": 0,
+      "invariantViolations": 0,
+      "gameLength": {
+        "min": 234,
+        "max": 255,
+        "median": 236,
+        "p95": 242
+      }
+    }
+  ],
+  "violations": []
+}

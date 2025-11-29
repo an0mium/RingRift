@@ -84,10 +84,17 @@ The CI workflow currently defines the following human‑readable job display nam
 - Lint and Type Check
 - Run Tests
 - TS Rules Engine (rules-level)
+- TS Orchestrator Parity (adapter-ON)
+- TS Parity (trace-level & host parity)
+- TS Integration (routes, WebSocket, AI integration)
+- Orchestrator Invariant Soak (smoke)
+- SSoT Drift Guards
 - Build Application
 - Security Scan
 - Docker Build Test
+- Orchestrator Parity (TS orchestrator + Python contracts)
 - Python Rules Parity (fixture-based)
+- Python Core Tests (non-parity)
 - Python Dependency Audit
 - Playwright E2E Tests
 
@@ -97,6 +104,12 @@ The CI workflow currently defines the following human‑readable job display nam
   - `test` (**"Run Tests" job**) – `npm run test:coverage` over the Jest suite (see `tests/README.md`, `tests/TEST_LAYERS.md`, and `tests/TEST_SUITE_PARITY_PLAN.md` for the core vs diagnostics split and rules/trace/integration taxonomy). Uploads coverage to Codecov and posts an LCOV summary comment on PRs.
 - **Rules-level Jest focus**
   - `ts-rules-engine` (**"TS Rules Engine (rules-level)" job**) – `npm run test:ts-rules-engine` targeting the shared‑engine / rules‑level suites (helpers → aggregates → orchestrator → contracts). This job is the primary TS rules semantics signal for CI.
+- **Orchestrator & parity-focused Jest jobs**
+  - `ts-orchestrator-parity` (**"TS Orchestrator Parity (adapter-ON)" job**) – `npm run test:orchestrator-parity`, a curated orchestrator‑ON parity bundle (shared tests, contracts, RulesMatrix, FAQ, and key backend/sandbox territory disconnection tests).
+  - `ts-parity` (**"TS Parity (trace-level & host parity)" job**) – `npm run test:ts-parity`, covering trace/host parity and RNG‑oriented suites.
+  - `ts-integration` (**"TS Integration (routes, WebSocket, AI integration)" job**) – `npm run test:ts-integration`, exercising WebSocket, route, and full game‑flow integration.
+  - `orchestrator-soak-smoke` (**"Orchestrator Invariant Soak (smoke)" job**) – `npm run soak:orchestrator:smoke`, a single short backend game via the shared TS orchestrator that fails on invariant violations and feeds S‑invariant regression mining (see `docs/STRICT_INVARIANT_SOAKS.md`).
+  - `ssot-check` (**"SSoT Drift Guards" job**) – `npm run ssot-check`, enforcing docs/env/CI/rules SSoT alignment and guarding against legacy path regressions.
 - **Build & artefact packaging**
   - `build` (**"Build Application" job**) – `npm run build` for server and client, then archives `dist/` as an artefact.
 - **Node dependency & supply‑chain scans**
@@ -104,7 +117,10 @@ The CI workflow currently defines the following human‑readable job display nam
 - **Docker build sanity check**
   - `docker-build` (**"Docker Build Test" job**) – Docker Buildx build of the main `Dockerfile` (tagged `ringrift:test`, push disabled) to ensure the multi‑stage image still builds inside CI.
 - **Python rules parity (TS→Python fixtures)**
-  - `python-rules-parity` (**"Python Rules Parity (fixture-based)" job**) – generates TS→Python rules‑parity fixtures via `tests/scripts/generate_rules_parity_fixtures.ts`, then runs `python -m pytest ai-service/tests/parity/test_rules_parity_fixtures.py` under Python 3.11. This is the primary SSoT‑backed TS↔Python rules parity signal.
+  - `orchestrator-parity` (**"Orchestrator Parity (TS orchestrator + Python contracts)" job**) – runs TS orchestrator parity suites and then Python contract‑vector tests, using shared TS‑generated contract vectors as the SSoT for cross‑language orchestrator behaviour.
+  - `python-rules-parity` (**"Python Rules Parity (fixture-based)" job**) – generates TS→Python rules‑parity fixtures via `tests/scripts/generate_rules_parity_fixtures.ts`, then runs `python -m pytest ai-service/tests/parity/test_rules_parity_fixtures.py` under Python 3.11. This is the primary SSoT‑backed TS↔Python rules parity signal beyond the orchestrator‑specific job above.
+- **Python core tests**
+  - `python-core` (**"Python Core Tests (non-parity)" job**) – runs the non‑parity pytest suite (engine correctness, env interface, AI unit tests) under Python 3.11.
 - **Python dependency audit**
   - `python-dependency-audit` (**"Python Dependency Audit" job**) – installs `ai-service/requirements.txt`, then runs `pip-audit -r requirements.txt --severity HIGH` to fail on known HIGH/CRITICAL dependency vulnerabilities.
 - **E2E/browser‐level tests (currently non‑gating)**

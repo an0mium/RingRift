@@ -10,7 +10,17 @@
  * - Environment-specific validation rules are enforced
  */
 
-import { EnvSchema, parseEnv, getEffectiveNodeEnv, isProduction, isStaging, isDevelopment, isTest, isProductionLike, type RawEnv } from '../../src/server/config/env';
+import {
+  EnvSchema,
+  parseEnv,
+  getEffectiveNodeEnv,
+  isProduction,
+  isStaging,
+  isDevelopment,
+  isTest,
+  isProductionLike,
+  type RawEnv,
+} from '../../src/server/config/env';
 
 // Minimal valid environment for testing
 const baseValidEnv: Record<string, string> = {
@@ -201,6 +211,22 @@ describe('EnvSchema', () => {
       expect(result.success).toBe(true);
       expect(result.data?.AI_FALLBACK_ENABLED).toBe(true);
     });
+
+    it('should transform ENABLE_HEALTH_CHECKS to boolean', () => {
+      let result = parseEnv({ ...baseValidEnv, ENABLE_HEALTH_CHECKS: 'false' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_HEALTH_CHECKS).toBe(false);
+
+      result = parseEnv({ ...baseValidEnv, ENABLE_HEALTH_CHECKS: '0' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_HEALTH_CHECKS).toBe(false);
+    });
+
+    it('should default ENABLE_HEALTH_CHECKS to true', () => {
+      const result = parseEnv(baseValidEnv);
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_HEALTH_CHECKS).toBe(true);
+    });
   });
 
   describe('Rate limiting defaults', () => {
@@ -245,6 +271,31 @@ describe('EnvSchema', () => {
       });
       expect(result.success).toBe(true);
       expect(result.data?.AI_SERVICE_URL).toBe('http://ai-service:8001');
+    });
+  });
+
+  describe('Orchestrator configuration', () => {
+    it('should set orchestrator defaults', () => {
+      const result = parseEnv(baseValidEnv);
+      expect(result.success).toBe(true);
+      expect(result.data?.ORCHESTRATOR_ADAPTER_ENABLED).toBe(true);
+      expect(result.data?.ORCHESTRATOR_ROLLOUT_PERCENTAGE).toBe(100);
+      expect(result.data?.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(false);
+      expect(result.data?.ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED).toBe(true);
+      expect(result.data?.ORCHESTRATOR_ERROR_THRESHOLD_PERCENT).toBe(5);
+      expect(result.data?.ORCHESTRATOR_ERROR_WINDOW_SECONDS).toBe(300);
+      expect(result.data?.ORCHESTRATOR_LATENCY_THRESHOLD_MS).toBe(500);
+    });
+
+    it('should respect orchestrator adapter and shadow mode flags', () => {
+      const result = parseEnv({
+        ...baseValidEnv,
+        ORCHESTRATOR_ADAPTER_ENABLED: '0',
+        ORCHESTRATOR_SHADOW_MODE_ENABLED: '1',
+      });
+      expect(result.success).toBe(true);
+      expect(result.data?.ORCHESTRATOR_ADAPTER_ENABLED).toBe(false);
+      expect(result.data?.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(true);
     });
   });
 
