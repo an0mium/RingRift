@@ -8,6 +8,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { config } from '../config';
 import type { CancellationToken } from '../../shared/utils/cancellation';
+import { getMetricsService } from './MetricsService';
 import {
   GameState,
   Move,
@@ -16,10 +17,12 @@ import {
   RegionOrderChoice,
   LineOrderChoice,
   CaptureDirectionChoice,
+  BoardType,
 } from '../../shared/types/game';
 import { logger } from '../utils/logger';
 import { aiMoveLatencyHistogram } from '../utils/rulesParityMetrics';
 import { getServiceStatusManager } from './ServiceStatusManager';
+import type { PositionEvaluationByPlayer } from '../../shared/types/websocket';
 
 /**
  * High-level error codes surfaced by the AI service client. These are used
@@ -146,6 +149,16 @@ export interface EvaluationRequest {
 export interface EvaluationResponse {
   score: number;
   breakdown: Record<string, number>;
+}
+
+export interface PositionEvaluationApiResponse {
+  engine_profile: string;
+  board_type: BoardType | string;
+  game_id: string;
+  move_number: number;
+  per_player: Record<number, PositionEvaluationByPlayer>;
+  evaluation_scale: 'zero_sum_margin' | 'win_probability';
+  generated_at: string;
 }
 
 export interface LineRewardChoiceRequestPayload {
@@ -334,6 +347,7 @@ export class AIServiceClient {
   ): Promise<MoveResponse> {
     const startTime = performance.now();
     const difficultyLabel = String(difficulty ?? 'n/a');
+    const metrics = getMetricsService();
 
     // Cooperative pre-flight cancellation: if a token is provided and is
     // already canceled, avoid touching the circuit breaker or HTTP layer.
@@ -361,6 +375,10 @@ export class AIServiceClient {
         maxConcurrent: AIServiceClient['maxConcurrent'],
       });
 
+      const durationMs = performance.now() - startTime;
+      metrics.recordAIRequest('error');
+      metrics.recordAIRequestLatencyMs(durationMs, 'error');
+
       throw overloadedError;
     }
 
@@ -387,9 +405,13 @@ export class AIServiceClient {
 
           const response = await this.client.post<MoveResponse>('/ai/move', request);
           const duration = performance.now() - startTime;
+          const durationSeconds = duration / 1000;
 
           // Record latency for successful Python-service-backed move selection.
           aiMoveLatencyHistogram.labels('python', difficultyLabel).observe(duration);
+          metrics.recordAIRequest('success');
+          metrics.recordAIRequestDuration('python', difficultyLabel, durationSeconds);
+          metrics.recordAIRequestLatencyMs(duration, 'success');
 
           // Update ServiceStatusManager on success
           this.updateServiceStatus('healthy', undefined, Math.round(duration));
@@ -404,6 +426,7 @@ export class AIServiceClient {
           return response.data;
         } catch (error) {
           const duration = performance.now() - startTime;
+          const durationSeconds = duration / 1000;
 
           // Preserve the low-level error classification set by the axios
           // interceptor so AIEngine and observability layers can distinguish
@@ -417,6 +440,15 @@ export class AIServiceClient {
             difficulty,
             aiErrorType,
           });
+
+          const latencyOutcome: 'success' | 'fallback' | 'timeout' | 'error' =
+            aiErrorType === 'timeout' ? 'timeout' : 'error';
+          metrics.recordAIRequest('error');
+          metrics.recordAIRequestDuration('python', difficultyLabel, durationSeconds);
+          metrics.recordAIRequestLatencyMs(duration, latencyOutcome);
+          if (aiErrorType === 'timeout') {
+            metrics.recordAIRequestTimeout();
+          }
 
           const structuredError: Error & {
             statusCode?: number;
@@ -516,6 +548,52 @@ export class AIServiceClient {
       });
       throw new Error(
         `AI Service failed to evaluate position: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
+      );
+    }
+  }
+
+  /**
+   * Evaluate the current position from all players' perspectives using the
+   * analysis-mode /ai/evaluate_position endpoint.
+   */
+  async evaluatePositionMulti(
+    gameState: GameState,
+    options?: AIServiceRequestOptions
+  ): Promise<PositionEvaluationApiResponse> {
+    const startTime = performance.now();
+
+    // Cooperative pre-flight cancellation; this is a pure analysis call.
+    options?.token?.throwIfCanceled('before dispatching AIServiceClient.evaluatePositionMulti');
+
+    try {
+      const request = {
+        game_state: gameState,
+      };
+
+      const response = await this.client.post<PositionEvaluationApiResponse>(
+        '/ai/evaluate_position',
+        request
+      );
+      const duration = performance.now() - startTime;
+
+      logger.debug('Multi-player position evaluated', {
+        gameId: gameState.id,
+        boardType: gameState.boardType,
+        moveNumber: response.data.move_number,
+        latencyMs: Math.round(duration),
+      });
+
+      return response.data;
+    } catch (error) {
+      const duration = performance.now() - startTime;
+      logger.error('Failed to evaluate position (multi)', {
+        error,
+        latencyMs: Math.round(duration),
+      });
+      throw new Error(
+        `AI Service failed to evaluate position (multi): ${
           error instanceof Error ? error.message : 'Unknown error'
         }`
       );
@@ -716,9 +794,7 @@ export class AIServiceClient {
   ): Promise<LineOrderChoiceResponsePayload> {
     // Cooperative pre-flight cancellation; choice selection is a pure
     // dependency call and should not proceed when canceled.
-    requestOptions?.token?.throwIfCanceled(
-      'before dispatching AIServiceClient.getLineOrderChoice'
-    );
+    requestOptions?.token?.throwIfCanceled('before dispatching AIServiceClient.getLineOrderChoice');
 
     try {
       const request: LineOrderChoiceRequestPayload = {

@@ -40,10 +40,16 @@ from app.rules.serialization import (
 # ============================================================================
 
 # Path to shared test vectors (relative to project root)
-VECTORS_DIR = Path(__file__).parent.parent.parent.parent / \
-    "tests" / "fixtures" / "contract-vectors" / "v2"
+VECTORS_DIR = (
+    Path(__file__).parent.parent.parent.parent
+    / "tests"
+    / "fixtures"
+    / "contract-vectors"
+    / "v2"
+)
 
-# Categories of test vectors
+# Legacy category list (retained for documentation; loader now glob-scans
+# all bundles under VECTORS_DIR).
 VECTOR_CATEGORIES = [
     "placement",
     "movement",
@@ -58,7 +64,7 @@ VECTOR_CATEGORIES = [
 
 
 def load_vector_file(category: str) -> Optional[TestVectorBundle]:
-    """Load test vectors for a specific category."""
+    """Load test vectors for a specific category (legacy helper)."""
     filepath = VECTORS_DIR / f"{category}.vectors.json"
     if not filepath.exists():
         return None
@@ -70,13 +76,25 @@ def load_vector_file(category: str) -> Optional[TestVectorBundle]:
 
 
 def load_all_vectors() -> List[TestVector]:
-    """Load all test vectors from all categories."""
+    """Load all test vectors from all v2 bundles.
+
+    Rather than relying on a hard-coded category list, this loader now
+    discovers all `*.vectors.json` files under VECTORS_DIR. This ensures
+    that newly added v2 bundles (e.g. chain_capture_long_tail,
+    forced_elimination, territory_line_endgame, hex_edge_cases) are
+    automatically included in Python contract tests without requiring
+    manual updates to VECTOR_CATEGORIES.
+    """
     all_vectors: List[TestVector] = []
 
-    for category in VECTOR_CATEGORIES:
-        bundle = load_vector_file(category)
-        if bundle:
-            all_vectors.extend(bundle.vectors)
+    if not VECTORS_DIR.exists():
+        return all_vectors
+
+    for bundle_path in sorted(VECTORS_DIR.glob("*.vectors.json")):
+        with bundle_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        bundle = TestVectorBundle(data)
+        all_vectors.extend(bundle.vectors)
 
     return all_vectors
 
@@ -274,22 +292,61 @@ class TestContractVectors:
             f"Test vectors directory not found: {VECTORS_DIR}"
         )
 
-    def test_all_categories_have_vectors(self):
-        """Verify all vector categories have files."""
-        for category in VECTOR_CATEGORIES:
-            filepath = VECTORS_DIR / f"{category}.vectors.json"
-            assert filepath.exists(), (
-                f"Missing vector file: {category}.vectors.json"
-            )
+    def test_all_bundles_are_loadable(self):
+        """Verify that all vector bundles in VECTORS_DIR are readable."""
+        assert VECTORS_DIR.exists(), (
+            f"Test vectors directory not found: {VECTORS_DIR}"
+        )
+
+        bundle_paths = sorted(VECTORS_DIR.glob("*.vectors.json"))
+        assert bundle_paths, f"No vector bundles found in {VECTORS_DIR}"
+
+        # Ensure each bundle can be parsed into a TestVectorBundle
+        for bundle_path in bundle_paths:
+            with bundle_path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+            bundle = TestVectorBundle(data)
+            assert isinstance(bundle, TestVectorBundle)
 
     def test_vector_count(self):
         """Verify expected number of test vectors."""
         vectors = load_all_vectors()
         # Phase 3 created 12 vectors (3 placement, 3 movement,
-        # 2 capture, 2 line_detection, 2 territory)
+        # 2 capture, 2 line_detection, 2 territory). Extended bundles
+        # may add more, so we only assert a lower bound here.
         assert len(vectors) >= 12, (
             f"Expected at least 12 vectors, found {len(vectors)}"
         )
+
+    def test_near_victory_territory_vectors_present(self):
+        """Ensure near_victory_territory vectors are included in the bundle set.
+
+        This treats the territory near-victory case as a first-class parity
+        scenario alongside elimination by asserting its vector IDs are
+        discoverable via the generic loader.
+        """
+        vector_ids = set(get_vector_ids())
+        assert (
+            "near_victory_territory.process.single_region" in vector_ids
+        ), "Expected near_victory_territory single-region vector to be present"
+        assert (
+            "near_victory_territory.process.multi_cell_region" in vector_ids
+        ), "Expected near_victory_territory multi-cell vector to be present"
+
+    def test_chain_capture_extended_vectors_present(self):
+        """Ensure chain_capture_extended vectors are included in the bundle set.
+
+        This treats deep multi-target chains as a first-class parity family
+        alongside the base chain_capture and long-tail vectors by asserting
+        that the extended IDs are discoverable via the generic loader.
+        """
+        vector_ids = set(get_vector_ids())
+        assert (
+            "chain_capture.4_targets.diagonal_with_turn" in vector_ids
+        ), "Expected chain_capture.4_targets.diagonal_with_turn vector to be present"
+        assert (
+            "chain_capture.5_plus_targets.extended_zigzag" in vector_ids
+        ), "Expected chain_capture.5_plus_targets.extended_zigzag vector to be present"
 
 
 # Parametrized test for all vectors

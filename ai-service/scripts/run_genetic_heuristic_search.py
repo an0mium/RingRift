@@ -50,7 +50,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -69,6 +69,9 @@ from scripts.run_cmaes_optimization import (  # type: ignore  # noqa: E402
     evaluate_fitness,
     evaluate_fitness_over_boards,
     FitnessDebugCallback,
+)
+from app.utils.progress_reporter import (  # noqa: E402
+    OptimizationProgressReporter,
 )
 
 
@@ -125,6 +128,9 @@ def _evaluate_population(
     seed: int | None = None,
     eval_randomness: float = 0.0,
     generation_index: int | None = None,
+    progress_reporter: OptimizationProgressReporter | None = None,
+    progress_interval_sec: float = 10.0,
+    enable_eval_progress: bool = True,
 ) -> None:
     """Evaluate a population on one or more boards and update fitness.
 
@@ -198,6 +204,11 @@ def _evaluate_population(
             )
             games_this_individual = games_per_eval
         else:
+            # Build progress label for per-board reporters when enabled
+            progress_label: str | None = None
+            if enable_eval_progress and generation_index is not None:
+                progress_label = f"GA gen={generation_index} ind={idx}"
+
             agg, _per_board = evaluate_fitness_over_boards(
                 candidate_weights=ind.weights,
                 baseline_weights=baseline,
@@ -211,6 +222,9 @@ def _evaluate_population(
                 seed=seed,
                 eval_randomness=eval_randomness,
                 debug_callback=debug_cb,
+                progress_label=progress_label,
+                progress_interval_sec=progress_interval_sec,
+                enable_eval_progress=enable_eval_progress,
             )
             ind.fitness = agg
             games_this_individual = games_per_eval * len(boards)
@@ -222,6 +236,15 @@ def _evaluate_population(
             f"games {completed_games}/{total_games} "
             f"({remaining_games} remaining in generation)"
         )
+
+        # Time-based progress reporting via the shared reporter
+        if progress_reporter is not None:
+            if progress_reporter is not None:
+                progress_reporter.record_candidate(
+                    candidate_idx=idx,
+                    fitness=ind.fitness,
+                    games_played=games_this_individual,
+                )
 
 
 def _select_elites(
@@ -375,6 +398,34 @@ def _parse_args() -> argparse.Namespace:
             "small positive values enable controlled stochastic tie-breaking."
         ),
     )
+    parser.add_argument(
+        "--progress-interval-sec",
+        type=float,
+        default=10.0,
+        help=(
+            "Minimum seconds between optimisation progress log lines "
+            "(default: 10.0). This is forwarded to the shared "
+            "OptimizationProgressReporter."
+        ),
+    )
+    parser.add_argument(
+        "--disable-progress",
+        action="store_true",
+        help=(
+            "Disable optimisation-level progress logging for GA runs, "
+            "leaving only per-individual debug output."
+        ),
+    )
+    parser.add_argument(
+        "--disable-eval-progress",
+        action="store_true",
+        help=(
+            "Disable per-board evaluation progress reporters during "
+            "multi-board GA runs, relying solely on the outer "
+            "optimisation-level reporter. By default per-board "
+            "evaluation progress is enabled when using multiple boards."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -434,10 +485,24 @@ def main() -> None:
 
     population = _initial_population(args.population_size, args.sigma, rng)
 
+    # Initialize progress reporter for time-based progress output, unless
+    # explicitly disabled via CLI. This keeps default behaviour (~10s
+    # heartbeats) while allowing very quiet runs when needed.
+    progress_reporter: Optional[OptimizationProgressReporter]
+    if args.disable_progress:
+        progress_reporter = None
+    else:
+        progress_reporter = OptimizationProgressReporter(
+            total_generations=args.generations,
+            candidates_per_generation=args.population_size,
+            report_interval_sec=args.progress_interval_sec,
+        )
+
     best_overall: Individual | None = None
 
     for gen in range(1, args.generations + 1):
-        print(f"Generation {gen}")
+        if progress_reporter is not None:
+            progress_reporter.start_generation(gen)
 
         _evaluate_population(
             population,
@@ -448,6 +513,9 @@ def main() -> None:
             seed=args.seed,
             eval_randomness=args.eval_randomness,
             generation_index=gen,
+            progress_reporter=progress_reporter,
+            progress_interval_sec=args.progress_interval_sec,
+            enable_eval_progress=not args.disable_eval_progress,
         )
 
         fitnesses = [ind.fitness or 0.0 for ind in population]
@@ -462,6 +530,14 @@ def main() -> None:
             f"  mean={mean_f:.4f}, std={std_f:.4f}, "
             f"best={max_f:.4f}"
         )
+
+        # Report generation completion with statistics
+        if progress_reporter is not None:
+            progress_reporter.finish_generation(
+                mean_fitness=mean_f,
+                best_fitness=max_f,
+                std_fitness=std_f,
+            )
 
         # Track global best
         if (
@@ -482,6 +558,10 @@ def main() -> None:
                 args.sigma,
                 rng,
             )
+
+    # Emit final optimization summary
+    if progress_reporter is not None:
+        progress_reporter.finish()
 
     if best_overall is not None:
         print()

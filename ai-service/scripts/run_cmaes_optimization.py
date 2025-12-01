@@ -53,18 +53,23 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import numpy as np
+import time
 
 # Allow imports from app/
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import cma
-except ImportError:
-    print("ERROR: cma package not installed. Run: pip install cma>=3.3.0")
-    sys.exit(1)
+except ImportError:  # pragma: no cover - handled via CLI guard
+    # For library consumers (tests, helper scripts) we keep the module
+    # importable even when `cma` is not installed, since core helpers like
+    # `evaluate_fitness` and `evaluate_fitness_over_boards` do not depend on
+    # the CMA-ES library. The CLI entrypoint will perform a runtime check and
+    # emit a clear error message if CMA-ES is actually required.
+    cma = None  # type: ignore[assignment]
 
 from app.models import (  # type: ignore  # noqa: E402
     AIConfig,
@@ -91,6 +96,10 @@ from app.training.eval_pools import (  # type: ignore  # noqa: E402
 )
 from app.training.env import (  # type: ignore  # noqa: E402
     TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
+)
+from app.utils.progress_reporter import (  # noqa: E402
+    OptimizationProgressReporter,
+    ProgressReporter,
 )
 
 
@@ -294,6 +303,7 @@ def play_single_game_from_state(
     randomness: float = 0.0,
     rng_seed_base: Optional[int] = None,
     heuristic_eval_mode: Optional[str] = None,
+    per_move_callback: Optional[Callable[[int], None]] = None,
 ) -> Tuple[int, int]:
     """Play a single game from a provided initial :class:`GameState`.
 
@@ -360,6 +370,10 @@ def play_single_game_from_state(
         game_state = rules_engine.apply_move(game_state, move)
         move_count += 1
 
+        # Optional per-move callback for fine-grained progress reporting.
+        if per_move_callback is not None:
+            per_move_callback(move_count)
+
     if game_state.game_status != GameStatus.FINISHED:
         # Draw due to move limit
         return (0, move_count)
@@ -418,6 +432,7 @@ def evaluate_fitness(
     eval_randomness: float = 0.0,
     seed: Optional[int] = None,
     debug_callback: Optional[FitnessDebugCallback] = None,
+    progress_reporter: Optional[ProgressReporter] = None,
 ) -> float:
     """Evaluate fitness of candidate weights against one or more opponents.
 
@@ -487,6 +502,12 @@ def evaluate_fitness(
 
     if games_per_eval <= 0:
         return 0.0
+
+    # Only track timing when progress reporting is enabled to avoid
+    # overhead on hot evaluation paths.
+    start_time: Optional[float] = None
+    if progress_reporter is not None:
+        start_time = time.time()
 
     if eval_mode not in ("initial-only", "multi-start"):
         raise ValueError(f"Unknown eval_mode: {eval_mode!r}")
@@ -589,6 +610,49 @@ def evaluate_fitness(
             assert pool_states is not None  # for type-checkers
             base_state = pool_states[i % len(pool_states)]
             initial_state = base_state.model_copy(deep=True)
+
+            move_progress_callback: Optional[Callable[[int], None]] = None
+            if progress_reporter is not None and start_time is not None:
+
+                def _per_move_progress_callback(
+                    _move_count: int,
+                    *,
+                    _game_index: int = i,
+                    _progress: ProgressReporter = progress_reporter,
+                    _start_time: float = start_time,
+                ) -> None:
+                    # Emit time-based progress during long games (e.g. 19x19),
+                    # without changing the completed-games counter.
+                    games_completed = _game_index
+                    elapsed = time.time() - _start_time
+                    games_so_far = (
+                        games_completed if games_completed > 0 else 1
+                    )
+                    avg_moves_so_far = (
+                        total_moves / games_so_far
+                        if total_moves > 0
+                        else 0.0
+                    )
+                    sec_per_game = (
+                        elapsed / games_so_far if games_so_far > 0 else 0.0
+                    )
+                    sec_per_move = (
+                        elapsed / total_moves if total_moves > 0 else 0.0
+                    )
+                    _progress.update(
+                        completed=games_completed,
+                        extra_metrics={
+                            "wins": wins,
+                            "draws": draws,
+                            "losses": losses,
+                            "avg_moves": avg_moves_so_far,
+                            "sec_per_game": sec_per_game,
+                            "sec_per_move": sec_per_move,
+                        },
+                    )
+
+                move_progress_callback = _per_move_progress_callback
+
             result, move_count = play_single_game_from_state(
                 initial_state=initial_state,
                 candidate_weights=candidate_weights,
@@ -598,6 +662,7 @@ def evaluate_fitness(
                 randomness=eval_randomness if use_randomness else 0.0,
                 rng_seed_base=game_seed if use_randomness else None,
                 heuristic_eval_mode=heuristic_eval_mode,
+                per_move_callback=move_progress_callback,
             )
 
         total_moves += move_count
@@ -607,6 +672,33 @@ def evaluate_fitness(
             draws += 1
         else:
             losses += 1
+
+        # Optional per-game progress reporting. This is only active when a
+        # ProgressReporter instance is passed in, so default callers are
+        # unaffected. We report games completed along with lightweight
+        # diagnostics that help approximate throughput.
+        if progress_reporter is not None and start_time is not None:
+            games_completed = i + 1
+            elapsed = time.time() - start_time
+            avg_moves_so_far = (
+                total_moves / games_completed if games_completed > 0 else 0.0
+            )
+            sec_per_game = (
+                elapsed / games_completed if games_completed > 0 else 0.0
+            )
+            sec_per_move = elapsed / total_moves if total_moves > 0 else 0.0
+
+            progress_reporter.update(
+                completed=games_completed,
+                extra_metrics={
+                    "wins": wins,
+                    "draws": draws,
+                    "losses": losses,
+                    "avg_moves": avg_moves_so_far,
+                    "sec_per_game": sec_per_game,
+                    "sec_per_move": sec_per_move,
+                },
+            )
 
     avg_moves = total_moves / games_per_eval if games_per_eval > 0 else 0
     swap_sides_moves = SWAP_SIDES_MOVE_COUNTER
@@ -620,6 +712,23 @@ def evaluate_fitness(
         )
 
     fitness = (wins + 0.5 * draws) / games_per_eval
+
+    # Emit a final per-evaluation summary on the reporter when enabled.
+    if progress_reporter is not None and start_time is not None:
+        elapsed = time.time() - start_time
+        sec_per_game = elapsed / games_per_eval if games_per_eval > 0 else 0.0
+        sec_per_move = elapsed / total_moves if total_moves > 0 else 0.0
+
+        progress_reporter.finish(
+            extra_metrics={
+                "wins": wins,
+                "draws": draws,
+                "losses": losses,
+                "avg_moves": avg_moves,
+                "sec_per_game": sec_per_game,
+                "sec_per_move": sec_per_move,
+            }
+        )
 
     # Aggregate per-candidate evaluation statistics for optional diagnostics.
     stats: Dict[str, Any] = {
@@ -672,6 +781,9 @@ def evaluate_fitness_over_boards(
     seed: Optional[int] = None,
     eval_randomness: float = 0.0,
     debug_callback: Optional[FitnessDebugCallback] = None,
+    progress_label: Optional[str] = None,
+    progress_interval_sec: Optional[float] = None,
+    enable_eval_progress: bool = True,
 ) -> Tuple[float, Dict[BoardType, float]]:
     """Evaluate candidate fitness averaged over multiple board types.
 
@@ -691,6 +803,22 @@ def evaluate_fitness_over_boards(
 
     for idx, board_type in enumerate(boards):
         board_seed = None if seed is None else seed + idx * 10_000
+
+        # Optional per-board progress reporter. When enabled, we track
+        # progress at the game level for this (candidate, board) pair.
+        board_progress: Optional[ProgressReporter] = None
+        if progress_label is not None and enable_eval_progress:
+            context = f"{progress_label} | board={board_type.value}"
+            if progress_interval_sec is None:
+                interval = 10.0
+            else:
+                interval = progress_interval_sec
+            board_progress = ProgressReporter(
+                total_units=games_per_eval,
+                unit_name="games",
+                report_interval_sec=interval,
+                context_label=context,
+            )
 
         def _tag_stats(
             stats: Dict[str, Any],
@@ -742,6 +870,7 @@ def evaluate_fitness_over_boards(
             eval_randomness=eval_randomness,
             seed=board_seed,
             debug_callback=board_debug_callback,
+            progress_reporter=board_progress,
         )
         per_board_fitness[board_type] = fitness
 
@@ -992,6 +1121,14 @@ class CMAESConfig:
     # L2 distance) to help diagnose plateau/0.5 behaviour. Disabled by
     # default to avoid noisy logs in normal runs.
     debug_plateau: bool = False
+    # Minimum interval between optimization and evaluation progress log
+    # lines (seconds). This remains configurable so callers can tune
+    # verbosity while still honouring the "no >60s silence" guideline for
+    # long-running jobs.
+    progress_interval_sec: float = 10.0
+    # When False, suppress per-board evaluation progress reporters and
+    # rely solely on the generation-level optimisation reporter.
+    enable_eval_progress: bool = True
 
 
 def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
@@ -1070,6 +1207,8 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
         "state_pool_id": config.state_pool_id,
         "eval_randomness": config.eval_randomness,
         "debug_plateau": config.debug_plateau,
+        "progress_interval_sec": config.progress_interval_sec,
+        "enable_eval_progress": config.enable_eval_progress,
     }
     with open(run_meta_path, "w", encoding="utf-8") as f:
         json.dump(run_meta, f, indent=2, sort_keys=True)
@@ -1167,10 +1306,16 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
     # Initialize CMA-ES
     # We want to maximize fitness, but cma minimizes by default,
     # so we negate the fitness values.
+    # Compute per-weight bounds that accommodate all baseline weights. The
+    # baseline includes weights like WEIGHT_VICTORY_THRESHOLD_BONUS=1000 and
+    # proximity factors at 50, so we need weight-specific upper bounds.
+    max_baseline_weight = max(baseline_weights.values())
+    upper_bound = max(100, max_baseline_weight * 2)  # 2x headroom
+
     cma_options = {
         "popsize": config.population_size,
         "maxiter": config.generations + resume_generation_offset,
-        "bounds": [0, 50],  # Keep weights in reasonable range
+        "bounds": [0, upper_bound],  # Keep weights in reasonable range
         "verbose": -9,  # Suppress cma's own logging
         # Disable ALL early stopping - use infinity to disable tolerances
         "tolfun": float("inf"),
@@ -1182,7 +1327,13 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
     if config.seed is not None:
         cma_options["seed"] = config.seed
 
-    es = cma.CMAEvolutionStrategy(
+    if cma is None:  # pragma: no cover - defensive guard
+        raise RuntimeError(
+            "CMA-ES optimization requires the 'cma' package. "
+            "Install it via 'pip install cma>=3.3.0' before running this CLI."
+        )
+
+    es = cast(Any, cma).CMAEvolutionStrategy(
         initial_weights.tolist(),
         config.sigma,
         cma_options,
@@ -1190,9 +1341,17 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
 
     print(f"CMA-ES initialized, will run for {config.generations} generations")
 
+    # Initialize progress reporter for time-based progress output.
+    progress_reporter = OptimizationProgressReporter(
+        total_generations=config.generations,
+        candidates_per_generation=config.population_size,
+        report_interval_sec=config.progress_interval_sec,
+    )
+
     # Run for a fixed number of generations (ignore CMA-ES stopping criteria)
     for local_generation in range(1, config.generations + 1):
         generation = resume_generation_offset + local_generation
+        progress_reporter.start_generation(generation)
 
         # Sample candidates
         solutions = es.ask()
@@ -1273,12 +1432,24 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
                     state_pool_id=config.state_pool_id,
                     seed=config.seed,
                     eval_randomness=config.eval_randomness,
+                    progress_label=f"CMAES gen={generation} cand={idx+1}",
+                    progress_interval_sec=config.progress_interval_sec,
+                    enable_eval_progress=config.enable_eval_progress,
                 )
                 fitness = aggregate_fitness
 
             candidate_per_board_fitness.append(per_board_fitness)
             fitnesses.append(-fitness)  # Negate for minimization
             gen_fitnesses.append(fitness)
+
+            # Record candidate evaluation for progress reporting
+            # games_per_eval * len(boards) games were played for this candidate
+            games_this_candidate = config.games_per_eval * len(boards_for_eval)
+            progress_reporter.record_candidate(
+                candidate_idx=idx + 1,
+                fitness=fitness,
+                games_played=games_this_candidate,
+            )
 
         # Update CMA-ES
         es.tell(solutions, fitnesses)
@@ -1348,6 +1519,16 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
         }
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary_payload, f, indent=2, sort_keys=True)
+
+        # Report generation completion with statistics
+        progress_reporter.finish_generation(
+            mean_fitness=mean_fitness,
+            best_fitness=max_fitness,
+            std_fitness=std_fitness,
+        )
+
+    # Emit final optimization summary
+    progress_reporter.finish()
 
     final_generation = resume_generation_offset + config.generations
     print(
@@ -1511,12 +1692,35 @@ def main():
         ),
     )
     parser.add_argument(
+        "--progress-interval-sec",
+        type=float,
+        default=10.0,
+        help=(
+            "Minimum seconds between optimization progress log lines "
+            "(default: 10s). Increase for very long runs if logs are "
+            "too chatty; decrease slightly if you need more frequent "
+            "heartbeats, while still avoiding >60s silence."
+        ),
+    )
+    parser.add_argument(
         "--debug-plateau",
         action="store_true",
         help=(
             "Enable detailed per-candidate evaluation logging "
             "(W/DL, fitness, L2 distance) to help diagnose plateau/0.5 "
             "behaviour. Disabled by default to keep logs compact."
+        ),
+    )
+    parser.add_argument(
+        "--disable-eval-progress",
+        action="store_true",
+        help=(
+            "Disable per-board evaluation progress reporters and rely "
+            "solely on the generation-level optimisation reporter. "
+            "This is useful for very log-sensitive environments or "
+            "when only outer-loop heartbeats are required. By default "
+            "per-board evaluation progress is enabled; this flag "
+            "turns it off."
         ),
     )
 
@@ -1594,6 +1798,8 @@ def main():
         eval_boards=eval_boards,
         eval_randomness=args.eval_randomness,
         debug_plateau=args.debug_plateau,
+        progress_interval_sec=args.progress_interval_sec,
+        enable_eval_progress=not args.disable_eval_progress,
     )
 
     run_cmaes_optimization(config)

@@ -143,6 +143,10 @@ def _run_profile(
         state_pool_id=state_pool_id,
         eval_randomness=eval_randomness,
         seed=seed,
+        # Use the shared ProgressReporter-based instrumentation inside the
+        # evaluation helper so multi-board sanity checks provide regular,
+        # throttled progress updates even on large boards.
+        progress_label=f"sanity-check | {label}",
     )
     elapsed = time.perf_counter() - start
     print(

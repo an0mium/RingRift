@@ -1,0 +1,456 @@
+{
+  "version": "v2",
+  "generated": "2025-12-01T08:02:22.599Z",
+  "count": 4,
+  "categories": ["chain_capture", "territory_processing"],
+  "vectors": [
+    {
+      "id": "hex_edge_case.edge_chain.segment1.hexagonal",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Hex edge chain capture segment 1",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:hex_edge_case.edge_chain.hexagonal",
+        "hex",
+        "edge"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.574Z",
+      "input": {
+        "state": {
+          "gameId": "contract-hex-edge-chain",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "-3,3,0": {
+                "position": {
+                  "x": -3,
+                  "y": 3,
+                  "z": 0
+                },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              },
+              "-2,2,0": {
+                "position": {
+                  "x": -2,
+                  "y": 2,
+                  "z": 0
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "0,0,0": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "movement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "hex-edge-chain-seg1",
+          "type": "overtaking_capture",
+          "player": 1,
+          "from": {
+            "x": -3,
+            "y": 3,
+            "z": 0
+          },
+          "captureTarget": {
+            "x": -2,
+            "y": 2,
+            "z": 0
+          },
+          "to": {
+            "x": -1,
+            "y": 1,
+            "z": 0
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "awaiting_decision",
+        "assertions": {
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "gameStatus": "active",
+          "stackCount": 2,
+          "markerCount": 1,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "hex_edge_case.edge_chain.segment2.hexagonal",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Hex edge chain capture segment 2",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:hex_edge_case.edge_chain.hexagonal",
+        "hex",
+        "edge"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.576Z",
+      "input": {
+        "state": {
+          "gameId": "contract-hex-edge-chain",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "0,0,0": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "-1,1,0": {
+                "position": {
+                  "x": -1,
+                  "y": 1,
+                  "z": 0
+                },
+                "rings": [1, 1, 2],
+                "stackHeight": 3,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "-3,3,0": {
+                "position": {
+                  "x": -3,
+                  "y": 3,
+                  "z": 0
+                },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0,
+          "chainCapturePosition": {
+            "x": -1,
+            "y": 1,
+            "z": 0
+          }
+        },
+        "move": {
+          "id": "hex-edge-chain-seg2",
+          "type": "continue_capture_segment",
+          "player": 1,
+          "from": {
+            "x": -1,
+            "y": 1,
+            "z": 0
+          },
+          "captureTarget": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "to": {
+            "x": 1,
+            "y": -1,
+            "z": 0
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 2
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "stackCount": 1,
+          "markerCount": 2,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "hex_edge_case.corner_region.case1.hexagonal",
+      "version": "v2",
+      "category": "territory_processing",
+      "description": "Hex corner region territory (case 1)",
+      "tags": ["territory_processing", "orchestrator", "parity", "hex", "corner", "territory"],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.597Z",
+      "input": {
+        "state": {
+          "gameId": "contract-hex-corner-region",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "4,-4,0": {
+                "position": {
+                  "x": 4,
+                  "y": -4,
+                  "z": 0
+                },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "hex-corner-territory",
+          "type": "process_territory_region",
+          "player": 1,
+          "to": {
+            "x": 4,
+            "y": -4,
+            "z": 0
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "stackCount": 1,
+          "markerCount": 0,
+          "collapsedCount": 0,
+          "sInvariantDelta": 0,
+          "player1RingsInHand": 36,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 36,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "hex_edge_case.forced_elim_3p.hexagonal",
+      "version": "v2",
+      "category": "territory_processing",
+      "description": "3-player forced elimination on hexagonal board",
+      "tags": ["territory_processing", "orchestrator", "parity", "hex", "forced_elimination", "3p"],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.599Z",
+      "input": {
+        "state": {
+          "gameId": "contract-hex-forced-elim-3p",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "0,0,0": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0,
+              "3": 18
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 3,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 55,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 18
+        },
+        "move": {
+          "id": "hex-3p-forced-elim",
+          "type": "eliminate_rings_from_stack",
+          "player": 1,
+          "to": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "stackCount": 0,
+          "markerCount": 0,
+          "collapsedCount": 0,
+          "sInvariantDelta": 2,
+          "player1RingsInHand": 36,
+          "player1EliminatedRings": 2,
+          "player2RingsInHand": 36,
+          "player2EliminatedRings": 0
+        }
+      }
+    }
+  ]
+}

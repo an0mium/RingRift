@@ -4,7 +4,6 @@ import type {
   Position,
   RingStack,
   BoardState,
-  Territory,
   LocalAIRng,
 } from '../../shared/engine';
 import {
@@ -12,10 +11,6 @@ import {
   BOARD_CONFIGS,
   hashGameState,
   chooseLocalMoveFromCandidates,
-  enumerateProcessLineMoves,
-  enumerateChooseLineRewardMoves,
-  enumerateProcessTerritoryRegionMoves,
-  enumerateTerritoryEliminationMoves,
   evaluateSkipPlacementEligibility as evaluateSkipPlacementEligibilityAggregate,
 } from '../../shared/engine';
 import {
@@ -50,12 +45,12 @@ interface SandboxAITurnTraceEntry {
   afterHash: string;
   lastAIMoveType: Move['type'] | null;
   lastAIMovePlayer: number | null;
-  captureCount?: number;
-  simpleMoveCount?: number;
-  placementCandidateCount?: number;
-  forcedEliminationAttempted?: boolean;
-  forcedEliminationEliminated?: boolean;
-  consecutiveNoopAITurns?: number;
+  captureCount?: number | undefined;
+  simpleMoveCount?: number | undefined;
+  placementCandidateCount?: number | undefined;
+  forcedEliminationAttempted?: boolean | undefined;
+  forcedEliminationEliminated?: boolean | undefined;
+  consecutiveNoopAITurns?: number | undefined;
 }
 
 declare global {
@@ -90,6 +85,12 @@ export interface SandboxAIHooks {
   getPlayerStacks(playerNumber: number, board: BoardState): RingStack[];
   hasAnyLegalMoveOrCaptureFrom(from: Position, playerNumber: number, board: BoardState): boolean;
   enumerateLegalRingPlacements(playerNumber: number): Position[];
+  /**
+   * Canonical host-level legal moves for the current player/phase.
+   * Backed by ClientSandboxEngine.getValidMoves so movement/capture
+   * decisions share the same surface as backend getValidMoves.
+   */
+  getValidMovesForCurrentPlayer(): Move[];
   /**
    * Pure helper used by the sandbox AI to mirror the backend
    * no-dead-placement check for multi-ring placements. This must
@@ -172,37 +173,30 @@ function shouldSandboxAIPickSwapSides(gameState: GameState): boolean {
   const midLow = Math.floor((size - 1) / 2); // 3 on square8
   const midHigh = Math.ceil((size - 1) / 2); // 4 on square8
 
-  const isCentral =
-    (x === midLow || x === midHigh) &&
-    (y === midLow || y === midHigh);
+  const isCentral = (x === midLow || x === midHigh) && (y === midLow || y === midHigh);
 
   return isCentral;
 }
 
-function getLineDecisionMovesForSandboxAI(gameState: GameState): Move[] {
+function getLineDecisionMovesForSandboxAI(gameState: GameState, hooks: SandboxAIHooks): Move[] {
   if (gameState.currentPhase !== 'line_processing') {
     return [];
   }
 
-  const playerNumber = gameState.currentPlayer;
+  const allMoves = hooks.getValidMovesForCurrentPlayer();
+  if (!Array.isArray(allMoves) || allMoves.length === 0) {
+    return [];
+  }
 
-  // Use shared helpers to enumerate process_line and choose_line_reward moves.
-  // This ensures the AI sees the exact same decision surface as the backend.
-  const processMoves = enumerateProcessLineMoves(gameState, playerNumber, {
-    detectionMode: 'detect_now',
-  });
+  // When explicit elimination moves are present (line‑reward debt),
+  // mirror backend behaviour by preferring those over additional
+  // process_line / choose_line_reward options.
+  const eliminationMoves = allMoves.filter((m) => m.type === 'eliminate_rings_from_stack');
+  if (eliminationMoves.length > 0) {
+    return eliminationMoves;
+  }
 
-  // For each line, also enumerate reward choices (if any).
-  // Note: enumerateChooseLineRewardMoves requires a line index relative to
-  // the player's lines. We iterate through the detected lines to generate these.
-  const rewardMoves: Move[] = [];
-  // We can infer the number of lines from processMoves since enumerateProcessLineMoves
-  // returns one move per line.
-  processMoves.forEach((_, index) => {
-    rewardMoves.push(...enumerateChooseLineRewardMoves(gameState, playerNumber, index));
-  });
-
-  return [...processMoves, ...rewardMoves];
+  return allMoves.filter((m) => m.type === 'process_line' || m.type === 'choose_line_reward');
 }
 
 function getTerritoryDecisionMovesForSandboxAI(
@@ -213,25 +207,19 @@ function getTerritoryDecisionMovesForSandboxAI(
     return [];
   }
 
-  const movingPlayer = gameState.currentPlayer;
+  const allMoves = hooks.getValidMovesForCurrentPlayer();
+  if (!Array.isArray(allMoves) || allMoves.length === 0) {
+    return [];
+  }
 
-  // 1. Enumerate region processing moves using the shared helper.
-  // This handles region detection and Q23 gating (must have stack outside region).
-  const regionMoves = enumerateProcessTerritoryRegionMoves(gameState, movingPlayer, {
-    detectionMode: 'detect_now',
-  });
-
+  // 1. Prefer explicit region‑processing moves when present.
+  const regionMoves = allMoves.filter((m) => m.type === 'process_territory_region');
   if (regionMoves.length > 0) {
     return regionMoves;
   }
 
-  // 2. If no regions are processable, check for pending self-elimination.
-  if (!hooks.hasPendingTerritorySelfElimination()) {
-    return [];
-  }
-
-  // 3. Enumerate elimination moves using the shared helper.
-  return enumerateTerritoryEliminationMoves(gameState, movingPlayer);
+  // 2. Otherwise, fall back to any explicit elimination decisions.
+  return allMoves.filter((m) => m.type === 'eliminate_rings_from_stack');
 }
 
 export function buildSandboxMovementCandidates(
@@ -281,32 +269,7 @@ export function buildSandboxMovementCandidates(
   // occurred this turn, only moves originating from the placed/updated stack are
   // eligible.
   if (mustMoveFromStackKey) {
-    const beforeFilter = landingCandidates.length;
-    if (beforeFilter > 0) {
-      const first = landingCandidates[0];
-      // eslint-disable-next-line no-console
-      console.log('[Sandbox AI Debug] Before filter', {
-        mustMoveFromStackKey,
-        firstFromKey: first.fromKey,
-        match: first.fromKey === mustMoveFromStackKey,
-        allFromKeysLength: landingCandidates.length,
-        has27: landingCandidates.some((m) => m.fromKey === '2,7'),
-        mustMoveIs27: mustMoveFromStackKey === '2,7',
-      });
-    }
-    landingCandidates = landingCandidates.filter((m) => {
-      const match = m.fromKey === mustMoveFromStackKey;
-      if (!match && m.fromKey === '2,7') {
-        // eslint-disable-next-line no-console
-        console.log('[Sandbox AI Debug] Filter mismatch:', {
-          fromKey: m.fromKey,
-          mustMoveFromStackKey,
-          fromKeyCodes: m.fromKey.split('').map((c) => c.charCodeAt(0)),
-          mustCodes: mustMoveFromStackKey.split('').map((c) => c.charCodeAt(0)),
-        });
-      }
-      return match;
-    });
+    landingCandidates = landingCandidates.filter((m) => m.fromKey === mustMoveFromStackKey);
   }
 
   const debugCaptureCount = captureSegments.length;
@@ -408,15 +371,11 @@ export function selectSandboxMovementMove(
  *     resolves any mandatory capture continuations while in the
  *     chain_capture phase.
  */
-export async function maybeRunAITurnSandbox(
-  hooks: SandboxAIHooks,
-  rng: LocalAIRng
-): Promise<void> {
+export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIRng): Promise<void> {
   // If we've exceeded the maximum consecutive no-op threshold, stop
   // executing AI turns to prevent infinite stalls and log spam.
   if (sandboxConsecutiveNoopAITurns >= SANDBOX_NOOP_MAX_THRESHOLD) {
     if (!sandboxStallLoggingSuppressed && SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED) {
-      // eslint-disable-next-line no-console
       console.error(
         `[Sandbox AI] Stopping AI execution after ${sandboxConsecutiveNoopAITurns} consecutive no-op turns. Game is stalled.`
       );
@@ -505,30 +464,61 @@ export async function maybeRunAITurnSandbox(
         const afterElimHash = hashGameState(afterElimState);
 
         if (
-          SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED &&
-          !sandboxStallLoggingSuppressed &&
           !eliminated &&
           beforeElimHash === afterElimHash &&
           afterElimState.gameStatus === 'active'
         ) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            '[Sandbox AI Stall Diagnostic] Ring-placement (no rings) forced elimination did not change state',
-            {
-              boardType: gameState.boardType,
-              currentPlayer: gameState.currentPlayer,
-              currentPhase: gameState.currentPhase,
-              ringsInHand: gameState.players.map((p) => ({
-                playerNumber: p.playerNumber,
-                type: p.type,
-                ringsInHand: p.ringsInHand,
-                stacks: hooks.getPlayerStacks(p.playerNumber, gameState.board).length,
-              })),
-            }
-          );
-        }
+          // Forced elimination did not apply (player has legal moves from stacks).
+          // The player is in ring_placement with ringsInHand=0 but has stacks.
+          //
+          // The backend's getValidMoves has a resolveBlockedStateForCurrentPlayerForTesting
+          // fallback that changes the phase to movement when the current player has
+          // movement/capture moves but no rings. We need to do the same here.
+          //
+          // Check if current player has any movement or capture moves available.
+          const playerStacks = hooks.getPlayerStacks(current.playerNumber, afterElimState.board);
+          if (playerStacks.length > 0) {
+            // Player has stacks - get movement candidates from the shared aggregates.
+            // The sandbox's getValidMoves should return movement moves when called
+            // even though we're in ring_placement phase.
+            const validMoves = hooks.getValidMovesForCurrentPlayer();
+            const movementMoves = validMoves.filter(
+              (m) =>
+                m.type === 'move_stack' || m.type === 'move_ring' || m.type === 'overtaking_capture'
+            );
 
-        return;
+            if (movementMoves.length > 0) {
+              // Player has movement moves - select one and apply it
+              const selectedMove = chooseLocalMoveFromCandidates(
+                current.playerNumber,
+                afterElimState,
+                movementMoves,
+                rng
+              );
+
+              if (selectedMove) {
+                const moveNumber = afterElimState.history.length + 1;
+                const moveToApply: Move = {
+                  ...selectedMove,
+                  id: '',
+                  moveNumber,
+                  timestamp: new Date(),
+                  thinkTime: 0,
+                } as Move;
+
+                await hooks.applyCanonicalMove(moveToApply);
+                lastAIMove = moveToApply;
+                hooks.setLastAIMove(lastAIMove);
+              }
+              return;
+            }
+          }
+          // No movement moves available - fall through to let rest of function handle it
+          return;
+        } else {
+          // Elimination was applied or game ended - return and let next iteration handle it
+          return;
+        }
       }
 
       // Mirror backend RuleEngine.validateSkipPlacement: skip is only
@@ -581,7 +571,6 @@ export async function maybeRunAITurnSandbox(
             id: '',
             type: 'skip_placement',
             player: current.playerNumber,
-            from: undefined,
             to: sentinelTo,
             timestamp: new Date(),
             thinkTime: 0,
@@ -618,7 +607,6 @@ export async function maybeRunAITurnSandbox(
           beforeElimHash === afterElimHash &&
           afterElimState.gameStatus === 'active'
         ) {
-          // eslint-disable-next-line no-console
           console.warn(
             '[Sandbox AI Stall Diagnostic] Ring-placement forced elimination did not change state',
             {
@@ -680,7 +668,6 @@ export async function maybeRunAITurnSandbox(
       // the aggregate reports that skipping is legal.
       if (maxAvailableGlobal <= 0) {
         if (SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED && !sandboxStallLoggingSuppressed) {
-          // eslint-disable-next-line no-console
           console.warn(
             '[Sandbox AI Debug] maxAvailableGlobal <= 0, checking for skip_placement option'
           );
@@ -698,7 +685,6 @@ export async function maybeRunAITurnSandbox(
             id: '',
             type: 'skip_placement',
             player: current.playerNumber,
-            from: undefined,
             to: sentinelTo,
             timestamp: new Date(),
             thinkTime: 0,
@@ -731,7 +717,6 @@ export async function maybeRunAITurnSandbox(
           beforeElimHash === afterElimHash &&
           afterElimState.gameStatus === 'active'
         ) {
-          // eslint-disable-next-line no-console
           console.warn(
             '[Sandbox AI Stall Diagnostic] At ring cap, forced elimination did not change state',
             {
@@ -790,7 +775,6 @@ export async function maybeRunAITurnSandbox(
             id: '',
             type: 'place_ring',
             player: current.playerNumber,
-            from: undefined,
             to: pos,
             placementCount: count,
             timestamp: new Date(),
@@ -858,7 +842,6 @@ export async function maybeRunAITurnSandbox(
           beforeElimHash === afterElimHash &&
           afterElimState.gameStatus === 'active'
         ) {
-          // eslint-disable-next-line no-console
           console.warn(
             '[Sandbox AI Stall Diagnostic] Ring-placement forced elimination (no safe placements) did not change state',
             {
@@ -908,7 +891,6 @@ export async function maybeRunAITurnSandbox(
       }
 
       if (!selected) {
-        // eslint-disable-next-line no-console
         console.error(
           '[Sandbox AI] chooseLocalMoveFromCandidates returned null with',
           candidates.length,
@@ -939,7 +921,6 @@ export async function maybeRunAITurnSandbox(
         // Removed the `&& selected.to` check that was causing stalls when selected.to
         // was somehow missing/corrupted. Instead, provide a defensive fallback.
         if (!selected.to) {
-          // eslint-disable-next-line no-console
           console.error('[Sandbox AI] place_ring selected but to is missing:', selected);
           return;
         }
@@ -956,7 +937,7 @@ export async function maybeRunAITurnSandbox(
         } as Move;
       } else {
         // Unexpected move type in ring_placement; log for debugging.
-        // eslint-disable-next-line no-console
+
         console.error('[Sandbox AI] Unexpected move type in ring_placement:', selected.type);
         return;
       }
@@ -1005,7 +986,7 @@ export async function maybeRunAITurnSandbox(
             });
           }
         } else {
-          decisionCandidates = getLineDecisionMovesForSandboxAI(gameState);
+          decisionCandidates = getLineDecisionMovesForSandboxAI(gameState, hooks);
         }
       } else {
         decisionCandidates = getTerritoryDecisionMovesForSandboxAI(gameState, hooks);
@@ -1050,16 +1031,34 @@ export async function maybeRunAITurnSandbox(
 
     const playerNumber = current.playerNumber;
 
-    const { candidates: movementCandidates, debug: movementDebug } = buildSandboxMovementCandidates(
-      gameState,
-      hooks,
-      rng
+    // Enumerate canonical movement/capture candidates via the host's
+    // getValidMoves surface so sandbox AI stays aligned with backend
+    // GameEngine.getValidMoves semantics.
+    const allMoves = hooks.getValidMovesForCurrentPlayer();
+    let movementCandidates = allMoves.filter(
+      (m) => m.type === 'overtaking_capture' || m.type === 'move_stack' || m.type === 'move_ring'
     );
+    // Fallback: if the host-reported canonical surface has no movement/capture
+    // moves but shared movement/capture helpers still see legal actions, use
+    // the shared helpers to build candidates. This defends against rare
+    // enumeration mismatches in deep seeds while keeping the primary path
+    // aligned with backend getValidMoves().
+    if (movementCandidates.length === 0) {
+      const fallback = buildSandboxMovementCandidates(gameState, hooks, rng);
+      if (fallback.candidates.length > 0) {
+        movementCandidates = fallback.candidates;
+      }
+    }
 
-    debugCaptureCount = movementDebug.captureCount;
-    debugSimpleMoveCount = movementDebug.simpleMoveCount;
+    const captureCount = movementCandidates.filter((m) => m.type === 'overtaking_capture').length;
+    const simpleMoveCount = movementCandidates.filter(
+      (m) => m.type === 'move_stack' || m.type === 'move_ring'
+    ).length;
 
-    if (movementDebug.captureCount === 0 && movementDebug.simpleMoveCount === 0) {
+    debugCaptureCount = captureCount;
+    debugSimpleMoveCount = simpleMoveCount;
+
+    if (captureCount === 0 && simpleMoveCount === 0) {
       const mustMoveFromStackKey = hooks.getMustMoveFromStackKey();
       let stacksForDebug = hooks.getPlayerStacks(playerNumber, gameState.board);
       if (mustMoveFromStackKey) {
@@ -1074,14 +1073,19 @@ export async function maybeRunAITurnSandbox(
           height: s.stackHeight,
           cap: s.capHeight,
           rings: s.rings,
+          hasAnyAction: hooks.hasAnyLegalMoveOrCaptureFrom(
+            s.position,
+            playerNumber,
+            gameState.board
+          ),
         }));
         // eslint-disable-next-line no-console
         console.log('[Sandbox AI Debug] No moves found', {
           phase: gameState.currentPhase,
           mustMoveFromStackKey,
           stacksCount: stacksForDebug.length,
-          captureCount: movementDebug.captureCount,
-          landingCount: movementDebug.simpleMoveCount,
+          captureCount,
+          landingCount: simpleMoveCount,
           player: playerNumber,
           stackDetails,
         });
@@ -1103,7 +1107,6 @@ export async function maybeRunAITurnSandbox(
           beforeElimHash === afterElimHash &&
           afterElimState.gameStatus === 'active'
         ) {
-          // eslint-disable-next-line no-console
           console.warn(
             '[Sandbox AI Stall Diagnostic] No captures/moves, forced elimination did not change state',
             {
@@ -1150,7 +1153,6 @@ export async function maybeRunAITurnSandbox(
       const MAX_CHAIN_STEPS = 32;
       let steps = 0;
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const stateAfter = hooks.getGameState();
 
@@ -1162,7 +1164,7 @@ export async function maybeRunAITurnSandbox(
         if (steps > MAX_CHAIN_STEPS) {
           // Defensive: avoid infinite loops if something goes wrong with
           // chain-capture phase transitions.
-          // eslint-disable-next-line no-console
+
           console.warn(
             '[Sandbox AI] Aborting chain_capture auto-resolution after MAX_CHAIN_STEPS',
             {
@@ -1317,7 +1319,6 @@ export async function maybeRunAITurnSandbox(
           }
 
           if (!sandboxStallLoggingSuppressed) {
-            // eslint-disable-next-line no-console
             console.warn('[Sandbox AI Stall Detector] Detected potential AI stall', {
               boardType: turnEntry.boardType,
               playerNumber: turnEntry.playerNumber,

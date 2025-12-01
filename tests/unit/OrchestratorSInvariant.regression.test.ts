@@ -111,7 +111,7 @@ describe('Orchestrator S-invariant – backend harness parity', () => {
   // known orchestrator S-invariant regression (see TODO P0.3). Once the
   // underlying bug is fixed, remove `.skip` to enforce the invariant.
   REGRESSION_SEEDS.forEach((seed) => {
-    it.skip(`S remains non-decreasing for a short seeded backend orchestrator game (square8, seed=${seed})`, async () => {
+    it(`S remains non-decreasing for a short seeded backend orchestrator game (square8, seed=${seed})`, async () => {
       const engine = createBackendOrchestratorHost(`s-invariant-orchestrator-seed-${seed}`, seed);
       const moveRng = new SeededRNG(seed);
 

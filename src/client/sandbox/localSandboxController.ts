@@ -49,8 +49,11 @@ export interface LocalSandboxState {
    * Optional selection used during the movement phase to remember the
    * currently selected stack. This is confined to the sandbox and does
    * not affect the shared GameState shape.
+   *
+   * @remarks With `exactOptionalPropertyTypes`, this must be typed as
+   * `Position | undefined` to permit explicit `undefined` assignment.
    */
-  selectedStack?: Position;
+  selectedStack?: Position | undefined;
 }
 
 /**
@@ -83,11 +86,11 @@ export function createInitialLocalSandboxState(config: LocalSandboxConfig): Loca
     return {
       id: `local-${playerNumber}`,
       username: `Player ${playerNumber}`,
-      type: 'human',
+      type: 'human' as const,
       playerNumber,
       isReady: true,
       timeRemaining: 0,
-      aiDifficulty: undefined,
+      // aiDifficulty intentionally omitted for human players
       ringsInHand: BOARD_CONFIGS[config.boardType].ringsPerPlayer,
       eliminatedRings: 0,
       territorySpaces: 0,

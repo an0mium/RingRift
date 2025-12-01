@@ -370,7 +370,58 @@ You are done when:
 
 ---
 
-## 6. Related Documentation
+## 6. Proactive AI Healthchecks (CI & Scheduled Jobs)
+
+In addition to reacting to alerts, AI strength and latency are exercised
+proactively via CI jobs and optional scheduled runs:
+
+- **CI companion gates (alongside orchestrator short soaks)**
+  - `python-parity-healthcheck` (see `.github/workflows/ci.yml`):
+    - Runs `ai-service/scripts/run_parity_healthcheck.py` across
+      `contract_vectors_v2` and `plateau_snapshots`.
+    - Fails when any TS↔Python rules mismatches are detected
+      (`--fail-on-mismatch`), acting as a fast parity smoke test next to the
+      orchestrator short soak.
+  - `python-ai-eval`:
+    - Runs a small, deterministic AI‑vs‑AI evaluation profile:
+      `baseline_heuristic` vs `random` on `square8` for a bounded number of
+      games (see CI config for exact parameters).
+    - Produces `ai-service/results/ai_eval_baseline_vs_random.json` with
+      win‑rates, game lengths, and decision‑time stats that can be trended
+      over time.
+  - Together with `orchestrator-short-soak`, these jobs form the **rules +
+    orchestrator + AI health** gating set: CI must keep them green before a
+    build is considered healthy enough for promotion.
+
+- **Staging / pre‑release runs**
+  - For staging or pre‑release validations, operators may:
+    - Run the same parity healthcheck:
+      ```bash
+      cd ai-service
+      python scripts/run_parity_healthcheck.py \
+        --profile parity-healthcheck-staging \
+        --summary-json results/parity_healthcheck_staging.json \
+        --fail-on-mismatch
+      ```
+    - Run a slightly heavier AI evaluation profile (for example neural vs
+      minimax on `square8` or `hexagonal`) using
+      `scripts/evaluate_ai_models.py`, storing JSON results under
+      `results/` for comparison across releases.
+  - Treat obvious regressions in strength (win‑rates vs baseline) or
+    latency (decision times) as **companion gates** to the orchestrator
+    short soak and rules‑parity suites: do not promote if both rules and
+    AI healthchecks are red.
+
+When adjusting these profiles, keep them:
+
+- **Bounded** – small game counts and modest boards (e.g. `square8`) for CI,
+  with deeper batteries reserved for scheduled/nightly jobs.
+- **Deterministic** – fixed seeds and AI configs, so changes in outputs
+  reflect real behaviour changes rather than randomness.
+
+---
+
+## 7. Related Documentation
 
 - **Incident docs:**
   - `docs/incidents/AI_SERVICE.md`

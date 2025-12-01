@@ -55,6 +55,7 @@ import os
 import random
 import sys
 import gc
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, cast
 
@@ -73,10 +74,12 @@ from app.models import (  # type: ignore  # noqa: E402
     BoardType,
     GameState,
     GameStatus,
+    MoveType,
 )
 from app.training.env import (  # type: ignore  # noqa: E402
     RingRiftEnv,
     TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
+    get_theoretical_max_moves,
 )
 from app.game_engine import (  # type: ignore  # noqa: E402
     GameEngine,
@@ -87,6 +90,8 @@ from app.metrics import (  # type: ignore  # noqa: E402
 )
 from app.rules.core import compute_progress_snapshot  # noqa: E402
 from app.rules import global_actions as ga  # type: ignore  # noqa: E402
+from app.utils.progress_reporter import SoakProgressReporter  # noqa: E402
+from app.db import get_or_create_db, record_completed_game  # noqa: E402
 
 
 VIOLATION_TYPE_TO_INVARIANT_ID: Dict[str, str] = {
@@ -412,6 +417,12 @@ def run_self_play_soak(
 
     os.makedirs(os.path.dirname(args.log_jsonl) or ".", exist_ok=True)
 
+    # Initialize optional game recording database
+    # --no-record-db flag overrides --record-db to disable recording
+    record_db_path = None if getattr(args, "no_record_db", False) else getattr(args, "record_db", None)
+    replay_db = get_or_create_db(record_db_path) if record_db_path else None
+    games_recorded = 0
+
     env = RingRiftEnv(
         board_type=board_type,
         max_moves=max_moves,
@@ -422,8 +433,16 @@ def run_self_play_soak(
     records: List[GameRecord] = []
     invariant_violation_samples: List[Dict[str, Any]] = []
 
+    # Initialize progress reporter for time-based progress output (~10s intervals)
+    progress_reporter = SoakProgressReporter(
+        total_games=num_games,
+        report_interval_sec=10.0,
+        context_label=f"{board_type.value}_{engine_mode}_{num_players}p",
+    )
+
     with open(args.log_jsonl, "w", encoding="utf-8") as log_f:
         for game_idx in range(num_games):
+            game_start_time = time.time()
             game_seed = None if base_seed is None else base_seed + game_idx
             try:
                 state: GameState = env.reset(seed=game_seed)
@@ -441,6 +460,9 @@ def run_self_play_soak(
                 )
                 log_f.write(json.dumps(asdict(rec)) + "\n")
                 records.append(rec)
+                # Record error game for progress reporting
+                game_duration = time.time() - game_start_time
+                progress_reporter.record_game(moves=0, duration_sec=game_duration)
                 continue
 
             player_numbers = [p.player_number for p in state.players]
@@ -458,6 +480,10 @@ def run_self_play_soak(
             last_move = None
             per_game_violations: Dict[str, int] = {}
             swap_sides_moves_for_game = 0
+
+            # Game recording: capture initial state and collect moves
+            initial_state_for_recording = state.model_copy(deep=True) if replay_db else None
+            game_moves_for_recording: List[Any] = [] if replay_db else []
 
             # Initialise S-invariant / elimination snapshot for this game.
             prev_snapshot = compute_progress_snapshot(state)
@@ -502,6 +528,9 @@ def run_self_play_soak(
                 try:
                     state, _reward, done, _info = env.step(move)
                     last_move = move
+                    # Collect move for game recording
+                    if replay_db:
+                        game_moves_for_recording.append(move)
                 except Exception as exc:  # pragma: no cover - defensive
                     termination_reason = f"step_exception:{type(exc).__name__}"
                     state = state  # keep last known state
@@ -666,6 +695,29 @@ def run_self_play_soak(
 
                 if move_count >= max_moves:
                     termination_reason = "max_moves_reached"
+                    # Log error/warning for games hitting max_moves without a winner
+                    theoretical_max = get_theoretical_max_moves(board_type, num_players)
+                    if state.winner is None:
+                        if move_count >= theoretical_max:
+                            print(
+                                f"ERROR: GAME_NON_TERMINATION [game {game_idx}] "
+                                f"Game exceeded theoretical maximum moves without a winner. "
+                                f"board_type={board_type.value}, num_players={num_players}, "
+                                f"move_count={move_count}, max_moves={max_moves}, "
+                                f"theoretical_max={theoretical_max}, "
+                                f"game_status={state.game_status.value}, winner={state.winner}",
+                                file=sys.stderr,
+                            )
+                        else:
+                            print(
+                                f"WARNING: GAME_MAX_MOVES_CUTOFF [game {game_idx}] "
+                                f"Game hit max_moves limit without a winner. "
+                                f"board_type={board_type.value}, num_players={num_players}, "
+                                f"move_count={move_count}, max_moves={max_moves}, "
+                                f"theoretical_max={theoretical_max}, "
+                                f"game_status={state.game_status.value}, winner={state.winner}",
+                                file=sys.stderr,
+                            )
                     break
 
                 if done:
@@ -745,6 +797,38 @@ def run_self_play_soak(
             log_f.write(json.dumps(asdict(rec)) + "\n")
             records.append(rec)
 
+            # Record full game to database if enabled
+            if replay_db and initial_state_for_recording is not None:
+                try:
+                    game_id = record_completed_game(
+                        db=replay_db,
+                        initial_state=initial_state_for_recording,
+                        final_state=state,
+                        moves=game_moves_for_recording,
+                        metadata={
+                            "source": "selfplay_soak",
+                            "engine_mode": engine_mode,
+                            "difficulty_band": difficulty_band,
+                            "termination_reason": termination_reason,
+                            "rng_seed": game_seed,
+                        },
+                    )
+                    games_recorded += 1
+                except Exception as exc:  # pragma: no cover - defensive
+                    # DB recording must never break the soak loop
+                    print(
+                        f"[record-db] Failed to record game {game_idx}: "
+                        f"{type(exc).__name__}: {exc}",
+                        file=sys.stderr,
+                    )
+
+            # Record game completion for progress reporting
+            game_duration = time.time() - game_start_time
+            progress_reporter.record_game(
+                moves=move_count,
+                duration_sec=game_duration,
+            )
+
             if args.verbose and (game_idx + 1) % args.verbose == 0:
                 print(
                     f"[soak] completed {game_idx + 1}/{num_games} games "
@@ -759,6 +843,17 @@ def run_self_play_soak(
             if gc_interval and (game_idx + 1) % gc_interval == 0:
                 GameEngine.clear_cache()
                 gc.collect()
+
+    # Emit final progress summary
+    progress_reporter.finish()
+
+    # Log DB recording summary if enabled
+    if replay_db:
+        print(
+            f"[record-db] Recorded {games_recorded}/{num_games} games "
+            f"to {record_db_path}",
+            flush=True,
+        )
 
     return records, invariant_violation_samples
 
@@ -1215,6 +1310,22 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "If >0, record every Nth move for Hex games into the pool."
         ),
+    )
+    parser.add_argument(
+        "--record-db",
+        type=str,
+        default="data/games/selfplay.db",
+        help=(
+            "Path to a SQLite database file for recording full game replays. "
+            "Each completed game's initial state, final state, and all moves "
+            "are stored in the GameReplayDB schema. Use --no-record-db to disable. "
+            "Default: data/games/selfplay.db"
+        ),
+    )
+    parser.add_argument(
+        "--no-record-db",
+        action="store_true",
+        help="Disable game recording to database (overrides --record-db).",
     )
     return parser.parse_args()
 

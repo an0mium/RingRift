@@ -40,8 +40,11 @@ import {
   applyPlacementMoveAggregate,
   // Chain capture continuation enumeration
   getChainCaptureContinuationInfo,
+  // Type guards for move narrowing
+  isCaptureMove,
 } from '../../shared/engine';
 import { getMovementDirectionsForBoardType } from '../../shared/engine/core';
+import { flagEnabled, debugLog } from '../../shared/utils/envFlags';
 import { BoardManager } from './BoardManager';
 
 export class RuleEngine {
@@ -223,7 +226,7 @@ export class RuleEngine {
     };
 
     const targets = enumerateSimpleMoveTargetsFromStack(
-      this.boardConfig.type as any,
+      this.boardType,
       move.from,
       move.player,
       view
@@ -388,6 +391,10 @@ export class RuleEngine {
    * for legacy tests and debugging harnesses. See
    * docs/ORCHESTRATOR_ROLLOUT_PLAN.md (Phase A/B, Phase C – legacy helper
    * shutdown) before modifying or reusing this method.
+   *
+   * @deprecated Phase 4 legacy path — use TurnEngineAdapter + shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   processMove(move: Move, gameState: GameState): GameState {
     const newState = this.cloneGameState(gameState);
@@ -500,6 +507,10 @@ export class RuleEngine {
    * There are no production call sites for this helper; it is retained only
    * for legacy tests and exploratory diagnostics. Do not introduce new
    * production usages. See docs/ORCHESTRATOR_ROLLOUT_PLAN.md (Phase C).
+   *
+   * @deprecated Phase 4 legacy path — capture chain semantics now handled by CaptureAggregate.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   private processChainReactions(triggerPos: Position, gameState: GameState): void {
     const triggerKey = positionToString(triggerPos);
@@ -548,6 +559,10 @@ export class RuleEngine {
    * It is retained only for legacy tests that exercise the old automatic
    * pipeline. See docs/ORCHESTRATOR_ROLLOUT_PLAN.md (Phase C – legacy helper
    * shutdown) before modifying or reusing this helper.
+   *
+   * @deprecated Phase 4 legacy path — use lineDecisionHelpers + shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   private processLineFormation(gameState: GameState): void {
     const lines = this.boardManager.findAllLines(gameState.board);
@@ -577,6 +592,10 @@ export class RuleEngine {
    * There are no production call sites for this helper; it is retained only
    * for legacy tests and diagnostics. Do not introduce new production usages.
    * See docs/ORCHESTRATOR_ROLLOUT_PLAN.md (Phase C – legacy helper shutdown).
+   *
+   * @deprecated Phase 4 legacy path — use territoryDecisionHelpers + shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   private processTerritoryDisconnection(gameState: GameState): void {
     // Check territories for each player
@@ -633,6 +652,28 @@ export class RuleEngine {
 
     switch (gameState.currentPhase) {
       case 'ring_placement': {
+        // RR-CANON-R204 / compact rules §2.1: When ringsInHand == 0 (placement forbidden)
+        // but the player controls stacks, enumerate movement moves instead.
+        const playerObj = gameState.players.find((p) => p.playerNumber === currentPlayer);
+        if (playerObj && playerObj.ringsInHand === 0) {
+          // Check if player has any controlled stacks
+          let hasControlledStack = false;
+          for (const stack of gameState.board.stacks.values()) {
+            if (stack.controllingPlayer === currentPlayer && stack.stackHeight > 0) {
+              hasControlledStack = true;
+              break;
+            }
+          }
+          if (hasControlledStack) {
+            // Return movement moves instead of placement/skip
+            moves.push(...this.getValidStackMovements(currentPlayer, gameState));
+            moves.push(...this.getValidCaptures(currentPlayer, gameState));
+            break;
+          }
+          // No stacks and no rings in hand - no valid moves
+          break;
+        }
+
         // Generate all legal ring placements for the active player.
         moves.push(...this.getValidRingPlacements(currentPlayer, gameState));
 
@@ -830,12 +871,7 @@ export class RuleEngine {
     const baseMoveNumber = gameState.moveHistory.length + 1;
 
     for (const stackPos of playerStacks) {
-      const targets = enumerateSimpleMoveTargetsFromStack(
-        this.boardConfig.type as any,
-        stackPos,
-        player,
-        view
-      );
+      const targets = enumerateSimpleMoveTargetsFromStack(this.boardType, stackPos, player, view);
 
       for (const target of targets) {
         moves.push({
@@ -889,10 +925,7 @@ export class RuleEngine {
       getMarkerOwner: (pos: Position) => this.boardManager.getMarker(pos, board),
     };
 
-    const TRACE_DEBUG_ENABLED =
-      typeof process !== 'undefined' &&
-      !!(process as any).env &&
-      ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+    const TRACE_DEBUG_ENABLED = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
     const baseMoveNumber = gameState.moveHistory.length + 1;
     const moves: Move[] = [];
@@ -905,7 +938,7 @@ export class RuleEngine {
       }
 
       const rawMoves = enumerateCaptureMoves(
-        this.boardConfig.type as any,
+        this.boardType,
         stackPos,
         player,
         adapters,
@@ -923,8 +956,7 @@ export class RuleEngine {
         const attackerDebug = board.stacks.get(attackerKey);
         const targetKey = positionToString({ x: 3, y: 1 } as Position);
         const targetDebug = board.stacks.get(targetKey);
-        // eslint-disable-next-line no-console
-        console.log('[RuleEngine.getValidCaptures debug seed17]', {
+        debugLog(TRACE_DEBUG_ENABLED, '[RuleEngine.getValidCaptures debug seed17]', {
           from: attackerKey,
           player,
           attackerStack: attackerDebug,
@@ -939,15 +971,16 @@ export class RuleEngine {
         });
       }
 
-      rawMoves.forEach((m, index) => {
+      // Filter to typed capture moves for type-safe field access
+      rawMoves.filter(isCaptureMove).forEach((m, index) => {
         moves.push({
           ...m,
           id:
             m.id && m.id.length > 0
               ? m.id
-              : `capture-${positionToString(m.from!)}-${positionToString(
-                  m.captureTarget!
-                )}-${positionToString(m.to!)}-${index}`,
+              : `capture-${positionToString(m.from)}-${positionToString(
+                  m.captureTarget
+                )}-${positionToString(m.to)}-${index}`,
           moveNumber: baseMoveNumber,
         });
       });
@@ -1066,7 +1099,7 @@ export class RuleEngine {
   private getCaptureDirections(): { x: number; y: number; z?: number }[] {
     // Capture directions mirror movement directions: 8-direction Moore
     // adjacency for square boards and the 6 standard cube directions for hex.
-    return getMovementDirectionsForBoardType(this.boardConfig.type as any);
+    return getMovementDirectionsForBoardType(this.boardType);
   }
 
   /**
@@ -1118,7 +1151,7 @@ export class RuleEngine {
     // Delegate to the shared core helper so distance semantics match
     // ClientSandboxEngine and capture validation (Chebyshev for
     // square boards, cube distance for hex).
-    return calculateDistance(this.boardConfig.type as any, from, to);
+    return calculateDistance(this.boardType, from, to);
   }
 
   private areAdjacent(pos1: Position, pos2: Position): boolean {
@@ -1239,7 +1272,7 @@ export class RuleEngine {
       getMarkerOwner: (pos: Position) => this.boardManager.getMarker(pos, board),
     };
 
-    return hasAnyLegalMoveOrCaptureFromOnBoard(this.boardConfig.type as any, from, player, view);
+    return hasAnyLegalMoveOrCaptureFromOnBoard(this.boardType, from, player, view);
   }
 
   /**

@@ -4,6 +4,8 @@ import type {
   GameStateUpdateMessage,
   GameOverMessage,
   ChatMessageServerPayload,
+  ChatMessagePersisted,
+  ChatHistoryPayload,
   JoinGamePayload,
   PlayerMovePayload,
   PlayerMoveByIdPayload,
@@ -12,6 +14,11 @@ import type {
   WebSocketErrorPayload,
   DecisionPhaseTimeoutWarningPayload,
   DecisionPhaseTimedOutPayload,
+  RematchRequestPayload,
+  RematchResponsePayload,
+  RematchRequestClientPayload,
+  RematchResponseClientPayload,
+  PositionEvaluationPayload,
 } from '../../shared/types/websocket';
 import type { Move, PlayerChoice } from '../../shared/types/game';
 import type { GameConnection, GameEventHandlers, ConnectionStatus } from '../domain/GameAPI';
@@ -60,10 +67,14 @@ export class SocketGameConnection implements GameConnection {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     const baseUrl = getSocketBaseUrl();
 
-    const socket = io(baseUrl, {
+    const socketOptions: Parameters<typeof io>[1] = {
       transports: ['websocket', 'polling'],
-      auth: token ? { token } : undefined,
-    });
+    };
+    if (token) {
+      socketOptions.auth = { token };
+    }
+
+    const socket = io(baseUrl, socketOptions);
 
     this.socket = socket;
 
@@ -113,6 +124,18 @@ export class SocketGameConnection implements GameConnection {
       this.handlers.onChatMessage(payload);
     });
 
+    socket.on('chat_message_persisted', (payload: ChatMessagePersisted) => {
+      if (this.handlers.onChatMessagePersisted) {
+        this.handlers.onChatMessagePersisted(payload);
+      }
+    });
+
+    socket.on('chat_history', (payload: ChatHistoryPayload) => {
+      if (this.handlers.onChatHistory) {
+        this.handlers.onChatHistory(payload);
+      }
+    });
+
     socket.on('decision_phase_timeout_warning', (payload: DecisionPhaseTimeoutWarningPayload) => {
       if (this.handlers.onDecisionPhaseTimeoutWarning) {
         this.handlers.onDecisionPhaseTimeoutWarning(payload);
@@ -122,6 +145,24 @@ export class SocketGameConnection implements GameConnection {
     socket.on('decision_phase_timed_out', (payload: DecisionPhaseTimedOutPayload) => {
       if (this.handlers.onDecisionPhaseTimedOut) {
         this.handlers.onDecisionPhaseTimedOut(payload);
+      }
+    });
+
+    socket.on('rematch_requested', (payload: RematchRequestPayload) => {
+      if (this.handlers.onRematchRequested) {
+        this.handlers.onRematchRequested(payload);
+      }
+    });
+
+    socket.on('rematch_response', (payload: RematchResponsePayload) => {
+      if (this.handlers.onRematchResponse) {
+        this.handlers.onRematchResponse(payload);
+      }
+    });
+
+    socket.on('position_evaluation', (payload: PositionEvaluationPayload) => {
+      if (this.handlers.onPositionEvaluation) {
+        this.handlers.onPositionEvaluation(payload);
       }
     });
 
@@ -156,7 +197,6 @@ export class SocketGameConnection implements GameConnection {
 
   submitMove(move: Move): void {
     if (!this.socket || !this._gameId) {
-      // eslint-disable-next-line no-console
       console.warn('submitMove called without active socket/game');
       return;
     }
@@ -175,7 +215,6 @@ export class SocketGameConnection implements GameConnection {
 
   respondToChoice(choice: PlayerChoice, selectedOption: unknown): void {
     if (!this.socket || !this._gameId) {
-      // eslint-disable-next-line no-console
       console.warn('respondToChoice called without active socket/game');
       return;
     }
@@ -214,7 +253,6 @@ export class SocketGameConnection implements GameConnection {
 
   sendChatMessage(text: string): void {
     if (!this.socket || !this._gameId) {
-      // eslint-disable-next-line no-console
       console.warn('sendChatMessage called without active socket/game');
       return;
     }
@@ -225,5 +263,32 @@ export class SocketGameConnection implements GameConnection {
     } as ChatMessagePayload;
 
     this.socket.emit('chat_message', payload);
+  }
+
+  requestRematch(): void {
+    if (!this.socket || !this._gameId) {
+      console.warn('requestRematch called without active socket/game');
+      return;
+    }
+
+    const payload: RematchRequestClientPayload = {
+      gameId: this._gameId,
+    };
+
+    this.socket.emit('rematch_request', payload);
+  }
+
+  respondToRematch(requestId: string, accept: boolean): void {
+    if (!this.socket) {
+      console.warn('respondToRematch called without active socket');
+      return;
+    }
+
+    const payload: RematchResponseClientPayload = {
+      requestId,
+      accept,
+    };
+
+    this.socket.emit('rematch_respond', payload);
   }
 }

@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, TypedDict
 import logging
 import time
 import os
+from datetime import datetime, timezone
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
@@ -43,6 +44,7 @@ from .models import (
 from .board_manager import BoardManager
 from .game_engine import GameEngine
 from .rules.default_engine import DefaultRulesEngine
+from .routes import replay_router
 
 # Configure logging
 logging.basicConfig(
@@ -58,14 +60,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware - allows sandbox UI to access replay API
+# In production, restrict allow_origins to specific domains
+cors_origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure based on environment
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount replay router for game database access
+app.include_router(replay_router)
 
 # AI instances cache
 ai_instances: Dict[str, Any] = {}
@@ -104,6 +111,37 @@ class EvaluationResponse(BaseModel):
     """Response model for position evaluation"""
     score: float
     breakdown: Dict[str, float]
+
+
+class PositionEvaluationByPlayer(BaseModel):
+    """Per-player evaluation summary for analysis mode."""
+
+    totalEval: float
+    territoryEval: float = 0.0
+    ringEval: float = 0.0
+    winProbability: Optional[float] = None
+
+
+class PositionEvaluationRequest(BaseModel):
+    """Request model for multi-player position evaluation."""
+
+    game_state: GameState
+    # Optional label for the underlying engine profile used to evaluate.
+    engine_profile: Optional[str] = None
+    # Optional explicit RNG seed for deterministic evaluations.
+    random_seed: Optional[int] = None
+
+
+class PositionEvaluationResponse(BaseModel):
+    """Response model for multi-player position evaluation suitable for streaming."""
+
+    engine_profile: str
+    board_type: str
+    game_id: str
+    move_number: int
+    per_player: Dict[int, PositionEvaluationByPlayer]
+    evaluation_scale: str
+    generated_at: str
 
 
 class RulesEvalRequest(BaseModel):
@@ -335,6 +373,134 @@ async def evaluate_position(request: EvaluationRequest):
         
     except Exception as e:
         logger.error(f"Error evaluating position: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _select_effective_eval_seed(
+    game_state: GameState,
+    explicit_seed: Optional[int],
+) -> int:
+    """
+    Compute an effective RNG seed for /ai/evaluate_position.
+
+    Priority mirrors /ai/move semantics:
+      1. explicit random_seed on the request
+      2. game_state.rng_seed
+      3. fixed fallback for ad-hoc callers
+    """
+    if explicit_seed is not None:
+        try:
+            return int(explicit_seed) & 0x7FFFFFFF
+        except (TypeError, ValueError):
+            pass
+
+    rng_seed = getattr(game_state, "rng_seed", None)
+    if rng_seed is not None:
+        try:
+            return int(rng_seed) & 0x7FFFFFFF
+        except (TypeError, ValueError):
+            pass
+
+    # Stable but arbitrary fallback when no better seed is available.
+    return 42
+
+
+@app.post("/ai/evaluate_position", response_model=PositionEvaluationResponse)
+async def evaluate_position_multi(request: PositionEvaluationRequest):
+    """
+    Evaluate the current position from all players' perspectives.
+
+    This endpoint is intended for analysis and spectator tooling. It returns
+    a compact, per-player summary suitable for streaming over WebSockets and
+    rendering in an evaluation panel.
+    """
+    try:
+        state = request.game_state
+
+        # For the initial implementation we reuse the heuristic evaluator at a
+        # fixed profile roughly aligned with difficulty 5. This keeps the
+        # analysis surface consistent with existing /ai/evaluate while remaining
+        # fast enough for live usage. Stronger engines (Minimax/Descent+NN) can
+        # be plugged in behind the same contract later.
+        engine_profile = request.engine_profile or "heuristic_v1_d5"
+        base_seed = _select_effective_eval_seed(state, request.random_seed)
+
+        raw_total: Dict[int, float] = {}
+        raw_territory: Dict[int, float] = {}
+        raw_rings: Dict[int, float] = {}
+
+        for idx, player in enumerate(state.players):
+            player_number = getattr(player, "player_number", None)
+            if player_number is None:
+                continue
+
+            # Derive a per-player seed so that evaluations are deterministic for
+            # a given (game_state, base_seed) pair but do not share RNG streams.
+            player_seed = (base_seed + (idx + 1) * 100_003) & 0x7FFFFFFF
+
+            config = AIConfig(
+                difficulty=5,
+                randomness=0.0,
+                rng_seed=player_seed,
+                heuristic_profile_id="v1-heuristic-5",
+            )
+            ai = HeuristicAI(player_number, config)
+
+            breakdown = ai.get_evaluation_breakdown(state)
+            total = float(breakdown.get("total", ai.evaluate_position(state)))
+            territory = float(breakdown.get("territory", 0.0))
+            eliminated_rings = float(breakdown.get("eliminated_rings", 0.0))
+
+            raw_total[player_number] = total
+            raw_territory[player_number] = territory
+            raw_rings[player_number] = eliminated_rings
+
+        if not raw_total:
+            raise HTTPException(status_code=400, detail="No players found in game_state")
+
+        def _to_zero_sum(source: Dict[int, float]) -> Dict[int, float]:
+            if not source:
+                return {}
+            count = float(len(source))
+            mean = float(sum(source.values())) / count
+            return {p: float(v - mean) for p, v in source.items()}
+
+        total_zero_sum = _to_zero_sum(raw_total)
+        territory_zero_sum = _to_zero_sum(raw_territory)
+        rings_zero_sum = _to_zero_sum(raw_rings)
+
+        per_player: Dict[int, PositionEvaluationByPlayer] = {}
+        for player_number, total in total_zero_sum.items():
+            per_player[player_number] = PositionEvaluationByPlayer(
+                totalEval=total,
+                territoryEval=territory_zero_sum.get(player_number, 0.0),
+                ringEval=rings_zero_sum.get(player_number, 0.0),
+                winProbability=None,
+            )
+
+        move_number = len(getattr(state, "move_history", []) or [])
+
+        board_type = getattr(state, "board_type", "")
+        if hasattr(board_type, "value"):
+            board_type_str = str(getattr(board_type, "value"))
+        else:
+            board_type_str = str(board_type)
+
+        response = PositionEvaluationResponse(
+            engine_profile=engine_profile,
+            board_type=board_type_str,
+            game_id=getattr(state, "id", ""),
+            move_number=move_number,
+            per_player=per_player,
+            evaluation_scale="zero_sum_margin",
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error evaluating position (multi-player): %s", str(e), exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

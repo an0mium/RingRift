@@ -1,0 +1,1395 @@
+"""Game replay database for storing and retrieving complete RingRift games.
+
+This module provides SQLite-based storage for complete games from self-play,
+supporting:
+- Full game storage with initial state, moves, and player choices
+- State reconstruction at any move number for replay
+- Metadata queries for filtering and analysis
+- Integration with training and sandbox UI
+
+See docs/GAME_REPLAY_DATABASE_SPEC.md for full specification.
+"""
+
+from __future__ import annotations
+
+import gzip
+import json
+import logging
+import sqlite3
+import uuid
+from contextlib import contextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Iterator, List, Optional, Tuple
+
+from app.models import BoardType, GameState, GameStatus, Move
+
+logger = logging.getLogger(__name__)
+
+# Schema version for forward compatibility
+# Version history:
+# - v1: Initial schema (games, players, initial_state, moves, snapshots, choices)
+# - v2: Added time control fields and engine evaluation fields
+SCHEMA_VERSION = 2
+
+# Default snapshot interval (every N moves)
+DEFAULT_SNAPSHOT_INTERVAL = 20
+
+# SQL schema creation statements (v2)
+SCHEMA_SQL = """
+-- Metadata table for schema versioning
+CREATE TABLE IF NOT EXISTS schema_metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- Main games table
+CREATE TABLE IF NOT EXISTS games (
+    game_id TEXT PRIMARY KEY,
+    board_type TEXT NOT NULL,
+    num_players INTEGER NOT NULL,
+    rng_seed INTEGER,
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    game_status TEXT NOT NULL,
+    winner INTEGER,
+    termination_reason TEXT,
+    total_moves INTEGER NOT NULL,
+    total_turns INTEGER NOT NULL,
+    duration_ms INTEGER,
+    source TEXT,
+    schema_version INTEGER NOT NULL,
+    -- v2 additions: time control
+    time_control_type TEXT DEFAULT 'none',
+    initial_time_ms INTEGER,
+    time_increment_ms INTEGER
+);
+
+-- Indexes on games
+CREATE INDEX IF NOT EXISTS idx_games_board_type ON games(board_type);
+CREATE INDEX IF NOT EXISTS idx_games_winner ON games(winner);
+CREATE INDEX IF NOT EXISTS idx_games_termination ON games(termination_reason);
+CREATE INDEX IF NOT EXISTS idx_games_created ON games(created_at);
+CREATE INDEX IF NOT EXISTS idx_games_source ON games(source);
+
+-- Per-player metadata
+CREATE TABLE IF NOT EXISTS game_players (
+    game_id TEXT NOT NULL,
+    player_number INTEGER NOT NULL,
+    player_type TEXT NOT NULL,
+    ai_type TEXT,
+    ai_difficulty INTEGER,
+    ai_profile_id TEXT,
+    final_eliminated_rings INTEGER,
+    final_territory_spaces INTEGER,
+    final_rings_in_hand INTEGER,
+    PRIMARY KEY (game_id, player_number),
+    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+);
+
+-- Initial game state (for reconstruction)
+CREATE TABLE IF NOT EXISTS game_initial_state (
+    game_id TEXT PRIMARY KEY,
+    initial_state_json TEXT NOT NULL,
+    compressed INTEGER DEFAULT 0,
+    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+);
+
+-- Move history
+CREATE TABLE IF NOT EXISTS game_moves (
+    game_id TEXT NOT NULL,
+    move_number INTEGER NOT NULL,
+    turn_number INTEGER NOT NULL,
+    player INTEGER NOT NULL,
+    phase TEXT NOT NULL,
+    move_type TEXT NOT NULL,
+    move_json TEXT NOT NULL,
+    timestamp TEXT,
+    think_time_ms INTEGER,
+    -- v2 additions: time remaining and engine evaluation
+    time_remaining_ms INTEGER,
+    engine_eval REAL,
+    engine_eval_type TEXT,
+    engine_depth INTEGER,
+    engine_nodes INTEGER,
+    engine_pv TEXT,
+    engine_time_ms INTEGER,
+    PRIMARY KEY (game_id, move_number),
+    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_moves_game_turn ON game_moves(game_id, turn_number);
+
+-- State snapshots for fast seeking
+CREATE TABLE IF NOT EXISTS game_state_snapshots (
+    game_id TEXT NOT NULL,
+    move_number INTEGER NOT NULL,
+    state_json TEXT NOT NULL,
+    compressed INTEGER DEFAULT 0,
+    PRIMARY KEY (game_id, move_number),
+    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+);
+
+-- Player choices during decision phases
+CREATE TABLE IF NOT EXISTS game_choices (
+    game_id TEXT NOT NULL,
+    move_number INTEGER NOT NULL,
+    choice_type TEXT NOT NULL,
+    player INTEGER NOT NULL,
+    options_json TEXT NOT NULL,
+    selected_option_json TEXT NOT NULL,
+    ai_reasoning TEXT,
+    PRIMARY KEY (game_id, move_number, choice_type),
+    FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+);
+"""
+
+
+def _compress_json(data: str) -> bytes:
+    """Compress JSON string using gzip."""
+    return gzip.compress(data.encode("utf-8"))
+
+
+def _decompress_json(data: bytes) -> str:
+    """Decompress gzip-compressed JSON."""
+    return gzip.decompress(data).decode("utf-8")
+
+
+def _serialize_state(state: GameState) -> str:
+    """Serialize GameState to JSON string."""
+    return state.model_dump_json(by_alias=True)
+
+
+def _deserialize_state(json_str: str) -> GameState:
+    """Deserialize JSON string to GameState."""
+    return GameState.model_validate_json(json_str)
+
+
+def _serialize_move(move: Move) -> str:
+    """Serialize Move to JSON string."""
+    return move.model_dump_json(by_alias=True)
+
+
+def _deserialize_move(json_str: str) -> Move:
+    """Deserialize JSON string to Move."""
+    return Move.model_validate_json(json_str)
+
+
+class GameWriter:
+    """Incremental game writer for live games.
+
+    Use this when storing games incrementally during play rather than
+    all at once after completion.
+    """
+
+    def __init__(
+        self,
+        db: "GameReplayDB",
+        game_id: str,
+        initial_state: GameState,
+        snapshot_interval: int = DEFAULT_SNAPSHOT_INTERVAL,
+    ):
+        self._db = db
+        self._game_id = game_id
+        self._initial_state = initial_state
+        self._snapshot_interval = snapshot_interval
+        self._move_count = 0
+        self._turn_count = 0
+        self._current_player = initial_state.current_player
+        self._finalized = False
+
+        # Create placeholder games record first (for FK constraint)
+        self._db._create_placeholder_game(game_id, initial_state)
+
+        # Store initial state
+        self._db._store_initial_state(game_id, initial_state)
+
+    def add_move(self, move: Move, state_after: Optional[GameState] = None) -> None:
+        """Add a move to the game.
+
+        Args:
+            move: The move that was played
+            state_after: Optional state after the move (for snapshotting)
+        """
+        if self._finalized:
+            raise RuntimeError("GameWriter has been finalized")
+
+        # Track turn changes
+        if move.player != self._current_player:
+            self._turn_count += 1
+            self._current_player = move.player
+
+        self._db._store_move(
+            game_id=self._game_id,
+            move_number=self._move_count,
+            turn_number=self._turn_count,
+            move=move,
+        )
+
+        # Create snapshot if interval reached
+        if (
+            state_after is not None
+            and self._move_count > 0
+            and self._move_count % self._snapshot_interval == 0
+        ):
+            self._db._store_snapshot(
+                game_id=self._game_id,
+                move_number=self._move_count,
+                state=state_after,
+            )
+
+        self._move_count += 1
+
+    def add_choice(
+        self,
+        move_number: int,
+        choice_type: str,
+        player: int,
+        options: List[dict],
+        selected: dict,
+        reasoning: Optional[str] = None,
+    ) -> None:
+        """Record a player choice."""
+        if self._finalized:
+            raise RuntimeError("GameWriter has been finalized")
+
+        self._db._store_choice(
+            game_id=self._game_id,
+            move_number=move_number,
+            choice_type=choice_type,
+            player=player,
+            options=options,
+            selected=selected,
+            reasoning=reasoning,
+        )
+
+    def finalize(
+        self,
+        final_state: GameState,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """Finalize and close the game record."""
+        if self._finalized:
+            raise RuntimeError("GameWriter already finalized")
+
+        metadata = metadata or {}
+
+        # Store final snapshot
+        self._db._store_snapshot(
+            game_id=self._game_id,
+            move_number=self._move_count - 1,
+            state=final_state,
+        )
+
+        # Store game metadata
+        self._db._finalize_game(
+            game_id=self._game_id,
+            initial_state=self._initial_state,
+            final_state=final_state,
+            total_moves=self._move_count,
+            total_turns=self._turn_count + 1,
+            metadata=metadata,
+        )
+
+        self._finalized = True
+
+    def abort(self) -> None:
+        """Abort an incomplete game."""
+        if self._finalized:
+            return
+        self._db._delete_game(self._game_id)
+        self._finalized = True
+
+
+class GameReplayDB:
+    """Database interface for game storage and replay.
+
+    Example usage:
+
+        db = GameReplayDB("data/games/ringrift_games.db")
+
+        # Store a complete game
+        db.store_game(
+            game_id="game-123",
+            initial_state=initial_state,
+            final_state=final_state,
+            moves=move_list,
+            choices=choice_list,
+            metadata={"source": "self_play"},
+        )
+
+        # Query games
+        games = db.query_games(board_type=BoardType.SQUARE8, limit=10)
+
+        # Reconstruct state at move 25
+        state = db.get_state_at_move("game-123", 25)
+
+        # Get moves for replay
+        moves = db.get_moves("game-123")
+    """
+
+    def __init__(
+        self,
+        db_path: str,
+        snapshot_interval: int = DEFAULT_SNAPSHOT_INTERVAL,
+    ):
+        """Initialize database connection.
+
+        Args:
+            db_path: Path to SQLite database file
+            snapshot_interval: Create snapshots every N moves
+        """
+        self._db_path = Path(db_path)
+        self._snapshot_interval = snapshot_interval
+
+        # Ensure parent directory exists
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Initialize schema
+        self._init_schema()
+
+    @contextmanager
+    def _get_conn(self):
+        """Get a database connection with proper cleanup."""
+        conn = sqlite3.connect(str(self._db_path))
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _init_schema(self) -> None:
+        """Initialize database schema with migration support."""
+        with self._get_conn() as conn:
+            # Check if schema_metadata table exists (indicates v2+ schema)
+            has_metadata = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_metadata'"
+            ).fetchone() is not None
+
+            if not has_metadata:
+                # Check if games table exists (indicates v1 schema needing migration)
+                has_games = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='games'"
+                ).fetchone() is not None
+
+                if has_games:
+                    # Existing v1 database - needs migration
+                    logger.info("Detected v1 schema, running migration to v2")
+                    self._migrate_v1_to_v2(conn)
+                else:
+                    # Fresh database - create v2 schema directly
+                    logger.info("Creating fresh v2 schema")
+                    conn.executescript(SCHEMA_SQL)
+                    self._set_schema_version(conn, SCHEMA_VERSION)
+            else:
+                # Has metadata table - check version
+                current_version = self._get_schema_version(conn)
+                if current_version < SCHEMA_VERSION:
+                    logger.info(
+                        f"Schema version {current_version} < {SCHEMA_VERSION}, running migrations"
+                    )
+                    self._run_migrations(conn, current_version, SCHEMA_VERSION)
+                elif current_version > SCHEMA_VERSION:
+                    raise ValueError(
+                        f"Database schema version {current_version} is newer than "
+                        f"supported version {SCHEMA_VERSION}. Please upgrade the application."
+                    )
+
+    def _get_schema_version(self, conn: sqlite3.Connection) -> int:
+        """Get current schema version from database."""
+        try:
+            row = conn.execute(
+                "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
+            ).fetchone()
+            return int(row["value"]) if row else 1
+        except sqlite3.OperationalError:
+            # No schema_metadata table means v1
+            return 1
+
+    def _set_schema_version(self, conn: sqlite3.Connection, version: int) -> None:
+        """Set schema version in database."""
+        conn.execute(
+            "INSERT OR REPLACE INTO schema_metadata (key, value) VALUES ('schema_version', ?)",
+            (str(version),),
+        )
+
+    def _run_migrations(
+        self, conn: sqlite3.Connection, from_version: int, to_version: int
+    ) -> None:
+        """Run incremental migrations from from_version to to_version."""
+        for version in range(from_version + 1, to_version + 1):
+            migration_method = getattr(self, f"_migrate_v{version - 1}_to_v{version}", None)
+            if migration_method is None:
+                raise ValueError(f"Missing migration method for v{version - 1} to v{version}")
+
+            logger.info(f"Running migration from v{version - 1} to v{version}")
+            migration_method(conn)
+            self._set_schema_version(conn, version)
+
+        logger.info(f"Schema migration complete: v{from_version} → v{to_version}")
+
+    def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v1 to v2.
+
+        Adds:
+        - schema_metadata table for version tracking
+        - time_control_type, initial_time_ms, time_increment_ms to games
+        - time_remaining_ms, engine_eval, engine_eval_type, engine_depth,
+          engine_nodes, engine_pv, engine_time_ms to game_moves
+        """
+        logger.info("Migrating schema from v1 to v2")
+
+        # Create schema_metadata table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS schema_metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+
+        # Add new columns to games table
+        # SQLite requires individual ALTER TABLE statements for each column
+        try:
+            conn.execute(
+                "ALTER TABLE games ADD COLUMN time_control_type TEXT DEFAULT 'none'"
+            )
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+            logger.debug("time_control_type column already exists")
+
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN initial_time_ms INTEGER")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+            logger.debug("initial_time_ms column already exists")
+
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN time_increment_ms INTEGER")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+            logger.debug("time_increment_ms column already exists")
+
+        # Add new columns to game_moves table
+        new_move_columns = [
+            ("time_remaining_ms", "INTEGER"),
+            ("engine_eval", "REAL"),
+            ("engine_eval_type", "TEXT"),
+            ("engine_depth", "INTEGER"),
+            ("engine_nodes", "INTEGER"),
+            ("engine_pv", "TEXT"),
+            ("engine_time_ms", "INTEGER"),
+        ]
+
+        for col_name, col_type in new_move_columns:
+            try:
+                conn.execute(f"ALTER TABLE game_moves ADD COLUMN {col_name} {col_type}")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                logger.debug(f"{col_name} column already exists")
+
+        # Set schema version
+        self._set_schema_version(conn, 2)
+        logger.info("Migration to v2 complete")
+
+    # =========================================================================
+    # Write Operations
+    # =========================================================================
+
+    def store_game(
+        self,
+        game_id: str,
+        initial_state: GameState,
+        final_state: GameState,
+        moves: List[Move],
+        choices: Optional[List[dict]] = None,
+        metadata: Optional[dict] = None,
+    ) -> None:
+        """Store a complete game with all associated data.
+
+        Args:
+            game_id: Unique game identifier
+            initial_state: Initial game state
+            final_state: Final game state
+            moves: List of all moves in order
+            choices: Optional list of player choices
+            metadata: Optional game metadata (source, termination_reason, etc.)
+        """
+        metadata = metadata or {}
+        choices = choices or []
+
+        with self._get_conn() as conn:
+            # First insert the games record (FK parent) before child records
+            self._finalize_game_conn(
+                conn,
+                game_id=game_id,
+                initial_state=initial_state,
+                final_state=final_state,
+                total_moves=len(moves),
+                total_turns=0,  # Will be updated below
+                metadata=metadata,
+            )
+
+            # Store initial state
+            self._store_initial_state_conn(conn, game_id, initial_state)
+
+            # Store moves and create snapshots
+            turn_number = 0
+            current_player = initial_state.current_player
+
+            for i, move in enumerate(moves):
+                if move.player != current_player:
+                    turn_number += 1
+                    current_player = move.player
+
+                self._store_move_conn(
+                    conn,
+                    game_id=game_id,
+                    move_number=i,
+                    turn_number=turn_number,
+                    move=move,
+                )
+
+            # Store choices
+            for choice in choices:
+                self._store_choice_conn(
+                    conn,
+                    game_id=game_id,
+                    move_number=choice.get("move_number", 0),
+                    choice_type=choice.get("choice_type", "unknown"),
+                    player=choice.get("player", 0),
+                    options=choice.get("options", []),
+                    selected=choice.get("selected", {}),
+                    reasoning=choice.get("reasoning"),
+                )
+
+            # Store final state as snapshot
+            self._store_snapshot_conn(
+                conn,
+                game_id=game_id,
+                move_number=len(moves) - 1 if moves else 0,
+                state=final_state,
+            )
+
+            # Update games record with final turn count
+            conn.execute(
+                "UPDATE games SET total_turns = ? WHERE game_id = ?",
+                (turn_number + 1, game_id),
+            )
+
+    def store_game_incremental(
+        self,
+        game_id: Optional[str] = None,
+        initial_state: Optional[GameState] = None,
+    ) -> GameWriter:
+        """Begin incremental game storage.
+
+        Args:
+            game_id: Optional game ID (generated if not provided)
+            initial_state: Initial game state (required)
+
+        Returns:
+            GameWriter for incremental storage
+        """
+        if initial_state is None:
+            raise ValueError("initial_state is required")
+
+        if game_id is None:
+            game_id = str(uuid.uuid4())
+
+        return GameWriter(
+            db=self,
+            game_id=game_id,
+            initial_state=initial_state,
+            snapshot_interval=self._snapshot_interval,
+        )
+
+    # =========================================================================
+    # Read Operations
+    # =========================================================================
+
+    def get_game_metadata(self, game_id: str) -> Optional[dict]:
+        """Get game metadata without loading full state."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM games WHERE game_id = ?",
+                (game_id,),
+            ).fetchone()
+
+            if row is None:
+                return None
+
+            return dict(row)
+
+    def get_initial_state(self, game_id: str) -> Optional[GameState]:
+        """Get the initial game state."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT initial_state_json, compressed FROM game_initial_state WHERE game_id = ?",
+                (game_id,),
+            ).fetchone()
+
+            if row is None:
+                return None
+
+            json_str = row["initial_state_json"]
+            if row["compressed"]:
+                json_str = _decompress_json(json_str)
+
+            return _deserialize_state(json_str)
+
+    def get_moves(
+        self,
+        game_id: str,
+        start: int = 0,
+        end: Optional[int] = None,
+    ) -> List[Move]:
+        """Get moves in a range.
+
+        Args:
+            game_id: Game identifier
+            start: Start move number (inclusive)
+            end: End move number (exclusive), or None for all
+
+        Returns:
+            List of Move objects
+        """
+        with self._get_conn() as conn:
+            if end is None:
+                rows = conn.execute(
+                    """
+                    SELECT move_json FROM game_moves
+                    WHERE game_id = ? AND move_number >= ?
+                    ORDER BY move_number
+                    """,
+                    (game_id, start),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT move_json FROM game_moves
+                    WHERE game_id = ? AND move_number >= ? AND move_number < ?
+                    ORDER BY move_number
+                    """,
+                    (game_id, start, end),
+                ).fetchall()
+
+            return [_deserialize_move(row["move_json"]) for row in rows]
+
+    def get_move_records(
+        self,
+        game_id: str,
+        start: int = 0,
+        end: Optional[int] = None,
+    ) -> List[dict]:
+        """Get move records with full metadata including v2 fields.
+
+        Args:
+            game_id: Game identifier
+            start: Start move number (inclusive)
+            end: End move number (exclusive), or None for all
+
+        Returns:
+            List of move record dictionaries with all fields
+        """
+        with self._get_conn() as conn:
+            if end is None:
+                rows = conn.execute(
+                    """
+                    SELECT move_number, turn_number, player, phase, move_type, move_json,
+                           timestamp, think_time_ms, time_remaining_ms, engine_eval,
+                           engine_eval_type, engine_depth, engine_nodes, engine_pv,
+                           engine_time_ms
+                    FROM game_moves
+                    WHERE game_id = ? AND move_number >= ?
+                    ORDER BY move_number
+                    """,
+                    (game_id, start),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT move_number, turn_number, player, phase, move_type, move_json,
+                           timestamp, think_time_ms, time_remaining_ms, engine_eval,
+                           engine_eval_type, engine_depth, engine_nodes, engine_pv,
+                           engine_time_ms
+                    FROM game_moves
+                    WHERE game_id = ? AND move_number >= ? AND move_number < ?
+                    ORDER BY move_number
+                    """,
+                    (game_id, start, end),
+                ).fetchall()
+
+            result = []
+            for row in rows:
+                record = {
+                    "moveNumber": row["move_number"],
+                    "turnNumber": row["turn_number"],
+                    "player": row["player"],
+                    "phase": row["phase"],
+                    "moveType": row["move_type"],
+                    "move": json.loads(row["move_json"]),
+                    "timestamp": row["timestamp"],
+                    "thinkTimeMs": row["think_time_ms"],
+                    "timeRemainingMs": row["time_remaining_ms"],
+                    "engineEval": row["engine_eval"],
+                    "engineEvalType": row["engine_eval_type"],
+                    "engineDepth": row["engine_depth"],
+                    "engineNodes": row["engine_nodes"],
+                    "enginePV": json.loads(row["engine_pv"]) if row["engine_pv"] else None,
+                    "engineTimeMs": row["engine_time_ms"],
+                }
+                result.append(record)
+
+            return result
+
+    def get_state_at_move(
+        self,
+        game_id: str,
+        move_number: int,
+    ) -> Optional[GameState]:
+        """Reconstruct state at a specific move number.
+
+        Uses snapshots when available for faster reconstruction.
+
+        Args:
+            game_id: Game identifier
+            move_number: The move number to reconstruct state after
+
+        Returns:
+            GameState after the specified move, or None if not found
+        """
+        # Import here to avoid circular imports
+        from app.game_engine import GameEngine
+
+        with self._get_conn() as conn:
+            # Find nearest snapshot at or before target move
+            snapshot_row = conn.execute(
+                """
+                SELECT move_number, state_json, compressed
+                FROM game_state_snapshots
+                WHERE game_id = ? AND move_number <= ?
+                ORDER BY move_number DESC
+                LIMIT 1
+                """,
+                (game_id, move_number),
+            ).fetchone()
+
+            if snapshot_row and snapshot_row["move_number"] == move_number:
+                # Exact snapshot match
+                json_str = snapshot_row["state_json"]
+                if snapshot_row["compressed"]:
+                    json_str = _decompress_json(json_str)
+                return _deserialize_state(json_str)
+
+            # Start from snapshot or initial state
+            if snapshot_row:
+                json_str = snapshot_row["state_json"]
+                if snapshot_row["compressed"]:
+                    json_str = _decompress_json(json_str)
+                state = _deserialize_state(json_str)
+                start_move = snapshot_row["move_number"] + 1
+            else:
+                state = self.get_initial_state(game_id)
+                if state is None:
+                    return None
+                start_move = 0
+
+            # Replay moves from start to target
+            if start_move <= move_number:
+                moves = self.get_moves(game_id, start=start_move, end=move_number + 1)
+                for move in moves:
+                    state = GameEngine.apply_move(state, move)
+
+            return state
+
+    def get_choices_at_move(
+        self,
+        game_id: str,
+        move_number: int,
+    ) -> List[dict]:
+        """Get player choices made at a specific move."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT choice_type, player, options_json, selected_option_json, ai_reasoning
+                FROM game_choices
+                WHERE game_id = ? AND move_number = ?
+                """,
+                (game_id, move_number),
+            ).fetchall()
+
+            return [
+                {
+                    "choice_type": row["choice_type"],
+                    "player": row["player"],
+                    "options": json.loads(row["options_json"]),
+                    "selected": json.loads(row["selected_option_json"]),
+                    "reasoning": row["ai_reasoning"],
+                }
+                for row in rows
+            ]
+
+    # =========================================================================
+    # Query Operations
+    # =========================================================================
+
+    def query_games(
+        self,
+        board_type: Optional[BoardType] = None,
+        num_players: Optional[int] = None,
+        winner: Optional[int] = None,
+        termination_reason: Optional[str] = None,
+        source: Optional[str] = None,
+        min_moves: Optional[int] = None,
+        max_moves: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[dict]:
+        """Query games by metadata filters.
+
+        Returns list of game metadata dictionaries matching filters.
+        """
+        conditions = []
+        params = []
+
+        if board_type is not None:
+            conditions.append("board_type = ?")
+            # Handle both BoardType enum and string values
+            params.append(board_type.value if hasattr(board_type, 'value') else str(board_type))
+
+        if num_players is not None:
+            conditions.append("num_players = ?")
+            params.append(num_players)
+
+        if winner is not None:
+            conditions.append("winner = ?")
+            params.append(winner)
+
+        if termination_reason is not None:
+            conditions.append("termination_reason = ?")
+            params.append(termination_reason)
+
+        if source is not None:
+            conditions.append("source = ?")
+            params.append(source)
+
+        if min_moves is not None:
+            conditions.append("total_moves >= ?")
+            params.append(min_moves)
+
+        if max_moves is not None:
+            conditions.append("total_moves <= ?")
+            params.append(max_moves)
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM games
+                WHERE {where_clause}
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                params + [limit, offset],
+            ).fetchall()
+
+            return [dict(row) for row in rows]
+
+    def iterate_games(
+        self,
+        **filters,
+    ) -> Iterator[Tuple[dict, GameState, List[Move]]]:
+        """Iterate over games matching filters.
+
+        Yields (metadata, initial_state, moves) tuples for each game.
+        """
+        games = self.query_games(**filters, limit=10000)
+
+        for game_meta in games:
+            game_id = game_meta["game_id"]
+            initial_state = self.get_initial_state(game_id)
+            if initial_state is None:
+                continue
+            moves = self.get_moves(game_id)
+            yield game_meta, initial_state, moves
+
+    def get_game_count(
+        self,
+        board_type: Optional[BoardType] = None,
+        num_players: Optional[int] = None,
+        winner: Optional[int] = None,
+        termination_reason: Optional[str] = None,
+        source: Optional[str] = None,
+        min_moves: Optional[int] = None,
+        max_moves: Optional[int] = None,
+    ) -> int:
+        """Get count of games matching filters."""
+        conditions = []
+        params: List[Any] = []
+
+        if board_type is not None:
+            conditions.append("board_type = ?")
+            params.append(board_type.value if isinstance(board_type, BoardType) else board_type)
+
+        if num_players is not None:
+            conditions.append("num_players = ?")
+            params.append(num_players)
+
+        if winner is not None:
+            conditions.append("winner = ?")
+            params.append(winner)
+
+        if termination_reason is not None:
+            conditions.append("termination_reason = ?")
+            params.append(termination_reason)
+
+        if source is not None:
+            conditions.append("source = ?")
+            params.append(source)
+
+        if min_moves is not None:
+            conditions.append("total_moves >= ?")
+            params.append(min_moves)
+
+        if max_moves is not None:
+            conditions.append("total_moves <= ?")
+            params.append(max_moves)
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        with self._get_conn() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) as count FROM games WHERE {where_clause}",
+                params,
+            ).fetchone()
+            return row["count"] if row else 0
+
+    def get_game_with_players(self, game_id: str) -> Optional[dict]:
+        """Get game metadata including player details."""
+        with self._get_conn() as conn:
+            game_row = conn.execute(
+                "SELECT * FROM games WHERE game_id = ?",
+                (game_id,),
+            ).fetchone()
+
+            if game_row is None:
+                return None
+
+            player_rows = conn.execute(
+                """
+                SELECT player_number, player_type, ai_type, ai_difficulty,
+                       final_eliminated_rings, final_territory_spaces, final_rings_in_hand
+                FROM game_players
+                WHERE game_id = ?
+                ORDER BY player_number
+                """,
+                (game_id,),
+            ).fetchall()
+
+            game_dict = dict(game_row)
+            game_dict["players"] = [
+                {
+                    "playerNumber": row["player_number"],
+                    "playerType": row["player_type"],
+                    "aiType": row["ai_type"],
+                    "aiDifficulty": row["ai_difficulty"],
+                    "finalEliminatedRings": row["final_eliminated_rings"],
+                    "finalTerritorySpaces": row["final_territory_spaces"],
+                    "finalRingsInHand": row["final_rings_in_hand"],
+                }
+                for row in player_rows
+            ]
+
+            return game_dict
+
+    def get_stats(self) -> dict:
+        """Get database statistics."""
+        with self._get_conn() as conn:
+            total_games = conn.execute(
+                "SELECT COUNT(*) FROM games"
+            ).fetchone()[0]
+
+            games_by_board = conn.execute(
+                "SELECT board_type, COUNT(*) as count FROM games GROUP BY board_type"
+            ).fetchall()
+
+            games_by_status = conn.execute(
+                "SELECT game_status, COUNT(*) as count FROM games GROUP BY game_status"
+            ).fetchall()
+
+            games_by_termination = conn.execute(
+                "SELECT termination_reason, COUNT(*) as count FROM games GROUP BY termination_reason"
+            ).fetchall()
+
+            total_moves = conn.execute(
+                "SELECT COUNT(*) FROM game_moves"
+            ).fetchone()[0]
+
+            # Get schema version
+            schema_version = self._get_schema_version(conn)
+
+            return {
+                "total_games": total_games,
+                "games_by_board_type": {
+                    row["board_type"]: row["count"] for row in games_by_board
+                },
+                "games_by_status": {
+                    row["game_status"]: row["count"] for row in games_by_status
+                },
+                "games_by_termination": {
+                    row["termination_reason"]: row["count"]
+                    for row in games_by_termination
+                    if row["termination_reason"]
+                },
+                "total_moves": total_moves,
+                "schema_version": schema_version,
+            }
+
+    def vacuum(self) -> None:
+        """Optimize database storage."""
+        with self._get_conn() as conn:
+            conn.execute("VACUUM")
+
+    # =========================================================================
+    # Internal Methods
+    # =========================================================================
+
+    def _create_placeholder_game(self, game_id: str, initial_state: GameState) -> None:
+        """Create a placeholder games record for incremental writing."""
+        with self._get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO games
+                (game_id, board_type, num_players, rng_seed, created_at, game_status,
+                 total_moves, total_turns, source, schema_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    game_id,
+                    initial_state.board_type.value,
+                    len(initial_state.players),
+                    initial_state.rng_seed,
+                    initial_state.created_at.isoformat(),
+                    "active",  # Placeholder status
+                    0,
+                    0,
+                    "unknown",
+                    SCHEMA_VERSION,
+                ),
+            )
+
+    def _store_initial_state(self, game_id: str, state: GameState) -> None:
+        """Store initial state (standalone transaction)."""
+        with self._get_conn() as conn:
+            self._store_initial_state_conn(conn, game_id, state)
+
+    def _store_initial_state_conn(
+        self,
+        conn: sqlite3.Connection,
+        game_id: str,
+        state: GameState,
+    ) -> None:
+        """Store initial state (within existing transaction)."""
+        json_str = _serialize_state(state)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO game_initial_state (game_id, initial_state_json, compressed)
+            VALUES (?, ?, 0)
+            """,
+            (game_id, json_str),
+        )
+
+    def _store_move(
+        self,
+        game_id: str,
+        move_number: int,
+        turn_number: int,
+        move: Move,
+    ) -> None:
+        """Store a single move (standalone transaction)."""
+        with self._get_conn() as conn:
+            self._store_move_conn(conn, game_id, move_number, turn_number, move)
+
+    def _store_move_conn(
+        self,
+        conn: sqlite3.Connection,
+        game_id: str,
+        move_number: int,
+        turn_number: int,
+        move: Move,
+        *,
+        time_remaining_ms: Optional[int] = None,
+        engine_eval: Optional[float] = None,
+        engine_eval_type: Optional[str] = None,
+        engine_depth: Optional[int] = None,
+        engine_nodes: Optional[int] = None,
+        engine_pv: Optional[List[str]] = None,
+        engine_time_ms: Optional[int] = None,
+    ) -> None:
+        """Store a single move (within existing transaction).
+
+        Args:
+            conn: Database connection
+            game_id: Game identifier
+            move_number: Move sequence number (0-indexed)
+            turn_number: Turn number this move belongs to
+            move: The Move object
+            time_remaining_ms: Clock time remaining after this move (v2)
+            engine_eval: Engine evaluation score (v2)
+            engine_eval_type: Type of evaluation ('heuristic', 'neural', 'mcts_winrate') (v2)
+            engine_depth: Search depth (v2)
+            engine_nodes: Nodes searched (v2)
+            engine_pv: Principal variation as list of move strings (v2)
+            engine_time_ms: Time spent computing this move in ms (v2)
+        """
+        conn.execute(
+            """
+            INSERT INTO game_moves
+            (game_id, move_number, turn_number, player, phase, move_type, move_json,
+             timestamp, think_time_ms, time_remaining_ms, engine_eval, engine_eval_type,
+             engine_depth, engine_nodes, engine_pv, engine_time_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                game_id,
+                move_number,
+                turn_number,
+                move.player,
+                "",  # Phase not stored in Move currently
+                move.type.value,
+                _serialize_move(move),
+                move.timestamp.isoformat() if move.timestamp else None,
+                move.think_time,
+                time_remaining_ms,
+                engine_eval,
+                engine_eval_type,
+                engine_depth,
+                engine_nodes,
+                json.dumps(engine_pv) if engine_pv else None,
+                engine_time_ms,
+            ),
+        )
+
+    def _store_snapshot(
+        self,
+        game_id: str,
+        move_number: int,
+        state: GameState,
+    ) -> None:
+        """Store a state snapshot (standalone transaction)."""
+        with self._get_conn() as conn:
+            self._store_snapshot_conn(conn, game_id, move_number, state)
+
+    def _store_snapshot_conn(
+        self,
+        conn: sqlite3.Connection,
+        game_id: str,
+        move_number: int,
+        state: GameState,
+    ) -> None:
+        """Store a state snapshot (within existing transaction)."""
+        json_str = _serialize_state(state)
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO game_state_snapshots
+            (game_id, move_number, state_json, compressed)
+            VALUES (?, ?, ?, 0)
+            """,
+            (game_id, move_number, json_str),
+        )
+
+    def _store_choice(
+        self,
+        game_id: str,
+        move_number: int,
+        choice_type: str,
+        player: int,
+        options: List[dict],
+        selected: dict,
+        reasoning: Optional[str] = None,
+    ) -> None:
+        """Store a player choice (standalone transaction)."""
+        with self._get_conn() as conn:
+            self._store_choice_conn(
+                conn, game_id, move_number, choice_type, player, options, selected, reasoning
+            )
+
+    def _store_choice_conn(
+        self,
+        conn: sqlite3.Connection,
+        game_id: str,
+        move_number: int,
+        choice_type: str,
+        player: int,
+        options: List[dict],
+        selected: dict,
+        reasoning: Optional[str] = None,
+    ) -> None:
+        """Store a player choice (within existing transaction)."""
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO game_choices
+            (game_id, move_number, choice_type, player, options_json, selected_option_json, ai_reasoning)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                game_id,
+                move_number,
+                choice_type,
+                player,
+                json.dumps(options),
+                json.dumps(selected),
+                reasoning,
+            ),
+        )
+
+    def _finalize_game(
+        self,
+        game_id: str,
+        initial_state: GameState,
+        final_state: GameState,
+        total_moves: int,
+        total_turns: int,
+        metadata: dict,
+    ) -> None:
+        """Finalize game metadata (standalone transaction)."""
+        with self._get_conn() as conn:
+            self._finalize_game_conn(
+                conn, game_id, initial_state, final_state, total_moves, total_turns, metadata
+            )
+
+    def _finalize_game_conn(
+        self,
+        conn: sqlite3.Connection,
+        game_id: str,
+        initial_state: GameState,
+        final_state: GameState,
+        total_moves: int,
+        total_turns: int,
+        metadata: dict,
+    ) -> None:
+        """Finalize game metadata (within existing transaction)."""
+        # Calculate duration if timestamps available
+        duration_ms = None
+        if initial_state.created_at and final_state.last_move_at:
+            duration = final_state.last_move_at - initial_state.created_at
+            duration_ms = int(duration.total_seconds() * 1000)
+
+        # Determine termination reason
+        termination_reason = metadata.get("termination_reason")
+        if termination_reason is None and final_state.winner is not None:
+            # Infer from final state
+            for player in final_state.players:
+                if player.player_number == final_state.winner:
+                    if player.eliminated_rings > final_state.victory_threshold:
+                        termination_reason = "ring_elimination"
+                    elif player.territory_spaces > final_state.territory_victory_threshold:
+                        termination_reason = "territory"
+                    break
+
+        # Check if game already exists (incremental write case)
+        existing = conn.execute(
+            "SELECT game_id FROM games WHERE game_id = ?", (game_id,)
+        ).fetchone()
+
+        if existing:
+            # Update existing record (preserves FK relationships)
+            conn.execute(
+                """
+                UPDATE games SET
+                    completed_at = ?,
+                    game_status = ?,
+                    winner = ?,
+                    termination_reason = ?,
+                    total_moves = ?,
+                    total_turns = ?,
+                    duration_ms = ?,
+                    source = ?
+                WHERE game_id = ?
+                """,
+                (
+                    final_state.last_move_at.isoformat() if final_state.last_move_at else None,
+                    final_state.game_status.value,
+                    final_state.winner,
+                    termination_reason,
+                    total_moves,
+                    total_turns,
+                    duration_ms,
+                    metadata.get("source", "unknown"),
+                    game_id,
+                ),
+            )
+        else:
+            # Insert new game record
+            conn.execute(
+                """
+                INSERT INTO games
+                (game_id, board_type, num_players, rng_seed, created_at, completed_at,
+                 game_status, winner, termination_reason, total_moves, total_turns,
+                 duration_ms, source, schema_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    game_id,
+                    initial_state.board_type.value,
+                    len(initial_state.players),
+                    initial_state.rng_seed,
+                    initial_state.created_at.isoformat(),
+                    final_state.last_move_at.isoformat() if final_state.last_move_at else None,
+                    final_state.game_status.value,
+                    final_state.winner,
+                    termination_reason,
+                    total_moves,
+                    total_turns,
+                    duration_ms,
+                    metadata.get("source", "unknown"),
+                    SCHEMA_VERSION,
+                ),
+            )
+
+        # Insert player records
+        for player in final_state.players:
+            ai_type = None
+            ai_difficulty = None
+            ai_profile_id = None
+
+            if player.type == "ai":
+                ai_type = metadata.get(f"player_{player.player_number}_ai_type", "heuristic")
+                ai_difficulty = player.ai_difficulty
+                ai_profile_id = metadata.get(f"player_{player.player_number}_profile_id")
+
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO game_players
+                (game_id, player_number, player_type, ai_type, ai_difficulty, ai_profile_id,
+                 final_eliminated_rings, final_territory_spaces, final_rings_in_hand)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    game_id,
+                    player.player_number,
+                    player.type,
+                    ai_type,
+                    ai_difficulty,
+                    ai_profile_id,
+                    player.eliminated_rings,
+                    player.territory_spaces,
+                    player.rings_in_hand,
+                ),
+            )
+
+    def _delete_game(self, game_id: str) -> None:
+        """Delete a game and all associated data."""
+        with self._get_conn() as conn:
+            # Foreign key cascade handles related tables
+            conn.execute("DELETE FROM games WHERE game_id = ?", (game_id,))

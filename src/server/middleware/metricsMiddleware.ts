@@ -17,13 +17,7 @@ import { getMetricsService } from '../services/MetricsService';
  * Paths to skip from metrics collection.
  * These are typically health checks and the metrics endpoint itself.
  */
-const SKIP_PATHS = new Set([
-  '/health',
-  '/healthz',
-  '/ready',
-  '/readyz',
-  '/metrics',
-]);
+const SKIP_PATHS = new Set(['/health', '/healthz', '/ready', '/readyz', '/metrics']);
 
 /**
  * Check if a path should be skipped from metrics collection.
@@ -45,13 +39,19 @@ function shouldSkipPath(path: string): boolean {
 /**
  * Get content length from headers or body.
  */
-function getContentLength(headers: Record<string, any>, body?: any): number | undefined {
+function getContentLength(
+  headers: Record<string, string | string[] | undefined>,
+  body?: unknown
+): number | undefined {
   // Try to get from Content-Length header
   const headerLength = headers['content-length'];
   if (headerLength) {
-    const parsed = parseInt(headerLength, 10);
-    if (!isNaN(parsed)) {
-      return parsed;
+    const value = Array.isArray(headerLength) ? headerLength[0] : headerLength;
+    if (value) {
+      const parsed = parseInt(value, 10);
+      if (!isNaN(parsed)) {
+        return parsed;
+      }
     }
   }
 
@@ -102,7 +102,8 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
   const originalEnd = res.end.bind(res);
 
   // Override write to track response size
-  res.write = function (chunk: any, ...args: any[]): boolean {
+
+  res.write = function (chunk: unknown, ...args: unknown[]): boolean {
     if (chunk) {
       if (Buffer.isBuffer(chunk)) {
         responseSize += chunk.length;
@@ -111,11 +112,13 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
         responseSize += Buffer.byteLength(chunk, encoding as BufferEncoding);
       }
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- apply requires any for overloaded functions
     return originalWrite.apply(res, [chunk, ...args] as any);
   } as typeof res.write;
 
   // Override end to track final response size and record metrics
-  res.end = function (chunk?: any, ...args: any[]): Response {
+
+  res.end = function (chunk?: unknown, ...args: unknown[]): Response {
     // Track final chunk size if present
     if (chunk && typeof chunk !== 'function') {
       if (Buffer.isBuffer(chunk)) {
@@ -142,6 +145,7 @@ export function metricsMiddleware(req: Request, res: Response, next: NextFunctio
     );
 
     // Call original end
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- apply requires any for overloaded functions
     return originalEnd.apply(res, [chunk, ...args] as any);
   } as typeof res.end;
 

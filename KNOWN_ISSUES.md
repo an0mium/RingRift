@@ -1,11 +1,11 @@
 # Known Issues & Bugs
 
-> **Doc Status (2025-11-27): Active (code-verified issue tracker)**
+> **Doc Status (2025-12-01): Active (code-verified issue tracker)**
 >
 > - Canonical list of current, code-verified issues and gaps.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** November 25, 2025
+**Last Updated:** December 1, 2025
 **Status:** Code-verified assessment based on actual implementation
 **Related Documents:** [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md) · [TODO.md](./TODO.md) · [STRATEGIC_ROADMAP.md](./STRATEGIC_ROADMAP.md) · [docs/PARITY_SEED_TRIAGE.md](./docs/PARITY_SEED_TRIAGE.md)
 
@@ -109,11 +109,17 @@ especially in less-tested corners of the rules.
 ### P0.2 – Backend ↔ Sandbox Semantic Trace Parity Gaps
 
 **Component(s):** GameEngine, ClientSandboxEngine, trace utilities, AI turn logic
-**Severity:** Medium (previously Critical)
-**Status:** Major divergences resolved; remaining gaps are lower priority
+**Severity:** LOW (downgraded from Medium per P18.5-\* results)
+**Status:** SUBSTANTIALLY RESOLVED via extended contract vectors (43 cases, 0 mismatches)
 **Tracking:** See [PARITY_SEED_TRIAGE.md](./docs/PARITY_SEED_TRIAGE.md) for detailed per-seed divergence matrix
 
-**Recent Progress (November 25, 2025):**
+**P18.5-\* Resolution (December 2025):**
+
+- **Extended Contract Vectors:** 43 vectors across 4 families (chain capture, forced elimination, territory/line, hex edge cases) with **0 mismatches** between TS and Python.
+- **swap_sides Parity:** Verified across all layers (TS backend, TS sandbox, Python) per [P18.5-4_SWAP_SIDES_PARITY_REPORT.md](docs/P18.5-4_SWAP_SIDES_PARITY_REPORT.md).
+- **Orchestrator Phase 4:** 100% rollout, all hosts using orchestrator adapters as the canonical rules path.
+
+**Previous Progress (November 25, 2025):**
 
 - **DIV-001 (Seed 5 Capture Enumeration):** **RESOLVED** – Both backend and sandbox now use the unified `enumerateCaptureMoves()` function from `captureLogic.ts`.
 - **DIV-002 (Seed 5 Territory Processing):** **RESOLVED** – Territory region detection and processing aligned via shared helpers.
@@ -146,7 +152,7 @@ especially in less-tested corners of the rules.
 
 **Remaining Open Divergences:**
 
-The following divergences are tracked in [PARITY_SEED_TRIAGE.md](./docs/PARITY_SEED_TRIAGE.md) but are lower priority:
+The following divergences are tracked in [PARITY_SEED_TRIAGE.md](./docs/PARITY_SEED_TRIAGE.md) but are now lower priority given contract vector coverage:
 
 - **DIV-003 (Seed 14 Placement):** Multi-ring placement validation differences
 - **DIV-004 (Seed 14 Line Processing):** Line detection edge cases
@@ -157,13 +163,13 @@ The following divergences are tracked in [PARITY_SEED_TRIAGE.md](./docs/PARITY_S
 **Impact:**
 
 - The major parity gaps that blocked trace-based debugging are now resolved.
-- Trace-based diagnostics are reliable for most seeds.
+- Contract vectors provide systematic coverage for critical scenarios.
 - Remaining divergences are edge cases that do not affect normal gameplay.
 
 **Planned direction:**
 
-- Continue using parity suites to detect and close remaining semantic gaps.
-- Prioritize divergences that affect user-facing gameplay over diagnostic-only issues.
+- Consider these divergences closed for practical purposes; reopen only if contract vectors or production telemetry reveal issues.
+- Focus parity work on extending contract vector coverage rather than trace-based debugging.
 
 ---
 
@@ -261,9 +267,12 @@ rather than a wider, non-technical audience.
 
 - Robust lobby/matchmaking flows (listing/joining games, matchmaking, private
   games) in both server and client.
-- Reconnection and resynchronization semantics (what happens when a client
-  disconnects and rejoins mid-game).
-- Spectator support (joining games read-only, receiving updates, leaving).
+- Reconnection and resynchronization semantics beyond the core
+  disconnect-window + abandonment path (e.g. lobby→rejoin flows, richer HUD
+  signalling for reconnect vs. abandon).
+- Spectator UX and diagnostics: spectators can join and receive updates, but
+  there is no dedicated reconnection window, and spectator disconnects are
+  only lightly surfaced in diagnostics/UX.
 - A single, authoritative doc that lays out the full WebSocket turn/choice
   lifecycle as observed by the client.
 
@@ -321,8 +330,13 @@ available.
   Python service.
 - AI does not yet use deep search (minimax/MCTS) or long-term planning; the
   Python side is still based on random and heuristic engines.
-- There is limited observability around AI choice latency and errors beyond
-  logs.
+- Per-turn AI strength is still constrained by relatively shallow search and
+  heuristic tactics; deeper search / ML agents remain future work.
+- AI observability is now primarily via `ringrift_ai_requests_total`,
+  `ringrift_ai_request_duration_seconds_bucket`, and
+  `ringrift_ai_fallback_total` emitted from `AIServiceClient`/`AIEngine`, but
+  there is still headroom for richer per-board/difficulty breakdowns and
+  higher-level “AI quality mode” projections.
 
 **Impact:**
 
@@ -481,6 +495,25 @@ loop and tests are further stabilised.
 
 ---
 
+## ℹ️ Design Clarifications (Not Bugs)
+
+### DC.1 – Mid-Phase Contract Vectors Not Suitable for Game Seeding
+
+**Source:** [P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md](docs/P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md)
+**Status:** Design clarification, not a bug
+**Date:** December 1, 2025
+
+The extended contract vectors (43 vectors across chain_capture, forced_elimination, territory_line_endgame, and hex_edge_cases families) are designed for **single-step parity testing** – verifying that a specific move applied to a specific state produces the expected output.
+
+When the orchestrator soak harness attempted to use these vectors as starting points for random game continuation, 13 of 23 vectors flagged `ACTIVE_NO_CANDIDATE_MOVES` violations immediately at turn 0. This is **expected behavior**, not a rules engine bug:
+
+- Vectors in mid-phase states (`chain_capture`, `territory_processing`, `line_processing`) require specific interactive actions that random move selection cannot provide.
+- The soak harness correctly detected this mismatch and flagged it.
+
+**Recommendation:** Use contract vectors for their designed purpose (parity testing). For soak-style full game testing, use random seeds or filter vectors to only those in playable phases (`ring_placement`, `movement`).
+
+---
+
 ## 🕰️ Historical Issues (Resolved)
 
 These issues have been addressed but are kept here for context:
@@ -514,12 +547,21 @@ These issues have been addressed but are kept here for context:
   `hasAnyLegalMoveOrCaptureFrom` helper in `src/server/game/RuleEngine.ts`
   with test coverage in `tests/unit/RuleEngine.movementCapture.test.ts`.
 - **Sandbox Fix (Nov 19, 2025): Mixed AI/Human turn semantics in `/sandbox`** –
-  Local sandbox games now use a unified “place then move” turn model for
+  Local sandbox games now use a unified "place then move" turn model for
   both human and AI seats. Ring placement no longer advances directly to the
   next player; instead the placed stack must move before the turn can pass,
-  and AI turns are triggered automatically when it is an AI player’s move.
+  and AI turns are triggered automatically when it is an AI player's move.
   Implemented in `ClientSandboxEngine` and the `/sandbox` path of `GamePage`,
   with coverage in `tests/unit/ClientSandboxEngine.mixedPlayers.test.ts`.
+- **P18.1-5 Remediation (Dec 2025): TS↔Python Parity and Orchestrator Rollout** –
+  The major parity and orchestrator issues identified in PASS18 have been
+  resolved through P18.1-5 remediation work:
+  - P18.1-\*: Capture/territory host unification
+  - P18.2-\*: RNG seed handling alignment
+  - P18.3-\*: Decision lifecycle and timeout semantics
+  - P18.4-\*: Orchestrator Phase 4 (100% rollout)
+  - P18.5-\*: Extended contract vectors (43 cases, 0 mismatches) and swap_sides parity
+    See [WEAKNESS_ASSESSMENT_REPORT.md](./WEAKNESS_ASSESSMENT_REPORT.md) Section 3 for details.
 
 For a more narrative description of what works today vs what remains, see
 [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md).

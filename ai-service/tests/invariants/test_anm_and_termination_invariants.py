@@ -48,10 +48,17 @@ def test_strict_invariant_raises_on_synthetic_anm_state() -> None:
     state.board.stacks.clear()
     state.board.markers.clear()
     state.board.collapsed_spaces.clear()
-    state.board.size = 0
 
     player = state.players[0]
     player.rings_in_hand = 1
+
+    # Collapse ALL board positions so there's nowhere to place a ring.
+    # This creates a true ANM state: player has turn material (rings in hand)
+    # but no legal placement positions.
+    for x in range(8):
+        for y in range(8):
+            pos = Position(x=x, y=y)
+            state.board.collapsed_spaces[pos.to_key()] = 2  # Enemy territory
 
     assert ga.has_turn_material(state, 1) is True
     assert ga.is_anm_state(state) is True
@@ -108,8 +115,7 @@ def test_forced_elimination_chain_is_monotone_and_finite() -> None:
     player.rings_in_hand = 0
 
     board = state.board
-    board.size = 1
-    pos = Position(x=0, y=0)
+    pos = Position(x=3, y=3)
     key = pos.to_key()
 
     board.stacks.clear()
@@ -124,6 +130,15 @@ def test_forced_elimination_chain_is_monotone_and_finite() -> None:
         controllingPlayer=1,
     )
     board.stacks[key] = stack
+
+    # Collapse all positions except the stack position to trap it.
+    # This forces the player to use forced elimination as their only action.
+    for x in range(8):
+        for y in range(8):
+            if x == pos.x and y == pos.y:
+                continue
+            collapse_pos = Position(x=x, y=y)
+            board.collapsed_spaces[collapse_pos.to_key()] = 2  # Enemy territory
 
     total_before = state.total_rings_eliminated
     steps = 0

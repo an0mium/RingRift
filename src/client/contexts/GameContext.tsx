@@ -1,20 +1,38 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { reportClientError, isErrorReportingEnabled } from '../utils/errorReporting';
+import {
+  reportClientError,
+  isErrorReportingEnabled,
+  extractErrorMessage,
+} from '../utils/errorReporting';
 import { SocketGameConnection } from '../services/GameConnection';
 import type {
   GameConnection,
   GameEventHandlers,
   ConnectionStatus as DomainConnectionStatus,
 } from '../domain/GameAPI';
-import { BoardState, GameState, Move, PlayerChoice, GameResult } from '../../shared/types/game';
+import {
+  BoardState,
+  GameState,
+  Move,
+  PlayerChoice,
+  GameResult,
+  RingStack,
+  MarkerInfo,
+  Territory,
+} from '../../shared/types/game';
 import type {
   WebSocketErrorPayload,
   GameStateUpdateMessage,
   GameOverMessage,
   ChatMessageServerPayload,
+  ChatMessagePersisted,
+  ChatHistoryPayload,
   DecisionAutoResolvedMeta,
   DecisionPhaseTimeoutWarningPayload,
+  RematchRequestPayload,
+  RematchResponsePayload,
+  PositionEvaluationPayload,
 } from '../../shared/types/websocket';
 
 export type ConnectionStatus = DomainConnectionStatus;
@@ -63,13 +81,27 @@ interface GameContextType {
    * server has indicated that a pending decision is approaching auto-resolution.
    */
   decisionPhaseTimeoutWarning: DecisionPhaseTimeoutWarningPayload | null;
+
+  // Rematch
+  /** Pending rematch request, if any. */
+  pendingRematchRequest: RematchRequestPayload | null;
+  /** Request a rematch for the current completed game. */
+  requestRematch: () => void;
+  /** Accept a pending rematch request. */
+  acceptRematch: (requestId: string) => void;
+  /** Decline a pending rematch request. */
+  declineRematch: (requestId: string) => void;
+  /** ID of the new game created from an accepted rematch, if any. */
+  rematchGameId: string | null;
+  /** Streaming AI evaluation history for the current game (analysis mode). */
+  evaluationHistory: PositionEvaluationPayload['data'][];
 }
 
 const GameContext = createContext<GameContextType | null>(null);
 
 // Hydrate a BoardState coming over the wire, where Maps have been
 // serialized to plain objects.
-function hydrateBoardState(rawBoard: any): BoardState {
+function hydrateBoardState(rawBoard: Record<string, unknown> | null | undefined): BoardState {
   if (!rawBoard) {
     // Fallback empty board; callers should guard against this.
     return {
@@ -84,29 +116,34 @@ function hydrateBoardState(rawBoard: any): BoardState {
     };
   }
 
-  const stacks = new Map<string, any>(Object.entries(rawBoard.stacks || {}));
-  const markers = new Map<string, any>(Object.entries(rawBoard.markers || {}));
-  const collapsedSpaces = new Map<string, number>(
-    Object.entries(rawBoard.collapsedSpaces || {}) as [string, number][]
-  );
-  const territories = new Map<string, any>(Object.entries(rawBoard.territories || {}));
+  const rawStacks = (rawBoard.stacks || {}) as Record<string, RingStack>;
+  const rawMarkers = (rawBoard.markers || {}) as Record<string, MarkerInfo>;
+  const rawCollapsed = (rawBoard.collapsedSpaces || {}) as Record<string, number>;
+  const rawTerritories = (rawBoard.territories || {}) as Record<string, Territory>;
+
+  const stacks = new Map<string, RingStack>(Object.entries(rawStacks));
+  const markers = new Map<string, MarkerInfo>(Object.entries(rawMarkers));
+  const collapsedSpaces = new Map<string, number>(Object.entries(rawCollapsed));
+  const territories = new Map<string, Territory>(Object.entries(rawTerritories));
 
   return {
     stacks,
     markers,
     collapsedSpaces,
     territories,
-    formedLines: rawBoard.formedLines || [],
-    eliminatedRings: rawBoard.eliminatedRings || {},
-    size: rawBoard.size,
-    type: rawBoard.type,
+    formedLines: (rawBoard.formedLines || []) as BoardState['formedLines'],
+    eliminatedRings: (rawBoard.eliminatedRings || {}) as BoardState['eliminatedRings'],
+    size: rawBoard.size as number,
+    type: rawBoard.type as BoardState['type'],
   };
 }
 
-function hydrateGameState(rawState: any): GameState {
+function hydrateGameState(rawState: GameState | Record<string, unknown>): GameState {
+  // Handle both wire-serialized payloads and already-typed GameState objects
+  const state = rawState as GameState & Record<string, unknown>;
   return {
-    ...rawState,
-    board: hydrateBoardState(rawState.board),
+    ...state,
+    board: hydrateBoardState(state.board as unknown as Record<string, unknown>),
   } as GameState;
 }
 
@@ -127,6 +164,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   );
   const [decisionPhaseTimeoutWarning, setDecisionPhaseTimeoutWarning] =
     useState<DecisionPhaseTimeoutWarningPayload | null>(null);
+  const [pendingRematchRequest, setPendingRematchRequest] = useState<RematchRequestPayload | null>(
+    null
+  );
+  const [rematchGameId, setRematchGameId] = useState<string | null>(null);
+  const [evaluationHistory, setEvaluationHistory] = useState<PositionEvaluationPayload['data'][]>(
+    []
+  );
   const connectionRef = useRef<GameConnection | null>(null);
   const lastStatusRef = useRef<ConnectionStatus | null>(null);
   const hasEverConnectedRef = useRef(false);
@@ -193,11 +237,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           (payload as WebSocketErrorPayload).code
         ) {
           const err = payload as WebSocketErrorPayload;
-          // eslint-disable-next-line no-console
           console.warn('Game socket error', err.code, err.event, err.message);
           message = err.message || 'Game error';
         } else {
-          // eslint-disable-next-line no-console
           console.error('Game socket error', payload);
           message = (payload as any)?.message || 'Game error';
         }
@@ -217,8 +259,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         }
       },
       onDisconnect: (reason: string) => {
-        // eslint-disable-next-line no-console
-        console.log('Socket disconnected:', reason);
+        console.warn('Socket disconnected:', reason);
         setLastHeartbeatAt(null);
         if (reason !== 'io client disconnect' && isErrorReportingEnabled()) {
           void reportClientError(new Error(`Socket disconnected: ${reason}`), {
@@ -255,6 +296,56 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         // decisionAutoResolved metadata instead.
         setDecisionPhaseTimeoutWarning(null);
       },
+      onChatMessagePersisted: (payload: ChatMessagePersisted) => {
+        // Prefer persisted messages over legacy chat_message when both are emitted.
+        // The server emits both for backward compatibility; we dedupe here by
+        // checking if we already have a message with this sender+text recently.
+        setChatMessages((prev) => {
+          const isDuplicate = prev.some(
+            (m) =>
+              m.sender === payload.username &&
+              m.text === payload.message &&
+              prev.indexOf(m) >= prev.length - 3 // Only check recent messages
+          );
+          if (isDuplicate) return prev;
+          return [...prev, { sender: payload.username, text: payload.message }];
+        });
+      },
+      onChatHistory: (payload: ChatHistoryPayload) => {
+        // Prepend historical messages to the chat, avoiding duplicates
+        const historicalMessages = payload.messages.map((m) => ({
+          sender: m.username,
+          text: m.message,
+        }));
+        setChatMessages((prev) => {
+          // Only add messages that aren't already present
+          const existingKeys = new Set(prev.map((m) => `${m.sender}:${m.text}`));
+          const newMessages = historicalMessages.filter(
+            (m) => !existingKeys.has(`${m.sender}:${m.text}`)
+          );
+          return [...newMessages, ...prev];
+        });
+      },
+      onRematchRequested: (payload: RematchRequestPayload) => {
+        setPendingRematchRequest(payload);
+        setRematchGameId(null); // Clear any previous rematch game ID
+      },
+      onRematchResponse: (payload: RematchResponsePayload) => {
+        if (payload.status === 'accepted' && payload.newGameId) {
+          setRematchGameId(payload.newGameId);
+          toast.success('Rematch accepted! Redirecting to new game...');
+        } else if (payload.status === 'declined') {
+          toast('Rematch declined', { icon: '❌' });
+        } else if (payload.status === 'expired') {
+          toast('Rematch request expired', { icon: '⏰' });
+        }
+        setPendingRematchRequest(null);
+      },
+      onPositionEvaluation: (payload: PositionEvaluationPayload) => {
+        const { data } = payload || ({} as PositionEvaluationPayload);
+        if (!data?.gameId) return;
+        setEvaluationHistory((prev) => [...prev, data]);
+      },
     };
 
     const connection = new SocketGameConnection(handlers);
@@ -279,6 +370,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setLastHeartbeatAt(null);
     setDecisionAutoResolved(null);
     setDecisionPhaseTimeoutWarning(null);
+    setPendingRematchRequest(null);
+    setRematchGameId(null);
+    setEvaluationHistory([]);
   }, []);
 
   const connectToGame = useCallback(
@@ -298,12 +392,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       try {
         await connection.connect(targetGameId);
-      } catch (err: any) {
+      } catch (error: unknown) {
         // Any connection errors should also surface via onError, but we
         // defensively set local state here as well.
-        // eslint-disable-next-line no-console
-        console.error('Failed to connect to game', err);
-        setError(err?.message || 'Failed to connect to game');
+
+        console.error('Failed to connect to game', error);
+        setError(extractErrorMessage(error, 'Failed to connect to game'));
         setIsConnecting(false);
         setConnectionStatus('disconnected');
       }
@@ -323,7 +417,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     (choice: PlayerChoice, selectedOption: any) => {
       const connection = connectionRef.current;
       if (!connection || !gameId) {
-        // eslint-disable-next-line no-console
         console.warn('respondToChoice called without active connection/game');
         return;
       }
@@ -339,7 +432,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     (partialMove: Omit<Move, 'id' | 'timestamp' | 'thinkTime' | 'moveNumber'>) => {
       const connection = connectionRef.current;
       if (!connection || !gameId) {
-        // eslint-disable-next-line no-console
         console.warn('submitMove called without active connection/game');
         return;
       }
@@ -348,7 +440,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         id: '',
         type: partialMove.type,
         player: partialMove.player,
-        from: partialMove.from,
+        ...(partialMove.from !== undefined ? { from: partialMove.from } : {}),
         to: partialMove.to,
         captureTarget: (partialMove as any).captureTarget,
         timestamp: new Date(),
@@ -365,7 +457,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     (text: string) => {
       const connection = connectionRef.current;
       if (!connection || !gameId) {
-        // eslint-disable-next-line no-console
         console.warn('sendChatMessage called without active connection/game');
         return;
       }
@@ -374,6 +465,36 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     },
     [gameId]
   );
+
+  const requestRematch = useCallback(() => {
+    const connection = connectionRef.current;
+    if (!connection || !gameId) {
+      console.warn('requestRematch called without active connection/game');
+      return;
+    }
+
+    connection.requestRematch();
+  }, [gameId]);
+
+  const acceptRematch = useCallback((requestId: string) => {
+    const connection = connectionRef.current;
+    if (!connection) {
+      console.warn('acceptRematch called without active connection');
+      return;
+    }
+
+    connection.respondToRematch(requestId, true);
+  }, []);
+
+  const declineRematch = useCallback((requestId: string) => {
+    const connection = connectionRef.current;
+    if (!connection) {
+      console.warn('declineRematch called without active connection');
+      return;
+    }
+
+    connection.respondToRematch(requestId, false);
+  }, []);
 
   const value: GameContextType = {
     gameId,
@@ -394,6 +515,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     lastHeartbeatAt,
     decisionAutoResolved,
     decisionPhaseTimeoutWarning,
+    pendingRematchRequest,
+    requestRematch,
+    acceptRematch,
+    declineRematch,
+    rematchGameId,
+    evaluationHistory,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

@@ -493,7 +493,7 @@ export function applyProcessLineDecision(
       pendingLineRewardElimination: false,
     };
   }
- 
+
   const boardType = state.board.type as BoardType;
   const requiredLength = getEffectiveLineLengthThreshold(
     boardType,
@@ -566,7 +566,7 @@ export function applyChooseLineRewardDecision(
       pendingLineRewardElimination: false,
     };
   }
- 
+
   const boardType = state.board.type as BoardType;
   const requiredLength = getEffectiveLineLengthThreshold(
     boardType,
@@ -583,7 +583,7 @@ export function applyChooseLineRewardDecision(
     };
   }
 
-  let positionsToCollapse: Position[];
+  let positionsToCollapse: Position[] = line.positions;
   let pendingReward = false;
 
   if (length === requiredLength) {
@@ -604,9 +604,9 @@ export function applyChooseLineRewardDecision(
     if (isCollapseAll) {
       positionsToCollapse = line.positions;
       pendingReward = true;
-    } else {
+    } else if (collapsed) {
       // Minimum-collapse option: collapse exactly the selected subset.
-      positionsToCollapse = collapsed!;
+      positionsToCollapse = collapsed;
       pendingReward = false;
     }
   }

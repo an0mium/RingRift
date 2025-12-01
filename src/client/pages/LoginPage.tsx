@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Input } from '../components/ui/Input';
 import { Button } from '../components/ui/Button';
+import { extractErrorMessage, extractErrorCode } from '../utils/errorReporting';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -27,10 +28,8 @@ export default function LoginPage() {
       await login(email, password);
       // On successful login, redirect to the main app shell (home/lobby).
       navigate('/');
-    } catch (err: any) {
-      const errorData = err?.response?.data;
-      const errorCode = errorData?.error?.code as string | undefined;
-      const backendMessage = errorData?.error?.message || errorData?.message || err?.message;
+    } catch (error: unknown) {
+      const errorCode = extractErrorCode(error);
 
       // If the backend reports invalid credentials for this email, assume this may
       // be a new user and send them directly to the registration flow, carrying
@@ -40,7 +39,11 @@ export default function LoginPage() {
         return;
       }
 
-      setError(backendMessage || 'Login failed. Please check your credentials and try again.');
+      const message = extractErrorMessage(
+        error,
+        'Login failed. Please check your credentials and try again.'
+      );
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }

@@ -235,7 +235,7 @@ describe('ChoiceDialog', () => {
 
       expect(mockOnSelectOption).toHaveBeenCalledWith(
         choice,
-        'option_1_collapse_all_and_eliminate',
+        'option_1_collapse_all_and_eliminate'
       );
     });
 
@@ -247,7 +247,7 @@ describe('ChoiceDialog', () => {
 
       expect(mockOnSelectOption).toHaveBeenCalledWith(
         choice,
-        'option_2_min_collapse_no_elimination',
+        'option_2_min_collapse_no_elimination'
       );
     });
   });
@@ -377,7 +377,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={25000}
-        />,
+        />
       );
 
       expect(screen.getByText('Respond within')).toBeInTheDocument();
@@ -392,7 +392,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={null}
-        />,
+        />
       );
 
       expect(screen.getByText('Choice timeout active')).toBeInTheDocument();
@@ -401,7 +401,7 @@ describe('ChoiceDialog', () => {
     it('does not show timer when no deadline', () => {
       const choice = createLineOrderChoice();
       render(
-        <ChoiceDialog {...defaultProps} choice={choice} deadline={null} timeRemainingMs={null} />,
+        <ChoiceDialog {...defaultProps} choice={choice} deadline={null} timeRemainingMs={null} />
       );
 
       expect(screen.queryByText('Respond within')).not.toBeInTheDocument();
@@ -416,7 +416,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={15000} // 50% remaining
-        />,
+        />
       );
 
       const progressBar = screen.getByTestId('choice-countdown-bar');
@@ -431,7 +431,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() - 5000}
           timeRemainingMs={-5000}
-        />,
+        />
       );
 
       expect(screen.getByText('0s')).toBeInTheDocument();
@@ -445,7 +445,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={15500} // Should display 16s
-        />,
+        />
       );
 
       expect(screen.getByText('16s')).toBeInTheDocument();
@@ -461,7 +461,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={25000}
-        />,
+        />
       );
 
       const countdown = screen.getByTestId('choice-countdown');
@@ -479,7 +479,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={10_000}
-        />,
+        />
       );
 
       const countdown = screen.getByTestId('choice-countdown');
@@ -494,7 +494,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={3_001}
-        />,
+        />
       );
 
       const countdown = screen.getByTestId('choice-countdown');
@@ -509,7 +509,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={3_000}
-        />,
+        />
       );
 
       const countdown = screen.getByTestId('choice-countdown');
@@ -524,7 +524,7 @@ describe('ChoiceDialog', () => {
           choice={choice}
           deadline={Date.now() + 30000}
           timeRemainingMs={0}
-        />,
+        />
       );
 
       const countdown = screen.getByTestId('choice-countdown');
@@ -540,7 +540,7 @@ describe('ChoiceDialog', () => {
           deadline={Date.now() + 30000}
           timeRemainingMs={3000}
           isServerCapped
-        />,
+        />
       );
 
       const countdown = screen.getByTestId('choice-countdown');
@@ -692,6 +692,62 @@ describe('ChoiceDialog', () => {
       fireEvent.click(option1Button);
 
       expect(mockOnSelectOption).toHaveBeenCalled();
+    });
+
+    it('dialog has proper ARIA attributes', () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(dialog).toHaveAttribute('aria-labelledby', 'choice-dialog-title');
+    });
+
+    it('closes dialog on escape key when onCancel provided', () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      const dialog = screen.getByRole('dialog');
+      fireEvent.keyDown(dialog, { key: 'Escape' });
+
+      expect(mockOnCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not close on escape key when onCancel not provided', () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog choice={choice} onSelectOption={mockOnSelectOption} />);
+
+      const dialog = screen.getByRole('dialog');
+      fireEvent.keyDown(dialog, { key: 'Escape' });
+
+      // Dialog should still be visible (no onCancel to call)
+      expect(dialog).toBeInTheDocument();
+    });
+
+    it('auto-focuses first option button when opened', () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      // First focusable element should be the first option button
+      const firstOption = screen.getByText(/Line 1/);
+      expect(document.activeElement).toBe(firstOption);
+    });
+
+    it('countdown timer has aria-live region for screen readers', () => {
+      const choice = createLineOrderChoice();
+      render(
+        <ChoiceDialog
+          {...defaultProps}
+          choice={choice}
+          deadline={Date.now() + 30000}
+          timeRemainingMs={25000}
+        />
+      );
+
+      const countdown = screen.getByTestId('choice-countdown');
+      expect(countdown).toHaveAttribute('aria-live', 'polite');
+      expect(countdown).toHaveAttribute('aria-atomic', 'true');
+      expect(countdown).toHaveAttribute('role', 'timer');
     });
   });
 

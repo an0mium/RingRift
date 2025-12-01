@@ -98,7 +98,8 @@ If many non-AI alerts are active, treat this as part of a **wider incident** and
 
 ### 2.3 Inspect AI error metrics in Prometheus
 
-Use Prometheus to quantify and slice AI error rates:
+Use Prometheus to quantify and slice AI error rates and correlate them with
+game-level terminations (timeout, resignation, abandonment):
 
 ```promql
 # Overall AI error rate (matches alert semantics)
@@ -111,13 +112,22 @@ sum(rate(ringrift_ai_requests_total{outcome="error"}[5m])) by (reason, code)
 sum(rate(ringrift_ai_requests_total{outcome="error"}[5m]))
 /
 sum(rate(ringrift_ai_requests_total[5m]))
+
+# Correlate with abnormal game terminations by reason
+sum(rate(ringrift_game_session_abnormal_termination_total[10m])) by (reason)
+
+# Specifically focus on timeout / resignation / abandonment
+sum(rate(ringrift_game_session_abnormal_termination_total{reason=~"timeout|resignation|abandonment"}[10m])) by (reason)
 ```
 
 Questions:
 
 - Is the **absolute error rate** high, or is this primarily a high fraction at low traffic?
 - Are errors heavily concentrated in a specific **reason/code** (timeouts, unavailable, validation, internal)?
-- Have errors been steadily increasing, or was there a sudden spike?
+- Are spikes in AI errors correlated with increases in
+  `ringrift_game_session_abnormal_termination_total{reason=~"timeout|resignation|abandonment"}`
+  (for example, many resignations or timeouts following AI outages)?
+- Have errors and related terminations been steadily increasing, or was there a sudden spike?
 
 > Exact labels (e.g. `reason`, `code`) depend on how metrics are wired in the backend. Refer to the metrics instrumentation in `AIServiceClient` / `AIEngine` and to `alerts.yml` for authoritative label sets.
 

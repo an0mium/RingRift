@@ -71,8 +71,12 @@ test.describe('Resignation E2E Tests', () => {
     await gamePage.assertConnected();
   });
 
-  test.skip('resignation shows confirmation dialog before ending game', async ({ page }) => {
-    // Skip: Requires resignation confirmation dialog to be implemented
+  test('resignation shows confirmation dialog before ending game', async ({ page }) => {
+    // UI IMPLEMENTED: ResignButton component added to BackendGameHost
+    // - Resign button visible to players during active games
+    // - Confirmation dialog with Cancel/Yes, Resign buttons
+    // - Calls gameApi.leaveGame(gameId) on confirmation
+    //
     // This test verifies that users aren't accidentally resigning
 
     await registerAndLogin(page);
@@ -82,7 +86,7 @@ test.describe('Resignation E2E Tests', () => {
     await gamePage.waitForReady();
 
     // Find and click resign button
-    const resignButton = page.locator('button').filter({ hasText: /resign/i });
+    const resignButton = page.getByTestId('resign-button');
     await resignButton.click();
 
     // Confirmation dialog should appear
@@ -98,8 +102,17 @@ test.describe('Resignation E2E Tests', () => {
     await expect(cancelButton).toBeVisible();
   });
 
-  test.skip('resignation properly ends the game with correct winner', async ({ page }) => {
-    // Skip: Requires full resignation flow to be implemented end-to-end
+  test('resignation properly ends the game with correct winner', async ({ page }) => {
+    // UI IMPLEMENTED: ResignButton component added to BackendGameHost
+    // Backend infrastructure is complete:
+    // - POST /api/games/:gameId/leave handles resignation
+    // - RatingService.processGameResult applies rating changes for rated games
+    // - wsServerInstance.handlePlayerResignFromHttp routes through GameSession
+    // - VictoryModal correctly displays resignation outcome
+    //
+    // Frontend UI:
+    // - Resign button (see skip comment on 'resignation shows confirmation dialog')
+    //
     // This test verifies complete resignation behavior
 
     await registerAndLogin(page);
@@ -113,7 +126,7 @@ test.describe('Resignation E2E Tests', () => {
     await page.waitForTimeout(3_000);
 
     // Find and click resign button
-    const resignButton = page.locator('button').filter({ hasText: /resign/i });
+    const resignButton = page.getByTestId('resign-button');
     await resignButton.click();
 
     // Confirm resignation

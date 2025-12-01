@@ -7,7 +7,7 @@ import type {
   MarkerInfo,
   BoardState,
 } from '../types/game';
-import { getMovementDirectionsForBoardType, calculateDistance, Direction } from './core';
+import { getMovementDirectionsForBoardType, Direction } from './core';
 
 /**
  * Complete heuristic weight profile matching Python HeuristicAI.

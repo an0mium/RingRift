@@ -28,6 +28,7 @@ import type {
 } from './types';
 
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
+import { flagEnabled, debugLog } from '../../utils/envFlags';
 
 // Import from domain aggregates
 import {
@@ -157,9 +158,9 @@ function resolveANMForCurrentPlayer(state: GameState): {
   return { nextState: workingState };
 }
 
- // ═══════════════════════════════════════════════════════════════════════════
- // Victory State Conversion
- // ═══════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// Victory State Conversion
+// ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Convert evaluateVictory result to VictoryState for the orchestrator.
@@ -290,9 +291,7 @@ function createForcedEliminationDecision(state: GameState): PendingDecision | un
     options,
     context: {
       description: 'Choose which stack to eliminate from (forced elimination)',
-      relevantPositions: options
-        .map((m) => m.to)
-        .filter((p): p is Position => !!p),
+      relevantPositions: options.map((m) => m.to).filter((p): p is Position => !!p),
       extra: {
         reason: 'forced_elimination',
       },
@@ -399,10 +398,7 @@ export function processTurn(state: GameState, move: Move): ProcessTurnResult {
   // Under trace-debug runs, log any strict S-invariant decreases that occur wholly
   // inside the orchestrator. This helps distinguish shared-engine bookkeeping
   // issues from host/adapter integration drift.
-  const TRACE_DEBUG_ENABLED =
-    typeof process !== 'undefined' &&
-    !!(process as any).env &&
-    ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+  const TRACE_DEBUG_ENABLED = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
   if (
     TRACE_DEBUG_ENABLED &&
@@ -413,26 +409,30 @@ export function processTurn(state: GameState, move: Move): ProcessTurnResult {
     const progressBefore = computeProgressSnapshot(state);
     const progressAfter = computeProgressSnapshot(stateMachine.gameState);
 
-    // eslint-disable-next-line no-console
-    console.log('[turnOrchestrator.processTurn] STRICT_S_INVARIANT_DECREASE', {
-      moveType: move.type,
-      player: move.player,
-      phaseBefore: state.currentPhase,
-      phaseAfter: stateMachine.gameState.currentPhase,
-      statusBefore: state.gameStatus,
-      statusAfter: stateMachine.gameState.gameStatus,
-      progressBefore,
-      progressAfter,
-      stateHashBefore: hashGameState(state),
-      stateHashAfter: hashGameState(stateMachine.gameState),
-    });
+    debugLog(
+      flagEnabled('RINGRIFT_TRACE_DEBUG'),
+      '[turnOrchestrator.processTurn] STRICT_S_INVARIANT_DECREASE',
+      {
+        moveType: move.type,
+        player: move.player,
+        phaseBefore: state.currentPhase,
+        phaseAfter: stateMachine.gameState.currentPhase,
+        statusBefore: state.gameStatus,
+        statusAfter: stateMachine.gameState.gameStatus,
+        progressBefore,
+        progressAfter,
+        stateHashBefore: hashGameState(state),
+        stateHashAfter: hashGameState(stateMachine.gameState),
+      }
+    );
   }
 
   let finalState = stateMachine.gameState;
   let finalPendingDecision = result.pendingDecision;
   let finalVictory = result.victoryResult;
-  let finalStatus: ProcessTurnResult['status'] =
-    finalPendingDecision ? 'awaiting_decision' : 'complete';
+  let finalStatus: ProcessTurnResult['status'] = finalPendingDecision
+    ? 'awaiting_decision'
+    : 'complete';
 
   // If the turn is otherwise complete but the current player is blocked
   // with stacks and only a forced-elimination action is available, surface
@@ -622,7 +622,13 @@ function processPostMovePhases(stateMachine: PhaseStateMachine): {
   }
 
   // Transition to line processing phase
-  if (state.currentPhase === 'movement' || state.currentPhase === 'capture') {
+  // Note: Also transition from 'ring_placement' when a movement move was made
+  // (this happens when ringsInHand == 0 per RR-CANON-R204)
+  if (
+    state.currentPhase === 'movement' ||
+    state.currentPhase === 'capture' ||
+    state.currentPhase === 'ring_placement'
+  ) {
     stateMachine.transitionTo('line_processing');
   }
 
@@ -727,10 +733,16 @@ function processPostMovePhases(stateMachine: PhaseStateMachine): {
   const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
   const nextPlayer = players[nextPlayerIndex].playerNumber;
 
+  // Determine the starting phase for the next player based on their material:
+  // - If they have rings in hand, start in ring_placement
+  // - If they have no rings but control stacks, start in movement (RR-CANON-R204)
+  const nextPlayerObj = players[nextPlayerIndex];
+  const nextPhase: GamePhase = nextPlayerObj.ringsInHand > 0 ? 'ring_placement' : 'movement';
+
   stateMachine.updateGameState({
     ...currentState,
     currentPlayer: nextPlayer,
-    currentPhase: 'ring_placement' as GamePhase,
+    currentPhase: nextPhase,
   });
 
   return {};
@@ -861,6 +873,29 @@ export function getValidMoves(state: GameState): Move[] {
 
   switch (phase) {
     case 'ring_placement': {
+      const playerObj = state.players.find((p) => p.playerNumber === player);
+
+      // RR-CANON-R204 / compact rules §2.1: When ringsInHand == 0 (placement forbidden)
+      // but the player controls stacks, enumerate movement moves instead.
+      if (playerObj && playerObj.ringsInHand === 0) {
+        // Check if player has any controlled stacks
+        let hasControlledStack = false;
+        for (const stack of state.board.stacks.values()) {
+          if (stack.controllingPlayer === player && stack.stackHeight > 0) {
+            hasControlledStack = true;
+            break;
+          }
+        }
+        if (hasControlledStack) {
+          // Return movement moves instead of placement/skip
+          const movements = enumerateSimpleMovesForPlayer(state, player);
+          const captures = enumerateAllCaptureMoves(state, player);
+          return [...movements, ...captures];
+        }
+        // No stacks and no rings in hand - no valid moves
+        return [];
+      }
+
       const positions = enumeratePlacementPositions(state, player);
       const moves: Move[] = positions.map((pos) => ({
         id: `place-${positionToString(pos)}-${moveNumber}`,

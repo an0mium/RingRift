@@ -27,13 +27,11 @@ import type {
   Position,
   BoardState,
   RingStack,
-  MarkerInfo,
   GameHistoryEntry,
   Move,
   BoardType,
   PlayerChoice,
   PlayerChoiceType,
-  BOARD_CONFIGS,
 } from '../../shared/types/game';
 import { positionToString } from '../../shared/types/game';
 import type { ConnectionStatus } from '../domain/GameAPI';
@@ -115,7 +113,7 @@ export interface HUDDecisionPhaseViewModel {
    */
   label: string;
   /** Optional longer description derived from the underlying ChoiceViewModel. */
-  description?: string;
+  description?: string | undefined;
   /** Short label suitable for compact chips/badges. */
   shortLabel: string;
   /**
@@ -126,12 +124,12 @@ export interface HUDDecisionPhaseViewModel {
   /** Whether the countdown should be rendered in the HUD. */
   showCountdown: boolean;
   /** Optional soft warning threshold for low-time styling. */
-  warningThresholdMs?: number;
+  warningThresholdMs?: number | undefined;
   /**
    * True when the underlying decision countdown has been shortened/capped by
    * authoritative server timeout metadata. Used purely for UI emphasis.
    */
-  isServerCapped?: boolean;
+  isServerCapped?: boolean | undefined;
   /** Spectator-oriented status text derived from ChoiceViewModel.copy.spectatorLabel. */
   spectatorLabel: string;
 }
@@ -142,8 +140,8 @@ export interface HUDViewModel {
   turnNumber: number;
   moveNumber: number;
   /** Optional short summary when the pie rule has been used recently. */
-  pieRuleSummary?: string;
-  instruction?: string;
+  pieRuleSummary?: string | undefined;
+  instruction?: string | undefined;
   connectionStatus: ConnectionStatus;
   isConnectionStale: boolean;
   isSpectator: boolean;
@@ -151,14 +149,14 @@ export interface HUDViewModel {
   /**
    * Sub-phase details (e.g., "Processing 3 lines")
    */
-  subPhaseDetail?: string;
+  subPhaseDetail?: string | undefined;
   /**
    * When present, describes the currently-active decision phase (line reward,
    * territory region order, ring elimination, capture direction, etc.). This is
    * derived from PlayerChoice + choiceViewModels and is intended to be the
    * single source of truth for HUD decision copy.
    */
-  decisionPhase?: HUDDecisionPhaseViewModel;
+  decisionPhase?: HUDDecisionPhaseViewModel | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -184,7 +182,7 @@ export interface EventLogItemViewModel {
  */
 export interface EventLogViewModel {
   entries: EventLogItemViewModel[];
-  victoryMessage?: string;
+  victoryMessage?: string | undefined;
   hasContent: boolean;
 }
 
@@ -264,9 +262,9 @@ export interface CollapsedSpaceViewModel {
 export interface CellViewModel {
   position: Position;
   positionKey: string;
-  stack?: StackViewModel;
-  marker?: MarkerViewModel;
-  collapsedSpace?: CollapsedSpaceViewModel;
+  stack?: StackViewModel | undefined;
+  marker?: MarkerViewModel | undefined;
+  collapsedSpace?: CollapsedSpaceViewModel | undefined;
   isSelected: boolean;
   isValidTarget: boolean;
   isDarkSquare: boolean;
@@ -282,14 +280,14 @@ export interface BoardViewModel {
   /**
    * For square boards: cells organized by row for grid rendering
    */
-  rows?: CellViewModel[][];
+  rows?: CellViewModel[][] | undefined;
   /**
    * Optional decision-phase highlights derived from a pending PlayerChoice.
    * When present, BoardView may render lightweight overlays to guide the
    * acting player, non-acting players, and spectators toward the relevant
    * geometry (lines, regions, stacks, capture directions, etc.).
    */
-  decisionHighlights?: BoardDecisionHighlightsViewModel;
+  decisionHighlights?: BoardDecisionHighlightsViewModel | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -316,7 +314,7 @@ export interface VictoryViewModel {
   title: string;
   description: string;
   titleColorClass: string;
-  winner?: PlayerViewModel;
+  winner?: PlayerViewModel | undefined;
   finalStats: PlayerFinalStatsViewModel[];
   gameSummary: {
     boardType: BoardType;
@@ -398,7 +396,7 @@ const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
   },
   movement: {
     label: 'Movement Phase',
-    description: 'Move a stack or capture opponent pieces',
+    description: 'Move a stack or capture opponent rings',
     colorClass: 'bg-green-500',
     icon: '⚡',
   },
@@ -410,19 +408,19 @@ const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
   },
   chain_capture: {
     label: 'Chain Capture',
-    description: 'You must continue capturing if able',
+    description: 'Chain capture in progress – select next target',
     colorClass: 'bg-orange-500',
     icon: '🔗',
   },
   line_processing: {
-    label: 'Line Reward',
-    description: 'Choose how to process your line',
+    label: 'Line Processing',
+    description: 'Choose line completion reward',
     colorClass: 'bg-purple-500',
     icon: '📏',
   },
   territory_processing: {
-    label: 'Territory Claim',
-    description: 'Choose regions to collapse',
+    label: 'Territory Processing',
+    description: 'Process disconnected regions',
     colorClass: 'bg-pink-500',
     icon: '🏰',
   },
@@ -554,28 +552,28 @@ function toPlayerViewModel(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface ToHUDViewModelOptions {
-  instruction?: string;
+  instruction?: string | undefined;
   connectionStatus: ConnectionStatus;
   lastHeartbeatAt: number | null;
   isSpectator: boolean;
-  currentUserId?: string;
+  currentUserId?: string | undefined;
   /** Optional pending choice used to derive decision-phase HUD messaging. */
-  pendingChoice?: PlayerChoice | null;
+  pendingChoice?: PlayerChoice | null | undefined;
   /** Optional absolute deadline timestamp in ms for the pending choice. */
-  choiceDeadline?: number | null;
+  choiceDeadline?: number | null | undefined;
   /**
    * Optional precomputed client-side countdown for the pending choice. When
    * provided (e.g. from a dedicated timer hook), this will be preferred over
    * deriving the remaining time from choiceDeadline.
    */
-  choiceTimeRemainingMs?: number | null;
+  choiceTimeRemainingMs?: number | null | undefined;
   /**
    * Optional flag indicating that the effective decision countdown has been
    * capped/shortened by authoritative server timeout metadata. This allows the
    * HUD to surface a subtle "server deadline" indicator without needing to
    * understand reconciliation semantics itself.
    */
-  decisionIsServerCapped?: boolean;
+  decisionIsServerCapped?: boolean | undefined;
 }
 
 /**
@@ -640,9 +638,10 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
   // Decision-phase detail derived from pending PlayerChoice + choiceViewModels.
   let decisionPhase: HUDDecisionPhaseViewModel | undefined;
   if (pendingChoice && gameState.gameStatus === 'active') {
-    const actingPlayer = gameState.players.find((p) => p.playerNumber === pendingChoice.playerNumber);
-    const actingPlayerName =
-      actingPlayer?.username || `Player ${pendingChoice.playerNumber}`;
+    const actingPlayer = gameState.players.find(
+      (p) => p.playerNumber === pendingChoice.playerNumber
+    );
+    const actingPlayerName = actingPlayer?.username || `Player ${pendingChoice.playerNumber}`;
     const isLocalActor = !!(currentUserId && actingPlayer && actingPlayer.id === currentUserId);
 
     const vm = getChoiceViewModel(pendingChoice);
@@ -983,10 +982,10 @@ export function toEventLogViewModel(
 // ═══════════════════════════════════════════════════════════════════════════
 
 export interface ToBoardViewModelOptions {
-  selectedPosition?: Position;
-  validTargets?: Position[];
+  selectedPosition?: Position | undefined;
+  validTargets?: Position[] | undefined;
   /** Optional decision-phase highlights derived from a pending PlayerChoice. */
-  decisionHighlights?: BoardDecisionHighlightsViewModel;
+  decisionHighlights?: BoardDecisionHighlightsViewModel | undefined;
 }
 
 /**
@@ -1164,8 +1163,8 @@ function countPlayerMoves(playerNumber: number, gameState: GameState): number {
 }
 
 export interface ToVictoryViewModelOptions {
-  currentUserId?: string;
-  isDismissed?: boolean;
+  currentUserId?: string | undefined;
+  isDismissed?: boolean | undefined;
 }
 
 /**
@@ -1293,13 +1292,13 @@ function getVictoryMessage(
     case 'ring_elimination':
       return {
         title: `🏆 ${winnerName} Wins!`,
-        description: 'Victory by eliminating over half of opponent rings',
+        description: 'Victory by capturing over 50% of the total rings',
         titleColorClass,
       };
     case 'territory_control':
       return {
         title: `🏰 ${winnerName} Wins!`,
-        description: 'Victory by controlling majority of the board',
+        description: 'Victory by controlling the majority of territory',
         titleColorClass,
       };
     case 'last_player_standing': {

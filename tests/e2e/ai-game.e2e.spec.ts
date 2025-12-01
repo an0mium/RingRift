@@ -177,18 +177,20 @@ test.describe('AI Game E2E Tests', () => {
      * require the AI service to be running with appropriate configurations.
      */
 
-    test.skip('displays AI difficulty level in game info', async ({ page }) => {
-      // Skip: Requires specific AI difficulty selection UI in game creation
-      // which may not be fully implemented in the current lobby
+    test('displays AI difficulty level in game info', async ({ page }) => {
+      // AI difficulty is displayed in the GameHUD player cards using labels from
+      // getAIDifficultyInfo(): "Beginner · Random", "Easy · Heuristic",
+      // "Advanced · Minimax", "Expert · MCTS", "Grandmaster · Descent"
       await registerAndLogin(page);
       await createGame(page, { vsAI: true });
 
       const gamePage = new GamePage(page);
       await gamePage.waitForReady();
 
-      // Look for difficulty indicators like "Beginner", "Intermediate", "Advanced", "Expert"
+      // Look for difficulty indicators - the GameHUD shows labels like
+      // "Advanced · Minimax Lv5" for AI players
       const difficultyIndicator = page.locator(
-        'text=/Beginner|Intermediate|Advanced|Expert|Lv\\d/i'
+        'text=/Beginner|Easy|Advanced|Expert|Grandmaster|Lv\\d/i'
       );
       await expect(difficultyIndicator.first()).toBeVisible({ timeout: 10_000 });
     });

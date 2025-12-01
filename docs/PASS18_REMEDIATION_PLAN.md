@@ -3,7 +3,17 @@
 **Priority:** P0 (Critical path for v1.0)
 **Focus:** Stabilising TS rules/host integration, restoring advanced-phase & RNG parity, and executing orchestrator-first rollout with deep multi-engine parity.
 
+> **P18.6-1 Update (2025-12-01):** P18.1-5 tasks substantially complete:
+>
+> - P18.1-\*: Host parity and capture/territory alignment ✅
+> - P18.2-\*: Territory and elimination integration ✅
+> - P18.3-\*: RNG determinism and decision lifecycle ✅
+> - P18.4-\*: Orchestrator Phase 4 rollout (100% in all environments) ✅
+> - P18.5-\*: Extended contract vectors (43 cases, 0 mismatches), swap_sides parity ✅
+> - P18.18: Skipped test triage complete ✅
+
 > This plan is the task-level companion to:
+>
 > - [`docs/PASS18_ASSESSMENT_REPORT.md`](docs/PASS18_ASSESSMENT_REPORT.md:1)
 > - [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:1)
 
@@ -27,10 +37,11 @@ Each PASS18 task is described with:
 
 These tasks directly remediate the weakest aspect: TS rules/host integration & RNG parity across backend host, client sandbox, and Python rules/AI.
 
-### P18.1-CODE – Stabilise capture & chain-capture host parity
+### P18.1-CODE – Stabilise capture & chain-capture host parity ✅ COMPLETE
 
 - **Agent Mode:** Code
 - **Priority:** P0
+- **Status:** ✅ Complete (2025-12-01) – Capture/territory host unification complete, advanced-phase ordering aligned
 
 - **Scope:**
   - Investigate and fix divergence in capture-related suites, including:
@@ -52,10 +63,11 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 
 ---
 
-### P18.2-CODE – Territory & elimination integration corrections
+### P18.2-CODE – Territory & elimination integration corrections ✅ COMPLETE
 
 - **Agent Mode:** Code
 - **Priority:** P0
+- **Status:** ✅ Complete (2025-12-01) – Territory processing and forced elimination aligned
 
 - **Scope:**
   - Debug and correct complex long-turn scenarios where line formation, territory disconnection, and Q23 self-elimination interact, focusing on:
@@ -81,10 +93,11 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 
 ---
 
-### P18.3-CODE – AI RNG parity & seeded behaviour across hosts
+### P18.3-CODE – AI RNG parity & seeded behaviour across hosts ✅ COMPLETE
 
 - **Agent Mode:** Code
 - **Priority:** P0
+- **Status:** ✅ Complete (2025-12-01) – RNG seed handling aligned per P18.2-1_AI_RNG_PATHS.md, decision lifecycle spec complete per P18.3-1
 
 - **Scope:**
   - Restore deterministic, seed-controlled AI behaviour across:
@@ -105,6 +118,9 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 - **Dependencies:**
   - Relies on existing RNG design described in [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1).
   - Complements P18.1-CODE and P18.2-CODE; all three should be complete before long-running orchestrator soaks (P18.9-DEBUG).
+
+- **Upstream spec:**
+  - **P18.3-1 – Decision Lifecycle Spec.** See [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md:1) for the canonical description of host decision, timeout, reconnect, and resign semantics used by P18.8-DEBUG and follow-on implementation/debug tasks.
 
 ---
 
@@ -138,10 +154,11 @@ These tasks directly remediate the weakest aspect: TS rules/host integration & R
 
 These tasks advance the hardest outstanding problem: executing orchestrator-first rollout with deep multi-engine parity under live load.
 
-### P18.4-DEVOPS – Execute orchestrator Phase 1 in staging
+### P18.4-DEVOPS – Execute orchestrator Phase 1 in staging ✅ COMPLETE (now Phase 4)
 
 - **Agent Mode:** DevOps
 - **Priority:** P1
+- **Status:** ✅ Complete (2025-12-01) – Orchestrator at Phase 4 (100% rollout in all environments)
 
 - **Scope:**
   - Configure the staging environment to run with the orchestrator adapter enabled for all games:
@@ -149,6 +166,7 @@ These tasks advance the hardest outstanding problem: executing orchestrator-firs
     - `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
     - `RINGRIFT_RULES_MODE=ts` (TS authoritative with Python in shadow mode).
   - Follow the staged rollout steps in [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](docs/ORCHESTRATOR_ROLLOUT_PLAN.md:1) and [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md:1) for at least 48h of staging traffic (synthetic or real).
+  - **Gating:** Ensure all mandatory suites listed in [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §6.5](docs/ORCHESTRATOR_ROLLOUT_PLAN.md:636) (Capture/Territory Host Parity, AI RNG Parity) are green before entry.
   - Ensure parity and invariant metrics are collected and visible in dashboards (for example, `ringrift_rules_parity_mismatches_total`, S-invariant counters, ACTIVE_NO_MOVES regressions).
 
 - **Acceptance criteria:**
@@ -162,13 +180,15 @@ These tasks advance the hardest outstanding problem: executing orchestrator-firs
 
 ---
 
-### P18.5-ARCH – Expand contract vectors & parity artefacts
+### P18.5-ARCH – Expand contract vectors & parity artefacts ✅ COMPLETE
 
 - **Agent Mode:** Architect
 - **Priority:** P1
+- **Status:** ✅ Complete (2025-12-01) – 43 contract vectors (0 mismatches), swap_sides parity verified
 
 - **Scope:**
-  - Design and add at least 10 new contract vectors and/or snapshot traces covering “long tail” interactions, including:
+  - Design and add at least 10 new contract vectors and/or snapshot traces covering "long tail" interactions, including:
+    - **Actual delivery: 43 vectors across 4 families** (chain_capture, forced_elimination, territory_line_endgame, hex_edge_cases)
     - Hex board territory disconnection with simultaneous line formation.
     - Three- and four-player capture chains with mixed line/territory consequences.
     - Combined ANM and territory-processing edge cases already documented in [`docs/STRICT_INVARIANT_SOAKS.md`](docs/STRICT_INVARIANT_SOAKS.md:1) and [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:1).
@@ -218,6 +238,7 @@ These tasks advance the hardest outstanding problem: executing orchestrator-firs
 
 - **Scope:**
   - Plan and execute a limited-scope production-preview rollout of the orchestrator adapter (for example, a small percentage of games or specific board types), with explicit SLO and rollback criteria derived from the staging results (P18.4-DEVOPS).
+  - **Gating:** Re-verify that the **Capture/Territory Host Parity** and **AI RNG Parity** suites remain green and that no new `INV-ACTIVE-NO-MOVES` regressions have appeared in staging.
   - Coordinate feature flags and configuration (`ORCHESTRATOR_ROLLOUT_PERCENTAGE`, board-type filters, environment variables) so that the rollout can be safely paused or rolled back.
   - Ensure on-call and runbook coverage for orchestrator-related incidents.
 
@@ -279,7 +300,6 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
   - TS ↔ Python parity tests for `swap_sides` (gating + application) are green in CI.
   - Sandbox and backend hosts show clear, user‑facing copy when the pie rule is available or has been used (event log + HUD chip).
   - Training/eval logs expose basic `swap_sides` usage metrics without materially impacting runtime.
-
 
 ### P18.7-ARCH – Core docs clean-up & indexing alignment
 
@@ -361,7 +381,7 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
     - [`ringrift_simple_human_rules.md`](ringrift_simple_human_rules.md:1)
     - [`ringrift_compact_rules.md`](ringrift_compact_rules.md:1)
     - [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1)
-    aligned with HUD/game UI copy for chain capture, line and territory decisions, and victory thresholds.
+      aligned with HUD/game UI copy for chain capture, line and territory decisions, and victory thresholds.
   - Use findings in [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:1) to prioritise the most confusing areas.
 
 - **Acceptance criteria:**
@@ -373,25 +393,108 @@ These tasks align docs and UX with the updated weakest aspect and hardest proble
 
 ---
 
-## 5. Doc alignment findings (PASS18 summary)
+## 5. PASS18-Phase 3 Remediation Backlog (New)
+
+> **Focus:** Frontend UX Polish & Test Suite Cleanup.
+> **Status:** Active (2025-12-01).
+
+### P18.15-CODE – Frontend Keyboard Navigation
+
+- **Agent Mode:** Code
+- **Priority:** P0
+- **Scope:**
+  - Implement keyboard focus management for `BoardView` cells.
+  - Support arrow key navigation (Up/Down/Left/Right) to move selection.
+  - Support Enter/Space to select/place/move.
+  - Ensure focus is visible and accessible.
+- **Acceptance Criteria:**
+  - Users can play a full game using only the keyboard.
+  - Focus indicators are clear.
+  - No focus traps.
+
+### P18.16-CODE – Move History UI
+
+- **Agent Mode:** Code
+- **Priority:** P0
+- **Scope:**
+  - Create a `MoveHistory` component in the Game Page.
+  - Display a list of past moves with descriptive text (e.g., "Player 1 placed ring at C3").
+  - (Optional) Allow clicking a move to view the board state at that time (read-only).
+- **Acceptance Criteria:**
+  - History updates in real-time.
+  - Scrollable list of moves.
+  - Clear, human-readable move descriptions.
+
+### P18.17-CODE – Sandbox Scenario Picker
+
+- **Agent Mode:** Code
+- **Priority:** P1
+- **Scope:**
+  - Add a "Load Scenario" button to the Sandbox UI.
+  - Implement a modal to select from pre-defined scenarios (e.g., from `RULES_SCENARIO_MATRIX`).
+  - Allow resetting the board to the scenario start state.
+- **Acceptance Criteria:**
+  - Users can load at least 5 key scenarios (e.g., Chain Capture, Line Formation).
+  - Board state updates correctly upon load.
+
+### P18.18-DEBUG – Skipped Test Triage ✅ COMPLETE
+
+- **Agent Mode:** Debug
+- **Priority:** P1
+- **Status:** ✅ Complete (2025-12-01) – See [`docs/P18.18_SKIPPED_TEST_TRIAGE.md`](docs/P18.18_SKIPPED_TEST_TRIAGE.md:1)
+- **Scope:**
+  - Analyze the 176 skipped tests.
+  - Categorize them: Fix, Delete, or Defer.
+  - Fix at least 20 high-value skipped tests.
+  - Delete permanently obsolete tests (e.g., for legacy features).
+- **Completed Work:**
+  - Obsolete tests removed from active suite
+  - `RulesMatrix.Comprehensive` partially re-enabled (7 passing, 3 skipped)
+  - `OrchestratorSInvariant.regression` re-enabled
+  - Detailed triage report published
+- **Acceptance Criteria:**
+  - Skipped test count reduced by at least 20.
+  - A plan exists for the remaining skipped tests.
+
+### P18.19-CODE – Legacy Code Deprecation
+
+- **Agent Mode:** Code
+- **Priority:** P1
+- **Scope:**
+  - Identify legacy turn-processing methods in `GameEngine.ts` that are no longer used by the Orchestrator.
+  - Mark them with `@deprecated`.
+  - Add runtime warnings if they are called (optional "scream test").
+- **Acceptance Criteria:**
+  - Legacy methods are clearly marked.
+  - No regressions in Orchestrator-based gameplay.
+
+---
+
+## 6. Doc alignment findings (PASS18 summary)
+
+> **P18.6-1 Update (2025-12-01):** Several docs updated during alignment task. See below.
 
 This section summarises the PASS18 documentation audit for core SSOT and high-visibility docs.
 
-| Doc | Status | Notes |
-| :--- | :---: | :--- |
-| [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1) | **Current** | Updated to focus on host integration & deep multi-engine parity as the highest-risk area and orchestrator rollout as the hardest problem. Serves as SSoT for risk framing. |
-| [`README.md`](README.md:1) | **Current (minor refresh optional)** | Setup and quickstart instructions are accurate; does not embed strong claims about current weakest aspect or test health. Could optionally add a short pointer to PASS18/weakness docs for readers seeking risk context. |
-| [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1) | **Current** | Canonical RR‑CANON rules for capture, lines, territory, and Q23 are consistent with current engine implementations and parity tests. |
-| [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1) | **Current** | Accurately describes shared TS engine, orchestrator, adapters, and Python parity role. No major drift found. |
-| [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1) | **Current (watchlist)** | Architecture and RNG strategy are correct; some language about historical Python simplifications may need softening once PASS18 parity work completes. |
-| [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1) | **Needs update (snapshot framing)** | Test counts and "all tests passing" statements are historically true but now stale; should be reframed as a time-stamped snapshot and linked to current test health. |
-| [`CURRENT_RULES_STATE.md`](CURRENT_RULES_STATE.md:1) | **Needs update** | "No critical known issues" is no longer accurate given open advanced-phase/parity work; should explicitly reference PASS18 weakest-aspect findings. |
-| [`DOCUMENTATION_INDEX.md`](DOCUMENTATION_INDEX.md:1) | **Needs update** | Still describes ANM/forced-elimination as the "current highest-risk semantics" area; should either mark that as historical or point to PASS18/weakness docs for current risk. |
-| [`docs/INDEX.md`](docs/INDEX.md:1) | **Needs update** | Over-emphasises ANM invariants as "highest-risk semantics"; should add notes that current weakest aspect & hardest problem are tracked in PASS18 and weakness reports. |
-| [`docs/SSOT_BANNER_GUIDE.md`](docs/SSOT_BANNER_GUIDE.md:1) | **Current** | Correctly defines SSOT banner expectations and categories; no changes required beyond optional references to new PASS18 docs. |
-| [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1) | **Current (historical focus)** | Accurately describes dynamic verification approach with a focus on ANM and earlier risk areas; remains useful as a historical and methodological reference. |
-| [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1) | **Current** | Documents tricky rules edge cases consistent with RR‑CANON; can be expanded with new cases found during PASS18 but not fundamentally stale. |
-| [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](docs/supplementary/RULES_RULESET_CLARIFICATIONS.md:1) | **Current** | Provides clarifications for earlier ambiguities; still aligned with current rules. |
-| [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:1) | **Current (to be extended)** | Correctly identifies UX/documentation mismatches; PASS18 UX work will likely add new findings rather than invalidate existing ones. |
+| Doc                                                                                                          |                Status                | Notes                                                                                                                                                                                                                    |
+| :----------------------------------------------------------------------------------------------------------- | :----------------------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1)                                                                     |             **Current**              | Updated to focus on host integration & deep multi-engine parity as the highest-risk area and orchestrator rollout as the hardest problem. Serves as SSoT for risk framing.                                               |
+| [`README.md`](README.md:1)                                                                                   | **Current (minor refresh optional)** | Setup and quickstart instructions are accurate; does not embed strong claims about current weakest aspect or test health. Could optionally add a short pointer to PASS18/weakness docs for readers seeking risk context. |
+| [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1)                                                       |             **Current**              | Canonical RR‑CANON rules for capture, lines, territory, and Q23 are consistent with current engine implementations and parity tests.                                                                                     |
+| [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1)                                             |             **Current**              | Accurately describes shared TS engine, orchestrator, adapters, and Python parity role. No major drift found.                                                                                                             |
+| [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1)                                                                 |       **Current (watchlist)**        | Architecture and RNG strategy are correct; some language about historical Python simplifications may need softening once PASS18 parity work completes.                                                                   |
+| [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1)                                               |       **✅ Updated (P18.6-1)**       | Updated with post-P18.5 parity status (43 vectors, 0 mismatches), orchestrator Phase 4 complete, risk register added, test health section aligned with P18.18.                                                           |
+| [`CURRENT_RULES_STATE.md`](CURRENT_RULES_STATE.md:1)                                                         |           **Needs update**           | "No critical known issues" is no longer accurate given open advanced-phase/parity work; should explicitly reference PASS18 weakest-aspect findings.                                                                      |
+| [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:1)                                           |       **✅ Updated (P18.6-1)**       | Added Section 3 "Completed Remediations" documenting P18.1-5 work, updated historical assessments with resolution notes, downgraded hardest problem severity.                                                            |
+| [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md:1)                                                                       |       **✅ Updated (P18.6-1)**       | Downgraded P0.2 parity severity to LOW, added P18.5-\* resolution details, added Design Clarifications section (DC.1 for mid-phase vectors), updated historical issues.                                                  |
+| [`DOCUMENTATION_INDEX.md`](DOCUMENTATION_INDEX.md:1)                                                         |           **Needs update**           | Still describes ANM/forced-elimination as the "current highest-risk semantics" area; should either mark that as historical or point to PASS18/weakness docs for current risk.                                            |
+| [`docs/INDEX.md`](docs/INDEX.md:1)                                                                           |           **Needs update**           | Over-emphasises ANM invariants as "highest-risk semantics"; should add notes that current weakest aspect & hardest problem are tracked in PASS18 and weakness reports.                                                   |
+| [`docs/SSOT_BANNER_GUIDE.md`](docs/SSOT_BANNER_GUIDE.md:1)                                                   |             **Current**              | Correctly defines SSOT banner expectations and categories; no changes required beyond optional references to new PASS18 docs.                                                                                            |
+| [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1)                                           |    **Current (historical focus)**    | Accurately describes dynamic verification approach with a focus on ANM and earlier risk areas; remains useful as a historical and methodological reference.                                                              |
+| [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:1) |             **Current**              | Documents tricky rules edge cases consistent with RR‑CANON; can be expanded with new cases found during PASS18 but not fundamentally stale.                                                                              |
+| [`docs/supplementary/RULES_RULESET_CLARIFICATIONS.md`](docs/supplementary/RULES_RULESET_CLARIFICATIONS.md:1) |             **Current**              | Provides clarifications for earlier ambiguities; still aligned with current rules.                                                                                                                                       |
+| [`docs/supplementary/RULES_DOCS_UX_AUDIT.md`](docs/supplementary/RULES_DOCS_UX_AUDIT.md:1)                   |     **Current (to be extended)**     | Correctly identifies UX/documentation mismatches; PASS18 UX work will likely add new findings rather than invalidate existing ones.                                                                                      |
+| [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](docs/ORCHESTRATOR_ROLLOUT_PLAN.md:1)                                   |             **Current**              | Already reflects Phase 4 completion status.                                                                                                                                                                              |
+| [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:1)                       |             **Current**              | Already aligned with extended contract vectors and parity status.                                                                                                                                                        |
 
-These findings feed directly into P18.7-ARCH (core docs cleanup) and P18.10-ARCH (SSOT & CI guardrails), and they are summarised in the PASS18 assessment report’s documentation sections.
+These findings feed directly into P18.7-ARCH (core docs cleanup) and P18.10-ARCH (SSOT & CI guardrails), and they are summarised in the PASS18 assessment report's documentation sections.

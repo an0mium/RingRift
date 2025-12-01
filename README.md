@@ -1,21 +1,22 @@
 # RingRift - Multiplayer Strategy Game
 
-**Doc Status (2025-11-28): Active (project overview & navigation)**
+**Doc Status (2025-12-01): Active (project overview & navigation)**
 
 - High-level project overview, setup, and API surface.
 - Not a rules or lifecycle SSoT. For rules semantics, defer to `RULES_CANONICAL_SPEC.md` plus the shared TypeScript rules engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts + v2 contract vectors). For lifecycle semantics (move/decision/WebSocket), defer to `docs/CANONICAL_ENGINE_API.md` plus shared TS/WebSocket types and schemas.
 
-⚠️ **PROJECT STATUS: ENGINE/AI-FOCUSED BETA – BACKEND PLAY & AI TURNS WORK; UX & SCENARIO TESTS STILL IN PROGRESS** ⚠️
+⚠️ **PROJECT STATUS: STABLE BETA – BACKEND & RULES ENGINE ROBUST; FRONTEND UX POLISH IN PROGRESS** ⚠️
 
-> **Important:** Core game mechanics are largely implemented, and there is now a **playable backend game flow**: the server’s `GameEngine` drives rules, WebSocket-backed games use it as the source of truth, the React client renders boards and submits moves, and AI opponents can make moves via the Python AI service. In addition, a **client-local sandbox engine** (`ClientSandboxEngine`) powers the `/sandbox` route with strong rules parity and dedicated Jest suites for movement, captures, lines, territory, and victory checks. However, the UI/UX is still evolving and there is not yet a comprehensive scenario matrix for every rule/FAQ example. See [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md) for code‑verified status.
+> **Important:** The core game engine and backend are now stable and feature-complete (Orchestrator at 100% rollout). The current focus is on **Frontend UX Polish** (sandbox scenario picker, spectator UI, and additional refinements building on existing keyboard navigation and move history) and **Test Suite Maintenance** (cleanup of skipped tests). See [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md) for code‑verified status.
 
 A web-based multiplayer implementation of the RingRift strategy game supporting 2-4 players with flexible human/AI combinations across multiple board configurations.
 
 ## 📋 Current Status
 
-**Last Updated:** November 28, 2025
-**Verification:** Code-verified assessment (see `CURRENT_STATE_ASSESSMENT.md`)
-**Overall Progress:** Strong foundation with critical gaps; see `CURRENT_STATE_ASSESSMENT.md` for the latest high-level summary.
+**Last Updated:** 2025-12-01
+**Test Health:** 2,670 TypeScript tests passing, 0 failing, 176 skipped; 824 Python tests passing
+**Verification:** Code-verified assessment (see `CURRENT_STATE_ASSESSMENT.md` and `docs/PASS18_ASSESSMENT_REPORT_PASS3.md`)
+**Overall Progress:** Stable beta approaching production readiness; see `CURRENT_STATE_ASSESSMENT.md` for the latest high-level summary.
 
 ### ✅ What's Working
 
@@ -34,8 +35,11 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 - ✅ **Player state tracking** - Ring counts, eliminations, territory
 - ✅ **Hexagonal board support** - Full 331-space board validated
 - ✅ **Client-local sandbox engine** - `/sandbox` uses `ClientSandboxEngine` plus `sandboxMovement.ts`, `sandboxCaptures.ts`, `sandboxTerritory.ts`, and `sandboxVictory.ts` (with line and territory processing now wired directly to shared helpers) to run full games in the browser (movement, captures, lines, territory, and ring/territory victories) with dedicated Jest suites under `tests/unit/ClientSandboxEngine.*.test.ts`.
+- ✅ **Orchestrator at 100%** - Shared turn orchestrator handles all turn processing; legacy paths deprecated
+- ✅ **Accessibility foundations** - 55 ARIA/role attributes across 12 components (dialogs, grids, live regions)
+- ✅ **Move history panel** - `GameHistoryPanel` integrated into backend games with expandable move details
 
-### ⚠️ Critical Gaps (Blocks Production-Quality Play)
+### ⚠️ Remaining Gaps (UX Polish)
 
 - ⚠️ **Player choice system is implemented but not yet deeply battle-tested** – Shared types and `PlayerInteractionManager` exist and GameEngine uses them for line order, line reward, ring elimination, region order, and capture direction. `WebSocketInteractionHandler`, `GameContext`, and `ChoiceDialog` wire these choices to human clients for backend-driven games, and `AIInteractionHandler` answers choices for AI players via local heuristics and (for some choices) the Python AI service. What’s missing is broad scenario coverage (all FAQ/rules examples), polished UX around errors/timeouts, and full test coverage of complex multi-choice turns.
 - ⚠️ **Chain captures enforced engine-side; more edge-case tests still needed** – GameEngine maintains internal chain-capture state and uses `CaptureDirectionChoice` via `PlayerInteractionManager` to drive mandatory continuation when multiple follow-up captures exist. Core behaviour is covered by focused unit/integration tests, but additional rule/FAQ scenarios (e.g. complex 180° and cyclic patterns) and full UI/AI flows still need to be exercised and encoded as named scenarios.

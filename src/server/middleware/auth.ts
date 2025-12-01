@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import { getDatabaseClient } from '../database/connection';
 import { createError } from './errorHandler';
 import { logger, getRequestContext } from '../utils/logger';
@@ -14,6 +14,17 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
+/**
+ * Safely get the authenticated user ID from a request.
+ * Throws 401 if user is not authenticated.
+ */
+export function getAuthUserId(req: AuthenticatedRequest): string {
+  if (!req.user?.id) {
+    throw createError('Authentication required', 401, 'NOT_AUTHENTICATED');
+  }
+  return req.user.id;
+}
+
 export interface VerifiedAccessToken {
   userId: string;
   email: string;
@@ -22,6 +33,25 @@ export interface VerifiedAccessToken {
    * When absent, it is treated as version 0 for backwards compatibility.
    */
   tokenVersion?: number;
+}
+
+/**
+ * JWT payload for access tokens.
+ */
+interface AccessTokenPayload {
+  userId: string;
+  email: string;
+  tv?: number;
+}
+
+/**
+ * JWT payload for refresh tokens.
+ */
+interface RefreshTokenPayload {
+  userId: string;
+  email: string;
+  type: 'refresh';
+  tv?: number;
 }
 
 /**
@@ -146,19 +176,22 @@ const getRefreshTokenSecret = (): string => {
 export const verifyToken = (token: string): VerifiedAccessToken => {
   try {
     const secret = getAccessTokenSecret();
-    const decoded = jwt.verify(token, secret) as any;
+    const decoded = jwt.verify(token, secret) as AccessTokenPayload;
 
     if (!decoded.userId || !decoded.email) {
       throw new Error('Invalid token payload');
     }
 
-    const tokenVersion = typeof decoded.tv === 'number' ? decoded.tv : undefined;
-
-    return {
+    const result: VerifiedAccessToken = {
       userId: decoded.userId,
       email: decoded.email,
-      tokenVersion,
     };
+
+    if (typeof decoded.tv === 'number') {
+      result.tokenVersion = decoded.tv;
+    }
+
+    return result;
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
       throw createError('Token has expired', 401, 'TOKEN_EXPIRED');
@@ -188,9 +221,17 @@ export const validateUser = async (userId: string, tokenVersion?: number) => {
   // even if the generated Prisma client has not yet been regenerated with
   // the new `User.tokenVersion` field. At runtime, the field will be present
   // once migrations and `prisma generate` have been applied.
-  const user = (await (prisma as any).user.findUnique({
+
+  const user = (await prisma.user.findUnique({
     where: { id: userId },
-  })) as any;
+  })) as {
+    id: string;
+    email: string;
+    username: string;
+    role: string;
+    isActive: boolean;
+    tokenVersion?: number;
+  } | null;
 
   if (!user) {
     throw createError('User not found', 401, 'USER_NOT_FOUND');
@@ -225,7 +266,7 @@ export const generateToken = (user: {
 }): string => {
   const secret = getAccessTokenSecret();
 
-  const payload: any = {
+  const payload: AccessTokenPayload = {
     userId: user.id,
     email: user.email,
   };
@@ -236,13 +277,11 @@ export const generateToken = (user: {
     payload.tv = user.tokenVersion;
   }
 
-  const options: any = {
+  return jwt.sign(payload, secret, {
     expiresIn: config.auth.accessTokenExpiresIn,
     issuer: 'ringrift',
     audience: 'ringrift-users',
-  };
-
-  return jwt.sign(payload, secret, options);
+  } as SignOptions);
 };
 
 export const generateRefreshToken = (user: {
@@ -252,7 +291,7 @@ export const generateRefreshToken = (user: {
 }): string => {
   const secret = getRefreshTokenSecret();
 
-  const payload: any = {
+  const payload: RefreshTokenPayload = {
     userId: user.id,
     email: user.email,
     type: 'refresh',
@@ -264,13 +303,11 @@ export const generateRefreshToken = (user: {
     payload.tv = user.tokenVersion;
   }
 
-  const options: any = {
+  return jwt.sign(payload, secret, {
     expiresIn: config.auth.refreshTokenExpiresIn,
     issuer: 'ringrift',
     audience: 'ringrift-users',
-  };
-
-  return jwt.sign(payload, secret, options);
+  } as SignOptions);
 };
 
 export const verifyRefreshToken = (
@@ -279,19 +316,22 @@ export const verifyRefreshToken = (
   try {
     const secret = getRefreshTokenSecret();
 
-    const decoded = jwt.verify(token, secret) as any;
+    const decoded = jwt.verify(token, secret) as RefreshTokenPayload;
 
     if (!decoded.userId || !decoded.email || decoded.type !== 'refresh') {
       throw new Error('Invalid refresh token payload');
     }
 
-    const tokenVersion = typeof decoded.tv === 'number' ? decoded.tv : undefined;
-
-    return {
+    const result: { userId: string; email: string; tokenVersion?: number } = {
       userId: decoded.userId,
       email: decoded.email,
-      tokenVersion,
     };
+
+    if (typeof decoded.tv === 'number') {
+      result.tokenVersion = decoded.tv;
+    }
+
+    return result;
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
       throw createError('Refresh token has expired', 401, 'REFRESH_TOKEN_EXPIRED');

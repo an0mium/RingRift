@@ -4,6 +4,7 @@ import { authApi, gameApi } from '../services/api';
 import { User } from '../../shared/types/user';
 import { Game } from '../../shared/types/game';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { extractErrorMessage } from '../utils/errorReporting';
 
 export default function ProfilePage() {
   const { user: currentUser } = useAuth();
@@ -43,8 +44,8 @@ export default function ProfilePage() {
       setProfile(updatedUser);
       setIsEditing(false);
       setError(null);
-    } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Failed to update profile');
+    } catch (error: unknown) {
+      setError(extractErrorMessage(error, 'Failed to update profile'));
     }
   };
 

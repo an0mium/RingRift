@@ -179,7 +179,7 @@ export class ShadowModeComparator {
       sessionId,
       moveNumber,
       legacyResult: legacy,
-      orchestratorResult: orchestrator!,
+      orchestratorResult: orchestrator,
       isMatch: differences.length === 0,
       differences,
       legacyLatencyMs: legacyLatency,
@@ -269,9 +269,11 @@ export class ShadowModeComparator {
     // Compare stack contents at common positions
     for (const key of legacyStackKeys) {
       if (orchStackKeys.has(key)) {
-        const legacyStack = legacyBoard.stacks.get(key)!;
-        const orchStack = orchBoard.stacks.get(key)!;
-        this.compareStacks(key, legacyStack, orchStack, differences);
+        const legacyStack = legacyBoard.stacks.get(key);
+        const orchStack = orchBoard.stacks.get(key);
+        if (legacyStack && orchStack) {
+          this.compareStacks(key, legacyStack, orchStack, differences);
+        }
       }
     }
 

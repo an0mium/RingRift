@@ -137,6 +137,7 @@ def _run_probes_for_candidate(
         seed=seed,
         eval_randomness=eval_randomness,
         debug_callback=_debug_callback,
+        progress_label=f"plateau-probe | profile={label}",
     )
 
     weight_l2_default = _compute_l2(candidate, baseline)

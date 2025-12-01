@@ -259,6 +259,17 @@ export function GameHistoryPanel({
           role="region"
           aria-label="Move history"
         >
+          {/* Terminal result summary, when available */}
+          {history?.result && !loading && !error && (
+            <div className="px-4 py-2 border-b border-slate-700/50 bg-slate-900/60 text-xs text-slate-200 flex items-center justify-between">
+              <span className="font-semibold">
+                Result: {history.result.reason.replace(/_/g, ' ')}
+              </span>
+              {history.result.winner !== undefined && history.result.winner !== null && (
+                <span className="text-slate-400">Winner: P{history.result.winner}</span>
+              )}
+            </div>
+          )}
           {/* Loading state */}
           {loading && (
             <div className="px-4 py-8 text-center">

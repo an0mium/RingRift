@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { registerAndLogin, createGame, generateTestUser } from './helpers/test-utils';
+import {
+  registerAndLogin,
+  createGame,
+  generateTestUser,
+  createFixtureGame,
+  makeMove,
+  waitForGameReady,
+} from './helpers/test-utils';
 import { GamePage, HomePage } from './pages';
 
 /**
@@ -184,10 +191,10 @@ test.describe('Rating and Leaderboard E2E Tests', () => {
   });
 
   test.describe('Rating Updates', () => {
-    test.skip('rating updates after completing a game', async ({ page }) => {
-      // Skip: Requires completing a full game to observe rating changes
-      // This is a complex end-to-end scenario
-
+    test('rating updates after completing a rated game', async ({ page }) => {
+      // Uses near-victory fixture to fast-forward to a state where one
+      // capture triggers elimination victory. The fixture creates a rated
+      // game where Player 1 can win with a single move.
       await registerAndLogin(page);
 
       // Navigate to profile and record initial rating
@@ -201,64 +208,103 @@ test.describe('Rating and Leaderboard E2E Tests', () => {
       const initialRatingElement = page.locator('.text-emerald-400').first();
       const initialRatingText = await initialRatingElement.textContent();
       const initialRating = parseInt(initialRatingText || '1200', 10);
+      expect(initialRating).toBeGreaterThan(0);
 
-      // Create and complete a game
-      await homePage.goto();
-      await createGame(page, { vsAI: true });
+      // Create a rated near-victory fixture game
+      const { gameId } = await createFixtureGame(page, {
+        scenario: 'near_victory_elimination',
+        isRated: true,
+      });
 
-      // ... game completion logic would go here ...
-      // This requires the game to actually end (win/lose/draw)
+      await page.goto(`/game/${gameId}`);
+      await waitForGameReady(page);
 
-      // Navigate back to profile
+      // Make the winning capture move: (3,3) -> (4,3)
+      await makeMove(page, '3,3', '4,3');
+
+      // Wait for victory modal to confirm game completed
+      const victoryModal = page.locator('[data-testid="victory-modal"], .victory-modal');
+      await expect(victoryModal).toBeVisible({ timeout: 30_000 });
+
+      // Give the backend time to persist rating updates
+      await page.waitForTimeout(2_000);
+
+      // Navigate back to profile and verify rating changed
       await homePage.goto();
       await homePage.goToProfile();
+      await page.waitForURL('**/profile', { timeout: 10_000 });
 
-      // Check if rating changed (it may not change for unrated games)
       const newRatingElement = page.locator('.text-emerald-400').first();
       await expect(newRatingElement).toBeVisible();
+      const newRatingText = await newRatingElement.textContent();
+      const newRating = parseInt(newRatingText || '0', 10);
+
+      // Rating should have changed after winning a rated game
+      expect(newRating).not.toBe(initialRating);
     });
 
-    test.skip('rated resignations affect rating while unrated resignations do not', async ({
-      page,
-    }) => {
-      // SKIP: Requires completing both rated and unrated games specifically
-      // via the HTTP resignation path (POST /api/games/:gameId/leave) and
-      // having rating updates fully wired behind that endpoint.
-      //
-      // Intended scenario:
-      // 1. Register and log in as a rated user, record initial rating from
-      //    the profile page.
-      // 2. Create and start a *rated* backend game (e.g. vs AI), make at
-      //    least one move so the game is clearly active, then resign via:
-      //        POST /api/games/:gameId/leave
-      //    or the corresponding UI control that calls that route.
-      // 3. After the game completes, return to the profile page and assert
-      //    that the rating has changed according to the configured rating
-      //    policy for resignation (e.g. loss for the resigning player).
-      // 4. Next, create an *unrated* game (isRated=false), again resign via
-      //    /api/games/:gameId/leave once the game is active.
-      // 5. Return to the profile page and assert that the rating is unchanged
-      //    compared to the post-rated-resignation value, confirming that
-      //    unrated resignations do not affect rating.
-      //
-      // This test should be enabled once:
-      //  - Rating updates are implemented for /games/:gameId/leave, and
-      //  - There is a stable way in E2E to create both rated and unrated
-      //    games and to drive them to an active state before resigning.
-
+    test('rated resignations affect rating while unrated resignations do not', async ({ page }) => {
       await registerAndLogin(page);
 
       const homePage = new HomePage(page);
+
+      // Helper to read current rating from profile
+      const readRating = async (): Promise<number> => {
+        await homePage.goto();
+        await homePage.goToProfile();
+        await page.waitForURL('**/profile', { timeout: 10_000 });
+        const ratingText = await page.locator('.text-emerald-400').first().textContent();
+        return parseInt((ratingText || '').replace(/[^0-9]/g, ''), 10);
+      };
+
+      const initialRating = await readRating();
+      expect(initialRating).toBeGreaterThan(0);
+
+      // Create a rated game (default behaviour isRated=true for backend games)
       await homePage.goto();
-      await homePage.goToProfile();
+      const ratedGame = await createGame(page, { vsAI: true });
+      const ratedGameId = ratedGame.id;
 
-      const initialRating = await page.locator('.text-emerald-400').first().textContent();
+      const ratedGamePage = new GamePage(page);
+      await ratedGamePage.waitForReady();
 
-      // Placeholder steps for future implementation:
-      // - Create and resign a rated game, then read updated rating.
-      // - Create and resign an unrated game, then re-check rating.
-      // For now we only assert that we successfully read the starting rating.
-      expect(initialRating).toBeTruthy();
+      // Make at least one move so the game is clearly active
+      await ratedGamePage.clickFirstValidTarget();
+
+      // Resign via HTTP leave endpoint; this routes through GameSession and
+      // RatingService.finishGame for rated games.
+      await page.request.post(`/api/games/${ratedGameId}/leave`, {
+        headers: {
+          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('token'))}`,
+        },
+      });
+
+      // Give the backend a short window to persist rating updates
+      await page.waitForTimeout(2_000);
+
+      const afterRatedResignRating = await readRating();
+      expect(afterRatedResignRating).not.toBeNaN();
+      expect(afterRatedResignRating).not.toBe(initialRating);
+
+      // Now create an unrated game and resign; rating should not change.
+      await homePage.goto();
+      const unratedGame = await createGame(page, { vsAI: true, isRated: false });
+      const unratedGameId = unratedGame.id;
+
+      const unratedGamePage = new GamePage(page);
+      await unratedGamePage.waitForReady();
+      await unratedGamePage.clickFirstValidTarget();
+
+      await page.request.post(`/api/games/${unratedGameId}/leave`, {
+        headers: {
+          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('token'))}`,
+        },
+      });
+
+      await page.waitForTimeout(2_000);
+
+      const afterUnratedResignRating = await readRating();
+      expect(afterUnratedResignRating).toBe(afterRatedResignRating);
     });
   });
 });

@@ -1,6 +1,6 @@
 # RingRift TODO / Task Tracker
 
-> **Doc Status (2025-11-29): Active (execution/backlog tracker)**
+> **Doc Status (2025-11-30): Active (execution/backlog tracker)**
 >
 > - Canonical high-level task/backlog tracker for near- and mid-term work.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
@@ -61,7 +61,7 @@ This phase consolidated the rules engine architecture across 4 sub-phases:
 - [x] Created Python serialization matching TS format ([`serialization.py`](ai-service/app/rules/serialization.py))
 - [x] Created contract test runner ([`test_contract_vectors.py`](ai-service/tests/contracts/test_contract_vectors.py))
 - [x] 100% cross-language parity on 12 test vectors
-- [x] Python: 245 tests passing, 15 contract tests
+- [x] Python: 824 tests passing
 
 **Documentation produced:**
 
@@ -116,25 +116,26 @@ This phase consolidated the rules engine architecture across 4 sub-phases:
 
 ### P0.3 – S-Invariant & Termination
 
-- [ ] Keep the S-invariant tests passing and expand them as new rules
+- [x] Keep the S-invariant tests passing and expand them as new rules
       interactions are implemented:
   - [`ProgressSnapshot.core.test.ts`](tests/unit/ProgressSnapshot.core.test.ts)
   - Sandbox AI simulation diagnostics in
     [`ClientSandboxEngine.aiSimulation.test.ts`](tests/unit/ClientSandboxEngine.aiSimulation.test.ts)
   - Backend AI-style simulations in
     [`GameEngine.aiSimulation.test.ts`](tests/unit/GameEngine.aiSimulation.test.ts)
-- [ ] For any new rule that can change markers, collapsed spaces, or
+- [x] For any new rule that can change markers, collapsed spaces, or
       eliminated rings, ensure it is reflected in
       [`computeProgressSnapshot`](src/shared/engine/core.ts) and covered by
       tests.
-- [ ] Add explicit S-invariant coverage for orchestrator multi-phase flows:
-  - [ ] `chain_capture` + `continue_capture_segment` (backend + sandbox)
-  - [ ] `territory_processing` with mandatory self-elimination (backend + sandbox)
-- [ ] Add an AI-service S-invariant parity check:
-  - [ ] Mirror one or two core S-invariant scenarios in Python
-        (e.g. `ai-service/tests/test_territory_forced_elimination_divergence.py`
-        and line/territory parity tests) and assert the same S deltas as the
-        TS engine.
+- [x] Add explicit S-invariant coverage for orchestrator multi-phase flows:
+  - [x] `chain_capture` + `continue_capture_segment` (backend; see `tests/scenarios/Orchestrator.Backend.multiPhase.test.ts`)
+  - [x] `territory_processing` with mandatory self-elimination (backend; see `tests/scenarios/Orchestrator.Backend.multiPhase.test.ts`)
+  - [ ] Sandbox coverage remains optional; rely on shared-engine + sandbox S tests in `ProgressSnapshot.sandbox.test.ts`.
+- [x] Add an AI-service S-invariant parity check:
+  - [x] Mirror core S-invariant scenarios in Python via
+        `ai-service/tests/parity/test_rules_parity_fixtures.py` and
+        `ai-service/tests/parity/test_ai_plateau_progress.py`, asserting S
+        parity/deltas against TS-generated fixtures.
 
 ### P0.4 – Unified Move model for all player-chosen decisions (backend + sandbox)
 
@@ -215,8 +216,8 @@ Planned work:
         the legal-move sets and resulting phases for these advanced phases.
 - [ ] Extend and/or add parity tests to cover the new decision-move
       surface:
-  - [ ] Backend vs sandbox parity for chain capture continuation decisions.
-  - [ ] Backend vs sandbox parity for line order/reward and region
+  - [x] Backend vs sandbox parity for chain capture continuation decisions.
+  - [x] Backend vs sandbox parity for line order/reward and region
         order/elimination decisions.
   - [ ] Trace parity tests that confirm all such decisions are now
         represented as `Move`s and faithfully replayable.
@@ -226,13 +227,14 @@ Planned work:
 - [x] Backend `GameEngine` / `RuleEngine` now model capture-chain continuation via a distinct `chain_capture` phase and `continue_capture_segment` moves.
 - [x] Backend capture-sequence enumeration now uses `captureChainEngine.getCaptureOptionsFromPosition` plus shared `validateCaptureSegmentOnBoard`, keeping [`captureSequenceEnumeration.test.ts`](tests/unit/captureSequenceEnumeration.test.ts) green across square and hex boards.
 - [x] Backend territory-processing now enumerates explicit `eliminate_rings_from_stack` Moves via `RuleEngine.getValidEliminationDecisionMoves`, and `RingEliminationChoice.options[].moveId` / `RegionOrderChoice.options[].moveId` are wired to canonical `Move.id` values for elimination and disconnected-region decisions (sandbox Move/phase parity and WebSocket/AI adoption of these Move ids remain future work).
-- [ ] Several scenario/parity suites are temporarily red while the new chain-capture model is wired through all surfaces:
-  - [ ] [`ComplexChainCaptures.test.ts`](tests/scenarios/ComplexChainCaptures.test.ts)
-  - [ ] [`RulesMatrix.ChainCapture.GameEngine.test.ts`](tests/scenarios/RulesMatrix.ChainCapture.GameEngine.test.ts)
-  - [ ] [`GameEngine.cyclicCapture.*.test.ts`](tests/unit/GameEngine.cyclicCapture.scenarios.test.ts)
-  - [ ] [`Backend_vs_Sandbox.aiParallelDebug.test.ts`](tests/unit/Backend_vs_Sandbox.aiParallelDebug.test.ts)
-  - [ ] [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)
-  - [ ] [`TraceParity.seed*.firstDivergence.test.ts`](tests/unit/TraceParity.seed5.firstDivergence.test.ts)
+- [x] Chain-capture + heuristic coverage suites are now passing:
+  - [x] [`ComplexChainCaptures.test.ts`](tests/scenarios/ComplexChainCaptures.test.ts) – chain capture scenarios pass
+  - [x] [`RulesMatrix.ChainCapture.GameEngine.test.ts`](tests/scenarios/RulesMatrix.ChainCapture.GameEngine.test.ts) – backend chain capture passes
+  - [x] [`ClientSandboxEngine.chainCapture.test.ts`](tests/unit/ClientSandboxEngine.chainCapture.test.ts) – sandbox chain capture passes
+  - [x] [`GameEngine.cyclicCapture.*.test.ts`](tests/unit/GameEngine.cyclicCapture.scenarios.test.ts) – cyclic/triangle patterns pass
+  - [x] [`Backend_vs_Sandbox.aiParallelDebug.test.ts`](archive/tests/unit/Backend_vs_Sandbox.aiParallelDebug.test.ts) (archived diagnostic harness; no longer part of gating suites)
+  - [x] [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts) – seeds 5/14 complete to game end with parity
+  - [x] [`TraceParity.seed*.firstDivergence.test.ts`](tests/unit/TraceParity.seed5.firstDivergence.test.ts) – diagnostic helpers for legacy path; skipped when orchestrator enabled (canonical path); aiHeuristicCoverage provides primary parity verification
 - [x] Sandbox engine and `sandboxAI` now participate in the new `chain_capture` / `continue_capture_segment` Move model for AI turns and canonical traces; remaining divergences (e.g. seed 14 trace parity) are localized and tracked via `TraceParity.seed14.*` / `ParityDebug.seed14.*` helpers.
 
 **Near-term P0.4 tasks inferred from current test failures:**
@@ -241,7 +243,7 @@ Planned work:
 - [ ] Migrate `ComplexChainCaptures` and `RulesMatrix.ChainCapture` suites to drive chains via `chain_capture` + `continue_capture_segment` rather than internal while-loops.
 - [ ] Mirror the chain-capture phase and `continue_capture_segment` moves into [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts) and [`sandboxAI`](src/client/sandbox/sandboxAI.ts), then restore:
   - [ ] [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)
-  - [ ] [`Backend_vs_Sandbox.*trace*.test.ts`](tests/unit/Backend_vs_Sandbox.aiParallelDebug.test.ts)
+  - [ ] `TraceParity.seed*.firstDivergence.test.ts` (trace parity helpers for seeds 5/14/17)
 - [ ] Once chain capture is stable across backend and sandbox, extend the same Move/phase unification to line-processing and territory-processing (as described above).
 - [ ] Keep `tests/integration/FullGameFlow.test.ts` green by ensuring AI-vs-AI backend games using local AI fallback always reach a terminal `gameStatus` (e.g. `completed`/`finished`) within the configured move budget. Treat regressions here as part of P0.4 since they exercise the unified Move model end-to-end.
 
@@ -363,7 +365,7 @@ cleanup of legacy paths.
 
 ## Wave 5 – Orchestrator Production Rollout (P0/P1)
 
-> **Goal:** Make the canonical orchestrator + adapters the *only* production
+> **Goal:** Make the canonical orchestrator + adapters the _only_ production
 > turn path, with safe rollout across environments and removal of legacy
 > turn‑processing code once stable.
 
@@ -412,8 +414,8 @@ keep them green; treat regressions as P0 until resolved.
   - [x] Phase 2 – legacy authoritative + orchestrator in shadow mode.
   - [x] Phase 3 – percentage‑based orchestrator rollout.
   - [x] Phase 4 – orchestrator authoritative.
-      _All presets documented in `.env`, `.env.staging`, and `docs/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`.
-      Production defaults are Phase 4 (orchestrator authoritative at 100%)._
+        _All presets documented in `.env`, `.env.staging`, and `docs/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`.
+        Production defaults are Phase 4 (orchestrator authoritative at 100%)._
 - [x] Ensure `OrchestratorRolloutService` circuit‑breaker thresholds
       (error rate, window) are aligned with the rollout plan and surfaced via
       `MetricsService` (legacy vs orchestrator move counts, kill‑switch events).
@@ -425,20 +427,42 @@ keep them green; treat regressions as P0 until resolved.
 
 ### Wave 5.4 – Legacy path deprecation and cleanup
 
-- [ ] Mark remaining legacy turn‑processing paths as **deprecated** in:
-  - [ ] `src/server/game/RuleEngine.ts` / `GameEngine.ts`.
-  - [ ] `src/client/sandbox/ClientSandboxEngine.ts`.
-  - [ ] Any sandbox‑only helpers that still implement bespoke turn/phase loops.
-- [ ] Migrate tests that still exercise legacy‑only flows to:
-  - [ ] Go through `TurnEngineAdapter` / `SandboxOrchestratorAdapter`, **or**
-  - [ ] Target the shared engine directly (aggregates/helpers) where host
+- [x] Mark remaining legacy turn‑processing paths as **deprecated** in:
+  - [x] `src/server/game/RuleEngine.ts` / `GameEngine.ts`.
+        _`processMove()`, `processChainReactions()`, `processLineFormation()`,
+        `processTerritoryDisconnection()` all annotated with `@deprecated Phase 4 legacy path`._
+  - [x] `src/client/sandbox/ClientSandboxEngine.ts`.
+        _`handleLegacyMovementClick()` annotated with `@deprecated Phase 4 legacy path`._
+  - [x] Any sandbox‑only helpers that still implement bespoke turn/phase loops.
+        _Tier 1 modules (sandboxTurnEngine, sandboxMovementEngine, sandboxLinesEngine,
+        sandboxTerritoryEngine) deleted in Phase 6.2._
+- [x] Migrate tests that still exercise legacy‑only flows to:
+  - [x] Go through `TurnEngineAdapter` / `SandboxOrchestratorAdapter`, **or**
+  - [x] Target the shared engine directly (aggregates/helpers) where host
         concerns are not required.
+
+  **Legacy‑path tests migration status (verified 2025-12-01):**
+  All identified tests have been audited and migrated:
+  - Tests now use shared engine aggregates (e.g. `GameEngine.lines.scenarios.test.ts` → LineAggregate)
+  - Tests now use orchestrator adapters (e.g. `Orchestrator.Backend.multiPhase.test.ts`)
+  - Tests converted to stubs with proper `@deprecated` documentation (6 files)
+  - Tests skipped with explanation (e.g. `GameEngine.territoryDisconnection.hex.test.ts`)
+
+  **Historical harnesses now trimmed to stubs / contract‑vector coverage only:**
+  - `tests/unit/ExportLineAndTerritorySnapshot.test.ts` – stub
+  - `tests/scenarios/RulesMatrix.Comprehensive.test.ts` – contract vector checks only
+  - `tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts` – stub
+  - `tests/unit/GameEngine.lineRewardChoiceWebSocketIntegration.test.ts` – stub
+  - `tests/scenarios/LineAndTerritory.test.ts` – stub
+  - `tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts` – stub
+  - `tests/unit/GameEngine.territoryDisconnection.hex.test.ts` – skipped with docs
+
 - [ ] Once orchestrator behaviour is stable in production for a full release
       window and all high‑signal suites remain green:
   - [ ] Remove legacy turn‑processing implementations from backend and
         sandbox hosts.
   - [ ] Preserve any historically valuable harnesses under `archive/` with
-        clear “legacy” annotations.
+        clear "legacy" annotations.
   - [ ] Update `ARCHITECTURE_ASSESSMENT.md`, `RULES_ENGINE_ARCHITECTURE.md`,
         and `STATE_MACHINES.md` so the orchestrator + adapters are the only
         described production paths.
@@ -491,12 +515,12 @@ keep them green; treat regressions as P0 until resolved.
       [`gameViewModels.ts`](src/client/adapters/gameViewModels.ts)  
        (see `tests/unit/adapters/gameViewModels.test.ts`).
 - [ ] Add focused React tests for complex HUD/log components:
-  - [ ] [`GameHUD.tsx`](src/client/components/GameHUD.tsx) – verify ring/territory stats, timers, spectator badge, connection status.
+  - [x] [`GameHUD.tsx`](src/client/components/GameHUD.tsx) – verify ring/territory stats, timers, spectator badge, connection status.
   - [x] [`GameEventLog.tsx`](src/client/components/GameEventLog.tsx) – verify rendering of moves, system events, and victory messages from the view model.
   - [x] [`GameHistoryPanel.tsx`](src/client/components/GameHistoryPanel.tsx) – history list and selection behaviour.
 - [ ] Add light-weight tests for supporting components:
-  - [ ] [`AIDebugView.tsx`](src/client/components/AIDebugView.tsx).
-  - [ ] [`LoadingSpinner.tsx`](src/client/components/LoadingSpinner.tsx) and small UI primitives under `src/client/components/ui/`.
+  - [x] [`AIDebugView.tsx`](src/client/components/AIDebugView.tsx).
+  - [x] [`LoadingSpinner.tsx`](src/client/components/LoadingSpinner.tsx) and small UI primitives under `src/client/components/ui/`.
 - [ ] Add targeted unit tests for key pages that currently rely primarily on E2E coverage:
   - [ ] [`LobbyPage.tsx`](src/client/pages/LobbyPage.tsx) – lobby filters, game list, and navigation wiring.
   - [x] [`BackendGameHost.tsx`](src/client/pages/BackendGameHost.tsx) and
@@ -516,19 +540,19 @@ For the full gap analysis, see **Focus Area 5: Test Coverage Gaps** in
       (Minimax/MCTS/NeuralNet) from
       [`ai-service/app/ai`](ai-service/app/ai/__init__.py) into the primary
       `/ai/move` path, behind a non-default `AIProfile`.
-- [ ] Add tests around `AIServiceClient` to cover latency, timeouts, and
+- [x] Add tests around `AIServiceClient` to cover latency, timeouts, and
       fallback usage in more detail.
 
 ### P2.2 – AI Telemetry
 
-- [ ] Add lightweight logging/metrics around AI calls in
+- [x] Add lightweight logging/metrics around AI calls in
       [`AIServiceClient`](src/server/services/AIServiceClient.ts) and
       [`AIInteractionHandler`](src/server/game/ai/AIInteractionHandler.ts),
       capturing:
   - Request type
   - Duration
   - Success vs failure vs fallback
-- [ ] Surface basic metrics in the existing Prometheus/Grafana stack
+- [x] Surface basic metrics in the existing Prometheus/Grafana stack
       defined in [`docker-compose.yml`](docker-compose.yml).
 
 ### P2.3 – AI Wiring & Determinism (New)
@@ -538,6 +562,21 @@ For the full gap analysis, see **Focus Area 5: Test Coverage Gaps** in
   - [ ] Replace global `random` usage in Python AI with per-game seeded RNG instances.
   - [ ] Update `ZobristHash` to use a stable, seeded RNG instead of global `random.seed(42)`.
   - [ ] Pass RNG seeds from TS backend to Python service in `/ai/move` requests.
+
+### P2.4 – AI Analysis Mode & Evaluation Panel
+
+- [x] **Evaluation API in Python AI service:**
+  - [x] Add a lightweight `/ai/evaluate_position` endpoint in `ai-service/app/main.py` that accepts a serialized `GameState` and returns per-player evaluation from a strong engine (e.g. Descent+NN or Minimax) as: - Estimated total evaluation per player (win/loss margin), and - Optional breakdown into territory vs eliminated-ring advantage.
+  - [ ] Reuse existing `RingRiftEnv`/search code paths (from `evaluate_ai_models.py`) with bounded think time and deterministic seeds.
+- [x] **Backend evaluation client & WebSocket event:**
+  - [x] Add a small evaluation client on the Node side (e.g. extending `AIServiceClient` or a dedicated `PositionEvaluationClient`) that calls `/ai/evaluate_position` with strict timeouts and concurrency caps.
+  - [x] Emit evaluation results asynchronously (e.g. `position_evaluation` events) from `GameSession`/`WebSocketServer` after moves, keyed by `gameId` + `moveNumber`.
+- [ ] **Persistence & history:**
+  - [ ] Store evaluation snapshots per move (Redis or DB) so reconnects and `/api/games/:gameId/history` can surface evaluation history alongside move history.
+- [x] **Frontend EvaluationPanel:**
+  - [ ] Extend `gameViewModels` / HUD view models with an `evaluationHistory` structure and current per-player evaluation.
+  - [x] Add an `EvaluationPanel` React component to `BackendGameHost` that: - Shows a small time-series or bar chart over moves, and - Highlights current evaluation with color-coded per-player advantage.
+  - [ ] Gate the panel behind an “Analysis mode” / spectator-only toggle so it does not affect normal rated play performance.
 
 ## Cross-Cutting – Documentation & CI
 
@@ -641,10 +680,10 @@ latest project assessment. They should be kept in sync with
   - [ ] Remove bespoke mutation logic in sandbox AI so that sandbox phases
         and move types stay in lockstep with backend `GameEngine` /
         `RuleEngine`.
-- [ ] Expose rules/FAQ scenarios directly in the sandbox UI:
-  - [ ] Add a simple scenario selector (e.g. dropdown) in `/sandbox` backed
-        by `rulesMatrix.ts` / `RULES_SCENARIO_MATRIX.md`.
-  - [ ] Allow loading a named scenario into the sandbox for visual
+- [x] Expose rules/FAQ scenarios directly in the sandbox UI:
+  - [x] Provide a Scenario Picker in `/sandbox` (via `ScenarioPickerModal` and `SandboxGameHost`)
+        backed by curated RulesMatrix/FAQ scenarios and saved game states.
+  - [x] Allow loading and resetting named scenarios into the sandbox for visual
         inspection and step-through play.
 - [ ] Add visual debugging aids to the sandbox view:
   - [ ] Overlays for detected lines and their rewards.
@@ -654,10 +693,10 @@ latest project assessment. They should be kept in sync with
 
 ### Track 4 – Incremental AI Improvements & Observability (P1–P2)
 
-- [ ] Add lightweight metrics/logging around AI calls:
-  - [ ] In `AIServiceClient` and `AIInteractionHandler`, log request type,
+- [x] Add lightweight metrics/logging around AI calls:
+  - [x] In `AIServiceClient` and `AIInteractionHandler`, log request type,
         latency, success/failure, and fallback usage.
-  - [ ] Optionally expose these metrics via existing or new monitoring
+  - [x] Optionally expose these metrics via existing or new monitoring
         tooling (e.g. Prometheus if added later).
 - [ ] Reflect AI mode in the HUD:
   - [ ] Display whether each AI player is using service-backed or local
@@ -743,8 +782,9 @@ reflected by checking off the above track items.
         `GamePage`.
   - [ ] Continue adding rules scenarios and parity fixes.
 - [ ] **Week 3 – Sandbox UX & AI Observability (Tracks 3 & 4)**
-  - [ ] Add scenario picker into the sandbox UI and basic visual helpers
-        for lines/territory/chain captures.
+  - [x] Add scenario picker into the sandbox UI and basic visual helpers
+        for lines/territory/chain captures (ScenarioPickerModal with curated
+        RulesMatrix/FAQ-tagged scenarios and in-sandbox “Reset Scenario”).
   - [ ] Add AI telemetry and, optionally, surface simple metrics.
   - [ ] Implement one or two bounded heuristic AI improvements that
         clearly improve play.
@@ -759,3 +799,124 @@ reflected by checking off the above track items.
 
 This section is intentionally high-level and should be pruned or merged into
 earlier phases as items are completed or re-scoped.
+
+---
+
+## Phase 4 – AI Training & Optimization (P2)
+
+This phase focuses on systematic AI improvement through data-driven heuristic
+weight tuning and analysis. Spec: [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md).
+
+### Track 7 – Heuristic Weight Optimization
+
+- [ ] **Weight Sensitivity Analysis** (IN PROGRESS):
+  - [x] Create axis-aligned sensitivity test script (`scripts/run_weight_sensitivity_test.py`)
+  - [x] Add true random baseline option (`--use-true-random`)
+  - [x] Implement random tie-breaking in HeuristicAI for non-deterministic play
+  - [x] Create weight classification analysis script (`scripts/analyze_weight_sensitivity.py`)
+  - [ ] Run sensitivity tests on all board types (square8, square19, hex)
+  - [ ] Analyze results to identify high-signal vs noise weights
+  - [ ] Classify weights by signal strength:
+    - **Strong positive signal (>55% win rate):** Keep with positive sign
+    - **Strong negative signal (<45% win rate):** Keep but **invert sign** for CMA-ES (these indicate features that hurt when over-weighted but help when negated)
+    - **Noise band (45-55% win rate):** Candidate for pruning or zero-initialization
+  - [ ] Normalize magnitudes of remaining high-signal weights
+
+  **Analysis Workflow:**
+
+  ```bash
+  # Step 1: Run sensitivity tests (takes time)
+  cd ai-service
+  python scripts/run_weight_sensitivity_test.py --board square8 --games-per-weight 10 \
+      --output logs/axis_aligned/sensitivity_results_square8.json
+
+  # Step 2: Analyze results and generate CMA-ES seed weights
+  python scripts/analyze_weight_sensitivity.py \
+      --input logs/axis_aligned/sensitivity_results_square8.json \
+      --output logs/axis_aligned/cmaes_seed_weights.json
+
+  # Step 3: Run CMA-ES with classified seed weights
+  python scripts/run_cmaes_optimization.py \
+      --baseline logs/axis_aligned/cmaes_seed_weights.json \
+      --generations 50 --population-size 20
+  ```
+
+- [ ] **Evaluation Pool Quality**:
+  - [ ] Position diversity analysis (move number distribution, ring counts, territory)
+  - [ ] Game length and outcome statistics (ring elimination vs territory vs stalemate)
+  - [ ] Move branching factor analysis by game phase
+  - [ ] Identify and fill coverage gaps in eval pools
+
+- [ ] **Critical Position Mining**:
+  - [x] Create critical position mining script (`scripts/mine_critical_positions.py`)
+  - [ ] Mine positions near victory threshold (1-2 rings from win)
+  - [ ] Mine positions from last N moves of games
+  - [ ] Build training dataset from critical positions with outcomes
+
+- [ ] **Weight Optimization**:
+  - [ ] Run CMA-ES optimization on pruned weight set
+  - [ ] Validate optimized weights via tournament against baseline
+  - [ ] Create board-type specific profiles if results differ significantly
+  - [ ] Integrate winning profile into production heuristic ladder
+
+### Track 8 – AI Analysis Tools
+
+- [ ] **Opening Book Generation** (post-optimization):
+  - [ ] Generate opening book from strong AI self-play
+  - [ ] Store opening tree with win rates per move
+  - [ ] Integrate opening book lookup into HeuristicAI
+
+- [ ] **Search Improvements** (future):
+  - [ ] Move ordering heuristics for better pruning
+  - [ ] Transposition table for position caching
+  - [ ] Iterative deepening with time limits
+
+---
+
+## Phase 5 – Game Record System (P2)
+
+Comprehensive game storage, notation, and replay system.
+Spec: [`ai-service/docs/GAME_RECORD_SPEC.md`](ai-service/docs/GAME_RECORD_SPEC.md).
+
+### Track 9 – Game Storage Infrastructure
+
+- [x] **Specification**:
+  - [x] Define game record JSON schema (metadata, moves, states, outcome)
+  - [x] Define RingRift Notation (RRN) algebraic format
+  - [x] Define coordinate systems for all board types
+  - [x] Define database schema for game storage
+
+- [ ] **Core Implementation**:
+  - [ ] Create Python `GameRecord` types (`ai-service/app/models/game_record.py`)
+  - [ ] Create TypeScript `GameRecord` types (`src/shared/types/gameRecord.ts`)
+  - [ ] Implement JSONL export format for training data
+  - [ ] Implement algebraic notation generator/parser
+  - [ ] Implement coordinate conversion utilities
+
+- [ ] **Database Integration**:
+  - [ ] Add `games` and `moves` tables to database schema
+  - [ ] Create `GameRecordRepository` for CRUD operations
+  - [ ] Wire game storage into self-play scripts
+  - [ ] Wire game storage into online game completion
+  - [ ] Migration for existing games (if any)
+
+### Track 10 – Replay System
+
+- [ ] **State Reconstruction**:
+  - [ ] Implement `reconstructStateAtMove(gameRecord, moveIndex)`
+  - [ ] Add checkpoint caching for efficient backward navigation
+  - [ ] Validate state reconstruction matches original game
+
+- [ ] **Sandbox Integration**:
+  - [ ] Create `GameReplayController` interface
+  - [ ] Implement forward/backward navigation (goToMove, nextMove, previousMove)
+  - [ ] Add game loading from database/file
+  - [ ] Create `ReplayControls` UI component
+  - [ ] Create `MoveList` display component
+  - [ ] Integrate replay into sandbox page
+
+- [ ] **Analysis Features** (future):
+  - [ ] Position search/filter by criteria
+  - [ ] Move statistics aggregation
+  - [ ] Critical position tagging
+  - [ ] Export to portable notation format

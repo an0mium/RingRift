@@ -15,7 +15,7 @@ from .models import (
 from .board_manager import BoardManager
 from .ai.zobrist import ZobristHash
 from .rules.geometry import BoardGeometry
-from .rules.core import count_rings_in_play_for_player
+from .rules.core import count_rings_in_play_for_player, get_line_length_for_board
 from .rules.capture_chain import enumerate_capture_moves_py
 
 
@@ -78,7 +78,21 @@ class GameEngine:
                 game_state, player_number
             )
             moves = placement_moves + skip_moves
- 
+
+            # When player has 0 rings in hand, placement isn't possible and
+            # skip_placement isn't exposed (it requires rings_in_hand > 0).
+            # In this case, expose movement/capture moves directly so the
+            # player can continue. This matches TS behaviour where the turn
+            # auto-advances to movement when placement isn't possible.
+            if not moves:
+                movement_moves = GameEngine._get_movement_moves(
+                    game_state, player_number
+                )
+                capture_moves = GameEngine._get_capture_moves(
+                    game_state, player_number
+                )
+                moves = movement_moves + capture_moves
+
         elif phase == GamePhase.MOVEMENT:
             # In the movement phase, TS exposes both non-capture moves and
             # initial overtaking captures together. Mirror that here.
@@ -120,6 +134,16 @@ class GameEngine:
                     moveNumber=move_number,
                 )
                 moves.append(swap_move)
+
+        # RR-CANON-R072/R100/R205: When no placement/movement/capture is available
+        # but the player controls stacks, expose forced elimination as a first-class
+        # action so both AI and human players can choose which stack to eliminate from.
+        if not moves:
+            fe_moves = GameEngine._get_forced_elimination_moves(
+                game_state, player_number
+            )
+            if fe_moves:
+                moves = fe_moves
 
         # Cache result
         GameEngine._move_cache[cache_key] = moves
@@ -464,15 +488,42 @@ class GameEngine:
             game_state.lps_exclusive_player_for_completed_round = None
 
         # 4. Global structural terminality
-        # Fallback termination is triggered only when there are no stacks on
-        # the board and no rings in hand for any player. This mirrors the TS
-        # RuleEngine.checkGameEnd semantics and avoids ending games
-        # prematurely when placement is still possible.
+        # Fallback termination is triggered when:
+        # (a) No stacks on board AND no rings in hand for any player, OR
+        # (b) No stacks on board AND no player with rings in hand has any
+        #     legal placement (respecting no-dead-placement rule).
+        #
+        # This mirrors TS victoryLogic.ts hasAnyLegalPlacementOnBareBoard().
         no_stacks_left = not game_state.board.stacks
         any_rings_in_hand = any(
             p.rings_in_hand > 0 for p in game_state.players
         )
-        if no_stacks_left and not any_rings_in_hand:
+
+        # Check if global stalemate should apply
+        should_apply_stalemate = False
+        hand_counts_as_eliminated = False
+
+        if no_stacks_left:
+            if not any_rings_in_hand:
+                # No rings anywhere - clear stalemate
+                should_apply_stalemate = True
+            else:
+                # Rings in hand exist - check if ANY player can legally place
+                # Per §13.4: only trigger stalemate if NO player with rings
+                # has ANY legal placement on the bare board.
+                any_legal_placement_exists = any(
+                    p.rings_in_hand > 0
+                    and GameEngine._has_any_legal_placement_on_bare_board(
+                        game_state, p.player_number
+                    )
+                    for p in game_state.players
+                )
+                if not any_legal_placement_exists:
+                    # No player can place - stalemate with hand conversion
+                    should_apply_stalemate = True
+                    hand_counts_as_eliminated = True
+
+        if should_apply_stalemate:
             game_state.game_status = GameStatus.FINISHED
 
             # Tie-breaker logic:
@@ -640,7 +691,8 @@ class GameEngine:
                 current_player,
             )
             if capture_moves:
-                game_state.current_phase = GamePhase.CAPTURE
+                # After the first capture, subsequent captures are chain captures
+                game_state.current_phase = GamePhase.CHAIN_CAPTURE
             else:
                 # End of chain
                 GameEngine._advance_to_line_processing(game_state)
@@ -810,6 +862,27 @@ class GameEngine:
                 # conditions.
                 if game_state.game_status != GameStatus.ACTIVE:
                     return
+
+                # Re-check material after forced elimination. If the player's
+                # cap was their only control over their last stack, forced
+                # elimination flips control to the opponent. In this case the
+                # player now has no stacks and no rings in hand (they are
+                # "temporarily inactive" per §7.3) and should be skipped.
+                stacks_after_fe = BoardManager.get_player_stacks(
+                    game_state.board,
+                    candidate.player_number,
+                )
+                has_stacks_after_fe = bool(stacks_after_fe)
+                has_rings_after_fe = candidate.rings_in_hand > 0
+
+                if not has_stacks_after_fe and not has_rings_after_fe:
+                    # Player lost all material due to forced elimination;
+                    # skip them and try the next player.
+                    skips += 1
+                    idx = (idx + 1) % num_players
+                    continue
+
+                # Player still has material after forced elimination.
                 # Keep this player active and begin their turn in MOVEMENT.
                 game_state.current_player = candidate.player_number
                 game_state.current_phase = GamePhase.MOVEMENT
@@ -1532,22 +1605,31 @@ class GameEngine:
         )
         temp_state.move_history = list(game_state.move_history) + [synthetic_move]
  
+        # Use limit=1 for early-return optimization - we only need to know
+        # if at least one valid move exists, not enumerate all of them.
         movement_moves = GameEngine._get_movement_moves(
             temp_state,
             player_number,
+            limit=1,
         )
+        if movement_moves:
+            return True
+
         capture_moves = GameEngine._get_capture_moves(
             temp_state,
             player_number,
+            limit=1,
         )
+        if capture_moves:
+            return True
 
-        if DEBUG_ENGINE and not (movement_moves or capture_moves):
+        if DEBUG_ENGINE:
             _debug(
                 "DEBUG: no-dead-placement rejected placement at "
                 f"{from_pos.to_key()} for P{player_number}\n"
             )
 
-        return bool(movement_moves or capture_moves)
+        return False
 
     @staticmethod
     def _get_skip_placement_moves(
@@ -1738,13 +1820,16 @@ class GameEngine:
 
     @staticmethod
     def _get_capture_moves(
-        game_state: GameState, player_number: int
+        game_state: GameState, player_number: int, limit: int | None = None
     ) -> List[Move]:
         """
         Enumerate legal overtaking capture segments for the current attacker.
 
         Adapter over rules.capture_chain.enumerate_capture_moves_py, which
         mirrors TS CaptureAggregate.enumerateCaptureMoves.
+
+        Args:
+            limit: If provided, return at most this many moves (for early-return checks).
         """
         board = game_state.board
 
@@ -1762,13 +1847,18 @@ class GameEngine:
             attacker_pos = last_move.to
             kind = "initial"
 
-        return enumerate_capture_moves_py(
+        moves = enumerate_capture_moves_py(
             game_state,
             player_number,
             attacker_pos,
             move_number=len(game_state.move_history) + 1,
             kind=kind,  # type: ignore[arg-type]
         )
+
+        # Apply limit if specified (for early-return optimization)
+        if limit is not None and len(moves) > limit:
+            return moves[:limit]
+        return moves
     @staticmethod
     def _has_valid_placements(
         game_state: GameState, player_number: int
@@ -1779,12 +1869,165 @@ class GameEngine:
         Forced-elimination gating in the TS TurnEngine.hasValidPlacements
         helper ignores the current phase and always evaluates placement
         availability in a ring_placement-style view. Here we mirror that
-        behaviour by delegating to _get_ring_placement_moves without
-        additional phase checks.
+        behaviour by delegating to _has_any_valid_placement_fast which
+        returns early as soon as one valid placement is found.
         """
-        return bool(
-            GameEngine._get_ring_placement_moves(game_state, player_number)
+        return GameEngine._has_any_valid_placement_fast(game_state, player_number)
+
+    @staticmethod
+    def _has_any_valid_placement_fast(
+        game_state: GameState, player_number: int
+    ) -> bool:
+        """
+        Fast early-return check for valid placements.
+
+        Unlike _get_ring_placement_moves which enumerates ALL placements,
+        this returns True immediately upon finding the first valid one.
+        Critical for performance on large boards (19x19).
+        """
+        board = game_state.board
+
+        # Check if player has rings in hand
+        player = next(
+            (p for p in game_state.players if p.player_number == player_number),
+            None,
         )
+        if not player or player.rings_in_hand <= 0:
+            return False
+
+        rings_in_hand = player.rings_in_hand
+
+        # TS-aligned per-player cap
+        per_player_cap = GameEngine._estimate_rings_per_player(game_state)
+        total_in_play = count_rings_in_play_for_player(game_state, player_number)
+        rings_on_board = max(0, total_in_play - rings_in_hand)
+        remaining_by_cap = per_player_cap - rings_on_board
+        max_available_global = min(remaining_by_cap, rings_in_hand)
+
+        if max_available_global <= 0:
+            return False
+
+        # Get all valid positions
+        all_positions = GameEngine._generate_all_positions(
+            board.type,
+            board.size,
+        )
+
+        for pos in all_positions:
+            pos_key = pos.to_key()
+
+            # Cannot place on collapsed spaces
+            if pos_key in board.collapsed_spaces:
+                continue
+
+            # Cannot place on markers
+            if pos_key in board.markers:
+                continue
+
+            existing_stack = board.stacks.get(pos_key)
+            is_occupied = bool(existing_stack and existing_stack.stack_height > 0)
+
+            max_available = max_available_global
+            if max_available <= 0:
+                continue
+
+            if is_occupied:
+                if max_available < 1:
+                    continue
+                max_per_placement = 1
+            else:
+                max_per_placement = min(3, max_available)
+
+            if max_per_placement <= 0:
+                continue
+
+            # Check if at least one placement count is valid - return early!
+            for placement_count in range(1, max_per_placement + 1):
+                if placement_count > max_available:
+                    break
+
+                hyp_board = GameEngine._create_hypothetical_board_with_placement(
+                    board,
+                    pos,
+                    player_number,
+                    placement_count,
+                )
+
+                if GameEngine._has_any_movement_or_capture_after_hypothetical_placement(
+                    game_state,
+                    player_number,
+                    pos,
+                    hyp_board,
+                ):
+                    # Found a valid placement - return immediately!
+                    return True
+
+        return False
+
+    @staticmethod
+    def _has_any_legal_placement_on_bare_board(
+        game_state: GameState, player_number: int
+    ) -> bool:
+        """
+        Check if a player can legally place a ring on a bare board.
+
+        This mirrors TS victoryLogic.ts hasAnyLegalPlacementOnBareBoard().
+        Used for global stalemate detection when the board has no stacks
+        but some players still have rings in hand.
+
+        For each valid position (not collapsed, no markers), we check if
+        placing a single ring there would give the player at least one
+        legal movement or capture (no-dead-placement rule).
+
+        Returns True immediately upon finding any valid placement.
+        """
+        board = game_state.board
+
+        # Check if player has rings in hand
+        player = next(
+            (p for p in game_state.players if p.player_number == player_number),
+            None,
+        )
+        if not player or player.rings_in_hand <= 0:
+            return False
+
+        # Get all valid positions
+        all_positions = GameEngine._generate_all_positions(
+            board.type,
+            board.size,
+        )
+
+        for pos in all_positions:
+            pos_key = pos.to_key()
+
+            # Cannot place on collapsed spaces
+            if pos_key in board.collapsed_spaces:
+                continue
+
+            # Cannot place on markers
+            if pos_key in board.markers:
+                continue
+
+            # On a bare board, any unoccupied position is a candidate.
+            # Create a hypothetical board with a single stack at this position.
+            hyp_board = GameEngine._create_hypothetical_board_with_placement(
+                board,
+                pos,
+                player_number,
+                1,  # Single ring placement
+            )
+
+            # Check if the hypothetical stack would have any legal move
+            if GameEngine._has_any_movement_or_capture_after_hypothetical_placement(
+                game_state,
+                player_number,
+                pos,
+                hyp_board,
+            ):
+                # Found a valid placement - return immediately!
+                return True
+
+        return False
 
     @staticmethod
     def _has_valid_movements(
@@ -1793,15 +2036,17 @@ class GameEngine:
         """True if the player has any legal non-capture movements."""
         # Movement availability is independent of current_phase for our
         # forced-elimination gating: we ask "could this player move at all?"
+        # Use limit=1 for early return optimization on large boards.
         return bool(
-            GameEngine._get_movement_moves(game_state, player_number)
+            GameEngine._get_movement_moves(game_state, player_number, limit=1)
         )
 
     @staticmethod
     def _has_valid_captures(game_state: GameState, player_number: int) -> bool:
         """True if the player has any legal overtaking capture segments."""
+        # Use limit=1 for early return optimization on large boards.
         return bool(
-            GameEngine._get_capture_moves(game_state, player_number)
+            GameEngine._get_capture_moves(game_state, player_number, limit=1)
         )
 
     @staticmethod
@@ -1911,6 +2156,10 @@ class GameEngine:
         Forced elimination is only available when the player controls at least
         one stack but has NO legal placement, movement, or capture action, in
         line with TS TurnEngine.hasValidActions semantics.
+
+        Stack selection strategy (per R100 / TS globalActions.ts):
+        - Prefer smallest positive capHeight
+        - Fallback to first stack when no caps exist
         """
         board = game_state.board
 
@@ -1924,6 +2173,10 @@ class GameEngine:
 
         if GameEngine._has_valid_actions(game_state, player_number):
             return []
+
+        # Sort stacks by capHeight (smallest first) to match TS behavior
+        # When caps are equal, order is arbitrary (first in iteration)
+        player_stacks.sort(key=lambda s: s.cap_height if s.cap_height > 0 else float('inf'))
 
         moves: List[Move] = []
         for stack in player_stacks:
@@ -1990,7 +2243,7 @@ class GameEngine:
         if not player_lines:
             return []
 
-        required_len = 3 if game_state.board.type == BoardType.SQUARE8 else 4
+        required_len = get_line_length_for_board(game_state.board.type)
         moves: List[Move] = []
 
         for idx, line in enumerate(player_lines):
@@ -2009,24 +2262,54 @@ class GameEngine:
                 )
             )
 
-        # For overlength lines, also expose a CHOOSE_LINE_REWARD decision so
-        # callers can express Option 1 vs Option 2 in the unified Move space.
+        # For overlength lines, enumerate all CHOOSE_LINE_REWARD options:
+        # - Option 1 (COLLAPSE_ALL): collapse entire line, eliminate one ring
+        # - Option 2 (MINIMUM_COLLAPSE): collapse exactly required_len consecutive
+        #   markers, no ring elimination. Generate one move per valid segment.
+        #
+        # This mirrors TS LineAggregate.enumerateChooseLineRewardMoves.
         for idx, line in enumerate(player_lines):
-            if len(line.positions) <= required_len:
+            line_len = len(line.positions)
+            if line_len <= required_len:
                 continue
+
             first_pos = line.positions[0]
+            line_key = first_pos.to_key()
+            move_number = len(game_state.move_history) + 1
+
+            # Option 1: Collapse all markers (collapsed_markers = full line)
             moves.append(
                 Move(
-                    id=f"choose-line-reward-{idx}-{first_pos.to_key()}",
+                    id=f"choose-line-reward-{idx}-{line_key}-all",
                     type=MoveType.CHOOSE_LINE_REWARD,
                     player=player_number,
                     to=first_pos,
                     formed_lines=(line,),  # type: ignore[arg-type]
+                    collapsed_markers=tuple(line.positions),
                     timestamp=game_state.last_move_at,
                     thinkTime=0,
-                    moveNumber=len(game_state.move_history) + 1,
+                    moveNumber=move_number,
                 )
             )
+
+            # Option 2: Enumerate all valid minimum-collapse segments of
+            # length required_len along the line.
+            max_start = line_len - required_len
+            for start in range(max_start + 1):
+                segment = tuple(line.positions[start:start + required_len])
+                moves.append(
+                    Move(
+                        id=f"choose-line-reward-{idx}-{line_key}-min-{start}",
+                        type=MoveType.CHOOSE_LINE_REWARD,
+                        player=player_number,
+                        to=first_pos,
+                        formed_lines=(line,),  # type: ignore[arg-type]
+                        collapsed_markers=segment,
+                        timestamp=game_state.last_move_at,
+                        thinkTime=0,
+                        moveNumber=move_number,
+                    )
+                )
 
         return moves
 
@@ -2134,10 +2417,13 @@ class GameEngine:
 
     @staticmethod
     def _get_movement_moves(
-        game_state: GameState, player_number: int
+        game_state: GameState, player_number: int, limit: int | None = None
     ) -> List[Move]:
         """
         Get valid non-capture movement moves.
+
+        Args:
+            limit: If provided, return after finding this many moves (for early-return checks).
         """
         moves: List[Move] = []
         board = game_state.board
@@ -2223,6 +2509,8 @@ class GameEngine:
                                     moveNumber=len(game_state.move_history) + 1,
                                 )  # type: ignore
                             )
+                            if limit is not None and len(moves) >= limit:
+                                return moves
                         else:
                             _debug(
                                 f"DEBUG: _get_movement_moves rejected {to_pos} "
@@ -2247,6 +2535,8 @@ class GameEngine:
                                     moveNumber=len(game_state.move_history) + 1,
                             )  # type: ignore
                         )
+                        if limit is not None and len(moves) >= limit:
+                            return moves
                         # Cannot move further along this ray past a stack.
                         break
 
@@ -2788,7 +3078,7 @@ class GameEngine:
             return
 
         # 2. Determine required minimum line length.
-        required_len = 3 if board.type == BoardType.SQUARE8 else 4
+        required_len = get_line_length_for_board(board.type)
 
         # 3. Decide which positions to collapse.
         positions_to_collapse: List[Position]

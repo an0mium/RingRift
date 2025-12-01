@@ -34,6 +34,7 @@ import {
   getValidMoves,
   hasValidMoves,
 } from '../../../shared/engine/orchestration/turnOrchestrator';
+import { flagEnabled } from '../../../shared/utils/envFlags';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // INTERFACES - Abstract dependencies for testability
@@ -187,10 +188,7 @@ export class TurnEngineAdapter {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      const TRACE_DEBUG_ENABLED =
-        typeof process !== 'undefined' &&
-        !!(process as any).env &&
-        ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+      const TRACE_DEBUG_ENABLED = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
       if (TRACE_DEBUG_ENABLED) {
         const isDecisionHandlerError = errorMessage.includes(

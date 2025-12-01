@@ -2,14 +2,40 @@
 
 > **⚠️ HISTORICAL / COMPLETED** – This plan was completed in November 2025. The orchestrator is now at 100% rollout.
 > For current status, see:
+>
 > - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status
 > - `CURRENT_STATE_ASSESSMENT.md` – Implementation status
 > - `TODO.md` – Wave 5.4 (legacy cleanup) for remaining items
 
 > **Phase 5.4 Deliverable** - Architecture Remediation Plan
-> **Status:** ✅ Phase 6.1 Complete - Adapters Enabled by Default
-> **Last Updated:** 2025-11-30
+> **Status:** ✅ Phase 6.2 Complete - Deprecation Annotations in Place
+> **Last Updated:** 2025-12-01
 > **Phase 6.1 Complete:** 2025-11-26
+> **Wave 5.4 Deprecations Complete:** 2025-12-01
+
+## Wave 5.4 Status Summary (2025-12-01)
+
+The deprecation annotation work is complete:
+
+| File                                        | Status     | Details                                                                                                                                                  |
+| ------------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/server/game/RuleEngine.ts`             | ✅ Done    | `processMove()`, `processChainReactions()`, `processLineFormation()`, `processTerritoryDisconnection()` annotated with `@deprecated Phase 4 legacy path` |
+| `src/server/game/GameEngine.ts`             | ✅ Done    | Multiple legacy methods annotated with `@deprecated Phase 4 legacy path` and Wave 5.4 references                                                         |
+| `src/client/sandbox/ClientSandboxEngine.ts` | ✅ Done    | `handleLegacyMovementClick()` annotated with `@deprecated Phase 4 legacy path`                                                                           |
+| Tier 1 sandbox modules                      | ✅ Deleted | `sandboxTurnEngine.ts`, `sandboxMovementEngine.ts`, `sandboxLinesEngine.ts`, `sandboxTerritoryEngine.ts` removed in Phase 6.2                            |
+
+**Tests annotated with deprecation headers** (call deprecated `processLineFormations()` / `processDisconnectedRegions()` or have been trimmed to reference orchestrator/contract coverage only):
+| Test File | Status | Notes |
+|-----------|--------|-------|
+| `tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts` | ✅ Annotated | AI service integration test (legacy path) |
+| `tests/unit/GameEngine.lineRewardChoiceWebSocketIntegration.test.ts` | ✅ Annotated | WebSocket integration test (legacy path) |
+| `tests/unit/GameEngine.lines.scenarios.test.ts` | ✅ Migrated | Converted to shared engine via `lineDecisionHelpers` |
+| `tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts` | ✅ Annotated | Skipped; refs orchestrator equivalents |
+| `tests/unit/ExportLineAndTerritorySnapshot.test.ts` | ✅ Trimmed | Stub only; historical snapshot exporter superseded by v2 contract vectors |
+| `tests/scenarios/LineAndTerritory.test.ts` | ✅ Annotated | Partial legacy; refs orchestrator equivalents |
+| `tests/scenarios/RulesMatrix.Comprehensive.test.ts` | ✅ Trimmed | Now a thin wrapper asserting presence of key v2 contract vectors |
+
+All tests now have `@deprecated Phase 4 legacy path` annotations with references to equivalent orchestrator tests. Archive/remove these files once Wave 5.4 legacy code cleanup is complete.
 
 ## Phase 6.1 Summary
 

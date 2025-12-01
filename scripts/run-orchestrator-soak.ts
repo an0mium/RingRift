@@ -6,6 +6,12 @@
  * real hosts (backend GameEngine and/or ClientSandboxEngine) and checks
  * basic safety/correctness invariants. Produces a machine-readable JSON
  * summary suitable for local inspection or CI/monitoring ingestion.
+ *
+ * Extended features:
+ * - Vector-seeded games via --vectorBundle CLI option
+ * - Vector family tracking for targeted scenario coverage
+ * - Enhanced error diagnostics with vector context
+ * - Verbose mode for phase transition logging
  */
 
 import fs from 'fs';
@@ -20,11 +26,57 @@ import { BOARD_CONFIGS, positionToString } from '../src/shared/types/game';
 import { SeededRNG } from '../src/shared/utils/rng';
 import { computeProgressSnapshot, isANMState } from '../src/shared/engine';
 import { validateMove as orchestratorValidateMove } from '../src/shared/engine/orchestration/turnOrchestrator';
+import {
+  deserializeGameState,
+  type SerializedGameState,
+} from '../src/shared/engine/contracts/serialization';
+import { VectorAwareSoakProgressReporter } from './utils/progressReporter';
 
 type HostMode = 'backend';
 type HarnessMode = 'backend';
 
-type SoakProfileId = 'ci-short' | 'local-deep';
+type SoakProfileId = 'ci-short' | 'local-deep' | 'extended-vectors-short';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vector Bundle Types
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface VectorBundleInfo {
+  version: string;
+  generated: string;
+  count: number;
+  categories: string[];
+  vectors: ContractVector[];
+}
+
+interface ContractVector {
+  id: string;
+  version: string;
+  category: string;
+  description: string;
+  tags: string[];
+  source: string;
+  createdAt: string;
+  input: {
+    state: SerializedGameState;
+    move: any;
+  };
+  expectedOutput: {
+    status: string;
+    assertions: Record<string, unknown>;
+  };
+}
+
+interface VectorFamilyStats {
+  family: string;
+  bundlePath: string;
+  vectorCount: number;
+  gamesRun: number;
+  gamesCompleted: number;
+  invariantViolations: number;
+  maxTurnsReached: number;
+  violationsById: Record<string, number>;
+}
 
 interface SoakProfile {
   id: SoakProfileId;
@@ -47,6 +99,7 @@ interface SoakConfig {
    * Supported profile ids:
    * - "ci-short"   – CI-safe multi-board short soak.
    * - "local-deep" – deeper multi-board soak for local or scheduled runs.
+   * - "extended-vectors-short" – vector-seeded soak for extended contract vectors.
    */
   profile?: SoakProfileId;
   boardTypes: BoardType[];
@@ -68,6 +121,21 @@ interface SoakConfig {
    * to remember the environment flag.
    */
   enableTraceDebug: boolean;
+  /**
+   * When true, enables verbose logging of phase transitions and assertion
+   * checks during soak runs. Useful for debugging parity issues.
+   */
+  verbose: boolean;
+  /**
+   * List of vector bundle paths to load for vector-seeded games.
+   * When non-empty, games are seeded from vector initial states.
+   */
+  vectorBundles: string[];
+  /**
+   * Number of games to run per vector (default: 1).
+   * When > 1, runs multiple games from the same initial state with different RNG seeds.
+   */
+  gamesPerVector: number;
 }
 
 const SOAK_PROFILES: Record<SoakProfileId, SoakProfile> = {
@@ -89,6 +157,15 @@ const SOAK_PROFILES: Record<SoakProfileId, SoakProfile> = {
     maxTurns: 400,
     randomSeed: 987654321,
   },
+  'extended-vectors-short': {
+    id: 'extended-vectors-short',
+    description:
+      'Extended vectors profile: runs games seeded from all v2 extended contract vector bundles.',
+    boardTypes: [], // Not used for vector-seeded games
+    gamesPerBoard: 0, // Not used for vector-seeded games
+    maxTurns: 200,
+    randomSeed: 555666777,
+  },
 };
 
 interface GameRunResult {
@@ -100,6 +177,12 @@ interface GameRunResult {
   completed: boolean;
   hitMaxTurns: boolean;
   invariantViolations: InvariantViolation[];
+  /** Vector ID if this game was seeded from a contract vector */
+  vectorId?: string;
+  /** Vector family/category if this game was seeded from a contract vector */
+  vectorFamily?: string;
+  /** Victory type if game completed */
+  victoryType?: 'elimination' | 'territory' | 'timeout' | 'unknown';
 }
 
 interface BucketStats {
@@ -136,14 +219,26 @@ interface InvariantViolation {
   eliminatedRings: number;
   totalRingsEliminated: number;
   movesTail: Move[];
+  /** Vector ID if this violation occurred in a vector-seeded game */
+  vectorId?: string;
+  /** Vector family/category if applicable */
+  vectorFamily?: string;
+  /** Game state snapshot at time of violation (JSON-serializable) */
+  stateSnapshot?: Record<string, unknown>;
+  /** S-invariant value before this turn */
+  sBeforeTurn?: number;
 }
 
+// ViolationDiagnostics interface removed - diagnostics are now inline in violation objects
+
 interface ParsedArgs {
-  [key: string]: string | boolean | undefined;
+  [key: string]: string | string[] | boolean | undefined;
 }
 
 function parseArgs(argv: string[]): SoakConfig {
   const args: ParsedArgs = {};
+  const vectorBundles: string[] = [];
+
   for (let i = 2; i < argv.length; i += 1) {
     const raw = argv[i];
     if (!raw.startsWith('--')) {
@@ -165,7 +260,13 @@ function parseArgs(argv: string[]): SoakConfig {
         value = true;
       }
     }
-    args[key] = value;
+
+    // Handle multiple --vectorBundle flags
+    if (key === 'vectorBundle' && typeof value === 'string') {
+      vectorBundles.push(value);
+    } else {
+      args[key] = value;
+    }
   }
 
   const profileArg = args.profile as string | undefined;
@@ -174,7 +275,6 @@ function parseArgs(argv: string[]): SoakConfig {
     if (profileArg in SOAK_PROFILES) {
       profileId = profileArg as SoakProfileId;
     } else {
-      // eslint-disable-next-line no-console
       console.warn(
         `Unknown orchestrator soak profile "${profileArg}". Falling back to explicit CLI arguments.`
       );
@@ -194,20 +294,16 @@ function parseArgs(argv: string[]): SoakConfig {
     args.gamesPerBoard !== undefined
       ? Number(args.gamesPerBoard)
       : profile
-      ? profile.gamesPerBoard
-      : 50;
+        ? profile.gamesPerBoard
+        : 50;
   const maxTurnsRaw =
-    args.maxTurns !== undefined
-      ? Number(args.maxTurns)
-      : profile
-      ? profile.maxTurns
-      : 500;
+    args.maxTurns !== undefined ? Number(args.maxTurns) : profile ? profile.maxTurns : 500;
   const randomSeedRaw =
     args.randomSeed !== undefined
       ? Number(args.randomSeed)
       : profile
-      ? profile.randomSeed
-      : Date.now() & 0x7fffffff;
+        ? profile.randomSeed
+        : Date.now() & 0x7fffffff;
 
   const mode: HarnessMode = 'backend';
   const outputPath =
@@ -225,13 +321,16 @@ function parseArgs(argv: string[]): SoakConfig {
     args.traceDebug === true ||
     args.traceDebug === 'true';
 
+  const verbose = args.verbose === true || args.verbose === 'true' || enableTraceDebug;
+
+  const gamesPerVectorRaw = args.gamesPerVector !== undefined ? Number(args.gamesPerVector) : 1;
+
   const gamesPerBoard =
     Number.isFinite(gamesPerBoardRaw) && gamesPerBoardRaw > 0 ? gamesPerBoardRaw : 50;
-  const maxTurns =
-    Number.isFinite(maxTurnsRaw) && maxTurnsRaw > 0 ? maxTurnsRaw : 500;
-  const randomSeed = Number.isFinite(randomSeedRaw)
-    ? randomSeedRaw
-    : Date.now() & 0x7fffffff;
+  const maxTurns = Number.isFinite(maxTurnsRaw) && maxTurnsRaw > 0 ? maxTurnsRaw : 500;
+  const randomSeed = Number.isFinite(randomSeedRaw) ? randomSeedRaw : Date.now() & 0x7fffffff;
+  const gamesPerVector =
+    Number.isFinite(gamesPerVectorRaw) && gamesPerVectorRaw > 0 ? gamesPerVectorRaw : 1;
 
   const config: SoakConfig = {
     boardTypes,
@@ -242,6 +341,9 @@ function parseArgs(argv: string[]): SoakConfig {
     outputPath,
     failOnViolation,
     enableTraceDebug,
+    verbose,
+    vectorBundles,
+    gamesPerVector,
   };
 
   if (profileId) {
@@ -249,6 +351,31 @@ function parseArgs(argv: string[]): SoakConfig {
   }
 
   return config;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vector Bundle Loading
+// ═══════════════════════════════════════════════════════════════════════════
+
+function loadVectorBundle(bundlePath: string): VectorBundleInfo {
+  const absolutePath = path.resolve(bundlePath);
+  if (!fs.existsSync(absolutePath)) {
+    throw new Error(`Vector bundle not found: ${absolutePath}`);
+  }
+  const content = fs.readFileSync(absolutePath, 'utf8');
+  return JSON.parse(content) as VectorBundleInfo;
+}
+
+function extractFamilyFromPath(bundlePath: string): string {
+  const basename = path.basename(bundlePath, '.vectors.json');
+  return basename;
+}
+
+function logVerbose(config: SoakConfig, message: string): void {
+  if (config.verbose) {
+    // eslint-disable-next-line no-console
+    console.log(`[VERBOSE] ${message}`);
+  }
 }
 
 const DEFAULT_TIME_CONTROL: TimeControl = {
@@ -342,6 +469,9 @@ function makeViolation(
     turnIndex: number;
     seed: number;
     lastMoves: Move[];
+    vectorId?: string | undefined;
+    vectorFamily?: string | undefined;
+    sBeforeTurn?: number | undefined;
   },
   snapshot: {
     markers: number;
@@ -369,6 +499,21 @@ function makeViolation(
     eliminatedRings: snapshot.eliminated,
     totalRingsEliminated,
     movesTail: context.lastMoves.slice(-10),
+    stateSnapshot: {
+      stackCount: state.board.stacks.size,
+      markerCount: state.board.markers.size,
+      collapsedCount: state.board.collapsedSpaces.size,
+      players: state.players.map((p) => ({
+        playerNumber: p.playerNumber,
+        ringsInHand: p.ringsInHand,
+        eliminatedRings: p.eliminatedRings,
+        territorySpaces: p.territorySpaces,
+      })),
+    },
+    // Only set optional fields if they have values
+    ...(context.vectorId !== undefined && { vectorId: context.vectorId }),
+    ...(context.vectorFamily !== undefined && { vectorFamily: context.vectorFamily }),
+    ...(context.sBeforeTurn !== undefined && { sBeforeTurn: context.sBeforeTurn }),
   };
 
   // Best-effort emission of orchestrator invariant metrics so that soak
@@ -476,9 +621,17 @@ async function runSingleGame(
   hostMode: HostMode,
   gameIndex: number,
   seed: number,
-  maxTurns: number
+  maxTurns: number,
+  progressReporter: VectorAwareSoakProgressReporter,
+  config: SoakConfig,
+  vectorContext?: {
+    vectorId: string;
+    vectorFamily: string;
+  }
 ): Promise<GameRunResult> {
-  const gameId = `soak-${boardType}-${hostMode}-${gameIndex}`;
+  const gameId = vectorContext
+    ? `soak-vector-${vectorContext.vectorId}-${gameIndex}`
+    : `soak-${boardType}-${hostMode}-${gameIndex}`;
   const moveRng = new SeededRNG(seed);
 
   const engine = createBackendHost(gameId, boardType, seed);
@@ -486,15 +639,27 @@ async function runSingleGame(
   let turns = 0;
   let completed = false;
   let hitMaxTurns = false;
+  let victoryType: GameRunResult['victoryType'] = undefined;
   const invariantViolations: InvariantViolation[] = [];
   const maxViolationsPerGame = 8;
   const recentMoves: Move[] = [];
+  let lastPhase = '';
 
   let lastS: number | null = null;
   let lastTotalEliminated: number | null = null;
 
   for (; turns < maxTurns; turns += 1) {
+    progressReporter.check();
     const state = (engine as GameEngine).getGameState();
+
+    // Verbose phase transition logging
+    if (config.verbose && state.currentPhase !== lastPhase) {
+      logVerbose(
+        config,
+        `Turn ${turns}: Phase transition ${lastPhase || 'START'} -> ${state.currentPhase} (player ${state.currentPlayer})`
+      );
+      lastPhase = state.currentPhase;
+    }
 
     const snapshot = computeProgressSnapshot(state as any);
     const currentS = snapshot.S;
@@ -506,6 +671,9 @@ async function runSingleGame(
       turnIndex: turns,
       seed,
       lastMoves: recentMoves,
+      vectorId: vectorContext?.vectorId,
+      vectorFamily: vectorContext?.vectorFamily,
+      sBeforeTurn: lastS ?? undefined,
     };
 
     // Monotonic S-invariant.
@@ -561,6 +729,23 @@ async function runSingleGame(
     // Termination check.
     if (state.gameStatus === 'completed') {
       completed = true;
+      // Determine victory type
+      if (state.winner !== undefined) {
+        const winnerPlayer = state.players.find((p: Player) => p.playerNumber === state.winner);
+        if (winnerPlayer) {
+          if (winnerPlayer.eliminatedRings >= state.victoryThreshold) {
+            victoryType = 'elimination';
+          } else if (winnerPlayer.territorySpaces >= state.territoryVictoryThreshold) {
+            victoryType = 'territory';
+          } else {
+            victoryType = 'unknown';
+          }
+        }
+      }
+      logVerbose(
+        config,
+        `Game ${gameId} completed: winner=${state.winner}, victoryType=${victoryType}`
+      );
       break;
     }
     if (state.gameStatus !== 'active') {
@@ -736,6 +921,8 @@ async function runSingleGame(
 
   if (turns >= maxTurns && !completed && invariantViolations.length === 0) {
     hitMaxTurns = true;
+    victoryType = 'timeout';
+    logVerbose(config, `Game ${gameId} hit max turns (${maxTurns})`);
   }
 
   return {
@@ -747,6 +934,420 @@ async function runSingleGame(
     completed,
     hitMaxTurns,
     invariantViolations,
+    // Only set optional fields if they have values
+    ...(vectorContext?.vectorId !== undefined && { vectorId: vectorContext.vectorId }),
+    ...(vectorContext?.vectorFamily !== undefined && { vectorFamily: vectorContext.vectorFamily }),
+    ...(victoryType !== undefined && { victoryType }),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Vector-Seeded Game Running
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Create a backend host from a vector's initial state.
+ * This allows running full games seeded from specific contract vector states.
+ */
+function createBackendHostFromVectorState(
+  gameId: string,
+  vectorState: SerializedGameState,
+  gameSeed: number
+): GameEngine {
+  const boardType = vectorState.board.type as BoardType;
+  const players = createDefaultPlayers(boardType);
+
+  const engine = new GameEngine(
+    gameId,
+    boardType,
+    players,
+    DEFAULT_TIME_CONTROL,
+    false,
+    undefined,
+    gameSeed
+  );
+
+  // Enable orchestrator adapter
+  engine.enableOrchestratorAdapter();
+
+  // Get access to internal state and replace with deserialized vector state
+  const engineAny = engine as any;
+  const deserializedState = deserializeGameState(vectorState);
+
+  // Merge the deserialized state into the engine's game state
+  if (engineAny.gameState) {
+    // Preserve engine-specific fields but use vector state for game data
+    engineAny.gameState.board = deserializedState.board;
+    engineAny.gameState.currentPlayer = deserializedState.currentPlayer;
+    engineAny.gameState.currentPhase = deserializedState.currentPhase;
+    engineAny.gameState.chainCapturePosition = deserializedState.chainCapturePosition;
+    engineAny.gameState.gameStatus = deserializedState.gameStatus;
+    engineAny.gameState.totalRingsEliminated = deserializedState.totalRingsEliminated;
+    engineAny.gameState.victoryThreshold = deserializedState.victoryThreshold;
+    engineAny.gameState.territoryVictoryThreshold = deserializedState.territoryVictoryThreshold;
+
+    // Update player states
+    for (const vectorPlayer of deserializedState.players) {
+      const enginePlayer = engineAny.gameState.players.find(
+        (p: any) => p.playerNumber === vectorPlayer.playerNumber
+      );
+      if (enginePlayer) {
+        enginePlayer.ringsInHand = vectorPlayer.ringsInHand;
+        enginePlayer.eliminatedRings = vectorPlayer.eliminatedRings;
+        enginePlayer.territorySpaces = vectorPlayer.territorySpaces;
+        enginePlayer.isReady = true;
+      }
+    }
+
+    engineAny.gameState.rngSeed = gameSeed;
+  }
+
+  return engine;
+}
+
+async function runVectorSeededGame(
+  vector: ContractVector,
+  vectorFamily: string,
+  gameIndex: number,
+  seed: number,
+  maxTurns: number,
+  progressReporter: VectorAwareSoakProgressReporter,
+  config: SoakConfig
+): Promise<GameRunResult> {
+  const gameId = `soak-vector-${vector.id}-${gameIndex}`;
+  const boardType = vector.input.state.board.type as BoardType;
+  const moveRng = new SeededRNG(seed);
+
+  let engine: GameEngine;
+  try {
+    engine = createBackendHostFromVectorState(gameId, vector.input.state, seed);
+  } catch (err) {
+    // If we can't create the engine from vector state, return as a violation
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return {
+      boardType,
+      hostMode: 'backend',
+      gameIndex,
+      seed,
+      turns: 0,
+      completed: false,
+      hitMaxTurns: false,
+      invariantViolations: [
+        {
+          id: 'VECTOR_STATE_LOAD_FAILED',
+          message: `Failed to load vector state: ${errorMessage}`,
+          boardType,
+          hostMode: 'backend',
+          gameId,
+          gameIndex,
+          turnIndex: 0,
+          seed,
+          gameStatus: 'waiting',
+          currentPlayer: 1,
+          currentPhase: 'ring_placement',
+          markers: 0,
+          collapsed: 0,
+          sInvariant: 0,
+          eliminatedRings: 0,
+          totalRingsEliminated: 0,
+          movesTail: [],
+          vectorId: vector.id,
+          vectorFamily,
+        },
+      ],
+      vectorId: vector.id,
+      vectorFamily,
+    };
+  }
+
+  let turns = 0;
+  let completed = false;
+  let hitMaxTurns = false;
+  let victoryType: GameRunResult['victoryType'] = undefined;
+  const invariantViolations: InvariantViolation[] = [];
+  const maxViolationsPerGame = 8;
+  const recentMoves: Move[] = [];
+  let lastPhase = '';
+
+  let lastS: number | null = null;
+  let lastTotalEliminated: number | null = null;
+
+  logVerbose(config, `Starting vector-seeded game: ${vector.id} (${vectorFamily}), seed=${seed}`);
+
+  for (; turns < maxTurns; turns += 1) {
+    progressReporter.check();
+    const state = engine.getGameState();
+
+    // Verbose phase transition logging
+    if (config.verbose && state.currentPhase !== lastPhase) {
+      logVerbose(
+        config,
+        `[${vector.id}] Turn ${turns}: Phase ${lastPhase || 'START'} -> ${state.currentPhase} (player ${state.currentPlayer})`
+      );
+      lastPhase = state.currentPhase;
+    }
+
+    const snapshot = computeProgressSnapshot(state as any);
+    const currentS = snapshot.S;
+    const totalEliminated = state.totalRingsEliminated ?? 0;
+
+    const contextBase = {
+      gameId,
+      gameIndex,
+      turnIndex: turns,
+      seed,
+      lastMoves: recentMoves,
+      vectorId: vector.id,
+      vectorFamily,
+      sBeforeTurn: lastS ?? undefined,
+    };
+
+    // Monotonic S-invariant check
+    if (lastS !== null && currentS < lastS && invariantViolations.length < maxViolationsPerGame) {
+      invariantViolations.push(
+        makeViolation(
+          'S_INVARIANT_DECREASED',
+          `S-invariant decreased from ${lastS} to ${currentS}`,
+          state,
+          boardType,
+          'backend',
+          contextBase,
+          snapshot,
+          totalEliminated
+        )
+      );
+      break;
+    }
+
+    // Monotonic totalRingsEliminated check
+    if (
+      lastTotalEliminated !== null &&
+      totalEliminated < lastTotalEliminated &&
+      invariantViolations.length < maxViolationsPerGame
+    ) {
+      invariantViolations.push(
+        makeViolation(
+          'TOTAL_RINGS_ELIMINATED_DECREASED',
+          `totalRingsEliminated decreased from ${lastTotalEliminated} to ${totalEliminated}`,
+          state,
+          boardType,
+          'backend',
+          contextBase,
+          snapshot,
+          totalEliminated
+        )
+      );
+      break;
+    }
+
+    lastS = currentS;
+    lastTotalEliminated = totalEliminated;
+
+    // Basic board-structure invariants
+    const structural = checkStructuralInvariants(state, boardType, 'backend', contextBase);
+    if (structural.length > 0) {
+      invariantViolations.push(
+        ...structural.slice(0, maxViolationsPerGame - invariantViolations.length)
+      );
+      break;
+    }
+
+    // Termination check
+    if (state.gameStatus === 'completed') {
+      completed = true;
+      if (state.winner !== undefined) {
+        const winnerPlayer = state.players.find((p: Player) => p.playerNumber === state.winner);
+        if (winnerPlayer) {
+          if (winnerPlayer.eliminatedRings >= state.victoryThreshold) {
+            victoryType = 'elimination';
+          } else if (winnerPlayer.territorySpaces >= state.territoryVictoryThreshold) {
+            victoryType = 'territory';
+          } else {
+            victoryType = 'unknown';
+          }
+        }
+      }
+      logVerbose(
+        config,
+        `[${vector.id}] Game completed: winner=${state.winner}, victoryType=${victoryType}`
+      );
+      break;
+    }
+
+    if (state.gameStatus !== 'active') {
+      if (invariantViolations.length < maxViolationsPerGame) {
+        invariantViolations.push(
+          makeViolation(
+            'UNEXPECTED_GAME_STATUS',
+            `Encountered non-active, non-completed gameStatus=${state.gameStatus}`,
+            state,
+            boardType,
+            'backend',
+            contextBase,
+            snapshot,
+            totalEliminated
+          )
+        );
+      }
+      break;
+    }
+
+    const currentPlayer = state.currentPlayer;
+    const moves = engine.getValidMoves(currentPlayer);
+
+    const validationState = engine.getGameState();
+    const validationSnapshot = computeProgressSnapshot(validationState as any);
+    const validationTotalEliminated = validationState.totalRingsEliminated ?? 0;
+
+    // Strict active-no-move invariant
+    if (validationState.gameStatus === 'active' && isANMState(validationState as GameState)) {
+      if (invariantViolations.length < maxViolationsPerGame) {
+        invariantViolations.push(
+          makeViolation(
+            'ACTIVE_NO_MOVES',
+            'GameStatus is active but getValidMoves returned 0 moves',
+            validationState,
+            boardType,
+            'backend',
+            contextBase,
+            validationSnapshot,
+            validationTotalEliminated
+          )
+        );
+      }
+      break;
+    }
+
+    // Orchestrator validation invariant
+    for (const move of moves) {
+      const validation = orchestratorValidateMove(validationState, move);
+      if (!validation.valid) {
+        if (invariantViolations.length < maxViolationsPerGame) {
+          invariantViolations.push(
+            makeViolation(
+              'ORCHESTRATOR_VALIDATE_MOVE_FAILED',
+              `orchestrator validateMove rejected move of type ${move.type} for player ${move.player} in phase ${validationState.currentPhase}: ${validation.reason ?? 'no reason provided'}`,
+              validationState,
+              boardType,
+              'backend',
+              contextBase,
+              validationSnapshot,
+              validationTotalEliminated
+            )
+          );
+        }
+        break;
+      }
+    }
+    if (invariantViolations.length > 0) {
+      break;
+    }
+
+    // Move selection (prefer real moves)
+    const realMoveTypes: Move['type'][] = [
+      'place_ring',
+      'skip_placement',
+      'move_ring',
+      'move_stack',
+      'overtaking_capture',
+      'continue_capture_segment',
+    ];
+    const realMoves = moves.filter((m) => realMoveTypes.includes(m.type));
+    const candidateMoves = realMoves.length > 0 ? realMoves : moves;
+
+    if (candidateMoves.length === 0) {
+      if (validationState.gameStatus !== 'active') {
+        if (validationState.gameStatus === 'completed') {
+          completed = true;
+        }
+        break;
+      }
+
+      if (invariantViolations.length < maxViolationsPerGame) {
+        invariantViolations.push(
+          makeViolation(
+            'ACTIVE_NO_CANDIDATE_MOVES',
+            'GameStatus is active but no candidate moves were available for selection',
+            validationState,
+            boardType,
+            'backend',
+            contextBase,
+            validationSnapshot,
+            validationTotalEliminated
+          )
+        );
+      }
+      break;
+    }
+
+    const selectedIndex = moveRng.nextInt(0, candidateMoves.length);
+    const selectedMove = candidateMoves[selectedIndex];
+
+    recentMoves.push(selectedMove);
+    if (recentMoves.length > 16) {
+      recentMoves.shift();
+    }
+
+    // Apply the move
+    try {
+      const engineMove = toEngineMove(selectedMove);
+      const result = await engine.makeMove(engineMove);
+      if (!result.success) {
+        if (invariantViolations.length < maxViolationsPerGame) {
+          invariantViolations.push(
+            makeViolation(
+              'HOST_REJECTED_MOVE',
+              `GameEngine.makeMove rejected move of type ${selectedMove.type}: ${result.error ?? 'no error message'}`,
+              state,
+              boardType,
+              'backend',
+              contextBase,
+              snapshot,
+              totalEliminated
+            )
+          );
+        }
+        break;
+      }
+    } catch (err) {
+      if (invariantViolations.length < maxViolationsPerGame) {
+        const message = err instanceof Error ? err.message : String(err);
+        invariantViolations.push(
+          makeViolation(
+            'UNHANDLED_EXCEPTION',
+            `Exception while applying move of type ${selectedMove.type}: ${message}`,
+            state,
+            boardType,
+            'backend',
+            contextBase,
+            snapshot,
+            totalEliminated
+          )
+        );
+      }
+      break;
+    }
+  }
+
+  if (turns >= maxTurns && !completed && invariantViolations.length === 0) {
+    hitMaxTurns = true;
+    victoryType = 'timeout';
+    logVerbose(config, `[${vector.id}] Game hit max turns (${maxTurns})`);
+  }
+
+  return {
+    boardType,
+    hostMode: 'backend',
+    gameIndex,
+    seed,
+    turns,
+    completed,
+    hitMaxTurns,
+    invariantViolations,
+    vectorId: vector.id,
+    vectorFamily,
+    // Only set optional victoryType if it has a value
+    ...(victoryType !== undefined && { victoryType }),
   };
 }
 
@@ -793,64 +1394,265 @@ async function run(): Promise<void> {
   const maxViolationTraces = 50;
   const overallViolationsById: Record<string, number> = {};
 
-  const totalGamesPlanned = config.boardTypes.length * config.gamesPerBoard * hostModes.length;
+  // Vector family statistics
+  const vectorFamilyStatsMap = new Map<string, VectorFamilyStats>();
+
+  // Victory type distribution tracking
+  const victoryDistribution: Record<string, number> = {
+    elimination: 0,
+    territory: 0,
+    timeout: 0,
+    unknown: 0,
+    incomplete: 0,
+  };
+
+  // Determine if we're running vector-seeded games
+  const isVectorMode = config.vectorBundles.length > 0;
+
+  // Calculate total games
+  let totalGamesPlanned: number;
+  if (isVectorMode) {
+    // Load all vector bundles to count vectors
+    let totalVectors = 0;
+    for (const bundlePath of config.vectorBundles) {
+      try {
+        const bundle = loadVectorBundle(bundlePath);
+        totalVectors += bundle.vectors.length;
+      } catch (err) {
+        console.error(`Warning: Failed to load vector bundle ${bundlePath}: ${err}`);
+      }
+    }
+    totalGamesPlanned = totalVectors * config.gamesPerVector;
+  } else {
+    totalGamesPlanned = config.boardTypes.length * config.gamesPerBoard * hostModes.length;
+  }
+
   let gameCounter = 0;
 
-  for (const boardType of config.boardTypes) {
-    for (let gameIndex = 0; gameIndex < config.gamesPerBoard; gameIndex += 1) {
-      const seed = rng.nextInt(1, 0x7fffffff);
+  // Initialize progress reporter for time-based progress output (~10s intervals)
+  const progressReporter = new VectorAwareSoakProgressReporter({
+    totalGames: totalGamesPlanned,
+    reportIntervalSec: 10,
+    contextLabel: `orchestrator_soak_${config.profile ?? 'custom'}`,
+  });
 
-      for (const hostMode of hostModes) {
-        gameCounter += 1;
-        // eslint-disable-next-line no-console
-        console.log(
-          `[${gameCounter}/${totalGamesPlanned}] boardType=${boardType} host=${hostMode} gameIndex=${gameIndex} seed=${seed}`
-        );
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Vector-Seeded Game Mode
+  // ═══════════════════════════════════════════════════════════════════════════
+  if (isVectorMode) {
+    console.log(`Running in VECTOR-SEEDED mode with ${config.vectorBundles.length} bundle(s)`);
+    console.log('');
 
-        const result = await runSingleGame(boardType, hostMode, gameIndex, seed, config.maxTurns);
+    for (const bundlePath of config.vectorBundles) {
+      let bundle: VectorBundleInfo;
+      try {
+        bundle = loadVectorBundle(bundlePath);
+      } catch (err) {
+        console.error(`Failed to load vector bundle ${bundlePath}: ${err}`);
+        continue;
+      }
 
-        const bucketKey = `${boardType}:${hostMode}`;
-        let bucket = bucketMap.get(bucketKey);
-        if (!bucket) {
-          bucket = {
+      const family = extractFamilyFromPath(bundlePath);
+      console.log(`Processing family: ${family} (${bundle.vectors.length} vectors)`);
+
+      // Initialize family stats
+      if (!vectorFamilyStatsMap.has(family)) {
+        vectorFamilyStatsMap.set(family, {
+          family,
+          bundlePath,
+          vectorCount: bundle.vectors.length,
+          gamesRun: 0,
+          gamesCompleted: 0,
+          invariantViolations: 0,
+          maxTurnsReached: 0,
+          violationsById: {},
+        });
+      }
+      const familyStats = vectorFamilyStatsMap.get(family)!;
+
+      progressReporter.setCurrentFamily(family);
+
+      for (const vector of bundle.vectors) {
+        for (let gameIndex = 0; gameIndex < config.gamesPerVector; gameIndex += 1) {
+          const seed = rng.nextInt(1, 0x7fffffff);
+          gameCounter += 1;
+          const gameStartTime = Date.now();
+
+          progressReporter.setActivity(
+            `[${family}] Vector ${vector.id} game ${gameIndex + 1}/${config.gamesPerVector} (seed=${seed})`
+          );
+          progressReporter.check();
+
+          const result = await runVectorSeededGame(
+            vector,
+            family,
+            gameIndex,
+            seed,
+            config.maxTurns,
+            progressReporter,
+            config
+          );
+
+          // Update family stats
+          familyStats.gamesRun += 1;
+          if (result.completed) {
+            familyStats.gamesCompleted += 1;
+          }
+          if (result.hitMaxTurns) {
+            familyStats.maxTurnsReached += 1;
+          }
+          if (result.invariantViolations.length > 0) {
+            familyStats.invariantViolations += result.invariantViolations.length;
+            for (const violation of result.invariantViolations) {
+              familyStats.violationsById[violation.id] =
+                (familyStats.violationsById[violation.id] ?? 0) + 1;
+              overallViolationsById[violation.id] = (overallViolationsById[violation.id] ?? 0) + 1;
+            }
+
+            if (allViolations.length < maxViolationTraces) {
+              const remaining = maxViolationTraces - allViolations.length;
+              allViolations.push(...result.invariantViolations.slice(0, remaining));
+            }
+          }
+
+          // Track victory distribution
+          if (result.victoryType) {
+            victoryDistribution[result.victoryType] =
+              (victoryDistribution[result.victoryType] ?? 0) + 1;
+          } else if (!result.completed) {
+            victoryDistribution.incomplete += 1;
+          }
+
+          // Also update bucket stats for board type aggregation
+          const bucketKey = `${result.boardType}:${result.hostMode}`;
+          let bucket = bucketMap.get(bucketKey);
+          if (!bucket) {
+            bucket = {
+              boardType: result.boardType,
+              hostMode: result.hostMode,
+              gameCount: 0,
+              completedCount: 0,
+              maxTurnsCount: 0,
+              invariantViolationCount: 0,
+              turnCounts: [],
+              invariantViolationsById: {},
+            };
+            bucketMap.set(bucketKey, bucket);
+          }
+
+          bucket.gameCount += 1;
+          bucket.turnCounts.push(result.turns);
+          if (result.completed) {
+            bucket.completedCount += 1;
+          }
+          if (result.hitMaxTurns) {
+            bucket.maxTurnsCount += 1;
+          }
+          if (result.invariantViolations.length > 0) {
+            bucket.invariantViolationCount += result.invariantViolations.length;
+            for (const violation of result.invariantViolations) {
+              bucket.invariantViolationsById[violation.id] =
+                (bucket.invariantViolationsById[violation.id] ?? 0) + 1;
+            }
+          }
+
+          // Record game completion for progress reporting
+          const gameDurationMs = Date.now() - gameStartTime;
+          progressReporter.recordGame({
+            moves: result.turns,
+            durationMs: gameDurationMs,
+            vectorFamily: family,
+          });
+        }
+      }
+    }
+  } else {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Standard Random-Seeded Game Mode
+    // ═══════════════════════════════════════════════════════════════════════════
+    for (const boardType of config.boardTypes) {
+      for (let gameIndex = 0; gameIndex < config.gamesPerBoard; gameIndex += 1) {
+        const seed = rng.nextInt(1, 0x7fffffff);
+
+        for (const hostMode of hostModes) {
+          gameCounter += 1;
+          const gameStartTime = Date.now();
+
+          progressReporter.setActivity(
+            `Running ${boardType} game ${gameIndex + 1}/${config.gamesPerBoard} (seed=${seed})`
+          );
+          progressReporter.check();
+
+          const result = await runSingleGame(
             boardType,
             hostMode,
-            gameCount: 0,
-            completedCount: 0,
-            maxTurnsCount: 0,
-            invariantViolationCount: 0,
-            turnCounts: [],
-            invariantViolationsById: {},
-          };
-          bucketMap.set(bucketKey, bucket);
-        }
+            gameIndex,
+            seed,
+            config.maxTurns,
+            progressReporter,
+            config
+          );
 
-        bucket.gameCount += 1;
-        bucket.turnCounts.push(result.turns);
-        if (result.completed) {
-          bucket.completedCount += 1;
-        }
-        if (result.hitMaxTurns) {
-          bucket.maxTurnsCount += 1;
-        }
-        if (result.invariantViolations.length > 0) {
-          bucket.invariantViolationCount += result.invariantViolations.length;
-
-          for (const violation of result.invariantViolations) {
-            bucket.invariantViolationsById[violation.id] =
-              (bucket.invariantViolationsById[violation.id] ?? 0) + 1;
-            overallViolationsById[violation.id] =
-              (overallViolationsById[violation.id] ?? 0) + 1;
+          const bucketKey = `${boardType}:${hostMode}`;
+          let bucket = bucketMap.get(bucketKey);
+          if (!bucket) {
+            bucket = {
+              boardType,
+              hostMode,
+              gameCount: 0,
+              completedCount: 0,
+              maxTurnsCount: 0,
+              invariantViolationCount: 0,
+              turnCounts: [],
+              invariantViolationsById: {},
+            };
+            bucketMap.set(bucketKey, bucket);
           }
 
-          if (allViolations.length < maxViolationTraces) {
-            const remaining = maxViolationTraces - allViolations.length;
-            allViolations.push(...result.invariantViolations.slice(0, remaining));
+          bucket.gameCount += 1;
+          bucket.turnCounts.push(result.turns);
+          if (result.completed) {
+            bucket.completedCount += 1;
           }
+          if (result.hitMaxTurns) {
+            bucket.maxTurnsCount += 1;
+          }
+          if (result.invariantViolations.length > 0) {
+            bucket.invariantViolationCount += result.invariantViolations.length;
+
+            for (const violation of result.invariantViolations) {
+              bucket.invariantViolationsById[violation.id] =
+                (bucket.invariantViolationsById[violation.id] ?? 0) + 1;
+              overallViolationsById[violation.id] = (overallViolationsById[violation.id] ?? 0) + 1;
+            }
+
+            if (allViolations.length < maxViolationTraces) {
+              const remaining = maxViolationTraces - allViolations.length;
+              allViolations.push(...result.invariantViolations.slice(0, remaining));
+            }
+          }
+
+          // Track victory distribution
+          if (result.victoryType) {
+            victoryDistribution[result.victoryType] =
+              (victoryDistribution[result.victoryType] ?? 0) + 1;
+          } else if (!result.completed) {
+            victoryDistribution.incomplete += 1;
+          }
+
+          // Record game completion for progress reporting
+          const gameDurationMs = Date.now() - gameStartTime;
+          progressReporter.recordGame({
+            moves: result.turns,
+            durationMs: gameDurationMs,
+          });
         }
       }
     }
   }
+
+  // Emit final progress summary
+  progressReporter.finish();
 
   // Build summary structure.
   const buckets = Array.from(bucketMap.values()).map((bucket) => {
@@ -885,13 +1687,46 @@ async function run(): Promise<void> {
   );
   overall.invariantViolationsById = overallViolationsById;
 
+  // Vector family statistics
+  const vectorFamilyStats = Array.from(vectorFamilyStatsMap.values());
+
   const summary = {
     timestamp: new Date().toISOString(),
-    config,
-    overall,
+    config: {
+      ...config,
+      isVectorMode,
+    },
+    overall: {
+      ...overall,
+      victoryDistribution,
+    },
     buckets,
+    vectorFamilyStats,
     violations: allViolations,
   };
+
+  // Write violation diagnostics to separate file if there are violations
+  if (allViolations.length > 0) {
+    const diagnosticsPath = config.outputPath.replace('.json', '_violation_diagnostics.json');
+    const diagnostics = allViolations.map((v) => ({
+      violationId: v.id,
+      message: v.message,
+      vectorId: v.vectorId,
+      vectorFamily: v.vectorFamily,
+      gameId: v.gameId,
+      turnIndex: v.turnIndex,
+      seed: v.seed,
+      phase: v.currentPhase,
+      player: v.currentPlayer,
+      gameStatus: v.gameStatus,
+      sInvariant: v.sInvariant,
+      sBeforeTurn: v.sBeforeTurn,
+      stateSnapshot: v.stateSnapshot,
+      movesTail: v.movesTail,
+    }));
+    fs.writeFileSync(diagnosticsPath, JSON.stringify(diagnostics, null, 2), 'utf8');
+    console.log(`Violation diagnostics written to: ${diagnosticsPath}`);
+  }
 
   if (allViolations.length > 0) {
     // eslint-disable-next-line no-console
@@ -924,6 +1759,25 @@ async function run(): Promise<void> {
   console.log(
     `Total games=${overall.totalGames}, completed=${overall.completedGames}, maxTurns=${overall.maxTurnsGames}, invariantViolations=${overall.invariantViolations}`
   );
+
+  if (isVectorMode && vectorFamilyStats.length > 0) {
+    console.log('');
+    console.log('Vector Family Summary:');
+    for (const fs of vectorFamilyStats) {
+      console.log(
+        `  ${fs.family}: vectors=${fs.vectorCount}, games=${fs.gamesRun}, completed=${fs.gamesCompleted}, violations=${fs.invariantViolations}, maxTurns=${fs.maxTurnsReached}`
+      );
+    }
+  }
+
+  console.log('');
+  console.log('Victory Distribution:');
+  for (const [type, count] of Object.entries(victoryDistribution)) {
+    if (count > 0) {
+      console.log(`  ${type}: ${count}`);
+    }
+  }
+
   console.log('');
   console.log(`Summary written to: ${outputPath}`);
 

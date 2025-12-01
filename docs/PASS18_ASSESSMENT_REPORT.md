@@ -1,15 +1,17 @@
 # Pass 18 – Full-Project Reassessment Report
 
-> **⚠️ SUPERSEDED BY PASS18A** – This assessment was superseded by PASS18A on November 30, 2025.
+> **⚠️ SUPERSEDED BY PASS18B** – This assessment was superseded by PASS18B on November 30, 2025.
 > For current project status, see:
+>
 > - `CURRENT_STATE_ASSESSMENT.md` – Latest implementation status
-> - `docs/PASS18A_ASSESSMENT_REPORT.md` – Most recent assessment pass
+> - `docs/PASS18B_ASSESSMENT_REPORT.md` – Most recent assessment pass
+> - `docs/PASS18A_ASSESSMENT_REPORT.md` – Intermediate assessment pass
 
 > **Assessment Date:** 2025-11-30
 > **Assessment Pass:** 18 (Post-ANM Remediation & Parity Re-evaluation)
 > **Assessor:** Architect mode – holistic system review
 
-> **Doc Status (2025-11-30): Historical (superseded by PASS18A)**
+> **Doc Status (2025-11-30): Historical (superseded by PASS18B)**
 > This report supersedes PASS16 and PASS17 assessments. It identifies the current weakest aspect and hardest outstanding problem following the successful remediation of Active-No-Moves (ANM) semantics and the initial consolidation of the shared rules engine.
 
 ---
@@ -33,21 +35,22 @@
 
 ## 2. Updated Component Scorecard (Pass 18)
 
-| Component | Score (1–5) | Trend | Notes |
-| :--- | :---: | :---: | :--- |
-| **Rules Engine (Shared TS)** | **4.8** | ➔ | Strong core; helpers/aggregates are solid. Minor gaps in complex scenario coverage. |
-| **Rules Host Integration (TS)** | **3.5** | ↘ | **Weakest Area.** Failing suites in capture/territory/RNG parity indicate brittle host wiring in `GameEngine` and `ClientSandboxEngine`. |
-| **Python Rules & AI** | **4.5** | ↗ | Strong architecture; parity tests are rigorous. Main gap is state-copying perf (technical debt, not correctness). |
-| **Frontend UX & Client** | **4.2** | ↗ | Solid components. Main issues are semantic mismatches in HUD copy (chain capture, victory) vs canonical rules. |
-| **Backend & WebSocket** | **4.4** | ➔ | Robust session management and auth. Some WebSocket type duplication remains. |
-| **Docs & SSOT** | **4.0** | ➔ | Strong structure. Some core docs (`PROJECT_GOALS`, `CURRENT_STATE`) are stale regarding test health and risk priorities. |
-| **Ops & CI** | **4.2** | ↗ | CI is mature. Orchestrator rollout tooling is ready but not yet fully exercised in production. |
+| Component                       | Score (1–5) | Trend | Notes                                                                                                                                    |
+| :------------------------------ | :---------: | :---: | :--------------------------------------------------------------------------------------------------------------------------------------- |
+| **Rules Engine (Shared TS)**    |   **4.8**   |   ➔   | Strong core; helpers/aggregates are solid. Minor gaps in complex scenario coverage.                                                      |
+| **Rules Host Integration (TS)** |   **3.5**   |   ↘   | **Weakest Area.** Failing suites in capture/territory/RNG parity indicate brittle host wiring in `GameEngine` and `ClientSandboxEngine`. |
+| **Python Rules & AI**           |   **4.5**   |   ↗   | Strong architecture; parity tests are rigorous. Main gap is state-copying perf (technical debt, not correctness).                        |
+| **Frontend UX & Client**        |   **4.2**   |   ↗   | Solid components. Main issues are semantic mismatches in HUD copy (chain capture, victory) vs canonical rules.                           |
+| **Backend & WebSocket**         |   **4.4**   |   ➔   | Robust session management and auth. Some WebSocket type duplication remains.                                                             |
+| **Docs & SSOT**                 |   **4.0**   |   ➔   | Strong structure. Some core docs (`PROJECT_GOALS`, `CURRENT_STATE`) are stale regarding test health and risk priorities.                 |
+| **Ops & CI**                    |   **4.2**   |   ↗   | CI is mature. Orchestrator rollout tooling is ready but not yet fully exercised in production.                                           |
 
 ---
 
 ## 3. Weakest Aspect Analysis: TS Rules/Host Integration & Parity
 
 ### 3.1 Evidence of Weakness
+
 - **Failing Test Clusters:** A fresh local run of `jest` reveals failures in:
   - `captureSequenceEnumeration.test.ts`: Divergence between backend and sandbox capture enumeration.
   - `RefactoredEngine.test.ts`: Issues with capture chain continuation and stack elimination.
@@ -58,8 +61,9 @@
 - **Impact:** These failures directly threaten game correctness (illegal moves allowed, legal moves rejected) and fairness (AI divergence, replay desyncs) in late-game scenarios.
 
 ### 3.2 Why it ranks #1
-- **vs. ANM/Termination:** ANM is now well-specified and tested. The current failures are in *active* play mechanics (capture, territory), which are more fundamental.
-- **vs. Orchestrator Rollout:** Rollout is an operational challenge; host integration is a *correctness* challenge. Correctness precedes deployment.
+
+- **vs. ANM/Termination:** ANM is now well-specified and tested. The current failures are in _active_ play mechanics (capture, territory), which are more fundamental.
+- **vs. Orchestrator Rollout:** Rollout is an operational challenge; host integration is a _correctness_ challenge. Correctness precedes deployment.
 - **vs. Frontend UX:** UX issues are mostly textual/presentational; engine issues are semantic and structural.
 
 ---
@@ -67,12 +71,15 @@
 ## 4. Hardest Outstanding Problem: Orchestrator Rollout & Deep Parity
 
 ### 4.1 The Challenge
+
 Moving from "design complete" to "production reality" for the orchestrator-first architecture involves:
+
 - **Execution:** Actually running the phased rollout (Phase 1 → 4) in staging/prod environments.
 - **Verification:** Using shadow mode to prove 100% parity between legacy and orchestrator paths on live traffic.
 - **Deep Parity:** Extending the contract vector suite to cover the "long tail" of complex interactions (e.g., hex board territory disconnection with simultaneous line formation) where engines are most likely to diverge.
 
 ### 4.2 Why it remains hard
+
 - **Coordination:** Requires lockstep updates across TS backend, TS client, and Python service.
 - **Observability:** Requires careful monitoring of parity metrics (`ringrift_rules_parity_mismatches_total`) to detect subtle regressions.
 - **Legacy Drag:** The existence of legacy code paths (even if deprecated) adds maintenance overhead and confusion until Phase 4 (Legacy Shutdown) is complete.
@@ -82,6 +89,7 @@ Moving from "design complete" to "production reality" for the orchestrator-first
 ## 5. Documentation & UX Audit Findings
 
 ### 5.1 Documentation Drift (second-pass alignment)
+
 - **`PROJECT_GOALS.md`:**
   - Now explicitly identifies **host integration & deep multi-engine parity** as the current highest-risk semantics area and orchestrator rollout as the hardest outstanding problem (see §3.4).
   - **PASS18 implication:** treat this as the SSoT for risk framing; any index or overview docs that still describe ANM/forced-elimination as the "current highest-risk" semantics area are stale and should be updated to match.
@@ -107,6 +115,7 @@ Moving from "design complete" to "production reality" for the orchestrator-first
   - **Recommended action:** after PASS18, re-check any sections that still describe Python rules as permanently simplifying line or territory behaviour and ensure they either match reality or are clearly marked as historical limitations.
 
 ### 5.2 Frontend UX Mismatches
+
 - **Chain Capture:** HUD says "continue or end turn", implying optionality. Rules require mandatory continuation.
 - **Victory:** Modal says "eliminate all rings". Rules say ">50%".
 - **Decision Phases:** Vague copy for line/territory decisions; doesn't clearly communicate compulsory vs. optional aspects.
@@ -177,13 +186,13 @@ Several other areas were considered as potential weakest aspects or hardest prob
 
 Using `jest-results.json`, the TS Jest test tree, and the Python `ai-service/tests` suites, the current qualitative confidence scores for coverage and health are:
 
-| Area | Confidence (1–5) | Notes |
-| :--- | :---: | :--- |
-| **Frontend (auth, lobby, HUD, game pages)** | **3.8** | Good unit and integration coverage for core flows; some reconnect, spectator, and advanced decision UX paths remain lightly tested and rely on manual verification. |
-| **Backend, API & WebSocket** | **4.2** | Strong coverage for auth, game HTTP routes, WebSocket auth revocation, AI service boundary, and basic game-loop flows. Edge-case WebSocket reconnection and error-path UX could benefit from more end-to-end tests. |
-| **Rules & engine (TS + Python)** | **4.3** | Extensive unit, scenario, invariant, and parity tests across TS and Python. Remaining red clusters are concentrated in advanced host-integration and parity suites rather than in core rules semantics. |
-| **AI training & evaluation** | **4.6** | E2E training pipeline tests, eval pools, and model-versioning coverage are strong. Main risks are performance and cost at scale, not correctness. |
-| **Docs & SSOT enforcement** | **4.2** | SSOT banners and checks cover core rules, architecture, lifecycle, and parity docs. Residual drift exists in indices and state snapshots but is well bounded and now catalogued for remediation. |
+| Area                                        | Confidence (1–5) | Notes                                                                                                                                                                                                               |
+| :------------------------------------------ | :--------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Frontend (auth, lobby, HUD, game pages)** |     **3.8**      | Good unit and integration coverage for core flows; some reconnect, spectator, and advanced decision UX paths remain lightly tested and rely on manual verification.                                                 |
+| **Backend, API & WebSocket**                |     **4.2**      | Strong coverage for auth, game HTTP routes, WebSocket auth revocation, AI service boundary, and basic game-loop flows. Edge-case WebSocket reconnection and error-path UX could benefit from more end-to-end tests. |
+| **Rules & engine (TS + Python)**            |     **4.3**      | Extensive unit, scenario, invariant, and parity tests across TS and Python. Remaining red clusters are concentrated in advanced host-integration and parity suites rather than in core rules semantics.             |
+| **AI training & evaluation**                |     **4.6**      | E2E training pipeline tests, eval pools, and model-versioning coverage are strong. Main risks are performance and cost at scale, not correctness.                                                                   |
+| **Docs & SSOT enforcement**                 |     **4.2**      | SSOT banners and checks cover core rules, architecture, lifecycle, and parity docs. Residual drift exists in indices and state snapshots but is well bounded and now catalogued for remediation.                    |
 
 These scores complement (and largely validate) the component health scores in §2 while focusing specifically on **test coverage and brittleness**.
 

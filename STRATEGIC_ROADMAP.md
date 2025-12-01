@@ -1,14 +1,14 @@
 # RingRift Strategic Roadmap
 
-> **Doc Status (2025-11-27): Active (roadmap & SLOs)**
+> **Doc Status (2025-11-30): Active (roadmap & SLOs)**
 >
 > - Canonical phased roadmap and performance/scale SLO reference.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 > - Relationship to goals: For the canonical statement of RingRift’s product/technical goals, v1.0 success criteria, and scope boundaries, see [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1). This roadmap operationalises those goals into phases, milestones, and SLOs and should be read as the **“how we plan to get there”** companion to [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1).
 
-**Version:** 3.2
-**Last Updated:** November 26, 2025
-**Status:** Engine/Rules Beta (Playable, architecture consolidated)
+**Version:** 3.3
+**Last Updated:** November 30, 2025
+**Status:** Engine/Rules Beta (Orchestrator at 100% in CI, tests stabilized)
 **Philosophy:** Robustness, Parity, and Scale
 
 ---
@@ -23,8 +23,8 @@
 - ✅ Extensive TypeScript and Python test suites validating rules, hosts, AI integration, and E2E flows (for up-to-date test counts and coverage metrics, see [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1))
 
 **Goal:** Production-Ready Multiplayer Game
-**Timeline:** 4-8 weeks to v1.0 (assuming P0 production hardening items are completed)
-**Strategy:** Enable orchestrator in production → Polish UX → Expand Multiplayer Features
+**Timeline:** See [`PASS18C_ASSESSMENT_REPORT.md`](docs/PASS18C_ASSESSMENT_REPORT.md) for concrete blockers and remediation plan
+**Strategy:** Complete host integration parity → Enable orchestrator in production → Polish UX → Expand Multiplayer Features
 
 > Note on rules authority: when there is any question about what the correct
 > behaviour _should_ be (for example, when parity harnesses or engines
@@ -62,10 +62,11 @@
 - Feature flags for gradual rollout (`useOrchestratorAdapter`)
 - Comprehensive documentation in `src/shared/engine/orchestration/README.md`
 
-### **PHASE 2: Robustness & Testing (IN PROGRESS)**
+### **PHASE 2: Robustness & Testing (STABILIZED)**
 
 **Priority:** P0 - CRITICAL
 **Goal:** Ensure 100% rule compliance and stability
+**Status:** All ~2,600+ tests passing. Orchestrator enabled at 100% in CI. Focus shifting to host integration parity.
 
 #### 2.1 Comprehensive Scenario Testing
 
@@ -162,7 +163,7 @@ list of tasks that roll up into these phases.
 
 - [x] **Complete architecture remediation (Phases 1-4)** – Canonical turn orchestrator, adapters, and contract tests are complete. See [`docs/drafts/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md`](docs/drafts/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md:1) for final status.
 
-- [ ] **Enable orchestrator adapters in staging** – Enable orchestrator‑ON posture in staging (`ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`, `RINGRIFT_RULES_MODE=ts`) and run comprehensive parity tests plus the orchestrator CI SLOs from `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §6–§8 (`orchestrator-parity`, short/long soaks, HTTP load smoke, metrics/observability smoke).
+- [x] **Enable orchestrator adapters in staging/CI** – Orchestrator is now enabled at 100% rollout in CI (`ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`). All orchestrator parity, soak, and smoke tests pass. See `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` for production rollout phases.
 
 - [ ] **Enable orchestrator adapters in production** – After staging validation and completion of Phase 1/2 from `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`, enable orchestrator adapters in production with error‑rate, invariant, and rules‑parity SLOs tied to the orchestrator dashboards and alerts in `docs/ALERTING_THRESHOLDS.md`.
 

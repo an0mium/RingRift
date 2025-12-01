@@ -219,9 +219,7 @@ describe('BoardView', () => {
         cells: [],
         decisionHighlights: {
           choiceKind: 'capture_direction',
-          highlights: [
-            { positionKey: '0,0,0', intensity: 'primary' },
-          ],
+          highlights: [{ positionKey: '0,0,0', intensity: 'primary' }],
         },
       };
 
@@ -229,9 +227,7 @@ describe('BoardView', () => {
         <BoardView boardType="hexagonal" board={board} viewModel={baseVM} />
       );
 
-      const highlightedCell = container.querySelector(
-        'button[data-x="0"][data-y="0"][data-z="0"]'
-      );
+      const highlightedCell = container.querySelector('button[data-x="0"][data-y="0"][data-z="0"]');
       expect(highlightedCell).toHaveClass('decision-highlight-primary');
       expect(highlightedCell).toHaveAttribute('data-decision-highlight', 'primary');
     });
@@ -272,6 +268,55 @@ describe('BoardView', () => {
       // Territory should have player-specific background
       const territoryCell = container.querySelector('.bg-emerald-700\\/85');
       expect(territoryCell).toBeInTheDocument();
+    });
+  });
+
+  describe('rules-lab overlays', () => {
+    it('sets line overlay data attributes when showLineOverlays is true', () => {
+      const board = createEmptyBoardState('square8');
+      board.formedLines = [
+        {
+          positions: [
+            { x: 0, y: 0 },
+            { x: 1, y: 0 },
+          ],
+          player: 1,
+          length: 2,
+          direction: { x: 1, y: 0 },
+        },
+      ];
+
+      const { container } = render(
+        <BoardView boardType="square8" board={board} showLineOverlays={true} />
+      );
+
+      const cell = container.querySelector(
+        'button[data-x="0"][data-y="0"]'
+      ) as HTMLButtonElement | null;
+      expect(cell).not.toBeNull();
+      expect(cell).toHaveAttribute('data-line-overlay', 'true');
+      expect(cell).toHaveAttribute('data-line-overlay-player', '1');
+    });
+
+    it('sets territory region overlay data attributes when showTerritoryRegionOverlays is true', () => {
+      const board = createEmptyBoardState('square8');
+      board.territories.set('region-1', {
+        spaces: [{ x: 2, y: 2 }],
+        controllingPlayer: 2,
+        isDisconnected: true,
+      });
+
+      const { container } = render(
+        <BoardView boardType="square8" board={board} showTerritoryRegionOverlays={true} />
+      );
+
+      const cell = container.querySelector(
+        'button[data-x="2"][data-y="2"]'
+      ) as HTMLButtonElement | null;
+      expect(cell).not.toBeNull();
+      expect(cell).toHaveAttribute('data-region-overlay', 'true');
+      expect(cell).toHaveAttribute('data-region-overlay-player', '2');
+      expect(cell).toHaveAttribute('data-region-overlay-disconnected', 'true');
     });
   });
 
@@ -342,6 +387,208 @@ describe('BoardView', () => {
       board.type = 'hexagonal';
       render(<BoardView boardType="hexagonal" board={board} />);
       expect(screen.getByTestId('board-view')).toBeInTheDocument();
+    });
+  });
+
+  describe('keyboard navigation', () => {
+    it('makes the board container focusable with tabIndex=0', () => {
+      const board = createEmptyBoardState('square8');
+      render(<BoardView boardType="square8" board={board} />);
+
+      const boardView = screen.getByTestId('board-view');
+      expect(boardView).toHaveAttribute('tabIndex', '0');
+
+      // Simulate keyboard tab focus landing on the board container.
+      (boardView as HTMLElement).focus();
+      expect(document.activeElement).toBe(boardView);
+    });
+
+    it('focuses cell on arrow key press from initial state', () => {
+      const board = createEmptyBoardState('square8');
+      const { container } = render(<BoardView boardType="square8" board={board} />);
+
+      const boardView = screen.getByTestId('board-view');
+      fireEvent.keyDown(boardView, { key: 'ArrowDown' });
+
+      // First cell should receive focus
+      const firstCell = container.querySelector('button[data-x="0"][data-y="0"]');
+      expect(document.activeElement).toBe(firstCell);
+    });
+
+    it('moves focus right with ArrowRight key', () => {
+      const board = createEmptyBoardState('square8');
+      const { container } = render(<BoardView boardType="square8" board={board} />);
+
+      // Focus first cell
+      const firstCell = container.querySelector(
+        'button[data-x="0"][data-y="0"]'
+      ) as HTMLButtonElement;
+      firstCell.focus();
+      fireEvent.focus(firstCell);
+
+      // Press ArrowRight
+      fireEvent.keyDown(screen.getByTestId('board-view'), { key: 'ArrowRight' });
+
+      const nextCell = container.querySelector('button[data-x="1"][data-y="0"]');
+      expect(document.activeElement).toBe(nextCell);
+    });
+
+    it('moves focus down with ArrowDown key', () => {
+      const board = createEmptyBoardState('square8');
+      const { container } = render(<BoardView boardType="square8" board={board} />);
+
+      // Focus first cell
+      const firstCell = container.querySelector(
+        'button[data-x="0"][data-y="0"]'
+      ) as HTMLButtonElement;
+      firstCell.focus();
+      fireEvent.focus(firstCell);
+
+      // Press ArrowDown
+      fireEvent.keyDown(screen.getByTestId('board-view'), { key: 'ArrowDown' });
+
+      const nextCell = container.querySelector('button[data-x="0"][data-y="1"]');
+      expect(document.activeElement).toBe(nextCell);
+    });
+
+    it('calls onCellClick when Enter is pressed on focused cell', () => {
+      const board = createEmptyBoardState('square8');
+      const handleCellClick = jest.fn();
+      const { container } = render(
+        <BoardView boardType="square8" board={board} onCellClick={handleCellClick} />
+      );
+
+      // Focus a cell
+      const cell = container.querySelector('button[data-x="3"][data-y="3"]') as HTMLButtonElement;
+      cell.focus();
+      fireEvent.focus(cell);
+
+      // Press Enter
+      fireEvent.keyDown(screen.getByTestId('board-view'), { key: 'Enter' });
+
+      expect(handleCellClick).toHaveBeenCalledTimes(1);
+      expect(handleCellClick).toHaveBeenCalledWith(expect.objectContaining({ x: 3, y: 3 }));
+    });
+
+    it('calls onCellClick when Space is pressed on focused cell', () => {
+      const board = createEmptyBoardState('square8');
+      const handleCellClick = jest.fn();
+      const { container } = render(
+        <BoardView boardType="square8" board={board} onCellClick={handleCellClick} />
+      );
+
+      // Focus a cell
+      const cell = container.querySelector('button[data-x="4"][data-y="4"]') as HTMLButtonElement;
+      cell.focus();
+      fireEvent.focus(cell);
+
+      // Press Space
+      fireEvent.keyDown(screen.getByTestId('board-view'), { key: ' ' });
+
+      expect(handleCellClick).toHaveBeenCalledTimes(1);
+      expect(handleCellClick).toHaveBeenCalledWith(expect.objectContaining({ x: 4, y: 4 }));
+    });
+
+    it('does not trigger click when in spectator mode', () => {
+      const board = createEmptyBoardState('square8');
+      const handleCellClick = jest.fn();
+      const { container } = render(
+        <BoardView
+          boardType="square8"
+          board={board}
+          onCellClick={handleCellClick}
+          isSpectator={true}
+        />
+      );
+
+      // Focus a cell
+      const cell = container.querySelector('button[data-x="3"][data-y="3"]') as HTMLButtonElement;
+      cell.focus();
+      fireEvent.focus(cell);
+
+      // Press Enter
+      fireEvent.keyDown(screen.getByTestId('board-view'), { key: 'Enter' });
+
+      expect(handleCellClick).not.toHaveBeenCalled();
+    });
+
+    it('does not move focus beyond board boundaries', () => {
+      const board = createEmptyBoardState('square8');
+      const { container } = render(<BoardView boardType="square8" board={board} />);
+
+      // Focus top-left cell
+      const topLeftCell = container.querySelector(
+        'button[data-x="0"][data-y="0"]'
+      ) as HTMLButtonElement;
+      topLeftCell.focus();
+      fireEvent.focus(topLeftCell);
+
+      // Try to move up (should stay in place)
+      fireEvent.keyDown(screen.getByTestId('board-view'), { key: 'ArrowUp' });
+      expect(document.activeElement).toBe(topLeftCell);
+
+      // Try to move left (should stay in place)
+      fireEvent.keyDown(screen.getByTestId('board-view'), { key: 'ArrowLeft' });
+      expect(document.activeElement).toBe(topLeftCell);
+    });
+
+    it('shows focus ring styling on focused cell', () => {
+      const board = createEmptyBoardState('square8');
+      const { container } = render(<BoardView boardType="square8" board={board} />);
+
+      // Focus a cell
+      const cell = container.querySelector('button[data-x="3"][data-y="3"]') as HTMLButtonElement;
+      cell.focus();
+      fireEvent.focus(cell);
+
+      // Cell should have amber focus ring class
+      expect(cell).toHaveClass('ring-amber-400');
+    });
+
+    it('navigates hexagonal board with arrow keys', () => {
+      const board = createEmptyBoardState('hexagonal');
+      board.type = 'hexagonal';
+      board.size = 3; // Small size for testing
+
+      const { container } = render(<BoardView boardType="hexagonal" board={board} />);
+
+      // Focus center cell (0,0,0)
+      const centerCell = container.querySelector(
+        'button[data-x="0"][data-y="0"][data-z="0"]'
+      ) as HTMLButtonElement;
+      centerCell?.focus();
+      if (centerCell) {
+        fireEvent.focus(centerCell);
+      }
+
+      // Navigate with arrow key - should move to adjacent hex
+      if (centerCell) {
+        fireEvent.keyDown(screen.getByTestId('board-view'), { key: 'ArrowRight' });
+        // Active element should be different from center
+        expect(document.activeElement).not.toBe(centerCell);
+      }
+    });
+
+    it('has proper ARIA attributes for accessibility', () => {
+      const board = createEmptyBoardState('square8');
+      const { container } = render(<BoardView boardType="square8" board={board} />);
+
+      const boardView = screen.getByTestId('board-view');
+      expect(boardView).toHaveAttribute('role', 'grid');
+      expect(boardView).toHaveAttribute('aria-label');
+
+      // Check that cells have proper roles and labels
+      const cell = container.querySelector('button[data-x="0"][data-y="0"]');
+      expect(cell).toHaveAttribute('role', 'gridcell');
+      expect(cell).toHaveAttribute('aria-label');
+    });
+
+    it('has screen reader announcement region', () => {
+      const board = createEmptyBoardState('square8');
+      render(<BoardView boardType="square8" board={board} />);
+
+      const srRegion = document.querySelector('[role="status"][aria-live="polite"]');
+      expect(srRegion).toBeInTheDocument();
     });
   });
 

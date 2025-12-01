@@ -9,6 +9,7 @@
  */
 
 import { z } from 'zod';
+import { isJestRuntime } from '../../shared/utils/envFlags';
 
 /**
  * Node environment schema - supports development, staging, production, and test.
@@ -321,6 +322,12 @@ export const EnvSchema = z.object({
     .default('true')
     .transform((val) => val === 'true' || val === '1'),
 
+  /** Enable AI analysis mode (position evaluation streaming) */
+  ENABLE_ANALYSIS_MODE: z
+    .string()
+    .optional()
+    .transform((val) => (val === undefined ? false : val === 'true' || val === '1')),
+
   // ===================================================================
   // ORCHESTRATOR ROLLOUT CONFIGURATION
   // ===================================================================
@@ -500,13 +507,18 @@ export function loadEnvOrExit(
 
   if (!result.success) {
     console.error('❌ Invalid environment configuration:');
-    for (const error of result.errors!) {
+    for (const error of result.errors ?? []) {
       console.error(`  - ${error.path || 'root'}: ${error.message}`);
     }
     process.exit(1);
   }
 
-  return result.data!;
+  return (
+    result.data ??
+    (() => {
+      throw new Error('Missing env data after successful parse');
+    })()
+  );
 }
 
 /**
@@ -519,12 +531,7 @@ export function loadEnvOrExit(
  * @returns Effective node environment
  */
 export function getEffectiveNodeEnv(rawEnv: RawEnv): NodeEnv {
-  const isJestRuntime =
-    typeof process !== 'undefined' &&
-    !!(process as any).env &&
-    (process as any).env.JEST_WORKER_ID !== undefined;
-
-  return isJestRuntime ? 'test' : rawEnv.NODE_ENV;
+  return isJestRuntime() ? 'test' : rawEnv.NODE_ENV;
 }
 
 /**

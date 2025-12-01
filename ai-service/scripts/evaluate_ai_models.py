@@ -93,6 +93,7 @@ from app.ai.random_ai import RandomAI
 from app.ai.minimax_ai import MinimaxAI
 from app.ai.descent_ai import DescentAI
 from app.training.env import RingRiftEnv
+from app.utils.progress_reporter import ProgressReporter
 
 
 # AI Type Constants
@@ -584,6 +585,16 @@ def run_evaluation(
 
     progress_desc = f"{player1_type} vs {player2_type}"
 
+    progress_label = (
+        f"{player1_type} vs {player2_type} | board={board_value}"
+    )
+    progress_reporter = ProgressReporter(
+        total_units=num_games,
+        unit_name="game",
+        report_interval_sec=10.0,
+        context_label=progress_label,
+    )
+
     for i in tqdm(range(num_games), desc=progress_desc, total=num_games):
         # Derive a unique game seed for this specific game.
         # This ensures AI instances get unique RNG streams per game while
@@ -697,7 +708,30 @@ def run_evaluation(
             "error": game_result.error,
         })
 
-    results.total_runtime_seconds = time.time() - start_time
+        games_completed = i + 1
+        progress_reporter.update(
+            completed=games_completed,
+            extra_metrics={
+                "p1_wins": results.player1_wins,
+                "p2_wins": results.player2_wins,
+                "draws": results.draws,
+            },
+        )
+
+    elapsed = time.time() - start_time
+    results.total_runtime_seconds = elapsed
+
+    games_per_sec = (
+        num_games / elapsed if elapsed > 0 and num_games > 0 else 0.0
+    )
+    progress_reporter.finish(
+        extra_metrics={
+            "p1_wins": results.player1_wins,
+            "p2_wins": results.player2_wins,
+            "draws": results.draws,
+            "games_per_sec": games_per_sec,
+        },
+    )
 
     return results
 

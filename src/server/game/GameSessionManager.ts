@@ -18,8 +18,9 @@ export class GameSessionManager {
   }
 
   public async getOrCreateSession(gameId: string): Promise<GameSession> {
-    if (this.sessions.has(gameId)) {
-      return this.sessions.get(gameId)!;
+    const existing = this.sessions.get(gameId);
+    if (existing) {
+      return existing;
     }
 
     const session = new GameSession(gameId, this.io, this.pythonRulesClient, this.userSockets);

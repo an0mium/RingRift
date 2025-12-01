@@ -11,7 +11,7 @@ export interface BoardControlsOverlayProps {
    * When true, indicates that a dedicated touch-controls panel is present
    * (e.g. SandboxTouchControlsPanel). Used to tailor copy for sandbox mode.
    */
-  hasTouchControlsPanel?: boolean;
+  hasTouchControlsPanel?: boolean | undefined;
   /**
    * Optional flags for future sections (AI debug, history, etc.). These are
    * included for forward-compatibility but are currently informational only.
@@ -20,8 +20,7 @@ export interface BoardControlsOverlayProps {
   onClose: () => void;
 }
 
-const sectionTitleClass =
-  'text-sm font-semibold text-slate-100 mb-1 flex items-center gap-2';
+const sectionTitleClass = 'text-sm font-semibold text-slate-100 mb-1 flex items-center gap-2';
 const bodyTextClass = 'text-xs text-slate-300';
 const listClass = 'list-disc list-inside space-y-1 text-xs text-slate-300';
 
@@ -49,11 +48,7 @@ function ModeBadge({ mode }: { mode: BoardControlsOverlayMode }) {
   );
 }
 
-function BasicControlsSection({
-  mode,
-}: {
-  mode: BoardControlsOverlayMode;
-}) {
+function BasicControlsSection({ mode }: { mode: BoardControlsOverlayMode }) {
   const isSpectator = mode === 'spectator';
 
   return (
@@ -65,16 +60,14 @@ function BasicControlsSection({
       <h3 className={sectionTitleClass}>Basic mouse / touch controls</h3>
       <ul className={listClass}>
         <li>
-          Click or tap a cell to select a stack or empty space. The Selection panel shows
-          details for the currently selected cell.
+          Click or tap a cell to select a stack or empty space. The Selection panel shows details
+          for the currently selected cell.
         </li>
         <li>
           Click or tap a <span className="text-emerald-300 font-semibold">highlighted</span>{' '}
           destination to apply a move (placement, movement, capture, or territory action).
         </li>
-        <li>
-          Click or tap the selected cell again to cancel the selection and clear highlights.
-        </li>
+        <li>Click or tap the selected cell again to cancel the selection and clear highlights.</li>
         {!isSpectator && (
           <li>
             During <span className="font-semibold">ring placement</span>, highlighted cells show
@@ -84,8 +77,8 @@ function BasicControlsSection({
         )}
         {isSpectator && (
           <li>
-            As a spectator the board is read-only: you can click cells to inspect stacks, but
-            cannot submit moves.
+            As a spectator the board is read-only: you can click cells to inspect stacks, but cannot
+            submit moves.
           </li>
         )}
       </ul>
@@ -93,7 +86,7 @@ function BasicControlsSection({
   );
 }
 
-function BackendKeyboardSection() {
+function KeyboardShortcutsSection({ mode }: { mode: BoardControlsOverlayMode }) {
   return (
     <section
       aria-label="Keyboard shortcuts"
@@ -108,8 +101,8 @@ function BackendKeyboardSection() {
         </li>
         <li>
           <span className="font-mono text-slate-100">Enter</span> /{' '}
-          <span className="font-mono text-slate-100">Space</span> – activate the focused cell
-          (same as clicking it).
+          <span className="font-mono text-slate-100">Space</span> – activate the focused cell (same
+          as clicking it).
         </li>
         <li>
           <span className="font-mono text-slate-100">Esc</span> – clear the current selection when
@@ -117,14 +110,25 @@ function BackendKeyboardSection() {
         </li>
         <li>
           <span className="font-mono text-slate-100">?</span>{' '}
-          <span className="text-slate-400">(Shift&nbsp;+&nbsp;/)</span> – toggle this Board
-          Controls & Shortcuts overlay.
+          <span className="text-slate-400">(Shift&nbsp;+&nbsp;/)</span> – toggle this Board Controls
+          & Shortcuts overlay.
+        </li>
+        <li>
+          <span className="font-mono text-slate-100">Tab</span> – in decision dialogs, move between
+          options. Use <span className="font-mono text-slate-100">Enter</span> or{' '}
+          <span className="font-mono text-slate-100">Space</span> to select.
+        </li>
+        <li>
+          <span className="font-mono text-slate-100">↑ / ↓</span> – in decision dialogs, navigate
+          between options with arrow keys.
         </li>
       </ul>
-      <p className={bodyTextClass}>
-        Additional shortcuts (for analysis tools or diagnostics) may be added in future without
-        changing basic click/tap behaviour.
-      </p>
+      {mode !== 'spectator' && (
+        <p className={bodyTextClass}>
+          Keyboard navigation allows you to play RingRift entirely without a mouse. Focus indicators
+          are high contrast and respect system preferences for reduced motion.
+        </p>
+      )}
     </section>
   );
 }
@@ -132,7 +136,7 @@ function BackendKeyboardSection() {
 function SandboxTouchSection({
   hasTouchControlsPanel,
 }: {
-  hasTouchControlsPanel?: boolean;
+  hasTouchControlsPanel?: boolean | undefined;
 }) {
   return (
     <section
@@ -144,8 +148,7 @@ function SandboxTouchSection({
       <ul className={listClass}>
         <li>
           <span className="font-semibold">Single tap</span> an empty cell during ring placement to
-          place one ring there (when legal) and highlight that stack's legal movement
-          targets.
+          place one ring there (when legal) and highlight that stack's legal movement targets.
         </li>
         <li>
           <span className="font-semibold">Double tap</span> an empty cell during ring placement to
@@ -158,16 +161,14 @@ function SandboxTouchSection({
         </li>
         <li>
           During movement/capture, tap a stack once to select it, then tap any{' '}
-          <span className="text-emerald-300 font-semibold">highlighted</span> destination to move
-          or continue a capture chain. Tapping the selected stack again clears selection.
+          <span className="text-emerald-300 font-semibold">highlighted</span> destination to move or
+          continue a capture chain. Tapping the selected stack again clears selection.
         </li>
       </ul>
 
       {hasTouchControlsPanel && (
         <div className="mt-3 space-y-1">
-          <h4 className="text-xs font-semibold text-slate-100">
-            Sandbox touch controls panel
-          </h4>
+          <h4 className="text-xs font-semibold text-slate-100">Sandbox touch controls panel</h4>
           <ul className={listClass}>
             <li>
               <span className="font-semibold">Clear selection</span> – reset the current selection
@@ -178,8 +179,8 @@ function SandboxTouchSection({
               move segment and clear highlights once you are satisfied with the move.
             </li>
             <li>
-              <span className="font-semibold">Undo last segment</span> – reserved for future
-              support for undoing individual capture segments once exposed by the sandbox engine.
+              <span className="font-semibold">Undo last segment</span> – reserved for future support
+              for undoing individual capture segments once exposed by the sandbox engine.
             </li>
             <li>
               <span className="font-semibold">Show valid targets</span> – toggle bright green
@@ -199,13 +200,11 @@ function SandboxTouchSection({
 export const BoardControlsOverlay: React.FC<BoardControlsOverlayProps> = ({
   mode,
   hasTouchControlsPanel,
-  hasAIDebug, // currently unused but kept for forward-compatibility
+  hasAIDebug: _hasAIDebug, // currently unused but kept for forward-compatibility
   onClose,
 }) => {
   const title =
-    mode === 'sandbox'
-      ? 'Sandbox board controls & shortcuts'
-      : 'Board controls & shortcuts';
+    mode === 'sandbox' ? 'Sandbox board controls & shortcuts' : 'Board controls & shortcuts';
 
   const description =
     mode === 'sandbox'
@@ -254,10 +253,10 @@ export const BoardControlsOverlay: React.FC<BoardControlsOverlayProps> = ({
         <div className="grid gap-5 md:grid-cols-2">
           <div className="space-y-4">
             <BasicControlsSection mode={mode} />
+            <KeyboardShortcutsSection mode={mode} />
           </div>
 
           <div className="space-y-4">
-            {(mode === 'backend' || mode === 'spectator') && <BackendKeyboardSection />}
             {mode === 'sandbox' && (
               <SandboxTouchSection hasTouchControlsPanel={hasTouchControlsPanel} />
             )}

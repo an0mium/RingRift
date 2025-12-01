@@ -174,7 +174,7 @@ describe('GameHUD', () => {
 
     render(<GameHUD gameState={gameState} currentPlayer={currentPlayer} isSpectator={true} />);
 
-    expect(screen.getByText('Spectator')).toBeInTheDocument();
+    expect(screen.getByText('Spectator Mode')).toBeInTheDocument();
   });
 
   it('should display instruction when provided', () => {

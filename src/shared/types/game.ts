@@ -159,15 +159,16 @@ export interface CreateGameRequest {
   isRated: boolean;
   isPrivate: boolean;
   maxPlayers: number;
-  aiOpponents?: AiOpponentsConfig;
+  /** AI opponents configuration; undefined means no AI players */
+  aiOpponents?: AiOpponentsConfig | undefined;
   /**
    * Optional per-game rules configuration. When omitted, hosts should
    * apply their own defaults (for example, enabling the swap rule for
    * 2-player games).
    */
-  rulesOptions?: RulesOptions;
+  rulesOptions?: RulesOptions | undefined;
   /** Optional RNG seed for deterministic games; auto-generated if not provided */
-  seed?: number;
+  seed?: number | undefined;
 }
 
 export interface AIProfile {
@@ -321,8 +322,12 @@ export interface Move {
   /**
    * Origin position for movement/capture-style moves. Undefined for pure
    * placement and most bookkeeping-only actions.
+   *
+   * With `exactOptionalPropertyTypes` enabled, callers that intentionally
+   * write `from: undefined` (e.g. sandbox AI parity traces) need this to
+   * include `undefined` explicitly.
    */
-  from?: Position;
+  from?: Position | undefined;
 
   /**
    * Destination/landing position for movement, capture, and placement moves.
@@ -396,6 +401,156 @@ export interface Move {
   thinkTime: number;
   /** Global, 1-based action index within the game history. */
   moveNumber: number;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Discriminated Move Union Types
+// ────────────────────────────────────────────────────────────────────────────
+// These narrower types enable TypeScript to infer required fields based on
+// the move type discriminant, eliminating the need for non-null assertions.
+
+/** Base fields shared by all move variants. */
+interface MoveBase {
+  id: string;
+  player: number;
+  timestamp: Date;
+  thinkTime: number;
+  moveNumber: number;
+}
+
+/** Movement moves that travel from one position to another. */
+export interface MovementMove extends MoveBase {
+  type: 'move_stack' | 'move_ring';
+  from: Position;
+  to: Position;
+  stackMoved?: RingStack;
+  minimumDistance?: number;
+  actualDistance?: number;
+  markerLeft?: Position;
+}
+
+/** Build/split stack moves. */
+export interface BuildStackMove extends MoveBase {
+  type: 'build_stack';
+  from: Position;
+  to: Position;
+  buildAmount: number;
+  stackMoved?: RingStack;
+  minimumDistance?: number;
+  actualDistance?: number;
+}
+
+/** Capture and chain-capture moves. */
+export interface CaptureMove extends MoveBase {
+  type: 'overtaking_capture' | 'continue_capture_segment';
+  from: Position;
+  to: Position;
+  captureTarget: Position;
+  captureType?: CaptureType;
+  capturedStacks?: RingStack[];
+  captureChain?: Position[];
+  overtakenRings?: number[];
+}
+
+/** Ring placement moves. */
+export interface PlacementMove extends MoveBase {
+  type: 'place_ring';
+  to: Position;
+  from?: undefined;
+  placedOnStack?: boolean;
+  placementCount?: number;
+}
+
+/** Skip placement (when placement is not possible but turn continues). */
+export interface SkipPlacementMove extends MoveBase {
+  type: 'skip_placement';
+  to: Position;
+  from?: undefined;
+}
+
+/** Pie rule / swap sides move. */
+export interface SwapSidesMove extends MoveBase {
+  type: 'swap_sides';
+  to: Position;
+  from?: undefined;
+}
+
+/** Line processing moves. */
+export interface LineProcessingMove extends MoveBase {
+  type: 'process_line' | 'choose_line_reward';
+  to: Position;
+  from?: undefined;
+  formedLines?: LineInfo[];
+  collapsedMarkers?: Position[];
+  eliminatedRings?: { player: number; count: number }[];
+}
+
+/** Territory processing moves. */
+export interface TerritoryProcessingMove extends MoveBase {
+  type: 'process_territory_region' | 'eliminate_rings_from_stack';
+  to: Position;
+  from?: undefined;
+  claimedTerritory?: Territory[];
+  disconnectedRegions?: Territory[];
+  eliminatedRings?: { player: number; count: number }[];
+  eliminationFromStack?: {
+    position: Position;
+    capHeight: number;
+    totalHeight: number;
+  };
+}
+
+/** Legacy move types (for backwards compatibility). */
+export interface LegacyMove extends MoveBase {
+  type: 'line_formation' | 'territory_claim';
+  to: Position;
+  from?: Position;
+}
+
+/**
+ * Discriminated union of all move variants.
+ * Use type guards (isMovementMove, isCaptureMove, etc.) to narrow.
+ */
+export type TypedMove =
+  | MovementMove
+  | BuildStackMove
+  | CaptureMove
+  | PlacementMove
+  | SkipPlacementMove
+  | SwapSidesMove
+  | LineProcessingMove
+  | TerritoryProcessingMove
+  | LegacyMove;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Type Guards for Move Variants
+// ────────────────────────────────────────────────────────────────────────────
+
+/** Check if move is a movement type (move_stack or move_ring). */
+export function isMovementMove(move: Move | TypedMove): move is MovementMove {
+  return move.type === 'move_stack' || move.type === 'move_ring';
+}
+
+/** Check if move is a build_stack type. */
+export function isBuildStackMove(move: Move | TypedMove): move is BuildStackMove {
+  return move.type === 'build_stack';
+}
+
+/** Check if move is a capture type (overtaking_capture or continue_capture_segment). */
+export function isCaptureMove(move: Move | TypedMove): move is CaptureMove {
+  return move.type === 'overtaking_capture' || move.type === 'continue_capture_segment';
+}
+
+/** Check if move is a placement type. */
+export function isPlacementMove(move: Move | TypedMove): move is PlacementMove {
+  return move.type === 'place_ring';
+}
+
+/** Check if move has from/to positions (movement, build, or capture). */
+export function isSpatialMove(
+  move: Move | TypedMove
+): move is MovementMove | BuildStackMove | CaptureMove {
+  return isMovementMove(move) || isBuildStackMove(move) || isCaptureMove(move);
 }
 
 /**
@@ -554,7 +709,7 @@ export interface GameState {
   lastMoveAt: Date;
   isRated: boolean;
   maxPlayers: number;
- 
+
   // RingRift specific state
   totalRingsInPlay: number; // Total rings placed on board
   totalRingsEliminated: number; // Total rings eliminated from game
@@ -646,20 +801,20 @@ export const positionsEqual = (pos1: Position, pos2: Position): boolean => {
 
 // Board configuration constants for RingRift
 export const BOARD_CONFIGS = {
- square8: {
-   size: 8,
-   totalSpaces: 64,
-   ringsPerPlayer: 18,
-   // Base line length for 8x8. For 2-player games, the effective
-   // threshold is elevated to 4-in-a-row via getEffectiveLineLengthThreshold
-   // so that 3-in-a-row remains available for 3p/4p but not sufficient
-   // to trigger line_processing in 2p.
-   lineLength: 3,
-   movementAdjacency: 'moore' as AdjacencyType, // 8-direction movement
-   lineAdjacency: 'moore' as AdjacencyType, // 8-direction line formation
-   territoryAdjacency: 'von_neumann' as AdjacencyType, // 4-direction territory
-   type: 'square' as const,
- },
+  square8: {
+    size: 8,
+    totalSpaces: 64,
+    ringsPerPlayer: 18,
+    // Base line length for 8x8. For 2-player games, the effective
+    // threshold is elevated to 4-in-a-row via getEffectiveLineLengthThreshold
+    // so that 3-in-a-row remains available for 3p/4p but not sufficient
+    // to trigger line_processing in 2p.
+    lineLength: 3,
+    movementAdjacency: 'moore' as AdjacencyType, // 8-direction movement
+    lineAdjacency: 'moore' as AdjacencyType, // 8-direction line formation
+    territoryAdjacency: 'von_neumann' as AdjacencyType, // 4-direction territory
+    type: 'square' as const,
+  },
   square19: {
     size: 19,
     totalSpaces: 361,

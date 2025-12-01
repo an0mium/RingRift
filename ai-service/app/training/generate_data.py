@@ -9,6 +9,7 @@ Hex boards use D6 symmetry augmentation (12 transformations).
 import argparse
 import os
 import random as py_random
+import time
 from datetime import datetime
 from typing import Optional, List, Tuple
 
@@ -16,15 +17,17 @@ import numpy as np
 
 from app.ai.descent_ai import DescentAI
 from app.ai.neural_net import INVALID_MOVE_INDEX
+from app.db import GameReplayDB, get_or_create_db, record_completed_game
 from app.models import (
     GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl,
     Player, AIConfig
 )
-from app.training.env import RingRiftEnv
+from app.training.env import RingRiftEnv, get_theoretical_max_moves
 from app.training.hex_augmentation import (
     HexSymmetryTransform,
     augment_hex_sample,
 )
+from app.utils.progress_reporter import SoakProgressReporter
 
 
 def create_initial_state(
@@ -414,6 +417,7 @@ def generate_dataset(
     seed: Optional[int] = None,
     max_moves: int = 200,
     batch_size: Optional[int] = None,
+    replay_db: Optional[GameReplayDB] = None,
 ) -> None:
     """
     Generate self-play data using DescentAI and RingRiftEnv.
@@ -438,6 +442,9 @@ def generate_dataset(
     batch_size:
         Optional batch size for buffer flushing (currently unused,
         reserved for future streaming implementation).
+    replay_db:
+        Optional GameReplayDB instance for recording completed games.
+        If provided, all games are recorded to this database.
     """
     if seed is not None:
         import torch
@@ -476,11 +483,24 @@ def generate_dataset(
         board_type=board_type, max_moves=max_moves, reward_on="terminal"
     )
 
+    # Initialize progress reporter for time-based progress output (~10s intervals)
+    progress_reporter = SoakProgressReporter(
+        total_games=num_games,
+        report_interval_sec=10.0,
+        context_label=f"generate_data_{board_type.value}",
+    )
+
+    games_recorded = 0
     for game_idx in range(num_games):
+        game_start_time = time.time()
         # Set seed for each game if provided, incrementing to ensure variety
         game_seed = seed + game_idx if seed is not None else None
         state = env.reset(seed=game_seed)
         game_history = []
+
+        # Track initial state and moves for DB recording
+        initial_state = state.model_copy(deep=True)
+        moves_for_db: List = []
 
         # History buffer for this game
         # List of feature planes (10, 8, 8)
@@ -660,6 +680,9 @@ def generate_dataset(
                     'player': current_player
                 })
 
+            # Track move for DB recording before applying
+            moves_for_db.append(move)
+
             state, _, done, _ = env.step(move)
             move_count += 1
 
@@ -671,6 +694,44 @@ def generate_dataset(
 
         winner = state.winner
         print(f"Game {game_idx+1} finished. Winner: {winner}")
+
+        # Log error/warning for games that hit max_moves without a winner
+        if move_count >= max_moves and winner is None:
+            theoretical_max = get_theoretical_max_moves(board_type, 2)  # 2-player games
+            import sys
+            if move_count >= theoretical_max:
+                print(
+                    f"ERROR: GAME_NON_TERMINATION [game {game_idx+1}] "
+                    f"Game exceeded theoretical maximum moves without a winner. "
+                    f"board_type={board_type.value}, move_count={move_count}, "
+                    f"max_moves={max_moves}, theoretical_max={theoretical_max}, "
+                    f"game_status={state.game_status.value}, winner={winner}",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"WARNING: GAME_MAX_MOVES_CUTOFF [game {game_idx+1}] "
+                    f"Game hit max_moves limit without a winner. "
+                    f"board_type={board_type.value}, move_count={move_count}, "
+                    f"max_moves={max_moves}, theoretical_max={theoretical_max}, "
+                    f"game_status={state.game_status.value}, winner={winner}",
+                    file=sys.stderr,
+                )
+
+        # Record game to DB if replay_db is provided
+        if replay_db is not None:
+            try:
+                record_completed_game(
+                    db=replay_db,
+                    initial_state=initial_state,
+                    final_state=state,
+                    moves=moves_for_db,
+                    engine_mode="descent",
+                    seed=game_seed,
+                )
+                games_recorded += 1
+            except Exception as e:
+                print(f"Warning: Failed to record game to DB: {e}")
 
         # Assign rewards
         total_moves = len(game_history)
@@ -700,7 +761,17 @@ def generate_dataset(
                 new_values.append(outcome)
                 new_policy_indices.append(pi)
                 new_policy_values.append(pv)
-            
+
+        # Record game completion for progress reporting
+        game_duration = time.time() - game_start_time
+        progress_reporter.record_game(
+            moves=total_moves,
+            duration_sec=game_duration,
+        )
+
+    # Emit final progress summary
+    progress_reporter.finish()
+
     # Save data with Experience Replay (Append mode)
     # Use provided output_file, ensuring directory exists
     if not os.path.isabs(output_file):
@@ -838,6 +909,18 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Batch size for buffer flushing (optional, reserved for future use).",
     )
+    parser.add_argument(
+        "--record-db",
+        type=str,
+        default="data/games/training.db",
+        help="Path to SQLite database for recording game replays. "
+             "Default: data/games/training.db. Use --no-record-db to disable.",
+    )
+    parser.add_argument(
+        "--no-record-db",
+        action="store_true",
+        help="Disable game recording to database (overrides --record-db).",
+    )
     return parser.parse_args()
 
 
@@ -871,6 +954,11 @@ def main() -> None:
             f"--batch-size must be at least 1, got {args.batch_size}"
         )
 
+    # Initialize optional game recording database
+    # --no-record-db flag overrides --record-db to disable recording
+    record_db_path = None if args.no_record_db else args.record_db
+    replay_db = get_or_create_db(record_db_path) if record_db_path else None
+
     generate_dataset(
         num_games=args.num_games,
         output_file=args.output,
@@ -878,6 +966,7 @@ def main() -> None:
         seed=args.seed,
         max_moves=args.max_moves,
         batch_size=args.batch_size,
+        replay_db=replay_db,
     )
 
 

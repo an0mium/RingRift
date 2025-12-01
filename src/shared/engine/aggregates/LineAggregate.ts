@@ -29,7 +29,7 @@
 
 import type { GameState, BoardState, Position, Move, BoardType, LineInfo } from '../../types/game';
 import { BOARD_CONFIGS, positionToString, stringToPosition } from '../../types/game';
- 
+
 import type { ProcessLineAction, ChooseLineRewardAction } from '../types';
 import { getEffectiveLineLengthThreshold } from '../rulesConfig';
 
@@ -589,12 +589,12 @@ export function validateChooseLineReward(
   }
 
   const line = state.board.formedLines[action.lineIndex];
- 
+
   // 4. Line Ownership Check
   if (line.player !== action.playerId) {
     return { valid: false, reason: 'Cannot process opponent line', code: 'NOT_YOUR_LINE' };
   }
- 
+
   const requiredLength = getEffectiveLineLengthThreshold(
     state.board.type as BoardType,
     state.players.length,
@@ -904,7 +904,7 @@ export function mutateProcessLine(state: GameState, action: ProcessLineAction): 
     state.players.length,
     state.rulesOptions
   );
- 
+
   if (line.length > requiredLength) {
     throw new Error('LineMutator: Line length > minimum requires ChooseLineRewardAction');
   }
@@ -1107,7 +1107,7 @@ export function applyChooseLineRewardDecision(
     };
   }
 
-  let positionsToCollapse: Position[];
+  let positionsToCollapse: Position[] = line.positions;
   let pendingReward = false;
 
   if (length === requiredLength) {
@@ -1122,9 +1122,9 @@ export function applyChooseLineRewardDecision(
     if (isCollapseAll) {
       positionsToCollapse = line.positions;
       pendingReward = true;
-    } else {
+    } else if (collapsed) {
       // Minimum-collapse option: collapse exactly the selected subset.
-      positionsToCollapse = collapsed!;
+      positionsToCollapse = collapsed;
       pendingReward = false;
     }
   }

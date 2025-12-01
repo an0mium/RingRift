@@ -87,6 +87,7 @@ describe('WebSocketServer PlayerConnectionState diagnostics', () => {
       getGameState: jest.fn(() => gameState),
       getValidMoves: jest.fn(() => []),
       getInteractionHandler: jest.fn(() => interactionHandler),
+      handleAbandonmentForDisconnectedPlayer: jest.fn(),
     };
 
     mockGetOrCreateSession.mockResolvedValue(mockSession);
@@ -122,12 +123,14 @@ describe('WebSocketServer PlayerConnectionState diagnostics', () => {
 
     const state = wsServer.getPlayerConnectionStateSnapshotForTesting(gameId, userId);
     expect(state).toBeDefined();
-    expect(state!.kind).toBe('connected');
-    expect(state!.gameId).toBe(gameId);
-    expect(state!.userId).toBe(userId);
-    expect(state!.playerNumber).toBe(playerNumber);
-    expect(typeof state!.connectedAt).toBe('number');
-    expect(typeof state!.lastSeenAt).toBe('number');
+    if (!state || state.kind !== 'connected') {
+      throw new Error('Expected connected PlayerConnectionState after join');
+    }
+    expect(state.gameId).toBe(gameId);
+    expect(state.userId).toBe(userId);
+    expect(state.playerNumber).toBe(playerNumber);
+    expect(typeof state.connectedAt).toBe('number');
+    expect(typeof state.lastSeenAt).toBe('number');
   });
 
   it('marks player as disconnected_pending_reconnect on disconnect with window', async () => {
@@ -198,6 +201,10 @@ describe('WebSocketServer PlayerConnectionState diagnostics', () => {
         }),
       })
     );
+
+    // Critically, reconnecting within the window must NOT trigger any
+    // abandonment semantics or persistence side-effects.
+    expect(mockSession.handleAbandonmentForDisconnectedPlayer).not.toHaveBeenCalled();
   });
 
   it('marks player as disconnected_expired when reconnection window expires', async () => {
@@ -225,5 +232,193 @@ describe('WebSocketServer PlayerConnectionState diagnostics', () => {
     // Ensure stale choices would be cleared via interaction handler
     const interactionHandler = mockSession.getInteractionHandler();
     expect(interactionHandler.cancelAllChoicesForPlayer).toHaveBeenCalledWith(playerNumber);
+  });
+
+  it('does not start reconnection window for spectators and clears diagnostics entry on disconnect', async () => {
+    // Treat the socket user as a pure spectator: not present in players[],
+    // but included in the spectators list.
+    const spectatorGameState: any = {
+      id: gameId,
+      players: [],
+      spectators: [userId],
+      currentPhase: 'ring_placement',
+      currentPlayer: playerNumber,
+      gameStatus: 'active',
+      isRated: false,
+    };
+
+    mockSession.getGameState.mockReturnValue(spectatorGameState);
+
+    // At the DB layer the user is not a player but spectators are allowed.
+    mockGameFindUnique.mockResolvedValueOnce({
+      id: gameId,
+      allowSpectators: true,
+      player1Id: null,
+      player2Id: null,
+      player3Id: null,
+      player4Id: null,
+    });
+
+    await (wsServer as any).handleJoinGame(socket, gameId);
+
+    // Joining as a spectator should still record a connected state, but with
+    // no playerNumber.
+    const before = wsServer.getPlayerConnectionStateSnapshotForTesting(gameId, userId);
+    expect(before).toBeDefined();
+    expect(before!.kind).toBe('connected');
+    expect(before!.playerNumber).toBeUndefined();
+
+    (wsServer as any).handleDisconnect(socket);
+
+    // Spectator disconnect should not schedule a reconnection timeout entry.
+    const pendingReconnections = (wsServer as any).pendingReconnections as Map<string, unknown>;
+    expect(pendingReconnections.size).toBe(0);
+
+    // And the diagnostics entry for this spectator should be removed.
+    const after = wsServer.getPlayerConnectionStateSnapshotForTesting(gameId, userId);
+    expect(after).toBeUndefined();
+  });
+
+  it('invokes abandonment handler with awardWinToOpponent=false when no opponents remain or game is unrated', () => {
+    const httpServerStub: any = {};
+    wsServer = new WebSocketServer(httpServerStub as any);
+
+    const ratedState: any = {
+      id: gameId,
+      players: [
+        {
+          id: userId,
+          username: 'P1',
+          type: 'human',
+          playerNumber,
+        },
+      ],
+      spectators: [],
+      currentPhase: 'ring_placement',
+      currentPlayer: playerNumber,
+      gameStatus: 'active',
+      isRated: false,
+    };
+
+    mockSession.getGameState.mockReturnValue(ratedState);
+
+    // No other human players are tracked in playerConnectionStates, so
+    // anyOpponentStillAlive resolves to false and awardWinToOpponent=false.
+    (wsServer as any).handleReconnectionTimeout(gameId, userId, playerNumber);
+
+    expect(mockSession.handleAbandonmentForDisconnectedPlayer).toHaveBeenCalledWith(
+      playerNumber,
+      false
+    );
+  });
+
+  it('invokes abandonment handler with awardWinToOpponent=true when rated and an opponent remains connected', () => {
+    const ratedGameId = 'rated-abandonment-game';
+    const userId1 = 'user-1';
+    const userId2 = 'user-2';
+
+    const ratedState: any = {
+      id: ratedGameId,
+      players: [
+        {
+          id: userId1,
+          username: 'P1',
+          type: 'human',
+          playerNumber: 1,
+        },
+        {
+          id: userId2,
+          username: 'P2',
+          type: 'human',
+          playerNumber: 2,
+        },
+      ],
+      spectators: [],
+      currentPhase: 'ring_placement',
+      currentPlayer: 1,
+      gameStatus: 'active',
+      isRated: true,
+    };
+
+    mockSession.getGameState.mockReturnValue(ratedState);
+
+    const httpServerStub: any = {};
+    wsServer = new WebSocketServer(httpServerStub as any);
+
+    // Manually seed connection state to indicate that user-2 is still
+    // connected at the time user-1's reconnect window expires.
+    (wsServer as any).playerConnectionStates.set(`${ratedGameId}:${userId2}`, {
+      kind: 'connected',
+      gameId: ratedGameId,
+      userId: userId2,
+      playerNumber: 2,
+      connectedAt: Date.now(),
+      lastSeenAt: Date.now(),
+    });
+
+    (wsServer as any).handleReconnectionTimeout(ratedGameId, userId1, 1);
+
+    expect(mockSession.handleAbandonmentForDisconnectedPlayer).toHaveBeenCalledWith(1, true);
+  });
+
+  it('invokes abandonment handler with awardWinToOpponent=false when all human players have expired reconnect windows in a rated game', () => {
+    const ratedGameId = 'rated-all-expired-game';
+    const userId1 = 'user-1';
+    const userId2 = 'user-2';
+
+    const ratedState: any = {
+      id: ratedGameId,
+      players: [
+        {
+          id: userId1,
+          username: 'P1',
+          type: 'human',
+          playerNumber: 1,
+        },
+        {
+          id: userId2,
+          username: 'P2',
+          type: 'human',
+          playerNumber: 2,
+        },
+      ],
+      spectators: [],
+      currentPhase: 'ring_placement',
+      currentPlayer: 1,
+      gameStatus: 'active',
+      isRated: true,
+    };
+
+    mockSession.getGameState.mockReturnValue(ratedState);
+
+    const httpServerStub: any = {};
+    wsServer = new WebSocketServer(httpServerStub as any);
+
+    const now = Date.now();
+
+    // Seed connection state to indicate that *both* humans have already had
+    // their reconnect windows expire when user-1's timeout handler runs. In
+    // this case the server must treat the game as an abandonment draw (no
+    // winner), so awardWinToOpponent=false is propagated to the session.
+    (wsServer as any).playerConnectionStates.set(`${ratedGameId}:${userId1}`, {
+      kind: 'disconnected_expired',
+      gameId: ratedGameId,
+      userId: userId1,
+      playerNumber: 1,
+      disconnectedAt: now - 10_000,
+      expiredAt: now - 5_000,
+    });
+    (wsServer as any).playerConnectionStates.set(`${ratedGameId}:${userId2}`, {
+      kind: 'disconnected_expired',
+      gameId: ratedGameId,
+      userId: userId2,
+      playerNumber: 2,
+      disconnectedAt: now - 10_000,
+      expiredAt: now - 5_000,
+    });
+
+    (wsServer as any).handleReconnectionTimeout(ratedGameId, userId1, 1);
+
+    expect(mockSession.handleAbandonmentForDisconnectedPlayer).toHaveBeenCalledWith(1, false);
   });
 });

@@ -30,10 +30,37 @@ The AI Service implements a multi-tier difficulty system with six AI implementat
 | --------------------------------------- | ----------------- | -------------------------------------- |
 | [`RandomAI`](app/ai/random_ai.py)       | 1                 | Pure random move selection             |
 | [`HeuristicAI`](app/ai/heuristic_ai.py) | 2                 | 17+ weighted evaluation factors        |
-| [`MinimaxAI`](app/ai/minimax_ai.py)     | 3-6               | Alpha-beta + PVS + Quiescence search   |
-| [`MCTSAI`](app/ai/mcts_ai.py)           | 7-8               | PUCT + RAVE + tree reuse               |
-| [`DescentAI`](app/ai/descent_ai.py)     | 9-10              | UBFM-style search with neural guidance |
-| [`NeuralNetAI`](app/ai/neural_net.py)   | Backend for 7-10  | ResNet CNN with policy/value heads     |
+| [`MinimaxAI`](app/ai/minimax_ai.py)     | 3–6               | Alpha-beta + PVS + Quiescence search   |
+| [`MCTSAI`](app/ai/mcts_ai.py)           | 7–8               | PUCT + RAVE + tree reuse               |
+| [`DescentAI`](app/ai/descent_ai.py)     | 9–10              | UBFM-style search with neural guidance |
+| [`NeuralNetAI`](app/ai/neural_net.py)   | Backend for 7–10  | ResNet CNN with policy/value heads     |
+
+### 1.2 Canonical Difficulty Ladder & Product-Facing Profiles
+
+The canonical 1–10 difficulty ladder is defined in `_CANONICAL_DIFFICULTY_PROFILES` in
+`app/main.py` and mirrored by the TypeScript `AIEngine` presets. This section records
+the intended _product-facing_ interpretation so lobby/matchmaking UIs and operators
+have a shared understanding of what each band represents.
+
+| Difficulty | Internal AI type(s)         | Profile ID (Python) | Suggested label / use case                                     |
+| ---------- | --------------------------- | ------------------- | -------------------------------------------------------------- |
+| 1          | `RandomAI`                  | `v1-random-1`       | **Beginner – Random**: sandbox/tutorial only, not for rating.  |
+| 2          | `HeuristicAI`               | `v1-heuristic-2`    | **Beginner – Heuristic**: default “easy” AI vs human.          |
+| 3–4        | `MinimaxAI`                 | `v1-minimax-3/4`    | **Intermediate – Minimax**: shallow search, casual play.       |
+| 5–6        | `MinimaxAI`                 | `v1-minimax-5/6`    | **Challenging – Minimax**: deeper search, default “strong” AI. |
+| 7–8        | `MCTSAI` + `NeuralNetAI`    | `v1-mcts-7/8`       | **Stronger Opponents – MCTS**: advanced/experimental ladder.   |
+| 9–10       | `DescentAI` + `NeuralNetAI` | `v1-descent-9/10`   | **Stronger Opponents – Descent**: highest difficulty, beta.    |
+
+Product-level guidance:
+
+- Lobby / matchmaking UIs SHOULD:
+  - Default AI games to **difficulty 2–5** for casual play.
+  - Treat **7–10** as an **opt‑in “Stronger Opponents” band**, surfaced with
+    explicit copy (e.g. “Experimental – may think slowly on large boards”).
+- Operators SHOULD:
+  - Avoid using 7–10 for time‑sensitive rating queues until aggregate latency
+    and strength have been validated via scripts like
+    `ai-service/scripts/evaluate_ai_models.py` and orchestrator soaks.
 
 ### 1.2 Verified Strengths (Issues Previously Resolved)
 
@@ -56,9 +83,10 @@ The following issues have been addressed or are in progress:
 **Status:** ✅ **COMPLETE** (as of 2025-11-30)
 
 The make/unmake pattern has been fully implemented in:
+
 - **MutableGameState** (`app/rules/mutable_state.py`): Full implementation with `make_move()`, `unmake_move()`, and incremental Zobrist hashing
 - **MinimaxAI** (`app/ai/minimax_ai.py`): Uses `use_incremental_search` flag (default: True)
-- **MCTSAI** (`app/ai/mcts_ai.py`): Uses `MCTSNodeLite` and `_search_incremental()` 
+- **MCTSAI** (`app/ai/mcts_ai.py`): Uses `MCTSNodeLite` and `_search_incremental()`
 - **DescentAI** (`app/ai/descent_ai.py`): Uses `_descent_iteration_mutable()`
 
 **Impact:** 10-25x improvement in nodes/second, enabling deeper search at same time budget.
@@ -121,13 +149,19 @@ The `HexNeuralNet` class exists with proper architecture, but:
 
 ### Priority 1: Implement Make/Unmake Move Pattern (High Impact, Medium Effort)
 
-**Current State:** Every search node creates a full GameState copy via `apply_move()`.
+> \*\*Status (2025-11-30): Core make/unmake pattern implemented for MinimaxAI, MCTSAI, and DescentAI; remaining extension work is tracked in [`ai-service/docs/MAKE_UNMAKE_EXTENSION_ANALYSIS.md`](docs/MAKE_UNMAKE_EXTENSION_ANALYSIS.md). The original proposal below is retained as historical context and for guiding further extensions (RL environment, heuristic AI, and training infrastructure) rather than as a description of the current implementation gap.
+
+**Current State:** The rules engine exposes a `MutableGameState` + `MoveUndo` make/unmake API, and the pattern has been integrated into MinimaxAI (initially) and extended to MCTSAI and DescentAI, yielding the documented speedups in [`MAKE_UNMAKE_EXTENSION_ANALYSIS.md`](docs/MAKE_UNMAKE_EXTENSION_ANALYSIS.md). Remaining opportunities are primarily:
+
+- Extending make/unmake usage into the RL environment and selected training/self-play code paths.
+- Evaluating whether HeuristicAI benefits from a lightweight make/unmake integration in high-branching positions.
+- Tightening invariants and performance metrics around the existing make/unmake surfaces.
 
 **Proposed Solution:**
 
-1. Add `make_move(state, move)` and `unmake_move(state, move)` to the rules engine
-2. Track move deltas (captured rings, placed markers, collapsed spaces) for efficient undo
-3. Maintain incremental Zobrist hash updates during make/unmake
+1. Continue to rely on the existing `MutableGameState` + `MoveUndo` API as the canonical make/unmake surface.
+2. Thread make/unmake through remaining high-value hosts (RL environment, selected training/self-play loops) where state copying is still a bottleneck.
+3. Maintain and extend incremental Zobrist hash updates during make/unmake so that all search-oriented hosts share the same fast hashing path.
 
 **Estimated Effort:** 3-5 days
 
@@ -260,6 +294,71 @@ ai2 = DescentAI(2, AIConfig(rngSeed=config.seed + 2))
 - O(1) hash computation for transposition table lookups
 - Improved cache hit rates in Minimax/MCTS
 - More efficient Descent search
+
+---
+
+### Priority 6: Online Evaluation & Analysis Mode (Medium Impact, Medium Effort)
+
+**Current State:**  
+AI strength and latency are evaluated offline via `evaluate_ai_models.py` and related training scripts. A lightweight `/ai/evaluate_position` endpoint now exists in `ai-service/app/main.py` that returns per-player heuristic evaluations for a given `GameState`, and the Node backend can stream these as `position_evaluation` WebSocket events when analysis mode is enabled. Live games and replays still do not persist evaluation history, and the evaluation engine currently uses the heuristic profile rather than the strongest Descent/MCTS configurations.
+
+**Goal:**  
+Introduce an **opt-in Analysis Mode** that surfaces an evaluation panel in the client for selected games (primarily spectating and post-game review). The panel should:
+
+- Show per-move evaluation history based on a strong engine (e.g. Descent+NN or deep Minimax).
+- Expose current evaluation per player as an estimated win/loss margin (e.g. composite of territory advantage and eliminated-ring advantage).
+- Use clear, color-coded indicators for which player is ahead and by how much, without affecting core matchmaking or rated game semantics.
+
+**High-Level Plan:**
+
+1. **Evaluation API in AI service**
+   - Add `/ai/evaluate_position` in `ai-service/app/main.py` that:
+     - Accepts a serialized `GameState` (using existing contract/serialization models).
+     - Uses a fixed evaluation profile (e.g. DescentAI or MinimaxAI at bounded depth/think time) to compute per-player scores:
+       - `totalEval` (scalar advantage), and optionally `territoryEval` and `ringEval`.
+     - Returns a compact JSON structure suitable for streaming via WebSocket and persisting alongside move history.
+   - Reuse `RingRiftEnv` and evaluation helpers already used by `evaluate_ai_models.py`, with deterministic RNG and hard time budgets for predictable runtime.
+
+2. **Backend evaluation client & integration**
+   - Add a thin client on the Node side (extend `AIServiceClient` or introduce a dedicated `PositionEvaluationClient`) that calls `/ai/evaluate_position` with:
+     - Strict timeouts shorter than move-selection calls.
+     - Concurrency caps so evaluation cannot starve gameplay-critical AI requests.
+   - From `GameSession` / `GamePersistenceService`, trigger evaluation:
+     - After each committed move (or on a sampled subset) for games flagged as “analysis-enabled”.
+     - Store results keyed by `(gameId, moveNumber)` and optionally broadcast them via a new WebSocket event (e.g. `position_evaluation`).
+
+3. **Persistence & history**
+   - Persist evaluation snapshots per move using either:
+     - A light DB table attached to move history, or
+     - Redis/in-memory caches for short-lived analysis sessions.
+   - Extend `/api/games/:gameId/history` to optionally return evaluation history so the client can reconstruct evaluation curves in replay views without re-querying the AI service.
+
+4. **Client-side EvaluationPanel**
+   - Extend `gameViewModels` / HUD view-models with:
+     - `evaluationHistory: Array<{ moveNumber, evalByPlayer }>` and
+     - `currentEvaluation: { perPlayer: { [playerNumber]: totalEval } }`.
+   - Implement an `EvaluationPanel` React component that:
+     - Renders a compact sparkline or bar chart over moves, color-coded by advantage.
+     - Shows the current evaluation with breakdown (“P1 +3.2 (territory +2.0, rings +1.2)”).
+     - Updates live when evaluation events arrive, and supports hover to inspect individual moves.
+   - Integrate the panel into `BackendGameHost`:
+     - Enabled by default for `/spectate/:gameId` and history/replay contexts.
+     - Toggled for active players via an “Analysis” switch so it remains opt-in and non-distracting.
+
+5. **Guardrails & observability**
+   - Treat evaluation as best-effort:
+     - If the AI evaluation service times out or fails, the panel should show “Analysis unavailable” without affecting gameplay.
+   - Keep CI coverage focused and light:
+     - Add Python tests validating `/ai/evaluate_position` determinism on fixed seeds.
+     - Add a TS integration test that stubs evaluation responses and verifies EvaluationPanel wiring.
+   - Monitor evaluation latency separately from `/ai/move` to avoid conflating analysis load with core move-generation health.
+
+**Estimated Effort:** 4–7 days (Python + Node + client).  
+**Expected Impact:**
+
+- Stronger spectator and replay experience (especially for streams and coaching).
+- Clearer visibility into the “Stronger Opponents” band by exposing AI assessments directly.
+- A reusable evaluation primitive for future features (coach mode, hints, automated annotations).
 
 ---
 

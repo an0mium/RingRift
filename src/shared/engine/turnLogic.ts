@@ -1,4 +1,5 @@
 import type { GameState, GamePhase, Position } from '../types/game';
+import { isTestEnvironment, flagEnabled, debugLog } from '../utils/envFlags';
 
 /**
  * Shared, host-agnostic helpers for turn/phase progression.
@@ -237,17 +238,19 @@ export function advanceTurnAndPhase(
         const hasStacks = stacks.length > 0;
 
         // Debug logging for parity investigation
-        if (
-          typeof process !== 'undefined' &&
-          (process as any).env &&
-          (process as any).env.NODE_ENV === 'test'
-        ) {
-          // eslint-disable-next-line no-console
-          console.log('[turnLogic.advanceTurnAndPhase.while] player=', currentPlayerNumber,
-            'hasStacks=', hasStacks, 'stackCount=', stacks.length,
-            'ringsInHand=', currentPlayer.ringsInHand,
-            'willSkip=', !hasStacks && currentPlayer.ringsInHand === 0);
-        }
+        debugLog(
+          isTestEnvironment(),
+          '[turnLogic.advanceTurnAndPhase.while] player=',
+          currentPlayerNumber,
+          'hasStacks=',
+          hasStacks,
+          'stackCount=',
+          stacks.length,
+          'ringsInHand=',
+          currentPlayer.ringsInHand,
+          'willSkip=',
+          !hasStacks && currentPlayer.ringsInHand === 0
+        );
 
         if (!hasStacks && currentPlayer.ringsInHand === 0) {
           // Player has no stacks on the board and no rings in hand;
@@ -256,16 +259,17 @@ export function advanceTurnAndPhase(
           // out of material) is handled by host-level victory logic.
           const nextPlayerNumber = delegates.getNextPlayerNumber(workingState, currentPlayerNumber);
           // Debug: log skip for parity debugging
-          if (
-            typeof process !== 'undefined' &&
-            (process as any).env &&
-            (process as any).env.NODE_ENV === 'test'
-          ) {
-            // eslint-disable-next-line no-console
-            console.log('[turnLogic.advanceTurnAndPhase] SKIP player', currentPlayerNumber, 
-              'hasStacks=', hasStacks, 'ringsInHand=', currentPlayer.ringsInHand, 
-              '-> next=', nextPlayerNumber);
-          }
+          debugLog(
+            isTestEnvironment(),
+            '[turnLogic.advanceTurnAndPhase] SKIP player',
+            currentPlayerNumber,
+            'hasStacks=',
+            hasStacks,
+            'ringsInHand=',
+            currentPlayer.ringsInHand,
+            '-> next=',
+            nextPlayerNumber
+          );
           workingState = { ...workingState, currentPlayer: nextPlayerNumber };
           skips += 1;
           continue;
@@ -282,18 +286,14 @@ export function advanceTurnAndPhase(
       nextState = workingState;
       nextTurn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
 
-      if (
-        typeof process !== 'undefined' &&
-        (process as any).env &&
-        ((process as any).env.NODE_ENV === 'test' ||
-          ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? ''))
-      ) {
-        // eslint-disable-next-line no-console
-        console.log('[turnLogic.advanceTurnAndPhase.territory_processing.after]', {
+      debugLog(
+        isTestEnvironment() || flagEnabled('RINGRIFT_TRACE_DEBUG'),
+        '[turnLogic.advanceTurnAndPhase.territory_processing.after]',
+        {
           nextPlayer: nextState.currentPlayer,
           nextPhase: nextState.currentPhase,
-        });
-      }
+        }
+      );
 
       break;
     }

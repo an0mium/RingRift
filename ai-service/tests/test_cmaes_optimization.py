@@ -565,6 +565,9 @@ class TestCLIWiring:
         assert config.run_id == "cli_run"
         assert config.run_dir == "logs/cmaes/runs/existing_run"
         assert config.resume_from == "logs/cmaes/runs/existing_run"
+        # New progress-related defaults
+        assert config.progress_interval_sec == pytest.approx(10.0)
+        assert config.enable_eval_progress is True
 
     def test_cli_directory_output_sets_run_dir_and_output_path(self, monkeypatch):
         from run_cmaes_optimization import (
@@ -613,3 +616,44 @@ class TestCLIWiring:
         )
         assert config.max_moves == 200
         assert config.opponent_mode == "baseline-only"
+        # Default wiring: eval progress enabled unless explicitly disabled
+        assert config.enable_eval_progress is True
+
+    def test_cli_disable_eval_progress_flag(self, monkeypatch):
+        from run_cmaes_optimization import (
+            CMAESConfig,
+            main as cmaes_main,
+        )
+
+        test_argv = [
+            "run_cmaes_optimization.py",
+            "--generations",
+            "1",
+            "--population-size",
+            "2",
+            "--games-per-eval",
+            "3",
+            "--sigma",
+            "0.5",
+            "--output",
+            "logs/cmaes/dir_mode",
+            "--run-id",
+            "cli_run",
+            "--disable-eval-progress",
+        ]
+        monkeypatch.setattr(sys, "argv", test_argv)
+
+        captured = {}
+
+        def fake_run(config):
+            captured["config"] = config
+
+        monkeypatch.setattr(
+            "run_cmaes_optimization.run_cmaes_optimization", fake_run
+        )
+
+        cmaes_main()
+
+        config = captured["config"]
+        assert isinstance(config, CMAESConfig)
+        assert config.enable_eval_progress is False

@@ -1,11 +1,29 @@
 import { Request, Response, NextFunction } from 'express';
 import { RateLimiterRedis, RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
+import { createClient } from 'redis';
 import { createError } from './errorHandler';
 import { logger } from '../utils/logger';
 import { getMetricsService } from '../services/MetricsService';
+import { type AuthenticatedRequest, getAuthUserId } from './auth';
 
-// Redis client will be imported from cache/redis
-let redisClient: any = null;
+/**
+ * Redis client type from the redis package.
+ */
+type RedisClientType = ReturnType<typeof createClient>;
+
+/**
+ * Rate limiter rejection response - returned when limit is exceeded.
+ * The rate-limiter-flexible library throws this object on rejection.
+ */
+interface RateLimiterRejection {
+  msBeforeNext: number;
+  remainingPoints: number;
+  consumedPoints: number;
+  isFirstInDuration: boolean;
+}
+
+// Redis client reference
+let redisClient: RedisClientType | null = null;
 
 /**
  * Rate limit configuration type for type safety
@@ -142,7 +160,7 @@ let usingRedis = false;
  * Initialize rate limiters with Redis client.
  * Falls back to in-memory limiters if Redis is not available.
  */
-export const initializeRateLimiters = (redis: any) => {
+export const initializeRateLimiters = (redis: RedisClientType | null) => {
   redisClient = redis;
   usingRedis = !!redis;
 
@@ -266,13 +284,14 @@ export const consumeRateLimit = async (
       remaining: rateLimiterRes.remainingPoints,
       reset: resetTimestamp,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     // rate-limiter-flexible returns a special object with msBeforeNext when
     // the limit is exceeded. Treat all other errors as infrastructure
     // failures and allow the request to proceed to avoid cascading
     // outages when Redis is unavailable.
+    const rejection = error as RateLimiterRejection | null;
     const msBeforeNext =
-      error && typeof error === 'object' ? (error as any).msBeforeNext : undefined;
+      rejection && typeof rejection === 'object' ? rejection.msBeforeNext : undefined;
 
     if (typeof msBeforeNext === 'number') {
       const secs = Math.round(msBeforeNext / 1000) || 1;
@@ -326,7 +345,7 @@ const createRateLimiter = (
 
     try {
       // Generate key - default to IP, but can be customized
-      const key = options.keyGenerator ? options.keyGenerator(req) : (req.ip || 'unknown');
+      const key = options.keyGenerator ? options.keyGenerator(req) : req.ip || 'unknown';
       const rateLimiterRes = await limiter.consume(key);
 
       // Set rate limit headers on successful consumption
@@ -334,8 +353,9 @@ const createRateLimiter = (
       setRateLimitHeaders(res, config.points, rateLimiterRes.remainingPoints, resetTimestamp);
 
       next();
-    } catch (rejRes: any) {
-      // Rate limit exceeded - rejRes is a RateLimiterRes object
+    } catch (rateLimitError: unknown) {
+      // Rate limit exceeded - rateLimitError is a RateLimiterRejection object
+      const rejRes = rateLimitError as RateLimiterRejection;
       const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
       const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
 
@@ -343,9 +363,10 @@ const createRateLimiter = (
       setRateLimitHeaders(res, config.points, 0, resetTimestamp);
       res.set('Retry-After', String(secs));
 
+      const authReq = req as AuthenticatedRequest;
       logger.warn('Rate limit exceeded', {
         ip: req.ip,
-        userId: (req as any).user?.id,
+        userId: authReq.user?.id,
         limiter: limiterKey,
         path: req.path,
         retryAfter: secs,
@@ -354,7 +375,7 @@ const createRateLimiter = (
       // Record rate limit hit metric
       getMetricsService().recordRateLimitHit(req.path, limiterKey);
 
-      const error = createError(
+      const apiError = createError(
         'Too many requests, please try again later',
         429,
         'RATE_LIMIT_EXCEEDED'
@@ -363,8 +384,8 @@ const createRateLimiter = (
       res.status(429).json({
         success: false,
         error: {
-          message: error.message,
-          code: error.code,
+          message: apiError.message,
+          code: apiError.code,
           retryAfter: secs,
           timestamp: new Date().toISOString(),
         },
@@ -395,8 +416,9 @@ export const adaptiveRateLimiter = (
   anonymousKey: string = 'api'
 ) => {
   return async (req: Request, res: Response, next: NextFunction) => {
+    const authReq = req as AuthenticatedRequest;
     // Choose limiter based on authentication status
-    const isAuthenticated = !!(req as any).user?.id;
+    const isAuthenticated = !!authReq.user?.id;
     const limiterKey = isAuthenticated ? authenticatedKey : anonymousKey;
     const limiter = rateLimiters[limiterKey];
     const config = getRateLimitConfigsCached()[limiterKey];
@@ -408,7 +430,7 @@ export const adaptiveRateLimiter = (
 
     try {
       // Use user ID for authenticated, IP for anonymous
-      const key = isAuthenticated ? (req as any).user.id : (req.ip || 'unknown');
+      const key = isAuthenticated ? getAuthUserId(authReq) : req.ip || 'unknown';
       const rateLimiterRes = await limiter.consume(key);
 
       // Set rate limit headers
@@ -416,7 +438,8 @@ export const adaptiveRateLimiter = (
       setRateLimitHeaders(res, config.points, rateLimiterRes.remainingPoints, resetTimestamp);
 
       next();
-    } catch (rejRes: any) {
+    } catch (error: unknown) {
+      const rejRes = error as RateLimiterRejection;
       const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
       const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
 
@@ -425,7 +448,7 @@ export const adaptiveRateLimiter = (
 
       logger.warn('Adaptive rate limit exceeded', {
         ip: req.ip,
-        userId: (req as any).user?.id,
+        userId: authReq.user?.id,
         limiter: limiterKey,
         isAuthenticated,
         path: req.path,
@@ -476,7 +499,8 @@ export const customRateLimiter = (points: number, duration: number, blockDuratio
       setRateLimitHeaders(res, points, rateLimiterRes.remainingPoints, resetTimestamp);
 
       next();
-    } catch (rejRes: any) {
+    } catch (error: unknown) {
+      const rejRes = error as RateLimiterRejection;
       const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
       const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
 
@@ -521,9 +545,10 @@ export const userRateLimiter = (limiterKey: string) => {
       return next();
     }
 
+    const authReq = req as AuthenticatedRequest;
     try {
       // Use user ID if authenticated, otherwise fall back to IP
-      const key = (req as any).user?.id || req.ip || 'unknown';
+      const key = authReq.user?.id || req.ip || 'unknown';
       const rateLimiterRes = await limiter.consume(key);
 
       // Set rate limit headers
@@ -531,7 +556,8 @@ export const userRateLimiter = (limiterKey: string) => {
       setRateLimitHeaders(res, config.points, rateLimiterRes.remainingPoints, resetTimestamp);
 
       next();
-    } catch (rejRes: any) {
+    } catch (error: unknown) {
+      const rejRes = error as RateLimiterRejection;
       const secs = Math.round(rejRes.msBeforeNext / 1000) || 1;
       const resetTimestamp = Math.ceil(Date.now() / 1000 + secs);
 
@@ -539,7 +565,7 @@ export const userRateLimiter = (limiterKey: string) => {
       res.set('Retry-After', String(secs));
 
       logger.warn('User rate limit exceeded', {
-        userId: (req as any).user?.id,
+        userId: authReq.user?.id,
         ip: req.ip,
         limiter: limiterKey,
         path: req.path,
@@ -603,7 +629,12 @@ export const fallbackRateLimiter = (() => {
 
     if (current.count >= MAX_REQUESTS) {
       const retryAfter = Math.ceil((current.resetTime + WINDOW_SIZE - now) / 1000);
-      setRateLimitHeaders(res, MAX_REQUESTS, 0, Math.ceil((current.resetTime + WINDOW_SIZE) / 1000));
+      setRateLimitHeaders(
+        res,
+        MAX_REQUESTS,
+        0,
+        Math.ceil((current.resetTime + WINDOW_SIZE) / 1000)
+      );
       res.set('Retry-After', String(retryAfter));
 
       logger.warn('Fallback rate limit exceeded', {

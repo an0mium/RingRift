@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   PlayerChoice,
   LineOrderChoice,
@@ -10,13 +10,18 @@ import {
 import { getChoiceViewModel, type ChoiceViewModel } from '../adapters/choiceViewModels';
 import { getCountdownSeverity } from '../utils/countdown';
 
+const FOCUSABLE_SELECTORS =
+  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
+const OPTION_BUTTON_SELECTOR = '[data-choice-option]';
+
 export interface ChoiceDialogProps {
   choice: PlayerChoice | null;
   /**
    * Optional precomputed view model. When omitted, the dialog derives its own
    * view model from the PlayerChoice type via getChoiceViewModel.
    */
-  choiceViewModel?: ChoiceViewModel;
+  choiceViewModel?: ChoiceViewModel | undefined;
   /** Optional absolute deadline (ms since epoch) when this choice expires. */
   deadline?: number | null;
   /** Live countdown supplied by the parent (ms). */
@@ -45,6 +50,91 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
   onCancel,
 }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [focusedOptionIndex, setFocusedOptionIndex] = useState(0);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // Get all option buttons for arrow key navigation
+  const getOptionButtons = useCallback((): HTMLButtonElement[] => {
+    const dialogEl = dialogRef.current;
+    if (!dialogEl) return [];
+    return Array.from(dialogEl.querySelectorAll<HTMLButtonElement>(OPTION_BUTTON_SELECTOR));
+  }, []);
+
+  // Reset focused option when choice changes
+  useEffect(() => {
+    setFocusedOptionIndex(0);
+  }, [choice?.id]);
+
+  // Focus trap and keyboard handling
+  useEffect(() => {
+    if (!choice) return;
+
+    const dialogEl = dialogRef.current;
+    if (!dialogEl) return;
+
+    // Focus first focusable element
+    const focusable = Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS));
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (first) {
+      first.focus();
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Escape key closes dialog (if onCancel is provided)
+      if (event.key === 'Escape' && onCancel && !isSubmitting) {
+        event.preventDefault();
+        onCancel();
+        return;
+      }
+
+      // Arrow key navigation between option buttons
+      const optionButtons = getOptionButtons();
+      if (optionButtons.length > 0 && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+        event.preventDefault();
+
+        // Calculate new index
+        let newIndex = focusedOptionIndex;
+        if (event.key === 'ArrowUp') {
+          newIndex = focusedOptionIndex <= 0 ? optionButtons.length - 1 : focusedOptionIndex - 1;
+        } else {
+          newIndex = focusedOptionIndex >= optionButtons.length - 1 ? 0 : focusedOptionIndex + 1;
+        }
+
+        setFocusedOptionIndex(newIndex);
+        optionButtons[newIndex]?.focus();
+        return;
+      }
+
+      // Focus trapping with Tab key
+      if (event.key !== 'Tab' || focusable.length === 0) return;
+
+      const active = document.activeElement as HTMLElement | null;
+      if (!active) return;
+
+      const isShift = event.shiftKey;
+
+      if (isShift && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!isShift && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    dialogEl.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      dialogEl.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [choice, onCancel, isSubmitting, focusedOptionIndex, getOptionButtons]);
+
+  // Update focused option index when an option button receives focus
+  const handleOptionFocus = useCallback((index: number) => {
+    setFocusedOptionIndex(index);
+  }, []);
 
   if (!choice) return null;
 
@@ -59,9 +149,7 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
       : null;
 
   const severity = countdownMs !== null ? getCountdownSeverity(countdownMs) : null;
-  const countdownLabelCopy = isServerCapped
-    ? 'Server deadline – respond within'
-    : 'Respond within';
+  const countdownLabelCopy = isServerCapped ? 'Server deadline – respond within' : 'Respond within';
 
   const countdownTextClass =
     severity === 'critical'
@@ -84,20 +172,24 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
   const renderLineOrder = (c: LineOrderChoice) => (
     <div className="space-y-2">
       <p className="text-sm text-gray-200 mb-1">{c.prompt}</p>
-      <div className="space-y-1 max-h-48 overflow-auto">
+      <div className="space-y-1 max-h-48 overflow-auto" role="listbox" aria-label="Line options">
         {c.options.map((opt, index) => (
           <button
             key={opt.lineId}
             type="button"
+            data-choice-option
             disabled={isSubmitting}
             onClick={() => {
               if (isSubmitting) return;
               setIsSubmitting(true);
               onSelectOption(c, opt);
             }}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
+            onFocus={() => handleOptionFocus(index)}
+            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+            role="option"
+            aria-selected={index === focusedOptionIndex}
           >
-            Line {index + 1}  {opt.markerPositions.length} markers
+            Line {index + 1} {opt.markerPositions.length} markers
           </button>
         ))}
       </div>
@@ -107,31 +199,40 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
   const renderLineReward = (c: LineRewardChoice) => (
     <div className="space-y-2">
       <p className="text-sm text-gray-200 mb-2">{c.prompt}</p>
-      <div className="flex flex-col space-y-2 text-xs">
+      <div className="flex flex-col space-y-2 text-xs" role="listbox" aria-label="Reward options">
         <button
           type="button"
+          data-choice-option
           disabled={isSubmitting}
           onClick={() => {
             if (isSubmitting) return;
             setIsSubmitting(true);
             onSelectOption(c, 'option_1_collapse_all_and_eliminate');
           }}
-          className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed"
+          onFocus={() => handleOptionFocus(0)}
+          className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+          role="option"
+          aria-selected={focusedOptionIndex === 0}
         >
           <div className="font-semibold text-emerald-300">Full Collapse + Elimination Bonus</div>
           <div className="text-gray-300">
-            Convert entire line to territory and eliminate 1 of your rings (progress toward victory!)
+            Convert entire line to territory and eliminate 1 of your rings (progress toward
+            victory!)
           </div>
         </button>
         <button
           type="button"
+          data-choice-option
           disabled={isSubmitting}
           onClick={() => {
             if (isSubmitting) return;
             setIsSubmitting(true);
             onSelectOption(c, 'option_2_min_collapse_no_elimination');
           }}
-          className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed"
+          onFocus={() => handleOptionFocus(1)}
+          className="px-3 py-2 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-left disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+          role="option"
+          aria-selected={focusedOptionIndex === 1}
         >
           <div className="font-semibold text-sky-300">Minimum Collapse</div>
           <div className="text-gray-300">
@@ -145,21 +246,29 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
   const renderRingElimination = (c: RingEliminationChoice) => (
     <div className="space-y-2">
       <p className="text-sm text-gray-200 mb-1">{c.prompt}</p>
-      <div className="space-y-1 max-h-48 overflow-auto text-xs">
+      <div
+        className="space-y-1 max-h-48 overflow-auto text-xs"
+        role="listbox"
+        aria-label="Ring elimination options"
+      >
         {c.options.map((opt, index) => (
           <button
             key={`${opt.stackPosition.x},${opt.stackPosition.y},${index}`}
             type="button"
+            data-choice-option
             disabled={isSubmitting}
             onClick={() => {
               if (isSubmitting) return;
               setIsSubmitting(true);
               onSelectOption(c, opt);
             }}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
+            onFocus={() => handleOptionFocus(index)}
+            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+            role="option"
+            aria-selected={index === focusedOptionIndex}
           >
             Stack at ({opt.stackPosition.x}, {opt.stackPosition.y}
-            {opt.stackPosition.z !== undefined ? `, ${opt.stackPosition.z}` : ''})  cap{' '}
+            {opt.stackPosition.z !== undefined ? `, ${opt.stackPosition.z}` : ''}) cap{' '}
             {opt.capHeight}, total {opt.totalHeight}
           </button>
         ))}
@@ -170,24 +279,30 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
   const renderRegionOrder = (c: RegionOrderChoice) => (
     <div className="space-y-2">
       <p className="text-sm text-gray-200 mb-1">{c.prompt}</p>
-      <div className="space-y-1 max-h-48 overflow-auto text-xs">
-        {c.options.map((opt) => (
+      <div
+        className="space-y-1 max-h-48 overflow-auto text-xs"
+        role="listbox"
+        aria-label="Region options"
+      >
+        {c.options.map((opt, index) => (
           <button
             key={opt.regionId}
             type="button"
+            data-choice-option
             disabled={isSubmitting}
             onClick={() => {
               if (isSubmitting) return;
               setIsSubmitting(true);
               onSelectOption(c, opt);
             }}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
+            onFocus={() => handleOptionFocus(index)}
+            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+            role="option"
+            aria-selected={index === focusedOptionIndex}
           >
-            Region {opt.regionId}  {opt.size} spaces, sample ({opt.representativePosition.x},{' '}
+            Region {opt.regionId} {opt.size} spaces, sample ({opt.representativePosition.x},{' '}
             {opt.representativePosition.y}
-            {opt.representativePosition.z !== undefined
-              ? `, ${opt.representativePosition.z}`
-              : ''})
+            {opt.representativePosition.z !== undefined ? `, ${opt.representativePosition.z}` : ''})
           </button>
         ))}
       </div>
@@ -197,23 +312,31 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
   const renderCaptureDirection = (c: CaptureDirectionChoice) => (
     <div className="space-y-2">
       <p className="text-sm text-gray-200 mb-1">{c.prompt}</p>
-      <div className="space-y-1 max-h-48 overflow-auto text-xs">
+      <div
+        className="space-y-1 max-h-48 overflow-auto text-xs"
+        role="listbox"
+        aria-label="Capture direction options"
+      >
         {c.options.map((opt, index) => (
           <button
             key={`${opt.targetPosition.x},${opt.targetPosition.y},${index}`}
             type="button"
+            data-choice-option
             disabled={isSubmitting}
             onClick={() => {
               if (isSubmitting) return;
               setIsSubmitting(true);
               onSelectOption(c, opt);
             }}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
+            onFocus={() => handleOptionFocus(index)}
+            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+            role="option"
+            aria-selected={index === focusedOptionIndex}
           >
             Direction {index + 1}: target ({opt.targetPosition.x}, {opt.targetPosition.y}
-            {opt.targetPosition.z !== undefined ? `, ${opt.targetPosition.z}` : ''})  landing (
+            {opt.targetPosition.z !== undefined ? `, ${opt.targetPosition.z}` : ''}) landing (
             {opt.landingPosition.x}, {opt.landingPosition.y}
-            {opt.landingPosition.z !== undefined ? `, ${opt.landingPosition.z}` : ''})  cap{' '}
+            {opt.landingPosition.z !== undefined ? `, ${opt.landingPosition.z}` : ''}) cap{' '}
             {opt.capturedCapHeight}
           </button>
         ))}
@@ -239,28 +362,39 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
     case 'capture_direction':
       content = renderCaptureDirection(choice as CaptureDirectionChoice);
       break;
-    default:
+    default: {
       // Generic fallback for unknown/experimental choice types. This ensures
       // that new PlayerChoice variants remain at least minimally operable
       // (options can still be selected) even before specialised UI is added.
       // Options are rendered as "Option N" without inspecting their shape.
+
+      const genericChoice = choice as PlayerChoice & { options?: unknown[] };
+      const options = Array.isArray(genericChoice.options) ? genericChoice.options : [];
       content = (
         <div className="space-y-2">
-          <p className="text-sm text-gray-200 mb-1">{(choice as any).prompt}</p>
-          {Array.isArray((choice as any).options) && (choice as any).options.length > 0 ? (
-            <div className="space-y-1 max-h-48 overflow-auto text-xs">
-              {(choice as any).options.map((opt: unknown, index: number) => (
+          <p className="text-sm text-gray-200 mb-1">{genericChoice.prompt}</p>
+          {options.length > 0 ? (
+            <div
+              className="space-y-1 max-h-48 overflow-auto text-xs"
+              role="listbox"
+              aria-label="Choice options"
+            >
+              {options.map((opt, index) => (
                 <button
-                  // eslint-disable-next-line react/no-array-index-key
                   key={index}
                   type="button"
+                  data-choice-option
                   disabled={isSubmitting}
                   onClick={() => {
                     if (isSubmitting) return;
                     setIsSubmitting(true);
-                    onSelectOption(choice as PlayerChoice, opt as any);
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic option for extensibility
+                    onSelectOption(genericChoice, opt as any);
                   }}
-                  className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed"
+                  onFocus={() => handleOptionFocus(index)}
+                  className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+                  role="option"
+                  aria-selected={index === focusedOptionIndex}
                 >
                   Option {index + 1}
                 </button>
@@ -274,23 +408,33 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
         </div>
       );
       break;
+    }
   }
 
   if (!content) return null;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60">
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="choice-dialog-title"
+      aria-describedby={
+        resolvedChoiceViewModel?.copy.description ? 'choice-dialog-description' : undefined
+      }
+    >
       <div className="w-full max-w-md mx-4 p-4 rounded-md bg-slate-900 border border-slate-700 shadow-lg">
         {resolvedChoiceViewModel && (
           <div className="mb-3">
             <div className="text-[11px] uppercase tracking-wide text-emerald-300/80">
               {resolvedChoiceViewModel.copy.shortLabel}
             </div>
-            <h2 className="text-sm font-semibold text-gray-100">
+            <h2 id="choice-dialog-title" className="text-sm font-semibold text-gray-100">
               {resolvedChoiceViewModel.copy.title}
             </h2>
             {resolvedChoiceViewModel.copy.description && (
-              <p className="mt-0.5 text-xs text-gray-400">
+              <p id="choice-dialog-description" className="mt-0.5 text-xs text-gray-400">
                 {resolvedChoiceViewModel.copy.description}
               </p>
             )}
@@ -305,6 +449,9 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
               data-testid="choice-countdown"
               data-severity={severity ?? undefined}
               data-server-capped={isServerCapped ? 'true' : undefined}
+              aria-live="polite"
+              aria-atomic="true"
+              role="timer"
             >
               {countdownSeconds !== null ? (
                 <>

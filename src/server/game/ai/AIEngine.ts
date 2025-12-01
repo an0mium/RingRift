@@ -27,7 +27,8 @@ import {
   LocalAIRng,
 } from '../../../shared/engine/localAIMoveSelection';
 import { SeededRNG } from '../../../shared/utils/rng';
-import { aiFallbackCounter, aiMoveLatencyHistogram } from '../../utils/rulesParityMetrics';
+import { aiMoveLatencyHistogram, aiFallbackCounter } from '../../utils/rulesParityMetrics';
+import { getMetricsService } from '../../services/MetricsService';
 
 export enum AIType {
   RANDOM = 'random',
@@ -325,10 +326,12 @@ export class AIEngine {
               validMoveCount: validMoves.length,
             });
             aiFallbackCounter.labels('validation_failed').inc();
+            getMetricsService().recordAIFallback('validation_failed');
           }
         } else {
           // Service did not return a usable move; fall back to local heuristics.
           aiFallbackCounter.labels('no_move_from_service').inc();
+          getMetricsService().recordAIFallback('no_move_from_service');
         }
       } catch (error) {
         lastError = error as Error;
@@ -365,6 +368,7 @@ export class AIEngine {
         }
 
         aiFallbackCounter.labels(reason).inc();
+        getMetricsService().recordAIFallback(reason);
 
         logger.warn('Remote AI service failed, falling back to local heuristics', {
           error: error instanceof Error ? error.message : 'Unknown error',
@@ -530,8 +534,7 @@ export class AIEngine {
    * configuration, local fallback behaviour is reproducible.
    */
   private createDeterministicLocalRng(gameState: GameState, playerNumber: number): LocalAIRng {
-    const baseSeed =
-      typeof gameState.rngSeed === 'number' ? gameState.rngSeed : 0;
+    const baseSeed = typeof gameState.rngSeed === 'number' ? gameState.rngSeed : 0;
     const mixed = (baseSeed ^ (playerNumber * 0x9e3779b1)) >>> 0;
     const seeded = new SeededRNG(mixed);
     return () => seeded.next();
@@ -543,11 +546,7 @@ export class AIEngine {
    * optional rng parameter allows test harnesses and parity tools to share
    * a deterministic RNG stream with other AI callers (e.g. sandbox AI).
    */
-  private getLocalAIMove(
-    playerNumber: number,
-    gameState: GameState,
-    rng: LocalAIRng
-  ): Move | null {
+  private getLocalAIMove(playerNumber: number, gameState: GameState, rng: LocalAIRng): Move | null {
     try {
       const boardManager = new BoardManager(gameState.boardType);
       const ruleEngine = new RuleEngine(boardManager, gameState.boardType);

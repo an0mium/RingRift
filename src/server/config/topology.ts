@@ -49,7 +49,6 @@ export function enforceAppTopology(config: AppConfig): void {
       'or shared state is unsupported. Each instance will maintain its own in-process game sessions.';
 
     if (config.isProduction) {
-      // eslint-disable-next-line no-console
       console.error(
         `[config] ${message} Refusing to start in NODE_ENV=production. ` +
           `Configure infrastructure-enforced sticky sessions and/or shared game state before using multiple app instances. ${logContext}`
@@ -59,7 +58,6 @@ export function enforceAppTopology(config: AppConfig): void {
       );
     }
 
-    // eslint-disable-next-line no-console
     console.warn(
       `[config] ${message} Continuing because NODE_ENV=${nodeEnv}. ` +
         `This mode is intended only for development/experimentation. ${logContext}`
@@ -68,7 +66,6 @@ export function enforceAppTopology(config: AppConfig): void {
   }
 
   if (topology === 'multi-sticky') {
-    // eslint-disable-next-line no-console
     console.warn(
       '[config] RINGRIFT_APP_TOPOLOGY=multi-sticky: backend assumes infrastructure-enforced sticky sessions ' +
         '(HTTP + WebSocket) for all game-affecting traffic to a given game. ' +

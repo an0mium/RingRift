@@ -13,6 +13,7 @@ import {
 } from '../../../shared/engine';
 import { BoardManager } from '../BoardManager';
 import { RuleEngine } from '../RuleEngine';
+import { isTestEnvironment, debugLog } from '../../../shared/utils/envFlags';
 
 /**
  * Dependencies required for turn/phase orchestration. This keeps the
@@ -142,19 +143,12 @@ export function advanceGameForCurrentPlayer(
     gameStatus: nextState.gameStatus,
   };
 
-  if (
-    typeof process !== 'undefined' &&
-    (process as any).env &&
-    (process as any).env.NODE_ENV === 'test'
-  ) {
-    // eslint-disable-next-line no-console
-    console.log('[TurnTrace.backend.advanceGameForCurrentPlayer]', {
-      decision: 'advanceGameForCurrentPlayer',
-      reason: 'advanceTurnAndPhase',
-      before: beforeSnapshot,
-      after: afterSnapshot,
-    });
-  }
+  debugLog(isTestEnvironment(), '[TurnTrace.backend.advanceGameForCurrentPlayer]', {
+    decision: 'advanceGameForCurrentPlayer',
+    reason: 'advanceTurnAndPhase',
+    before: beforeSnapshot,
+    after: afterSnapshot,
+  });
 
   // Mutate the provided GameState reference in-place so callers that
   // hold onto `gameState` (notably backend GameEngine) observe the

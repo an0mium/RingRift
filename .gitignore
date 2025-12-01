@@ -76,6 +76,13 @@ ai-service/app/training/data/
 ai-service/app/training/**/data/
 ai-service/app/models/
 
+# AI service models and eval pools (large files - use Git LFS if versioning needed)
+ai-service/models/
+ai-service/data/eval_pools/
+ai-service/**/*.pth
+ai-service/**/*.npz
+ai-service/self_play_data/
+
 # Local debug artifacts
 debug_output.txt
 

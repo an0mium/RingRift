@@ -1,46 +1,11 @@
 # RingRift Quick Start Guide
 
-**Doc Status (2025-11-27): Active (developer quickstart)**
+**Last Updated:** November 30, 2025
+
+**Doc Status:** Active (developer quickstart)
 
 - Step-by-step setup and deployment guide for the TS backend, React client, and Python AI service.
 - Not a rules or lifecycle SSoT; for rules semantics defer to `RULES_CANONICAL_SPEC.md` + shared TS engine (`src/shared/engine/**`), and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
-
-## Game Completion
-
-When a game ends, you'll see a comprehensive victory screen showing:
-
-- **Winner and Victory Condition**: Clear indication of who won and how (ring elimination, territory majority, last player standing, or stalemate)
-- **Final Statistics**: Complete comparison of all players including:
-  - Rings on board (still in play)
-  - Rings lost (eliminated from play)
-  - Territory spaces controlled
-  - Total moves made
-- **Game Summary**: Board type, total turns played, player count, and rated status
-
-### Available Actions
-
-After viewing the victory screen, you can:
-
-- **Return to Lobby**: Start a new game or join an existing one
-- **Request Rematch**: Challenge the same players to another game (multiplayer only)
-- **Close**: View the final board state
-
-### Victory Conditions
-
-Games can end in several ways:
-
-- **Ring Elimination** (🏆): Eliminate more than 50% of total rings in play
-- **Territory Majority** (🏰): Control more than 50% of the board as collapsed Territory
-- **Last Player Standing** (👑): Be the only player who can still make legal moves
-- **Stalemate Draw** (🤝): When no moves are possible, the winner is determined by:
-  - Most Territory spaces (higher priority)
-  - Most rings eliminated (if Territory is tied)
-  - Most markers remaining (if still tied)
-  - Last player to complete a valid action (final tiebreaker)
-
----
-
-# RingRift Quick Start Guide
 
 ## Understanding the Game HUD
 
@@ -181,10 +146,12 @@ The lobby UI now supports creating games with AI opponents:
 2. **Configure AI opponents**:
    - Set "Number of AI opponents" (0-3)
    - Choose AI difficulty (1-10):
-     - **1-2**: Beginner (RandomAI)
-     - **3-5**: Intermediate (HeuristicAI)
-     - **6-8**: Advanced (MinimaxAI)
-     - **9-10**: Expert (MCTSAI)
+     - **1**: Beginner – RandomAI
+     - **2**: Beginner – HeuristicAI
+     - **3-4**: Intermediate – MinimaxAI (shallow search)
+     - **5-6**: Challenging – MinimaxAI (deeper search)
+     - **7-8**: Stronger Opponents – MCTSAI (+ neural net guidance)
+     - **9-10**: Stronger Opponents – DescentAI (+ neural net guidance, experimental)
    - Optionally override AI type and control mode
 3. **Create Game**: Games with AI opponents auto-start immediately
 4. **Play**: The AI will make moves automatically during its turns
@@ -464,7 +431,7 @@ For more context on **what is already covered** and where we’re headed with te
 
 - `CURRENT_STATE_ASSESSMENT.md` – coverage and feature completeness
 - `STRATEGIC_ROADMAP.md` – higher-level plan
-- `archive/PLAYABLE_GAME_IMPLEMENTATION_PLAN.md` – historical concrete steps toward a playable MVP; for current, code‑verified status and tasks, defer to `CURRENT_STATE_ASSESSMENT.md`, `KNOWN_ISSUES.md`, and `TODO.md`.
+- For current status and tasks, see `CURRENT_STATE_ASSESSMENT.md`, `KNOWN_ISSUES.md`, and `TODO.md`.
 
 ---
 
@@ -683,3 +650,38 @@ Once the stack is healthy, you should have:
    ```
 
 This staging setup is intentionally single-node and **non-TLS**. For production-grade hardening (HTTPS termination, WAF, centralized logging/metrics, backups, and multi-instance topology with sticky sessions), additional infrastructure work is required beyond this local staging configuration.
+
+---
+
+## Appendix A: Game Completion & Victory Conditions
+
+When a game ends, you'll see a comprehensive victory screen showing:
+
+- **Winner and Victory Condition**: Clear indication of who won and how (ring elimination, territory majority, last player standing, or stalemate)
+- **Final Statistics**: Complete comparison of all players including:
+  - Rings on board (still in play)
+  - Rings lost (eliminated from play)
+  - Territory spaces controlled
+  - Total moves made
+- **Game Summary**: Board type, total turns played, player count, and rated status
+
+### Available Actions
+
+After viewing the victory screen, you can:
+
+- **Return to Lobby**: Start a new game or join an existing one
+- **Request Rematch**: Challenge the same players to another game (multiplayer only)
+- **Close**: View the final board state
+
+### Victory Conditions
+
+Games can end in several ways:
+
+- **Ring Elimination** (🏆): Eliminate more than 50% of total rings in play
+- **Territory Majority** (🏰): Control more than 50% of the board as collapsed Territory
+- **Last Player Standing** (👑): Be the only player who can still make legal moves
+- **Stalemate Draw** (🤝): When no moves are possible, the winner is determined by:
+  - Most Territory spaces (higher priority)
+  - Most rings eliminated (if Territory is tied)
+  - Most markers remaining (if still tied)
+  - Last player to complete a valid action (final tiebreaker)

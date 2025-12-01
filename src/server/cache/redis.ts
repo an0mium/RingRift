@@ -8,7 +8,7 @@ let redisClient: RedisClient | null = null;
 
 export const connectRedis = async (): Promise<RedisClient> => {
   try {
-    const clientOptions: any = {
+    const clientOptions: Parameters<typeof createClient>[0] = {
       url: config.redis.url,
       socket: {
         connectTimeout: 60000,
@@ -22,7 +22,7 @@ export const connectRedis = async (): Promise<RedisClient> => {
       },
     };
 
-    if (config.redis.password) {
+    if (config.redis.password && clientOptions) {
       clientOptions.password = config.redis.password;
     }
 
@@ -91,7 +91,7 @@ export class CacheService {
     }
   }
 
-  async set(key: string, value: any, ttlSeconds?: number): Promise<boolean> {
+  async set<T>(key: string, value: T, ttlSeconds?: number): Promise<boolean> {
     try {
       const serialized = JSON.stringify(value);
       if (ttlSeconds) {

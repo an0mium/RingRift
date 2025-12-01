@@ -22,6 +22,8 @@ import {
 } from '../helpers/orchestratorTestUtils';
 import { enumerateProcessTerritoryRegionMoves } from '../../src/shared/engine/territoryDecisionHelpers';
 import { getEffectiveLineLengthThreshold } from '../../src/shared/engine/rulesConfig';
+import { computeProgressSnapshot } from '../../src/shared/engine/core';
+import { processTurn } from '../../src/shared/engine/orchestration/turnOrchestrator';
 
 /**
  * Orchestrator-centric backend multi-phase scenario + invariant tests.
@@ -272,6 +274,7 @@ describe('Orchestrator.Backend multi-phase scenarios (GameEngine + TurnEngineAda
 
     const beforeState = engine.getGameState();
     const beforePlayer = beforeState.players.find((p) => p.playerNumber === controllingPlayer)!;
+    const beforeSnapshot = computeProgressSnapshot(beforeState as any);
 
     // Before any region is processed, the backend host should not yet owe a
     // self-elimination decision. In this synthetic geometry the shared
@@ -310,6 +313,12 @@ describe('Orchestrator.Backend multi-phase scenarios (GameEngine + TurnEngineAda
     expect(applyRegion.success).toBe(true);
 
     const afterRegion = engine.getGameState();
+    const afterSnapshot = computeProgressSnapshot(afterRegion as any);
+
+    // S-invariant must be non-decreasing across this explicit
+    // process_territory_region turn: interior rings are either eliminated
+    // or converted into collapsed spaces, so M + C + E cannot shrink.
+    expect(afterSnapshot.S).toBeGreaterThanOrEqual(beforeSnapshot.S);
 
     // Region interior must be collapsed for the controlling player and
     // victim stacks removed.
@@ -410,6 +419,11 @@ describe('Orchestrator.Backend multi-phase scenarios (GameEngine + TurnEngineAda
     state.currentPlayer = 1;
     state.gameStatus = 'active';
 
+    // Capture initial S-invariant snapshot before any overtaking_capture is
+    // applied. Chain captures may increase S via eliminations but must never
+    // decrease S = markers + collapsed + eliminated.
+    const beforeSnapshot = computeProgressSnapshot(state as any);
+
     // Start the chain via a host-level overtaking_capture. We prefer the
     // FAQ-style (3,3) over (3,4) → (3,5) segment when available but remain
     // tolerant if additional capture options appear.
@@ -479,6 +493,7 @@ describe('Orchestrator.Backend multi-phase scenarios (GameEngine + TurnEngineAda
     }
 
     const finalState = engine.getGameState();
+    const finalSnapshot = computeProgressSnapshot(finalState as any);
     const allStacks = Array.from(finalState.board.stacks.values());
     const blueStacks = allStacks.filter((s) => s.controllingPlayer === 1);
     const redStacks = allStacks.filter((s) => s.controllingPlayer === 2);
@@ -491,6 +506,139 @@ describe('Orchestrator.Backend multi-phase scenarios (GameEngine + TurnEngineAda
     expect(blueStacks[0].stackHeight).toBe(4);
     expect(blueStacks[0].controllingPlayer).toBe(1);
     expect(redStacks.length).toBe(0);
+
+    // Progress invariant: S must be non-decreasing over the full
+    // overtaking_capture + chain_capture sequence.
+    expect(finalSnapshot.S).toBeGreaterThanOrEqual(beforeSnapshot.S);
+  });
+
+  /**
+   * Scenario D – LPS (last-player-standing) victory only after post-move phases.
+   *
+   * This orchestrator-level check mirrors the old phase-order test from the
+   * legacy LPS suite by asserting that a last_player_standing victory is
+   * produced only after the post-move pipeline has traversed:
+   *
+   *   movement → line_processing → territory_processing → victory
+   *
+   * We construct a minimal 2-player structural-stalemate snapshot where:
+   *   - Only Player 1 has a single stack on the board.
+   *   - Both players have equal eliminatedRings after Player 1 pays a
+   *     self-elimination cost via eliminate_rings_from_stack.
+   *   - No stacks, markers, or territory remain after the move.
+   *
+   * Under VictoryAggregate's stalemate ladder this yields a terminal
+   * last_player_standing result decided by getLastActor, while the
+   * orchestrator metadata exposes the expected phase ordering in
+   * metadata.phasesTraversed.
+   */
+  it('Scenario D – LPS victory occurs only after line and territory phases run', () => {
+    const engine = createOrchestratorEngineForTest('orch-backend-lps-ordering');
+    const baseState = engine.getGameState();
+
+    const stackPos: Position = { x: 3, y: 3 };
+
+    // Build a structural-stalemate snapshot:
+    // - 2 players, active game in movement phase.
+    // - Single Player 1 stack on the board.
+    // - Both players have equal eliminatedRings after P1 pays a
+    //   self-elimination cost, so the victory ladder falls through to
+    //   last_actor → last_player_standing.
+    const state: GameState = {
+      ...baseState,
+      gameStatus: 'active',
+      currentPlayer: 1,
+      currentPhase: 'movement',
+      // Single prior move by Player 1 so getLastActor resolves to P1.
+      moveHistory: [
+        {
+          id: 'prev-1',
+          type: 'place_ring',
+          player: 1,
+          to: { x: 0, y: 0 },
+          timestamp: new Date(0),
+          thinkTime: 0,
+          moveNumber: 1,
+        } as Move,
+      ],
+      history: [],
+      players: baseState.players.map((p) =>
+        p.playerNumber === 1
+          ? {
+              ...p,
+              ringsInHand: 0,
+              eliminatedRings: 0,
+              territorySpaces: 0,
+            }
+          : {
+              ...p,
+              ringsInHand: 0,
+              eliminatedRings: 1,
+              territorySpaces: 0,
+            }
+      ),
+      board: {
+        ...baseState.board,
+        stacks: new Map([
+          [
+            positionToString(stackPos),
+            {
+              position: stackPos,
+              rings: [1],
+              stackHeight: 1,
+              capHeight: 1,
+              controllingPlayer: 1,
+            } as any,
+          ],
+        ]),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {
+          1: 0,
+          2: 1,
+        },
+      },
+      totalRingsEliminated: 1,
+      winner: undefined,
+    };
+
+    const eliminateMove: Move = {
+      id: 'elim-test',
+      type: 'eliminate_rings_from_stack',
+      player: 1,
+      to: stackPos,
+      eliminatedRings: [{ player: 1, count: 1 }],
+      eliminationFromStack: {
+        position: stackPos,
+        capHeight: 1,
+        totalHeight: 1,
+      },
+      timestamp: new Date(0),
+      thinkTime: 0,
+      moveNumber: state.moveHistory.length + 1,
+    } as Move;
+
+    const result = processTurn(state, eliminateMove);
+
+    // Victory must be classified as last_player_standing with Player 1
+    // as winner (last actor in moveHistory).
+    expect(result.victoryResult).toBeDefined();
+    expect(result.victoryResult!.isGameOver).toBe(true);
+    expect(result.victoryResult!.reason).toBe('last_player_standing');
+    expect(result.victoryResult!.winner).toBe(1);
+
+    // Orchestrator metadata must reflect the canonical phase ordering:
+    // movement → line_processing → territory_processing → terminal state.
+    const phases = result.metadata.phasesTraversed;
+    const lineIndex = phases.indexOf('line_processing');
+    const territoryIndex = phases.indexOf('territory_processing');
+
+    expect(phases[0]).toBe('movement');
+    expect(lineIndex).toBeGreaterThan(-1);
+    expect(territoryIndex).toBeGreaterThan(-1);
+    expect(lineIndex).toBeLessThan(territoryIndex);
   });
 });
 

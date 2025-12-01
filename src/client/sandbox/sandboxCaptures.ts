@@ -3,15 +3,11 @@ import type {
   BoardType,
   Position,
   RingStack,
-  CaptureSegmentBoardView,
   CaptureBoardAdapters as SharedCaptureBoardAdapters,
 } from '../../shared/engine';
 import {
   positionToString,
-  getMovementDirectionsForBoardType,
-  validateCaptureSegmentOnBoard,
   calculateCapHeight,
-  getPathPositions,
   enumerateCaptureMoves as enumerateCaptureMovesShared,
 } from '../../shared/engine';
 

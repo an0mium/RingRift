@@ -549,6 +549,62 @@ export const chainCaptureRuleScenarios: ChainCaptureRuleScenario[] = [
     description:
       'Multi-directional zig-zag chain on square8: a single starting overtaking capture leads into further mandatory captures that can change direction between segments, illustrating that the chain_capture enumeration supports direction changes while preserving straight-line geometry per hop.',
   },
+  {
+    kind: 'chain-capture',
+    boardType: 'square8',
+    stacks: [
+      { position: { x: 0, y: 0 }, player: 1, height: 1 },
+      { position: { x: 1, y: 1 }, player: 2, height: 1 },
+      { position: { x: 3, y: 3 }, player: 2, height: 1 },
+      { position: { x: 5, y: 5 }, player: 2, height: 1 },
+      { position: { x: 5, y: 6 }, player: 2, height: 1 },
+    ],
+    moves: [
+      {
+        // Start the chain with diagonal SE direction:
+        // (0,0) -> (1,1) -> (2,2). Chain continues SE to (3,3) -> (4,4),
+        // then SE to (5,5) -> (6,6), finally W to (5,6) -> (4,6).
+        from: { x: 0, y: 0 },
+        captureTarget: { x: 1, y: 1 },
+        to: { x: 2, y: 2 },
+      },
+    ],
+    ref: {
+      id: 'Rules_10_3_chain_capture_4_targets_diagonal_with_turn',
+      rulesSections: ['§10.3'],
+      faqRefs: ['Q15.3.1', 'Q15.3.2'],
+    },
+    description:
+      'Extended 4-target chain capture on square8: Blue starts at (0,0) and captures four Red targets in sequence (diagonal SE followed by W turn), resulting in a height-5 stack after completing all mandatory chain segments.',
+  },
+  {
+    kind: 'chain-capture',
+    boardType: 'square8',
+    stacks: [
+      { position: { x: 0, y: 0 }, player: 1, height: 1 },
+      { position: { x: 1, y: 1 }, player: 2, height: 1 },
+      { position: { x: 3, y: 3 }, player: 2, height: 1 },
+      { position: { x: 5, y: 5 }, player: 2, height: 1 },
+      { position: { x: 5, y: 6 }, player: 2, height: 1 },
+      { position: { x: 3, y: 5 }, player: 2, height: 1 },
+    ],
+    moves: [
+      {
+        // Start the chain with diagonal SE direction:
+        // (0,0) -> (1,1) -> (2,2). Chain continues through 5 targets total.
+        from: { x: 0, y: 0 },
+        captureTarget: { x: 1, y: 1 },
+        to: { x: 2, y: 2 },
+      },
+    ],
+    ref: {
+      id: 'Rules_10_3_chain_capture_5_targets_extended_zigzag',
+      rulesSections: ['§10.3'],
+      faqRefs: ['Q15.3.1', 'Q15.3.2'],
+    },
+    description:
+      'Extended 5-target chain capture on square8: Blue starts at (0,0) and captures five Red targets in a zigzag pattern (SE → SE → SE → W → NW), resulting in a height-6 stack at (2,4) after completing all mandatory chain segments.',
+  },
 ];
 
 /**

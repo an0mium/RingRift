@@ -2,10 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GameHistoryPanel } from '../../../src/client/components/GameHistoryPanel';
-import type {
-  GameHistoryResponse,
-  GameHistoryMove,
-} from '../../../src/client/services/api';
+import type { GameHistoryResponse, GameHistoryMove } from '../../../src/client/services/api';
 
 // Mock the game API so we can control the history payload returned to the panel
 const mockGetGameHistory = jest.fn<Promise<GameHistoryResponse>, [string]>();
@@ -103,4 +100,51 @@ describe('GameHistoryPanel', () => {
 
     expect(screen.queryByTestId('auto-resolved-badge')).not.toBeInTheDocument();
   });
+
+  it.each([
+    { reason: 'timeout', winner: 1, expectedLabel: 'Result: timeout', expectWinner: true },
+    {
+      reason: 'resignation',
+      winner: 2,
+      expectedLabel: 'Result: resignation',
+      expectWinner: true,
+    },
+    {
+      reason: 'abandonment',
+      winner: null,
+      expectedLabel: 'Result: abandonment',
+      expectWinner: false,
+    },
+  ] as const)(
+    'renders terminal result banner for $reason games',
+    async ({ reason, winner, expectedLabel, expectWinner }) => {
+      const history: GameHistoryResponse = {
+        gameId: 'game-terminal',
+        moves: [createMove()],
+        totalMoves: 1,
+        result: {
+          // Cast needed because reason is a narrowed string literal in this test
+          reason: reason as GameHistoryResponse['result'] extends { reason: infer R } ? R : never,
+          winner,
+        },
+      };
+
+      mockGetGameHistory.mockResolvedValue(history);
+
+      render(<GameHistoryPanel gameId="game-terminal" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Player One')).toBeInTheDocument();
+      });
+
+      expect(screen.getByText(expectedLabel)).toBeInTheDocument();
+
+      const winnerText = screen.queryByText(/Winner: P/i);
+      if (expectWinner) {
+        expect(winnerText).toBeInTheDocument();
+      } else {
+        expect(winnerText).not.toBeInTheDocument();
+      }
+    }
+  );
 });

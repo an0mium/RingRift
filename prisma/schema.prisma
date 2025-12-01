@@ -41,6 +41,8 @@ model User {
   gamesWonGames  Game[] @relation("Winner")
   moves          Move[]
   refreshTokens  RefreshToken[]
+  chatMessages   ChatMessage[]
+  rematchRequests RematchRequest[] @relation("RematchRequester")
 
   // Index for efficient soft-delete filtering queries
   @@index([deletedAt])
@@ -82,7 +84,9 @@ model Game {
   endedAt   DateTime?
 
   // Related data
-  moves Move[]
+  moves           Move[]
+  chatMessages    ChatMessage[]
+  rematchRequests RematchRequest[]
 
   @@map("games")
 }
@@ -174,4 +178,45 @@ model RefreshToken {
 
   @@index([familyId])
   @@map("refresh_tokens")
+}
+
+// Chat messages for in-game communication
+model ChatMessage {
+  id        String   @id @default(cuid())
+  gameId    String
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  message   String   @db.VarChar(500) // Max 500 chars per message
+  createdAt DateTime @default(now())
+
+  // Index for efficient retrieval of messages by game (ordered by time)
+  @@index([gameId, createdAt])
+  @@map("chat_messages")
+}
+
+// Rematch requests for completed games
+model RematchRequest {
+  id            String              @id @default(cuid())
+  gameId        String
+  game          Game                @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  requesterId   String
+  requester     User                @relation("RematchRequester", fields: [requesterId], references: [id])
+  status        RematchRequestStatus @default(pending)
+  expiresAt     DateTime            // 30 second timeout
+  respondedAt   DateTime?
+  newGameId     String?             // ID of the new game if accepted
+  createdAt     DateTime            @default(now())
+
+  // Only one pending rematch request per game at a time
+  @@unique([gameId, status])
+  @@index([gameId, status])
+  @@map("rematch_requests")
+}
+
+enum RematchRequestStatus {
+  pending
+  accepted
+  declined
+  expired
 }

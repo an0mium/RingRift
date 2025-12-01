@@ -6,11 +6,9 @@
  * documentation via Swagger UI at /api/docs.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const swaggerJsdoc = require('swagger-jsdoc');
+import swaggerJsdoc from 'swagger-jsdoc';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const options: any = {
+const options: swaggerJsdoc.Options = {
   definition: {
     openapi: '3.0.0',
     info: {

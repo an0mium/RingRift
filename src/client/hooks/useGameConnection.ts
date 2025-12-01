@@ -107,7 +107,7 @@ export function useGameConnection(): GameConnectionState {
     connectionStatus,
     lastHeartbeatAt,
     error,
-    isConnecting,
+    isConnecting: _isConnecting,
     connectToGame,
     disconnect,
   } = useGame();

@@ -4,18 +4,45 @@
 // Keeping this logic centralised ensures sandbox AI diagnostics behave
 // consistently across environments.
 
+// Type-safe process.env access that works in both Node and browser contexts
+type ProcessEnv = Record<string, string | undefined>;
+function getProcessEnv(): ProcessEnv | undefined {
+  if (typeof process !== 'undefined' && typeof process.env === 'object') {
+    return process.env as ProcessEnv;
+  }
+  return undefined;
+}
+
 export function readEnv(name: string): string | undefined {
   // Node / Jest / browser with process.env shim: read from process.env
   // when available. This is always safe in TypeScript regardless of
   // module target, unlike import.meta.
-  if (typeof process !== 'undefined' && (process as any).env) {
-    const value = (process as any).env[name];
+  const env = getProcessEnv();
+  if (env) {
+    const value = env[name];
     if (typeof value === 'string') {
       return value;
     }
   }
 
   return undefined;
+}
+
+/**
+ * Returns true if running in a test environment (NODE_ENV === 'test').
+ * Use this instead of manually checking process.env for consistent behavior.
+ */
+export function isTestEnvironment(): boolean {
+  return readEnv('NODE_ENV') === 'test';
+}
+
+/**
+ * Returns true if running inside a Jest worker process.
+ * This is useful for detecting test runtime even when NODE_ENV might be
+ * configured differently (e.g., NODE_ENV=development in Jest).
+ */
+export function isJestRuntime(): boolean {
+  return readEnv('JEST_WORKER_ID') !== undefined;
 }
 
 export function flagEnabled(name: string): boolean {
@@ -88,4 +115,20 @@ export function isPythonRulesMode(): boolean {
 /** True when running in TS-authoritative, Python-shadow mode. */
 export function isRulesShadowMode(): boolean {
   return getRulesMode() === 'shadow';
+}
+
+/**
+ * Debug logging wrapper that suppresses ESLint no-console warnings.
+ * Use this for debug logs that are gated by environment flags.
+ * The wrapped console.log is only invoked if the condition is true.
+ *
+ * @example
+ * debugLog(flagEnabled('RINGRIFT_DEBUG'), 'Debug message', data);
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function debugLog(condition: boolean, ...args: any[]): void {
+  if (condition) {
+    // eslint-disable-next-line no-console
+    console.log(...args);
+  }
 }

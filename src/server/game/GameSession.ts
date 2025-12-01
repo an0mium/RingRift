@@ -1,4 +1,5 @@
 import { Server as SocketIOServer } from 'socket.io';
+import type { Move as PrismaMove } from '@prisma/client';
 import { GameEngine } from './GameEngine';
 import { RulesBackendFacade, RulesResult } from './RulesBackendFacade';
 import { PlayerInteractionManager } from './PlayerInteractionManager';
@@ -16,7 +17,11 @@ import { orchestratorRollout, EngineSelection } from '../services/OrchestratorRo
 import { shadowComparator } from '../services/ShadowModeComparator';
 import { createSimpleAdapter, createAutoSelectDecisionHandler } from './turn/TurnEngineAdapter';
 import { config } from '../config';
-import { applyDecisionPhaseFixtureIfNeeded } from './testFixtures/decisionPhaseFixtures';
+import {
+  applyDecisionPhaseFixtureIfNeeded,
+  type DecisionPhaseFixtureMetadata,
+} from './testFixtures/decisionPhaseFixtures';
+import type { AuthenticatedSocket } from '../websocket/server';
 import {
   Move,
   Player,
@@ -29,12 +34,17 @@ import {
   GamePhase,
   MoveType,
   PlayerChoiceType,
+  LineInfo,
+  Territory,
 } from '../../shared/types/game';
+import type { GameStatus as PrismaGameStatus } from '@prisma/client';
 import type {
   DecisionAutoResolvedMeta,
   DecisionPhaseTimeoutWarningPayload,
   DecisionPhaseTimedOutPayload,
+  GameStateUpdateMessage,
 } from '../../shared/types/websocket';
+import type { PositionEvaluationPayload } from '../../shared/types/websocket';
 import type { LocalAIRng } from '../../shared/engine';
 import { SeededRNG } from '../../shared/utils/rng';
 import { GameSessionStatus, deriveGameSessionStatus } from '../../shared/stateMachines/gameSession';
@@ -53,6 +63,7 @@ import {
   AIRequestCancelReason,
 } from '../../shared/stateMachines/aiRequest';
 import { runWithTimeout } from '../../shared/utils/timeout';
+import { getAIServiceClient } from '../services/AIServiceClient';
 
 /**
  * Aggregated AI quality diagnostics for a session
@@ -64,6 +75,48 @@ export interface SessionAIDiagnostics {
   aiFallbackMoveCount: number;
   aiQualityMode: 'normal' | 'fallbackLocalAI' | 'rulesServiceDegraded';
 }
+
+/**
+ * Position with optional z coordinate that may be explicitly undefined
+ * (compatible with Zod schema output under exactOptionalPropertyTypes).
+ */
+interface PositionWithOptionalZ {
+  x: number;
+  y: number;
+  z?: number | undefined;
+}
+
+/**
+ * Player move data payload received from WebSocket.
+ * The position types are aligned with the Zod MoveSchema output.
+ */
+interface PlayerMoveData {
+  position?:
+    | string
+    | { from?: PositionWithOptionalZ; to: PositionWithOptionalZ }
+    | PositionWithOptionalZ;
+  moveType: MoveType;
+}
+
+/**
+ * Deserialized structure of the game.gameState JSON field.
+ * This represents configuration stored at game creation time.
+ */
+interface PersistedGameStateSnapshot {
+  aiOpponents?: {
+    count: number;
+    difficulty: number[];
+    mode?: 'local_heuristic' | 'service';
+    aiType?: 'random' | 'heuristic' | 'minimax' | 'mcts';
+  };
+  rulesOptions?: GameState['rulesOptions'];
+  fixture?: DecisionPhaseFixtureMetadata;
+}
+
+/**
+ * Move type with optional decision-phase metadata attached during auto-resolution.
+ */
+type MoveWithAutoResolveMeta = Move & { decisionAutoResolved?: DecisionAutoResolvedMeta };
 
 /**
  * GameSession manages a single game's lifecycle including:
@@ -109,6 +162,9 @@ export class GameSession {
   private decisionTimeoutChoiceKind: DecisionAutoResolvedMeta['choiceKind'] | null = null;
   private decisionTimeoutWarningHandle: NodeJS.Timeout | null = null;
   private decisionTimeoutHandle: NodeJS.Timeout | null = null;
+
+  // Fixture metadata for test games (used for timeout overrides)
+  private fixtureMetadata: DecisionPhaseFixtureMetadata | null = null;
 
   // Default AI request timeout (can be overridden via config)
   private readonly aiRequestTimeoutMs: number;
@@ -169,16 +225,14 @@ export class GameSession {
     }
 
     // Optional AI opponents and per-game rules configuration (e.g., swap rule).
-    const gameStateSnapshot = (game.gameState || {}) as any;
-    const aiOpponents = gameStateSnapshot.aiOpponents as
-      | {
-          count: number;
-          difficulty: number[];
-          mode?: 'local_heuristic' | 'service';
-          aiType?: 'random' | 'heuristic' | 'minimax' | 'mcts';
-        }
-      | undefined;
-    const rulesOptions = gameStateSnapshot.rulesOptions as GameState['rulesOptions'] | undefined;
+    // The gameState field is stored as JSON in Prisma and deserialized here.
+    const rawGameState = game.gameState;
+    const gameStateSnapshot: PersistedGameStateSnapshot =
+      typeof rawGameState === 'string'
+        ? (JSON.parse(rawGameState) as PersistedGameStateSnapshot)
+        : ((rawGameState || {}) as PersistedGameStateSnapshot);
+    const aiOpponents = gameStateSnapshot.aiOpponents;
+    const rulesOptions = gameStateSnapshot.rulesOptions;
 
     if (aiOpponents && aiOpponents.count > 0) {
       const startingNumber = players.length + 1;
@@ -267,7 +321,7 @@ export class GameSession {
       game.boardType as keyof typeof BOARD_CONFIGS,
       players,
       timeControl,
-      (game as any).isRated ?? true,
+      game.isRated,
       this.interactionManager,
       // Use the persisted per-game RNG seed when available so backend
       // GameState.rngSeed matches the database and AI service expectations.
@@ -292,20 +346,23 @@ export class GameSession {
     // phase (for example line_processing) without affecting production
     // game lifecycles.
     if (config.isTest || config.isDevelopment) {
-      applyDecisionPhaseFixtureIfNeeded(this.gameEngine, gameStateSnapshot);
+      const fixtureApplied = applyDecisionPhaseFixtureIfNeeded(this.gameEngine, gameStateSnapshot);
+      if (fixtureApplied && gameStateSnapshot.fixture) {
+        this.fixtureMetadata = gameStateSnapshot.fixture as DecisionPhaseFixtureMetadata;
+      }
     }
 
     this.rulesFacade = new RulesBackendFacade(this.gameEngine, this.pythonRulesClient);
 
     // Auto-start logic
-    if ((game.status as any) === 'waiting' && players.length >= (game.maxPlayers ?? 2)) {
+    if (game.status === 'waiting' && players.length >= (game.maxPlayers ?? 2)) {
       const allReady = players.every((p) => p.isReady);
       if (allReady) {
         try {
           await prisma.game.update({
             where: { id: this.gameId },
             data: {
-              status: 'active' as any,
+              status: 'active' as PrismaGameStatus,
               startedAt: new Date(),
             },
           });
@@ -456,16 +513,21 @@ export class GameSession {
     return result;
   }
 
-  private replayMove(move: any): void {
+  private replayMove(move: PrismaMove): void {
     let from: Position | undefined;
     let to: Position | undefined;
 
     const rawPosition = move.position as unknown;
     if (typeof rawPosition === 'string') {
       try {
-        const parsed = JSON.parse(rawPosition) as any;
-        from = parsed.from as Position | undefined;
-        to = (parsed.to as Position | undefined) ?? (parsed as Position);
+        const parsed = JSON.parse(rawPosition) as { from?: Position; to?: Position } | Position;
+        if ('from' in parsed || 'to' in parsed) {
+          const posObj = parsed as { from?: Position; to?: Position };
+          from = posObj.from;
+          to = posObj.to;
+        } else {
+          to = parsed as Position;
+        }
       } catch (err) {
         logger.warn('Failed to parse persisted move.position string', {
           gameId: this.gameId,
@@ -475,9 +537,14 @@ export class GameSession {
         });
       }
     } else if (rawPosition && typeof rawPosition === 'object') {
-      const parsed = rawPosition as any;
-      from = parsed.from as Position | undefined;
-      to = (parsed.to as Position | undefined) ?? (parsed as Position);
+      const parsed = rawPosition as { from?: Position; to?: Position } | Position;
+      if ('from' in parsed || 'to' in parsed) {
+        const posObj = parsed as { from?: Position; to?: Position };
+        from = posObj.from;
+        to = posObj.to;
+      } else {
+        to = parsed as Position;
+      }
     }
 
     if (!to) {
@@ -490,7 +557,7 @@ export class GameSession {
     }
 
     const gameMove: Omit<Move, 'id' | 'timestamp' | 'moveNumber'> = {
-      type: move.moveType as any,
+      type: move.moveType as MoveType,
       player: parseInt(move.playerId),
       ...(from ? { from } : {}),
       to,
@@ -606,19 +673,24 @@ export class GameSession {
     return 'normal';
   }
 
-  public async handlePlayerMove(socket: any, moveData: any): Promise<void> {
+  public async handlePlayerMove(
+    socket: AuthenticatedSocket,
+    moveData: PlayerMoveData
+  ): Promise<void> {
     const prisma = getDatabaseClient();
     if (!prisma) throw new Error('Database not available');
+    if (!socket.userId) throw new Error('Socket not authenticated');
 
     const game = await prisma.game.findUnique({ where: { id: this.gameId } });
     if (!game) throw new Error('Game not found');
-    if ((game.status as any) !== 'active') throw new Error('Game is not active');
+    if (game.status !== 'active') throw new Error('Game is not active');
 
     const currentState = this.gameEngine.getGameState();
-    const player = currentState.players.find((p) => p.id === socket.userId);
+    const userId = socket.userId;
+    const player = currentState.players.find((p) => p.id === userId);
     if (!player) {
       // Check if user is a spectator
-      if (currentState.spectators.includes(socket.userId)) {
+      if (currentState.spectators.includes(userId)) {
         throw new Error('Spectators cannot make moves');
       }
       throw new Error('Current socket user is not a player in this game');
@@ -662,30 +734,32 @@ export class GameSession {
     if (!result.success) {
       logger.warn('Engine rejected move', {
         gameId: this.gameId,
-        userId: socket.userId,
+        userId,
         reason: result.error,
       });
       throw new Error(result.error || 'Invalid move');
     }
 
-    await this.persistMove(socket.userId, moveData, result);
+    await this.persistMove(userId, result);
     await this.broadcastUpdate(result);
     await this.maybePerformAITurn();
   }
 
-  public async handlePlayerMoveById(socket: any, moveId: string): Promise<void> {
+  public async handlePlayerMoveById(socket: AuthenticatedSocket, moveId: string): Promise<void> {
     const prisma = getDatabaseClient();
     if (!prisma) throw new Error('Database not available');
+    if (!socket.userId) throw new Error('Socket not authenticated');
 
     const game = await prisma.game.findUnique({ where: { id: this.gameId } });
     if (!game) throw new Error('Game not found');
-    if ((game.status as any) !== 'active') throw new Error('Game is not active');
+    if (game.status !== 'active') throw new Error('Game is not active');
 
     const currentState = this.gameEngine.getGameState();
-    const player = currentState.players.find((p) => p.id === socket.userId);
+    const userId = socket.userId;
+    const player = currentState.players.find((p) => p.id === userId);
     if (!player) {
       // Check if user is a spectator
-      if (currentState.spectators.includes(socket.userId)) {
+      if (currentState.spectators.includes(userId)) {
         throw new Error('Spectators cannot make moves');
       }
       throw new Error('Current socket user is not a player in this game');
@@ -695,33 +769,70 @@ export class GameSession {
     if (!result.success) {
       logger.warn('Engine rejected move by id', {
         gameId: this.gameId,
-        userId: socket.userId,
+        userId,
         moveId,
         reason: result.error,
       });
       throw new Error(result.error || 'Invalid move selection');
     }
 
-    const updatedState = this.gameEngine.getGameState();
-    const lastMove = updatedState.moveHistory[updatedState.moveHistory.length - 1];
-
-    if (lastMove) {
-      await this.persistMove(
-        socket.userId,
-        {
-          moveNumber: lastMove.moveNumber,
-          position: JSON.stringify({ from: lastMove.from, to: lastMove.to }),
-          moveType: lastMove.type,
-        },
-        result
-      );
-    }
-
+    await this.persistMove(userId, result);
     await this.broadcastUpdate(result);
     await this.maybePerformAITurn();
   }
 
-  private async persistMove(playerId: string, _moveData: any, result: any): Promise<void> {
+  /**
+   * Handle a clean resignation initiated by a specific userId (for example
+   * via the HTTP /games/:gameId/leave route when the game is active).
+   */
+  public async handlePlayerResignationByUserId(userId: string): Promise<GameResult | null> {
+    const currentState = this.gameEngine.getGameState();
+    if (currentState.gameStatus !== 'active') {
+      return null;
+    }
+
+    const player = currentState.players.find((p) => p.id === userId && p.type === 'human');
+    if (!player) {
+      return null;
+    }
+
+    const engineResult = this.gameEngine.resignPlayer(player.playerNumber);
+    const updatedState = this.gameEngine.getGameState();
+
+    await this.finishGameWithResult(updatedState, engineResult.gameResult);
+    await this.broadcastUpdate(engineResult);
+
+    return engineResult.gameResult;
+  }
+
+  /**
+   * Handle game-level abandonment after a player's reconnect window has
+   * expired. When awardWinToOpponent is true, a remaining opponent is
+   * credited as the winner via GameEngine.abandonPlayer; otherwise the
+   * game is marked as abandoned without a specific winner.
+   */
+  public async handleAbandonmentForDisconnectedPlayer(
+    playerNumber: number,
+    awardWinToOpponent: boolean
+  ): Promise<GameResult | null> {
+    const currentState = this.gameEngine.getGameState();
+    if (currentState.gameStatus !== 'active') {
+      return null;
+    }
+
+    const engineResult = awardWinToOpponent
+      ? this.gameEngine.abandonPlayer(playerNumber)
+      : this.gameEngine.abandonGameAsDraw();
+
+    const updatedState = this.gameEngine.getGameState();
+
+    await this.finishGameWithResult(updatedState, engineResult.gameResult);
+    await this.broadcastUpdate(engineResult);
+
+    return engineResult.gameResult;
+  }
+
+  private async persistMove(playerId: string, result: RulesResult): Promise<void> {
     const updatedState = this.gameEngine.getGameState();
     const lastMove = updatedState.moveHistory[updatedState.moveHistory.length - 1];
 
@@ -736,28 +847,32 @@ export class GameSession {
     }
 
     if (result.gameResult) {
-      const winnerPlayerNumber = result.gameResult.winner;
-      let winnerId: string | null = null;
-
-      if (winnerPlayerNumber !== undefined) {
-        const winnerPlayer = updatedState.players.find(
-          (p) => p.playerNumber === winnerPlayerNumber && p.type === 'human'
-        );
-        winnerId = winnerPlayer?.id ?? null;
-      }
-
-      // Use GamePersistenceService to finish the game with final state
-      await GamePersistenceService.finishGame(
-        this.gameId,
-        winnerId,
-        updatedState,
-        result.gameResult
-      );
+      await this.finishGameWithResult(updatedState, result.gameResult);
     }
   }
 
+  /**
+   * Common helper for finishing a game given the final GameState and
+   * canonical GameResult produced by the engine. This is used both for
+   * move-driven terminations (via persistMove) and host-driven flows
+   * such as resignations and disconnect-induced abandonment.
+   */
+  private async finishGameWithResult(state: GameState, gameResult: GameResult): Promise<void> {
+    const winnerPlayerNumber = gameResult.winner;
+    let winnerId: string | null = null;
+
+    if (winnerPlayerNumber !== undefined) {
+      const winnerPlayer = state.players.find(
+        (p) => p.playerNumber === winnerPlayerNumber && p.type === 'human'
+      );
+      winnerId = winnerPlayer?.id ?? null;
+    }
+
+    await GamePersistenceService.finishGame(this.gameId, winnerId, state, gameResult);
+  }
+
   private async broadcastUpdate(
-    result: any,
+    result: RulesResult,
     decisionMeta?: DecisionAutoResolvedMeta | null
   ): Promise<void> {
     const updatedState = this.gameEngine.getGameState();
@@ -785,7 +900,7 @@ export class GameSession {
       const room = this.io.sockets.adapter.rooms.get(this.gameId);
       if (room) {
         for (const socketId of room) {
-          const socket = this.io.sockets.sockets.get(socketId) as any;
+          const socket = this.io.sockets.sockets.get(socketId) as AuthenticatedSocket | undefined;
           if (!socket) continue;
 
           const isPlayer = updatedState.players.some((p) => p.id === socket.userId);
@@ -798,23 +913,22 @@ export class GameSession {
             ? this.gameEngine.getValidMoves(updatedState.currentPlayer)
             : [];
 
-          const payload: any = {
+          const payload: GameStateUpdateMessage = {
             type: 'game_update',
             data: {
               gameId: this.gameId,
               gameState: updatedState,
               validMoves,
+              ...(decisionMeta && {
+                meta: {
+                  diffSummary: {
+                    decisionAutoResolved: decisionMeta,
+                  },
+                },
+              }),
             },
             timestamp: new Date().toISOString(),
           };
-
-          if (decisionMeta) {
-            payload.data.meta = {
-              diffSummary: {
-                decisionAutoResolved: decisionMeta,
-              },
-            };
-          }
 
           socket.emit('game_state', payload);
         }
@@ -825,6 +939,54 @@ export class GameSession {
 
       // (Re)schedule decision-phase timeout based on the new state.
       this.scheduleDecisionPhaseTimeout(updatedState);
+
+      // Best-effort analysis-mode position evaluation stream. This is gated
+      // behind a feature flag so that operators can disable it entirely if
+      // needed without affecting core gameplay.
+      if (this.isAnalysisModeEnabled()) {
+        void this.evaluateAndBroadcastPosition(updatedState);
+      }
+    }
+  }
+
+  /**
+   * Check whether AI analysis mode (position evaluation streaming) is enabled
+   * for this process.
+   */
+  private isAnalysisModeEnabled(): boolean {
+    return !!config.featureFlags?.analysisMode?.enabled;
+  }
+
+  /**
+   * Call the Python AI service to evaluate the current position for all
+   * players and broadcast the result as a best-effort WebSocket event.
+   *
+   * Failures are logged but intentionally do not affect gameplay.
+   */
+  private async evaluateAndBroadcastPosition(state: GameState): Promise<void> {
+    try {
+      const aiClient = getAIServiceClient();
+      const response = await aiClient.evaluatePositionMulti(state);
+
+      const payload: PositionEvaluationPayload = {
+        type: 'position_evaluation',
+        data: {
+          gameId: this.gameId,
+          moveNumber: response.move_number,
+          boardType: (response.board_type as GameState['boardType']) ?? state.boardType,
+          perPlayer: response.per_player,
+          engineProfile: response.engine_profile,
+          evaluationScale: response.evaluation_scale,
+        },
+        timestamp: response.generated_at,
+      };
+
+      this.io.to(this.gameId).emit('position_evaluation', payload);
+    } catch (err) {
+      logger.warn('Failed to emit position evaluation', {
+        gameId: this.gameId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -916,7 +1078,12 @@ export class GameSession {
             return;
           }
 
-          const { id, timestamp, moveNumber, ...rest } = selected as any;
+          const {
+            id: _id,
+            timestamp: _timestamp,
+            moveNumber: _moveNumber,
+            ...rest
+          } = selected as Move;
           const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
           appliedMoveType = engineMove.type;
 
@@ -942,7 +1109,7 @@ export class GameSession {
             return;
           }
 
-          const { id, timestamp, moveNumber, ...rest } = aiMove;
+          const { id: _id2, timestamp: _timestamp2, moveNumber: _moveNumber2, ...rest } = aiMove;
           const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
           appliedMoveType = engineMove.type;
 
@@ -990,18 +1157,26 @@ export class GameSession {
           getMetricsService().recordAITurnRequestTerminal('timed_out');
           getMetricsService().recordAIFallback('timeout');
 
+          // After markTimedOut, aiRequestState.kind is 'timed_out' which has durationMs
+          const timedOutState = this.aiRequestState as { kind: 'timed_out'; durationMs: number };
           logger.warn('AI request timed out', {
             gameId: this.gameId,
             playerNumber: currentPlayerNumber,
-            durationMs: (this.aiRequestState as any).durationMs,
+            durationMs: timedOutState.durationMs,
           });
 
           // Try local fallback after timeout
           await this.handleNoMoveFromService(currentPlayerNumber, state);
         } else {
-          // Some other error
-          const errorType = (error as any)?.aiErrorType ?? 'unknown';
-          this.aiRequestState = markFailed('AI_SERVICE_ERROR', errorType, this.aiRequestState, Date.now());
+          // Some other error - extract aiErrorType if available from error object
+          const errorObj = error as { aiErrorType?: string } | null;
+          const errorType = errorObj?.aiErrorType ?? 'unknown';
+          this.aiRequestState = markFailed(
+            'AI_SERVICE_ERROR',
+            errorType,
+            this.aiRequestState,
+            Date.now()
+          );
 
           getMetricsService().recordAITurnRequestTerminal('failed', 'AI_SERVICE_ERROR', errorType);
 
@@ -1187,7 +1362,7 @@ export class GameSession {
   private async persistAIMove(
     playerNumber: number,
     _moveType: Move['type'] | undefined,
-    result: any
+    result: RulesResult
   ): Promise<void> {
     try {
       const aiUser = await getOrCreateAIUser();
@@ -1317,9 +1492,9 @@ export class GameSession {
    * Internal helper to map a GamePhase to the narrower timeout phase union
    * used by DecisionPhaseTimeoutWarningPayload / DecisionPhaseTimedOutPayload.
    */
-  private mapPhaseToTimeoutPhase(phase: GamePhase):
-    | DecisionPhaseTimeoutWarningPayload['data']['phase']
-    | null {
+  private mapPhaseToTimeoutPhase(
+    phase: GamePhase
+  ): DecisionPhaseTimeoutWarningPayload['data']['phase'] | null {
     if (
       phase === 'line_processing' ||
       phase === 'territory_processing' ||
@@ -1369,8 +1544,12 @@ export class GameSession {
     }
 
     const now = Date.now();
-    const timeoutMs = config.decisionPhaseTimeouts.defaultTimeoutMs;
-    const warningBeforeMs = config.decisionPhaseTimeouts.warningBeforeTimeoutMs;
+    // Use fixture timeout override if available (for E2E testing), otherwise use global config
+    const timeoutMs =
+      this.fixtureMetadata?.shortTimeoutMs ?? config.decisionPhaseTimeouts.defaultTimeoutMs;
+    const warningBeforeMs =
+      this.fixtureMetadata?.shortWarningBeforeMs ??
+      config.decisionPhaseTimeouts.warningBeforeTimeoutMs;
 
     this.decisionTimeoutDeadlineMs = now + timeoutMs;
     this.decisionTimeoutPhase = phase;
@@ -1396,6 +1575,7 @@ export class GameSession {
       phase,
       timeoutMs,
       warningBeforeMs,
+      fixtureOverride: !!this.fixtureMetadata?.shortTimeoutMs,
     });
   }
 
@@ -1406,13 +1586,11 @@ export class GameSession {
   private classifyDecisionSurface(
     phase: GamePhase,
     moves: Move[]
-  ):
-    | {
-        choiceType: PlayerChoiceType;
-        choiceKind: DecisionAutoResolvedMeta['choiceKind'];
-        candidateTypes: MoveType[];
-      }
-    | null {
+  ): {
+    choiceType: PlayerChoiceType;
+    choiceKind: DecisionAutoResolvedMeta['choiceKind'];
+    candidateTypes: MoveType[];
+  } | null {
     if (phase === 'line_processing') {
       if (moves.some((m) => m.type === 'process_line')) {
         return {
@@ -1508,6 +1686,13 @@ export class GameSession {
    * Move for the active human player, applying it, persisting it, emitting
    * timeout events, and broadcasting an update with decisionAutoResolved
    * metadata attached.
+   *
+   * Selection MUST be deterministic across hosts. To avoid depending on
+   * incidental getValidMoves() ordering, we derive a stable sort key from
+   * geometric fields on the candidate Moves (lines, regions, stacks, or
+   * capture geometry) and then pick the lexicographically-smallest
+   * candidate. This keeps auto-resolution behaviour reproducible and
+   * aligned with orchestrator traces (see P18.3-1 §3.1.2 / §6.4).
    */
   private async handleDecisionPhaseTimedOut(): Promise<void> {
     const phaseSnapshot = this.decisionTimeoutPhase;
@@ -1563,8 +1748,84 @@ export class GameSession {
       return;
     }
 
-    // Naive but deterministic auto-selection: pick the first candidate.
-    const selected = decisionCandidates[0];
+    /**
+     * Build a stable, geometry-driven sort key for a decision candidate.
+     * This relies only on canonical Move fields and is therefore
+     * deterministic for a given GameState, independent of host/order.
+     */
+    const positionKey = (pos: Position | undefined | null): string => {
+      if (!pos) {
+        return '~';
+      }
+      // Position has x, y required; z is optional
+      const x = typeof pos.x === 'number' ? pos.x : 0;
+      const y = typeof pos.y === 'number' ? pos.y : 0;
+      const z = typeof pos.z === 'number' ? pos.z : 0;
+      return `${x},${y},${z}`;
+    };
+
+    const positionsKey = (positions: Position[] | undefined | null): string => {
+      if (!positions || positions.length === 0) {
+        return '~';
+      }
+      return positions.map((p) => positionKey(p)).join('|');
+    };
+
+    const sortKeyForDecisionMove = (move: Move): string => {
+      switch (move.type) {
+        case 'process_line':
+        case 'choose_line_reward': {
+          // Move.formedLines is optional LineInfo[] on the Move type
+          const formedLines = move.formedLines as LineInfo[] | undefined;
+          const primaryLine = formedLines && formedLines.length > 0 ? formedLines[0] : null;
+          const lineKey = primaryLine ? positionsKey(primaryLine.positions) : '~';
+          return `line:${lineKey}`;
+        }
+        case 'process_territory_region': {
+          // Move.disconnectedRegions is optional Territory[] on the Move type
+          const regions = move.disconnectedRegions as Territory[] | undefined;
+          const primaryRegion = regions && regions.length > 0 ? regions[0] : null;
+          const regionKey = primaryRegion ? positionsKey(primaryRegion.spaces) : '~';
+          return `territory:${regionKey}`;
+        }
+        case 'eliminate_rings_from_stack': {
+          // Move.eliminationFromStack is optional on the Move type
+          const eliminationFromStack = move.eliminationFromStack;
+          const basePos = move.to || eliminationFromStack?.position;
+          const stackKey = positionKey(basePos ?? null);
+          return `elim:${stackKey}`;
+        }
+        case 'continue_capture_segment': {
+          const fromKey = positionKey(move.from ?? null);
+          // Move.captureTarget is optional Position on the Move type
+          const captureTarget = move.captureTarget;
+          const targetKey = positionKey(captureTarget ?? null);
+          const toKey = positionKey(move.to ?? null);
+          return `chain:${fromKey}|${targetKey}|${toKey}`;
+        }
+        default:
+          // Fallback for any future decision types: rely on type + id only.
+          return `other:${move.type}:${move.id}`;
+      }
+    };
+
+    // Deterministic auto-selection: pick the candidate with the smallest
+    // sort key, using Move.id as a final tie-breaker.
+    const sortedCandidates = [...decisionCandidates].sort((a, b) => {
+      const keyA = sortKeyForDecisionMove(a);
+      const keyB = sortKeyForDecisionMove(b);
+
+      if (keyA < keyB) return -1;
+      if (keyA > keyB) return 1;
+
+      // In extremely rare cases where the geometry-derived keys match,
+      // fall back to the canonical Move.id, which is itself deterministic.
+      if (a.id < b.id) return -1;
+      if (a.id > b.id) return 1;
+      return 0;
+    });
+
+    const selected = sortedCandidates[0];
 
     let result: RulesResult;
     try {
@@ -1605,12 +1866,12 @@ export class GameSession {
       // Attach decision auto-resolve metadata directly to the canonical Move
       // so that GamePersistenceService.serializeMoveData can persist it into
       // moveData.decisionAutoResolved for later history reconstruction.
-      (lastMove as any).decisionAutoResolved = decisionMeta;
+      (lastMove as MoveWithAutoResolveMeta).decisionAutoResolved = decisionMeta;
     }
 
     if (lastMove && player) {
       // Persist as a normal human move attributed to the player.
-      await this.persistMove(player.id, {}, result);
+      await this.persistMove(player.id, result);
     }
 
     const timeoutPayload: DecisionPhaseTimedOutPayload = {

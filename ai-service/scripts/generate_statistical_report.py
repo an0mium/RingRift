@@ -13,11 +13,12 @@ a comprehensive statistical analysis report including:
 
 import json
 import math
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+
+from app.utils.progress_reporter import ProgressReporter
 
 
 @dataclass
@@ -260,12 +261,42 @@ def load_result_file(filepath: Path) -> Optional[MatchupResult]:
 
 
 def load_all_results(results_dir: Path) -> List[MatchupResult]:
-    """Load all result files from the results directory."""
-    results = []
-    for filepath in results_dir.glob("*.json"):
+    """Load all result files from the results directory.
+
+    Uses ProgressReporter to provide throttled visibility when scanning
+    large result directories so long-running report generation jobs do not
+    go silent.
+    """
+    results: List[MatchupResult] = []
+
+    # Materialize the file list up front so we know the total for reporting.
+    files = list(results_dir.glob("*.json"))
+    total_files = len(files)
+
+    reporter: Optional[ProgressReporter] = None
+    if total_files > 0:
+        reporter = ProgressReporter(
+            total_units=total_files,
+            unit_name="files",
+            context_label=f"stat-report | {results_dir}",
+        )
+
+    for idx, filepath in enumerate(files, start=1):
         result = load_result_file(filepath)
         if result:
             results.append(result)
+
+        if reporter is not None:
+            reporter.update(completed=idx)
+
+    if reporter is not None:
+        reporter.finish(
+            extra_metrics={
+                "parsed": len(results),
+                "skipped": total_files - len(results),
+            }
+        )
+
     return results
 
 

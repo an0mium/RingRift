@@ -108,7 +108,7 @@ export function useDecisionCountdown({
     }
 
     const isOverrideActive = override != null;
-    const isCapped = isOverrideActive && base != null && override! < base;
+    const isCapped = isOverrideActive && base != null && override < base;
 
     return {
       effectiveTimeRemainingMs: effective,

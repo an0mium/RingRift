@@ -259,7 +259,7 @@ export function validateMovement(
     let k = 0;
     if (dir.x !== 0) k = dx / dir.x;
     else if (dir.y !== 0) k = dy / dir.y;
-    else if (dir.z !== undefined && dir.z !== 0) k = dz / dir.z!;
+    else if (dir.z !== undefined && dir.z !== 0) k = dz / dir.z;
 
     if (k > 0) {
       // Verify all components match

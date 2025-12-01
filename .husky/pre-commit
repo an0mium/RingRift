@@ -4,4 +4,11 @@
 # Using `npx` ensures we pick up the repo-local lint-staged and Prettier
 # without requiring any global installs.
 
+# Run protected artefacts warning (non-blocking)
+# This warns if you're modifying files that require validation in CI.
+# Set SKIP_PROTECTED_ARTEFACT_CHECK=1 to skip this check.
+if [ -z "$SKIP_PROTECTED_ARTEFACT_CHECK" ]; then
+  npx ts-node scripts/ssot/check-protected-artefacts.ts --staged 2>/dev/null || true
+fi
+
 npx lint-staged || exit 1

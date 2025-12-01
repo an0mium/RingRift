@@ -1,4 +1,12 @@
-import type { Game, GameResult, GameState, Move, PlayerChoice, PlayerChoiceType } from './game';
+import type {
+  BoardType,
+  Game,
+  GameResult,
+  GameState,
+  Move,
+  PlayerChoice,
+  PlayerChoiceType,
+} from './game';
 import type {
   JoinGamePayload,
   LeaveGamePayload,
@@ -7,6 +15,32 @@ import type {
   ChatMessagePayload,
   PlayerChoiceResponsePayload,
 } from '../validation/websocketSchemas';
+
+/**
+ * Player matchmaking preferences for finding opponents.
+ */
+export interface MatchmakingPreferences {
+  boardType: BoardType;
+  ratingRange: { min: number; max: number };
+  timeControl: { min: number; max: number };
+}
+
+/**
+ * Current matchmaking status for a player in the queue.
+ */
+export interface MatchmakingStatus {
+  inQueue: boolean;
+  estimatedWaitTime: number;
+  queuePosition: number;
+  searchCriteria: MatchmakingPreferences;
+}
+
+/**
+ * Payload for match-found events.
+ */
+export interface MatchFoundPayload {
+  gameId: string;
+}
 
 /**
  * Error codes used in structured WebSocket error payloads.
@@ -151,6 +185,38 @@ export interface GameOverMessage {
 }
 
 /**
+ * Per-player evaluation summary used for analysis/inspection views.
+ *
+ * totalEval is a zero-sum margin where positive values favour the player.
+ * territoryEval and ringEval are optional decompositions of that margin.
+ */
+export interface PositionEvaluationByPlayer {
+  totalEval: number;
+  territoryEval?: number;
+  ringEval?: number;
+  winProbability?: number;
+}
+
+/**
+ * Payload for streaming AI position evaluations over WebSocket.
+ *
+ * Emitted when analysis mode is enabled and a fresh GameState snapshot has
+ * been evaluated by the strongest available engine.
+ */
+export interface PositionEvaluationPayload {
+  type: 'position_evaluation';
+  data: {
+    gameId: string;
+    moveNumber: number;
+    boardType: BoardType;
+    perPlayer: Record<number, PositionEvaluationByPlayer>;
+    engineProfile: string;
+    evaluationScale: 'zero_sum_margin' | 'win_probability';
+  };
+  timestamp: string;
+}
+
+/**
  * Payload for fatal AI / rules service failures that cause the game
  * to be abandoned.
  */
@@ -261,6 +327,63 @@ export interface LobbyGameCancelledPayload {
 }
 
 /**
+ * Payload for persisted chat messages with user info.
+ * Used for both real-time messages and history retrieval.
+ */
+export interface ChatMessagePersisted {
+  id: string;
+  gameId: string;
+  userId: string;
+  username: string;
+  message: string;
+  createdAt: string; // ISO-8601
+}
+
+/**
+ * Payload for chat history sent on game join.
+ */
+export interface ChatHistoryPayload {
+  gameId: string;
+  messages: ChatMessagePersisted[];
+}
+
+/**
+ * Payload for rematch request events.
+ */
+export interface RematchRequestPayload {
+  id: string;
+  gameId: string;
+  requesterId: string;
+  requesterUsername: string;
+  expiresAt: string; // ISO-8601
+}
+
+/**
+ * Payload for rematch response events.
+ */
+export interface RematchResponsePayload {
+  requestId: string;
+  gameId: string;
+  status: 'accepted' | 'declined' | 'expired';
+  newGameId?: string;
+}
+
+/**
+ * Client-to-server payload for requesting a rematch.
+ */
+export interface RematchRequestClientPayload {
+  gameId: string;
+}
+
+/**
+ * Client-to-server payload for responding to a rematch.
+ */
+export interface RematchResponseClientPayload {
+  requestId: string;
+  accept: boolean;
+}
+
+/**
  * Events the server can emit to connected clients over the game /
  * lobby sockets.
  */
@@ -278,6 +401,12 @@ export interface ServerToClientEvents {
 
   // Chat
   chat_message: (payload: ChatMessageServerPayload) => void;
+  chat_message_persisted: (payload: ChatMessagePersisted) => void;
+  chat_history: (payload: ChatHistoryPayload) => void;
+
+  // Rematch system
+  rematch_requested: (payload: RematchRequestPayload) => void;
+  rematch_response: (payload: RematchResponsePayload) => void;
 
   // Legacy/experimental time control update event emitted from GameSession.
   // Currently not consumed by the React client but kept in the contract
@@ -295,11 +424,19 @@ export interface ServerToClientEvents {
   // Structured transport-level errors
   error: (payload: WebSocketErrorPayload) => void;
 
+  // Optional analysis-mode evaluation stream; when enabled, the server emits
+  // best-effort position_evaluation events after moves for inspection UIs.
+  position_evaluation?: (payload: PositionEvaluationPayload) => void;
+
   // Lobby broadcasts
   'lobby:game_created': (payload: LobbyGameCreatedPayload) => void;
   'lobby:game_joined': (payload: LobbyGameJoinedPayload) => void;
   'lobby:game_started': (payload: LobbyGameStartedPayload) => void;
   'lobby:game_cancelled': (payload: LobbyGameCancelledPayload) => void;
+
+  // Matchmaking events
+  'match-found': (payload: MatchFoundPayload) => void;
+  'matchmaking-status': (payload: MatchmakingStatus) => void;
 
   // Reserved for future use: explicit reconnect / resync request.
   // Currently listened to by GameContext but not emitted by the server.
@@ -327,6 +464,10 @@ export interface ClientToServerEvents {
 
   // Chat
   chat_message: (payload: ChatMessagePayload) => void;
+
+  // Rematch system
+  rematch_request: (payload: RematchRequestClientPayload) => void;
+  rematch_respond: (payload: RematchResponseClientPayload) => void;
 
   // Lobby subscription
   'lobby:subscribe': () => void;

@@ -12,6 +12,24 @@
 
 import type { CancellationReason, CancellationToken } from './cancellation';
 
+/** Error type augmented with timeout marker */
+interface TimeoutError extends Error {
+  isTimeout: true;
+}
+
+/** Error type augmented with cancellation info */
+interface CancellationError extends Error {
+  cancellationReason: CancellationReason;
+}
+
+function isTimeoutError(error: unknown): error is TimeoutError {
+  return error instanceof Error && (error as TimeoutError).isTimeout === true;
+}
+
+function isCancellationError(error: unknown): error is CancellationError {
+  return error instanceof Error && (error as CancellationError).cancellationReason !== undefined;
+}
+
 export type TimedOperationOutcome = 'ok' | 'timeout' | 'canceled';
 
 export interface TimedOperationResult<T> {
@@ -70,8 +88,9 @@ export async function runWithTimeout<T>(
 
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
-      const error = new Error('Timed operation exceeded timeoutMs');
-      (error as any).isTimeout = true;
+      const error: TimeoutError = Object.assign(new Error('Timed operation exceeded timeoutMs'), {
+        isTimeout: true as const,
+      });
       reject(error);
     }, timeoutMs);
   });
@@ -88,7 +107,7 @@ export async function runWithTimeout<T>(
     const durationMs = now() - start;
 
     // Timeout: marked by our internal isTimeout flag.
-    if ((error as any)?.isTimeout) {
+    if (isTimeoutError(error)) {
       return {
         kind: 'timeout',
         durationMs,
@@ -97,11 +116,11 @@ export async function runWithTimeout<T>(
 
     // Cooperative cancellation: CancellationToken.throwIfCanceled attaches
     // a cancellationReason property to the thrown error.
-    if ((error as any)?.cancellationReason !== undefined) {
+    if (isCancellationError(error)) {
       return {
         kind: 'canceled',
         durationMs,
-        cancellationReason: (error as any).cancellationReason,
+        cancellationReason: error.cancellationReason,
       };
     }
 

@@ -383,8 +383,11 @@ class NeuralNetAI(BaseAI):
         # "v1-nn-heuristic-5") and resolve to ``<base_dir>/models/<id>.pth``.
         # Otherwise we fall back to the historical default "ringrift_v1.pth".
         import os
-        # Use absolute path relative to this file
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        # Use absolute path relative to this file. Go up 3 levels:
+        # neural_net.py -> ai/ -> app/ -> ai-service/
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
 
         model_id = getattr(self.config, "nn_model_id", None)
         if not model_id:
@@ -397,8 +400,21 @@ class NeuralNetAI(BaseAI):
         if os_mod.path.exists(model_path):
             self._load_model_checkpoint(model_path)
         else:
-            # No model found, start fresh (silent)
-            logger.info(f"No model found at {model_path}, using fresh weights")
+            # No model found - this is often a configuration error in production
+            # but may be intentional for training. Log at WARNING level so it's
+            # visible in logs but doesn't crash inference-only workloads.
+            allow_fresh = getattr(self.config, "allow_fresh_weights", False)
+            if allow_fresh:
+                logger.info(
+                    f"No model found at {model_path}, using fresh weights "
+                    "(allow_fresh_weights=True)"
+                )
+            else:
+                logger.warning(
+                    f"No model found at {model_path}, using fresh (random) weights. "
+                    "This may indicate a misconfigured model path. Set "
+                    "config.allow_fresh_weights=True to suppress this warning."
+                )
             self.model.eval()
 
     def _load_model_checkpoint(self, model_path: str) -> None:

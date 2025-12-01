@@ -49,7 +49,7 @@ There are three standard boards:
   - Territory victory: **>32** collapsed spaces.
   - Lines:
     - Geometrically, any 3+ markers in a row matter.
-    - For **2‑player games**, the *threshold* for line processing is
+    - For **2‑player games**, the _threshold_ for line processing is
       **4 in a row** (see §5.1).
     - For **3–4 player games**, lines of **3+** markers are already enough to
       trigger line processing.
@@ -113,7 +113,6 @@ phases in this fixed order:
 5. **Territory Processing** (resolve disconnected regions).
 6. **Victory / Termination Check**.
 
-
 ### 3.1 Ring placement
 
 - If you have rings in hand, you may place:
@@ -129,6 +128,11 @@ phases in this fixed order:
     immediately after placement.
   - This ensures newly placed stacks will always have something they could
     do on a future movement/capture phase.
+- **Auto‑advance to movement**:
+  - If you have **0 rings in hand** (or no valid placement spots), the turn
+    automatically advances to the movement phase.
+  - In this case, you must move a stack you control (if any legal movement or
+    capture exists).
 
 ### 3.2 Movement
 
@@ -178,8 +182,8 @@ At the **start of your turn**, before placement or movement:
   - Have **no legal placements**, **no legal movements**, and **no legal
     overtaking captures** anywhere,
 - Then you are **blocked** and must perform a **forced elimination**:
-
-  - You must eliminate the **entire cap** of **one** stack you control.
+  - **You choose** which of your controlled stacks to eliminate from.
+  - You must eliminate the **entire cap** of that stack.
   - All those rings are removed from play and added to your **eliminated
     rings** total.
   - This is treated as a legal action and counts toward your ring‑elimination
@@ -188,6 +192,14 @@ At the **start of your turn**, before placement or movement:
 Forced elimination ensures that as long as any stacks exist on the board,
 **someone** always has a legal action: either movement/capture, placement, or
 forced elimination.
+
+**Control-flip edge case:** If your only control over a stack was a cap of
+height 1 (just one of your rings on top of opponent rings), forced elimination
+removes that cap and flips control to the opponent. If this leaves you with
+**no stacks at all** and **no rings in hand**, you become "temporarily inactive"
+(see §6.3). Your turn ends immediately and play passes to the next player;
+you can potentially become active again later if captures expose one of your
+buried rings.
 
 ---
 
@@ -242,7 +254,7 @@ After lines, inspect the board for **disconnected regions**:
 - The border can be formed by markers of any particular color plus collapsed spaces, but all the markers in the border must be of the same color.
 - There can be multiple disconnected regions that can exist simultaneously, and depending on which color marker is helping form the border, they can partially overlap.
 
-You can only process a disconencted region if you can afford self elimination for it.  When you process a disconnected region:
+You can only process a disconencted region if you can afford self elimination for it. When you process a disconnected region:
 
 1. **Eliminate all stacks inside the region**:
    - Every ring in those stacks, for all colours, is removed from the board.

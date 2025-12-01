@@ -79,13 +79,19 @@ export class GameEngine {
           newState: this.state,
         },
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : 'Unknown error';
       return {
         type: 'ERROR_OCCURRED',
         gameId: this.state.id,
         timestamp: Date.now(),
         payload: {
-          error: error.message,
+          error: errorMessage,
           code: 'MUTATION_ERROR',
         },
       };

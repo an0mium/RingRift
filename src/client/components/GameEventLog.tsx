@@ -239,7 +239,7 @@ export function GameEventLog(props: GameEventLogProps) {
     ? props.viewModel
     : toLegacyViewModel(props);
 
-  const { entries, victoryMessage, hasContent } = viewModel;
+  const { entries, victoryMessage: _victoryMessage, hasContent } = viewModel;
 
   // Separate entries by type for structured rendering
   const victoryEntry = entries.find((e) => e.type === 'victory');
@@ -250,8 +250,13 @@ export function GameEventLog(props: GameEventLogProps) {
     <div
       className="p-3 border border-slate-700 rounded bg-slate-900/50 max-h-64 overflow-y-auto"
       data-testid="game-event-log"
+      role="log"
+      aria-live="polite"
+      aria-labelledby="game-event-log-title"
     >
-      <h2 className="font-semibold mb-2 text-sm">Game log</h2>
+      <h2 id="game-event-log-title" className="font-semibold mb-2 text-sm">
+        Game log
+      </h2>
 
       {!hasContent && <div className="text-slate-300 text-xs">No events yet.</div>}
 

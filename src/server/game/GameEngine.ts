@@ -39,6 +39,8 @@ import {
   applyCapture as applyCaptureAggregate,
   // Canonical placement mutation (TS SSOT)
   applyPlacementMove as applyPlacementMoveAggregate,
+  // Type guards for move narrowing
+  isCaptureMove,
 } from '../../shared/engine';
 import type {
   GameResult,
@@ -78,6 +80,7 @@ import {
   EventEmitter as AdapterEventEmitter,
   AdapterMoveResult,
 } from './turn/TurnEngineAdapter';
+import { flagEnabled, debugLog } from '../../shared/utils/envFlags';
 
 /**
  * Internal state for enforcing mandatory chain captures during the capture phase.
@@ -92,10 +95,8 @@ import {
  */
 type TsChainCaptureState = ChainCaptureState;
 
-// Timer functions for Node.js environment
-declare const setTimeout: (callback: () => void, ms: number) => any;
-
-declare const clearTimeout: (timer: any) => void;
+// Timer type alias for cross-platform compatibility
+type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
 
 // Deterministic identifier helper for moves and choice payloads.
 // This deliberately avoids any RNG so that core engine behaviour
@@ -111,7 +112,7 @@ export class GameEngine {
   private gameState: GameState;
   private boardManager: BoardManager;
   private ruleEngine: RuleEngine;
-  private moveTimers: Map<number, any> = new Map();
+  private moveTimers: Map<number, TimerHandle> = new Map();
   private interactionManager: PlayerInteractionManager | undefined;
   private debugCheckpointHook: ((label: string, state: GameState) => void) | undefined;
   /**
@@ -188,8 +189,12 @@ export class GameEngine {
    * We rely primarily on moveHistory shape for gating, but this flag
    * can be used for additional future diagnostics if needed.
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private swapSidesApplied: boolean = false;
+  private _swapSidesApplied: boolean = false;
+
+  /** Returns true if the swap sides (pie rule) has been applied in this game. */
+  public get swapSidesApplied(): boolean {
+    return this._swapSidesApplied;
+  }
 
   constructor(
     gameId: string,
@@ -204,9 +209,9 @@ export class GameEngine {
     this.boardManager = new BoardManager(boardType);
     this.ruleEngine = new RuleEngine(this.boardManager, boardType);
     this.interactionManager = interactionManager;
- 
+
     const config = BOARD_CONFIGS[boardType];
- 
+
     this.gameState = {
       id: gameId,
       boardType,
@@ -237,7 +242,7 @@ export class GameEngine {
       victoryThreshold: Math.floor((config.ringsPerPlayer * players.length) / 2) + 1,
       territoryVictoryThreshold: Math.floor(config.totalSpaces / 2) + 1,
     };
- 
+
     // Internal no-op hook to keep selected helpers referenced so that
     // ts-node/TypeScript with noUnusedLocals can compile the server in
     // dev without stripping them. This has no behavioural effect.
@@ -271,7 +276,7 @@ export class GameEngine {
     playerNumber: number
   ): Promise<{ success: boolean; error?: string; gameState?: GameState; gameResult?: GameResult }> {
     const state = this.gameState;
- 
+
     // Config gating: swap_sides must be explicitly enabled for this game.
     // When rulesOptions is absent or swapRuleEnabled === false, treat the
     // pie rule as disabled and reject the meta-move.
@@ -282,7 +287,7 @@ export class GameEngine {
         gameState: this.getGameState(),
       };
     }
- 
+
     // Basic gating: only active 2-player games, Player 2, their turn.
     if (state.gameStatus !== 'active') {
       return {
@@ -291,7 +296,7 @@ export class GameEngine {
         gameState: this.getGameState(),
       };
     }
- 
+
     if (state.players.length !== 2) {
       return {
         success: false,
@@ -333,10 +338,7 @@ export class GameEngine {
     }
 
     // Restrict to interactive phases (no swapping mid-line/territory processing).
-    if (
-      state.currentPhase === 'line_processing' ||
-      state.currentPhase === 'territory_processing'
-    ) {
+    if (state.currentPhase === 'line_processing' || state.currentPhase === 'territory_processing') {
       return {
         success: false,
         error: 'swap_sides is only available at the start of an interactive turn',
@@ -403,7 +405,7 @@ export class GameEngine {
       players: playersCopy,
     };
 
-    this.swapSidesApplied = true;
+    this._swapSidesApplied = true;
 
     // Record a canonical Move for history/traces. Board geometry and
     // phase/player are unchanged; we use a sentinel coordinate for `to`.
@@ -443,6 +445,10 @@ export class GameEngine {
    * rather than being resolved internally via PlayerChoice flows in
    * processAutomaticConsequences. This is primarily used by the
    * WebSocket/AI integration layer.
+   *
+   * @deprecated Phase 4 complete — orchestrator always uses move-driven phases.
+   * This method is now a no-op since enableOrchestratorAdapter() sets this flag.
+   * The legacy automatic-consequence flow will be removed in a future release.
    */
   public enableMoveDrivenDecisionPhases(): void {
     this.useMoveDrivenDecisionPhases = true;
@@ -467,6 +473,10 @@ export class GameEngine {
    *
    * This is primarily used by orchestrator rollout logic to keep some
    * sessions on the legacy path even when the global feature flag is on.
+   *
+   * @deprecated Phase 4 complete — orchestrator is now at 100% rollout.
+   * This method should only be used for diagnostic/test scenarios.
+   * The legacy turn-processing paths will be removed in a future release.
    */
   public disableOrchestratorAdapter(): void {
     this.useOrchestratorAdapter = false;
@@ -612,10 +622,7 @@ export class GameEngine {
     // still surfacing unexpected decision types as hard errors.
     const decisionHandler: DecisionHandler = {
       requestDecision: async (decision) => {
-        const TRACE_DEBUG_ENABLED =
-          typeof process !== 'undefined' &&
-          !!(process as any).env &&
-          ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+        const TRACE_DEBUG_ENABLED = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
         // When a PlayerInteractionManager is wired and the decision is an
         // elimination_target, route it through the existing ring_elimination
@@ -675,14 +682,15 @@ export class GameEngine {
               }) ??
               eliminationMoves[0];
 
-            if (TRACE_DEBUG_ENABLED) {
-              // eslint-disable-next-line no-console
-              console.log('[GameEngine.DecisionHandler] resolved elimination_target via choice', {
+            debugLog(
+              TRACE_DEBUG_ENABLED,
+              '[GameEngine.DecisionHandler] resolved elimination_target via choice',
+              {
                 player: decision.player,
                 optionCount: eliminationMoves.length,
                 selectedMoveId,
-              });
-            }
+              }
+            );
 
             return chosen;
           }
@@ -704,16 +712,14 @@ export class GameEngine {
           // a no-op decision rather than a hard HOST_REJECTED_MOVE error.
           if (decision.options.length === 0) {
             if (decision.type === 'elimination_target') {
-              if (TRACE_DEBUG_ENABLED) {
-                // eslint-disable-next-line no-console
-                console.log(
-                  '[GameEngine.DecisionHandler] elimination_target decision with no options; returning no-op elimination move',
-                  {
-                    type: decision.type,
-                    player: decision.player,
-                  }
-                );
-              }
+              debugLog(
+                TRACE_DEBUG_ENABLED,
+                '[GameEngine.DecisionHandler] elimination_target decision with no options; returning no-op elimination move',
+                {
+                  type: decision.type,
+                  player: decision.player,
+                }
+              );
 
               const noopMove: Move = {
                 id: `noop-eliminate-${Date.now()}`,
@@ -738,14 +744,11 @@ export class GameEngine {
 
           const choice = decision.options[0];
 
-          if (TRACE_DEBUG_ENABLED) {
-            // eslint-disable-next-line no-console
-            console.log('[GameEngine.DecisionHandler] auto-resolving decision', {
-              type: decision.type,
-              player: decision.player,
-              optionCount: decision.options.length,
-            });
-          }
+          debugLog(TRACE_DEBUG_ENABLED, '[GameEngine.DecisionHandler] auto-resolving decision', {
+            type: decision.type,
+            player: decision.player,
+            optionCount: decision.options.length,
+          });
 
           return choice;
         }
@@ -1081,10 +1084,7 @@ export class GameEngine {
     // geometry implied by the board summaries. This continues to surface
     // bookkeeping drift for debugging, while the stored history entry is
     // always consistent with its own boardBefore/After summaries.
-    const TRACE_DEBUG_ENABLED =
-      typeof process !== 'undefined' &&
-      !!(process as any).env &&
-      ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+    const TRACE_DEBUG_ENABLED = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
     if (TRACE_DEBUG_ENABLED) {
       const collapsedFromBoard = boardAfterSummary.collapsedSpaces.length;
@@ -1164,21 +1164,18 @@ export class GameEngine {
         eliminatedFromBoardAfter < eliminatedFromBoardBefore
       ) {
         // eslint-disable-next-line no-console
-        console.log(
-          '[GameEngine.appendHistoryEntry] TOTAL_RINGS_ELIMINATED_DECREASED',
-          {
-            moveNumber: action.moveNumber,
-            actor: action.player,
-            phaseBefore: before.currentPhase,
-            phaseAfter: after.currentPhase,
-            statusBefore: before.gameStatus,
-            statusAfter: after.gameStatus,
-            eliminatedFromBoardBefore,
-            eliminatedFromBoardAfter,
-            stateHashBefore: hashGameState(before),
-            stateHashAfter: hashGameState(after),
-          }
-        );
+        console.log('[GameEngine.appendHistoryEntry] TOTAL_RINGS_ELIMINATED_DECREASED', {
+          moveNumber: action.moveNumber,
+          actor: action.player,
+          phaseBefore: before.currentPhase,
+          phaseAfter: after.currentPhase,
+          statusBefore: before.gameStatus,
+          statusAfter: after.gameStatus,
+          eliminatedFromBoardBefore,
+          eliminatedFromBoardAfter,
+          stateHashBefore: hashGameState(before),
+          stateHashAfter: hashGameState(after),
+        });
         getMetricsService().recordOrchestratorInvariantViolation(
           'TOTAL_RINGS_ELIMINATED_DECREASED'
         );
@@ -1341,9 +1338,15 @@ export class GameEngine {
       return this.processMoveViaAdapter(move);
     }
 
-    // Legacy backend path (RuleEngine-based). This is now restricted to
-    // test/diagnostic usage and is not used by production GameSession /
-    // WebSocket entrypoints. We still record usage for rollout diagnostics.
+    // ═══════════════════════════════════════════════════════════════════════
+    // DEPRECATED: Legacy backend path (RuleEngine-based)
+    // ═══════════════════════════════════════════════════════════════════════
+    // @deprecated Phase 4 complete — orchestrator is now at 100% rollout.
+    // This entire legacy path is now restricted to test/diagnostic usage only.
+    // It is NOT used by production GameSession / WebSocket entrypoints.
+    // This code section will be removed in a future release after all
+    // orchestrator-conditional tests have been migrated or removed.
+    // ═══════════════════════════════════════════════════════════════════════
     let legacyMoveRecorded = false;
     const recordLegacyMove = (outcome: 'success' | 'error') => {
       if (!legacyMoveRecorded) {
@@ -1701,10 +1704,7 @@ export class GameEngine {
 
     // Process automatic consequences (line formations, territory, etc.) only
     // after the full move (including any mandatory chain) has resolved.
-    const TRACE_DEBUG_ENABLED_LOCAL =
-      typeof process !== 'undefined' &&
-      !!(process as any).env &&
-      ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+    const TRACE_DEBUG_ENABLED_LOCAL = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
     if (TRACE_DEBUG_ENABLED_LOCAL) {
       const allBoardStackKeys = Array.from(this.gameState.board.stacks.keys());
@@ -1717,8 +1717,7 @@ export class GameEngine {
         stacksByPlayer[owner].push(key);
       }
 
-      // eslint-disable-next-line no-console
-      console.log('[GameEngine.makeMove.beforeAutomaticConsequences]', {
+      debugLog(TRACE_DEBUG_ENABLED_LOCAL, '[GameEngine.makeMove.beforeAutomaticConsequences]', {
         gameId: this.gameState.id,
         moveType: fullMove.type,
         movePlayer: fullMove.player,
@@ -2327,7 +2326,7 @@ export class GameEngine {
     return enumerateProcessTerritoryRegionMoves(this.gameState, playerNumber);
   }
   /**
-   * Process all line formations with graduated rewards
+   * DIAGNOSTICS-ONLY (legacy): process all line formations with graduated rewards.
    * Rule Reference: Section 11.2, 11.3
    *
    * For exact required length (4 for 8x8, 5 for 19x19/hex):
@@ -2337,6 +2336,14 @@ export class GameEngine {
    * For longer lines (5+ for 8x8, 6+ for 19x19/hex):
    *   - Option 1: Collapse all + eliminate ring/cap
    *   - Option 2: Collapse required markers only, no elimination
+   *
+   * Canonical line processing is now handled via applyProcessLineDecision /
+   * applyChooseLineRewardDecision in src/shared/engine/lineDecisionHelpers.ts,
+   * surfaced through the shared orchestrator and move-driven decision phases.
+   *
+   * @deprecated Phase 4 legacy path — use lineDecisionHelpers + shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   /**
    * Apply a single line-, territory-, or explicit elimination decision
@@ -2433,9 +2440,7 @@ export class GameEngine {
       // collapse.
       const remainingLines = this.boardManager
         .findAllLines(this.gameState.board)
-        .filter(
-          (line) => line.player === move.player && line.positions.length >= requiredLength
-        );
+        .filter((line) => line.player === move.player && line.positions.length >= requiredLength);
 
       if (remainingLines.length > 0) {
         this.gameState.currentPhase = 'line_processing';
@@ -2664,8 +2669,7 @@ export class GameEngine {
       // threshold (e.g. 4-in-a-row for 2p 8x8, base length otherwise).
       const playerLines = allLines.filter(
         (line) =>
-          line.player === this.gameState.currentPlayer &&
-          line.positions.length >= requiredLength
+          line.player === this.gameState.currentPlayer && line.positions.length >= requiredLength
       );
       if (playerLines.length === 0) break;
 
@@ -2714,6 +2718,11 @@ export class GameEngine {
   /**
    * Process a single line formation
    * Rule Reference: Section 11.2
+   *
+   * @deprecated Phase 4 legacy path — use applyProcessLineDecision / applyChooseLineRewardDecision
+   * in src/shared/engine/lineDecisionHelpers.ts via the shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   private async processOneLine(line: LineInfo, requiredLength: number): Promise<void> {
     const lineLength = line.positions.length;
@@ -3028,6 +3037,11 @@ export class GameEngine {
    *   calls this helper directly and then surfaces explicit
    *   eliminate_rings_from_stack decision Moves via RuleEngine so the
    *   self-elimination is represented as a canonical Move.
+   *
+   * @deprecated Phase 4 legacy path — use applyProcessTerritoryRegionDecision
+   * in src/shared/engine/territoryDecisionHelpers.ts via the shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   private processDisconnectedRegionCore(region: Territory, movingPlayer: number): void {
     // Delegate the geometric core (internal eliminations + region/border
@@ -3064,6 +3078,11 @@ export class GameEngine {
   /**
    * Process a single disconnected region
    * Rule Reference: Section 12.2 - Processing steps
+   *
+   * @deprecated Phase 4 legacy path — use applyProcessTerritoryRegionDecision
+   * in src/shared/engine/territoryDecisionHelpers.ts via the shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   private async processOneDisconnectedRegion(
     region: Territory,
@@ -3093,6 +3112,11 @@ export class GameEngine {
    *
    * Production hosts do not call this method; it exists solely for
    * parity/scenario suites and diagnostic harnesses.
+   *
+   * @deprecated Phase 4 legacy path — use applyProcessTerritoryRegionDecision
+   * in src/shared/engine/territoryDecisionHelpers.ts via the shared orchestrator instead.
+   * This method will be removed once all tests migrate to orchestrator-backed flows.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   public async processDisconnectedRegions(): Promise<void> {
     const movingPlayer = this.gameState.currentPlayer;
@@ -3124,7 +3148,6 @@ export class GameEngine {
       await this.processOneDisconnectedRegion(regionToProcess, movingPlayer);
     }
   }
-
 
   /**
    * Process markers along the movement path
@@ -3198,7 +3221,10 @@ export class GameEngine {
     ) {
       // console.log('[GameEngine] advanceGame: mustMove cleared/remains undefined');
     } else {
-      console.log(`[GameEngine] advanceGame: mustMove is ${this.mustMoveFromStackKey}`);
+      debugLog(
+        flagEnabled('RINGRIFT_TRACE_DEBUG'),
+        `[GameEngine] advanceGame: mustMove is ${this.mustMoveFromStackKey}`
+      );
     }
 
     // Note: skipping players who have no stacks and no rings in hand is now
@@ -3238,9 +3264,10 @@ export class GameEngine {
     this.hasPlacedThisTurn = after.hasPlacedThisTurn;
     this.mustMoveFromStackKey = after.mustMoveFromStackKey;
 
-    if (move.type === 'place_ring') {
-      console.log(
-        `[GameEngine] updatePerTurnStateAfterMove: place_ring at ${positionToString(move.to!)}. mustMove set to ${this.mustMoveFromStackKey}`
+    if (move.type === 'place_ring' && move.to) {
+      debugLog(
+        flagEnabled('RINGRIFT_TRACE_DEBUG'),
+        `[GameEngine] updatePerTurnStateAfterMove: place_ring at ${positionToString(move.to)}. mustMove set to ${this.mustMoveFromStackKey}`
       );
     }
   }
@@ -3347,7 +3374,7 @@ export class GameEngine {
     const loserPlayers = this.gameState.players.filter((p) => p.playerNumber !== gameResult.winner);
 
     // For now, just log the rating update
-    console.log('Rating update needed for:', {
+    debugLog(flagEnabled('RINGRIFT_TRACE_DEBUG'), 'Rating update needed for:', {
       winner: winnerPlayer?.username,
       losers: loserPlayers.map((p) => p.username),
     });
@@ -3402,7 +3429,52 @@ export class GameEngine {
       (p) => p.playerNumber !== parseInt(playerNumber)
     )?.playerNumber;
 
+    // Move-clock expiry is treated as a timeout, distinct from an explicit
+    // resignation. This keeps GameResult.reason semantics aligned with
+    // P18.3-1 decision/timeout spec while allowing rating logic to treat
+    // timeouts and resignations equivalently if desired.
+    return this.endGame(winner, 'timeout');
+  }
+
+  /**
+   * Clean resignation initiated by a specific player seat. This is used for
+   * explicit resign flows (for example, HTTP /games/:id/leave when active).
+   */
+  public resignPlayer(playerNumber: number): {
+    success: boolean;
+    gameResult: GameResult;
+  } {
+    const winner = this.gameState.players.find(
+      (p) => p.playerNumber !== playerNumber
+    )?.playerNumber;
+
     return this.endGame(winner, 'resignation');
+  }
+
+  /**
+   * Abandonment induced by a specific player's disconnect / expired reconnect
+   * window in a rated game. This credits a remaining opponent as the winner.
+   */
+  public abandonPlayer(playerNumber: number): {
+    success: boolean;
+    gameResult: GameResult;
+  } {
+    const winner = this.gameState.players.find(
+      (p) => p.playerNumber !== playerNumber
+    )?.playerNumber;
+
+    return this.endGame(winner, 'abandonment');
+  }
+
+  /**
+   * Abandonment without a specific winner (for example, unrated games or
+   * scenarios where all human players have disconnected/expired).
+   */
+  public abandonGameAsDraw(): {
+    success: boolean;
+    gameResult: GameResult;
+  } {
+    return this.endGame(undefined, 'abandonment');
   }
 
   getValidMoves(_playerNumber: number): Move[] {
@@ -3446,14 +3518,16 @@ export class GameEngine {
       // integrations, but do not rely on it for correctness.
       state.availableMoves = followUpMoves;
 
-      // eslint-disable-next-line no-console
-      console.log('[GameEngine.getValidMoves] chain_capture debug', {
-        requestedPlayer: playerNumber,
-        capturingPlayer,
-        currentPhase: this.gameState.currentPhase,
-        currentPosition: state.currentPosition,
-        followUpCount: followUpMoves.length,
-      });
+      if (typeof process !== 'undefined' && process.env?.RINGRIFT_TRACE_DEBUG === 'true') {
+        // eslint-disable-next-line no-console
+        console.log('[GameEngine.getValidMoves] chain_capture debug', {
+          requestedPlayer: playerNumber,
+          capturingPlayer,
+          currentPhase: this.gameState.currentPhase,
+          currentPosition: state.currentPosition,
+          followUpCount: followUpMoves.length,
+        });
+      }
 
       if (followUpMoves.length === 0) {
         // No legal continuations remain; clear chain state and treat the
@@ -3463,11 +3537,13 @@ export class GameEngine {
         return [];
       }
 
-      return followUpMoves.map((m) => ({
+      // Filter to typed capture moves for type-safe field access
+      const typedCaptures = followUpMoves.filter(isCaptureMove);
+      return typedCaptures.map((m) => ({
         ...m,
         // Re-label the shared overtaking_capture candidates as dedicated
         // continue_capture_segment moves for the unified Move model.
-        type: 'continue_capture_segment',
+        type: 'continue_capture_segment' as const,
         // Ensure the move is attributed to the capturing player recorded
         // in the chain state, even if the caller passed a different
         // playerNumber by mistake.
@@ -3477,9 +3553,9 @@ export class GameEngine {
             ? m.id.startsWith('capture-')
               ? m.id.replace('capture-', 'continue-')
               : m.id
-            : `continue-${positionToString(m.from!)}-${positionToString(
-                m.captureTarget!
-              )}-${positionToString(m.to!)}`,
+            : `continue-${positionToString(m.from)}-${positionToString(
+                m.captureTarget
+              )}-${positionToString(m.to)}`,
       }));
     }
 
@@ -3605,23 +3681,21 @@ export class GameEngine {
       // "ACTIVE_NO_MOVES" incidents in staging/production.
       getMetricsService().recordOrchestratorInvariantViolation('ACTIVE_NO_MOVES');
 
-      const TRACE_DEBUG_ENABLED =
-        typeof process !== 'undefined' &&
-        !!(process as any).env &&
-        ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+      const TRACE_DEBUG_ENABLED = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
       const beforeState = this.getGameState();
 
-      if (TRACE_DEBUG_ENABLED) {
-        // eslint-disable-next-line no-console
-        console.log('[GameEngine.getValidMoves] resolving blocked interactive state', {
+      debugLog(
+        TRACE_DEBUG_ENABLED,
+        '[GameEngine.getValidMoves] resolving blocked interactive state',
+        {
           currentPlayer: beforeState.currentPlayer,
           currentPhase: beforeState.currentPhase,
           gameStatus: beforeState.gameStatus,
           moveCount: moves.length,
           totalRingsEliminated: beforeState.totalRingsEliminated,
-        });
-      }
+        }
+      );
 
       this.resolveBlockedStateForCurrentPlayerForTesting();
 
@@ -3632,17 +3706,14 @@ export class GameEngine {
 
       const afterState = this.getGameState();
 
-      if (TRACE_DEBUG_ENABLED) {
-        // eslint-disable-next-line no-console
-        console.log('[GameEngine.getValidMoves] blocked state resolved', {
-          previousPlayer: beforeState.currentPlayer,
-          previousPhase: beforeState.currentPhase,
-          currentPlayer: afterState.currentPlayer,
-          currentPhase: afterState.currentPhase,
-          gameStatus: afterState.gameStatus,
-          totalRingsEliminated: afterState.totalRingsEliminated,
-        });
-      }
+      debugLog(TRACE_DEBUG_ENABLED, '[GameEngine.getValidMoves] blocked state resolved', {
+        previousPlayer: beforeState.currentPlayer,
+        previousPhase: beforeState.currentPhase,
+        currentPlayer: afterState.currentPlayer,
+        currentPhase: afterState.currentPhase,
+        gameStatus: afterState.gameStatus,
+        totalRingsEliminated: afterState.totalRingsEliminated,
+      });
 
       // Re-enter getValidMoves for the new active-player/phase selection. The
       // resolver guarantees either:
@@ -3715,12 +3786,12 @@ export class GameEngine {
    */
   private shouldOfferSwapSidesMetaMove(): boolean {
     const state = this.gameState;
- 
+
     // Config gating: swap_sides is only offered when explicitly enabled
     // for this game via state.rulesOptions.swapRuleEnabled. When the
     // flag is absent or false, the pie rule is considered disabled.
     if (!state.rulesOptions?.swapRuleEnabled) return false;
- 
+
     if (state.gameStatus !== 'active') return false;
     if (state.players.length !== 2) return false;
     if (state.currentPlayer !== 2) return false;
@@ -4094,6 +4165,11 @@ export class GameEngine {
    * it does not create any new kinds of actions, it just applies the
    * same forced-elimination / skip semantics the TurnEngine would have
    * applied earlier if the blocked state had been detected on time.
+   *
+   * @deprecated Phase 4 legacy path — use orchestrator-backed TurnEngineAdapter
+   * and shared turnLogic/advanceTurnAndPhase flows instead. This resolver will
+   * be removed once all tests migrate to orchestrator-backed decision lifecycles.
+   * See Wave 5.4 in TODO.md for deprecation timeline.
    */
   public resolveBlockedStateForCurrentPlayerForTesting(): void {
     if (this.gameState.gameStatus !== 'active') {
@@ -4311,6 +4387,11 @@ export class GameEngine {
    *
    * This is used by AI simulation/diagnostic harnesses so they do not
    * treat these internal bookkeeping phases as "no legal move" stalls.
+   *
+   * @deprecated Phase 4 legacy path — use orchestrator-backed TurnEngineAdapter
+   * and shared decision lifecycle (see docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
+   * instead. This method will be removed once all tests migrate to
+   * orchestrator-backed flows. See Wave 5.4 in TODO.md for deprecation timeline.
    */
   public async stepAutomaticPhasesForTesting(): Promise<void> {
     // First, handle line_processing and territory_processing automatic phases
@@ -4364,16 +4445,13 @@ export class GameEngine {
 
     // Diagnostic: log entry state for end-of-game debugging
     const STEP_DEBUG = this.gameState.totalRingsEliminated >= 28;
-    if (STEP_DEBUG) {
-      // eslint-disable-next-line no-console
-      console.log('[GameEngine.stepAutomaticPhasesForTesting] entry', {
-        currentPlayer: this.gameState.currentPlayer,
-        currentPhase: this.gameState.currentPhase,
-        gameStatus: this.gameState.gameStatus,
-        totalRingsEliminated: this.gameState.totalRingsEliminated,
-        stackCount: this.gameState.board.stacks.size,
-      });
-    }
+    debugLog(STEP_DEBUG, '[GameEngine.stepAutomaticPhasesForTesting] entry', {
+      currentPlayer: this.gameState.currentPlayer,
+      currentPhase: this.gameState.currentPhase,
+      gameStatus: this.gameState.gameStatus,
+      totalRingsEliminated: this.gameState.totalRingsEliminated,
+      stackCount: this.gameState.board.stacks.size,
+    });
 
     while (
       this.gameState.gameStatus === 'active' &&

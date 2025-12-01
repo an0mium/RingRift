@@ -2,9 +2,9 @@
 
 A central navigation guide for developers to quickly locate all rules-related documentation, implementation details, and verification reports.
 
-**Last Updated:** November 25, 2025
+**Last Updated:** 2025-12-01
 
-> **Doc Status (2025-11-27): Active (with historical appendix)**  
+> **Doc Status (2025-12-01): Active (with historical appendix)**
 > Index and navigation guide to rules specifications, implementation mapping, and verification/audit docs. This file is **not** a rules semantics SSoT; it points to the true SSoTs and their verification harnesses.
 >
 > - **Rules semantics SSoT:** Shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts) plus cross-language contracts and vectors (`src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `RULES_SCENARIO_MATRIX.md`, `docs/STRICT_INVARIANT_SOAKS.md`).
@@ -16,11 +16,13 @@ A central navigation guide for developers to quickly locate all rules-related do
 
 ## Quick Status Summary
 
-| Aspect         | Status                         | Notes                                      |
-| -------------- | ------------------------------ | ------------------------------------------ |
-| Rules Engine   | ✅ Fully implemented           | TS/Python parity verified (core flows)     |
-| Known Issues   | ⚠️ Host integration regressions | See [WEAKNESS_ASSESSMENT_REPORT.md](WEAKNESS_ASSESSMENT_REPORT.md) |
-| Recent Changes | LPS, ring caps, clarifications | Territory processing, line rewards aligned |
+| Aspect         | Status                 | Notes                                                                           |
+| -------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| Rules Engine   | ✅ Fully implemented   | TS/Python parity verified (core flows)                                          |
+| Orchestrator   | ✅ 100% rollout in CI  | All environments use orchestrator adapter                                       |
+| Known Issues   | ⚠️ Frontend UX gaps    | See [PASS18_ASSESSMENT_REPORT_PASS3.md](docs/PASS18_ASSESSMENT_REPORT_PASS3.md) |
+| Weakest Aspect | Frontend UX Polish     | See [WEAKNESS_ASSESSMENT_REPORT.md](WEAKNESS_ASSESSMENT_REPORT.md) (Pass 18-3)  |
+| Test Health    | ✅ 2,670 tests passing | 0 failing, 176 skipped (orchestrator-conditional + diagnostic)                  |
 
 ---
 
@@ -109,7 +111,7 @@ A central navigation guide for developers to quickly locate all rules-related do
 | Unit tests               | Core shared-engine and rules tests under `tests/unit/**` (e.g. `movement.shared.test.ts`, `captureLogic.shared.test.ts`)                                                                                        |
 | Scenario tests           | Behavioural and FAQ/RulesMatrix scenarios under `tests/scenarios/**`                                                                                                                                            |
 | Host parity tests        | Backend vs sandbox parity suites under `tests/unit/Backend_vs_Sandbox.*.test.ts` and related trace/parity tests                                                                                                 |
-| TS/Python parity tests   | TS↔Python integration harness in `src/server/game/test-python-rules-integration.ts` and Python suites in `ai-service/tests/parity/**`                                                                          |
+| TS/Python parity tests   | TS↔Python integration harness in `src/server/game/test-python-rules-integration.ts` and Python suites in `ai-service/tests/parity/**`                                                                           |
 | Determinism & invariants | Determinism/invariant suites in `tests/unit/EngineDeterminism.shared.test.ts`, `tests/unit/NoRandomInCoreRules.test.ts`, `ai-service/tests/test_engine_determinism.py`, plus `./scripts/rules-health-report.sh` |
 
 ---

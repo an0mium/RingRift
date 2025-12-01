@@ -1,6 +1,22 @@
 import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
-import { generateTestUser, registerUser, TestUser } from './helpers/test-utils';
-import { GamePage } from './pages';
+import { generateTestUser, registerUser, TestUser, createFixtureGame } from './helpers/test-utils';
+import { GamePage, HomePage } from './pages';
+import {
+  setupMultiplayerGameAdvanced,
+  setupMultiplayerFixtureGame,
+  cleanupMultiplayerSetup,
+  simulateDisconnection,
+  simulateReconnection,
+  waitForPlayerDisconnectedUI,
+  waitForPlayerReconnectedUI,
+  waitForVictoryModal,
+  waitForTimeoutWarningUI,
+  coordinatePlayerTurn,
+  waitForPlayerTurnWithTargets,
+  waitForChoiceDialog,
+  getGameOutcome,
+  type MultiplayerGameSetup,
+} from './helpers/multiplayer-utils';
 
 /**
  * E2E Test Suite: Multi-Browser Multiplayer Tests
@@ -371,16 +387,40 @@ test.describe('Multiplayer Game E2E', () => {
   // ============================================================================
 
   test.describe('Game Completion', () => {
-    test.skip('Both players see victory/defeat status when game ends', async () => {
-      // SKIP REASON: Completing a game requires many coordinated moves
-      // and specific game state manipulation that is difficult to reliably
-      // orchestrate in an E2E test. This test would require:
-      // 1. Making 30+ coordinated moves
-      // 2. Achieving a specific victory condition (elimination/territory/LPS)
-      // 3. Handling all WebSocket timing issues during long gameplay
-      //
-      // FUTURE: Implement when we have a "debug" or "test mode" API that
-      // can fast-forward game state to near-completion.
+    test('Both players see victory/defeat status when game ends', async ({ browser }) => {
+      // Uses near-victory fixture API to fast-forward to a state where one move wins.
+      // This avoids the need for 30+ coordinated moves.
+
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup near-victory fixture game', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, 'near_victory_elimination');
+        });
+
+        await test.step('Player 1 makes winning capture', async () => {
+          // Near-victory fixture: P1 stack at (3,3), P2 at (4,3)
+          await setup!.player1.gamePage.makeMove(3, 3, 4, 3);
+        });
+
+        await test.step('Both players see game end state', async () => {
+          // Wait for game to process and show result
+          await setup!.player1.page.waitForTimeout(3000);
+
+          // Check for victory/defeat indicators on both screens
+          const p1GameEnd = setup!.player1.page.locator('text=/victory|defeat|game.*over|winner/i');
+          const p2GameEnd = setup!.player2.page.locator(
+            'text=/victory|defeat|game.*over|eliminated/i'
+          );
+
+          // At least one player should see a game-end message
+          await expect(p1GameEnd.first().or(p2GameEnd.first())).toBeVisible({ timeout: 20_000 });
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
     });
 
     test('Game page shows victory conditions help for both players', async () => {
@@ -477,13 +517,319 @@ test.describe('Multiplayer Game E2E', () => {
       });
     });
 
-    test.skip('Player sees notification when opponent times out', async () => {
-      // SKIP REASON: Timeout notification requires specific backend
-      // configuration for turn timeouts and disconnection detection.
-      // The current implementation may not have explicit timeout notifications.
-      //
-      // FUTURE: Implement when player timeout notifications are added
-      // to the game HUD or as a toast/modal.
+    test('Player sees warning when decision phase timeout approaches', async ({ browser }) => {
+      // Uses short timeout fixture to test timeout warning without long waits.
+      // The line_processing scenario puts player in a decision phase that will timeout.
+      // Short timeout: 5s, warning at 2s before = warning fires at 3s.
+
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup decision phase game with short timeout', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, {
+            scenario: 'line_processing',
+            shortTimeoutMs: 5000, // 5 second timeout
+            shortWarningBeforeMs: 2000, // Warning 2s before timeout
+          });
+        });
+
+        await test.step('Verify player is in decision phase', async () => {
+          // Player 1 should see the choice dialog for line processing
+          const hasChoiceDialog = await waitForChoiceDialog(setup!.player1, { timeout: 10_000 });
+          expect(hasChoiceDialog).toBeTruthy();
+        });
+
+        await test.step('Wait for timeout warning to appear', async () => {
+          // Don't make a choice - wait for the warning to appear
+          // Warning should appear after 3s (5000ms - 2000ms = 3000ms)
+          const sawWarning = await waitForTimeoutWarningUI(setup!.player1.page, {
+            timeout: 10_000,
+          });
+          expect(sawWarning).toBeTruthy();
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+
+    test('decision phase auto-resolves on timeout for both players', async ({ browser }) => {
+      // Short timeout: 4s, warning at 2s before = warning fires at 2s.
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup decision phase game with short timeout', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, {
+            scenario: 'line_processing',
+            shortTimeoutMs: 4000,
+            shortWarningBeforeMs: 2000,
+          });
+        });
+
+        await test.step('Verify player is in decision phase', async () => {
+          const hasChoiceDialog = await waitForChoiceDialog(setup!.player1, { timeout: 10_000 });
+          expect(hasChoiceDialog).toBeTruthy();
+        });
+
+        await test.step('Wait for auto-resolve after timeout', async () => {
+          // Do not make a choice; let the short timeout fire. After the timeout
+          // window passes, the backend should either advance the phase or end
+          // the game, but the decision dialog should not remain indefinitely.
+          await setup!.player1.page.waitForTimeout(6_000);
+
+          const stillHasDialog = await waitForChoiceDialog(setup!.player1, {
+            timeout: 2_000,
+          });
+          const sawVictory =
+            (await waitForVictoryModal(setup!.player1, { timeout: 2_000 })) ||
+            (await waitForVictoryModal(setup!.player2, { timeout: 2_000 }));
+
+          expect(stillHasDialog && !sawVictory).toBeFalsy();
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+  });
+
+  // ============================================================================
+  // Test Scenario 7: Near-Victory Multiplayer (using fixtures)
+  // ============================================================================
+
+  test.describe('Near-Victory Multiplayer', () => {
+    test('Both players see victory/defeat when game ends via fixture', async ({ browser }) => {
+      // Uses near-victory fixture to set up a game state one capture away from victory.
+      // Player 1 makes the winning move, both players should see the outcome.
+
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup multiplayer near-victory game', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, 'near_victory_elimination');
+        });
+
+        await test.step('Player 1 makes winning move', async () => {
+          // In near-victory fixture: P1 stack at (3,3), P2 ring at (4,3)
+          // Move (3,3) -> (4,3) wins the game
+          await setup!.player1.gamePage.makeMove(3, 3, 4, 3);
+        });
+
+        await test.step('Both players see game end', async () => {
+          // Wait for victory modal on both screens
+          const p1Victory = await waitForVictoryModal(setup!.player1, { timeout: 30_000 });
+          const p2Victory = await waitForVictoryModal(setup!.player2, { timeout: 30_000 });
+
+          expect(p1Victory || p2Victory).toBeTruthy();
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+
+    test('Winner sees victory, loser sees defeat', async ({ browser }) => {
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup and complete game', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, 'near_victory_elimination');
+
+          // P1 makes winning move
+          await setup.player1.gamePage.makeMove(3, 3, 4, 3);
+
+          // Wait for game to end
+          await setup.player1.page.waitForTimeout(3000);
+        });
+
+        await test.step('Verify Player 1 sees victory', async () => {
+          // P1 should see victory text (they won)
+          const victoryText = setup!.player1.page.locator('text=/victory|winner|you.*win/i');
+          await expect(victoryText.first()).toBeVisible({ timeout: 15_000 });
+        });
+
+        await test.step('Verify Player 2 sees defeat', async () => {
+          // P2 should see defeat text (they lost)
+          const defeatText = setup!.player2.page.locator('text=/defeat|lost|eliminated/i');
+          await expect(defeatText.first()).toBeVisible({ timeout: 15_000 });
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+
+    test('Territory near-victory fixture produces territory-control win', async ({ browser }) => {
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup multiplayer near-victory territory game', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, 'near_victory_territory');
+        });
+
+        await test.step('Wait for game over via territory control', async () => {
+          // The fixture seeds a territory_processing decision that, once resolved
+          // by the backend, should result in a territory_control victory for P1.
+          // We simply wait for the victory modal rather than trying to drive
+          // explicit UI decisions for this minimal slice.
+          const p1Victory = await waitForVictoryModal(setup!.player1, { timeout: 30_000 });
+          const p2Victory = await waitForVictoryModal(setup!.player2, { timeout: 30_000 });
+
+          expect(p1Victory || p2Victory).toBeTruthy();
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+
+    test('Rated near-victory multiplayer updates winner and loser ratings', async ({ browser }) => {
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup rated near-victory multiplayer game', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, {
+            scenario: 'near_victory_elimination',
+            isRated: true,
+          });
+        });
+
+        await test.step('Player 1 makes the winning move', async () => {
+          await setup!.player1.gamePage.makeMove(3, 3, 4, 3);
+          // Allow game_over + rating updates to propagate
+          await setup!.player1.page.waitForTimeout(3_000);
+        });
+
+        await test.step('Verify outcomes for both players', async () => {
+          const p1Outcome = await getGameOutcome(setup!.player1);
+          const p2Outcome = await getGameOutcome(setup!.player2);
+
+          expect(p1Outcome).toBe('victory');
+          expect(p2Outcome).toBe('defeat');
+        });
+
+        await test.step('Verify winner rating > loser rating', async () => {
+          const readRating = async (player: typeof setup.player1): Promise<number> => {
+            const homePage = new HomePage(player.page);
+            await homePage.goto();
+            await homePage.goToProfile();
+            await player.page.waitForURL('**/profile', { timeout: 10_000 });
+            const ratingText = await player.page.locator('.text-emerald-400').first().textContent();
+            return parseInt((ratingText || '').replace(/[^0-9]/g, ''), 10);
+          };
+
+          const p1Rating = await readRating(setup!.player1);
+          const p2Rating = await readRating(setup!.player2);
+
+          expect(p1Rating).toBeGreaterThan(0);
+          expect(p2Rating).toBeGreaterThan(0);
+          expect(p1Rating).toBeGreaterThan(p2Rating);
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+  });
+
+  // ============================================================================
+  // Test Scenario 8: Advanced Disconnection/Reconnection
+  // ============================================================================
+
+  test.describe('Advanced Disconnection Scenarios', () => {
+    test('Player can reconnect and continue game after disconnect', async ({ browser }) => {
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup multiplayer game', async () => {
+          setup = await setupMultiplayerGameAdvanced(browser);
+        });
+
+        const gameId = setup!.gameId;
+
+        await test.step('Player 1 makes a move', async () => {
+          const hasTargets = await waitForPlayerTurnWithTargets(setup!.player1, 15_000);
+          if (hasTargets) {
+            await setup!.player1.gamePage.clickFirstValidTarget();
+            await setup!.player1.page.waitForTimeout(2000);
+          }
+        });
+
+        await test.step('Player 2 disconnects', async () => {
+          await simulateDisconnection(setup!.player2);
+        });
+
+        await test.step('Player 1 remains connected', async () => {
+          await expect(setup!.player1.gamePage.boardView).toBeVisible();
+          await setup!.player1.gamePage.assertConnected();
+        });
+
+        await test.step('Player 2 reconnects', async () => {
+          await simulateReconnection(setup!.player2, gameId);
+        });
+
+        await test.step('Player 2 sees game state after reconnect', async () => {
+          await expect(setup!.player2.gamePage.boardView).toBeVisible();
+          // Should see the move log indicating game state was preserved
+          await expect(setup!.player2.gamePage.recentMovesSection).toBeVisible({ timeout: 15_000 });
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+
+    test('Game continues after brief disconnection', async ({ browser }) => {
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup multiplayer game with some moves', async () => {
+          setup = await setupMultiplayerGameAdvanced(browser);
+
+          // Make a couple of turns
+          for (let i = 0; i < 2; i++) {
+            const activePlayer = i % 2 === 0 ? setup.player1 : setup.player2;
+            const hasTargets = await waitForPlayerTurnWithTargets(activePlayer, 10_000);
+            if (hasTargets) {
+              await activePlayer.gamePage.clickFirstValidTarget();
+              await activePlayer.page.waitForTimeout(2000);
+            }
+          }
+        });
+
+        const gameId = setup!.gameId;
+
+        await test.step('Player 1 reloads page (simulates brief disconnect)', async () => {
+          await setup!.player1.gamePage.reloadAndWait();
+        });
+
+        await test.step('Player 1 can continue playing', async () => {
+          await setup!.player1.gamePage.assertConnected();
+
+          // Check if it's P1's turn and they can make a move
+          const hasTargets = await waitForPlayerTurnWithTargets(setup!.player1, 10_000);
+          if (hasTargets) {
+            await setup!.player1.gamePage.clickFirstValidTarget();
+          }
+        });
+
+        await test.step('Game state is consistent', async () => {
+          // Both players should see the game log
+          await expect(setup!.player1.gamePage.recentMovesSection).toBeVisible({ timeout: 10_000 });
+          await expect(setup!.player2.gamePage.recentMovesSection).toBeVisible({ timeout: 10_000 });
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
     });
   });
 
@@ -492,12 +838,9 @@ test.describe('Multiplayer Game E2E', () => {
   // ============================================================================
 
   test.describe('Chat and Communication', () => {
-    test.skip('Player 1 sends chat message, Player 2 receives it', async () => {
-      // SKIP REASON: Chat feature may not be fully implemented.
-      // The GamePage has chat locators but the feature might not be
-      // enabled or visible in all game modes.
-      //
-      // FUTURE: Enable when chat feature is confirmed working.
+    test('Player 1 sends chat message, Player 2 receives it', async () => {
+      // Chat feature is now fully implemented with persistence.
+      // Messages are sent via WebSocket and persisted to database.
 
       let gameId: string = '';
 

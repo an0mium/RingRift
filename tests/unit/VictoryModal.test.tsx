@@ -140,7 +140,9 @@ describe('VictoryModal', () => {
     );
 
     expect(screen.getByText(/Alice Wins!/)).toBeInTheDocument();
-    expect(screen.getByText(/Victory by eliminating over half of opponent rings/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Victory by eliminating over half of opponent rings/)
+    ).toBeInTheDocument();
   });
 
   it('should display territory control victory message', () => {
@@ -347,7 +349,7 @@ describe('VictoryModal', () => {
     expect(mockOnClose).toHaveBeenCalledTimes(1);
   });
 
-  it('should show rematch button when onRematch provided', () => {
+  it('should show Play Again button when onRematch provided (sandbox/local games)', () => {
     const players = createTestPlayers();
     const gameResult = createGameResult(1, 'ring_elimination');
 
@@ -362,14 +364,15 @@ describe('VictoryModal', () => {
       />
     );
 
-    const rematchButton = screen.getByText('Request Rematch');
-    expect(rematchButton).toBeInTheDocument();
+    // onRematch without onRequestRematch shows "Play Again" for local/sandbox games
+    const playAgainButton = screen.getByText('Play Again');
+    expect(playAgainButton).toBeInTheDocument();
 
-    fireEvent.click(rematchButton);
+    fireEvent.click(playAgainButton);
     expect(mockOnRematch).toHaveBeenCalledTimes(1);
   });
 
-  it('should not show rematch button when onRematch not provided', () => {
+  it('should not show Play Again button when onRematch not provided', () => {
     const players = createTestPlayers();
     const gameResult = createGameResult(1, 'ring_elimination');
 
@@ -383,6 +386,7 @@ describe('VictoryModal', () => {
       />
     );
 
+    expect(screen.queryByText('Play Again')).not.toBeInTheDocument();
     expect(screen.queryByText('Request Rematch')).not.toBeInTheDocument();
   });
 
@@ -553,7 +557,9 @@ describe('VictoryModal', () => {
 
     // Title and description come from the view model path
     expect(screen.getByText(/Alice Wins!/)).toBeInTheDocument();
-    expect(screen.getByText(/Victory by eliminating over half of opponent rings/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Victory by eliminating over half of opponent rings/)
+    ).toBeInTheDocument();
 
     // Stats table is rendered via the view model finalStats
     const table = screen.getByRole('table');

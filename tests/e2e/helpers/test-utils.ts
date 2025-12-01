@@ -212,7 +212,7 @@ export async function waitForGameReady(page: Page, timeout = 20_000): Promise<vo
  * Returns the game ID extracted from the URL.
  */
 export async function createGame(page: Page, options: CreateGameOptions = {}): Promise<string> {
-  const { boardType = 'square8', vsAI = true } = options;
+  const { boardType = 'square8', vsAI = true, isRated } = options;
 
   // Navigate to lobby
   await page.getByRole('link', { name: /lobby/i }).click();
@@ -233,11 +233,21 @@ export async function createGame(page: Page, options: CreateGameOptions = {}): P
     await boardSelect.selectOption(boardType);
   }
 
-  // For backend AI games, the server does not allow rated games. The lobby
-  // defaults to "Rated game" checked, so when vsAI=true we explicitly
-  // uncheck that box to create an unrated AI game.
-  if (vsAI) {
-    const ratedCheckbox = page.getByRole('checkbox', { name: /Rated game/i });
+  const ratedCheckbox = page.getByRole('checkbox', { name: /Rated game/i });
+
+  // When an explicit isRated flag is provided, honour it regardless of
+  // vsAI so tests can drive both rated and unrated configurations.
+  if (typeof isRated === 'boolean') {
+    const currentlyChecked = await ratedCheckbox.isChecked();
+    if (isRated && !currentlyChecked) {
+      await ratedCheckbox.check();
+    } else if (!isRated && currentlyChecked) {
+      await ratedCheckbox.uncheck();
+    }
+  } else if (vsAI) {
+    // For backend AI games without an explicit override, the server does not
+    // allow rated games. The lobby defaults to "Rated game" checked, so when
+    // vsAI=true we explicitly uncheck that box to create an unrated AI game.
     if (await ratedCheckbox.isChecked()) {
       await ratedCheckbox.uncheck();
     }
@@ -690,4 +700,129 @@ export async function makeRingPlacement(page: Page, timeout = 25_000): Promise<v
 export async function cleanupMultiplayerGame(setup: MultiplayerGameSetup): Promise<void> {
   await setup.player1.context.close();
   await setup.player2.context.close();
+}
+
+// ============================================================================
+// Test Fixture Helpers
+// ============================================================================
+
+export type FixtureScenario =
+  | 'line_processing'
+  | 'territory_processing'
+  | 'chain_capture_choice'
+  | 'near_victory_elimination'
+  | 'near_victory_territory';
+
+export interface CreateFixtureGameOptions {
+  scenario: FixtureScenario;
+  isRated?: boolean;
+  /**
+   * Optional short timeout for decision phase (milliseconds).
+   * Used for testing timeout behavior without long waits.
+   * Valid range: 1000-60000ms.
+   */
+  shortTimeoutMs?: number;
+  /**
+   * Optional short warning time before timeout (milliseconds).
+   * Valid range: 500-30000ms.
+   */
+  shortWarningBeforeMs?: number;
+}
+
+export interface FixtureGameResult {
+  gameId: string;
+  scenario: FixtureScenario;
+}
+
+/**
+ * Creates a fixture game via the test API endpoint.
+ * This bypasses normal game flow to set up specific game states for testing.
+ *
+ * Available scenarios:
+ * - 'line_processing': Game in line processing decision phase
+ * - 'territory_processing': Game in territory processing decision phase
+ * - 'chain_capture_choice': Game in chain capture choice phase
+ * - 'near_victory_elimination': Game one capture away from elimination victory
+ * - 'near_victory_territory': Game one region resolution away from territory victory
+ *
+ * NOTE: Only available in test/development environments.
+ *
+ * @param page - Playwright page with authenticated session
+ * @param options - Fixture configuration
+ * @returns The created game ID and scenario
+ *
+ * @example
+ * ```typescript
+ * const { gameId } = await createFixtureGame(page, { scenario: 'near_victory_elimination' });
+ * await page.goto(`/game/${gameId}`);
+ * // Player can now make the winning move
+ * ```
+ */
+export async function createFixtureGame(
+  page: Page,
+  options: CreateFixtureGameOptions
+): Promise<FixtureGameResult> {
+  const apiBaseUrl = process.env.E2E_API_BASE_URL || 'http://localhost:3000';
+  const url = `${apiBaseUrl.replace(/\/$/, '')}/api/games/fixtures/decision-phase`;
+
+  const response = await page.request.post(url, {
+    data: {
+      scenario: options.scenario,
+      isRated: options.isRated ?? false,
+      ...(options.shortTimeoutMs !== undefined && { shortTimeoutMs: options.shortTimeoutMs }),
+      ...(options.shortWarningBeforeMs !== undefined && {
+        shortWarningBeforeMs: options.shortWarningBeforeMs,
+      }),
+    },
+  });
+
+  if (!response.ok()) {
+    const body = await response.text();
+    throw new Error(`Failed to create fixture game: ${response.status()} - ${body}`);
+  }
+
+  const json = await response.json();
+
+  if (!json.success || !json.data?.gameId) {
+    throw new Error(`Unexpected fixture response: ${JSON.stringify(json)}`);
+  }
+
+  return {
+    gameId: json.data.gameId,
+    scenario: json.data.scenario,
+  };
+}
+
+/**
+ * Creates a near-victory fixture game and navigates to it.
+ * This sets up a game state where Player 1 is one capture away from
+ * winning by ring elimination.
+ *
+ * The fixture places:
+ * - Player 1 stack at (3,3) with 3 rings
+ * - Player 2 single-ring stack at (4,3)
+ * - Player 2 has 18/19 rings eliminated
+ * - Game in 'movement' phase, Player 1's turn
+ *
+ * @param page - Playwright page with authenticated session
+ * @returns The game ID
+ *
+ * @example
+ * ```typescript
+ * const gameId = await createNearVictoryGame(page);
+ * // Game is now ready - make the winning capture at (4,3)
+ * await makeMove(page, '3,3', '4,3');
+ * // Victory modal should appear
+ * ```
+ */
+export async function createNearVictoryGame(page: Page): Promise<string> {
+  const { gameId } = await createFixtureGame(page, {
+    scenario: 'near_victory_elimination',
+    isRated: false,
+  });
+
+  await page.goto(`/game/${gameId}`);
+  await waitForGameReady(page);
+
+  return gameId;
 }

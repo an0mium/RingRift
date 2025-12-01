@@ -1,0 +1,350 @@
+{
+  "version": "1.0",
+  "description": "Curated learning scenarios for RingRift sandbox mode",
+  "scenarios": [
+    {
+      "id": "learn.placement.basics",
+      "name": "Learn: Ring Placement",
+      "description": "Start with an empty board to practice ring placement. Place a single ring or stack on existing rings.",
+      "category": "placement",
+      "difficulty": "beginner",
+      "tags": ["tutorial", "placement", "basics"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-11-30T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "learn-placement-001",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {},
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 18,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "You",
+            "type": "human"
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 18,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "AI",
+            "type": "ai"
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "ring_placement",
+        "turnNumber": 1,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learn.movement.basics",
+      "name": "Learn: Stack Movement",
+      "description": "Practice moving stacks. Move distance equals stack height. Try capturing opponent stacks by landing on them.",
+      "category": "movement",
+      "difficulty": "beginner",
+      "tags": ["tutorial", "movement", "basics"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-11-30T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "learn-movement-001",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "3,3": { "stackHeight": 2, "capHeight": 2, "controllingPlayer": 1 },
+            "5,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 },
+            "3,5": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 },
+            "1,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 1 }
+          },
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 14,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "You",
+            "type": "human"
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 16,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "AI",
+            "type": "ai"
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 5,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learn.capture.chain",
+      "name": "Learn: Chain Captures",
+      "description": "When capturing, if your stack is taller than the captured stack, you may continue capturing. Practice chain captures.",
+      "category": "chain_capture",
+      "difficulty": "intermediate",
+      "tags": ["tutorial", "capture", "chain"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-11-30T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "learn-chain-001",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "1,3": { "stackHeight": 3, "capHeight": 3, "controllingPlayer": 1 },
+            "2,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 },
+            "4,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 },
+            "6,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 }
+          },
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 15,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "You",
+            "type": "human"
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 15,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "AI",
+            "type": "ai"
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 8,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learn.lines.formation.Rules_11_2_Q7_Q20",
+      "name": "Learn: Line Formation (Rules_11_2_Q7_Q20)",
+      "description": "Form a line of 4+ connected markers of the same color, then observe how this mirrors the combined RulesMatrix scenario Rules_11_2_12_2_Q7_Q20_overlength_line_then_single_cell_region_square8.",
+      "category": "line_processing",
+      "difficulty": "intermediate",
+      "tags": ["tutorial", "lines", "markers", "Rules_11_2_Q7", "Rules_11_2_12_2_Q7_Q20"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-11-30T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "learn-lines-001",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "3,0": { "stackHeight": 2, "capHeight": 2, "controllingPlayer": 1 },
+            "3,7": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 }
+          },
+          "markers": {
+            "3,2": { "player": 1 },
+            "3,3": { "player": 1 },
+            "3,4": { "player": 1 }
+          },
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 3, "2": 3 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 13,
+            "eliminatedRings": 3,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "You",
+            "type": "human"
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 14,
+            "eliminatedRings": 3,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "AI",
+            "type": "ai"
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 12,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learn.territory.basics.Rules_12_2_Q23",
+      "name": "Learn: Territory Control (Rules_12_2_Q23)",
+      "description": "Surround empty spaces with your markers to claim territory and see the self-elimination prerequisite from FAQ Q23 in action, mirroring Rules_12_2_Q23_mini_region_square8_numeric_invariant.",
+      "category": "territory_processing",
+      "difficulty": "advanced",
+      "tags": [
+        "tutorial",
+        "territory",
+        "strategy",
+        "Rules_12_2_Q23_mini_region_square8_numeric_invariant"
+      ],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-11-30T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "learn-territory-001",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "0,0": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 1 },
+            "7,7": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 }
+          },
+          "markers": {
+            "2,2": { "player": 1 },
+            "2,3": { "player": 1 },
+            "2,4": { "player": 1 },
+            "3,2": { "player": 1 },
+            "3,4": { "player": 1 },
+            "4,2": { "player": 1 },
+            "4,3": { "player": 1 },
+            "4,4": { "player": 1 },
+            "5,5": { "player": 2 },
+            "5,6": { "player": 2 },
+            "6,5": { "player": 2 },
+            "6,6": { "player": 2 }
+          },
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 8, "2": 4 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 9,
+            "eliminatedRings": 8,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "You",
+            "type": "human"
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 13,
+            "eliminatedRings": 4,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "AI",
+            "type": "ai"
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 20,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "puzzle.capture.triple",
+      "name": "Puzzle: Triple Chain Capture",
+      "description": "Find the sequence of moves that captures three opponent stacks in one chain!",
+      "category": "chain_capture",
+      "difficulty": "advanced",
+      "tags": ["puzzle", "capture", "chain", "challenge"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-11-30T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "puzzle-capture-001",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "0,3": { "stackHeight": 4, "capHeight": 4, "controllingPlayer": 1 },
+            "1,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 },
+            "3,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 },
+            "5,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 2 },
+            "7,3": { "stackHeight": 1, "capHeight": 1, "controllingPlayer": 1 }
+          },
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 13,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "You",
+            "type": "human"
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 15,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true,
+            "username": "AI",
+            "type": "ai"
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 10,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    }
+  ]
+}

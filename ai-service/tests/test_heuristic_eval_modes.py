@@ -193,24 +193,7 @@ def test_evaluate_fitness_uses_board_based_heuristic_mode(
     """
     recorded_modes: List[str | None] = []
 
-    original = cmaes.create_heuristic_ai_with_weights
-
-    def _fake_play_single_game(*_args, **_kwargs) -> tuple[int, int]:
-        """Fast stub for play_single_game used in tests."""
-        return 0, 0
-
-    def _fake_play_single_game_from_state(
-        *_args, **_kwargs
-    ) -> tuple[int, int]:
-        """Fast stub for play_single_game_from_state used in tests."""
-        return 0, 0
-
-    monkeypatch.setattr(cmaes, "play_single_game", _fake_play_single_game)
-    monkeypatch.setattr(
-        cmaes,
-        "play_single_game_from_state",
-        _fake_play_single_game_from_state,
-    )
+    original_create = cmaes.create_heuristic_ai_with_weights
 
     def _spy_create(
         player_number: int,
@@ -222,7 +205,7 @@ def test_evaluate_fitness_uses_board_based_heuristic_mode(
         heuristic_eval_mode: str | None = None,
     ) -> HeuristicAI:
         recorded_modes.append(heuristic_eval_mode)
-        return original(
+        return original_create(
             player_number,
             weights,
             difficulty=difficulty,
@@ -231,10 +214,36 @@ def test_evaluate_fitness_uses_board_based_heuristic_mode(
             heuristic_eval_mode=heuristic_eval_mode,
         )
 
+    original_play_from_state = cmaes.play_single_game_from_state
+
+    def _short_circuit_play_from_state(
+        initial_state,
+        candidate_weights,
+        opponent_weights,
+        candidate_plays_first: bool,
+        max_moves: int = 500,
+        **kwargs,
+    ) -> tuple[int, int]:
+        # Still call create_heuristic_ai_with_weights (via spy) but return
+        # immediately without playing the full game.
+        heuristic_eval_mode = kwargs.get("heuristic_eval_mode")
+
+        # Create AIs to trigger the spy capture
+        _spy_create(1, candidate_weights, heuristic_eval_mode=heuristic_eval_mode)
+        _spy_create(2, opponent_weights, heuristic_eval_mode=heuristic_eval_mode)
+
+        # Return draw with 0 moves
+        return 0, 0
+
     monkeypatch.setattr(
         cmaes,
         "create_heuristic_ai_with_weights",
         _spy_create,
+    )
+    monkeypatch.setattr(
+        cmaes,
+        "play_single_game_from_state",
+        _short_circuit_play_from_state,
     )
 
     baseline = dict(BASE_V1_BALANCED_WEIGHTS)

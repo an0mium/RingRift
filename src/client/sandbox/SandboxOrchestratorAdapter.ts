@@ -13,7 +13,7 @@
  * - Supports "preview" mode for what-if analysis
  */
 
-import type { GameState, Move, GameResult, Position } from '../../shared/engine';
+import type { GameState, Move, GameResult } from '../../shared/engine';
 import { hashGameState } from '../../shared/engine';
 import {
   processTurn,
@@ -102,16 +102,16 @@ export interface SandboxMoveResult {
   nextState: GameState;
 
   /** Victory result if the game ended */
-  victoryResult?: GameResult;
+  victoryResult?: GameResult | undefined;
 
   /** Error message if move failed */
-  error?: string;
+  error?: string | undefined;
 
   /** Whether a decision was requested during processing */
-  decisionRequested?: boolean;
+  decisionRequested?: boolean | undefined;
 
   /** Metadata about the move processing */
-  metadata?: SandboxMoveMetadata;
+  metadata?: SandboxMoveMetadata | undefined;
 }
 
 /**
@@ -162,7 +162,7 @@ export interface SandboxMoveMetadata {
 export class SandboxOrchestratorAdapter {
   private readonly stateAccessor: SandboxStateAccessor;
   private readonly decisionHandler: SandboxDecisionHandler;
-  private readonly callbacks?: SandboxAdapterCallbacks;
+  private readonly callbacks?: SandboxAdapterCallbacks | undefined;
 
   /**
    * Chain capture continuation moves, populated when processTurnAsync returns
@@ -347,7 +347,11 @@ export class SandboxOrchestratorAdapter {
    * This allows for what-if analysis without modifying game state.
    * Returns the resulting state that would occur if the move was applied.
    */
-  public previewMove(move: Move): { nextState: GameState; valid: boolean; reason?: string } {
+  public previewMove(move: Move): {
+    nextState: GameState;
+    valid: boolean;
+    reason?: string | undefined;
+  } {
     const state = this.stateAccessor.getGameState();
 
     const validation = validateMove(state, move);

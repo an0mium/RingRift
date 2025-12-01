@@ -85,7 +85,9 @@ function DecisionPhaseBanner({ vm }: { vm: HUDDecisionPhaseViewModel }) {
           data-severity={severity ?? undefined}
           data-server-capped={isServerCapped ? 'true' : undefined}
         >
-          <span className={`text-[10px] uppercase tracking-wide ${pillTextClass}`}>{pillLabel}</span>
+          <span className={`text-[10px] uppercase tracking-wide ${pillTextClass}`}>
+            {pillLabel}
+          </span>
           <span className={pillTimerClass}>{countdownLabel}</span>
         </div>
       )}
@@ -115,12 +117,12 @@ export interface GameHUDViewModelProps {
   /** Pre-transformed view model from useHUDViewModel or toHUDViewModel */
   viewModel: HUDViewModel;
   /** Additional GameState needed for time control display */
-  timeControl?: TimeControl;
+  timeControl?: TimeControl | undefined;
   /**
    * Optional callback used by hosts to surface a contextual
    * "Board controls & shortcuts" overlay entry point.
    */
-  onShowBoardControls?: () => void;
+  onShowBoardControls?: (() => void) | undefined;
 }
 
 /**
@@ -163,7 +165,7 @@ function getPhaseInfo(phase: GamePhase): PhaseInfo {
     case 'movement':
       return {
         label: 'Movement Phase',
-        description: 'Move a stack or capture opponent pieces',
+        description: 'Move a stack or capture opponent rings',
         color: 'bg-green-500',
         icon: '⚡',
       };
@@ -177,21 +179,21 @@ function getPhaseInfo(phase: GamePhase): PhaseInfo {
     case 'chain_capture':
       return {
         label: 'Chain Capture',
-        description: 'Continue capturing or end your turn',
+        description: 'Select a capture segment to continue the chain',
         color: 'bg-orange-500',
         icon: '🔗',
       };
     case 'line_processing':
       return {
-        label: 'Line Reward',
-        description: 'Choose how to process your line',
+        label: 'Line Processing',
+        description: 'Choose line completion reward',
         color: 'bg-purple-500',
         icon: '📏',
       };
     case 'territory_processing':
       return {
-        label: 'Territory Claim',
-        description: 'Choose regions to collapse',
+        label: 'Territory Processing',
+        description: 'Process disconnected regions',
         color: 'bg-pink-500',
         icon: '🏰',
       };
@@ -249,7 +251,7 @@ function LegacyPhaseIndicator({ gameState }: { gameState: GameState }) {
 /**
  * Sub-phase details display
  */
-function SubPhaseDetails({ detail }: { detail?: string }) {
+function SubPhaseDetails({ detail }: { detail?: string | undefined }) {
   if (!detail) return null;
   return <div className="text-sm text-gray-600 mt-1">{detail}</div>;
 }
@@ -360,7 +362,7 @@ function RingStats({ player, gameState }: RingStatsProps) {
       </div>
       <div className="text-center">
         <div className="font-bold text-red-600">{ringStats.eliminated}</div>
-        <div className="text-gray-500">Lost</div>
+        <div className="text-gray-500">Captured</div>
       </div>
     </div>
   );
@@ -505,7 +507,7 @@ function RingStatsFromVM({ stats }: { stats: PlayerRingStatsViewModel }) {
       </div>
       <div className="text-center">
         <div className="font-bold text-red-600">{stats.eliminated}</div>
-        <div className="text-gray-500">Lost</div>
+        <div className="text-gray-500">Captured</div>
       </div>
     </div>
   );
@@ -519,7 +521,7 @@ function PlayerCardFromVM({
   timeControl,
 }: {
   player: PlayerViewModel;
-  timeControl?: TimeControl;
+  timeControl?: TimeControl | undefined;
 }) {
   return (
     <div
@@ -736,8 +738,8 @@ function GameHUDFromViewModel({
   onShowBoardControls,
 }: {
   viewModel: HUDViewModel;
-  timeControl?: TimeControl;
-  onShowBoardControls?: () => void;
+  timeControl?: TimeControl | undefined;
+  onShowBoardControls?: (() => void) | undefined;
 }) {
   const {
     phase,
@@ -777,6 +779,39 @@ function GameHUDFromViewModel({
 
   return (
     <div className="w-full max-w-4xl mx-auto mb-4" data-testid="game-hud">
+      {/* Spectator mode banner - prominent indicator when spectating */}
+      {isSpectator && (
+        <div
+          className="mb-3 px-3 py-2 rounded-lg bg-purple-900/30 border border-purple-500/40 flex items-center justify-between"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2 text-purple-100">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="w-4 h-4"
+              aria-hidden="true"
+            >
+              <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+              <path
+                fillRule="evenodd"
+                d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span className="text-sm font-semibold">Spectator Mode</span>
+            <span className="text-xs text-purple-200/80">You are watching this game</span>
+          </div>
+          {spectatorCount > 0 && (
+            <span className="text-xs text-purple-200/70">
+              {spectatorCount} {spectatorCount === 1 ? 'viewer' : 'viewers'} total
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Connection Status */}
       <div className="flex items-center justify-between text-xs text-slate-300 mb-3">
         <div className={`font-semibold ${connectionColor}`}>
@@ -786,13 +821,19 @@ function GameHUDFromViewModel({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {spectatorCount > 0 && (
-            <span className="text-[11px] text-slate-400 flex items-center gap-1">
+          {spectatorCount > 0 && !isSpectator && (
+            <span
+              className="text-[11px] text-slate-400 flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700"
+              title={`${spectatorCount} ${spectatorCount === 1 ? 'person' : 'people'} watching`}
+              role="status"
+              aria-label={`${spectatorCount} spectator${spectatorCount === 1 ? '' : 's'}`}
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
                 fill="currentColor"
                 className="w-3 h-3"
+                aria-hidden="true"
               >
                 <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
                 <path
@@ -801,12 +842,7 @@ function GameHUDFromViewModel({
                   clipRule="evenodd"
                 />
               </svg>
-              {spectatorCount}
-            </span>
-          )}
-          {isSpectator && (
-            <span className="px-2 py-0.5 rounded-full bg-purple-900/40 border border-purple-500/40 text-purple-100 uppercase tracking-wide font-semibold">
-              Spectator
+              <span>{spectatorCount} watching</span>
             </span>
           )}
           {onShowBoardControls && (
@@ -925,6 +961,39 @@ function GameHUDLegacy({
 
   return (
     <div className="w-full max-w-4xl mx-auto mb-4" data-testid="game-hud">
+      {/* Spectator mode banner - prominent indicator when spectating */}
+      {isSpectator && (
+        <div
+          className="mb-3 px-3 py-2 rounded-lg bg-purple-900/30 border border-purple-500/40 flex items-center justify-between"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex items-center gap-2 text-purple-100">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="w-4 h-4"
+              aria-hidden="true"
+            >
+              <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
+              <path
+                fillRule="evenodd"
+                d="M.664 10.59a1.651 1.651 0 010-1.186A10.004 10.004 0 0110 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0110 17c-4.257 0-7.893-2.66-9.336-6.41zM14 10a4 4 0 11-8 0 4 4 0 018 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span className="text-sm font-semibold">Spectator Mode</span>
+            <span className="text-xs text-purple-200/80">You are watching this game</span>
+          </div>
+          {spectatorCount > 0 && (
+            <span className="text-xs text-purple-200/70">
+              {spectatorCount} {spectatorCount === 1 ? 'viewer' : 'viewers'} total
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Connection Status */}
       <div className="flex items-center justify-between text-xs text-slate-300 mb-3">
         <div className={`font-semibold ${connectionColor}`}>
@@ -934,13 +1003,19 @@ function GameHUDLegacy({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {spectatorCount > 0 && (
-            <span className="text-[11px] text-slate-400 flex items-center gap-1">
+          {spectatorCount > 0 && !isSpectator && (
+            <span
+              className="text-[11px] text-slate-400 flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700"
+              title={`${spectatorCount} ${spectatorCount === 1 ? 'person' : 'people'} watching`}
+              role="status"
+              aria-label={`${spectatorCount} spectator${spectatorCount === 1 ? '' : 's'}`}
+            >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 20 20"
                 fill="currentColor"
                 className="w-3 h-3"
+                aria-hidden="true"
               >
                 <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
                 <path
@@ -949,12 +1024,7 @@ function GameHUDLegacy({
                   clipRule="evenodd"
                 />
               </svg>
-              {spectatorCount}
-            </span>
-          )}
-          {isSpectator && (
-            <span className="px-2 py-0.5 rounded-full bg-purple-900/40 border border-purple-500/40 text-purple-100 uppercase tracking-wide font-semibold">
-              Spectator
+              <span>{spectatorCount} watching</span>
             </span>
           )}
           {onShowBoardControls && (

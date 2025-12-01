@@ -12,6 +12,7 @@ import {
   isServiceReady,
   HealthCheckResponse,
 } from '../../src/server/services/HealthCheckService';
+import { RatingService } from '../../src/server/services/RatingService';
 
 // Minimal Prisma-like stub used for protected-game route tests.
 // We only implement the subset touched by src/server/routes/game.ts in
@@ -49,6 +50,18 @@ jest.mock('../../src/server/middleware/rateLimiter', () => {
 // Convenience alias for the mocked consumeRateLimit so tests can control
 // and assert quota behaviour.
 const mockConsumeRateLimit = rateLimiterModule.consumeRateLimit as jest.MockedFunction<any>;
+
+// Stub RatingService so we can assert when HTTP leave/resign flows do (or do not)
+// trigger rating updates. The engine/session-level rating semantics are covered
+// in dedicated GamePersistenceService and RatingService tests; here we only care
+// that the HTTP layer does not bypass or duplicate those updates.
+jest.mock('../../src/server/services/RatingService', () => ({
+  RatingService: {
+    processGameResult: jest.fn(),
+  },
+}));
+
+const mockProcessGameResult = RatingService.processGameResult as jest.MockedFunction<any>;
 
 // Stub authenticate() so tests can simulate authenticated and
 // unauthenticated requests without relying on real JWTs.
@@ -297,6 +310,7 @@ describe('Protected game route authorization', () => {
     mockPrisma.game.findUnique.mockReset();
     mockPrisma.game.update.mockReset();
     mockPrisma.move.findMany.mockReset();
+    mockProcessGameResult.mockReset();
   });
 
   it('GET /api/games/:gameId returns 401 TOKEN_REQUIRED when unauthenticated', async () => {
@@ -506,6 +520,148 @@ describe('Protected game route authorization', () => {
     expect(wsServerMock.broadcastLobbyEvent).toHaveBeenCalledWith('lobby:game_cancelled', {
       gameId: validGameId,
     });
+  });
+
+  it('POST /api/games/:gameId/leave delegates active rated resignations to the WebSocket host when available', async () => {
+    const validGameId = '550e8400-e29b-41d4-a716-446655440030';
+
+    // First call: route-level authorization + status/isRated
+    mockPrisma.game.findUnique.mockResolvedValueOnce({
+      id: validGameId,
+      player1Id: 'user-1',
+      player2Id: 'user-2',
+      player3Id: null,
+      player4Id: null,
+      status: 'active',
+      isRated: true,
+    } as any);
+    // Second call: winnerId after host-driven resign has completed
+    mockPrisma.game.findUnique.mockResolvedValueOnce({
+      id: validGameId,
+      winnerId: 'user-2',
+    } as any);
+
+    const wsServerMock = {
+      getGameDiagnosticsForGame: jest.fn(),
+      broadcastLobbyEvent: jest.fn(),
+      handlePlayerResignFromHttp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const app = createTestApp(wsServerMock);
+
+    const res = await request(app)
+      .post(`/api/games/${validGameId}/leave`)
+      .set('Authorization', 'Bearer user-1')
+      .expect(200);
+
+    // Host path must be used for active games when a WebSocketServer is wired.
+    expect(wsServerMock.handlePlayerResignFromHttp).toHaveBeenCalledWith(validGameId, 'user-1');
+
+    // Fallback DB-only completion semantics (direct game.update) should not run
+    // when the host path succeeds.
+    expect(mockPrisma.game.update).not.toHaveBeenCalled();
+    expect(mockProcessGameResult).not.toHaveBeenCalled();
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.message).toBe('Resigned from game');
+    expect(res.body.data).toEqual(
+      expect.objectContaining({
+        winnerId: 'user-2',
+      })
+    );
+  });
+
+  it('POST /api/games/:gameId/leave also uses host path for active unrated games (no direct DB completion)', async () => {
+    const validGameId = '550e8400-e29b-41d4-a716-446655440031';
+
+    mockPrisma.game.findUnique.mockResolvedValueOnce({
+      id: validGameId,
+      player1Id: 'user-1',
+      player2Id: 'user-2',
+      player3Id: null,
+      player4Id: null,
+      status: 'active',
+      isRated: false,
+    } as any);
+    mockPrisma.game.findUnique.mockResolvedValueOnce({
+      id: validGameId,
+      winnerId: 'user-2',
+    } as any);
+
+    const wsServerMock = {
+      getGameDiagnosticsForGame: jest.fn(),
+      broadcastLobbyEvent: jest.fn(),
+      handlePlayerResignFromHttp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    const app = createTestApp(wsServerMock);
+
+    const res = await request(app)
+      .post(`/api/games/${validGameId}/leave`)
+      .set('Authorization', 'Bearer user-1')
+      .expect(200);
+
+    expect(wsServerMock.handlePlayerResignFromHttp).toHaveBeenCalledWith(validGameId, 'user-1');
+    expect(mockPrisma.game.update).not.toHaveBeenCalled();
+    expect(mockProcessGameResult).not.toHaveBeenCalled();
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.message).toBe('Resigned from game');
+    expect(res.body.data).toEqual(
+      expect.objectContaining({
+        winnerId: 'user-2',
+      })
+    );
+  });
+
+  it('POST /api/games/:gameId/leave on a completed game does not trigger rating updates or host resign handling', async () => {
+    const validGameId = '550e8400-e29b-41d4-a716-446655440032';
+
+    mockPrisma.game.findUnique.mockResolvedValueOnce({
+      id: validGameId,
+      player1Id: 'user-1',
+      player2Id: 'user-2',
+      player3Id: null,
+      player4Id: null,
+      status: 'completed',
+      isRated: true,
+    } as any);
+
+    // After the leaving player is removed there is still one remaining participant,
+    // so the route should not attempt to re-complete or abandon the game.
+    mockPrisma.game.update.mockResolvedValueOnce({
+      id: validGameId,
+      player1Id: null,
+      player2Id: 'user-2',
+      player3Id: null,
+      player4Id: null,
+      status: 'completed',
+    } as any);
+
+    const wsServerMock = {
+      getGameDiagnosticsForGame: jest.fn(),
+      broadcastLobbyEvent: jest.fn(),
+      handlePlayerResignFromHttp: jest.fn(),
+    };
+
+    const app = createTestApp(wsServerMock);
+
+    const res = await request(app)
+      .post(`/api/games/${validGameId}/leave`)
+      .set('Authorization', 'Bearer user-1')
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.message).toBe('Left game successfully');
+
+    // Completed games should use the "leave" path, not the active-game resign path.
+    expect(wsServerMock.handlePlayerResignFromHttp).not.toHaveBeenCalled();
+
+    // Only the disconnect update should be performed.
+    expect(mockPrisma.game.update).toHaveBeenCalledTimes(1);
+
+    // No rating updates should be triggered when leaving a completed game.
+    expect(mockProcessGameResult).not.toHaveBeenCalled();
   });
 });
 

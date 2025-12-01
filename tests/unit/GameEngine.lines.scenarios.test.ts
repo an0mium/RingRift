@@ -1,6 +1,7 @@
 import { GameEngine } from '../../src/server/game/GameEngine';
 import {
   BoardType,
+  BoardState,
   GameState,
   Player,
   Position,
@@ -9,14 +10,25 @@ import {
   positionToString,
 } from '../../src/shared/types/game';
 import { computeSMetric, computeTMetric, isANMState } from '../../src/shared/engine';
+import {
+  findAllLines,
+  applyProcessLineDecision,
+  applyChooseLineRewardDecision,
+  enumerateProcessLineMoves,
+  enumerateChooseLineRewardMoves,
+} from '../../src/shared/engine/aggregates/LineAggregate';
 
 /**
- * Backend line-formation scenario tests aligned with rules/FAQ.
+ * Line-formation scenario tests aligned with rules/FAQ.
  *
  * These focus on:
  * - Section 11 (Line Formation & Collapse)
  * - FAQ Q7 (exact-length lines)
  * - FAQ Q22 (graduated line rewards and Option 1 vs Option 2)
+ *
+ * Note: These tests use the shared engine's LineAggregate directly
+ * instead of the deprecated GameEngine.processLineFormations() method.
+ * See Wave 5.4 in TODO.md for deprecation context.
  */
 
 describe('GameEngine line formation scenarios (square8)', () => {
@@ -79,18 +91,17 @@ describe('GameEngine line formation scenarios (square8)', () => {
     boardManager.setStack(position, stack, gameState.board);
   }
 
-  test('Q7_exact_length_line_collapse_backend', async () => {
+  test('Q7_exact_length_line_collapse_shared_engine', () => {
     // Rules reference:
     // - Section 11.2: exact-length line → collapse all markers + eliminate ring/cap.
     // - FAQ Q7: exact-length lines always require elimination.
     //
-    // This test focuses on GameEngine.processLineFormations semantics and
-    // uses a BoardManager.findAllLines spy to supply a canonical line,
-    // leaving geometric line detection to BoardManager unit tests.
+    // This test uses the shared engine's LineAggregate directly instead of
+    // the deprecated GameEngine.processLineFormations() method.
     const { engine, gameState, boardManager } = createEngine();
-    const engineAny: any = engine;
 
     gameState.currentPlayer = 1;
+    gameState.currentPhase = 'line_processing';
     const board = gameState.board;
 
     // Clear any existing markers/stacks/collapsed spaces.
@@ -98,176 +109,170 @@ describe('GameEngine line formation scenarios (square8)', () => {
     board.stacks.clear();
     board.collapsedSpaces.clear();
 
-    // Synthetic exact-length line for player 1 at y = 1.
+    // Create exact-length line for player 1 at y = 1 with actual markers.
     const linePositions: Position[] = [];
     for (let i = 0; i < requiredLength; i++) {
-      linePositions.push({ x: i, y: 1 });
+      const pos = { x: i, y: 1 };
+      linePositions.push(pos);
+      board.markers.set(positionToString(pos), {
+        player: 1,
+        position: pos,
+        type: 'regular',
+      });
     }
-
-    const findAllLinesSpy = jest.spyOn(boardManager, 'findAllLines');
-    findAllLinesSpy
-      .mockImplementationOnce(() => [
-        {
-          player: 1,
-          positions: linePositions,
-          length: linePositions.length,
-          direction: { x: 1, y: 0 },
-        },
-      ])
-      .mockImplementation(() => []);
 
     // Add a stack for player 1 so there is a cap to eliminate.
     const stackPos: Position = { x: 7, y: 7 };
     makeStack(boardManager, gameState, 1, 2, stackPos);
 
+    // Detect lines using shared engine
+    const detectedLines = findAllLines(board);
+    expect(detectedLines.length).toBe(1);
+    expect(detectedLines[0].length).toBe(requiredLength);
+    expect(detectedLines[0].player).toBe(1);
+
+    // Cache the formed lines on the board for the shared engine to access
+    board.formedLines = detectedLines;
+
     const player1Before = gameState.players.find((p) => p.playerNumber === 1)!;
     const initialTerritory = player1Before.territorySpaces;
-    const initialEliminated = player1Before.eliminatedRings;
-    const initialTotalEliminated = gameState.totalRingsEliminated;
 
     // INV-S-MONOTONIC / INV-ELIMINATION-MONOTONIC (R191, R207)
     const sBefore = computeSMetric(gameState);
     const tBefore = computeTMetric(gameState);
 
-    // Invoke backend line processing.
-    await engineAny.processLineFormations();
+    // Use shared engine to enumerate and apply line decision
+    const processLineMoves = enumerateProcessLineMoves(gameState, 1);
+    expect(processLineMoves.length).toBe(1);
 
-    const sAfter = computeSMetric(gameState);
-    const tAfter = computeTMetric(gameState);
+    // Apply the process_line decision using shared engine
+    const outcome = applyProcessLineDecision(gameState, processLineMoves[0]);
+
+    const sAfter = computeSMetric(outcome.nextState);
+    const tAfter = computeTMetric(outcome.nextState);
 
     expect(sAfter).toBeGreaterThanOrEqual(sBefore);
     // T is non-decreasing per decision-chain; individual steps may preserve T.
     expect(tAfter).toBeGreaterThanOrEqual(tBefore);
 
-    const player1After = gameState.players.find((p) => p.playerNumber === 1)!;
+    const player1After = outcome.nextState.players.find((p) => p.playerNumber === 1)!;
 
-    // NOTE: Backend line-processing no longer guarantees that the exact
-    // synthetic line geometry supplied via findAllLinesSpy maps 1:1 onto
-    // board.collapsedSpaces; collapse semantics for backend are now
-    // primarily exercised by shared-engine line tests. Here we assert the
-    // aggregate effects only (territory + elimination) to keep the test
-    // robust to backend refactors.
+    // Verify all line positions collapsed (markers removed)
     for (const pos of linePositions) {
       const key = positionToString(pos);
-      expect(board.markers.has(key)).toBe(false);
-      expect(board.stacks.has(key)).toBe(false);
+      expect(outcome.nextState.board.markers.has(key)).toBe(false);
     }
 
-    // INV-ELIMINATION-MONOTONIC / exact-line elimination progress (R191, R207, Q7):
-    // eliminated rings must not decrease for the current player or globally at
-    // this host layer; stricter per-move elimination progress is exercised in
-    // shared-engine tests.
-    expect(player1After.eliminatedRings).toBeGreaterThanOrEqual(initialEliminated);
-    expect(gameState.totalRingsEliminated).toBeGreaterThanOrEqual(initialTotalEliminated);
+    // Exact-length line grants elimination reward
+    expect(outcome.pendingLineRewardElimination).toBe(true);
 
-    // Territory metric: ensure non-decreasing player territory; exact collapse
-    // geometry and crediting of territory is exercised in the shared-engine
-    // line tests and dedicated territory-processing suites.
+    // Territory metric: player gains territory from collapsed line
     const territoryDelta = player1After.territorySpaces - initialTerritory;
-    expect(territoryDelta).toBeGreaterThanOrEqual(0);
+    expect(territoryDelta).toBe(requiredLength);
 
     // INV-ACTIVE-NO-MOVES / INV-PHASE-CONSISTENCY: resulting ACTIVE state is not ANM.
-    if (gameState.gameStatus === 'active') {
-      expect(isANMState(gameState)).toBe(false);
+    if (outcome.nextState.gameStatus === 'active') {
+      expect(isANMState(outcome.nextState)).toBe(false);
     }
   });
 
-  test('Q22_graduated_rewards_option2_min_collapse_backend_default', async () => {
+  test('Q22_graduated_rewards_option2_min_collapse_shared_engine', () => {
     // Rules reference:
     // - Section 11.2 / 11.3: lines longer than required may use Option 2
     //   (collapse only the minimum required markers, no elimination).
     // - FAQ Q22: strategic tradeoff for preserving rings by choosing
     //   minimum collapse.
     //
-    // This test exercises the default backend behaviour when no
-    // PlayerInteractionManager is wired: overlong lines default to
-    // Option 2 (min collapse, no elimination).
+    // This test uses the shared engine's LineAggregate directly instead of
+    // the deprecated GameEngine.processLineFormations() method.
     const { engine, gameState, boardManager } = createEngine();
-    const engineAny: any = engine;
 
     gameState.currentPlayer = 1;
+    gameState.currentPhase = 'line_processing';
     const board = gameState.board;
 
     board.markers.clear();
     board.stacks.clear();
     board.collapsedSpaces.clear();
 
-    // Synthetic line longer than required: requiredLength + 1 markers.
+    // Create overlength line with actual markers: requiredLength + 1 markers.
     const linePositions: Position[] = [];
     for (let i = 0; i < requiredLength + 1; i++) {
-      linePositions.push({ x: i, y: 2 });
+      const pos = { x: i, y: 2 };
+      linePositions.push(pos);
+      board.markers.set(positionToString(pos), {
+        player: 1,
+        position: pos,
+        type: 'regular',
+      });
     }
 
-    const findAllLinesSpy = jest.spyOn(boardManager, 'findAllLines');
-    findAllLinesSpy
-      .mockImplementationOnce(() => [
-        {
-          player: 1,
-          positions: linePositions,
-          length: linePositions.length,
-          direction: { x: 1, y: 0 },
-        },
-      ])
-      .mockImplementation(() => []);
-
-    // Add a stack for player 1; for Option 2 we expect no elimination, so the
-    // stack should remain unchanged.
+    // Add a stack for player 1.
     const stackPos: Position = { x: 7, y: 7 };
     makeStack(boardManager, gameState, 1, 2, stackPos);
 
+    // Detect lines using shared engine
+    const detectedLines = findAllLines(board);
+    expect(detectedLines.length).toBe(1);
+    expect(detectedLines[0].length).toBe(requiredLength + 1);
+    expect(detectedLines[0].player).toBe(1);
+
+    // Cache the formed lines on the board
+    board.formedLines = detectedLines;
+
     const player1Before = gameState.players.find((p) => p.playerNumber === 1)!;
-    const initialEliminated = player1Before.eliminatedRings;
-    const initialTotalEliminated = gameState.totalRingsEliminated;
     const initialTerritory = player1Before.territorySpaces;
 
     // INV-S-MONOTONIC / INV-ELIMINATION-MONOTONIC (R191, R207)
     const sBefore = computeSMetric(gameState);
     const tBefore = computeTMetric(gameState);
 
-    await engineAny.processLineFormations();
+    // Use shared engine to enumerate line reward choices for overlength line
+    const rewardMoves = enumerateChooseLineRewardMoves(gameState, 1, 0);
 
-    const sAfter = computeSMetric(gameState);
-    const tAfter = computeTMetric(gameState);
+    // Overlength line should have at least one reward option
+    expect(rewardMoves.length).toBeGreaterThanOrEqual(1);
+
+    // Find a minimum-collapse move (Option 2 - no elimination reward)
+    // If no explicit minimum-collapse move exists, create one manually via
+    // the apply function with explicit collapsedMarkers
+    const minCollapseSegment = linePositions.slice(0, requiredLength);
+
+    // Create a synthetic choose_line_reward move for Option 2 (minimum collapse)
+    const minCollapseMove = {
+      ...rewardMoves[0],
+      id: `choose-line-reward-0-min-segment`,
+      type: 'choose_line_reward' as const,
+      collapsedMarkers: minCollapseSegment,
+    };
+
+    // Apply Option 2: minimum collapse (first segment)
+    const outcome = applyChooseLineRewardDecision(gameState, minCollapseMove);
+
+    const sAfter = computeSMetric(outcome.nextState);
+    const tAfter = computeTMetric(outcome.nextState);
 
     expect(sAfter).toBeGreaterThanOrEqual(sBefore);
-    // T is non-decreasing per decision-chain; some backend implementations
-    // may preserve T during line processing.
     expect(tAfter).toBeGreaterThanOrEqual(tBefore);
 
-    const player1After = gameState.players.find((p) => p.playerNumber === 1)!;
-    const collapsedKeys = new Set<string>();
-    for (const pos of linePositions) {
-      const key = positionToString(pos);
-      if (board.collapsedSpaces.get(key) === 1) {
-        collapsedKeys.add(key);
-      }
-    }
+    const player1After = outcome.nextState.players.find((p) => p.playerNumber === 1)!;
 
-    // Backend currently prefers a collapse-all behaviour for this synthetic
-    // overlength line. We assert that at least the minimum required number
-    // of cells from this line are collapsed, without over-constraining the
-    // exact option (Option 1 vs Option 2) at this host layer; the canonical
-    // shared-engine line tests cover the full graduated reward surface.
-    expect(collapsedKeys.size).toBeGreaterThanOrEqual(requiredLength);
+    // Option 2 (minimum collapse) grants NO elimination reward
+    expect(outcome.pendingLineRewardElimination).toBe(false);
 
-    // We do not assert a specific remaining-marker geometry for the overlength
-    // segment; backend collapse-all vs minimum-collapse choices are exercised
-    // in shared-engine tests. Here we only enforce aggregate collapse counts.
-
-    // INV-ELIMINATION-MONOTONIC (R191, R207): eliminated rings must not
-    // decrease, but specific Option 1 vs Option 2 reward geometry is left
-    // to the shared-engine line tests.
-    expect(player1After.eliminatedRings).toBeGreaterThanOrEqual(initialEliminated);
-    expect(gameState.totalRingsEliminated).toBeGreaterThanOrEqual(initialTotalEliminated);
-
-    // Territory progress: at least the minimum contiguous segment length must
-    // be converted to territory, but backend implementations may collapse more.
+    // Territory: exactly requiredLength spaces collapsed
     const territoryDelta = player1After.territorySpaces - initialTerritory;
-    expect(territoryDelta).toBeGreaterThanOrEqual(requiredLength);
+    expect(territoryDelta).toBe(requiredLength);
 
-    // INV-ACTIVE-NO-MOVES / INV-PHASE-CONSISTENCY: resulting ACTIVE state is not ANM.
-    if (gameState.gameStatus === 'active') {
-      expect(isANMState(gameState)).toBe(false);
+    // One marker should remain (overlength - requiredLength = 1 remaining)
+    const remainingMarkers = Array.from(outcome.nextState.board.markers.values()).filter(
+      (m) => m.player === 1
+    );
+    expect(remainingMarkers.length).toBe(1);
+
+    // INV-ACTIVE-NO-MOVES: resulting ACTIVE state is not ANM.
+    if (outcome.nextState.gameStatus === 'active') {
+      expect(isANMState(outcome.nextState)).toBe(false);
     }
   });
 

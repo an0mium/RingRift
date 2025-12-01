@@ -69,7 +69,30 @@ export type {
 // Progress Tracking & History
 export type { ProgressSnapshot, BoardSummary, GameHistoryEntry, GameTrace } from '../types/game';
 
- // Configuration
+// Discriminated Move Types
+export type {
+  MovementMove,
+  BuildStackMove,
+  CaptureMove,
+  PlacementMove,
+  SkipPlacementMove,
+  SwapSidesMove,
+  LineProcessingMove,
+  TerritoryProcessingMove,
+  LegacyMove,
+  TypedMove,
+} from '../types/game';
+
+// Move Type Guards
+export {
+  isMovementMove,
+  isBuildStackMove,
+  isCaptureMove,
+  isPlacementMove,
+  isSpatialMove,
+} from '../types/game';
+
+// Configuration
 export { BOARD_CONFIGS } from '../types/game';
 
 // Position Utilities
@@ -519,7 +542,6 @@ export {
   computeTMetric,
 } from './globalActions';
 
-
 export type { ForcedEliminationOutcome } from './globalActions';
 
 export { applyForcedEliminationForPlayer } from './globalActions';
@@ -531,3 +553,16 @@ export { applyForcedEliminationForPlayer } from './globalActions';
 // Rule Reference: RR-CANON-R001 (board parameters) + 2p line-length variant
 
 export { getEffectiveLineLengthThreshold } from './rulesConfig';
+
+// =============================================================================
+// ORCHESTRATION TYPES
+// =============================================================================
+// Location: orchestration/types.ts
+// Shared types for turn orchestration and decision handling
+
+export type {
+  DecisionType,
+  DecisionContext,
+  PendingDecision,
+  ProcessTurnResult,
+} from './orchestration/types';

@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
-import { getDatabaseClient } from '../database/connection';
-import { AuthenticatedRequest } from '../middleware/auth';
+import { Prisma } from '@prisma/client';
+import { getDatabaseClient, TransactionClient } from '../database/connection';
+import { AuthenticatedRequest, getAuthUserId } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
 import { httpLogger } from '../utils/logger';
 import {
@@ -10,7 +11,6 @@ import {
   LeaderboardQuerySchema,
 } from '../../shared/validation/schemas';
 import { RatingService } from '../services/RatingService';
-import { RATING_CONSTANTS } from '../../shared/types/user';
 import type { WebSocketServer } from '../websocket/server';
 
 // Module-level reference to the WebSocket server for session termination
@@ -61,7 +61,7 @@ const router = Router();
 router.get(
   '/profile',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -172,7 +172,7 @@ router.get(
 router.put(
   '/profile',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     // Validate request body with Zod schema
     const parseResult = UpdateProfileSchema.safeParse(req.body);
@@ -287,7 +287,7 @@ router.put(
 router.get(
   '/stats',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -429,7 +429,7 @@ router.get(
 router.get(
   '/games',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     // Validate query parameters with schema
     const queryResult = GameListingQuerySchema.safeParse(req.query);
@@ -443,7 +443,7 @@ router.get(
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
-    const whereClause: any = {
+    const whereClause: Prisma.GameWhereInput = {
       OR: [
         { player1Id: userId },
         { player2Id: userId },
@@ -765,7 +765,7 @@ router.get(
     });
 
     // Add rank to each user
-    const usersWithRank = users.map((user: any, index: number) => ({
+    const usersWithRank = users.map((user, index) => ({
       ...user,
       rank: offset + index + 1,
       winRate:
@@ -951,14 +951,14 @@ router.get(
 router.delete(
   '/me',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
-    await prisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: TransactionClient) => {
       const user = await tx.user.findUnique({
         where: { id: userId },
       });
@@ -1172,7 +1172,7 @@ router.get(
   // TODO: Add specific rate limiting for data export (1 request per hour)
   // Example: rateLimiter({ windowMs: 60 * 60 * 1000, max: 1, keyPrefix: 'export' })
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -1250,7 +1250,7 @@ router.get(
     });
 
     // Transform games to user-friendly format
-    const formattedGames = games.map((game: any) => {
+    const formattedGames = games.map((game) => {
       // Determine user's result in this game
       let result: 'win' | 'loss' | 'draw' | 'in_progress' | 'abandoned' = 'in_progress';
       if (game.status === 'completed' || game.status === 'finished') {
@@ -1274,11 +1274,11 @@ router.get(
       ];
 
       const opponents = playerSlots
-        .filter((slot: any) => slot.id && slot.id !== userId)
-        .map((slot: any) => getDisplayUsername(slot.user?.username));
+        .filter((slot) => slot.id && slot.id !== userId)
+        .map((slot) => getDisplayUsername(slot.user?.username));
 
       // Format moves with user context
-      const formattedMoves = game.moves.map((move: any) => ({
+      const formattedMoves = game.moves.map((move) => ({
         moveNumber: move.moveNumber,
         moveType: move.moveType,
         timestamp: move.timestamp,

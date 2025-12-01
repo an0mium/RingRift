@@ -1,0 +1,66 @@
+[Game "RingRift"]
+[Board "square8"]
+[Date "2025-12-01"]
+[Player1 "AI-1"]
+[Player2 "AI-2"]
+[Result "0-1"]
+[Termination "env_done_flag"]
+[RNGSeed "None"]
+[TotalMoves "35"]
+
+1. P b2      M b2-e5
+2. P e5      M e5-a1
+3. P f4      M f4-c7
+4. P g3      M g3-c7
+5. P h2      M h2-c7
+6. LR 1      P c2
+7. M c2-c7      P c1
+8. C c1-c8 xc7      CC c8-c4 xc7
+9. P e2      M e2-c4
+10. P c3      M c3-c4
+11. P b3      M b3-c4
+12. P d5      M d5-d2
+13. P d8      M d8-d2
+14. P e3      M e3-c5
+15. P f2      M f2-c5
+16. T 1      P b1
+17. M b1-b4      P d6
+18. M d6-c7
+
+0-1
+
+[Game "RingRift"]
+[Board "square8"]
+[Date "2025-12-01"]
+[Player1 "AI-1"]
+[Player2 "AI-2"]
+[Result "0-1"]
+[Termination "env_done_flag"]
+[RNGSeed "None"]
+[TotalMoves "44"]
+
+1. P d4      M d4-d7
+2. P d3      M d3-d7
+3. P d7      M d7-d1
+4. P d1      M d1-d8
+5. P c7      M c7-f7
+6. P d2      M d2-g2
+7. LR 1      P b7
+8. M b7-g2      P a7
+9. M a7-f7      LR 1
+10. P d6      M d6-d8
+11. P a6      M a6-e6
+12. C e6-g8 xf7      CC g8-b8 xd8
+13. CC b8-g8 xd8      CC g8-b8 xd8
+14. P c6      M c6-f6
+15. P b6      M b6-b2
+16. P e5      M e5-b2
+17. T 1      P f6
+18. M f6-f2      P f7
+19. M f7-f2      P g7
+20. M g7-g2      P g6
+21. M g6-g2      P f5
+22. M f5-f8      T 1
+
+0-1
+

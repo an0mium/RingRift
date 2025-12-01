@@ -31,7 +31,6 @@ import {
   type VictoryViewModel,
   type ToHUDViewModelOptions,
   type ToBoardViewModelOptions,
-  type ToEventLogViewModelOptions,
 } from '../adapters/gameViewModels';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -61,6 +60,8 @@ export interface RawGameState {
   players: Player[];
   /** Current player object (convenience accessor) */
   currentPlayer: Player | undefined;
+  /** Streaming AI evaluation history for the current game (analysis mode). */
+  evaluationHistory: import('../../shared/types/websocket').PositionEvaluationPayload['data'][];
 }
 
 /**
@@ -110,6 +111,7 @@ export function useGameState(): RawGameState {
     victoryState,
     decisionAutoResolved,
     decisionPhaseTimeoutWarning,
+    evaluationHistory,
   } = useGame();
 
   return useMemo(() => {
@@ -125,6 +127,7 @@ export function useGameState(): RawGameState {
       currentPlayer,
       decisionAutoResolved,
       decisionPhaseTimeoutWarning,
+      evaluationHistory,
     };
   }, [
     gameId,
@@ -133,6 +136,7 @@ export function useGameState(): RawGameState {
     victoryState,
     decisionAutoResolved,
     decisionPhaseTimeoutWarning,
+    evaluationHistory,
   ]);
 }
 

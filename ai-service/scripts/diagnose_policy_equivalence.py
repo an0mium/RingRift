@@ -30,6 +30,7 @@ import json
 import math
 import os
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
@@ -51,6 +52,8 @@ from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
     HEURISTIC_WEIGHT_KEYS,
     HeuristicWeights,
 )
+
+from app.utils.progress_reporter import ProgressReporter  # type: ignore  # noqa: E402
 
 
 DEFAULT_STATE_POOL = os.path.join("data", "eval_pools", "square8", "pool_v1.jsonl")
@@ -217,12 +220,17 @@ def compare_moves_on_states(
     baseline_weights: HeuristicWeights,
     candidate_weights: HeuristicWeights,
     states: Sequence[GameState],
+    *,
+    label: str = "candidate",
 ) -> Dict[str, Any]:
     """Compare baseline vs candidate select_move decisions on states.
 
     The AIs are configured with think_time=0 and randomness=0.0 so that
     select_move is deterministic for a given state. For each state we set
     both AIs' player_number to state.current_player before querying moves.
+
+    This helper also emits periodic progress logs for long-running runs so
+    that callers see terminal output at least every ~10 seconds.
     """
     # Instantiate baseline and candidate AIs once and override their weights.
     baseline_ai = HeuristicAI(
@@ -253,7 +261,21 @@ def compare_moves_on_states(
     same_moves = 0
     different_moves = 0
 
-    for state in states:
+    total_states = len(states)
+    if total_states > 0:
+        # Use the shared ProgressReporter to emit time-based progress logs
+        # roughly every 10 seconds. Each "unit" corresponds to one state
+        # processed (i.e., one select_move call per AI).
+        progress = ProgressReporter(
+            total_units=total_states,
+            unit_name="states",
+            report_interval_sec=10.0,
+            context_label=f"diagnose_policy_equivalence:{label}",
+        )
+    else:
+        progress = None
+
+    for index, state in enumerate(states, start=1):
         # Ensure both AIs view the same side to move.
         current_player = state.current_player
         baseline_ai.player_number = current_player
@@ -268,12 +290,15 @@ def compare_moves_on_states(
         if sig_baseline is None and sig_candidate is None:
             # Both decline to move; treat as equivalent policy.
             same_moves += 1
-            continue
-
-        if sig_baseline == sig_candidate:
+        elif sig_baseline == sig_candidate:
             same_moves += 1
         else:
             different_moves += 1
+
+        # Time-based progress logging via the shared ProgressReporter
+        # (approximately every 10 seconds, plus a final summary at the end).
+        if progress is not None:
+            progress.update(completed=index)
 
     total = same_moves + different_moves
     difference_rate = (different_moves / total) if total > 0 else 0.0
@@ -287,13 +312,25 @@ def compare_moves_on_states(
         sq_sum += diff * diff
     weight_l2 = math.sqrt(sq_sum)
 
-    return {
+    summary: Dict[str, Any] = {
         "same_moves": same_moves,
         "different_moves": different_moves,
         "total_states": total,
         "difference_rate": difference_rate,
         "weight_l2": weight_l2,
     }
+
+    # Emit a final progress summary once per candidate so that even fast
+    # runs on small pools produce a compact completion line.
+    if progress is not None:
+        progress.finish(
+            extra_metrics={
+                "difference_rate": difference_rate,
+                "weight_l2": weight_l2,
+            }
+        )
+
+    return summary
 
 
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -453,6 +490,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             baseline_weights=baseline_weights,
             candidate_weights=candidate.weights,
             states=states,
+            label=candidate.id,
         )
         entry = {
             "id": candidate.id,

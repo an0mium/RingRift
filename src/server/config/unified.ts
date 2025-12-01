@@ -19,13 +19,19 @@
 
 import dotenv from 'dotenv';
 import { z } from 'zod';
-import { getRulesMode } from '../../shared/utils/envFlags';
+import { getRulesMode, isJestRuntime } from '../../shared/utils/envFlags';
 import {
   isPlaceholderSecret,
   SECRET_MIN_LENGTHS,
   validateSecretsOrThrow,
 } from '../utils/secretsValidation';
-import { NodeEnvSchema, AppTopologySchema, RulesModeSchema, parseEnv, getEffectiveNodeEnv } from './env';
+import {
+  NodeEnvSchema,
+  AppTopologySchema,
+  RulesModeSchema,
+  parseEnv,
+  getEffectiveNodeEnv,
+} from './env';
 
 // Load .env into process.env before we read anything from it.
 dotenv.config();
@@ -35,12 +41,16 @@ dotenv.config();
 const envResult = parseEnv(process.env as Record<string, string | undefined>);
 if (!envResult.success) {
   console.error('❌ Invalid environment configuration:');
-  for (const error of envResult.errors!) {
+  for (const error of envResult.errors ?? []) {
     console.error(`  - ${error.path || 'root'}: ${error.message}`);
   }
   process.exit(1);
 }
-const env = envResult.data!;
+const env =
+  envResult.data ??
+  (() => {
+    throw new Error('Missing env data after successful parse');
+  })();
 
 // Determine effective node environment.
 // When running under Jest, JEST_WORKER_ID is always defined. In that case we
@@ -48,10 +58,7 @@ const env = envResult.data!;
 // "development" via a .env file, so that test-only switches (e.g. timer
 // suppression in GameEngine) behave correctly.
 const nodeEnv = getEffectiveNodeEnv(env);
-const isJestRuntime =
-  typeof process !== 'undefined' &&
-  !!(process as any).env &&
-  (process as any).env.JEST_WORKER_ID !== undefined;
+const inJestRuntime = isJestRuntime();
 const isProduction = nodeEnv === 'production';
 const isTest = nodeEnv === 'test';
 const isDevelopment = nodeEnv === 'development';
@@ -234,6 +241,11 @@ const ConfigSchema = z.object({
       }),
       latencyThresholdMs: z.number().int().positive(),
     }),
+    analysisMode: z
+      .object({
+        enabled: z.boolean(),
+      })
+      .optional(),
   }),
   orchestrator: z.object({
     /**
@@ -329,6 +341,9 @@ const preliminaryConfig = {
       },
       latencyThresholdMs: env.ORCHESTRATOR_LATENCY_THRESHOLD_MS,
     },
+    analysisMode: {
+      enabled: env.ENABLE_ANALYSIS_MODE,
+    },
   },
 };
 
@@ -340,7 +355,7 @@ export type AppConfig = z.infer<typeof ConfigSchema>;
 // Run comprehensive secrets validation (will throw on critical errors in production).
 // In test/development, this logs warnings but doesn't fail for missing optional secrets.
 // This is done before the final config parse to provide better error messages.
-if (!isJestRuntime) {
+if (!inJestRuntime) {
   // Skip secrets validation in Jest to avoid test interference; tests should
   // use validateSecretsOrThrow directly with controlled env vars.
   validateSecretsOrThrow(isProduction);

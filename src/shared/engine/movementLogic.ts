@@ -70,7 +70,6 @@ export function enumerateSimpleMoveTargetsFromStack(
     let step = 1;
     // Walk outward along this ray until we leave the board or hit an
     // obstruction that blocks further movement.
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const to: Position = {
         x: from.x + dir.x * step,

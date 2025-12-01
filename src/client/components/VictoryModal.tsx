@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { GameResult, Player, GameState } from '../../shared/types/game';
 import {
   toVictoryViewModel,
@@ -6,6 +6,24 @@ import {
   type PlayerFinalStatsViewModel,
   type PlayerViewModel,
 } from '../adapters/gameViewModels';
+
+/**
+ * Status of a pending rematch request.
+ */
+export interface RematchStatus {
+  /** Whether a rematch request is currently pending */
+  isPending: boolean;
+  /** ID of the pending rematch request */
+  requestId?: string;
+  /** Username of the player who requested the rematch */
+  requesterUsername?: string;
+  /** Whether the current user initiated the request */
+  isRequester?: boolean;
+  /** Expiration timestamp (ISO-8601) */
+  expiresAt?: string;
+  /** Current status */
+  status?: 'pending' | 'accepted' | 'declined' | 'expired';
+}
 
 interface VictoryModalProps {
   isOpen: boolean;
@@ -20,7 +38,16 @@ interface VictoryModalProps {
   viewModel?: VictoryViewModel | null;
   onClose: () => void;
   onReturnToLobby: () => void;
+  /** Called when user requests a rematch (for local/sandbox games) */
   onRematch?: () => void;
+  /** Called when user requests a rematch in backend games */
+  onRequestRematch?: () => void;
+  /** Called when user accepts a rematch request */
+  onAcceptRematch?: (requestId: string) => void;
+  /** Called when user declines a rematch request */
+  onDeclineRematch?: (requestId: string) => void;
+  /** Current rematch status for backend games */
+  rematchStatus?: RematchStatus;
   currentUserId?: string;
 }
 
@@ -83,7 +110,7 @@ function FinalStatsTable({
   winner,
 }: {
   stats: PlayerFinalStatsViewModel[];
-  winner?: PlayerViewModel;
+  winner?: PlayerViewModel | undefined;
 }) {
   // Sort by winner first, then by rings eliminated (descending)
   const sortedStats = [...stats].sort((a, b) => {
@@ -99,7 +126,7 @@ function FinalStatsTable({
           <tr className="bg-slate-700 text-slate-100">
             <th className="px-4 py-2 text-left">Player</th>
             <th className="px-4 py-2 text-center">Rings on Board</th>
-            <th className="px-4 py-2 text-center">Rings Lost</th>
+            <th className="px-4 py-2 text-center">Rings Captured</th>
             <th className="px-4 py-2 text-center">Territory</th>
             <th className="px-4 py-2 text-center">Moves</th>
           </tr>
@@ -179,6 +206,157 @@ function getPlayerColor(playerNumber: number): string {
 }
 
 /**
+ * Hook to calculate countdown time remaining
+ */
+function useCountdown(expiresAt?: string): number {
+  const [remaining, setRemaining] = useState(() => {
+    if (!expiresAt) return 0;
+    return Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+  });
+
+  useEffect(() => {
+    if (!expiresAt) return;
+
+    const update = () => {
+      const ms = new Date(expiresAt).getTime() - Date.now();
+      setRemaining(Math.max(0, Math.floor(ms / 1000)));
+    };
+
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  return remaining;
+}
+
+/**
+ * Rematch section component
+ */
+function RematchSection({
+  rematchStatus,
+  onRematch,
+  onRequestRematch,
+  onAcceptRematch,
+  onDeclineRematch,
+}: {
+  rematchStatus?: RematchStatus | undefined;
+  onRematch?: (() => void) | undefined;
+  onRequestRematch?: (() => void) | undefined;
+  onAcceptRematch?: ((requestId: string) => void) | undefined;
+  onDeclineRematch?: ((requestId: string) => void) | undefined;
+}) {
+  const countdown = useCountdown(rematchStatus?.expiresAt);
+
+  // Local/sandbox game: simple rematch button
+  if (onRematch && !onRequestRematch) {
+    return (
+      <button
+        onClick={onRematch}
+        className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+      >
+        Play Again
+      </button>
+    );
+  }
+
+  // No rematch functionality available
+  if (!onRequestRematch) {
+    return null;
+  }
+
+  // Rematch request was accepted - show redirect message
+  if (rematchStatus?.status === 'accepted') {
+    return (
+      <div className="px-6 py-3 bg-green-900/50 border border-green-600 rounded-lg text-green-200 text-center">
+        Rematch accepted! Joining new game...
+      </div>
+    );
+  }
+
+  // Rematch request was declined
+  if (rematchStatus?.status === 'declined') {
+    return (
+      <div className="px-6 py-3 bg-red-900/50 border border-red-600 rounded-lg text-red-200 text-center">
+        Rematch declined
+      </div>
+    );
+  }
+
+  // Rematch request expired
+  if (rematchStatus?.status === 'expired' || (rematchStatus?.isPending && countdown <= 0)) {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <div className="px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-300 text-sm">
+          Rematch request expired
+        </div>
+        <button
+          onClick={onRequestRematch}
+          className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+        >
+          Request Rematch
+        </button>
+      </div>
+    );
+  }
+
+  // Pending rematch request from another player
+  if (rematchStatus?.isPending && !rematchStatus.isRequester && rematchStatus.requestId) {
+    const requestId = rematchStatus.requestId;
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <div className="text-center">
+          <p className="text-slate-200 font-medium">
+            {rematchStatus.requesterUsername || 'Your opponent'} wants a rematch!
+          </p>
+          <p className="text-sm text-slate-400">
+            {countdown > 0 ? `${countdown}s remaining` : 'Expired'}
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={() => onAcceptRematch?.(requestId)}
+            className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+            Accept
+          </button>
+          <button
+            onClick={() => onDeclineRematch?.(requestId)}
+            className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+          >
+            Decline
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Current user has a pending rematch request
+  if (rematchStatus?.isPending && rematchStatus.isRequester) {
+    return (
+      <div className="flex flex-col items-center gap-2">
+        <div className="px-6 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-200 text-center">
+          <p className="font-medium">Waiting for opponent...</p>
+          <p className="text-sm text-slate-400">
+            {countdown > 0 ? `${countdown}s remaining` : 'Expired'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // No pending request - show request button
+  return (
+    <button
+      onClick={onRequestRematch}
+      className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
+    >
+      Request Rematch
+    </button>
+  );
+}
+
+/**
  * Victory Modal Component
  */
 const FOCUSABLE_SELECTORS =
@@ -193,6 +371,10 @@ export function VictoryModal({
   onClose,
   onReturnToLobby,
   onRematch,
+  onRequestRematch,
+  onAcceptRematch,
+  onDeclineRematch,
+  rematchStatus,
   currentUserId,
 }: VictoryModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -335,6 +517,19 @@ export function VictoryModal({
           <GameSummary summary={gameSummary} />
         </div>
 
+        {/* Rematch section */}
+        {(onRematch || onRequestRematch) && (
+          <div className="buttons-animate flex justify-center relative z-10">
+            <RematchSection
+              rematchStatus={rematchStatus}
+              onRematch={onRematch}
+              onRequestRematch={onRequestRematch}
+              onAcceptRematch={onAcceptRematch}
+              onDeclineRematch={onDeclineRematch}
+            />
+          </div>
+        )}
+
         {/* Action Buttons with staggered animation */}
         <div className="buttons-animate flex gap-3 justify-center flex-wrap relative z-10">
           <button
@@ -343,15 +538,6 @@ export function VictoryModal({
           >
             Return to Lobby
           </button>
-
-          {onRematch && (
-            <button
-              onClick={onRematch}
-              className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-semibold transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 focus:ring-offset-slate-900"
-            >
-              Request Rematch
-            </button>
-          )}
 
           <button
             onClick={onClose}

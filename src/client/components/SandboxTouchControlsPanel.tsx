@@ -2,7 +2,7 @@ import React from 'react';
 import type { Position } from '../../shared/types/game';
 
 export interface SandboxTouchControlsPanelProps {
-  selectedPosition?: Position;
+  selectedPosition?: Position | undefined;
   selectedStackDetails?: {
     height: number;
     cap: number;
@@ -20,6 +20,9 @@ export interface SandboxTouchControlsPanelProps {
   showValidTargets: boolean;
   onToggleValidTargets: (next: boolean) => void;
   phaseLabel: string;
+  autoSaveGames?: boolean;
+  onToggleAutoSave?: (next: boolean) => void;
+  gameSaveStatus?: 'idle' | 'saving' | 'saved' | 'error';
 }
 
 /**
@@ -53,6 +56,9 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
   showValidTargets,
   onToggleValidTargets,
   phaseLabel,
+  autoSaveGames,
+  onToggleAutoSave,
+  gameSaveStatus,
 }) => {
   const hasSelection = !!selectedPosition;
   const hasTargets = validTargets.length > 0;
@@ -78,7 +84,9 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
       <div className="flex items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">Touch Controls</h2>
-          <p className="text-[11px] text-slate-400">Tap, then use these controls to refine moves.</p>
+          <p className="text-[11px] text-slate-400">
+            Tap, then use these controls to refine moves.
+          </p>
         </div>
         <span className="px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-600 text-[10px] uppercase tracking-wide text-slate-300">
           Phase: {phaseLabel}
@@ -88,9 +96,7 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <span className="font-semibold text-[11px]">Selection</span>
-          <span className="text-[11px] text-slate-400">
-            Targets: {validTargets.length}
-          </span>
+          <span className="text-[11px] text-slate-400">Targets: {validTargets.length}</span>
         </div>
 
         {hasSelection ? (
@@ -116,7 +122,8 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
           </div>
         ) : (
           <p className="text-[11px] text-slate-300">
-            Tap any stack or empty cell to begin. Use the buttons below to clear or adjust your selection.
+            Tap any stack or empty cell to begin. Use the buttons below to clear or adjust your
+            selection.
           </p>
         )}
       </div>
@@ -186,16 +193,53 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
         </div>
       </div>
 
+      {onToggleAutoSave !== undefined && autoSaveGames !== undefined && (
+        <div className="border-t border-slate-700 pt-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-[11px]">Game storage</span>
+            {gameSaveStatus && gameSaveStatus !== 'idle' && (
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                  gameSaveStatus === 'saving'
+                    ? 'bg-amber-900/50 text-amber-200 border border-amber-500/50'
+                    : gameSaveStatus === 'saved'
+                      ? 'bg-emerald-900/50 text-emerald-200 border border-emerald-500/50'
+                      : 'bg-red-900/50 text-red-200 border border-red-500/50'
+                }`}
+              >
+                {gameSaveStatus === 'saving' && 'Saving...'}
+                {gameSaveStatus === 'saved' && 'Saved'}
+                {gameSaveStatus === 'error' && 'Error'}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-1 text-[11px]">
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="rounded border-slate-600 bg-slate-900 text-violet-500 focus:ring-violet-500"
+                checked={autoSaveGames}
+                onChange={(e) => onToggleAutoSave(e.target.checked)}
+              />
+              <span className="text-slate-200">Auto-save completed games</span>
+            </label>
+            <p className="text-[10px] text-slate-400 pl-5">
+              Stores finished games to the replay database for analysis
+            </p>
+          </div>
+        </div>
+      )}
+
       {hasCaptureTargets && (
         <div className="border-t border-slate-700 pt-3 space-y-2">
           <span className="font-semibold text-[11px]">Capture segments</span>
           <p className="text-[11px] text-slate-400">
-            Pending capture directions are highlighted on the board. Tap a landing cell to continue the chain.
+            Pending capture directions are highlighted on the board. Tap a landing cell to continue
+            the chain.
           </p>
           <div className="flex flex-wrap gap-1">
             {captureTargets.map((pos, idx) => (
               <span
-                // eslint-disable-next-line react/no-array-index-key
                 key={`${pos.x},${pos.y},${pos.z ?? 0}-${idx}`}
                 className="px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-600 font-mono text-[10px]"
               >

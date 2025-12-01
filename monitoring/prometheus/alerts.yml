@@ -433,7 +433,12 @@ groups:
           team: ai
         annotations:
           summary: 'AI service errors increasing'
-          description: 'AI service is returning errors at a rate > 0.1/sec over the last 5 minutes.'
+          description: |
+            AI service is returning errors at a rate > 0.1/sec over the last 5 minutes.
+            Correlate with game termination and fallback metrics (timeout, resignation,
+            abandonment) via:
+              - ringrift_game_session_abnormal_termination_total{reason=~"timeout|resignation|abandonment"}
+              - ringrift_ai_fallback_total{reason=~"timeout|connection_refused|service_unavailable|overloaded"}
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/AI_ERRORS.md'
           impact: 'AI game experience degraded.'
 
@@ -632,7 +637,7 @@ groups:
           description: 'The orchestrator has been automatically disabled due to high error rate.'
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
           impact: 'All traffic using legacy engine. Requires manual investigation before increasing rollout again.'
- 
+
       # -----------------------------------------------------------------------
       # High Orchestrator Error Rate (Warning)
       # -----------------------------------------------------------------------
@@ -647,7 +652,7 @@ groups:
           description: 'Orchestrator error rate is above 2%. Circuit may trip at 5% depending on configuration.'
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
           impact: 'Increased risk of moves failing on the orchestrator path; consider pausing rollout increases.'
- 
+
       # -----------------------------------------------------------------------
       # Shadow Mode Mismatches (Warning)
       # -----------------------------------------------------------------------
@@ -662,7 +667,7 @@ groups:
           description: 'More than 1% of shadow comparisons show differences between engines. Investigate before increasing rollout.'
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
           impact: 'Potential semantic divergence between legacy and orchestrator engines.'
- 
+
       # -----------------------------------------------------------------------
       # Orchestrator Invariant Violations – Staging
       # -----------------------------------------------------------------------

@@ -1,5 +1,11 @@
 import { GameEngine } from '../../src/server/game/GameEngine';
-import { BOARD_CONFIGS, BoardType, GameState, Player, TimeControl } from '../../src/shared/types/game';
+import {
+  BOARD_CONFIGS,
+  BoardType,
+  GameState,
+  Player,
+  TimeControl,
+} from '../../src/shared/types/game';
 
 describe('GameEngine pie rule (swap_sides meta-move)', () => {
   const boardType: BoardType = 'square8';
@@ -30,9 +36,10 @@ describe('GameEngine pie rule (swap_sides meta-move)', () => {
     },
   ];
 
-  function createActiveGame(
-    options: { swapRuleEnabled?: boolean } = {}
-  ): { engine: GameEngine; state: GameState } {
+  function createActiveGame(options: { swapRuleEnabled?: boolean } = {}): {
+    engine: GameEngine;
+    state: GameState;
+  } {
     const { swapRuleEnabled = true } = options;
 
     const engine = new GameEngine(
@@ -48,9 +55,20 @@ describe('GameEngine pie rule (swap_sides meta-move)', () => {
     const engineAny: any = engine;
     const state: GameState = engineAny.gameState as GameState;
 
-    // Mark game as active for testing pie-rule semantics without going
-    // through the full lobby/ready pipeline.
-    state.gameStatus = 'active';
+    // The GameEngine constructor sets isReady based on player type (AI vs human).
+    // For human players, isReady defaults to false. We need to mark them ready
+    // before calling startGame() so the game can transition to 'active'.
+    state.players.forEach((p: Player) => {
+      p.isReady = true;
+    });
+
+    // Properly start the game via the GameEngine API rather than manually
+    // setting gameStatus. This ensures proper initialization for both
+    // orchestrator and legacy paths.
+    const started = engine.startGame();
+    if (!started) {
+      throw new Error('Failed to start game for swap rule test');
+    }
 
     return { engine, state };
   }
@@ -135,8 +153,8 @@ describe('GameEngine pie rule (swap_sides meta-move)', () => {
     expect(after.currentPlayer).toBe(2);
 
     // Player numbers 1 and 2 still exist, but their user ids/usernames are swapped.
-    const p1After = after.players.find((p) => p.playerNumber === 1)!;
-    const p2After = after.players.find((p) => p.playerNumber === 2)!;
+    const p1After = after.players.find((p: Player) => p.playerNumber === 1)!;
+    const p2After = after.players.find((p: Player) => p.playerNumber === 2)!;
 
     expect(p1After.username).toBe('Bob');
     expect(p2After.username).toBe('Alice');
@@ -320,7 +338,17 @@ describe('GameEngine pie rule (swap_sides meta-move)', () => {
       );
       const engineAny: any = engine;
       const state: GameState = (engineAny.gameState as GameState)!;
-      state.gameStatus = 'active';
+
+      // Mark all players as ready before calling startGame()
+      state.players.forEach((p: Player) => {
+        p.isReady = true;
+      });
+
+      // Properly start the game for 3-player test
+      const started = engine.startGame();
+      expect(started).toBe(true);
+
+      // Set currentPlayer to 2 to test gating condition
       state.currentPlayer = 2;
 
       expect(engineAny.shouldOfferSwapSidesMetaMove()).toBe(false);

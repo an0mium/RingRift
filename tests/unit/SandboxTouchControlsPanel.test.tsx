@@ -99,4 +99,99 @@ describe('SandboxTouchControlsPanel', () => {
     fireEvent.click(movementGridCheckbox);
     expect(props.onToggleMovementGrid).toHaveBeenCalledWith(false);
   });
+
+  describe('game storage UI', () => {
+    it('does not render game storage section when props are undefined', () => {
+      render(<SandboxTouchControlsPanel {...baseProps} />);
+
+      expect(screen.queryByText(/Game storage/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/Auto-save completed games/i)).not.toBeInTheDocument();
+    });
+
+    it('renders game storage section when auto-save props are provided', () => {
+      const props = {
+        ...baseProps,
+        autoSaveGames: true,
+        onToggleAutoSave: jest.fn(),
+        gameSaveStatus: 'idle' as const,
+      };
+
+      render(<SandboxTouchControlsPanel {...props} />);
+
+      expect(screen.getByText(/Game storage/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Auto-save completed games/i)).toBeInTheDocument();
+      expect(screen.getByText(/Stores finished games to the replay database/i)).toBeInTheDocument();
+    });
+
+    it('toggles auto-save when checkbox is clicked', () => {
+      const onToggleAutoSave = jest.fn();
+      const props = {
+        ...baseProps,
+        autoSaveGames: true,
+        onToggleAutoSave,
+        gameSaveStatus: 'idle' as const,
+      };
+
+      render(<SandboxTouchControlsPanel {...props} />);
+
+      const checkbox = screen.getByLabelText(/Auto-save completed games/i);
+      fireEvent.click(checkbox);
+
+      expect(onToggleAutoSave).toHaveBeenCalledWith(false);
+    });
+
+    it('shows "Saving..." status indicator when gameSaveStatus is saving', () => {
+      const props = {
+        ...baseProps,
+        autoSaveGames: true,
+        onToggleAutoSave: jest.fn(),
+        gameSaveStatus: 'saving' as const,
+      };
+
+      render(<SandboxTouchControlsPanel {...props} />);
+
+      expect(screen.getByText('Saving...')).toBeInTheDocument();
+    });
+
+    it('shows "Saved" status indicator when gameSaveStatus is saved', () => {
+      const props = {
+        ...baseProps,
+        autoSaveGames: true,
+        onToggleAutoSave: jest.fn(),
+        gameSaveStatus: 'saved' as const,
+      };
+
+      render(<SandboxTouchControlsPanel {...props} />);
+
+      expect(screen.getByText('Saved')).toBeInTheDocument();
+    });
+
+    it('shows "Error" status indicator when gameSaveStatus is error', () => {
+      const props = {
+        ...baseProps,
+        autoSaveGames: true,
+        onToggleAutoSave: jest.fn(),
+        gameSaveStatus: 'error' as const,
+      };
+
+      render(<SandboxTouchControlsPanel {...props} />);
+
+      expect(screen.getByText('Error')).toBeInTheDocument();
+    });
+
+    it('does not show status indicator when gameSaveStatus is idle', () => {
+      const props = {
+        ...baseProps,
+        autoSaveGames: true,
+        onToggleAutoSave: jest.fn(),
+        gameSaveStatus: 'idle' as const,
+      };
+
+      render(<SandboxTouchControlsPanel {...props} />);
+
+      expect(screen.queryByText('Saving...')).not.toBeInTheDocument();
+      expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+      expect(screen.queryByText('Error')).not.toBeInTheDocument();
+    });
+  });
 });

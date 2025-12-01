@@ -48,6 +48,8 @@ from tests.parity import (  # type: ignore  # noqa: E402
     test_ts_seed_plateau_snapshot_parity as plateau_mod,
 )
 
+from app.utils.progress_reporter import ProgressReporter  # type: ignore  # noqa: E402
+
 
 @dataclass
 class ParityCaseResult:
@@ -124,7 +126,17 @@ def run_contract_vectors_suite() -> List[ParityCaseResult]:
     results: List[ParityCaseResult] = []
     vectors = contract_vectors.load_all_vectors()
 
-    for vec in vectors:
+    total_vectors = len(vectors)
+    reporter = ProgressReporter(
+        total_units=total_vectors,
+        unit_name="vector",
+        report_interval_sec=10.0,
+        context_label="contract_vectors_v2",
+    )
+
+    mismatches_so_far = 0
+
+    for idx, vec in enumerate(vectors, start=1):
         validation = contract_vectors.execute_vector(vec)
         if validation.passed:
             results.append(
@@ -147,6 +159,18 @@ def run_contract_vectors_suite() -> List[ParityCaseResult]:
                     details=details or None,
                 ),
             )
+            mismatches_so_far += 1
+
+        # Throttled progress reporting (~10s by default) so long-running
+        # contract-vector suites remain chatty in CI and diagnostics.
+        reporter.update(
+            completed=idx,
+            extra_metrics={"mismatches": mismatches_so_far},
+        )
+
+    reporter.finish(
+        extra_metrics={"total_mismatches": mismatches_so_far},
+    )
 
     return results
 

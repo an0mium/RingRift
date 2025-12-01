@@ -1,6 +1,6 @@
 # Environment Variables Reference
 
-> **Doc Status (2025-11-27): Active**
+> **Doc Status (2025-11-30): Active**
 >
 > **Role:** Canonical reference for all environment variables used by RingRift across development, staging, and production, including defaults, ranges, and security considerations. Intended for operators and developers wiring config into Docker, Kubernetes, and CI.
 >
@@ -560,14 +560,14 @@ Enable the orchestrator adapter for unified turn processing.
 
 When enabled (default), the server and sandbox engines use the canonical orchestrator
 (`src/shared/engine/orchestration/`) via adapter wrappers for turn processing.
-This is the production default after Phase 3 Rules Engine Consolidation completed
-with 1179 tests passing under the orchestrator.
+This is the production default after Phase 4 Orchestrator Rollout completed
+(see `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` for rollout phases).
 
-**Production Status (as of 2025-11-27):**
+**Production Status (as of 2025-11-30):**
 
-- Orchestrator adapter is now the default (`true`)
-- 7 bugs were fixed to enable production readiness
-- 1179 tests pass with orchestrator enabled
+- Orchestrator adapter is now the default (`true`) at 100% rollout in CI
+- All ~2,600+ TypeScript tests pass with orchestrator enabled
+- Soak tests show zero invariant violations across all board types (square8, square19, hexagonal)
 - Legacy tests that manipulate internal state are skipped by design
 
 **Monitoring Checklist:**
@@ -583,8 +583,8 @@ No data migration required - flag is purely behavioral.
 
 **Related Documentation:**
 
-- [Legacy Code Elimination Plan](./drafts/LEGACY_CODE_ELIMINATION_PLAN.md)
-- [Phase 3 Adapter Migration Report](./drafts/PHASE3_ADAPTER_MIGRATION_REPORT.md)
+- [Orchestrator Rollout Plan](./ORCHESTRATOR_ROLLOUT_PLAN.md)
+- [Orchestrator Rollout Runbook](./runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md)
 
 ### Orchestrator rollout controls
 

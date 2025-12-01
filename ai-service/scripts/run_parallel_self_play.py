@@ -38,6 +38,7 @@ from app.ai.random_ai import RandomAI  # noqa: E402
 from app.models import AIConfig, GameStatus  # noqa: E402
 from app.training.env import RingRiftEnv  # noqa: E402
 from app.utils.memory_config import MemoryConfig  # noqa: E402
+from app.utils.progress_reporter import ProgressReporter  # noqa: E402
 
 try:
     from app.ai.mcts_ai import MCTSAI  # noqa: E402
@@ -443,6 +444,17 @@ def run_parallel_self_play(
     """
     start_time = time.time()
 
+    # Time-based progress reporter so that long parallel runs do not
+    # appear stalled when individual games are slow. This emits
+    # throttled updates (~10s) with completed games, rate, and ETA.
+    context_label = f"ai={ai_type} workers={num_workers}"
+    progress_reporter = ProgressReporter(
+        total_units=num_games,
+        unit_name="games",
+        report_interval_sec=10.0,
+        context_label=context_label,
+    )
+
     # Get memory configuration from environment and divide by workers
     if memory_budget_gb is not None:
         per_worker_memory_gb = divide_memory_budget(
@@ -507,6 +519,15 @@ def run_parallel_self_play(
                 if pbar is not None:
                     pbar.update(games_completed)
 
+                # Throttled, time-based progress reporting with
+                # completed games and any failed workers so far.
+                progress_reporter.update(
+                    completed=completed_games,
+                    extra_metrics={
+                        "failed_workers": failed_workers,
+                    },
+                )
+
                 logger.info(
                     f"Worker {task.worker_id} completed: "
                     f"{games_completed} games"
@@ -526,8 +547,18 @@ def run_parallel_self_play(
 
     elapsed = time.time() - start_time
     stats["elapsed_seconds"] = elapsed
-    stats["games_per_second"] = completed_games / elapsed if elapsed > 0 else 0
+    stats["games_per_second"] = (
+        completed_games / elapsed if elapsed > 0 else 0
+    )
     stats["failed_workers"] = failed_workers
+
+    # Emit a final summary line from the shared progress reporter.
+    progress_reporter.finish(
+        extra_metrics={
+            "games_per_second": stats["games_per_second"],
+            "failed_workers": failed_workers,
+        },
+    )
 
     logger.info(f"Parallel self-play complete in {elapsed:.2f}s")
     logger.info(

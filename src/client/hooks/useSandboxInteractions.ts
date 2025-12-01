@@ -25,7 +25,6 @@ export function useSandboxInteractions({
     isConfigured,
     sandboxCaptureChoice,
     setSandboxCaptureChoice,
-    sandboxCaptureTargets,
     setSandboxCaptureTargets,
     setSandboxLastProgressAt,
     setSandboxStallWarning,
@@ -65,7 +64,6 @@ export function useSandboxInteractions({
 
       // Small delay between moves so AI-only games progress in a smooth
       // sequence rather than a single visual burst of many moves.
-      // eslint-disable-next-line no-await-in-loop
       await new Promise((resolve) => window.setTimeout(resolve, 120));
     }
 
@@ -371,6 +369,8 @@ export function useSandboxInteractions({
         window.clearTimeout(timeoutId);
       };
     }
+
+    return;
   }, [isConfigured, sandboxStateVersion]);
 
   return {

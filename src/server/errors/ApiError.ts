@@ -151,7 +151,7 @@ export class ApiError extends Error {
    * Create a copy of this error with an updated request ID.
    * Useful when the request ID becomes available after error creation.
    */
-  withRequestId(requestId: string): ApiError {
+  withRequestId(_requestId: string): ApiError {
     const opts: ApiErrorOptions = {
       code: this.code,
       message: this.message,
@@ -249,35 +249,25 @@ export function isAppError(
  */
 export const CommonErrors = {
   // Auth
-  invalidCredentials: () =>
-    new ApiError({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS }),
+  invalidCredentials: () => new ApiError({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS }),
 
-  tokenInvalid: () =>
-    new ApiError({ code: ErrorCodes.AUTH_TOKEN_INVALID }),
+  tokenInvalid: () => new ApiError({ code: ErrorCodes.AUTH_TOKEN_INVALID }),
 
-  tokenExpired: () =>
-    new ApiError({ code: ErrorCodes.AUTH_TOKEN_EXPIRED }),
+  tokenExpired: () => new ApiError({ code: ErrorCodes.AUTH_TOKEN_EXPIRED }),
 
-  refreshTokenInvalid: () =>
-    new ApiError({ code: ErrorCodes.AUTH_REFRESH_TOKEN_INVALID }),
+  refreshTokenInvalid: () => new ApiError({ code: ErrorCodes.AUTH_REFRESH_TOKEN_INVALID }),
 
-  refreshTokenExpired: () =>
-    new ApiError({ code: ErrorCodes.AUTH_REFRESH_TOKEN_EXPIRED }),
+  refreshTokenExpired: () => new ApiError({ code: ErrorCodes.AUTH_REFRESH_TOKEN_EXPIRED }),
 
-  refreshTokenReused: () =>
-    new ApiError({ code: ErrorCodes.AUTH_REFRESH_TOKEN_REUSED }),
+  refreshTokenReused: () => new ApiError({ code: ErrorCodes.AUTH_REFRESH_TOKEN_REUSED }),
 
-  accountDeactivated: () =>
-    new ApiError({ code: ErrorCodes.AUTH_ACCOUNT_DEACTIVATED }),
+  accountDeactivated: () => new ApiError({ code: ErrorCodes.AUTH_ACCOUNT_DEACTIVATED }),
 
-  authRequired: () =>
-    new ApiError({ code: ErrorCodes.AUTH_REQUIRED }),
+  authRequired: () => new ApiError({ code: ErrorCodes.AUTH_REQUIRED }),
 
-  forbidden: () =>
-    new ApiError({ code: ErrorCodes.AUTH_FORBIDDEN }),
+  forbidden: () => new ApiError({ code: ErrorCodes.AUTH_FORBIDDEN }),
 
-  loginLockedOut: () =>
-    new ApiError({ code: ErrorCodes.AUTH_LOGIN_LOCKED_OUT }),
+  loginLockedOut: () => new ApiError({ code: ErrorCodes.AUTH_LOGIN_LOCKED_OUT }),
 
   // Validation
   validationFailed: (details?: ValidationErrorDetail[]) => {
@@ -296,24 +286,18 @@ export const CommonErrors = {
     return new ApiError(opts);
   },
 
-  invalidQueryParams: () =>
-    new ApiError({ code: ErrorCodes.VALIDATION_INVALID_QUERY_PARAMS }),
+  invalidQueryParams: () => new ApiError({ code: ErrorCodes.VALIDATION_INVALID_QUERY_PARAMS }),
 
   // Resource
-  userNotFound: () =>
-    new ApiError({ code: ErrorCodes.RESOURCE_USER_NOT_FOUND }),
+  userNotFound: () => new ApiError({ code: ErrorCodes.RESOURCE_USER_NOT_FOUND }),
 
-  gameNotFound: () =>
-    new ApiError({ code: ErrorCodes.RESOURCE_GAME_NOT_FOUND }),
+  gameNotFound: () => new ApiError({ code: ErrorCodes.RESOURCE_GAME_NOT_FOUND }),
 
-  emailExists: () =>
-    new ApiError({ code: ErrorCodes.RESOURCE_EMAIL_EXISTS }),
+  emailExists: () => new ApiError({ code: ErrorCodes.RESOURCE_EMAIL_EXISTS }),
 
-  usernameExists: () =>
-    new ApiError({ code: ErrorCodes.RESOURCE_USERNAME_EXISTS }),
+  usernameExists: () => new ApiError({ code: ErrorCodes.RESOURCE_USERNAME_EXISTS }),
 
-  accessDenied: () =>
-    new ApiError({ code: ErrorCodes.RESOURCE_ACCESS_DENIED }),
+  accessDenied: () => new ApiError({ code: ErrorCodes.RESOURCE_ACCESS_DENIED }),
 
   // Server
   internalError: (cause?: Error) => {
@@ -327,18 +311,14 @@ export const CommonErrors = {
     return new ApiError(opts);
   },
 
-  databaseUnavailable: () =>
-    new ApiError({ code: ErrorCodes.SERVER_DATABASE_UNAVAILABLE }),
+  databaseUnavailable: () => new ApiError({ code: ErrorCodes.SERVER_DATABASE_UNAVAILABLE }),
 
   // Game
-  gameNotJoinable: () =>
-    new ApiError({ code: ErrorCodes.GAME_NOT_JOINABLE }),
+  gameNotJoinable: () => new ApiError({ code: ErrorCodes.GAME_NOT_JOINABLE }),
 
-  alreadyJoined: () =>
-    new ApiError({ code: ErrorCodes.GAME_ALREADY_JOINED }),
+  alreadyJoined: () => new ApiError({ code: ErrorCodes.GAME_ALREADY_JOINED }),
 
-  gameFull: () =>
-    new ApiError({ code: ErrorCodes.GAME_FULL }),
+  gameFull: () => new ApiError({ code: ErrorCodes.GAME_FULL }),
 
   invalidMove: (message?: string) => {
     const opts: ApiErrorOptions = { code: ErrorCodes.GAME_INVALID_MOVE };
@@ -348,13 +328,10 @@ export const CommonErrors = {
     return new ApiError(opts);
   },
 
-  notYourTurn: () =>
-    new ApiError({ code: ErrorCodes.GAME_NOT_YOUR_TURN }),
+  notYourTurn: () => new ApiError({ code: ErrorCodes.GAME_NOT_YOUR_TURN }),
 
   // Rate limiting
-  rateLimitExceeded: () =>
-    new ApiError({ code: ErrorCodes.RATE_LIMIT_EXCEEDED }),
+  rateLimitExceeded: () => new ApiError({ code: ErrorCodes.RATE_LIMIT_EXCEEDED }),
 
-  gameCreateRateLimited: () =>
-    new ApiError({ code: ErrorCodes.RATE_LIMIT_GAME_CREATE }),
+  gameCreateRateLimited: () => new ApiError({ code: ErrorCodes.RATE_LIMIT_GAME_CREATE }),
 } as const;

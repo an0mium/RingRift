@@ -52,7 +52,8 @@ let mockDecisionAutoResolved: any = null;
 // Latest decision-phase timeout warning metadata surfaced via useGameState
 let mockDecisionPhaseTimeoutWarning: any = null;
 
-let mockConnectionStatus: 'connected' | 'connecting' | 'reconnecting' | 'disconnected' = 'connected';
+let mockConnectionStatus: 'connected' | 'connecting' | 'reconnecting' | 'disconnected' =
+  'connected';
 let mockIsConnecting = false;
 let mockConnectionError: string | null = null;
 let mockLastHeartbeatAt: number | null = Date.now();
@@ -64,6 +65,7 @@ let mockChatMessages: { sender: string; text: string }[] = [];
 let mockPendingChoice: PlayerChoice | null = null;
 let mockChoiceDeadline: number | null = null;
 let mockRespondToChoice: jest.Mock = jest.fn();
+let mockEvaluationHistory: any[] = [];
 
 jest.mock('@/client/hooks/useGameState', () => ({
   __esModule: true,
@@ -76,6 +78,7 @@ jest.mock('@/client/hooks/useGameState', () => ({
     currentPlayer: mockCurrentPlayer,
     decisionAutoResolved: mockDecisionAutoResolved,
     decisionPhaseTimeoutWarning: mockDecisionPhaseTimeoutWarning,
+    evaluationHistory: mockEvaluationHistory,
   }),
 }));
 
@@ -233,9 +236,7 @@ function setBackendHostState(options: {
 // Utility: find a square-board cell by coordinates
 function getSquareCell(x: number, y: number): HTMLButtonElement {
   const board = screen.getByTestId('board-view');
-  const cell = board.querySelector<HTMLButtonElement>(
-    `button[data-x="${x}"][data-y="${y}"]`
-  );
+  const cell = board.querySelector<HTMLButtonElement>(`button[data-x="${x}"][data-y="${y}"]`);
   if (!cell) {
     throw new Error(`Failed to find board cell at (${x}, ${y})`);
   }
@@ -271,6 +272,7 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     mockDecisionAutoResolved = null;
     mockDecisionPhaseTimeoutWarning = null;
+    mockEvaluationHistory = [];
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -315,6 +317,70 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     // Instruction text should reflect movement phase
     expect(screen.getByText('Select a stack to move.')).toBeInTheDocument();
+  });
+
+  it('treats non-player connections as spectators, blocks move submission, and shows spectator UX and evaluation panel', () => {
+    const source: Position = { x: 0, y: 0 };
+    const target: Position = { x: 0, y: 1 };
+
+    const state = createGameState('movement');
+    // Make both players non-matching to the authenticated user so BackendGameHost
+    // treats this viewer as a spectator.
+    const spectatorPlayers: Player[] = state.players.map((p, idx) => ({
+      ...p,
+      id: `other-${idx + 1}`,
+    }));
+
+    mockGameState = { ...state, players: spectatorPlayers };
+    mockPlayers = spectatorPlayers;
+    mockCurrentPlayer = spectatorPlayers[0];
+
+    const move: Move = {
+      id: 'm1',
+      type: 'move_stack',
+      player: 1,
+      from: source,
+      to: target,
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1,
+    };
+    mockValidMoves = [move];
+
+    // Seed a single evaluation snapshot so the panel has concrete content.
+    mockEvaluationHistory = [
+      {
+        gameId: 'game-123',
+        moveNumber: 5,
+        boardType: 'square8',
+        engineProfile: 'heuristic_v1_d5',
+        evaluationScale: 'zero_sum_margin',
+        perPlayer: {
+          1: { totalEval: 1.5, territoryEval: 1.0, ringEval: 0.5 },
+          2: { totalEval: -1.5, territoryEval: -1.0, ringEval: -0.5 },
+        },
+      },
+    ];
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    // Attempting to click a legal move as a spectator must not submit moves.
+    fireEvent.click(getSquareCell(source.x, source.y));
+    fireEvent.click(getSquareCell(target.x, target.y));
+
+    expect(mockSubmitMove).not.toHaveBeenCalled();
+
+    // Selection panel should communicate that moves are disabled while spectating.
+    expect(screen.getByText('Moves disabled while spectating.')).toBeInTheDocument();
+
+    // HUD should show a prominent spectator banner.
+    expect(screen.getByText(/Spectator Mode/i)).toBeInTheDocument();
+
+    // Evaluation panel should be visible for spectators when evaluation history is present.
+    const evalPanel = screen.getByTestId('evaluation-panel');
+    expect(evalPanel).toBeInTheDocument();
+    expect(evalPanel).toHaveTextContent('AI Evaluation');
+    expect(evalPanel).toHaveTextContent('Move 5');
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -379,9 +445,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     rerender(<BackendGameHost gameId="game-123" />);
 
     // Territory instruction
-    expect(
-      screen.getByText('Choose a region to claim.', { exact: false })
-    ).toBeInTheDocument();
+    expect(screen.getByText('Choose a region to claim.', { exact: false })).toBeInTheDocument();
 
     // Victory modal should be open (Return to Lobby button visible)
     expect(screen.getByText('Return to Lobby')).toBeInTheDocument();
@@ -391,9 +455,34 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     expect(screen.queryByText('Return to Lobby')).not.toBeInTheDocument();
     // Text comes from getGameOverBannerText; assert the specific banner text for clarity.
-    expect(
-      screen.getByText(/Game over – victory by territory control\./i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Game over – victory by territory control\./i)).toBeInTheDocument();
+  });
+
+  it('announces last-player-standing victories clearly to screen readers', async () => {
+    const lpsResult: GameResult = {
+      winner: 1,
+      reason: 'last_player_standing',
+      finalScore: {
+        ringsEliminated: {},
+        territorySpaces: {},
+        ringsRemaining: {},
+      },
+    };
+
+    setBackendHostState({ phase: 'movement', victoryState: lpsResult });
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    await act(async () => {
+      // Wait for the screen reader announcer to receive the victory message.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const region1 = screen.getByTestId('sr-announcer-1');
+    const region2 = screen.getByTestId('sr-announcer-2');
+    const combinedText = `${region1.textContent ?? ''} ${region2.textContent ?? ''}`;
+
+    expect(combinedText).toMatch(/last player standing/i);
   });
 
   it('logs phase changes for line_processing → chain_capture → territory_processing and updates instructions', () => {
@@ -437,9 +526,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     rerender(<BackendGameHost gameId="game-123" />);
 
     // Instruction for territory_processing
-    expect(
-      screen.getByText('Choose a region to claim.', { exact: false })
-    ).toBeInTheDocument();
+    expect(screen.getByText('Choose a region to claim.', { exact: false })).toBeInTheDocument();
 
     // Event log should reflect the phase progression in order.
     const log = screen.getByTestId('game-event-log');
@@ -487,9 +574,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     act(() => {
       jest.advanceTimersByTime(1000);
     });
-    expect(
-      screen.getByText(/Respond within/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Respond within/i)).toBeInTheDocument();
 
     jest.useRealTimers();
   });
@@ -518,9 +603,7 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     render(<BackendGameHost gameId="game-123" />);
 
-    expect(
-      screen.getByText(/Connection lost. Attempting to reconnect…/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Connection lost. Attempting to reconnect…/)).toBeInTheDocument();
   });
 
   it('shows an error view when the backend reports a connection error before any game state', () => {
@@ -670,9 +753,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     expect(targetCell).toHaveAttribute('data-decision-highlight', 'secondary');
 
     // ChoiceDialog should render a direction option for this capture.
-    const optionButton = screen.getByText(
-      /Direction 1: target \(1, 1\).*cap 2/i
-    );
+    const optionButton = screen.getByText(/Direction 1: target \(1, 1\).*cap 2/i);
     expect(optionButton).toBeInTheDocument();
 
     fireEvent.click(optionButton);

@@ -18,11 +18,37 @@ interface FocusableCell {
 }
 
 // Animation type for tracking piece animations
-type AnimationType = 'place' | 'move' | 'capture';
+type AnimationType = 'place' | 'move' | 'capture' | 'chain_capture';
 
 interface AnimationState {
   position: string; // positionToString key
   type: AnimationType;
+}
+
+/**
+ * Animation data for a move, capture, or chain capture.
+ * Used to animate pieces traveling from source to destination(s).
+ */
+export interface MoveAnimationData {
+  /** Type of animation: 'move' for regular moves, 'capture' for captures, 'chain_capture' for chain captures */
+  type: 'move' | 'capture' | 'chain_capture' | 'place';
+  /** Source position (where the piece started) */
+  from?: Position;
+  /** Destination position (where the piece ended) */
+  to: Position;
+  /**
+   * For chain captures: array of intermediate landing positions visited
+   * during the chain, in order. The animation will visit each position sequentially.
+   */
+  intermediatePositions?: Position[];
+  /** Player number who made the move (for piece color) */
+  playerNumber: number;
+  /** Stack height at the source (for rendering the moving piece) */
+  stackHeight?: number;
+  /** Cap height at the source */
+  capHeight?: number;
+  /** Unique ID for this animation (used for React keys and deduplication) */
+  id: string;
 }
 
 export interface BoardViewProps {
@@ -36,22 +62,23 @@ export interface BoardViewProps {
    * complete.
    */
   viewModel?: BoardViewModel;
-  selectedPosition?: Position;
+  /** Currently selected position, or undefined if nothing is selected */
+  selectedPosition?: Position | undefined;
   validTargets?: Position[];
-  onCellClick?: (position: Position) => void;
+  onCellClick?: ((position: Position) => void) | undefined;
   isSpectator?: boolean;
   /**
    * Optional double-click handler, primarily used by the local sandbox
    * to distinguish between selection (single click) and stacked ring
    * placement (double click) during the ring placement phase.
    */
-  onCellDoubleClick?: (position: Position) => void;
+  onCellDoubleClick?: ((position: Position) => void) | undefined;
   /**
    * Optional context menu handler (right-click / long-press proxy),
    * used by the local sandbox to surface ring-count selection dialogs
    * for multi-ring placements.
    */
-  onCellContextMenu?: (position: Position) => void;
+  onCellContextMenu?: ((position: Position) => void) | undefined;
   /**
    * Optional movement grid overlay toggle. When true, an SVG overlay
    * renders faint movement lines and node dots based on a board-local
@@ -65,6 +92,28 @@ export interface BoardViewProps {
    * square boards. Currently leveraged by the sandbox to aid manual play.
    */
   showCoordinateLabels?: boolean;
+  /**
+   * Optional rules-lab overlay: when true, highlight any detected lines
+   * present in board.formedLines. Primarily used by the sandbox host and
+   * scenario viewers for debugging line geometry.
+   */
+  showLineOverlays?: boolean;
+  /**
+   * Optional rules-lab overlay: when true, highlight territory/disconnected
+   * regions derived from board.territories. Intended for sandbox/rules-lab
+   * use rather than general gameplay.
+   */
+  showTerritoryRegionOverlays?: boolean;
+  /**
+   * Optional animation data for the last move. When provided, an animated
+   * piece will travel from source to destination, visiting intermediate
+   * positions for chain captures.
+   */
+  pendingAnimation?: MoveAnimationData | undefined;
+  /**
+   * Callback when an animation completes. Used to clear the animation state.
+   */
+  onAnimationComplete?: () => void;
 }
 
 // Tailwind-friendly, fixed color classes per player number to avoid
@@ -194,7 +243,6 @@ const StackWidget: React.FC<{
 
           return (
             <div
-              // eslint-disable-next-line react/no-array-index-key
               key={index}
               className={`${baseShape} ${ring} ${ringBorder} ${capOutline} ${topShadow}`}
             />
@@ -254,7 +302,6 @@ const StackFromViewModel: React.FC<{
           const topShadow = isTop ? 'shadow-md shadow-slate-900/70' : 'shadow-sm';
 
           return (
-            // eslint-disable-next-line react/no-array-index-key
             <div
               key={index}
               className={`${baseShape} ${colorClass} ${borderClass} ${capOutline} ${topShadow}`}
@@ -265,6 +312,171 @@ const StackFromViewModel: React.FC<{
       <div className={`mt-[1px] leading-tight font-semibold text-slate-900 ${labelTextClasses}`}>
         H{stackHeight} C{capHeight}
       </div>
+    </div>
+  );
+};
+
+/**
+ * MoveAnimationLayer: Renders an animated piece traveling from source to destination.
+ * For chain captures, visits each intermediate position sequentially.
+ */
+interface MoveAnimationLayerProps {
+  animation: MoveAnimationData;
+  cellRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  onComplete: () => void;
+}
+
+const MoveAnimationLayer: React.FC<MoveAnimationLayerProps> = ({
+  animation,
+  cellRefs,
+  containerRef,
+  onComplete,
+}) => {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
+  const animationRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number | null>(null);
+
+  // Build the full path of positions to visit
+  const path = useMemo(() => {
+    const positions: Position[] = [];
+    if (animation.from) {
+      positions.push(animation.from);
+    }
+    if (animation.intermediatePositions) {
+      positions.push(...animation.intermediatePositions);
+    }
+    positions.push(animation.to);
+    return positions;
+  }, [animation]);
+
+  // Get pixel position for a cell
+  const getCellCenter = useCallback(
+    (pos: Position): { x: number; y: number } | null => {
+      const key = positionToString(pos);
+      const cell = cellRefs.current.get(key);
+      const container = containerRef.current;
+      if (!cell || !container) return null;
+
+      const cellRect = cell.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      return {
+        x: cellRect.left - containerRect.left + cellRect.width / 2,
+        y: cellRect.top - containerRect.top + cellRect.height / 2,
+      };
+    },
+    [cellRefs, containerRef]
+  );
+
+  // Duration per segment
+  const segmentDuration = animation.type === 'chain_capture' ? 200 : 250;
+
+  // Animate through the path
+  useEffect(() => {
+    if (path.length < 2) {
+      onComplete();
+      return;
+    }
+
+    const fromPos = path[currentStep];
+    const toPos = path[currentStep + 1];
+
+    if (!fromPos || !toPos) {
+      onComplete();
+      return;
+    }
+
+    const fromCenter = getCellCenter(fromPos);
+    const toCenter = getCellCenter(toPos);
+
+    if (!fromCenter || !toCenter) {
+      // Cell refs not ready, skip animation
+      onComplete();
+      return;
+    }
+
+    // Set initial position
+    if (position === null) {
+      setPosition(fromCenter);
+    }
+
+    startTimeRef.current = null;
+
+    const animate = (timestamp: number) => {
+      if (startTimeRef.current === null) {
+        startTimeRef.current = timestamp;
+      }
+
+      const elapsed = timestamp - startTimeRef.current;
+      const progress = Math.min(elapsed / segmentDuration, 1);
+
+      // Ease-out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      const currentX = fromCenter.x + (toCenter.x - fromCenter.x) * eased;
+      const currentY = fromCenter.y + (toCenter.y - fromCenter.y) * eased;
+
+      setPosition({ x: currentX, y: currentY });
+
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(animate);
+      } else {
+        // Move to next segment or complete
+        if (currentStep + 2 < path.length) {
+          setCurrentStep((prev) => prev + 1);
+        } else {
+          onComplete();
+        }
+      }
+    };
+
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [currentStep, path, getCellCenter, segmentDuration, onComplete, position]);
+
+  if (!position || path.length < 2) {
+    return null;
+  }
+
+  const colors = getPlayerColors(animation.playerNumber);
+
+  return (
+    <div
+      className="absolute pointer-events-none z-50"
+      style={{
+        left: position.x,
+        top: position.y,
+        transform: 'translate(-50%, -50%)',
+      }}
+    >
+      {/* Animated piece representation */}
+      <div className="flex flex-col items-center gap-[1px] animate-pulse">
+        {Array.from({ length: Math.min(animation.stackHeight || 1, 3) }).map((_, i) => (
+          <div
+            key={i}
+            className={`w-6 h-[4px] rounded-full border ${colors.ring} ${colors.ringBorder} shadow-lg`}
+          />
+        ))}
+      </div>
+      {/* Trail effect for chain captures */}
+      {animation.type === 'chain_capture' && (
+        <div
+          className="absolute inset-0 rounded-full opacity-30"
+          style={{
+            background: `radial-gradient(circle, ${colors.ring.replace('bg-', '')} 0%, transparent 70%)`,
+            width: '24px',
+            height: '24px',
+            transform: 'translate(-50%, -50%)',
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -281,6 +493,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
   showMovementGrid = false,
   showCoordinateLabels = false,
   isSpectator = false,
+  showLineOverlays = false,
+  showTerritoryRegionOverlays = false,
+  pendingAnimation,
+  onAnimationComplete,
 }) => {
   // Animation state tracking
   const [animations, setAnimations] = useState<AnimationState[]>([]);
@@ -320,6 +536,45 @@ export const BoardView: React.FC<BoardViewProps> = ({
     }
     return map;
   }, [viewModel]);
+
+  // Rules-lab overlays: lightweight lookup maps for lines and territory
+  // regions so we can cheaply decorate cells without re-walking geometry.
+  const lineOverlayByKey = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!showLineOverlays || !board.formedLines || board.formedLines.length === 0) {
+      return map;
+    }
+
+    for (const line of board.formedLines) {
+      for (const pos of line.positions) {
+        const key = positionToString(pos);
+        if (!map.has(key)) {
+          map.set(key, line.player);
+        }
+      }
+    }
+
+    return map;
+  }, [showLineOverlays, board]);
+
+  const territoryOverlayByKey = useMemo(() => {
+    const map = new Map<string, { player: number; isDisconnected: boolean }>();
+    if (!showTerritoryRegionOverlays || !board.territories || board.territories.size === 0) {
+      return map;
+    }
+
+    board.territories.forEach((territory) => {
+      const { controllingPlayer, isDisconnected, spaces } = territory;
+      for (const pos of spaces) {
+        const key = positionToString(pos);
+        if (!map.has(key)) {
+          map.set(key, { player: controllingPlayer, isDisconnected });
+        }
+      }
+    });
+
+    return map;
+  }, [showTerritoryRegionOverlays, board]);
 
   const effectiveBoardType: BoardType = viewModel?.boardType ?? boardType;
   const effectiveSize = viewModel?.size ?? board.size;
@@ -410,7 +665,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
       if (!focusedPosition) {
         // If no focus, start at first position
         if (allPositions.length > 0) {
-          setFocusedPosition(allPositions[0].position);
+          const firstPos = allPositions[0].position;
+          setFocusedPosition(firstPos);
+          const key = positionToString(firstPos);
+          const cellRef = cellRefs.current.get(key);
+          if (cellRef) {
+            cellRef.focus();
+          }
         }
         return;
       }
@@ -633,7 +894,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
       if (matrixMatch) {
         scaleFactor = parseFloat(matrixMatch[1]) || 1;
       } else {
-        // Try scale format: scale(x) or scale(x, y) 
+        // Try scale format: scale(x) or scale(x, y)
         const scaleMatch = transform.match(/scale\(([^,)]+)/);
         if (scaleMatch) {
           scaleFactor = parseFloat(scaleMatch[1]) || 1;
@@ -720,9 +981,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
           if (!centersByKey.has(neighborKey)) continue;
 
           // Only add each edge once (undirected)
-          const edgeKey = center.key < neighborKey 
-            ? `${center.key}->${neighborKey}` 
-            : `${neighborKey}->${center.key}`;
+          const edgeKey =
+            center.key < neighborKey
+              ? `${center.key}->${neighborKey}`
+              : `${neighborKey}->${center.key}`;
           if (addedEdges.has(edgeKey)) continue;
           addedEdges.add(edgeKey);
 
@@ -754,9 +1016,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
           const neighborKey = positionToString({ x: nx, y: ny });
           if (!centersByKey.has(neighborKey)) continue;
 
-          const edgeKey = center.key < neighborKey 
-            ? `${center.key}->${neighborKey}` 
-            : `${neighborKey}->${center.key}`;
+          const edgeKey =
+            center.key < neighborKey
+              ? `${center.key}->${neighborKey}`
+              : `${neighborKey}->${center.key}`;
           if (addedEdges.has(edgeKey)) continue;
           addedEdges.add(edgeKey);
 
@@ -788,11 +1051,11 @@ export const BoardView: React.FC<BoardViewProps> = ({
     }
 
     // Use the stored dimensions from when grid was computed
-    // This ensures perfect alignment since normalized coords were computed 
+    // This ensures perfect alignment since normalized coords were computed
     // against these exact dimensions
     const width = storedWidth;
     const height = storedHeight;
-    
+
     if (!width || !height) return null;
 
     // Scale factors for stroke/circle sizes based on container
@@ -959,6 +1222,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
           (collapsedOwnerFromBoard !== undefined ? collapsedOwnerFromBoard : undefined);
         const territoryClasses = collapsedOwner ? getPlayerColors(collapsedOwner).territory : '';
 
+        // Rules-lab overlays: detected lines and territory/disconnected regions.
+        // These are visual debugging aids only and do not affect rules.
+        const lineOverlayPlayer = showLineOverlays ? lineOverlayByKey.get(key) : undefined;
+        const territoryOverlayInfo = showTerritoryRegionOverlays
+          ? territoryOverlayByKey.get(key)
+          : undefined;
+
         // Decision-phase highlight intensity for this cell, if any. Primary highlights
         // are rendered more prominently than secondary ones, but both should coexist
         // cleanly with selection and valid-move styling.
@@ -992,7 +1262,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
         const hasMarker = hasMarkerVM || hasMarkerBoard;
         const markerColorClass =
           cellVM?.marker?.colorClass ??
-          (hasMarkerBoard ? getPlayerColors(marker!.player).marker : null);
+          (hasMarkerBoard && marker ? getPlayerColors(marker.player).marker : null);
 
         const markerOuterSizeClasses =
           boardType === 'square8' ? 'w-6 h-6 md:w-7 md:h-7' : 'w-5 h-5 md:w-6 md:h-6';
@@ -1020,6 +1290,17 @@ export const BoardView: React.FC<BoardViewProps> = ({
             data-x={x}
             data-y={y}
             data-decision-highlight={decisionHighlight || undefined}
+            data-line-overlay={lineOverlayPlayer !== undefined ? 'true' : undefined}
+            data-line-overlay-player={
+              lineOverlayPlayer !== undefined ? String(lineOverlayPlayer) : undefined
+            }
+            data-region-overlay={territoryOverlayInfo ? 'true' : undefined}
+            data-region-overlay-player={
+              territoryOverlayInfo ? String(territoryOverlayInfo.player) : undefined
+            }
+            data-region-overlay-disconnected={
+              territoryOverlayInfo?.isDisconnected ? 'true' : undefined
+            }
             onClick={() => !isSpectator && onCellClick?.(pos)}
             onDoubleClick={() => !isSpectator && onCellDoubleClick?.(pos)}
             onContextMenu={(e) => {
@@ -1082,10 +1363,24 @@ export const BoardView: React.FC<BoardViewProps> = ({
         : 'relative space-y-0.5 bg-slate-800/60 p-2 rounded-md border border-slate-700 shadow-inner inline-block scale-75 origin-top-left';
 
     return (
-      <div ref={boardGeometryRef} className={containerClasses}>
+      <div
+        ref={boardGeometryRef}
+        className={containerClasses}
+        role="grid"
+        aria-label={`${boardType === 'square8' ? '8x8' : '19x19'} game board`}
+      >
         {rows}
         {renderMovementOverlay()}
         {showCoordinateLabels ? renderSquareCoordinateLabels(size) : null}
+        {/* Move animation layer */}
+        {pendingAnimation && (
+          <MoveAnimationLayer
+            animation={pendingAnimation}
+            cellRefs={cellRefs}
+            containerRef={boardGeometryRef}
+            onComplete={() => onAnimationComplete?.()}
+          />
+        )}
       </div>
     );
   };
@@ -1146,6 +1441,11 @@ export const BoardView: React.FC<BoardViewProps> = ({
           ? getPlayerColors(collapsedOwner).territory
           : 'bg-slate-300/80';
 
+        const lineOverlayPlayer = showLineOverlays ? lineOverlayByKey.get(key) : undefined;
+        const territoryOverlayInfo = showTerritoryRegionOverlays
+          ? territoryOverlayByKey.get(key)
+          : undefined;
+
         // Decision-phase highlight intensity for this hex cell, if any.
         const decisionHighlight = highlightByKey.get(key);
         const decisionHighlightClass =
@@ -1174,7 +1474,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
         const hasMarker = hasMarkerVM || hasMarkerBoard;
         const markerColorClass =
           cellVM?.marker?.colorClass ??
-          (hasMarkerBoard ? getPlayerColors(marker!.player).marker : null);
+          (hasMarkerBoard && marker ? getPlayerColors(marker.player).marker : null);
 
         const markerOuterSizeClasses = 'w-4 h-4 md:w-5 md:h-5';
         const label = getHexLabel(q, r);
@@ -1203,6 +1503,17 @@ export const BoardView: React.FC<BoardViewProps> = ({
             data-y={pos.y}
             data-z={typeof pos.z === 'number' ? pos.z : undefined}
             data-decision-highlight={decisionHighlight || undefined}
+            data-line-overlay={lineOverlayPlayer !== undefined ? 'true' : undefined}
+            data-line-overlay-player={
+              lineOverlayPlayer !== undefined ? String(lineOverlayPlayer) : undefined
+            }
+            data-region-overlay={territoryOverlayInfo ? 'true' : undefined}
+            data-region-overlay-player={
+              territoryOverlayInfo ? String(territoryOverlayInfo.player) : undefined
+            }
+            data-region-overlay-disconnected={
+              territoryOverlayInfo?.isDisconnected ? 'true' : undefined
+            }
             onClick={() => !isSpectator && onCellClick?.(pos)}
             onDoubleClick={() => !isSpectator && onCellDoubleClick?.(pos)}
             onContextMenu={(e) => {
@@ -1271,9 +1582,23 @@ export const BoardView: React.FC<BoardViewProps> = ({
     // circles appear in a tight hexagonal packing without overlaps.
     // This inner container is the geometry reference for DOM-based grid alignment.
     return (
-      <div ref={boardGeometryRef} className="relative flex flex-col -space-y-1">
+      <div
+        ref={boardGeometryRef}
+        className="relative flex flex-col -space-y-1"
+        role="grid"
+        aria-label="Hexagonal game board"
+      >
         {rows}
         {renderMovementOverlay()}
+        {/* Move animation layer */}
+        {pendingAnimation && (
+          <MoveAnimationLayer
+            animation={pendingAnimation}
+            cellRefs={cellRefs}
+            containerRef={boardGeometryRef}
+            onComplete={() => onAnimationComplete?.()}
+          />
+        )}
       </div>
     );
   };
@@ -1303,6 +1628,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
       ref={boardContainerRef}
       className="inline-block"
       data-testid="board-view"
+      tabIndex={0}
       onKeyDown={handleKeyDown}
       role="grid"
       aria-label={`${effectiveBoardType} game board. Use arrow keys to navigate, Enter or Space to select, Escape to clear selection`}

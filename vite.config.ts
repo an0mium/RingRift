@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 import path from 'path';
 
 // https://vitejs.dev/config/
@@ -13,6 +14,15 @@ export default defineConfig({
       open: false,
       gzipSize: true,
       brotliSize: true,
+    }),
+    // Copy contract test vectors to public scenarios directory for sandbox mode
+    viteStaticCopy({
+      targets: [
+        {
+          src: '../../tests/fixtures/contract-vectors/v2/*.vectors.json',
+          dest: 'scenarios/vectors',
+        },
+      ],
     }),
   ],
   root: 'src/client',
@@ -54,12 +64,16 @@ export default defineConfig({
     },
   },
   define: {
+    // Expose NODE_ENV and all RINGRIFT_* environment variables to the client bundle.
+    // This includes RINGRIFT_AI_SERVICE_URL for the replay service.
     'process.env': Object.fromEntries(
       Object.entries(process.env).filter(
         ([key, value]) =>
           (key === 'NODE_ENV' || key.startsWith('RINGRIFT_')) && typeof value === 'string'
       )
     ),
+    // Inject Vite env to a global for Jest compatibility (avoids import.meta parse errors)
+    'globalThis.__VITE_ENV__': 'import.meta.env',
   },
   resolve: {
     alias: {

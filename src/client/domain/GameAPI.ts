@@ -1,11 +1,16 @@
-import type { GameState, Move, PlayerChoice, GameResult } from '../../shared/types/game';
+import type { Move, PlayerChoice } from '../../shared/types/game';
 import type {
   ChatMessageServerPayload,
+  ChatMessagePersisted,
+  ChatHistoryPayload,
   GameStateUpdateMessage,
   GameOverMessage,
   WebSocketErrorPayload,
   DecisionPhaseTimeoutWarningPayload,
   DecisionPhaseTimedOutPayload,
+  RematchRequestPayload,
+  RematchResponsePayload,
+  PositionEvaluationPayload,
 } from '../../shared/types/websocket';
 
 /**
@@ -40,6 +45,16 @@ export interface GameEventHandlers {
   onDecisionPhaseTimeoutWarning?: (payload: DecisionPhaseTimeoutWarningPayload) => void;
   /** Optional handler for final decision-phase timeout + auto-resolve events. */
   onDecisionPhaseTimedOut?: (payload: DecisionPhaseTimedOutPayload) => void;
+  /** Optional handler for persisted chat messages with full metadata. */
+  onChatMessagePersisted?: (payload: ChatMessagePersisted) => void;
+  /** Optional handler for chat history received on join. */
+  onChatHistory?: (payload: ChatHistoryPayload) => void;
+  /** Optional handler for incoming rematch requests. */
+  onRematchRequested?: (payload: RematchRequestPayload) => void;
+  /** Optional handler for rematch responses (accepted/declined/expired). */
+  onRematchResponse?: (payload: RematchResponsePayload) => void;
+  /** Optional handler for AI position evaluation events (analysis mode). */
+  onPositionEvaluation?: (payload: PositionEvaluationPayload) => void;
 }
 
 export interface GameConnection {
@@ -62,4 +77,10 @@ export interface GameConnection {
 
   /** Send a chat message for the current game. */
   sendChatMessage(text: string): void;
+
+  /** Request a rematch for the current (completed) game. */
+  requestRematch(): void;
+
+  /** Respond to a rematch request. */
+  respondToRematch(requestId: string, accept: boolean): void;
 }

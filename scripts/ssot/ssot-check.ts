@@ -22,6 +22,7 @@ import { runSecretsDocSsotCheck } from './secrets-doc-ssot-check';
 import { runApiDocSsotCheck } from './api-doc-ssot-check';
 import { runDocsLinkSsotCheck } from './docs-link-ssot-check';
 import { runApiEndpointsSsotCheck } from './api-endpoints-ssot-check';
+import { runParityProtectionSsotCheck } from './parity-protection-ssot-check';
 
 interface CheckResult {
   name: string;
@@ -41,6 +42,7 @@ async function main() {
     runApiDocSsotCheck,
     runApiEndpointsSsotCheck,
     runDocsLinkSsotCheck,
+    runParityProtectionSsotCheck,
   ];
 
   const results: CheckResult[] = [];
@@ -51,7 +53,7 @@ async function main() {
       // domain-specific errors and returning a structured result.
       // We still guard here to avoid a single throw aborting the entire
       // suite without a clear report.
-      // eslint-disable-next-line no-await-in-loop
+
       const result = await run();
       results.push(result);
     } catch (err) {
@@ -87,9 +89,8 @@ async function main() {
 }
 
 // Execute immediately when invoked via `ts-node` / `node`.
-// eslint-disable-next-line unicorn/prefer-top-level-await
+
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error('Unexpected error running SSoT checks:', err);
   process.exitCode = 1;
 });

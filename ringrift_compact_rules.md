@@ -128,6 +128,8 @@ Placement options (if allowed):
 
 If no legal placement exists when placement is mandatory, the player **skips placement** and proceeds to forced-elimination / movement logic as below.
 
+> **Important (ringsInHand == 0 scenario):** When placement is **forbidden** because `P.ringsInHand == 0` but `P` controls stacks on the board, the engine must immediately proceed to the **movement phase** and enumerate movement/capture moves for P's controlled stacks. The `skip_placement` move type is only valid when `ringsInHand > 0`; when `ringsInHand == 0`, the placement phase is implicitly bypassed and movement moves are the only valid actions (unless P is blocked and must perform forced elimination).
+
 ### 2.2 Movement phase (required when possible)
 
 After placement step, define the set of **controlled stacks** `S = { stacks where controllingPlayer = P }`.
@@ -158,6 +160,8 @@ At the start of your action (after any mandatory placement checks) and before mo
   - If that stack becomes empty, remove it.
 
 If after this elimination `P` still has no legal action, their turn ends.
+
+**Control-flip edge case:** If `P`'s only control over a stack was a cap of height 1 (a single ring of `P`'s colour on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes `P` to have **zero controlled stacks** and **zero rings in hand**, `P` becomes "temporarily inactive" (per Section 7.3) immediately. Turn rotation should then skip `P` and proceed to the next player who has material; `P`'s turn effectively ends at the moment of forced elimination without any further action.
 
 However, as long as any stacks remain on the board, it is never legal for the game to remain in an `active` state with the current player having no legal action. In any situation where **no player** has any legal placement, movement, or capture but at least one stack still exists on the board, the controlling player of some stack on their turn must satisfy the condition above and perform a forced elimination. Successive forced eliminations continue (possibly cycling through multiple players) until **no stacks remain**; only then can the game reach a structurally terminal state that is resolved by the stalemate rules in Section 7.4.
 

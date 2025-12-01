@@ -1,97 +1,178 @@
 # RingRift Weakness Assessment & Hardest Problems Report
 
-**Last Updated:** 2025-11-30 (Pass 18A)
+**Last Updated:** 2025-12-01 (Post-P18.5 Remediation)
 **Status:** Active
 
 This document tracks the project's **single weakest aspect** and **single hardest outstanding problem** over time. It serves as a high-level risk register to focus architectural and remediation efforts.
 
+> **Post-P18.5 Note (2025-12-01):** The "hardest problem" from the initial PASS18 assessment (Deep Multi-Engine Parity) has been **substantially resolved** through P18.1-5 remediation work:
+>
+> - 43 extended contract vectors with 0 mismatches
+> - swap_sides (pie rule) parity verified across all layers
+> - Orchestrator at Phase 4 (100% rollout, staging complete, production preview ready)
+> - See Section 4 for detailed remediation summary.
+
 ---
 
-## 1. Current Assessment (Pass 18A)
+## 1. Current Assessment (Pass 19B)
 
-### 1.1 Weakest Aspect: TS Rules/Host Integration & Parity
+> **Progress Note (Pass 19B):** Near-victory fixture API created enabling E2E game completion tests. 6 tests enabled (3 E2E, 3 scenario). V2 test bug fixed. All skip rationales documented. Focus: E2E infrastructure for complex multiplayer scenarios.
 
-**Score: 3.5/5.0** (Lowest Component Score)
+### 1.1 Weakest Aspect: E2E Test Coverage for Game Completion Scenarios
 
-Second-pass review confirms that the weakest aspect is the **TypeScript rules and host stack for advanced phases and RNG parity**, decomposed into three tightly-related sub-areas that all touch RR‑CANON capture, line, territory, and Q23 elimination rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1) and invariants in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:1):
+**Score: 3.5/5.0** (Lowest Coverage Area, refined from Frontend UX)
 
-1. **Capture and territory host-integration parity.**
-   - The shared TS orchestrator and helper aggregates are strong, but wiring into backend host [`GameEngine.ts`](src/server/game/GameEngine.ts:1), host orchestration in [`GameSession.ts`](src/server/game/GameSession.ts:1), client sandbox [`ClientSandboxEngine.ts`](src/client/sandbox/ClientSandboxEngine.ts:1), and Python adapters [`RulesBackendFacade.ts`](src/server/game/RulesBackendFacade.ts:1) and [`PythonRulesClient.ts`](src/server/services/PythonRulesClient.ts:1) remains brittle for long multi-phase turns (capture → line → territory → elimination).
-   - Failing suites such as `captureSequenceEnumeration.test.ts`, `GameEngine.chainCapture*.test.ts`, `GameEngine.territoryDisconnection.test.ts`, `ClientSandboxEngine.territoryDisconnection*.test.ts`, and `RulesMatrix.Territory.*.test.ts` show that backend and sandbox can still disagree on valid capture chains and territory outcomes in complex positions.
+Progress made:
 
-2. **AI RNG parity across hosts and engines.**
-   - [`AIEngine.ts`](src/server/game/ai/AIEngine.ts:1) and [`AIServiceClient.ts`](src/server/services/AIServiceClient.ts:1) are designed to thread deterministic seeds from `gameState.rngSeed` into both the Python AI service and TS local heuristics, and there are strong unit tests (`AIEngine.fallback`, `AIServiceClient.concurrency`).
-   - In real games, the primary AI paths now consistently derive their RNG from `gameState.rngSeed`: `GameSession.maybePerformAITurn` and `AIEngine` both construct seeded `LocalAIRng` instances, and the sandbox AI uses a per-game `SeededRNG`. The dedicated RNG parity suites (`Sandbox_vs_Backend.aiRngParity*.test.ts`, `Sandbox_vs_Backend.aiRngFullParity.test.ts`) and fallback/concurrency tests are currently green, but this remains a subtle area whenever new AI behaviours or hosts are added.
+- ✅ **Near-Victory Fixture API:** `near_victory_elimination` scenario enables E2E game completion tests.
+- ✅ **E2E Tests Enabled:** Victory modal (return to lobby, rematch), rating updates after rated game.
+- ✅ **Scenario Tests Enabled:** M2 (Disconnection Ladder), C2 (Capture Chain Endgame).
+- ✅ **V2 Test Bug Fixed:** Stale `gameState` reference issue resolved.
+- ✅ **Chat Test Enabled:** Multiplayer chat feature test now runs.
 
-3. **Host edge semantics and decision lifecycles.**
-   - Decision-phase timeouts, auto-resolutions, reconnection handling, and resignation or leave semantics route through [`WebSocketInteractionHandler.ts`](src/server/game/WebSocketInteractionHandler.ts:1), [`server.ts`](src/server/websocket/server.ts:1), [`GameSession.ts`](src/server/game/GameSession.ts:1), and HTTP routes such as [`game.ts`](src/server/routes/game.ts:1).
-   - The design is robust and well-instrumented, but end-to-end coverage for rare edge cases (e.g. decision timeouts during reconnect, HTTP-level resignations for rated games) is thinner, and misalignment here can interact with late-game rules parity and perceived fairness.
+Remaining gaps:
+
+1. **Multiplayer Coordination:** Timeout notifications, concurrent player flows.
+2. **WebSocket Interception:** Network partition simulation for reconnection tests.
+3. **Time Acceleration:** Decision timeout tests require real-time waiting.
+4. **Complex Fixtures:** Territory victory, multi-phase turns.
 
 **Why it is the weakest:**
-Unlike ANM semantics (now heavily remediated) or frontend UX (mostly semantic/presentational), these integration issues strike at the **correctness and fairness of complex endgames**. They sit at the intersection of rules semantics, host orchestration, AI behaviour, and user-visible outcomes, and they are where the remaining red Jest clusters are most concentrated.
+Single-player game completion is now testable via fixtures, but multiplayer scenarios require infrastructure that doesn't exist. The backend and rules engine are robust (scores ≥ 4.5).
 
-### 1.2 Hardest Outstanding Problem: Orchestrator-first Rollout & Deep Multi-engine Parity
+### 1.2 Hardest Outstanding Problem: Production E2E Infrastructure
 
-**Difficulty: 5/5** (Operational Execution & Verification)
+**Difficulty: 4/5** (Increased from 3/5 due to refined scope)
 
-The architectural design for the shared turn orchestrator and parity framework is complete and implemented via [`TurnEngineAdapter.ts`](src/server/game/turn/TurnEngineAdapter.ts:1) and host wiring in [`GameEngine.ts`](src/server/game/GameEngine.ts:1). The **hardest outstanding problem** is executing an **orchestrator-first rollout under live load** while maintaining deep semantic parity across engines:
+Testing multiplayer coordination scenarios requires infrastructure beyond current capabilities:
 
-- **Rollout execution:** Driving the phases in [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](docs/ORCHESTRATOR_ROLLOUT_PLAN.md:1) through staging and production, using the runbook in [`docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`](docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md:1), with clear entry/exit criteria and rollbacks.
-- **Deep multi-engine parity:** Achieving and sustaining parity across TS shared engine, TS hosts (backend + sandbox), and Python rules/AI for the long tail of complex scenarios (hex boards, multi-player games, combined line+territory events), using contract vectors, snapshot traces, and invariants.
-- **Signal interpretation:** Reliably reading parity metrics (`ringrift_rules_parity_mismatches_total`), S-invariant counters, ACTIVE_NO_MOVES regression suites, and AI health checks to make safe go/no-go decisions during rollout.
+1. **Multi-browser synchronization** – Deterministic turn-taking with WebSocket event verification.
+2. **Network simulation** – Disconnection/reconnection testing via Playwright interception.
+3. **Time acceleration** – Server-side mocking for timeout scenarios.
 
 **Why it is hard:**
-1.  **Execution vs. design:** Moving from “we have a complete design” to “we are running orchestrator-first in staging/production with green SLOs” requires sustained operational discipline, careful coordination across services, and tight adherence to the rollout runbook.
-2.  **Deep parity tail:** Achieving practical 100% parity for long-tail scenarios (e.g. hex territory disconnection with simultaneous line formation and forced elimination) requires both broader test vectors and long-running soaks, and parity must be maintained as rules evolve.
-3.  **Legacy drag and dual paths:** Legacy engine paths and configuration flags must remain correct until final shutdown, increasing complexity and the risk of configuration drift.
+
+- Cross-cutting concerns across frontend, backend, and test infrastructure.
+- Non-determinism in WebSocket timing and network conditions.
+- Maintenance burden for complex test infrastructure.
+
+**Resolved this pass:**
+
+- ✅ Near-victory fixture API for game completion tests.
+- ✅ E2E test helpers (`createFixtureGame`, `createNearVictoryGame`).
+- ✅ V2 test bug fix (stale gameState reference).
+- ✅ All skip rationales documented with specific blockers.
 
 ---
 
-## 2. Remediation Plan (Pass 18A)
+## 2. Remediation Plan (Pass 19B)
 
-The detailed, task-level remediation backlog is maintained in [`docs/PASS18A_ASSESSMENT_REPORT.md`](docs/PASS18A_ASSESSMENT_REPORT.md:1) §7. At a high level it is organised into three streams that directly address the weakest aspect and hardest problem identified above.
+The detailed backlog is in [`docs/PASS19B_ASSESSMENT_REPORT.md`](docs/PASS19B_ASSESSMENT_REPORT.md).
 
-**Pass 18A Progress Note:** All tests are now green (223 suites, 2,621 tests passing). Recent fixes stabilized UI component tests (GameContext, GameHUD, SandboxGameHost) and corrected test expectations for line reward collapse semantics.
+### P0 (Critical) – E2E Test Infrastructure
 
-### P0 (Critical) – Stabilise host integration & parity (weakest aspect)
+- ~~**P19B.1-1:** Near-victory fixture API.~~ ✅ Done
+- **P19B.1-2:** Multi-context WebSocket coordination helper.
+- **P19B.1-3:** Network partition simulation.
+- **P19B.1-4:** Time acceleration mode for timeout tests.
 
-- **P18.1-CODE – Capture & chain-capture host parity**
-  Stabilise capture sequence enumeration and chain-capture enforcement across backend host, client sandbox, and Python parity harness, focusing on the suites listed in §1.1 and the capture rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1).
+### P1 (Important) – Additional Fixtures
 
-- **P18.2-CODE – Territory & elimination integration**
-  Correct ordering and completeness of line rewards, territory collapse, and Q23 self-elimination in host integration code so that TS hosts and Python rules agree on outcomes for complex long-turn scenarios.
+- **P19B.2-1:** Near-victory territory fixture.
+- **P19B.2-2:** Chain capture fixture with 4+ targets.
+- **P19B.2-3:** Multi-phase turn fixture.
 
-- **P18.3-CODE – AI RNG parity & seeded behaviour**
-  Ensure that AI move selection consistently threads `rngSeed` or equivalent RNG state through TS hosts and Python AI, eliminating reliance on `Math.random()` in host paths where deterministic behaviour is required for parity (see `Sandbox_vs_Backend.aiRngParity*.test.ts`).
+### P2 (Nice to Have) – Test Polish
 
-- **P18.8-DEBUG – Decision lifecycle edge cases**
-  Harden timeout, auto-resolution, reconnection, and resignation flows at the host and WebSocket layers so that late-game outcomes remain consistent with RR‑CANON rules and invariants even in degraded network conditions.
-
-### P1 (Important) – Orchestrator rollout & deep multi-engine parity (hardest problem)
-
-- **P18.4-DEVOPS – Execute Phase 1 in staging**
-  Enable the orchestrator adapter in staging with SLO gating and parity monitoring, following the runbook, and keep it live for a defined soak period with no unacceptable parity or SLO regressions.
-
-- **P18.5-ARCH – Expand contract vectors & parity artefacts**
-  Add contract vectors and parity fixtures that specifically cover long-tail multi-phase interactions (hex territory disconnection, simultaneous line+territory, 3–4 player captures), and ensure both TS and Python runners, as well as SSOT parity checks, treat these artefacts as first-class.
-
-- **P18.9-DEBUG – Orchestrator parity soaks & debugging harness**
-  Run and monitor orchestrator-first soaks under representative load, with tooling to capture and triage any parity mismatches, invariant violations, or AI divergence discovered during rollout.
-
-### P2 (Valuable) – Docs, SSOT, and UX alignment
-
-- **P18.6-CODE – HUD & victory copy alignment**
-  Update HUD and modal text for chain capture, victory thresholds, and decision phases to match RR‑CANON, reducing user confusion around the advanced semantics that are already hard to reason about on the backend.
-
-- **P18.7-ARCH – Core docs clean-up & indexing alignment**
-  Bring `CURRENT_STATE_ASSESSMENT.md`, `CURRENT_RULES_STATE.md`, `DOCUMENTATION_INDEX.md`, and `docs/INDEX.md` into alignment with `PROJECT_GOALS.md` and this report, clearly distinguishing historical highest-risk semantics (ANM/forced elimination) from the current weakest aspect and hardest problem.
-
-- **P18.10-ARCH – SSOT & CI guardrails for parity and rollout**
-  Extend SSoT checks (for example, `python-parity-ssot-check` and `lifecycle-ssot-check`) and CI wiring so that key parity suites and orchestrator rollout configs cannot silently drift out of the pipeline.
+- **P19B.3-1:** Continue `any` cast reduction.
+- **P19B.3-2:** Visual regression tests.
 
 ---
 
-## 3. Historical Assessments
+## 3. P18.1-5 Completed Remediations (PASS18 Hardest Problem Resolution)
+
+The initial PASS18 assessment identified **Deep Multi-Engine Parity** as the hardest outstanding problem. This has been substantially resolved through the following remediation work:
+
+### 3.1 P18.1-\*: Capture/Territory Host Parity ✅
+
+- Unified capture chain handling between backend `GameEngine` and `ClientSandboxEngine`
+- Aligned territory processing order and Q23 self-elimination prerequisites
+- Advanced-phase semantics verified across hosts via orchestrator adapters
+- **Docs:** [`P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md`](docs/P18.1-1_CAPTURE_TERRITORY_HOST_MAP.md)
+
+### 3.2 P18.2-\*: RNG Seed Handling Alignment ✅
+
+- RNG seeding aligned between TS and Python for deterministic game replay
+- AI move selection now reproducible given same seed
+- **Docs:** [`P18.2-1_AI_RNG_PATHS.md`](docs/P18.2-1_AI_RNG_PATHS.md)
+
+### 3.3 P18.3-\*: Decision Lifecycle and Timeout Semantics ✅
+
+- Timeout behavior for pending decisions specified
+- Decision expiry handling aligned across hosts
+- **Docs:** [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
+
+### 3.4 P18.4-\*: Orchestrator Rollout (Phase 4 Complete) ✅
+
+- All environments: `ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
+- Zero invariant violations across all board types in soak tests
+- Production preview (P18.4-4) success criteria defined
+- **Docs:** [`ORCHESTRATOR_ROLLOUT_PLAN.md`](docs/ORCHESTRATOR_ROLLOUT_PLAN.md), [`P18.4-3_ORCHESTRATOR_STAGING_REPORT.md`](docs/P18.4-3_ORCHESTRATOR_STAGING_REPORT.md)
+
+### 3.5 P18.5-\*: Extended Contract Vectors and swap_sides Parity ✅
+
+- **43 contract vectors** across 4 families: chain capture, forced elimination, territory/line, hex edge cases
+- **0 mismatches** between TS and Python
+- swap_sides (pie rule) verified across all layers (TS backend, TS sandbox, Python)
+- **Design clarification (P18.5-3):** Mid-phase vectors are for single-step parity testing, not game seeding
+- **Docs:** [`P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md`](docs/P18.5-3_ORCHESTRATOR_EXTENDED_VECTOR_SOAK_REPORT.md), [`P18.5-4_SWAP_SIDES_PARITY_REPORT.md`](docs/P18.5-4_SWAP_SIDES_PARITY_REPORT.md)
+
+### 3.6 P18.18: Skipped Test Triage ✅
+
+- Obsolete test suites removed (4 files)
+- RulesMatrix.Comprehensive partially re-enabled (7 passing, 3 skipped)
+- OrchestratorSInvariant.regression re-enabled and passing
+- **Docs:** [`P18.18_SKIPPED_TEST_TRIAGE.md`](docs/P18.18_SKIPPED_TEST_TRIAGE.md)
+
+---
+
+## 4. Historical Assessments
+
+### Pass 19B (2025-11-30, Current)
+
+- **Weakest Area:** E2E Test Coverage for Game Completion Scenarios (3.5/5.0).
+- **Hardest Problem:** Production E2E Infrastructure (4/5).
+- **Note:** Near-victory fixture API created. 6 tests enabled. V2 test bug fixed. Focus: E2E infrastructure for complex multiplayer scenarios.
+
+### Pass 19A (2025-11-30, superseded by 19B)
+
+- **Weakest Area:** Frontend UX Polish & Feature Completeness (3.5/5.0).
+- **Hardest Problem:** Remaining `any` Casts & Incremental Refinement.
+- **Note:** Test failures resolved. GameHistoryPanel integrated. Legacy paths deprecated.
+
+### Pass 18-3 (2025-11-30, superseded by 19A)
+
+- **Weakest Area:** Frontend UX Polish (3.3/5.0).
+- **Hardest Problem:** Test Suite Cleanup & Legacy Deprecation.
+- **Note:** Superseded by 19A after test fixes and GameHistoryPanel integration.
+
+### Pass 18C (2025-11-30, superseded by 18-3)
+
+- **Weakest Area:** Frontend UX Polish (3.2/5.0).
+- **Hardest Problem:** Test Suite Cleanup.
+- **Note:** Accessibility improved significantly.
+
+### Pass 18B (2025-11-30, superseded by 18C)
+
+- **Weakest Area:** Frontend UX & Accessibility (2.5/5.0).
+- **Hardest Problem:** Legacy Code Deprecation & Test Suite Cleanup.
+- **Note:** Orchestrator at 100% rollout. Host integration stabilized. Focus shifted to UX.
+
+### Pass 18A (2025-11-30, superseded by 18B)
+
+- **Weakest Area:** TS Rules/Host Integration & Parity (stabilizing).
+- **Hardest Problem:** Orchestrator-first rollout execution.
+- **Note:** Test suite stabilization in progress.
 
 ### Pass 18 (2025-11-30, superseded by 18A)
 
@@ -103,13 +184,16 @@ The detailed, task-level remediation backlog is maintained in [`docs/PASS18A_ASS
 
 - **Weakest Area:** Deep rules parity & invariants for territory / chain-capture / endgames.
 - **Hardest Problem:** Operationalising orchestrator-first rollout with SLO gates.
+- **Resolution:** P18.5-\* extended vectors now provide 43 cases with 0 mismatches covering these scenarios.
 
 ### Pass 16 (2025-11-28)
 
 - **Weakest Area:** Frontend host architecture & UX ergonomics.
 - **Hardest Problem:** Orchestrator-first production rollout & legacy decommissioning.
+- **Resolution:** P18.4-\* achieved Phase 4 (100% rollout). Legacy paths properly quarantined as DIAGNOSTICS-ONLY.
 
 ### Pass 7 (2025-11-27)
 
 - **Weakest Area:** DevOps/CI Enforcement (3.4/5.0).
 - **Hardest Problem:** Orchestrator Production Rollout.
+- **Resolution:** Orchestrator rollout infrastructure complete. CI gates via `orchestrator-parity` job.

@@ -564,7 +564,7 @@ export function enumerateChainCaptureSegments(
   return moves.map((m) => ({
     ...m,
     type: targetType as Move['type'],
-    id: `${targetType}-${positionToString(m.from!)}-${positionToString(m.captureTarget!)}-${positionToString(m.to)}-${moveNumber}`,
+    id: `${targetType}-${m.from ? positionToString(m.from) : 'unknown'}-${m.captureTarget ? positionToString(m.captureTarget) : 'unknown'}-${positionToString(m.to)}-${moveNumber}`,
   }));
 }
 
@@ -742,7 +742,10 @@ export function mutateCapture(
       // Own marker: remove and eliminate top ring
       newState.board.markers.delete(toKey);
 
-      const currentStack = newState.board.stacks.get(toKey)!;
+      const currentStack = newState.board.stacks.get(toKey);
+      if (!currentStack) {
+        throw new Error(`Expected stack at landing position ${toKey}`);
+      }
       // TOP ring is rings[0] per actual codebase convention (consistent with calculateCapHeight)
       const topRingOwner = currentStack.rings[0];
       const reducedRings = currentStack.rings.slice(1); // Remove first element (the top)

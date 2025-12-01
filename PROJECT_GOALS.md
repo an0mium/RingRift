@@ -49,7 +49,7 @@ The RingRift ruleset is intentionally designed around a **modest number of simpl
   - The extremely high branching factor (up to millions of choices per turn), long tactical chains (especially in captures and territory disconnections), and subtle tradeoffs between rings, markers, and territory make exhaustive search prohibitively expensive even for well-optimized engines.
   - The rules support a spectrum of AI strengths while intentionally preserving room for human creativity, intuition, long term strategic play, coalition forming, and non-myopic tactical planning to matter at all skill levels.
 
-Together, these goals define **how the game should feel**: simple to describe at the rules level, but with deep, emergent strategy; high tension and comeback potential; and a long-term target where humans and AIs can meaningfully co-exist as competitive opponents. Detailed rules semantics, examples, and strategy notes are defined in the authoritative rulebook [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) and the canonical specification [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1); this section records the *purpose* those rules are serving.
+Together, these goals define **how the game should feel**: simple to describe at the rules level, but with deep, emergent strategy; high tension and comeback potential; and a long-term target where humans and AIs can meaningfully co-exist as competitive opponents. Detailed rules semantics, examples, and strategy notes are defined in the authoritative rulebook [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) and the canonical specification [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1); this section records the _purpose_ those rules are serving.
 
 ---
 
@@ -100,32 +100,32 @@ Together, these goals define **how the game should feel**: simple to describe at
 
 ### 3.3 Quality Objectives (Testing & Reliability)
 
-| Objective                       | Description                                                                                                                                                        | Rationale                     |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
+| Objective                       | Description                                                                                                                                                                                                           | Rationale                     |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
 | **Comprehensive test coverage** | Extensive automated test suites across TypeScript and Python (unit, integration, scenario, parity, and E2E); see [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1) for live counts and coverage details. | Confidence in correctness     |
-| **Rules/FAQ scenario matrix**   | Test cases derived directly from [`ringrift_complete_rules.md`](ringrift_complete_rules.md) FAQ examples                                                           | Ensures rules fidelity        |
-| **Contract testing**            | Cross-language parity validated by shared contract test vectors                                                                                                    | Guarantees engine consistency |
-| **Parity harnesses**            | Backend ↔ sandbox ↔ Python engine behavior validation                                                    | Catches divergence early      |
-| **CI/CD pipeline**              | Automated testing, linting, security scanning on every change                                            | Maintains quality bar         |
+| **Rules/FAQ scenario matrix**   | Test cases derived directly from [`ringrift_complete_rules.md`](ringrift_complete_rules.md) FAQ examples                                                                                                              | Ensures rules fidelity        |
+| **Contract testing**            | Cross-language parity validated by shared contract test vectors                                                                                                                                                       | Guarantees engine consistency |
+| **Parity harnesses**            | Backend ↔ sandbox ↔ Python engine behavior validation                                                                                                                                                                 | Catches divergence early      |
+| **CI/CD pipeline**              | Automated testing, linting, security scanning on every change                                                                                                                                                         | Maintains quality bar         |
 
-### 3.4 Current Highest-Risk Rules Semantics Area (Host Integration & Deep Parity)
+### 3.4 Current Highest-Risk Area (Frontend UX & Maintenance)
 
-> **Status (2025-11-30): Highest-risk semantic area and hardest outstanding problem**
+> **Status (2025-12-01): Highest-risk area and hardest outstanding problem**
 
-Following the successful remediation of Active-No-Moves (ANM) semantics, the highest risk has shifted to **deep multi-engine parity and host integration** for advanced phases.
+Following the successful rollout of the Orchestrator (100%) and stabilization of the rules engine, the highest risk has shifted to **Frontend UX Polish** and **Test Suite Maintenance**.
 
-- **Weakest aspect (host integration & parity):**
-  Ensuring that the **backend GameEngine** and **client SandboxEngine** correctly integrate the shared rules helpers for complex multi-phase turns involving:
-  - **Capture chains:** Correctly enumerating and enforcing mandatory continuation across all board types.
-  - **Territory disconnection:** Correctly processing simultaneous line formation and territory collapse without violating Q23 or S-invariants.
-  - **RNG parity:** Ensuring sandbox AI simulation reliably predicts backend AI behaviour for the same seed.
+- **Weakest aspect (Frontend UX Polish):**
+  The frontend lacks key features expected in a polished strategy game, specifically:
+  - **Keyboard Navigation:** Board cells are not keyboard-focusable.
+  - **Move History:** No detailed log or replay capability.
+  - **Sandbox Tooling:** No scenario picker or easy reset.
+  - **Spectator UI:** Minimal features.
 
-- **Hardest outstanding problem (operational execution):**
-  **Orchestrator-first rollout execution & deep parity verification.**
-  - Moving from "design complete" to "production reality" by executing the phased rollout in staging/prod with strict SLO enforcement.
-  - Achieving 100% parity for the "long tail" of complex interactions (e.g., hex board territory disconnection with simultaneous line formation) where engines are most likely to diverge.
-
-This area is governed by the canonical rules in [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1) and the parity framework in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:1).
+- **Hardest outstanding problem (Test Suite Cleanup):**
+  **Maintenance and cleanup of technical debt.**
+  - **176 skipped tests** need triage and resolution.
+  - **Legacy turn-processing paths** in `GameEngine.ts` need to be safely deprecated and removed.
+  - **~37 explicit `any` casts** remain.
 
 High-level risk framing and historical assessment for this area are summarised in [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:1).
 
@@ -146,7 +146,7 @@ From [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:144-149):
 | **HTTP API**        | <500ms (p95)    | Login, game creation, state fetch         |
 
 ### 4.2 Test Coverage Requirements
- 
+
 | Category                  | Requirement              | Current Status                                                                                             |
 | ------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | **TypeScript tests**      | All passing              | All TypeScript test suites passing; see `CURRENT_STATE_ASSESSMENT.md` for live counts and coverage details |
@@ -154,17 +154,17 @@ From [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:144-149):
 | **Contract vectors**      | 100% parity              | Contract-based TS↔Python parity suites passing                                                             |
 | **Rules scenario matrix** | All FAQ examples covered | Coverage in progress                                                                                       |
 | **Integration tests**     | Core workflows passing   | AI resilience, reconnection, sessions                                                                      |
- 
+
 > **Note:** Live test counts and coverage breakdowns are maintained in [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:236). This document is not the single source of truth for those numbers; it records only the high-level requirements.
- 
+
 #### Metrics & Test Suites (qualitative overview)
- 
+
 To avoid duplicating live metrics, this section describes the **shape** of the test and CI surface; concrete counts and coverage percentages remain in [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1).
- 
+
 - **TypeScript suites:** Jest unit and integration tests for the shared engine, backend hosts, frontend client, and sandbox; Playwright E2E tests for core auth and gameplay flows.
 - **Python suites:** pytest suites for the AI service covering rules engine behaviour, parity tests, training/heuristic harnesses, and invariants.
 - **Cross-language & CI gates:** Contract-vector tests (TS and Python) plus orchestrator and host-parity suites that must be green in CI before promotion to staging/production.
- 
+
 ### 4.3 Feature Completion Criteria
 
 - [ ] All 24 FAQ scenarios from rules document have corresponding tests
@@ -179,17 +179,17 @@ To avoid duplicating live metrics, this section describes the **shape** of the t
 
 Environment posture and rollout discipline are first-class parts of v1.0 readiness, not an afterthought. At a high level, v1.0 is considered **environment‑ready** when:
 
-- **Canonical orchestrator is authoritative in production**  
-  - Production gameplay traffic (HTTP + WebSocket) flows through the shared turn orchestrator via the backend adapter; legacy/alternate turn paths are removed or quarantined behind explicit diagnostics flags.  
+- **Canonical orchestrator is authoritative in production**
+  - Production gameplay traffic (HTTP + WebSocket) flows through the shared turn orchestrator via the backend adapter; legacy/alternate turn paths are removed or quarantined behind explicit diagnostics flags.
   - The effective production profile matches the **Phase 3–4 orchestrator‑ON presets** in `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (TS rules authoritative, `ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE` at or near 100, shadow mode disabled for normal play).
 
-- **Rollout phases are executed with SLO gates, not best‑effort**  
-  - Staging runs in a sustained **Phase 1 – orchestrator‑only** posture, with SLOs from `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §8 (error rate, invariant violations, parity alerts) monitored and enforced.  
-  - Production progresses through **Phase 2 – legacy authoritative + shadow**, then **Phase 3–4 – incremental orchestrator rollout → orchestrator‑only**, only when SLOs and error budgets are respected over the defined windows.  
+- **Rollout phases are executed with SLO gates, not best‑effort**
+  - Staging runs in a sustained **Phase 1 – orchestrator‑only** posture, with SLOs from `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §8 (error rate, invariant violations, parity alerts) monitored and enforced.
+  - Production progresses through **Phase 2 – legacy authoritative + shadow**, then **Phase 3–4 – incremental orchestrator rollout → orchestrator‑only**, only when SLOs and error budgets are respected over the defined windows.
   - Rollback paths and circuit‑breaker behaviour for orchestrator regressions are documented and exercised in staging before use in production.
 
-- **Invariants, parity, and AI healthchecks are part of promotion criteria**  
-  - Orchestrator invariant metrics (`ringrift_orchestrator_invariant_violations_total{type,invariant_id}`) and Python strict‑invariant metrics (`ringrift_python_invariant_violations_total{invariant_id,type}`) have dashboards and alerts wired as in `docs/ALERTING_THRESHOLDS.md` and `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`.  
+- **Invariants, parity, and AI healthchecks are part of promotion criteria**
+  - Orchestrator invariant metrics (`ringrift_orchestrator_invariant_violations_total{type,invariant_id}`) and Python strict‑invariant metrics (`ringrift_python_invariant_violations_total{invariant_id,type}`) have dashboards and alerts wired as in `docs/ALERTING_THRESHOLDS.md` and `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`.
   - Cross‑language parity suites (contract vectors, plateau snapshots, line+territory snapshots) and the Python AI self‑play healthcheck profile (nightly) are expected to be **stable and green** before promoting builds to staging/production.
 
 These criteria are intentionally high‑level and goal‑oriented; detailed rollout tables, environment presets, and alert thresholds live in `STRATEGIC_ROADMAP.md`, `CURRENT_STATE_ASSESSMENT.md`, `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`, and `docs/ALERTING_THRESHOLDS.md`. When changing rollout strategy or SLOs, update those documents for implementation detail, and this section for the overarching success definition.

@@ -1,0 +1,1221 @@
+{
+  "version": "v2",
+  "generated": "2025-12-01T08:02:22.539Z",
+  "count": 9,
+  "categories": ["chain_capture"],
+  "vectors": [
+    {
+      "id": "chain_capture.depth3.segment1.square8",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on square8, first segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.square8"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.468Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "rings": [1, 1, 1],
+                "stackHeight": 3,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              },
+              "5,3": {
+                "position": {
+                  "x": 5,
+                  "y": 3
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,5": {
+                "position": {
+                  "x": 7,
+                  "y": 5
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,7": {
+                "position": {
+                  "x": 5,
+                  "y": 7
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "movement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "chain-depth3-square8-seg1",
+          "type": "overtaking_capture",
+          "player": 1,
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "captureTarget": {
+            "x": 5,
+            "y": 3
+          },
+          "to": {
+            "x": 7,
+            "y": 3
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "awaiting_decision",
+        "assertions": {
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "gameStatus": "active",
+          "stackCount": 3,
+          "markerCount": 1,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment2.square8",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on square8, second segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.square8"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.480Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,5": {
+                "position": {
+                  "x": 7,
+                  "y": 5
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,7": {
+                "position": {
+                  "x": 5,
+                  "y": 7
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,3": {
+                "position": {
+                  "x": 7,
+                  "y": 3
+                },
+                "rings": [1, 1, 1, 2],
+                "stackHeight": 4,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0,
+          "chainCapturePosition": {
+            "x": 7,
+            "y": 3
+          }
+        },
+        "move": {
+          "id": "chain-depth3-square8-seg2",
+          "type": "continue_capture_segment",
+          "player": 1,
+          "from": {
+            "x": 7,
+            "y": 3
+          },
+          "captureTarget": {
+            "x": 7,
+            "y": 5
+          },
+          "to": {
+            "x": 7,
+            "y": 7
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 2
+        }
+      },
+      "expectedOutput": {
+        "status": "awaiting_decision",
+        "assertions": {
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "gameStatus": "active",
+          "stackCount": 2,
+          "markerCount": 2,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment3.square8",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on square8, final segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.square8"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.482Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "5,7": {
+                "position": {
+                  "x": 5,
+                  "y": 7
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,7": {
+                "position": {
+                  "x": 7,
+                  "y": 7
+                },
+                "rings": [1, 1, 1, 2, 2],
+                "stackHeight": 5,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "player": 1,
+                "type": "regular"
+              },
+              "7,3": {
+                "position": {
+                  "x": 7,
+                  "y": 3
+                },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0,
+          "chainCapturePosition": {
+            "x": 7,
+            "y": 7
+          }
+        },
+        "move": {
+          "id": "chain-depth3-square8-seg3",
+          "type": "continue_capture_segment",
+          "player": 1,
+          "from": {
+            "x": 7,
+            "y": 7
+          },
+          "captureTarget": {
+            "x": 5,
+            "y": 7
+          },
+          "to": {
+            "x": 3,
+            "y": 7
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 3
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "stackCount": 1,
+          "markerCount": 3,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment1.square19",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on square19, first segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.square19"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.482Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-square19",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "rings": [1, 1, 1],
+                "stackHeight": 3,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              },
+              "5,3": {
+                "position": {
+                  "x": 5,
+                  "y": 3
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,5": {
+                "position": {
+                  "x": 7,
+                  "y": 5
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,7": {
+                "position": {
+                  "x": 5,
+                  "y": 7
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "movement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "chain-depth3-square19-seg1",
+          "type": "overtaking_capture",
+          "player": 1,
+          "from": {
+            "x": 3,
+            "y": 3
+          },
+          "captureTarget": {
+            "x": 5,
+            "y": 3
+          },
+          "to": {
+            "x": 7,
+            "y": 3
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "awaiting_decision",
+        "assertions": {
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "gameStatus": "active",
+          "stackCount": 3,
+          "markerCount": 1,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment2.square19",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on square19, second segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.square19"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.482Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-square19",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {
+              "7,5": {
+                "position": {
+                  "x": 7,
+                  "y": 5
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,7": {
+                "position": {
+                  "x": 5,
+                  "y": 7
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,3": {
+                "position": {
+                  "x": 7,
+                  "y": 3
+                },
+                "rings": [1, 1, 1, 2],
+                "stackHeight": 4,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181,
+          "totalRingsEliminated": 0,
+          "chainCapturePosition": {
+            "x": 7,
+            "y": 3
+          }
+        },
+        "move": {
+          "id": "chain-depth3-square19-seg2",
+          "type": "continue_capture_segment",
+          "player": 1,
+          "from": {
+            "x": 7,
+            "y": 3
+          },
+          "captureTarget": {
+            "x": 7,
+            "y": 5
+          },
+          "to": {
+            "x": 7,
+            "y": 7
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 2
+        }
+      },
+      "expectedOutput": {
+        "status": "awaiting_decision",
+        "assertions": {
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "gameStatus": "active",
+          "stackCount": 2,
+          "markerCount": 2,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment3.square19",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on square19, final segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.square19"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.484Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-square19",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {
+              "5,7": {
+                "position": {
+                  "x": 5,
+                  "y": 7
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,7": {
+                "position": {
+                  "x": 7,
+                  "y": 7
+                },
+                "rings": [1, 1, 1, 2, 2],
+                "stackHeight": 5,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "player": 1,
+                "type": "regular"
+              },
+              "7,3": {
+                "position": {
+                  "x": 7,
+                  "y": 3
+                },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "chain_capture",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181,
+          "totalRingsEliminated": 0,
+          "chainCapturePosition": {
+            "x": 7,
+            "y": 7
+          }
+        },
+        "move": {
+          "id": "chain-depth3-square19-seg3",
+          "type": "continue_capture_segment",
+          "player": 1,
+          "from": {
+            "x": 7,
+            "y": 7
+          },
+          "captureTarget": {
+            "x": 5,
+            "y": 7
+          },
+          "to": {
+            "x": 3,
+            "y": 7
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 3
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "stackCount": 1,
+          "markerCount": 3,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment1.hexagonal",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on hexagonal board, first segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.hexagonal"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.518Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-hexagonal",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "0,0,0": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "rings": [1, 1, 1],
+                "stackHeight": 3,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              },
+              "1,0,-1": {
+                "position": {
+                  "x": 1,
+                  "y": 0,
+                  "z": -1
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "3,0,-3": {
+                "position": {
+                  "x": 3,
+                  "y": 0,
+                  "z": -3
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,0,-5": {
+                "position": {
+                  "x": 5,
+                  "y": 0,
+                  "z": -5
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "movement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "chain-depth3-hex-seg1",
+          "type": "overtaking_capture",
+          "player": 1,
+          "from": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+          },
+          "captureTarget": {
+            "x": 1,
+            "y": 0,
+            "z": -1
+          },
+          "to": {
+            "x": 2,
+            "y": 0,
+            "z": -2
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "stackCount": 3,
+          "markerCount": 1,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment2.hexagonal",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on hexagonal board, second segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.hexagonal"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.521Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-hexagonal",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "3,0,-3": {
+                "position": {
+                  "x": 3,
+                  "y": 0,
+                  "z": -3
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,0,-5": {
+                "position": {
+                  "x": 5,
+                  "y": 0,
+                  "z": -5
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "2,0,-2": {
+                "position": {
+                  "x": 2,
+                  "y": 0,
+                  "z": -2
+                },
+                "rings": [1, 1, 1, 2],
+                "stackHeight": 4,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,0,0": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "chain-depth3-hex-seg2",
+          "type": "continue_capture_segment",
+          "player": 1,
+          "from": {
+            "x": 2,
+            "y": 0,
+            "z": -2
+          },
+          "captureTarget": {
+            "x": 3,
+            "y": 0,
+            "z": -3
+          },
+          "to": {
+            "x": 4,
+            "y": 0,
+            "z": -4
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 2
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 1,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "stackCount": 2,
+          "markerCount": 2,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "chain_capture.depth3.segment3.hexagonal",
+      "version": "v2",
+      "category": "chain_capture",
+      "description": "Depth-3 chain capture on hexagonal board, final segment",
+      "tags": [
+        "chain_capture",
+        "orchestrator",
+        "parity",
+        "sequence:chain_capture.depth3.linear.hexagonal"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.539Z",
+      "input": {
+        "state": {
+          "gameId": "contract-chain-depth3-hexagonal",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "5,0,-5": {
+                "position": {
+                  "x": 5,
+                  "y": 0,
+                  "z": -5
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "4,0,-4": {
+                "position": {
+                  "x": 4,
+                  "y": 0,
+                  "z": -4
+                },
+                "rings": [1, 1, 1, 2, 2],
+                "stackHeight": 5,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,0,0": {
+                "position": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                },
+                "player": 1,
+                "type": "regular"
+              },
+              "2,0,-2": {
+                "position": {
+                  "x": 2,
+                  "y": 0,
+                  "z": -2
+                },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "ring_placement",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "chain-depth3-hex-seg3",
+          "type": "continue_capture_segment",
+          "player": 1,
+          "from": {
+            "x": 4,
+            "y": 0,
+            "z": -4
+          },
+          "captureTarget": {
+            "x": 5,
+            "y": 0,
+            "z": -5
+          },
+          "to": {
+            "x": 6,
+            "y": 0,
+            "z": -6
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 3
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "stackCount": 1,
+          "markerCount": 3,
+          "collapsedCount": 0,
+          "sInvariantDelta": 1,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    }
+  ]
+}

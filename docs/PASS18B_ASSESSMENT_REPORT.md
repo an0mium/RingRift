@@ -47,33 +47,33 @@ The operational challenge has shifted from rollout execution to cleanup:
 
 ### 1.3 Key Progress Since PASS18A
 
-| Area | Status | Notes |
-|------|--------|-------|
-| Orchestrator Rollout | ✅ Complete (100%) | All environments configured, soak tests green |
-| Documentation Sync | ✅ Complete | 10 PASS reports + 4 draft docs marked historical |
-| Module Responsibilities | ✅ Updated | Host adapters, new modules documented |
-| Test Suite Health | ✅ Strong | 2,633 tests passing (1 flaky) |
-| Python Tests | ✅ Green | 818 tests collected |
-| RULES_SCENARIO_MATRIX | ✅ Verified | Archived test paths fixed |
+| Area                    | Status             | Notes                                            |
+| ----------------------- | ------------------ | ------------------------------------------------ |
+| Orchestrator Rollout    | ✅ Complete (100%) | All environments configured, soak tests green    |
+| Documentation Sync      | ✅ Complete        | 10 PASS reports + 4 draft docs marked historical |
+| Module Responsibilities | ✅ Updated         | Host adapters, new modules documented            |
+| Test Suite Health       | ✅ Strong          | 2,633 tests passing (1 flaky)                    |
+| Python Tests            | ✅ Green           | 818 tests collected                              |
+| RULES_SCENARIO_MATRIX   | ✅ Verified        | Archived test paths fixed                        |
 
 ---
 
 ## 2. Per-Subsystem Scores (Pass 18B)
 
-| Subsystem | Score | Trend | Notes |
-|-----------|-------|-------|-------|
-| **Shared TS Engine (aggregates/helpers)** | 4.5/5 | ↔ | Strong SSoT, well-tested |
-| **Backend Host Integration** | 4.0/5 | ↑ | Orchestrator at 100%, legacy paths dormant |
-| **Sandbox Host Integration** | 4.0/5 | ↑ | Orchestrator adapter stable |
-| **Python Rules Engine** | 4.0/5 | ↔ | 818 tests green, contract parity strong |
-| **TS↔Python Parity** | 4.0/5 | ↑ | Parity healthchecks integrated |
-| **Orchestrator Architecture** | 4.5/5 | ↔ | Complete, metrics wired, CI gated |
-| **Frontend Components** | 4.0/5 | ↔ | Tests stable, view-models strong |
-| **Frontend UX (accessibility)** | 2.5/5 | ↔ | **Weakest area** – ARIA gaps, copy mismatches |
-| **AI Training Infrastructure** | 4.0/5 | ↔ | Robust pipelines, RNG threading needs audit |
-| **Documentation** | 4.0/5 | ↑ | Sync complete, historical markers added |
-| **CI/CD & Observability** | 4.5/5 | ↔ | Metrics, alerts, SSoT checks comprehensive |
-| **Type Safety** | 3.2/5 | ↔ | 744 `any` casts, technical debt |
+| Subsystem                                 | Score | Trend | Notes                                         |
+| ----------------------------------------- | ----- | ----- | --------------------------------------------- |
+| **Shared TS Engine (aggregates/helpers)** | 4.5/5 | ↔     | Strong SSoT, well-tested                      |
+| **Backend Host Integration**              | 4.0/5 | ↑     | Orchestrator at 100%, legacy paths dormant    |
+| **Sandbox Host Integration**              | 4.0/5 | ↑     | Orchestrator adapter stable                   |
+| **Python Rules Engine**                   | 4.0/5 | ↔     | 818 tests green, contract parity strong       |
+| **TS↔Python Parity**                      | 4.0/5 | ↑     | Parity healthchecks integrated                |
+| **Orchestrator Architecture**             | 4.5/5 | ↔     | Complete, metrics wired, CI gated             |
+| **Frontend Components**                   | 4.0/5 | ↔     | Tests stable, view-models strong              |
+| **Frontend UX (accessibility)**           | 2.5/5 | ↔     | **Weakest area** – ARIA gaps, copy mismatches |
+| **AI Training Infrastructure**            | 4.0/5 | ↔     | Robust pipelines, RNG threading needs audit   |
+| **Documentation**                         | 4.0/5 | ↑     | Sync complete, historical markers added       |
+| **CI/CD & Observability**                 | 4.5/5 | ↔     | Metrics, alerts, SSoT checks comprehensive    |
+| **Type Safety**                           | 3.2/5 | ↔     | 744 `any` casts, technical debt               |
 
 **Overall Project Score: 4.0/5** (up from 3.9 in PASS18A)
 
@@ -84,24 +84,29 @@ The operational challenge has shifted from rollout execution to cleanup:
 ### 3.1 TypeScript / Jest
 
 ```
-Test Suites: 1 failed, 55 skipped, 224 passed, 280 total
-Tests:       1 failed, 184 skipped, 1 todo, 2,633 passed, 2,819 total
+Test Suites: 2 failed, 54 skipped, 227 passed, 229 of 283 total
+Tests:       4 failed, 176 skipped, 1 todo, 2,655 passed, 2,836 total
 ```
 
-**Status: ⚠️ 1 Flaky Test**
+**Status: ⚠️ 4 Failing Tests (as of 2025-11-30 latest run)**
 
-- `tests/unit/client/SandboxGameHost.test.tsx` – Movement grid toggle test
-  has test file version mismatch (file content vs Jest cache). Likely a
-  test infrastructure issue, not a product bug.
+- `tests/unit/AIServiceClient.metrics.test.ts` – Mock setup issue with axios interceptors
+- `tests/unit/client/SandboxGameHost.test.tsx` – Movement grid toggle test has test file
+  version mismatch (file content vs Jest cache). Likely test infrastructure issues, not product bugs.
+
+**Note:** Test counts increased from 2,633 to 2,655 due to recently added decision lifecycle tests
+(`GameSession.reconnectDuringDecision.test.ts`) and decision phase timeout test unskipping.
 
 ### 3.2 Skipped Tests Analysis
 
-| Category | Count | Impact |
-|----------|-------|--------|
-| Decision phase timeout tests | 6 | High – blocks timeout validation |
-| Cyclic capture hex tests | ~10 | Medium – advanced scenario coverage |
-| Parity diagnostic tests | ~50 | Low – diagnostic, not blocking |
-| Feature-flagged tests | ~40 | Low – intentional conditional skips |
+| Category                     | Count | Impact                                             |
+| ---------------------------- | ----- | -------------------------------------------------- |
+| Decision phase timeout tests | 0     | ✅ **Fixed** – All 6 tests now enabled and passing |
+| Cyclic capture hex tests     | ~10   | Medium – advanced scenario coverage                |
+| Parity diagnostic tests      | ~50   | Low – diagnostic, not blocking                     |
+| Feature-flagged tests        | ~40   | Low – intentional conditional skips                |
+
+**Progress:** Skipped tests reduced from 184 to 176 (8 tests unskipped).
 
 ### 3.3 Python / pytest
 
@@ -118,6 +123,7 @@ Tests:       1 failed, 184 skipped, 1 todo, 2,633 passed, 2,819 total
 ### 4.1 Frontend UX & Accessibility (Score: 2.5/5) – WEAKEST
 
 **ARIA & Accessibility Gaps:**
+
 - Only 9 ARIA elements in entire React client
 - Missing `aria-label`, `aria-describedby` on interactive elements
 - No keyboard navigation for board cells
@@ -125,17 +131,20 @@ Tests:       1 failed, 184 skipped, 1 todo, 2,633 passed, 2,819 total
 - Modal dialogs (`ChoiceDialog`) lack proper dialog semantics
 
 **Rules Copy Mismatches:**
+
 - Chain capture optionality not clearly communicated
 - Victory threshold copy inconsistent with RR-CANON
 - Line/territory decision prompts lack context
 
 **Missing UX Features:**
+
 - No move/choice history log
 - Sandbox lacks scenario picker and reset tooling
 - Limited end-of-game analysis beyond `VictoryModal`
 - No per-player HUD with ring/territory counts
 
 **Remediation Tasks:**
+
 - P18B.1-1: Add ARIA attributes to `BoardView.tsx`
 - P18B.1-2: Implement keyboard navigation for board cells
 - P18B.1-3: Add screen reader announcements for phase changes
@@ -144,41 +153,52 @@ Tests:       1 failed, 184 skipped, 1 todo, 2,633 passed, 2,819 total
 ### 4.2 Type Safety (Score: 3.2/5)
 
 **Issues:**
+
 - 744 `any` type casts across TypeScript codebase
 - Rate limiter middleware: 23 `any` casts for Redis client
 - Error handler: Multiple `as any` coercions
 - Prisma transactions use `tx: any`
 
 **Impact:**
+
 - Reduces refactoring safety
 - Defeats TypeScript's value proposition
 - Higher risk in error handling and middleware
 
 **Remediation Tasks:**
+
 - P18B.2-1: Type Redis client operations in `rateLimiter.ts`
 - P18B.2-2: Create proper error type hierarchy
 - P18B.2-3: Type Prisma transaction contexts
 
-### 4.3 Skipped Tests (102 tests)
+### 4.3 Skipped Tests (~94 tests remaining)
 
 **Critical Skipped Suites:**
-- `GameSession.decisionPhaseTimeout.test.ts` – 6 tests for timeout auto-resolution
+
+- ~~`GameSession.decisionPhaseTimeout.test.ts` – 6 tests for timeout auto-resolution~~ ✅ **Fixed**
 - `RuleEngine.movementCapture.test.ts` – Entire suite skipped
 - `GameEngine.cyclicCapture.hex.height3.test.ts` – Entire suite skipped
 
 **Remediation Tasks:**
-- P18B.3-1: Unskip and fix decision phase timeout tests
+
+- ~~P18B.3-1: Unskip and fix decision phase timeout tests~~ ✅ **Completed 2025-11-30**
 - P18B.3-2: Evaluate movement capture suite – fix or remove
 - P18B.3-3: Evaluate hex cyclic capture suite status
+
+**New Tests Added:**
+
+- `GameSession.reconnectDuringDecision.test.ts` – 6 tests for reconnect-during-decision edge cases
 
 ### 4.4 Legacy Code Deprecation
 
 **Legacy Paths Ready for Deprecation:**
+
 - `GameEngine.ts` legacy turn-processing methods (orchestrator handles all cases)
 - `TurnEngine.ts` non-orchestrator paths
 - Shadow mode comparison code (rollout complete)
 
 **Remediation Tasks:**
+
 - P18B.4-1: Mark legacy turn methods as `@deprecated`
 - P18B.4-2: Remove shadow mode comparison code
 - P18B.4-3: Update `CONTRIBUTING.md` legacy warning
@@ -214,16 +234,19 @@ With the orchestrator at 100% rollout, the challenge is now maintenance and clea
 ### 5.3 Recommended Approach
 
 **Phase 1: Type Safety Foundation (1-2 weeks)**
+
 1. Create proper type definitions for Redis client operations
 2. Define error type hierarchy for middleware
 3. Type Prisma transaction contexts
 
 **Phase 2: Test Suite Cleanup (2-3 weeks)**
+
 1. Triage all 102 skipped tests – categorize as fix, remove, or keep-skipped
 2. Prioritize decision phase timeout tests
 3. Add missing test coverage for timeout auto-resolution
 
 **Phase 3: Legacy Deprecation (2-3 weeks)**
+
 1. Mark legacy methods with `@deprecated` JSDoc
 2. Remove shadow mode comparison code
 3. Plan removal timeline for legacy turn-processing paths
@@ -234,16 +257,16 @@ With the orchestrator at 100% rollout, the challenge is now maintenance and clea
 
 ### 6.1 Updated Documents (This Session)
 
-| Document | Update |
-|----------|--------|
-| `TODO.md` | Wave 5.3 tasks marked complete |
-| `CURRENT_STATE_ASSESSMENT.md` | Orchestrator status, test counts updated |
-| `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` | Phase 4 completion banner |
-| `CONTRIBUTING.md` | Simplified, historical phases collapsed |
-| `docs/MODULE_RESPONSIBILITIES.md` | Host adapters, new modules added |
-| `RULES_SCENARIO_MATRIX.md` | Archived test paths fixed |
-| 10 PASS reports | Historical banners added |
-| 4 docs/drafts/ documents | Historical/completed markers |
+| Document                            | Update                                   |
+| ----------------------------------- | ---------------------------------------- |
+| `TODO.md`                           | Wave 5.3 tasks marked complete           |
+| `CURRENT_STATE_ASSESSMENT.md`       | Orchestrator status, test counts updated |
+| `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` | Phase 4 completion banner                |
+| `CONTRIBUTING.md`                   | Simplified, historical phases collapsed  |
+| `docs/MODULE_RESPONSIBILITIES.md`   | Host adapters, new modules added         |
+| `RULES_SCENARIO_MATRIX.md`          | Archived test paths fixed                |
+| 10 PASS reports                     | Historical banners added                 |
+| 4 docs/drafts/ documents            | Historical/completed markers             |
 
 ### 6.2 Remaining Documentation Gaps
 
@@ -257,23 +280,23 @@ With the orchestrator at 100% rollout, the challenge is now maintenance and clea
 
 ### 7.1 Code Metrics
 
-| Metric | Value |
-|--------|-------|
-| TypeScript source files | 188 |
-| Shared engine lines | 28,584 |
-| Test files | 283 |
-| TypeScript tests | 2,633 passing |
-| Python tests | 818 collected |
+| Metric                  | Value         |
+| ----------------------- | ------------- |
+| TypeScript source files | 188           |
+| Shared engine lines     | 28,584        |
+| Test files              | 283           |
+| TypeScript tests        | 2,633 passing |
+| Python tests            | 818 collected |
 
 ### 7.2 Quality Metrics
 
-| Metric | Value | Target |
-|--------|-------|--------|
-| Test pass rate | 99.96% | >99% ✅ |
-| Skipped tests | 102 | <50 ⚠️ |
-| `any` type casts | 744 | <200 ⚠️ |
-| ARIA elements | 9 | >50 ⚠️ |
-| TODO comments | 6 | <5 ⚠️ |
+| Metric           | Value  | Target  |
+| ---------------- | ------ | ------- |
+| Test pass rate   | 99.96% | >99% ✅ |
+| Skipped tests    | 102    | <50 ⚠️  |
+| `any` type casts | 744    | <200 ⚠️ |
+| ARIA elements    | 9      | >50 ⚠️  |
+| TODO comments    | 6      | <5 ⚠️   |
 
 ---
 

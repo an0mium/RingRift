@@ -1,0 +1,817 @@
+{
+  "version": "1.0.0",
+  "scenarios": [
+    {
+      "id": "learning.empty.square8",
+      "name": "Empty 8×8 Board",
+      "description": "Start with a fresh 8×8 board. Perfect for learning basic placement and movement rules.",
+      "category": "learning",
+      "difficulty": "beginner",
+      "tags": ["empty", "tutorial", "beginner"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-empty-square8",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {},
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 18,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 18,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "ring_placement",
+        "turnNumber": 1,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learning.empty.hexagonal",
+      "name": "Empty Hex Board",
+      "description": "Start with a fresh hexagonal board. Experience 6-directional movement and adjacency.",
+      "category": "learning",
+      "difficulty": "beginner",
+      "tags": ["empty", "tutorial", "hex", "beginner"],
+      "boardType": "hexagonal",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-empty-hex",
+        "board": {
+          "type": "hexagonal",
+          "size": 5,
+          "stacks": {},
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 18,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 18,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "ring_placement",
+        "turnNumber": 1,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 31
+      }
+    },
+    {
+      "id": "learning.capture.setup",
+      "name": "First Capture Tutorial",
+      "description": "Learn capture mechanics. Player 1 has a 2-high stack that can capture Player 2's adjacent stack. Move to capture!",
+      "category": "learning",
+      "difficulty": "beginner",
+      "tags": ["capture", "tutorial", "beginner", "Rules_Capture"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-capture-setup",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "3,3": {
+              "position": { "x": 3, "y": 3 },
+              "rings": [1, 1],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 1
+            },
+            "3,4": {
+              "position": { "x": 3, "y": 4 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            }
+          },
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 16,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 17,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 3,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      },
+      "suggestedMove": {
+        "id": "suggested-capture",
+        "type": "overtaking_capture",
+        "player": 1,
+        "from": { "x": 3, "y": 3 },
+        "captureTarget": { "x": 3, "y": 4 },
+        "to": { "x": 3, "y": 5 },
+        "timestamp": "2025-01-01T00:00:00.000Z",
+        "thinkTime": 0,
+        "moveNumber": 3
+      }
+    },
+    {
+      "id": "learning.chain.capture",
+      "name": "Chain Capture Tutorial",
+      "description": "Learn chain capture mechanics. Player 1's stack can capture two opponent stacks in succession. Captures are mandatory!",
+      "category": "learning",
+      "difficulty": "intermediate",
+      "tags": ["chain_capture", "tutorial", "intermediate", "Rules_ChainCapture"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-chain-capture",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "2,2": {
+              "position": { "x": 2, "y": 2 },
+              "rings": [1, 1, 1],
+              "stackHeight": 3,
+              "capHeight": 3,
+              "controllingPlayer": 1
+            },
+            "2,4": {
+              "position": { "x": 2, "y": 4 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            },
+            "2,6": {
+              "position": { "x": 2, "y": 6 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            }
+          },
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 15,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 16,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 5,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learning.line.almost",
+      "name": "Line Completion Tutorial",
+      "description": "Learn line completion. Player 1 has 4 markers in a row - place one more marker to complete a line of 5 and gain territory!",
+      "category": "learning",
+      "difficulty": "intermediate",
+      "tags": ["line", "territory", "tutorial", "intermediate", "Rules_Line"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-line-almost",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "1,3": {
+              "position": { "x": 1, "y": 3 },
+              "rings": [1, 1],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 1
+            },
+            "6,3": {
+              "position": { "x": 6, "y": 3 },
+              "rings": [2, 2],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 2
+            }
+          },
+          "markers": {
+            "2,3": { "player": 1, "position": { "x": 2, "y": 3 }, "type": "regular" },
+            "3,3": { "player": 1, "position": { "x": 3, "y": 3 }, "type": "regular" },
+            "4,3": { "player": 1, "position": { "x": 4, "y": 3 }, "type": "regular" },
+            "5,3": { "player": 1, "position": { "x": 5, "y": 3 }, "type": "regular" }
+          },
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 16,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 16,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 5,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learning.territory.disconnect",
+      "name": "Territory Disconnection",
+      "description": "Learn territory mechanics. Moving Player 1's stack will disconnect the opponent's region from the main board, causing territory to collapse.",
+      "category": "learning",
+      "difficulty": "advanced",
+      "tags": ["territory", "disconnect", "advanced", "Rules_Territory"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-territory-disconnect",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "3,3": {
+              "position": { "x": 3, "y": 3 },
+              "rings": [1, 1, 1],
+              "stackHeight": 3,
+              "capHeight": 3,
+              "controllingPlayer": 1
+            },
+            "0,0": {
+              "position": { "x": 0, "y": 0 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            },
+            "5,5": {
+              "position": { "x": 5, "y": 5 },
+              "rings": [1],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 1
+            }
+          },
+          "markers": {
+            "0,1": { "player": 2, "position": { "x": 0, "y": 1 }, "type": "regular" },
+            "1,0": { "player": 2, "position": { "x": 1, "y": 0 }, "type": "regular" },
+            "1,1": { "player": 1, "position": { "x": 1, "y": 1 }, "type": "regular" }
+          },
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 14,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 17,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 6,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learning.advanced.multistack",
+      "name": "Multi-Stack Tactics",
+      "description": "Practice with multiple stacks. Player 1 has several stacks with different heights - learn how stack height affects movement distance.",
+      "category": "learning",
+      "difficulty": "intermediate",
+      "tags": ["movement", "stacks", "intermediate", "Rules_Movement"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-multistack",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "1,1": {
+              "position": { "x": 1, "y": 1 },
+              "rings": [1],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 1
+            },
+            "3,1": {
+              "position": { "x": 3, "y": 1 },
+              "rings": [1, 1],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 1
+            },
+            "5,1": {
+              "position": { "x": 5, "y": 1 },
+              "rings": [1, 1, 1],
+              "stackHeight": 3,
+              "capHeight": 3,
+              "controllingPlayer": 1
+            },
+            "3,5": {
+              "position": { "x": 3, "y": 5 },
+              "rings": [2, 2],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 2
+            },
+            "5,5": {
+              "position": { "x": 5, "y": 5 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            }
+          },
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 12,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 15,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 8,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learning.midgame.balanced",
+      "name": "Balanced Midgame",
+      "description": "A balanced midgame position with both players having equal material. Practice strategic decision-making.",
+      "category": "learning",
+      "difficulty": "intermediate",
+      "tags": ["midgame", "strategy", "intermediate"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-midgame-balanced",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "1,1": {
+              "position": { "x": 1, "y": 1 },
+              "rings": [1, 1],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 1
+            },
+            "1,5": {
+              "position": { "x": 1, "y": 5 },
+              "rings": [1],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 1
+            },
+            "4,3": {
+              "position": { "x": 4, "y": 3 },
+              "rings": [1, 1, 1],
+              "stackHeight": 3,
+              "capHeight": 3,
+              "controllingPlayer": 1
+            },
+            "6,1": {
+              "position": { "x": 6, "y": 1 },
+              "rings": [2, 2],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 2
+            },
+            "6,5": {
+              "position": { "x": 6, "y": 5 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            },
+            "3,4": {
+              "position": { "x": 3, "y": 4 },
+              "rings": [2, 2, 2],
+              "stackHeight": 3,
+              "capHeight": 3,
+              "controllingPlayer": 2
+            }
+          },
+          "markers": {
+            "2,2": { "player": 1, "position": { "x": 2, "y": 2 }, "type": "regular" },
+            "3,2": { "player": 1, "position": { "x": 3, "y": 2 }, "type": "regular" },
+            "5,2": { "player": 2, "position": { "x": 5, "y": 2 }, "type": "regular" },
+            "5,4": { "player": 2, "position": { "x": 5, "y": 4 }, "type": "regular" }
+          },
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 12,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 12,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "ring_placement",
+        "turnNumber": 10,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learning.fourplayer.start",
+      "name": "4-Player Free-for-All",
+      "description": "Experience a 4-player game on the hex board. All players start fresh with equal resources.",
+      "category": "learning",
+      "difficulty": "advanced",
+      "tags": ["multiplayer", "4player", "hex", "advanced"],
+      "boardType": "hexagonal",
+      "playerCount": 4,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-4player-hex",
+        "board": {
+          "type": "hexagonal",
+          "size": 5,
+          "stacks": {},
+          "markers": {},
+          "collapsedSpaces": {},
+          "eliminatedRings": { "1": 0, "2": 0, "3": 0, "4": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 12,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 12,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 3,
+            "ringsInHand": 12,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          },
+          {
+            "playerNumber": 4,
+            "ringsInHand": 12,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "ring_placement",
+        "turnNumber": 1,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 25,
+        "territoryVictoryThreshold": 31
+      }
+    },
+    {
+      "id": "learning.endgame.elimination",
+      "name": "Ring Elimination Victory",
+      "description": "Player 1 is close to winning by ring elimination. One more capture will trigger victory!",
+      "category": "learning",
+      "difficulty": "advanced",
+      "tags": ["endgame", "elimination", "victory", "advanced", "Rules_Victory"],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-endgame-elimination",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "3,3": {
+              "position": { "x": 3, "y": 3 },
+              "rings": [1, 1, 1, 1],
+              "stackHeight": 4,
+              "capHeight": 4,
+              "controllingPlayer": 1
+            },
+            "3,5": {
+              "position": { "x": 3, "y": 5 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            },
+            "6,6": {
+              "position": { "x": 6, "y": 6 },
+              "rings": [1, 1],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 1
+            }
+          },
+          "markers": {
+            "2,2": { "player": 1, "position": { "x": 2, "y": 2 }, "type": "regular" },
+            "4,4": { "player": 1, "position": { "x": 4, "y": 4 }, "type": "regular" },
+            "5,5": { "player": 1, "position": { "x": 5, "y": 5 }, "type": "regular" }
+          },
+          "collapsedSpaces": {
+            "0,0": 1,
+            "0,1": 1,
+            "0,2": 1,
+            "1,0": 1,
+            "1,1": 1
+          },
+          "eliminatedRings": { "1": 2, "2": 17 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 9,
+            "eliminatedRings": 2,
+            "territorySpaces": 5,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 0,
+            "eliminatedRings": 17,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "movement",
+        "turnNumber": 30,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33
+      }
+    },
+    {
+      "id": "learning.near_victory.territory",
+      "name": "Territory Victory Setup",
+      "description": "Player 1 is one territory region away from victory. Process the pending region to claim enough territory (33+ spaces) and win by territory control!",
+      "category": "advanced",
+      "difficulty": "advanced",
+      "tags": [
+        "territory",
+        "victory",
+        "near_victory",
+        "endgame",
+        "Rules_Victory",
+        "Rules_Territory"
+      ],
+      "boardType": "square8",
+      "playerCount": 2,
+      "createdAt": "2025-12-01T00:00:00.000Z",
+      "source": "curated",
+      "state": {
+        "gameId": "curated-near-victory-territory",
+        "board": {
+          "type": "square8",
+          "size": 8,
+          "stacks": {
+            "7,7": {
+              "position": { "x": 7, "y": 7 },
+              "rings": [1, 1],
+              "stackHeight": 2,
+              "capHeight": 2,
+              "controllingPlayer": 1
+            },
+            "6,7": {
+              "position": { "x": 6, "y": 7 },
+              "rings": [2],
+              "stackHeight": 1,
+              "capHeight": 1,
+              "controllingPlayer": 2
+            }
+          },
+          "markers": {},
+          "collapsedSpaces": {
+            "0,0": 1,
+            "0,1": 1,
+            "0,2": 1,
+            "0,3": 1,
+            "0,4": 1,
+            "0,5": 1,
+            "0,6": 1,
+            "0,7": 1,
+            "1,0": 1,
+            "1,1": 1,
+            "1,2": 1,
+            "1,3": 1,
+            "1,4": 1,
+            "1,5": 1,
+            "1,6": 1,
+            "1,7": 1,
+            "2,0": 1,
+            "2,1": 1,
+            "2,2": 1,
+            "2,3": 1,
+            "2,4": 1,
+            "2,5": 1,
+            "2,6": 1,
+            "2,7": 1,
+            "3,0": 1,
+            "3,1": 1,
+            "3,2": 1,
+            "3,3": 1,
+            "3,4": 1,
+            "3,5": 1,
+            "3,6": 1,
+            "3,7": 1
+          },
+          "territories": {
+            "pending_victory_region": {
+              "spaces": [{ "x": 4, "y": 4 }],
+              "controllingPlayer": 1,
+              "isDisconnected": false
+            }
+          },
+          "eliminatedRings": { "1": 0, "2": 0 }
+        },
+        "players": [
+          {
+            "playerNumber": 1,
+            "ringsInHand": 10,
+            "eliminatedRings": 0,
+            "territorySpaces": 32,
+            "isActive": true
+          },
+          {
+            "playerNumber": 2,
+            "ringsInHand": 10,
+            "eliminatedRings": 0,
+            "territorySpaces": 0,
+            "isActive": true
+          }
+        ],
+        "currentPlayer": 1,
+        "currentPhase": "territory_processing",
+        "turnNumber": 20,
+        "moveHistory": [],
+        "gameStatus": "active",
+        "victoryThreshold": 19,
+        "territoryVictoryThreshold": 33,
+        "pendingTerritoryDecision": {
+          "territories": ["pending_victory_region"],
+          "currentIndex": 0
+        }
+      },
+      "suggestedMove": {
+        "id": "suggested-territory-victory",
+        "type": "process_territory_region",
+        "player": 1,
+        "to": { "x": 4, "y": 4 },
+        "disconnectedRegions": [
+          {
+            "spaces": [{ "x": 4, "y": 4 }],
+            "controllingPlayer": 1,
+            "isDisconnected": false
+          }
+        ],
+        "timestamp": "2025-12-01T00:00:00.000Z",
+        "thinkTime": 0,
+        "moveNumber": 20
+      }
+    }
+  ]
+}

@@ -1,7 +1,65 @@
+import logging
 from typing import Optional, Tuple, List, Dict, Any
 from app.models import GameState, Move, BoardType, GameStatus
 from app.game_engine import GameEngine
 from app.training.seed_utils import seed_all
+
+logger = logging.getLogger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Theoretical Maximum Moves by Board Type and Player Count
+# -----------------------------------------------------------------------------
+# These represent upper bounds on game length based on board geometry.
+# A game exceeding these thresholds is anomalous and should be logged/flagged.
+#
+# Derivation:
+# - Square8: 64 cells, 18 rings/player (2p) = 36 total rings
+#   Max placements ~36, max movements ~36*10, captures reduce rings
+#   Conservative estimate: 150 moves for 2p, +50 per additional player
+#
+# - Square19: 361 cells, 36 rings/player (2p) = 72 total rings
+#   Much larger board, longer games expected
+#   Conservative estimate: 400 moves for 2p, +100 per additional player
+#
+# - Hexagonal: 331 cells (radius 11), 36 rings/player (2p) = 72 total rings
+#   Similar to Square19
+#   Conservative estimate: 400 moves for 2p, +100 per additional player
+#
+# Games reaching these limits without a winner indicate potential bugs.
+# -----------------------------------------------------------------------------
+
+THEORETICAL_MAX_MOVES: Dict[BoardType, Dict[int, int]] = {
+    BoardType.SQUARE8: {
+        2: 150,
+        3: 200,
+        4: 250,
+    },
+    BoardType.SQUARE19: {
+        2: 400,
+        3: 500,
+        4: 600,
+    },
+    BoardType.HEXAGONAL: {
+        2: 400,
+        3: 500,
+        4: 600,
+    },
+}
+
+
+def get_theoretical_max_moves(board_type: BoardType, num_players: int) -> int:
+    """Return theoretical maximum moves for a board type and player count.
+
+    If the exact player count isn't defined, extrapolate from the pattern.
+    """
+    board_limits = THEORETICAL_MAX_MOVES.get(board_type, {})
+    if num_players in board_limits:
+        return board_limits[num_players]
+    # Extrapolate: use 2-player base + increment per extra player
+    base = board_limits.get(2, 200)
+    increment = board_limits.get(3, base + 50) - base
+    return base + increment * (num_players - 2)
 
 
 # Canonical default evaluation configuration for heuristic
@@ -167,6 +225,10 @@ class RingRiftEnv:
         """
         Return legal moves for the current player, using the same logic
         as AIs: GameEngine.get_valid_moves.
+
+        This includes forced elimination moves as first-class actions when
+        the player has stacks but no placement/movement/capture available
+        (per RR-CANON-R072/R100/R205).
         """
         return GameEngine.get_valid_moves(
             self.state, self.state.current_player
@@ -196,6 +258,41 @@ class RingRiftEnv:
 
         reward = 0.0
         info: Dict[str, Any] = {"winner": self._state.winner}
+
+        # Log warning/error for games that hit max_moves without a winner
+        if done and self._move_count >= self.max_moves and self._state.winner is None:
+            theoretical_max = get_theoretical_max_moves(self.board_type, self.num_players)
+            if self._move_count >= theoretical_max:
+                # This is anomalous - game exceeded theoretical maximum
+                logger.error(
+                    "GAME_NON_TERMINATION_ERROR: Game exceeded theoretical maximum moves "
+                    "without reaching a definite conclusion. "
+                    "board_type=%s, num_players=%d, move_count=%d, "
+                    "max_moves=%d, theoretical_max=%d, game_status=%s, winner=%s",
+                    self.board_type.value,
+                    self.num_players,
+                    self._move_count,
+                    self.max_moves,
+                    theoretical_max,
+                    self._state.game_status.value,
+                    self._state.winner,
+                )
+            else:
+                # Hit configured max_moves but not theoretical max - still concerning
+                logger.warning(
+                    "GAME_MAX_MOVES_CUTOFF: Game hit max_moves limit without a winner. "
+                    "board_type=%s, num_players=%d, move_count=%d, "
+                    "max_moves=%d, theoretical_max=%d, game_status=%s, winner=%s",
+                    self.board_type.value,
+                    self.num_players,
+                    self._move_count,
+                    self.max_moves,
+                    theoretical_max,
+                    self._state.game_status.value,
+                    self._state.winner,
+                )
+            info["termination_anomaly"] = True
+            info["theoretical_max_moves"] = theoretical_max
 
         if done:
             if self.reward_on == "terminal":

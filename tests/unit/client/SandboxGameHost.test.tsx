@@ -45,6 +45,11 @@ jest.mock('../../../src/client/contexts/SandboxContext', () => ({
   useSandbox: () => mockSandboxValue,
 }));
 
+jest.mock('../../../src/client/components/ReplayPanel/ReplayPanel', () => ({
+  __esModule: true,
+  ReplayPanel: () => null,
+}));
+
 jest.mock('../../../src/client/hooks/useSandboxInteractions', () => ({
   __esModule: true,
   useSandboxInteractions: (options: any) => {
@@ -204,9 +209,7 @@ function createMockSandboxContext(overrides: Partial<any> = {}): any {
 // Helper: find a square-board cell for sandbox BoardView
 function getSquareCell(x: number, y: number): HTMLButtonElement {
   const board = screen.getByTestId('board-view');
-  const cell = board.querySelector<HTMLButtonElement>(
-    `button[data-x="${x}"][data-y="${y}"]`
-  );
+  const cell = board.querySelector<HTMLButtonElement>(`button[data-x="${x}"][data-y="${y}"]`);
   if (!cell) {
     throw new Error(`Failed to find sandbox board cell at (${x}, ${y})`);
   }
@@ -558,9 +561,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
     render(<SandboxGameHost />);
 
-    expect(
-      screen.getByText(/Potential AI stall detected/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Potential AI stall detected/i)).toBeInTheDocument();
 
     // Copy AI trace should marshal the trace into JSON and write it to clipboard.
     fireEvent.click(screen.getByRole('button', { name: /Copy AI trace/i }));
@@ -629,5 +630,65 @@ describe('SandboxGameHost (React host behaviour)', () => {
     expect(resetSandboxEngine).toHaveBeenCalledTimes(1);
     expect(setBackendSandboxError).toHaveBeenCalledWith(null);
     expect(setSandboxPendingChoice).toHaveBeenCalledWith(null);
+  });
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // 7. Sandbox evaluation panel + /api/games/sandbox/evaluate wiring
+  // ───────────────────────────────────────────────────────────────────────────
+
+  it('requests sandbox evaluation and renders EvaluationPanel output', async () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'movement',
+      gameStatus: 'active',
+    });
+
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+      getSerializedState: jest.fn(() => ({ dummy: 'state' }) as any),
+    };
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+    });
+
+    const mockResponseData = {
+      gameId: sandboxState.id,
+      moveNumber: 3,
+      boardType: sandboxState.boardType,
+      perPlayer: {
+        1: { totalEval: 1.5, territoryEval: 0.5, ringEval: 1.0 },
+        2: { totalEval: -1.5, territoryEval: -0.5, ringEval: -1.0 },
+      },
+      engineProfile: 'test-engine',
+      evaluationScale: 'zero_sum_margin',
+    };
+
+    const originalFetch = (global as any).fetch;
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => mockResponseData } as any);
+    (global as any).fetch = fetchMock;
+
+    render(<SandboxGameHost />);
+
+    const evalButton = screen.getByRole('button', { name: /Request evaluation/i });
+    fireEvent.click(evalButton);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/games/sandbox/evaluate', expect.any(Object));
+
+    // EvaluationPanel should now render the latest move / engine profile header.
+    const panel = screen.getByTestId('evaluation-panel');
+    await waitFor(() => {
+      expect(panel).toHaveTextContent('Move 3');
+      expect(panel).toHaveTextContent('test-engine');
+    });
+
+    (global as any).fetch = originalFetch;
   });
 });

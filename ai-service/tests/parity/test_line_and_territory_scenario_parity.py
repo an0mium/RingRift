@@ -187,12 +187,18 @@ def test_line_and_territory_scenario_parity(board_type: BoardType) -> None:
         line_moves = GameEngine._get_line_processing_moves(state, 1)
 
         # Canonical path: CHOOSE_LINE_REWARD (TS-aligned).
+        # Option 2 = minimum collapse = collapsed_markers length equals required_length.
         # Legacy path: CHOOSE_LINE_OPTION with placement_count == 2.
         option_moves = [
             m
             for m in line_moves
             if (
-                m.type == MoveType.CHOOSE_LINE_REWARD
+                (
+                    m.type == MoveType.CHOOSE_LINE_REWARD
+                    and hasattr(m, "collapsed_markers")
+                    and m.collapsed_markers is not None
+                    and len(m.collapsed_markers) == required_length
+                )
                 or (
                     m.type == MoveType.CHOOSE_LINE_OPTION
                     and (m.placement_count or 0) == 2

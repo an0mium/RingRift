@@ -13,6 +13,23 @@ HeuristicAI will randomly sample at most that many moves for evaluation
 instead of evaluating all valid moves. This is intended for training
 performance optimization on large boards where move counts can exceed
 thousands. The sampling uses the AI's RNG for deterministic reproducibility.
+
+Configurable Weight Constants (v1.1 refactor)
+==============================================
+As of the v1.1 refactor, previously hardcoded penalties and bonuses have been
+converted to configurable weight constants for full weight-space exploration
+during training. This includes:
+
+- `_evaluate_stack_control`: Uses WEIGHT_NO_STACKS_PENALTY, WEIGHT_SINGLE_STACK_PENALTY,
+  WEIGHT_STACK_DIVERSITY_BONUS
+- `_evaluate_line_potential`: Uses WEIGHT_TWO_IN_ROW, WEIGHT_THREE_IN_ROW, WEIGHT_FOUR_IN_ROW
+- `_evaluate_line_connectivity`: Uses WEIGHT_CONNECTED_NEIGHBOR, WEIGHT_GAP_POTENTIAL
+- `_evaluate_stack_mobility`: Uses WEIGHT_BLOCKED_STACK_PENALTY
+- `_victory_proximity_base_for_player`: Uses WEIGHT_VICTORY_THRESHOLD_BONUS,
+  WEIGHT_RINGS_PROXIMITY_FACTOR, WEIGHT_TERRITORY_PROXIMITY_FACTOR
+
+A zero-weight profile now produces zero evaluations (random play), enabling
+CMA-ES, GA, and other optimizers to fully explore the fitness landscape.
 """
 
 import random
@@ -29,24 +46,6 @@ from ..models import (
 )
 from ..rules.geometry import BoardGeometry
 from .heuristic_weights import HEURISTIC_WEIGHT_PROFILES
-
-
-def _victory_proximity_base_for_player(
-    game_state: GameState,
-    player: PlayerState,
-) -> float:
-    rings_needed = game_state.victory_threshold - player.eliminated_rings
-    territory_needed = (
-        game_state.territory_victory_threshold - player.territory_spaces
-    )
-
-    if rings_needed <= 0 or territory_needed <= 0:
-        return 1000.0
-
-    score = 0.0
-    score += (1.0 / max(1, rings_needed)) * 50.0
-    score += (1.0 / max(1, territory_needed)) * 50.0
-    return score
 
 
 class HeuristicAI(BaseAI):
@@ -85,6 +84,33 @@ class HeuristicAI(BaseAI):
     WEIGHT_FORCED_ELIMINATION_RISK = 4.0
     WEIGHT_LPS_ACTION_ADVANTAGE = 2.0
     WEIGHT_MULTI_LEADER_THREAT = 2.0
+
+    # Penalty/bonus weights for stack diversification (previously hardcoded)
+    # These enable full weight-space exploration during training
+    WEIGHT_NO_STACKS_PENALTY = 50.0      # Penalty for having zero stacks
+    WEIGHT_SINGLE_STACK_PENALTY = 10.0   # Penalty for only one stack (vulnerable)
+    WEIGHT_STACK_DIVERSITY_BONUS = 2.0   # Bonus per additional stack beyond 1
+
+    # Mobility penalty weights (previously hardcoded)
+    WEIGHT_SAFE_MOVE_BONUS = 1.0         # Bonus per safe move available
+    WEIGHT_NO_SAFE_MOVES_PENALTY = 2.0   # Penalty when no safe moves exist
+
+    # Victory proximity threshold weights (previously hardcoded)
+    WEIGHT_VICTORY_THRESHOLD_BONUS = 1000.0  # Bonus when at/near victory
+    WEIGHT_RINGS_PROXIMITY_FACTOR = 50.0     # Factor for rings-based proximity
+    WEIGHT_TERRITORY_PROXIMITY_FACTOR = 50.0 # Factor for territory-based proximity
+
+    # Line potential weights (previously hardcoded)
+    WEIGHT_TWO_IN_ROW = 1.0        # Bonus for 2 markers in a row
+    WEIGHT_THREE_IN_ROW = 2.0      # Additional bonus for 3 in a row
+    WEIGHT_FOUR_IN_ROW = 5.0       # Additional bonus for 4 in a row (almost a line)
+
+    # Line connectivity weights (previously hardcoded)
+    WEIGHT_CONNECTED_NEIGHBOR = 1.0   # Bonus for connected marker neighbor
+    WEIGHT_GAP_POTENTIAL = 0.5        # Bonus for gap with connection potential
+
+    # Stack mobility weights (previously hardcoded)
+    WEIGHT_BLOCKED_STACK_PENALTY = 5.0  # Penalty for completely blocked stacks
 
     def __init__(self, player_number: int, config: AIConfig):
         """
@@ -159,7 +185,31 @@ class HeuristicAI(BaseAI):
 
         for name, value in weights.items():
             setattr(self, name, value)
-     
+
+    def _victory_proximity_base_for_player(
+        self,
+        game_state: GameState,
+        player: PlayerState,
+    ) -> float:
+        """Compute base victory proximity score for a player.
+
+        Uses configurable weight constants for full training exploration.
+        """
+        rings_needed = game_state.victory_threshold - player.eliminated_rings
+        territory_needed = (
+            game_state.territory_victory_threshold - player.territory_spaces
+        )
+
+        if rings_needed <= 0 or territory_needed <= 0:
+            return self.WEIGHT_VICTORY_THRESHOLD_BONUS
+
+        score = 0.0
+        score += (1.0 / max(1, rings_needed)) * self.WEIGHT_RINGS_PROXIMITY_FACTOR
+        score += (
+            (1.0 / max(1, territory_needed)) * self.WEIGHT_TERRITORY_PROXIMITY_FACTOR
+        )
+        return score
+
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """
         Select the best move using heuristic evaluation
@@ -185,23 +235,28 @@ class HeuristicAI(BaseAI):
         else:
             # Apply training move sample limit if configured
             moves_to_evaluate = self._sample_moves_for_training(valid_moves)
-            
-            # Evaluate each move and pick the best one
-            best_move = None
+
+            # Evaluate each move and collect all moves with the best score
+            # (random tie-breaking among equally good moves)
+            best_moves: List[Move] = []
             best_score = float('-inf')
-            
+
             for move in moves_to_evaluate:
                 # Simulate the move to get the resulting state
                 next_state = self.rules_engine.apply_move(game_state, move)
                 score = self.evaluate_position(next_state)
-                
+
                 if score > best_score:
+                    # New best score - clear previous candidates
                     best_score = score
-                    best_move = move
-            
+                    best_moves = [move]
+                elif score == best_score:
+                    # Tie - add to candidates for random selection
+                    best_moves.append(move)
+
             selected = (
-                best_move
-                if best_move
+                self.get_random_element(best_moves)
+                if best_moves
                 else self.get_random_element(valid_moves)
             )
         
@@ -374,13 +429,17 @@ class HeuristicAI(BaseAI):
         return breakdown
     
     def _evaluate_stack_control(self, game_state: GameState) -> float:
-        """Evaluate stack control"""
+        """Evaluate stack control.
+
+        All penalties and bonuses use configurable weights to enable
+        full weight-space exploration during training.
+        """
         score = 0.0
         my_stacks = 0
         opponent_stacks = 0
         my_height = 0
         opponent_height = 0
-        
+
         for stack in game_state.board.stacks.values():
             if stack.controlling_player == self.player_number:
                 my_stacks += 1
@@ -393,18 +452,18 @@ class HeuristicAI(BaseAI):
                 h = stack.stack_height
                 effective_height = h if h <= 5 else 5 + (h - 5) * 0.1
                 opponent_height += effective_height
-        
-        # Reward having multiple stacks (risk diversification)
+
+        # Stack diversification using configurable weights
         if my_stacks == 0:
-            score -= 50.0  # Huge penalty for no stacks
+            score -= self.WEIGHT_NO_STACKS_PENALTY
         elif my_stacks == 1:
-            score -= 10.0  # Penalty for single stack (vulnerable)
+            score -= self.WEIGHT_SINGLE_STACK_PENALTY
         else:
-            score += my_stacks * 2.0
-            
+            score += my_stacks * self.WEIGHT_STACK_DIVERSITY_BONUS
+
         score += (my_stacks - opponent_stacks) * self.WEIGHT_STACK_CONTROL
         score += (my_height - opponent_height) * self.WEIGHT_STACK_HEIGHT
-        
+
         return score
     
     def _evaluate_territory(self, game_state: GameState) -> float:
@@ -702,7 +761,7 @@ class HeuristicAI(BaseAI):
 
                 if (key2 in board.markers and
                         board.markers[key2].player == self.player_number):
-                    score += 1.0  # 2 in a row
+                    score += self.WEIGHT_TWO_IN_ROW  # 2 in a row
 
                     # Check length 3
                     pos3 = BoardManager._add_direction(start_pos, direction, 2)
@@ -710,7 +769,7 @@ class HeuristicAI(BaseAI):
 
                     if (key3 in board.markers and
                             board.markers[key3].player == self.player_number):
-                        score += 2.0  # 3 in a row (cumulative with 2)
+                        score += self.WEIGHT_THREE_IN_ROW  # 3 in a row (cumulative)
 
                         # Check length 4 (almost a line)
                         pos4 = BoardManager._add_direction(
@@ -721,7 +780,7 @@ class HeuristicAI(BaseAI):
                         if (key4 in board.markers and
                                 board.markers[key4].player ==
                                 self.player_number):
-                            score += 5.0  # 4 in a row
+                            score += self.WEIGHT_FOUR_IN_ROW  # 4 in a row
 
         return score * self.WEIGHT_LINE_POTENTIAL
 
@@ -731,7 +790,7 @@ class HeuristicAI(BaseAI):
         if not my_player:
             return 0.0
 
-        base = _victory_proximity_base_for_player(game_state, my_player)
+        base = self._victory_proximity_base_for_player(game_state, my_player)
         return base * self.WEIGHT_VICTORY_PROXIMITY
 
     def _evaluate_opponent_victory_threat(
@@ -751,13 +810,13 @@ class HeuristicAI(BaseAI):
         if not my_player:
             return 0.0
 
-        self_prox = _victory_proximity_base_for_player(game_state, my_player)
+        self_prox = self._victory_proximity_base_for_player(game_state, my_player)
 
         max_opp_prox = 0.0
         for p in game_state.players:
             if p.player_number == self.player_number:
                 continue
-            prox = _victory_proximity_base_for_player(game_state, p)
+            prox = self._victory_proximity_base_for_player(game_state, p)
             if prox > max_opp_prox:
                 max_opp_prox = prox
 
@@ -972,13 +1031,13 @@ class HeuristicAI(BaseAI):
                 )
 
                 if has_m1:
-                    score += 1.0  # Connected neighbor
+                    score += self.WEIGHT_CONNECTED_NEIGHBOR  # Connected neighbor
                 if has_m2 and not has_m1:
                     # Gap of 1, potential to connect
                     # Check if gap is empty or has opponent marker (flippable)
                     if (key1 not in board.collapsed_spaces and
                             key1 not in board.stacks):
-                        score += 0.5
+                        score += self.WEIGHT_GAP_POTENTIAL
 
         return score * self.WEIGHT_LINE_CONNECTIVITY
 
@@ -1060,7 +1119,7 @@ class HeuristicAI(BaseAI):
  
             # Penalty for completely blocked stacks (dead weight)
             if valid_moves_from_here == 0:
-                score -= 5.0
+                score -= self.WEIGHT_BLOCKED_STACK_PENALTY
  
         return score * self.WEIGHT_STACK_MOBILITY
 
@@ -1156,7 +1215,7 @@ class HeuristicAI(BaseAI):
             return 0.0
 
         prox_by_player = {
-            p.player_number: _victory_proximity_base_for_player(game_state, p)
+            p.player_number: self._victory_proximity_base_for_player(game_state, p)
             for p in players
         }
 

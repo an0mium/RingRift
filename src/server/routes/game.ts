@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { getDatabaseClient } from '../database/connection';
-import { AuthenticatedRequest } from '../middleware/auth';
+import { AuthenticatedRequest, getAuthUserId } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
 import { consumeRateLimit, adaptiveRateLimiter } from '../middleware/rateLimiter';
 import { httpLogger, logger } from '../utils/logger';
@@ -10,24 +11,26 @@ import {
   GameIdParamSchema,
   GameListingQuerySchema,
 } from '../../shared/validation/schemas';
-import {
-  AiOpponentsConfig,
-  BoardType,
-  GameStatus,
-  GameState,
-} from '../../shared/types/game';
+import { RatingService, RatingUpdateResult } from '../services/RatingService';
+import { AiOpponentsConfig, BoardType, GameStatus, GameState } from '../../shared/types/game';
 import { generateGameSeed } from '../../shared/utils/rng';
 import { GameEngine } from '../game/GameEngine';
-import { GamePersistenceService } from '../services/GamePersistenceService';
 import { getDisplayUsername } from './user';
 import { config } from '../config';
 import { createDecisionPhaseFixtureGame } from '../game/testFixtures/decisionPhaseFixtures';
+import { getAIServiceClient } from '../services/AIServiceClient';
+import type { PositionEvaluationPayload } from '../../shared/types/websocket';
+import {
+  deserializeGameState,
+  type SerializedGameState,
+} from '../../shared/engine/contracts/serialization';
+import type { WebSocketServer } from '../websocket/server';
 const router = Router();
 
 // WebSocket server instance will be injected
-let wsServerInstance: any = null;
+let wsServerInstance: WebSocketServer | null = null;
 
-export function setWebSocketServer(wsServer: any) {
+export function setWebSocketServer(wsServer: WebSocketServer) {
   wsServerInstance = wsServer;
 }
 
@@ -107,21 +110,56 @@ router.post(
     }
 
     const body = (req.body || {}) as {
-      scenario?: 'line_processing';
+      scenario?:
+        | 'line_processing'
+        | 'territory_processing'
+        | 'chain_capture_choice'
+        | 'near_victory_elimination'
+        | 'near_victory_territory';
       isRated?: boolean;
+      /** Optional short timeout for E2E testing (milliseconds) */
+      shortTimeoutMs?: number;
+      /** Optional short warning time (milliseconds before timeout) */
+      shortWarningBeforeMs?: number;
     };
 
     const scenario = body.scenario ?? 'line_processing';
-    if (scenario !== 'line_processing') {
+    const validScenarios = [
+      'line_processing',
+      'territory_processing',
+      'chain_capture_choice',
+      'near_victory_elimination',
+      'near_victory_territory',
+    ];
+    if (!validScenarios.includes(scenario)) {
       throw createError('Unsupported decision-phase fixture scenario', 400, 'INVALID_FIXTURE');
     }
 
     const isRated = body.isRated ?? true;
 
+    // Validate timeout overrides if provided (only allow in test/dev)
+    const shortTimeoutMs = body.shortTimeoutMs;
+    const shortWarningBeforeMs = body.shortWarningBeforeMs;
+    if (shortTimeoutMs !== undefined && (shortTimeoutMs < 1000 || shortTimeoutMs > 60000)) {
+      throw createError('shortTimeoutMs must be between 1000 and 60000', 400, 'INVALID_TIMEOUT');
+    }
+    if (
+      shortWarningBeforeMs !== undefined &&
+      (shortWarningBeforeMs < 500 || shortWarningBeforeMs > 30000)
+    ) {
+      throw createError(
+        'shortWarningBeforeMs must be between 500 and 30000',
+        400,
+        'INVALID_TIMEOUT'
+      );
+    }
+
     const gameId = await createDecisionPhaseFixtureGame({
-      creatorUserId: req.user!.id,
+      creatorUserId: getAuthUserId(req),
       scenario,
       isRated,
+      ...(shortTimeoutMs !== undefined && { shortTimeoutMs }),
+      ...(shortWarningBeforeMs !== undefined && { shortWarningBeforeMs }),
     });
 
     res.status(201).json({
@@ -131,6 +169,45 @@ router.post(
         scenario,
       },
     });
+  })
+);
+
+/**
+ * Test/dev-only helper for evaluating arbitrary sandbox positions via the
+ * Python AI service. This endpoint accepts a serialized GameState (using the
+ * same wire format as scenario persistence) and returns a single
+ * PositionEvaluationPayload['data'] object suitable for feeding into the
+ * client-side EvaluationPanel.
+ *
+ * Guarded to test/development environments to avoid exposing raw evaluation
+ * of arbitrary positions in production.
+ */
+router.post(
+  '/sandbox/evaluate',
+  asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    if (!config.isTest && !config.isDevelopment) {
+      throw createError('Not found', 404, 'NOT_FOUND');
+    }
+
+    const body = (req.body || {}) as { state?: SerializedGameState };
+    if (!body.state) {
+      throw createError('Missing serialized sandbox state', 400, 'INVALID_REQUEST');
+    }
+
+    const gameState = deserializeGameState(body.state);
+    const aiClient = getAIServiceClient();
+    const response = await aiClient.evaluatePositionMulti(gameState);
+
+    const data: PositionEvaluationPayload['data'] = {
+      gameId: gameState.id,
+      moveNumber: response.move_number,
+      boardType: (response.board_type as GameState['boardType']) ?? gameState.boardType,
+      perPlayer: response.per_player,
+      engineProfile: response.engine_profile,
+      evaluationScale: response.evaluation_scale,
+    };
+
+    res.status(200).json(data);
   })
 );
 
@@ -218,9 +295,9 @@ router.get(
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
-    const whereClause: any = {
+    const whereClause: Prisma.GameWhereInput = {
       OR: [
         { player1Id: userId },
         { player2Id: userId },
@@ -336,7 +413,7 @@ router.get(
       throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
     }
     const { gameId } = paramResult.data;
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -467,7 +544,7 @@ router.post(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const gameData: CreateGameInput = CreateGameSchema.parse(req.body);
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     // Derive an IP address for quota enforcement, preferring X-Forwarded-For
     // when present so deployments behind a proxy still get a stable key.
@@ -544,7 +621,7 @@ router.post(
     if (gameData.aiOpponents && gameData.aiOpponents.count > 0) {
       initialGameState.aiOpponents = gameData.aiOpponents;
     }
- 
+
     // Compute effective rulesOptions for this game. For now we only support the
     // pie rule (swap_sides) toggle:
     // - If the client explicitly specifies rulesOptions.swapRuleEnabled, honour it.
@@ -555,7 +632,7 @@ router.post(
     } else if (gameData.maxPlayers === 2) {
       effectiveRulesOptions = { swapRuleEnabled: true };
     }
- 
+
     if (effectiveRulesOptions) {
       initialGameState.rulesOptions = effectiveRulesOptions;
     }
@@ -604,7 +681,14 @@ router.post(
 
     // Broadcast to lobby if game is waiting for players
     if (initialStatus === 'waiting' && wsServerInstance) {
-      wsServerInstance.broadcastLobbyEvent('lobby:game_created', game);
+      // Type assertion: Prisma Game with JsonValue fields is runtime-compatible
+      // with shared Game type that expects specific object shapes
+      wsServerInstance.broadcastLobbyEvent(
+        'lobby:game_created',
+        game as unknown as Parameters<
+          typeof wsServerInstance.broadcastLobbyEvent<'lobby:game_created'>
+        >[1]
+      );
     }
 
     res.status(201).json({
@@ -707,7 +791,7 @@ router.post(
       throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
     }
     const { gameId } = paramResult.data;
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
     const prisma = getDatabaseClient();
     if (!prisma) {
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
@@ -806,8 +890,8 @@ router.post(
         if (wsServerInstance) {
           wsServerInstance.broadcastLobbyEvent('lobby:game_started', {
             gameId,
-            status: startedGame.status,
-            startedAt: startedGame.startedAt,
+            status: startedGame.status as GameStatus,
+            startedAt: startedGame.startedAt ?? undefined,
             playerCount: currentPlayerCount,
           });
         }
@@ -903,7 +987,7 @@ router.post(
       throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
     }
     const { gameId } = paramResult.data;
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -927,41 +1011,109 @@ router.post(
     });
 
     if (game.status === ('active' as any)) {
-      // If game is active, this is a resignation
-      const gameEngine = activeGames.get(gameId);
-      if (gameEngine) {
-        // Handle resignation (simplified for now)
-        // TODO: Implement proper resignation logic
+      // If game is active, this is a resignation.
+      // Prefer routing through the WebSocket/GameSession host so that the
+      // engine produces a canonical GameResult and ratings are updated via
+      // GamePersistenceService.finishGame for rated games. Fallback behaviour
+      // (when no WebSocketServer is attached) preserves the previous simple
+      // DB-only completion semantics.
+      let handledViaSession = false;
+      if (wsServerInstance && typeof wsServerInstance.handlePlayerResignFromHttp === 'function') {
+        try {
+          await wsServerInstance.handlePlayerResignFromHttp(gameId, userId);
+          handledViaSession = true;
+        } catch (err) {
+          logger.error('Failed to route resignation through GameSession', {
+            gameId,
+            userId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
 
-      await prisma.game.update({
-        where: { id: gameId },
-        data: {
-          status: 'completed' as any,
-          endedAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
+      let winnerId: string | null = null;
+      let ratingUpdates: RatingUpdateResult[] | undefined;
+
+      if (!handledViaSession) {
+        // Fallback: determine winner and rating updates directly from the
+        // database record, preserving legacy behaviour for environments
+        // without an attached WebSocketServer.
+        const playerIds = [game.player1Id, game.player2Id, game.player3Id, game.player4Id].filter(
+          (id): id is string => id !== null
+        );
+
+        const remainingPlayerIds = playerIds.filter((id) => id !== userId);
+        winnerId =
+          remainingPlayerIds.length === 1 ? remainingPlayerIds[0] : (remainingPlayerIds[0] ?? null);
+
+        if (game.isRated && winnerId) {
+          try {
+            ratingUpdates = await RatingService.processGameResult(gameId, winnerId, playerIds);
+            logger.info('Rating updates applied for resignation', {
+              gameId,
+              resigningPlayer: userId,
+              winnerId,
+              ratingUpdates: ratingUpdates.map((r) => ({
+                playerId: r.playerId,
+                change: r.change,
+              })),
+            });
+          } catch (err) {
+            logger.error('Failed to process ratings for resignation', {
+              gameId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        await prisma.game.update({
+          where: { id: gameId },
+          data: {
+            status: 'completed' as any,
+            winnerId: winnerId,
+            endedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        });
+      } else {
+        // When handled via GameSession/GameEngine, fetch the winnerId from
+        // the updated Game row for logging/response only; rating updates are
+        // applied by GamePersistenceService.finishGame.
+        const updated = await prisma.game.findUnique({
+          where: { id: gameId },
+          select: { winnerId: true },
+        });
+        winnerId = updated?.winnerId ?? null;
+      }
 
       // Broadcast game ended/cancelled to lobby
       if (wsServerInstance) {
         wsServerInstance.broadcastLobbyEvent('lobby:game_cancelled', { gameId });
       }
 
-      httpLogger.info(req, 'Player resigned from game', { gameId, userId });
+      httpLogger.info(req, 'Player resigned from game', {
+        gameId,
+        userId,
+        winnerId,
+        ratingChangesApplied: !!ratingUpdates && ratingUpdates.length > 0,
+      });
 
       res.json({
         success: true,
         message: 'Resigned from game',
+        data: {
+          winnerId,
+          ratingChanges: ratingUpdates && ratingUpdates.length > 0 ? ratingUpdates : undefined,
+        },
       });
     } else {
       // If game is waiting, remove player
-      const updateData: any = { updatedAt: new Date() };
+      const updateData: Prisma.GameUpdateInput = { updatedAt: new Date() };
 
-      if (game.player1Id === userId) updateData.player1Id = null;
-      else if (game.player2Id === userId) updateData.player2Id = null;
-      else if (game.player3Id === userId) updateData.player3Id = null;
-      else if (game.player4Id === userId) updateData.player4Id = null;
+      if (game.player1Id === userId) updateData.player1 = { disconnect: true };
+      else if (game.player2Id === userId) updateData.player2 = { disconnect: true };
+      else if (game.player3Id === userId) updateData.player3 = { disconnect: true };
+      else if (game.player4Id === userId) updateData.player4 = { disconnect: true };
 
       const updatedGame = await prisma.game.update({
         where: { id: gameId },
@@ -1079,7 +1231,7 @@ router.get(
       throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
     }
     const { gameId } = paramResult.data;
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -1095,6 +1247,8 @@ router.get(
         player3Id: true,
         player4Id: true,
         allowSpectators: true,
+        status: true,
+        finalState: true,
       },
     });
 
@@ -1204,7 +1358,7 @@ router.get(
       throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
     }
     const { gameId } = paramResult.data;
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -1221,6 +1375,8 @@ router.get(
         player3Id: true,
         player4Id: true,
         allowSpectators: true,
+        status: true,
+        finalState: true,
       },
     });
 
@@ -1269,12 +1425,35 @@ router.get(
       };
     });
 
+    // When a final GameState snapshot is available for a finished game, surface
+    // the terminal GameResult.reason (and optional winner) so that history
+    // consumers can distinguish timeout, resignation, abandonment, and other
+    // victory conditions without making a separate details request.
+    let result: { reason: string; winner?: number | null } | undefined;
+    if (game.status === 'completed' || game.status === 'abandoned' || game.status === 'finished') {
+      const finalState = (game as any).finalState as
+        | { gameResult?: { reason?: string; winner?: number | null } }
+        | null
+        | undefined;
+      const gameResult = finalState?.gameResult;
+      if (gameResult && typeof gameResult.reason === 'string') {
+        // Use spread to conditionally add winner only when valid (exactOptionalPropertyTypes)
+        result = {
+          reason: gameResult.reason,
+          ...(typeof gameResult.winner === 'number' || gameResult.winner === null
+            ? { winner: gameResult.winner }
+            : {}),
+        };
+      }
+    }
+
     res.json({
       success: true,
       data: {
         gameId,
         moves: formattedMoves,
         totalMoves: moves.length,
+        ...(result && { result }),
       },
     });
   })
@@ -1392,7 +1571,7 @@ router.get(
     }
 
     // Build where clause for user's games
-    const whereClause: any = {
+    const whereClause: Prisma.GameWhereInput = {
       OR: [
         { player1Id: userId },
         { player2Id: userId },
@@ -1402,7 +1581,9 @@ router.get(
     };
 
     if (status) {
-      whereClause.status = status;
+      // Status from query param maps to Prisma GameStatus enum
+      // Cast through Prisma's enum type (excludes undefined from the assigned value)
+      (whereClause as { status?: string }).status = status;
     }
 
     // Get games with move count
@@ -1541,7 +1722,7 @@ router.get(
       throw createError('Invalid game ID format', 400, 'INVALID_GAME_ID');
     }
     const { gameId } = paramResult.data;
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
     const prisma = getDatabaseClient();
     if (!prisma) {
@@ -1587,13 +1768,7 @@ router.get(
       return;
     }
 
-    const diagnostics = wsServerInstance.getGameDiagnosticsForGame(gameId) as {
-      sessionStatus: any | null;
-      lastAIRequestState: any | null;
-      aiDiagnostics: any | null;
-      connections: Record<string, unknown>;
-      hasInMemorySession: boolean;
-    };
+    const diagnostics = wsServerInstance.getGameDiagnosticsForGame(gameId);
 
     res.json({
       success: true,
@@ -1692,10 +1867,10 @@ router.get(
       throw createError('Database not available', 500, 'DATABASE_UNAVAILABLE');
     }
 
-    const userId = req.user!.id;
+    const userId = getAuthUserId(req);
 
-    const whereClause: any = {
-      status: 'waiting' as any,
+    const whereClause: Prisma.GameWhereInput = {
+      status: 'waiting',
       // Exclude games where user is already a player
       NOT: {
         OR: [

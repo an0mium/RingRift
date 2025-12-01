@@ -15,13 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGame } from '../contexts/GameContext';
-import type {
-  Move,
-  Position,
-  MoveType,
-  PlayerChoice,
-  PlayerChoiceResponse,
-} from '../../shared/types/game';
+import type { Move, Position, PlayerChoice } from '../../shared/types/game';
 import { getChoiceViewModel } from '../adapters/choiceViewModels';
 import type { ChoiceViewModel } from '../adapters/choiceViewModels';
 

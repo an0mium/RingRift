@@ -10,23 +10,24 @@ import {
 const adjacencyCache = new Map<string, Map<string, string[]>>();
 
 function getAdjacencyGraph(boardType: string): Map<string, string[]> {
-  if (!adjacencyCache.has(boardType)) {
-    const graph = new Map<string, string[]>();
-    const config = BOARD_CONFIGS[boardType as keyof typeof BOARD_CONFIGS];
-    const adjType = config.territoryAdjacency;
+  const cached = adjacencyCache.get(boardType);
+  if (cached) return cached;
 
-    // Generate valid positions based on config
-    const positions = generateValidPositions({ type: boardType, size: config.size } as any);
+  const graph = new Map<string, string[]>();
+  const config = BOARD_CONFIGS[boardType as keyof typeof BOARD_CONFIGS];
+  const adjType = config.territoryAdjacency;
 
-    for (const posStr of positions) {
-      const pos = stringToPosition(posStr);
-      const neighbors = getNeighbors(pos, adjType, { type: boardType, size: config.size } as any);
-      graph.set(posStr, neighbors.map(positionToString));
-    }
+  // Generate valid positions based on config
+  const positions = generateValidPositions({ type: boardType, size: config.size } as any);
 
-    adjacencyCache.set(boardType, graph);
+  for (const posStr of positions) {
+    const pos = stringToPosition(posStr);
+    const neighbors = getNeighbors(pos, adjType, { type: boardType, size: config.size } as any);
+    graph.set(posStr, neighbors.map(positionToString));
   }
-  return adjacencyCache.get(boardType)!;
+
+  adjacencyCache.set(boardType, graph);
+  return graph;
 }
 
 /**
@@ -162,7 +163,8 @@ function exploreRegionWithBorderColor(
   const adjacencyGraph = getAdjacencyGraph(board.type);
 
   while (queue.length > 0) {
-    const currentKey = queue.shift()!;
+    const currentKey = queue.shift();
+    if (!currentKey) continue;
 
     if (localVisited.has(currentKey)) continue;
     localVisited.add(currentKey);
@@ -204,7 +206,8 @@ function exploreRegionWithoutMarkerBorder(
   const adjacencyGraph = getAdjacencyGraph(board.type);
 
   while (queue.length > 0) {
-    const currentKey = queue.shift()!;
+    const currentKey = queue.shift();
+    if (!currentKey) continue;
 
     if (localVisited.has(currentKey)) continue;
     localVisited.add(currentKey);

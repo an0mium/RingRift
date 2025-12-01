@@ -6,7 +6,16 @@ import { ChoiceDialog } from '../components/ChoiceDialog';
 import { VictoryModal } from '../components/VictoryModal';
 import { GameHUD } from '../components/GameHUD';
 import { GameEventLog } from '../components/GameEventLog';
+import { MoveHistory } from '../components/MoveHistory';
+import { GameHistoryPanel } from '../components/GameHistoryPanel';
+import { EvaluationPanel } from '../components/EvaluationPanel';
 import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
+import { ResignButton } from '../components/ResignButton';
+import {
+  ScreenReaderAnnouncer,
+  useScreenReaderAnnouncement,
+} from '../components/ScreenReaderAnnouncer';
+import { gameApi } from '../services/api';
 import {
   BoardState,
   GameState,
@@ -25,8 +34,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { useGameState } from '../hooks/useGameState';
 import { useGameConnection } from '../hooks/useGameConnection';
-import { useGameActions, usePendingChoice, useChatMessages, type PendingChoiceView } from '../hooks/useGameActions';
+import {
+  useGameActions,
+  usePendingChoice,
+  useChatMessages,
+  type PendingChoiceView,
+} from '../hooks/useGameActions';
 import { useDecisionCountdown } from '../hooks/useDecisionCountdown';
+import { useAutoMoveAnimation } from '../hooks/useMoveAnimation';
 import type { PlayerChoice } from '../../shared/types/game';
 import type {
   DecisionAutoResolvedMeta,
@@ -46,10 +61,7 @@ function getAIDifficultyLabel(difficulty: number): { label: string; color: strin
 
 function describeDecisionAutoResolved(meta: DecisionAutoResolvedMeta): string {
   const playerLabel = `P${meta.actingPlayerNumber}`;
-  const reasonLabel =
-    meta.reason === 'timeout'
-      ? 'timeout'
-      : meta.reason.replace(/_/g, ' ');
+  const reasonLabel = meta.reason === 'timeout' ? 'timeout' : meta.reason.replace(/_/g, ' ');
 
   const choiceKindLabel = (() => {
     switch (meta.choiceKind) {
@@ -110,15 +122,8 @@ interface BackendConnectionShellState {
 }
 
 function useBackendConnectionShell(routeGameId: string): BackendConnectionShellState {
-  const {
-    gameId,
-    status,
-    isConnecting,
-    error,
-    lastHeartbeatAt,
-    connectToGame,
-    disconnect,
-  } = useGameConnection();
+  const { gameId, status, isConnecting, error, lastHeartbeatAt, connectToGame, disconnect } =
+    useGameConnection();
 
   useEffect(() => {
     if (!routeGameId) {
@@ -236,13 +241,7 @@ function useBackendDiagnosticsLog(
       return;
     }
 
-    const {
-      gameId,
-      playerNumber,
-      phase,
-      remainingMs,
-      choiceId,
-    } = decisionPhaseTimeoutWarning.data;
+    const { gameId, playerNumber, phase, remainingMs, choiceId } = decisionPhaseTimeoutWarning.data;
 
     const key = `${gameId}:${playerNumber}:${phase}:${choiceId ?? ''}:${remainingMs}`;
     if (lastTimeoutWarningKeyRef.current === key) {
@@ -345,9 +344,13 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     victoryState,
     decisionAutoResolved,
     decisionPhaseTimeoutWarning,
+    evaluationHistory,
   } = useGameState();
   const { submitMove } = useGameActions();
   const { messages: backendChatMessages, sendMessage: sendChatMessage } = useChatMessages();
+
+  // Move animations - auto-detects moves from game state changes
+  const { pendingAnimation, clearAnimation } = useAutoMoveAnimation(gameState);
 
   // DecisionUI: pending choice state + countdown timer
   const {
@@ -374,11 +377,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     decisionCountdown.effectiveTimeRemainingMs ?? choiceTimeRemainingMs ?? null;
 
   // DiagnosticsPanel: phase/player/choice + connection status logs
-  const {
-    eventLog,
-    showSystemEventsInLog,
-    setShowSystemEventsInLog,
-  } = useBackendDiagnosticsLog(
+  const { eventLog, showSystemEventsInLog, setShowSystemEventsInLog } = useBackendDiagnosticsLog(
     gameState,
     pendingChoice,
     connection.connectionStatus,
@@ -405,9 +404,115 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   // Help / controls overlay
   const [showBoardControls, setShowBoardControls] = useState(false);
 
+  // Resignation state
+  const [isResigning, setIsResigning] = useState(false);
+
   // Chat UI state (backend chat only; GameContext always provides sendChatMessage)
   const chatMessages = backendChatMessages;
   const [chatInput, setChatInput] = useState('');
+
+  // Screen reader announcements for accessibility
+  const { message: srMessage, announce: srAnnounce } = useScreenReaderAnnouncement();
+  const prevTurnPlayerRef = useRef<number | null>(null);
+  const prevPhaseRef = useRef<string | null>(null);
+  const prevVictoryRef = useRef<boolean>(false);
+
+  // Announce turn and phase changes to screen readers
+  useEffect(() => {
+    if (!gameState) return;
+
+    const currentTurnPlayer = gameState.currentPlayer;
+    const currentPhase = gameState.currentPhase;
+    const currentPlayerInfo = gameState.players.find((p) => p.playerNumber === currentTurnPlayer);
+    const playerName = currentPlayerInfo?.username || `Player ${currentTurnPlayer}`;
+
+    // Announce turn changes
+    if (prevTurnPlayerRef.current !== null && prevTurnPlayerRef.current !== currentTurnPlayer) {
+      srAnnounce(`${playerName}'s turn`);
+    }
+    prevTurnPlayerRef.current = currentTurnPlayer;
+
+    // Announce significant phase changes (skip if also announcing turn)
+    if (prevPhaseRef.current !== null && prevPhaseRef.current !== currentPhase) {
+      const phaseLabels: Record<string, string> = {
+        ring_placement: 'Ring placement phase',
+        movement: 'Movement phase',
+        capture: 'Capture phase',
+        chain_capture: 'Chain capture phase',
+        line_processing: 'Line processing phase',
+        territory_processing: 'Territory processing phase',
+      };
+      const phaseLabel = phaseLabels[currentPhase] || currentPhase;
+      // Only announce phase if it wasn't just a turn change announcement
+      if (prevTurnPlayerRef.current === currentTurnPlayer) {
+        srAnnounce(phaseLabel);
+      }
+    }
+    prevPhaseRef.current = currentPhase;
+  }, [gameState, srAnnounce]);
+
+  // Announce victory
+  useEffect(() => {
+    if (victoryState && !prevVictoryRef.current) {
+      const winnerInfo =
+        victoryState.winner !== undefined
+          ? gameState?.players.find((p) => p.playerNumber === victoryState.winner)
+          : null;
+      const winnerName =
+        winnerInfo?.username ||
+        (victoryState.winner !== undefined ? `Player ${victoryState.winner}` : '');
+
+      let announcement: string;
+
+      if (victoryState.winner === undefined) {
+        // No explicit winner – draw or abandoned game.
+        switch (victoryState.reason) {
+          case 'draw':
+            announcement = 'Game over. The game ended in a draw.';
+            break;
+          case 'abandonment':
+            announcement = 'Game over. The game was abandoned.';
+            break;
+          default:
+            announcement = 'Game over.';
+            break;
+        }
+      } else {
+        let reasonLabel = '';
+        switch (victoryState.reason) {
+          case 'ring_elimination':
+            reasonLabel = 'by elimination';
+            break;
+          case 'territory_control':
+            reasonLabel = 'by territory control';
+            break;
+          case 'last_player_standing':
+            reasonLabel = 'as the last player standing';
+            break;
+          case 'timeout':
+            reasonLabel = 'on time';
+            break;
+          case 'resignation':
+            reasonLabel = 'by resignation';
+            break;
+          case 'abandonment':
+            reasonLabel = 'after the game was abandoned';
+            break;
+          default:
+            reasonLabel = '';
+            break;
+        }
+
+        const suffix = reasonLabel ? ` ${reasonLabel}` : '';
+        announcement = `Game over. ${winnerName} wins${suffix}.`;
+      }
+
+      srAnnounce(announcement.trim());
+      prevVictoryRef.current = true;
+    } else if (!victoryState) {
+      prevVictoryRef.current = false;
+    }
+  }, [victoryState, gameState?.players, srAnnounce]);
 
   // Derived HUD state
   const currentPlayer = gameState?.players.find((p) => p.playerNumber === gameState.currentPlayer);
@@ -452,17 +557,17 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
     switch (gameState.currentPhase) {
       case 'ring_placement':
-        return 'Place a ring on an empty edge space.';
+        return 'Place rings on an empty cell or on top of an existing stack.';
       case 'movement':
         return 'Select a stack to move.';
       case 'capture':
         return 'Select a stack to capture with.';
       case 'chain_capture':
-        return 'Continue the capture chain.';
+        return 'Chain capture in progress – select next capture target.';
       case 'line_processing':
-        return 'Choose a line to collapse.';
+        return 'Line processing – choose how to resolve your completed line.';
       case 'territory_processing':
-        return 'Choose a region to claim.';
+        return 'Territory processing – resolve disconnected regions.';
       default:
         return 'Make your move.';
     }
@@ -528,8 +633,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       const target = event.target as HTMLElement | null;
       if (target) {
         const tagName = target.tagName;
-        const isEditableTag =
-          tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+        const isEditableTag = tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
         const isContentEditable = (target as HTMLElement).isContentEditable;
         if (isEditableTag || isContentEditable) {
           return;
@@ -796,6 +900,22 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     setValidTargets([]);
   };
 
+  // Handle resignation
+  const handleResign = async () => {
+    if (!gameId || isResigning) return;
+
+    setIsResigning(true);
+    try {
+      await gameApi.leaveGame(gameId);
+      toast.success('You have resigned from the game.');
+      // The server will broadcast victory/game over state via WebSocket
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to resign';
+      toast.error(message);
+      setIsResigning(false);
+    }
+  };
+
   // Early-loading states
   if (isConnecting && !gameState) {
     return (
@@ -892,6 +1012,9 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-4">
+      {/* Screen reader live region for game announcements */}
+      <ScreenReaderAnnouncer message={srMessage} />
+
       {reconnectionBanner}
 
       {gameOverBannerText && (
@@ -950,10 +1073,42 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           setIsVictoryModalDismissed(true);
         }}
         onReturnToLobby={() => navigate('/lobby')}
-        onRematch={() => {
-          // TODO: Implement rematch via WebSocket
-          // eslint-disable-next-line no-console
-          console.log('Rematch requested');
+        onRematch={async () => {
+          // Create a new game with the same settings as the current one
+          if (!gameState) {
+            toast.error('Cannot create rematch: game state unavailable');
+            return;
+          }
+
+          try {
+            const newGame = await gameApi.createGame({
+              boardType: gameState.boardType,
+              maxPlayers: gameState.players.length,
+              isRated: false,
+              isPrivate: true,
+              timeControl: gameState.timeControl ?? {
+                type: 'rapid',
+                initialTime: 600,
+                increment: 0,
+              },
+              aiOpponents: (() => {
+                const aiPlayers = gameState.players.filter((p) => p.type === 'ai');
+                if (aiPlayers.length === 0) return undefined;
+                return {
+                  count: aiPlayers.length,
+                  difficulty: aiPlayers.map((p) => p.aiProfile?.difficulty ?? p.aiDifficulty ?? 5),
+                  mode: 'service' as const,
+                  aiType: 'heuristic' as const,
+                };
+              })(),
+              rulesOptions: gameState.rulesOptions,
+            });
+            toast.success('Rematch game created!');
+            navigate(`/game/${newGame.id}`);
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Failed to create rematch';
+            toast.error(message);
+          }
         }}
       />
 
@@ -969,6 +1124,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             onCellDoubleClick={(pos) => handleBackendCellDoubleClick(pos, board)}
             onCellContextMenu={(pos) => handleBackendCellContextMenu(pos, board)}
             isSpectator={!isPlayer}
+            pendingAnimation={pendingAnimation ?? undefined}
+            onAnimationComplete={clearAnimation}
           />
         </section>
 
@@ -1018,6 +1175,24 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             timeControl={gameState.timeControl}
             onShowBoardControls={() => setShowBoardControls(true)}
           />
+
+          {/* Move History - compact notation display */}
+          <MoveHistory
+            moves={gameState.moveHistory}
+            boardType={gameState.boardType}
+            currentMoveIndex={gameState.moveHistory.length - 1}
+          />
+
+          {/* Resign button - visible to players during active games */}
+          {isPlayer && gameState.gameStatus === 'active' && (
+            <div className="mt-2 flex justify-end">
+              <ResignButton
+                onResign={handleResign}
+                disabled={!isConnectionActive}
+                isResigning={isResigning}
+              />
+            </div>
+          )}
 
           {isPlayer &&
             isConnectionActive &&
@@ -1080,6 +1255,27 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
               { maxEntries: 40 }
             )}
           />
+
+          {/* Full move history panel with expandable details */}
+          <GameHistoryPanel
+            gameId={gameId}
+            defaultCollapsed={true}
+            onError={(err) => {
+              // Log but don't block – history is supplementary
+              console.warn('Failed to load game history:', err.message);
+            }}
+          />
+
+          {/* AI analysis/evaluation panel – enabled for spectators and finished games.
+              When no evaluation data has been streamed yet, the panel renders a
+              placeholder message instead of remaining hidden. */}
+          {(!isPlayer || !!victoryState) && gameState && (
+            <EvaluationPanel
+              evaluationHistory={evaluationHistory}
+              players={gameState.players}
+              className="mt-2"
+            />
+          )}
 
           <div className="p-3 border border-slate-700 rounded bg-slate-900/50 flex flex-col h-64">
             <h2 className="font-semibold mb-2">Chat</h2>

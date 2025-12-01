@@ -1,0 +1,389 @@
+{
+  "version": "v2",
+  "generated": "2025-12-01T08:02:22.574Z",
+  "count": 3,
+  "categories": ["line_processing", "territory_processing"],
+  "vectors": [
+    {
+      "id": "territory_line.overlong_line.step1.square8",
+      "version": "v2",
+      "category": "line_processing",
+      "description": "Overlong line processing step 1 (square8)",
+      "tags": [
+        "line_processing",
+        "orchestrator",
+        "parity",
+        "overlong_line",
+        "territory",
+        "line",
+        "overlong"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.556Z",
+      "input": {
+        "state": {
+          "gameId": "contract-territory-line-overlong-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "0,3": {
+                "position": {
+                  "x": 0,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              },
+              "1,3": {
+                "position": {
+                  "x": 1,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              },
+              "2,3": {
+                "position": {
+                  "x": 2,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              },
+              "3,3": {
+                "position": {
+                  "x": 3,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              },
+              "4,3": {
+                "position": {
+                  "x": 4,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              },
+              "5,3": {
+                "position": {
+                  "x": 5,
+                  "y": 3
+                },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 0,
+              "2": 0
+            },
+            "formedLines": [
+              {
+                "positions": [
+                  {
+                    "x": 0,
+                    "y": 3
+                  },
+                  {
+                    "x": 1,
+                    "y": 3
+                  },
+                  {
+                    "x": 2,
+                    "y": 3
+                  },
+                  {
+                    "x": 3,
+                    "y": 3
+                  },
+                  {
+                    "x": 4,
+                    "y": 3
+                  },
+                  {
+                    "x": 5,
+                    "y": 3
+                  }
+                ],
+                "player": 1,
+                "length": 6,
+                "direction": {
+                  "x": 1,
+                  "y": 0
+                }
+              }
+            ]
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "overlong-line-step1",
+          "type": "process_line",
+          "player": 1,
+          "to": {
+            "x": 0,
+            "y": 3
+          },
+          "formedLines": [
+            {
+              "positions": [
+                {
+                  "x": 0,
+                  "y": 3
+                },
+                {
+                  "x": 1,
+                  "y": 3
+                },
+                {
+                  "x": 2,
+                  "y": 3
+                },
+                {
+                  "x": 3,
+                  "y": 3
+                },
+                {
+                  "x": 4,
+                  "y": 3
+                },
+                {
+                  "x": 5,
+                  "y": 3
+                }
+              ],
+              "player": 1,
+              "length": 6,
+              "direction": {
+                "x": 1,
+                "y": 0
+              }
+            }
+          ],
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "stackCount": 6,
+          "markerCount": 0,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "territory_line.single_point_swing.square19",
+      "version": "v2",
+      "category": "territory_processing",
+      "description": "Single point territory swing (square19)",
+      "tags": ["territory_processing", "orchestrator", "parity", "territory", "swing", "endgame"],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.573Z",
+      "input": {
+        "state": {
+          "gameId": "contract-territory-line-swing-square19",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {
+              "9,9": {
+                "position": {
+                  "x": 9,
+                  "y": 9
+                },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 8,
+              "2": 8
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 2,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181,
+          "totalRingsEliminated": 16
+        },
+        "move": {
+          "id": "single-point-swing",
+          "type": "process_territory_region",
+          "player": 2,
+          "to": {
+            "x": 9,
+            "y": 9
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "stackCount": 1,
+          "markerCount": 0,
+          "collapsedCount": 0,
+          "sInvariantDelta": 0,
+          "player1RingsInHand": 36,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 36,
+          "player2EliminatedRings": 0
+        }
+      }
+    },
+    {
+      "id": "territory_line.decision_auto_exit.square8",
+      "version": "v2",
+      "category": "territory_processing",
+      "description": "Decision auto-exit (square8)",
+      "tags": [
+        "territory_processing",
+        "orchestrator",
+        "parity",
+        "territory",
+        "auto_exit",
+        "endgame"
+      ],
+      "source": "generated",
+      "createdAt": "2025-12-01T08:02:22.574Z",
+      "input": {
+        "state": {
+          "gameId": "contract-territory-decision-auto-exit-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": {
+              "1": 15,
+              "2": 15
+            },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 30
+        },
+        "move": {
+          "id": "decision-auto-exit",
+          "type": "process_territory_region",
+          "player": 1,
+          "to": {
+            "x": 0,
+            "y": 0
+          },
+          "timestamp": "1970-01-01T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "stackCount": 0,
+          "markerCount": 0,
+          "collapsedCount": 0,
+          "sInvariantDelta": 0,
+          "player1RingsInHand": 18,
+          "player1EliminatedRings": 0,
+          "player2RingsInHand": 18,
+          "player2EliminatedRings": 0
+        }
+      }
+    }
+  ]
+}

@@ -82,6 +82,10 @@ describe('Client Game API Service', () => {
           },
         ],
         totalMoves: 2,
+        result: {
+          reason: 'timeout',
+          winner: 1,
+        },
       };
 
       (mockedAxios.get as jest.Mock).mockResolvedValue({
@@ -94,6 +98,7 @@ describe('Client Game API Service', () => {
       expect(result).toEqual(mockResponse);
       expect(result.moves).toHaveLength(2);
       expect(result.totalMoves).toBe(2);
+      expect(result.result).toEqual({ reason: 'timeout', winner: 1 });
     });
 
     it('should handle empty move history', async () => {

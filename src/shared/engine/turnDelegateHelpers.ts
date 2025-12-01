@@ -154,6 +154,8 @@ export function hasAnyMovementForPlayer(
   player: number,
   turn: PerTurnState
 ): boolean {
+  void state;
+  void player;
   void turn;
   throw new Error(
     'TODO(P0-HELPERS): hasAnyMovementForPlayer is a design-time stub. ' +
@@ -182,6 +184,8 @@ export function hasAnyCaptureForPlayer(
   player: number,
   turn: PerTurnState
 ): boolean {
+  void state;
+  void player;
   void turn;
   throw new Error(
     'TODO(P0-HELPERS): hasAnyCaptureForPlayer is a design-time stub. ' +

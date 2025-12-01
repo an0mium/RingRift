@@ -1,0 +1,141 @@
+import { useState, useCallback, useRef, useEffect } from 'react';
+import type { Move, Position, GameState } from '../../shared/types/game';
+import type { MoveAnimationData } from '../components/BoardView';
+
+/**
+ * Hook to manage move animations.
+ * Generates animation data from moves and manages the animation lifecycle.
+ */
+export function useMoveAnimation() {
+  const [pendingAnimation, setPendingAnimation] = useState<MoveAnimationData | null>(null);
+  const animationIdRef = useRef(0);
+
+  /**
+   * Generate animation data from a move.
+   * For chain captures, provide the full capture path in intermediatePositions.
+   */
+  const triggerAnimation = useCallback(
+    (
+      move: Move,
+      playerNumber: number,
+      options?: {
+        stackHeight?: number;
+        capHeight?: number;
+        chainCapturePath?: Position[] | undefined;
+      }
+    ) => {
+      const id = `anim-${++animationIdRef.current}`;
+
+      // Determine animation type
+      let type: MoveAnimationData['type'] = 'move';
+      if (move.type === 'place_ring') {
+        type = 'place';
+      } else if (move.type === 'overtaking_capture') {
+        type =
+          options?.chainCapturePath && options.chainCapturePath.length > 0
+            ? 'chain_capture'
+            : 'capture';
+      }
+
+      const animation: MoveAnimationData = {
+        type,
+        ...(move.from ? { from: move.from } : {}),
+        to: move.to,
+        ...(options?.chainCapturePath ? { intermediatePositions: options.chainCapturePath } : {}),
+        playerNumber,
+        ...(options?.stackHeight !== undefined ? { stackHeight: options.stackHeight } : {}),
+        ...(options?.capHeight !== undefined ? { capHeight: options.capHeight } : {}),
+        id,
+      };
+
+      setPendingAnimation(animation);
+    },
+    []
+  );
+
+  /**
+   * Clear the current animation (called when animation completes).
+   */
+  const clearAnimation = useCallback(() => {
+    setPendingAnimation(null);
+  }, []);
+
+  return {
+    pendingAnimation,
+    triggerAnimation,
+    clearAnimation,
+  };
+}
+
+/**
+ * Hook that automatically detects moves from game state changes
+ * and triggers animations.
+ */
+export function useAutoMoveAnimation(gameState: GameState | null) {
+  const { pendingAnimation, triggerAnimation, clearAnimation } = useMoveAnimation();
+  const prevMoveCountRef = useRef<number>(0);
+  const prevGameIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!gameState) {
+      prevMoveCountRef.current = 0;
+      prevGameIdRef.current = null;
+      return;
+    }
+
+    // Reset on game change
+    if (prevGameIdRef.current !== gameState.id) {
+      prevGameIdRef.current = gameState.id;
+      prevMoveCountRef.current = gameState.moveHistory.length;
+      return;
+    }
+
+    const currentMoveCount = gameState.moveHistory.length;
+    const prevMoveCount = prevMoveCountRef.current;
+
+    // Check if a new move was made
+    if (currentMoveCount > prevMoveCount && currentMoveCount > 0) {
+      const lastMove = gameState.moveHistory[currentMoveCount - 1];
+
+      if (lastMove && lastMove.from && lastMove.to) {
+        // Determine player number from the move
+        const playerNumber = lastMove.player ?? gameState.currentPlayer;
+
+        // Look for chain capture path in recent move history
+        let chainCapturePath: Position[] | undefined;
+        if (lastMove.type === 'overtaking_capture') {
+          // Check if this is part of a chain by looking at recent moves
+          const recentMoves = gameState.moveHistory.slice(-10);
+          const chainMoves = recentMoves.filter(
+            (m) =>
+              m.type === 'overtaking_capture' &&
+              m.player === playerNumber &&
+              m.moveNumber === lastMove.moveNumber
+          );
+
+          if (chainMoves.length > 1) {
+            // Build the chain path from all captures in this turn
+            chainCapturePath = chainMoves.slice(0, -1).map((m) => m.to);
+          }
+        }
+
+        // Get stack info from the destination
+        const destKey = `${lastMove.to.x},${lastMove.to.y}${lastMove.to.z !== undefined ? `,${lastMove.to.z}` : ''}`;
+        const destStack = gameState.board.stacks.get(destKey);
+
+        triggerAnimation(lastMove, playerNumber, {
+          stackHeight: destStack?.stackHeight ?? 1,
+          capHeight: destStack?.capHeight ?? 1,
+          chainCapturePath,
+        });
+      }
+    }
+
+    prevMoveCountRef.current = currentMoveCount;
+  }, [gameState, triggerAnimation]);
+
+  return {
+    pendingAnimation,
+    clearAnimation,
+  };
+}

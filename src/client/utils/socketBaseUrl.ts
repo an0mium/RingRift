@@ -6,7 +6,9 @@
  * logic has a single source of truth.
  */
 export function getSocketBaseUrl(): string {
-  const env = (import.meta as any).env ?? {};
+  // Vite exposes env variables on import.meta.env
+  const env: Record<string, string | undefined> =
+    typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {};
 
   const wsUrl = env.VITE_WS_URL as string | undefined;
   if (wsUrl) {

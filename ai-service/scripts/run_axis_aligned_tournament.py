@@ -39,6 +39,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -64,6 +65,7 @@ from app.ai.heuristic_weights import (  # type: ignore  # noqa: E402
 from app.rules.default_engine import (  # type: ignore  # noqa: E402
     DefaultRulesEngine,
 )
+from app.utils.progress_reporter import SoakProgressReporter  # noqa: E402
 
 
 DEFAULT_PROFILES_DIR = os.path.join("logs", "axis_aligned", "profiles")
@@ -447,6 +449,16 @@ def run_axis_aligned_tournament(
     agg_results: Dict[str, Dict[str, Dict[str, Any]]] = {}
     global_game_index = 0
 
+    # Calculate total games across all boards
+    total_games_all_boards = len(boards) * n_pairs * games_per_pair
+
+    # Initialize progress reporter for time-based progress output (~10s intervals)
+    progress_reporter = SoakProgressReporter(
+        total_games=total_games_all_boards,
+        report_interval_sec=10.0,
+        context_label=f"axis_aligned_{','.join(board_names)}",
+    )
+
     # Tournament loop
     for board_index, (board_label, board_type) in enumerate(boards):
         total_games_for_board = n_pairs * games_per_pair
@@ -465,6 +477,7 @@ def run_axis_aligned_tournament(
 
                 # i as P1, j as P2
                 for _ in range(games_per_direction):
+                    game_start_time = time.time()
                     seed = base_seed + board_index * 10_000 + global_game_index
                     result_p1, moves = play_single_game_pair(
                         board_type,
@@ -490,9 +503,15 @@ def run_axis_aligned_tournament(
                         moves,
                     )
                     global_game_index += 1
+                    # Record game for progress reporting
+                    game_duration = time.time() - game_start_time
+                    progress_reporter.record_game(
+                        moves=moves, duration_sec=game_duration
+                    )
 
                 # j as P1, i as P2
                 for _ in range(games_per_direction):
+                    game_start_time = time.time()
                     seed = base_seed + board_index * 10_000 + global_game_index
                     result_p1, moves = play_single_game_pair(
                         board_type,
@@ -518,6 +537,14 @@ def run_axis_aligned_tournament(
                         moves,
                     )
                     global_game_index += 1
+                    # Record game for progress reporting
+                    game_duration = time.time() - game_start_time
+                    progress_reporter.record_game(
+                        moves=moves, duration_sec=game_duration
+                    )
+
+    # Emit final progress summary
+    progress_reporter.finish()
 
     # Finalise avg_moves and drop internal total_moves.
     for board_label, by_player in agg_results.items():

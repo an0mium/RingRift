@@ -45,6 +45,7 @@ import argparse
 import json
 import os
 import random
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -52,6 +53,7 @@ from app.ai.descent_ai import DescentAI
 from app.main import _create_ai_instance, _get_difficulty_profile
 from app.models import AIConfig, AIType, BoardType, GameState, GameStatus
 from app.training.env import RingRiftEnv
+from app.utils.progress_reporter import SoakProgressReporter
 
 
 @dataclass
@@ -169,8 +171,16 @@ def generate_territory_dataset(
     ai1 = None
     ai2 = None
 
+    # Initialize progress reporter for time-based progress output (~10s intervals)
+    progress_reporter = SoakProgressReporter(
+        total_games=num_games,
+        report_interval_sec=10.0,
+        context_label=f"territory_dataset_{board_type.value}_{engine_mode}",
+    )
+
     with open(output_path, "w", encoding="utf-8") as f:
         for game_idx in range(num_games):
+            game_start_time = time.time()
             game_seed = None if seed is None else seed + game_idx
             state = env.reset(seed=game_seed)
 
@@ -368,6 +378,16 @@ def generate_territory_dataset(
                 f"(num_players={len(player_numbers_sorted)}, "
                 f"engine_mode={engine_mode})"
             )
+
+            # Record game completion for progress reporting
+            game_duration = time.time() - game_start_time
+            progress_reporter.record_game(
+                moves=move_count,
+                duration_sec=game_duration,
+            )
+
+    # Emit final progress summary
+    progress_reporter.finish()
 
 
 def _parse_args() -> argparse.Namespace:

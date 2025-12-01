@@ -37,13 +37,12 @@ import {
  */
 
 /**
- * TODO-AI-HEURISTIC-COVERAGE: This test suite runs extensive AI vs AI
- * simulations comparing sandbox and backend move validity. The harness
- * runs 20 scenarios with 16 steps each plus deep seed tests with 2000 steps.
- * Failures indicate move enumeration discrepancies between engines.
- * Skipped pending parity investigation and potential rules unification.
+ * TODO-AI-HEURISTIC-COVERAGE: This suite exercises deep AI vs AI playouts
+ * comparing sandbox and backend move validity (including seeds 5 and 14).
+ * It is intentionally skipped in CI while remaining deep-seed stalls are
+ * investigated; enable locally when working on sandbox AI parity.
  */
-describe.skip('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => {
+describe('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => {
   const boardTypes: BoardType[] = ['square8'];
   const playerCounts: number[] = [2, 3];
 
@@ -761,7 +760,7 @@ describe.skip('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => 
           // We keep the formatted segment sets and board-slice diagnostics
           // for manual inspection but do not fail the suite on this single
           // legacy discrepancy.
-          // eslint-disable-next-line no-console
+
           console.warn(
             '[diagnostic seed17] target capture presence mismatch (backend vs sandbox)',
             { backendHas, sandboxHas }
@@ -881,17 +880,42 @@ describe.skip('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => 
             sandboxAfter.gameStatus === 'active' &&
             backendMoves.length > 0
           ) {
+            // Log detailed diagnostics to aid deep-seed stall debugging.
+            // This keeps the error message concise while preserving rich
+            // context in the Jest output.
+
+            console.warn(
+              '[Sandbox_vs_Backend.aiHeuristicCoverage] Sandbox produced no move while backend still has moves',
+              {
+                scenario: scenarioLabel,
+                seed,
+                step,
+                player: currentPlayer,
+                sandboxPhase: sandboxBefore.currentPhase,
+                sandboxStatus: sandboxBefore.gameStatus,
+                sandboxStacks: sandboxBefore.board.stacks.size,
+                sandboxMarkers: sandboxBefore.board.markers.size,
+                sandboxCollapsed: sandboxBefore.board.collapsedSpaces.size,
+                ringsInHand: sandboxBefore.players.map((p) => ({
+                  playerNumber: p.playerNumber,
+                  type: p.type,
+                  ringsInHand: p.ringsInHand,
+                  stacks: Array.from(sandboxBefore.board.stacks.values()).filter(
+                    (s) => s.controllingPlayer === p.playerNumber
+                  ).length,
+                })),
+                backendMoves: backendMoves.map((m) => ({
+                  type: m.type,
+                  from: m.from,
+                  to: m.to,
+                  captureTarget: m.captureTarget,
+                })),
+              }
+            );
+
             throw new Error(
               `Sandbox AI produced no move but backend has ${backendMoves.length} legal moves; ` +
-                `scenario=${scenarioLabel}, seed=${seed}, step=${step}, player=${currentPlayer}. ` +
-                `Backend moves: ${JSON.stringify(
-                  backendMoves.map((m) => ({
-                    type: m.type,
-                    from: m.from,
-                    to: m.to,
-                    captureTarget: m.captureTarget,
-                  }))
-                )}`
+                `scenario=${scenarioLabel}, seed=${seed}, step=${step}, player=${currentPlayer}.`
             );
           }
 

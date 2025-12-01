@@ -21,8 +21,16 @@ jest.mock('../../src/server/utils/logger', () => ({
   },
 }));
 
+// Mock the RatingService so we can assert rating behaviour in finishGame tests
+jest.mock('../../src/server/services/RatingService', () => ({
+  RatingService: {
+    processGameResult: jest.fn(),
+  },
+}));
+
 import { getDatabaseClient } from '../../src/server/database/connection';
 import { logger } from '../../src/server/utils/logger';
+import { RatingService } from '../../src/server/services/RatingService';
 
 describe('GamePersistenceService', () => {
   let mockPrisma: any;
@@ -431,6 +439,95 @@ describe('GamePersistenceService', () => {
           winnerId: 'winner-id',
         })
       );
+    });
+
+    it('invokes RatingService.processGameResult for rated games with a winner', async () => {
+      const mockResult: GameResult = {
+        winner: 1,
+        reason: 'resignation',
+        finalScore: {
+          ringsEliminated: {},
+          territorySpaces: {},
+          ringsRemaining: {},
+        },
+      };
+
+      mockPrisma.game.findUnique.mockResolvedValue({
+        player1Id: 'p1',
+        player2Id: 'p2',
+        player3Id: null,
+        player4Id: null,
+        isRated: true,
+        gameState: '{}',
+      });
+      mockPrisma.game.update.mockResolvedValue({ id: 'game-123' });
+
+      const processSpy = RatingService.processGameResult as jest.Mock;
+
+      await GamePersistenceService.finishGame('game-123', 'p1', undefined, mockResult);
+
+      expect(processSpy).toHaveBeenCalledTimes(1);
+      expect(processSpy).toHaveBeenCalledWith(
+        'game-123',
+        'p1',
+        expect.arrayContaining(['p1', 'p2'])
+      );
+    });
+
+    it('skips RatingService.processGameResult for rated abandonment draws without a winner', async () => {
+      const mockResult: GameResult = {
+        winner: undefined,
+        reason: 'abandonment',
+        finalScore: {
+          ringsEliminated: {},
+          territorySpaces: {},
+          ringsRemaining: {},
+        },
+      };
+
+      mockPrisma.game.findUnique.mockResolvedValue({
+        player1Id: 'p1',
+        player2Id: 'p2',
+        player3Id: null,
+        player4Id: null,
+        isRated: true,
+        gameState: '{}',
+      });
+      mockPrisma.game.update.mockResolvedValue({ id: 'game-123' });
+
+      const processSpy = RatingService.processGameResult as jest.Mock;
+
+      await GamePersistenceService.finishGame('game-123', null, undefined, mockResult);
+
+      expect(processSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke RatingService.processGameResult for unrated games even with a winner', async () => {
+      const mockResult: GameResult = {
+        winner: 1,
+        reason: 'resignation',
+        finalScore: {
+          ringsEliminated: {},
+          territorySpaces: {},
+          ringsRemaining: {},
+        },
+      };
+
+      mockPrisma.game.findUnique.mockResolvedValue({
+        player1Id: 'p1',
+        player2Id: 'p2',
+        player3Id: null,
+        player4Id: null,
+        isRated: false,
+        gameState: '{}',
+      });
+      mockPrisma.game.update.mockResolvedValue({ id: 'game-123' });
+
+      const processSpy = RatingService.processGameResult as jest.Mock;
+
+      await GamePersistenceService.finishGame('game-123', 'p1', undefined, mockResult);
+
+      expect(processSpy).not.toHaveBeenCalled();
     });
   });
 

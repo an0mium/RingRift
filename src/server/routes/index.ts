@@ -1,6 +1,5 @@
 import { Router } from 'express';
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-const swaggerUi = require('swagger-ui-express');
+import swaggerUi from 'swagger-ui-express';
 import authRoutes from './auth';
 import gameRoutes, { setWebSocketServer as setGameWebSocketServer } from './game';
 import userRoutes, { setWebSocketServer as setUserWebSocketServer } from './user';

@@ -12,18 +12,21 @@ export interface ClientErrorContext {
 interface NormalizedError {
   name: string;
   message: string;
-  stack?: string;
+  stack?: string | undefined;
 }
 
 interface ClientErrorPayload extends NormalizedError {
-  context?: ClientErrorContext;
-  url?: string;
-  userAgent?: string;
+  context?: ClientErrorContext | undefined;
+  url?: string | undefined;
+  userAgent?: string | undefined;
   timestamp: string;
   type: string;
 }
 
-const env = (import.meta as any).env ?? {};
+// Vite exposes env variables on import.meta.env
+// Access via globalThis to avoid Jest parse errors with import.meta syntax
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const env: Record<string, string | undefined> = (globalThis as any).__VITE_ENV__ ?? {};
 
 const ERROR_REPORTING_ENABLED: boolean = env.VITE_ERROR_REPORTING_ENABLED === 'true';
 const ERROR_REPORTING_ENDPOINT: string =
@@ -94,7 +97,10 @@ function buildPayload(error: unknown, context?: ClientErrorContext): ClientError
     url,
     userAgent,
     timestamp: new Date().toISOString(),
-    type: (context as any)?.type ?? 'client_error',
+    type:
+      context && 'type' in context && typeof context.type === 'string'
+        ? context.type
+        : 'client_error',
   };
 }
 
@@ -124,7 +130,6 @@ export async function reportClientError(
   } catch (e) {
     // Swallow any errors. Optionally emit a console warning in dev builds.
     if ((env.MODE as string | undefined) === 'development') {
-      // eslint-disable-next-line no-console
       console.warn('Failed to report client error', e);
     }
   }
@@ -134,6 +139,67 @@ export async function reportClientError(
  * Attach window-level listeners for uncaught errors and unhandled promise
  * rejections. Safe to call multiple times; handlers are installed once.
  */
+/**
+ * Extract a user-friendly error message from an unknown error.
+ * Handles axios-style errors with nested response.data.error.message,
+ * standard Error objects, and falls back to a default message.
+ */
+export function extractErrorMessage(error: unknown, defaultMessage: string): string {
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+
+    // Handle axios-style error responses
+    const response = e.response as Record<string, unknown> | undefined;
+    if (response) {
+      const data = response.data as Record<string, unknown> | undefined;
+      if (data) {
+        // Nested error object: { error: { message: "..." } }
+        const errorObj = data.error as Record<string, unknown> | undefined;
+        if (typeof errorObj?.message === 'string') {
+          return errorObj.message;
+        }
+        // Check for error.code for special handling
+        if (typeof errorObj?.code === 'string') {
+          // Return both code and message for caller to handle
+        }
+        // Direct message on data: { message: "..." }
+        if (typeof data.message === 'string') {
+          return data.message;
+        }
+      }
+    }
+
+    // Standard Error.message
+    if (typeof e.message === 'string') {
+      return e.message;
+    }
+  }
+
+  // String errors
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  return defaultMessage;
+}
+
+/**
+ * Extract axios-style error code if present.
+ * Returns undefined if no code is found.
+ */
+export function extractErrorCode(error: unknown): string | undefined {
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+    const response = e.response as Record<string, unknown> | undefined;
+    const data = response?.data as Record<string, unknown> | undefined;
+    const errorObj = data?.error as Record<string, unknown> | undefined;
+    if (typeof errorObj?.code === 'string') {
+      return errorObj.code;
+    }
+  }
+  return undefined;
+}
+
 export function setupGlobalErrorHandlers(): void {
   if (!ERROR_REPORTING_ENABLED) return;
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
@@ -142,15 +208,13 @@ export function setupGlobalErrorHandlers(): void {
   if (globalHandlersInstalled) return;
   globalHandlersInstalled = true;
 
-  window.addEventListener('error', (event) => {
-    const anyEvent = event as any;
+  window.addEventListener('error', (event: ErrorEvent) => {
     // Ignore script load errors and similar noise; focus on actual Error objects.
-    const error = anyEvent?.error || anyEvent?.message || 'Unknown window error';
+    const error = event.error ?? event.message ?? 'Unknown window error';
     void reportClientError(error, { type: 'window_error' });
   });
 
-  window.addEventListener('unhandledrejection', (event) => {
-    const anyEvent = event as any;
-    void reportClientError(anyEvent?.reason, { type: 'unhandledrejection' });
+  window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+    void reportClientError(event.reason, { type: 'unhandledrejection' });
   });
 }

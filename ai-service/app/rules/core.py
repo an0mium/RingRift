@@ -21,7 +21,7 @@ BOARD_CONFIGS: Dict[BoardType, BoardConfig] = {
         size=8,
         total_spaces=64,
         rings_per_player=18,
-        line_length=4,
+        line_length=3,  # 8x8 uses 3-marker lines, larger boards use 4
     ),
     BoardType.SQUARE19: BoardConfig(
         size=19,

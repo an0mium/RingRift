@@ -171,7 +171,9 @@ export function validateSecret(
   isProduction: boolean
 ): { valid: boolean; error?: string; warning?: string } {
   const isEmpty = !value || !value.trim();
-  const isRequired = isProduction ? definition.requiredInProduction : definition.requiredInDevelopment;
+  const isRequired = isProduction
+    ? definition.requiredInProduction
+    : definition.requiredInDevelopment;
 
   // Check if required secret is missing
   if (isEmpty) {
@@ -184,7 +186,8 @@ export function validateSecret(
     return { valid: true };
   }
 
-  const trimmedValue = value!.trim();
+  // At this point we know value is defined (isEmpty check returned early if not)
+  const trimmedValue = (value ?? '').trim();
 
   // Check placeholder values (only in production)
   if (isProduction && definition.checkPlaceholder && isPlaceholderSecret(trimmedValue)) {
@@ -269,7 +272,10 @@ export function validateSecretsOrThrow(
   isProduction: boolean,
   logger?: { warn: (msg: string) => void }
 ): void {
-  const result = validateAllSecrets(process.env as Record<string, string | undefined>, isProduction);
+  const result = validateAllSecrets(
+    process.env as Record<string, string | undefined>,
+    isProduction
+  );
 
   // Log warnings in development
   if (logger && result.warnings.length > 0) {

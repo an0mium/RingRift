@@ -5,12 +5,14 @@ Tournament system for evaluating AI models
 import sys
 import os
 import logging
+import time
 import torch
 from typing import Dict, Optional
 from datetime import datetime
 
 from app.ai.descent_ai import DescentAI
 from app.game_engine import GameEngine
+from app.utils.progress_reporter import SoakProgressReporter
 from app.models import (
     GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl,
     Player, AIConfig
@@ -143,8 +145,18 @@ class Tournament:
             self.model_path_a,
             self.model_path_b,
         )
-        
+
+        # Initialize progress reporter for time-based progress output (~10s intervals)
+        model_a_name = os.path.basename(self.model_path_a)
+        model_b_name = os.path.basename(self.model_path_b)
+        progress_reporter = SoakProgressReporter(
+            total_games=self.num_games,
+            report_interval_sec=10.0,
+            context_label=f"{model_a_name}_vs_{model_b_name}",
+        )
+
         for i in range(self.num_games):
+            game_start_time = time.time()
             # Alternate colors
             if i % 2 == 0:
                 p1_model = self.model_path_a
@@ -190,6 +202,16 @@ class Tournament:
                 winner_label_str,
                 victory_reason,
             )
+
+            # Record game completion for progress reporting
+            game_duration = time.time() - game_start_time
+            progress_reporter.record_game(
+                moves=0,  # Move count tracked in _play_game but not returned
+                duration_sec=game_duration,
+            )
+
+        # Emit final progress summary
+        progress_reporter.finish()
 
         logger.info("Tournament finished. Results: %s", self.results)
         logger.info("Victory reasons: %s", self.victory_reasons)

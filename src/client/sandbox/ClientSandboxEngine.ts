@@ -15,22 +15,19 @@ import type {
   Territory,
   MarkerPathHelpers,
   LocalAIRng,
+  PendingDecision,
 } from '../../shared/engine';
 import {
- BOARD_CONFIGS,
- positionToString,
- calculateCapHeight,
- calculateDistance,
- getPathPositions,
- computeProgressSnapshot,
- summarizeBoard,
- hashGameState,
- countRingsInPlayForPlayer,
- canProcessTerritoryRegion,
- enumerateProcessTerritoryRegionMoves,
- enumerateProcessLineMoves,
- enumerateChooseLineRewardMoves,
- getEffectiveLineLengthThreshold,
+  BOARD_CONFIGS,
+  positionToString,
+  computeProgressSnapshot,
+  summarizeBoard,
+  hashGameState,
+  canProcessTerritoryRegion,
+  enumerateProcessTerritoryRegionMoves,
+  enumerateProcessLineMoves,
+  enumerateChooseLineRewardMoves,
+  getEffectiveLineLengthThreshold,
   findLinesForPlayer,
   applyProcessLineDecision,
   applyChooseLineRewardDecision,
@@ -38,7 +35,6 @@ import {
   applyEliminateRingsFromStackDecision,
   enumerateTerritoryEliminationMoves,
   applyCaptureSegment as applyCaptureSegmentAggregate,
-  applyCapture as applyCaptureAggregate,
   enumerateAllCaptureMoves as enumerateAllCaptureMovesAggregate,
   applySimpleMovement,
   getChainCaptureContinuationInfo as getChainCaptureContinuationInfoAggregate,
@@ -47,28 +43,41 @@ import {
   evaluateSkipPlacementEligibilityAggregate,
   validatePlacementAggregate,
   applyPlacementMoveAggregate,
+  validatePlacementOnBoard,
+  type PlacementContext,
+  type SkipPlacementEligibilityResult,
+  // Type guards for move narrowing
+  isCaptureMove,
+  type PlaceRingAction,
 } from '../../shared/engine';
-import type { PlayerChoice, PlayerChoiceResponseFor } from '../../shared/types/game';
-import { isSandboxAiTraceModeEnabled } from '../../shared/utils/envFlags';
+import {
+  deserializeGameState,
+  serializeGameState,
+  type SerializedGameState,
+} from '../../shared/engine/contracts/serialization';
+import type {
+  PlayerChoice,
+  PlayerChoiceResponseFor,
+  PlayerChoiceResponse,
+  CaptureDirectionChoice,
+  RegionOrderChoice as GameRegionOrderChoice,
+} from '../../shared/types/game';
+import {
+  isSandboxAiTraceModeEnabled,
+  isTestEnvironment,
+  readEnv,
+} from '../../shared/utils/envFlags';
 import { SeededRNG, generateGameSeed } from '../../shared/utils/rng';
+import { applyMarkerEffectsAlongPathOnBoard } from '../../shared/engine';
+import { enumerateSimpleMovementLandings } from './sandboxMovement';
 import { findAllLinesOnBoard } from './sandboxLines';
 import { findDisconnectedRegionsOnBoard } from './sandboxTerritory';
-import {
-  enumerateSimpleMovementLandings,
-  applyMarkerEffectsAlongPathOnBoard,
-} from './sandboxMovement';
-import { enumerateCaptureSegmentsFromBoard, CaptureBoardAdapters } from './sandboxCaptures';
 import { forceEliminateCapOnBoard } from './sandboxElimination';
-import {
-  SandboxGameEndHooks,
-  checkAndApplyVictorySandbox,
-  resolveGlobalStalemateIfNeededSandbox,
-} from './sandboxGameEnd';
+import { SandboxGameEndHooks, checkAndApplyVictorySandbox } from './sandboxGameEnd';
 import type { PerTurnState as SandboxTurnState, TurnLogicDelegates } from '../../shared/engine';
 import { advanceTurnAndPhase } from '../../shared/engine';
 import {
   createHypotheticalBoardWithPlacement,
-  enumerateLegalRingPlacements,
   hasAnyLegalMoveOrCaptureFrom,
   PlacementBoardView,
 } from './sandboxPlacement';
@@ -77,7 +86,6 @@ import {
   SandboxOrchestratorAdapter,
   SandboxStateAccessor,
   SandboxDecisionHandler,
-  SandboxMoveResult,
 } from './SandboxOrchestratorAdapter';
 
 /**
@@ -127,6 +135,14 @@ export interface ClientSandboxEngineOptions {
   traceMode?: boolean;
 }
 
+/**
+ * Test-only augmented interface for ClientSandboxEngine with board invariant
+ * assertions. This method is attached to the prototype only in test environments.
+ */
+interface ClientSandboxEngineTestAugmented {
+  assertBoardInvariants(context: string): void;
+}
+
 export class ClientSandboxEngine {
   private gameState: GameState;
   private interactionHandler: SandboxInteractionHandler;
@@ -153,9 +169,7 @@ export class ClientSandboxEngine {
    *   engine.enableOrchestratorAdapter();
    *   engine.disableOrchestratorAdapter();
    */
-  private useOrchestratorAdapter: boolean =
-    typeof process !== 'undefined' &&
-    (process as any).env?.ORCHESTRATOR_ADAPTER_ENABLED !== 'false';
+  private useOrchestratorAdapter: boolean = readEnv('ORCHESTRATOR_ADAPTER_ENABLED') !== 'false';
 
   /** Lazily-initialized adapter instance */
   private orchestratorAdapter: SandboxOrchestratorAdapter | null = null;
@@ -199,6 +213,16 @@ export class ClientSandboxEngine {
   // GameEngine.pendingTerritorySelfElimination flag but remains local to
   // the sandbox engine.
   private _pendingTerritorySelfElimination: boolean = false;
+
+  /**
+   * Legacy-only snapshot of an in-progress chain capture when the
+   * orchestrator adapter is disabled. This mirrors the minimal surface
+   * of GameEngine.chainCaptureState needed for sandbox getValidMoves()
+   * to expose continue_capture_segment candidates during the
+   * chain_capture phase.
+   */
+  private _chainCapturePlayer: number | null = null;
+  private _chainCaptureCurrentPosition: Position | null = null;
 
   // Test-only checkpoint hook used by parity/diagnostic harnesses to capture
   // GameState snapshots at key points inside canonical move application and
@@ -354,7 +378,7 @@ export class ClientSandboxEngine {
         playerNumber,
         isReady: true,
         timeRemaining: 0,
-        aiDifficulty: kind === 'ai' ? 5 : undefined,
+        ...(kind === 'ai' ? { aiDifficulty: 5 } : {}),
         ringsInHand: BOARD_CONFIGS[config.boardType].ringsPerPlayer,
         eliminatedRings: 0,
         territorySpaces: 0,
@@ -382,7 +406,7 @@ export class ClientSandboxEngine {
       // for 2-player sandbox games so local play can exercise the same
       // balancing option as backend games. For 3p/4p games the flag is
       // omitted and swap_sides is never surfaced.
-      rulesOptions: config.numPlayers === 2 ? { swapRuleEnabled: true } : undefined,
+      ...(config.numPlayers === 2 ? { rulesOptions: { swapRuleEnabled: true } } : {}),
       timeControl: {
         type: 'rapid',
         initialTime: 600,
@@ -473,7 +497,10 @@ export class ClientSandboxEngine {
         const playerNumber = match ? parseInt(match[1], 10) : 1;
         const player = this.gameState.players.find((p) => p.playerNumber === playerNumber);
         if (player?.type === 'ai') {
-          return { type: 'ai', aiDifficulty: player.aiDifficulty };
+          return {
+            type: 'ai',
+            ...(player.aiDifficulty !== undefined ? { aiDifficulty: player.aiDifficulty } : {}),
+          };
         }
         return { type: 'human' };
       },
@@ -493,13 +520,12 @@ export class ClientSandboxEngine {
       stateAccessor,
       decisionHandler,
       callbacks: {
-        debugHook: this._debugCheckpointHook
-          ? (label: string, state: GameState) => {
-              this._debugCheckpointHook!(label, state);
-            }
-          : undefined,
+        ...(this._debugCheckpointHook && {
+          debugHook: (label: string, state: GameState) => {
+            this._debugCheckpointHook?.(label, state);
+          },
+        }),
         onError: (error: Error, context: string) => {
-          // eslint-disable-next-line no-console
           console.error(`[SandboxOrchestratorAdapter] Error in ${context}:`, error);
         },
       },
@@ -510,9 +536,9 @@ export class ClientSandboxEngine {
    * Map a PendingDecision from the orchestrator to a PlayerChoice for
    * the sandbox interaction handler.
    */
-  private mapPendingDecisionToPlayerChoice(decision: any): PlayerChoice {
+  private mapPendingDecisionToPlayerChoice(decision: PendingDecision): PlayerChoice {
     const decisionType = decision.type;
-    const options = decision.options as Move[];
+    const options = decision.options;
 
     switch (decisionType) {
       case 'elimination_target': {
@@ -608,20 +634,23 @@ export class ClientSandboxEngine {
           }),
         };
 
-      case 'capture_direction':
+      case 'capture_direction': {
+        // Filter to only capture moves for type-safe access to captureTarget
+        const captureMoves = options.filter(isCaptureMove);
         return {
           id: `sandbox-capture-${Date.now()}`,
           gameId: this.gameState.id,
           playerNumber: decision.player,
           type: 'capture_direction',
           prompt: 'Select capture direction',
-          options: options.map((opt: Move) => ({
-            targetPosition: opt.captureTarget!,
+          options: captureMoves.map((opt) => ({
+            targetPosition: opt.captureTarget,
             landingPosition: opt.to,
             capturedCapHeight:
-              this.gameState.board.stacks.get(positionToString(opt.captureTarget!))?.capHeight ?? 0,
+              this.gameState.board.stacks.get(positionToString(opt.captureTarget))?.capHeight ?? 0,
           })),
         };
+      }
 
       default:
         // Generic fallback - use line_order as default
@@ -639,9 +668,15 @@ export class ClientSandboxEngine {
   /**
    * Map a PlayerChoice response back to a Move for the orchestrator.
    */
-  private mapPlayerChoiceResponseToMove(decision: any, response: any): Move {
+  private mapPlayerChoiceResponseToMove(
+    decision: PendingDecision,
+    response: PlayerChoiceResponse<unknown> & {
+      selectedLineIndex?: number;
+      selectedRegionIndex?: number;
+    }
+  ): Move {
     // Find the matching option from the original decision
-    const options = decision.options as Move[];
+    const options = decision.options;
 
     // Try to match based on response content
     if (response.selectedLineIndex !== undefined && options[response.selectedLineIndex]) {
@@ -653,18 +688,23 @@ export class ClientSandboxEngine {
     }
 
     if (response.selectedOption) {
+      // Type-safe extraction of selected option properties
+      const selectedOpt = response.selectedOption as {
+        moveId?: string;
+        stackPosition?: Position;
+        targetPosition?: Position;
+        landingPosition?: Position;
+      };
+
       // Ring elimination: prefer explicit moveId mapping when available,
       // falling back to matching by stack position.
-      if (
-        response.choiceType === 'ring_elimination' &&
-        response.selectedOption.moveId
-      ) {
-        const byId = options.find((opt: Move) => opt.id === response.selectedOption.moveId);
+      if (response.choiceType === 'ring_elimination' && selectedOpt.moveId) {
+        const byId = options.find((opt: Move) => opt.id === selectedOpt.moveId);
         if (byId) {
           return byId;
         }
 
-        const selectedPos = response.selectedOption.stackPosition as Position | undefined;
+        const selectedPos = selectedOpt.stackPosition;
         if (selectedPos) {
           const selectedKey = positionToString(selectedPos);
           const byPos = options.find((opt: Move) => {
@@ -678,12 +718,11 @@ export class ClientSandboxEngine {
       }
 
       // Match by position for capture direction
-      const selected = options.find((opt: Move) => {
-        if (opt.captureTarget && response.selectedOption.targetPosition) {
+      const selected = options.filter(isCaptureMove).find((opt) => {
+        if (selectedOpt.targetPosition && selectedOpt.landingPosition) {
           return (
-            positionToString(opt.captureTarget) ===
-              positionToString(response.selectedOption.targetPosition) &&
-            positionToString(opt.to!) === positionToString(response.selectedOption.landingPosition)
+            positionToString(opt.captureTarget) === positionToString(selectedOpt.targetPosition) &&
+            positionToString(opt.to) === positionToString(selectedOpt.landingPosition)
           );
         }
         return false;
@@ -703,17 +742,12 @@ export class ClientSandboxEngine {
    */
   private async processMoveViaAdapter(
     move: Move,
-    beforeStateForHistory: GameState
+    _beforeStateForHistory: GameState
   ): Promise<boolean> {
     const adapter = this.getOrchestratorAdapter();
 
     // Diagnostic logging for AI stall investigation
-    const isTestEnv =
-      typeof process !== 'undefined' &&
-      (process as any).env &&
-      (process as any).env.NODE_ENV === 'test';
-
-    if (isTestEnv) {
+    if (isTestEnvironment()) {
       const stateBefore = adapter.getGameState();
       // eslint-disable-next-line no-console
       console.log('[processMoveViaAdapter] Before processMove:', {
@@ -729,7 +763,7 @@ export class ClientSandboxEngine {
 
     const result = await adapter.processMove(move);
 
-    if (isTestEnv) {
+    if (isTestEnvironment()) {
       // eslint-disable-next-line no-console
       console.log('[processMoveViaAdapter] After processMove:', {
         success: result.success,
@@ -741,8 +775,7 @@ export class ClientSandboxEngine {
     }
 
     if (!result.success) {
-      // eslint-disable-next-line no-console
-      if (isTestEnv) {
+      if (isTestEnvironment()) {
         console.error('[processMoveViaAdapter] Move FAILED:', {
           moveType: move.type,
           error: result.error,
@@ -795,15 +828,10 @@ export class ClientSandboxEngine {
     // This ensures the same S-invariant checking that the legacy path performs
     // in applyCanonicalMoveInternal after line 2972.
     const stateChanged = result.metadata?.stateChanged ?? true;
-    if (
-      stateChanged &&
-      typeof process !== 'undefined' &&
-      (process as any).env &&
-      (process as any).env.NODE_ENV === 'test'
-    ) {
-      const selfAny = this as any;
-      if (typeof selfAny.assertBoardInvariants === 'function') {
-        selfAny.assertBoardInvariants(`processMoveViaAdapter:${move.type}`);
+    if (stateChanged && isTestEnvironment()) {
+      const testAugmented = this as unknown as ClientSandboxEngineTestAugmented;
+      if (typeof testAugmented.assertBoardInvariants === 'function') {
+        testAugmented.assertBoardInvariants(`processMoveViaAdapter:${move.type}`);
       }
     }
 
@@ -870,6 +898,77 @@ export class ClientSandboxEngine {
   }
 
   /**
+   * Get a serialized snapshot of the current game state.
+   * Used for saving custom scenarios.
+   */
+  public getSerializedState(): SerializedGameState {
+    return serializeGameState(this.getGameState());
+  }
+
+  /**
+   * Initialize the sandbox engine from a pre-existing serialized game state.
+   * Used by the Scenario Picker to load test vectors and saved states.
+   *
+   * This replaces the current game state with the deserialized state and
+   * resets all internal tracking flags to match a fresh game from that point.
+   *
+   * @param serializedState - The serialized game state to load
+   * @param playerKinds - Player types for each seat (human/ai)
+   * @param interactionHandler - Handler for player decisions
+   */
+  public initFromSerializedState(
+    serializedState: SerializedGameState,
+    playerKinds: SandboxPlayerKind[],
+    interactionHandler: SandboxInteractionHandler
+  ): void {
+    // 1. Deserialize the game state using existing utility
+    const gameState = deserializeGameState(serializedState);
+
+    // 2. Apply player types to the deserialized state
+    gameState.players = gameState.players.map((p, idx) => ({
+      ...p,
+      type: playerKinds[idx] ?? 'human',
+      ...(playerKinds[idx] === 'ai' ? { aiDifficulty: 5 } : {}),
+    }));
+
+    // 3. Update the interaction handler
+    this.interactionHandler = interactionHandler;
+
+    // 4. Reset internal per-turn state flags
+    this._hasPlacedThisTurn = false;
+    this._mustMoveFromStackKey = undefined;
+    this._selectedStackKey = undefined;
+    this._movementInvocationContext = null;
+    this._lastAIMove = null;
+    this._pendingLineRewardElimination = false;
+    this._pendingTerritorySelfElimination = false;
+    this._chainCapturePlayer = null;
+    this._chainCaptureCurrentPosition = null;
+
+    // 5. Reset LPS tracking state
+    this._lpsRoundIndex = 0;
+    this._lpsCurrentRoundActorMask = new Map();
+    this._lpsCurrentRoundFirstPlayer = null;
+    this._lpsExclusivePlayerForCompletedRound = null;
+
+    // 6. Clear victory result
+    this.victoryResult = null;
+
+    // 7. Re-initialize RNG from seed if present, otherwise generate new seed
+    const gameSeed = gameState.rngSeed ?? generateGameSeed();
+    this.rng = new SeededRNG(gameSeed);
+
+    // Ensure the game state has the seed
+    gameState.rngSeed = gameSeed;
+
+    // 8. Set the game state
+    this.gameState = gameState;
+
+    // 9. Reset orchestrator adapter to pick up new state
+    this.orchestratorAdapter = null;
+  }
+
+  /**
    * Test-only helper: expose the last logical AI move chosen by
    * maybeRunAITurn in a canonical Move shape. This is used by
    * backend-vs-sandbox debug harnesses to validate sandbox AI
@@ -885,6 +984,18 @@ export class ClientSandboxEngine {
    * to drive both engines with the same canonical Move sequence.
    */
   public getValidMoves(playerNumber: number): Move[] {
+    // When the orchestrator adapter is enabled, delegate move enumeration
+    // directly to the shared orchestrator so that sandbox AI and parity
+    // harnesses see the exact same canonical Move surface as backend hosts.
+    if (this.useOrchestratorAdapter) {
+      const adapter = this.getOrchestratorAdapter();
+      const state = this.gameState;
+      if (state.currentPlayer !== playerNumber || state.gameStatus !== 'active') {
+        return [];
+      }
+      return adapter.getValidMoves();
+    }
+
     const state = this.gameState;
     if (state.currentPlayer !== playerNumber || state.gameStatus !== 'active') {
       return [];
@@ -894,38 +1005,68 @@ export class ClientSandboxEngine {
     const moves: Move[] = [];
 
     if (phase === 'ring_placement') {
+      // P0.4 unified-Move model: enumerate all legal ring placements including
+      // multi-ring placements (1-3 rings on empty cells, 1 ring on stacks).
+      // This mirrors RuleEngine.getValidRingPlacements for parity.
       const placements = this.enumerateLegalRingPlacements(playerNumber);
       const baseMoveNumber = state.history.length + 1;
+      const boardType = state.board.type;
+      const boardConfig = BOARD_CONFIGS[boardType];
+      const player = state.players.find((p) => p.playerNumber === playerNumber);
 
-      placements.forEach((pos, idx) => {
-        moves.push({
-          id: '',
-          type: 'place_ring',
+      if (player && player.ringsInHand > 0) {
+        const ctx: PlacementContext = {
+          boardType,
           player: playerNumber,
-          from: undefined,
-          to: pos,
-          placementCount: 1,
-          timestamp: new Date(),
-          thinkTime: 0,
-          moveNumber: baseMoveNumber + idx,
-        } as Move);
-      });
+          ringsInHand: player.ringsInHand,
+          ringsPerPlayerCap: boardConfig.ringsPerPlayer,
+        };
+
+        for (const pos of placements) {
+          const posKey = positionToString(pos);
+          const stack = state.board.stacks.get(posKey);
+          const isOccupied = !!(stack && stack.rings.length > 0);
+
+          // Per-cell cap: 1 for existing stacks, up to 3 for empty cells
+          const perCellCap = isOccupied ? 1 : 3;
+
+          for (let count = 1; count <= perCellCap; count++) {
+            const validation = validatePlacementOnBoard(state.board, pos, count, ctx);
+            if (!validation.valid) {
+              continue;
+            }
+
+            const moveId = isOccupied ? `place-${posKey}-stack` : `place-${posKey}-x${count}`;
+
+            moves.push({
+              id: moveId,
+              type: 'place_ring',
+              player: playerNumber,
+              to: pos,
+              placedOnStack: isOccupied,
+              placementCount: count,
+              timestamp: new Date(),
+              thinkTime: 0,
+              moveNumber: baseMoveNumber,
+            } as Move);
+          }
+        }
+      }
 
       // Mirror backend RuleEngine skip semantics: only surface skip_placement
       // when the active player has rings in hand and the placement aggregate
       // reports that skipping is legal.
-      const player = state.players.find((p) => p.playerNumber === playerNumber);
-      if (player && player.ringsInHand > 0) {
-        const eligibility = evaluateSkipPlacementEligibilityAggregate(state, playerNumber);
-        const aggregateEligible =
-          (eligibility as any).eligible ?? (eligibility as any).canSkip ?? false;
+      const skipPlayer = state.players.find((p) => p.playerNumber === playerNumber);
+      if (skipPlayer && skipPlayer.ringsInHand > 0) {
+        const eligibility: SkipPlacementEligibilityResult =
+          evaluateSkipPlacementEligibilityAggregate(state, playerNumber);
+        const aggregateEligible = eligibility.eligible;
 
         if (aggregateEligible) {
           moves.push({
-            id: '',
+            id: 'skip-placement',
             type: 'skip_placement',
             player: playerNumber,
-            from: undefined,
             // Sentinel coordinate; not inspected by rules logic.
             to: { x: 0, y: 0 },
             timestamp: new Date(),
@@ -935,10 +1076,101 @@ export class ClientSandboxEngine {
         }
       }
 
-      return moves;
+      // RR-CANON-R204 / compact rules §2.1: When ringsInHand == 0 (placement forbidden)
+      // but the player controls stacks, the engine must enumerate movement moves.
+      // Fall through to the movement enumeration below instead of returning empty.
+      if (player && player.ringsInHand === 0) {
+        const playerStacks = this.getPlayerStacks(playerNumber, state.board);
+        if (playerStacks.length > 0) {
+          // Fall through to movement enumeration - don't return here
+        } else {
+          return moves; // No stacks and no rings in hand - no valid moves
+        }
+      } else {
+        return moves;
+      }
     }
 
-    if (phase === 'movement') {
+    if (phase === 'line_processing') {
+      // P0.4 unified-Move model: expose line processing decision moves
+      // via getValidMoves() so sandbox AI and parity harnesses see the same
+      // canonical Move surface as the backend GameEngine.
+      const processMoves = enumerateProcessLineMoves(state, playerNumber, {
+        detectionMode: 'detect_now',
+      });
+
+      // For each line, also enumerate reward choices (if any).
+      const rewardMoves: Move[] = [];
+      processMoves.forEach((_, index) => {
+        rewardMoves.push(...enumerateChooseLineRewardMoves(state, playerNumber, index));
+      });
+
+      return [...processMoves, ...rewardMoves];
+    }
+
+    if (phase === 'territory_processing') {
+      // Test-only decision surface for parity harnesses: mirror the backend
+      // GameEngine territory_processing branch by exposing both
+      // process_territory_region and (when owed) eliminate_rings_from_stack
+      // Moves for the current player, using the same shared helpers that
+      // drive backend RuleEngine / GameEngine.
+      const territoryMoves = this.getValidTerritoryProcessingMovesForCurrentPlayer();
+      const eliminationMoves = this.getValidEliminationDecisionMovesForCurrentPlayer();
+
+      if (territoryMoves.length === 0 && eliminationMoves.length === 0) {
+        return [];
+      }
+
+      return [...territoryMoves, ...eliminationMoves];
+    }
+
+    if (phase === 'chain_capture') {
+      // Legacy chain_capture continuation surface: when running without the
+      // orchestrator adapter, expose continue_capture_segment Moves derived
+      // from the same shared capture aggregate used by the backend
+      // GameEngine. This keeps sandbox getValidMoves aligned with the
+      // unified Move model for tests that drive chains explicitly.
+      const chainPlayer = this._chainCapturePlayer;
+      const chainPosition = this._chainCaptureCurrentPosition;
+      if (chainPlayer == null || !chainPosition) {
+        return [];
+      }
+
+      const continuationInfo = getChainCaptureContinuationInfoAggregate(
+        this.gameState,
+        chainPlayer,
+        chainPosition
+      );
+
+      const continuations = continuationInfo.availableContinuations.filter(isCaptureMove);
+      if (continuations.length === 0) {
+        return [];
+      }
+
+      return continuations.map((m) => ({
+        ...m,
+        type: 'continue_capture_segment' as const,
+        player: chainPlayer,
+        id:
+          m.id && m.id.length > 0
+            ? m.id.startsWith('capture-')
+              ? m.id.replace('capture-', 'continue-')
+              : m.id
+            : `continue-${positionToString(m.from)}-${positionToString(
+                m.captureTarget
+              )}-${positionToString(m.to)}`,
+      }));
+    }
+
+    // RR-CANON-R204: Also enumerate movement moves when in ring_placement phase
+    // but ringsInHand == 0 (placement forbidden) and player controls stacks.
+    // In that case, the code above falls through without returning.
+    const shouldEnumerateMovement =
+      phase === 'movement' ||
+      (phase === 'ring_placement' &&
+        state.players.find((p) => p.playerNumber === playerNumber)?.ringsInHand === 0);
+
+    if (shouldEnumerateMovement) {
       const board = state.board;
       const baseMoveNumber = state.history.length + 1;
       const playerStacks = this.getPlayerStacks(playerNumber, board);
@@ -946,9 +1178,11 @@ export class ClientSandboxEngine {
       // Capture segments.
       for (const stack of playerStacks) {
         const segments = this.enumerateCaptureSegmentsFrom(stack.position, playerNumber);
-        segments.forEach((seg, idx) => {
+        segments.forEach((seg) => {
+          // Generate stable deterministic ID: capture-{from}-{target}-{landing}
+          const captureId = `capture-${positionToString(seg.from)}-${positionToString(seg.target)}-${positionToString(seg.landing)}`;
           moves.push({
-            id: '',
+            id: captureId,
             type: 'overtaking_capture',
             player: playerNumber,
             from: seg.from,
@@ -956,7 +1190,7 @@ export class ClientSandboxEngine {
             to: seg.landing,
             timestamp: new Date(),
             thinkTime: 0,
-            moveNumber: baseMoveNumber + moves.length + idx,
+            moveNumber: baseMoveNumber + moves.length,
           } as Move);
         });
       }
@@ -976,16 +1210,19 @@ export class ClientSandboxEngine {
         return { x: 0, y: 0 };
       };
 
-      simpleLandings.forEach((cand, idx) => {
+      simpleLandings.forEach((cand) => {
+        const fromPos = stringToPositionLocal(cand.fromKey);
+        // Generate stable deterministic ID: move-{from}-{to}
+        const moveId = `move-${cand.fromKey}-${positionToString(cand.to)}`;
         moves.push({
-          id: '',
+          id: moveId,
           type: 'move_stack',
           player: playerNumber,
-          from: stringToPositionLocal(cand.fromKey),
+          from: fromPos,
           to: cand.to,
           timestamp: new Date(),
           thinkTime: 0,
-          moveNumber: baseMoveNumber + moves.length + idx,
+          moveNumber: baseMoveNumber + moves.length,
         } as Move);
       });
     }
@@ -1091,6 +1328,7 @@ export class ClientSandboxEngine {
         this.hasAnyLegalMoveOrCaptureFrom(from, playerNumber, board),
       enumerateLegalRingPlacements: (playerNumber: number) =>
         this.enumerateLegalRingPlacements(playerNumber),
+      getValidMovesForCurrentPlayer: () => this.getValidMoves(this.gameState.currentPlayer),
       createHypotheticalBoardWithPlacement: (
         board: BoardState,
         position: Position,
@@ -1310,9 +1548,9 @@ export class ClientSandboxEngine {
           id: p2.id,
           username: p2.username,
           type: p2.type,
-          rating: (p2 as any).rating,
+          rating: p2.rating,
           aiDifficulty: p2.aiDifficulty,
-          aiProfile: (p2 as any).aiProfile,
+          aiProfile: p2.aiProfile,
         };
       }
       if (p.playerNumber === 2) {
@@ -1321,9 +1559,9 @@ export class ClientSandboxEngine {
           id: p1.id,
           username: p1.username,
           type: p1.type,
-          rating: (p1 as any).rating,
+          rating: p1.rating,
           aiDifficulty: p1.aiDifficulty,
-          aiProfile: (p1 as any).aiProfile,
+          aiProfile: p1.aiProfile,
         };
       }
       return p;
@@ -1510,7 +1748,7 @@ export class ClientSandboxEngine {
       return;
     }
 
-    const board = state.board;
+    const _board = state.board;
     let othersHaveActions = false;
 
     for (const p of state.players) {
@@ -1590,11 +1828,7 @@ export class ClientSandboxEngine {
       lpsExclusivePlayerForCompletedRound: this._lpsExclusivePlayerForCompletedRound,
     };
 
-    if (
-      typeof process !== 'undefined' &&
-      (process as any).env &&
-      (process as any).env.NODE_ENV === 'test'
-    ) {
+    if (isTestEnvironment()) {
       // eslint-disable-next-line no-console
       console.log('[TurnTrace.sandbox.handleStartOfInteractiveTurn]', {
         decision: 'handleStartOfInteractiveTurn',
@@ -2169,29 +2403,36 @@ export class ClientSandboxEngine {
       return captureOptions[0];
     }
 
-    const choice = {
+    // Filter to typed capture moves for type-safe access
+    const typedCaptures = captureOptions.filter(isCaptureMove);
+    if (typedCaptures.length === 0) {
+      return captureOptions[0];
+    }
+
+    // Build a properly-typed CaptureDirectionChoice object
+    const choice: import('../../shared/types/game').CaptureDirectionChoice = {
       id: `sandbox-capture-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       gameId: this.gameState.id,
       playerNumber: this.gameState.currentPlayer,
-      type: 'capture_direction' as const,
+      type: 'capture_direction',
       prompt: 'Select capture direction',
-      options: captureOptions.map((move) => ({
-        targetPosition: move.captureTarget!,
-        landingPosition: move.to!,
+      options: typedCaptures.map((move) => ({
+        targetPosition: move.captureTarget,
+        landingPosition: move.to,
         capturedCapHeight:
-          this.gameState.board.stacks.get(positionToString(move.captureTarget!))?.capHeight ?? 0,
+          this.gameState.board.stacks.get(positionToString(move.captureTarget))?.capHeight ?? 0,
       })),
     };
 
-    const response = await this.interactionHandler.requestChoice(choice as any);
+    const response = await this.interactionHandler.requestChoice(choice);
 
     // Find the matching move based on response
-    const selected = captureOptions.find((move) => {
-      const opt = (response as any).selectedOption;
+    const selected = typedCaptures.find((move) => {
+      const opt = response.selectedOption;
       return (
         opt &&
-        positionToString(opt.targetPosition) === positionToString(move.captureTarget!) &&
-        positionToString(opt.landingPosition) === positionToString(move.to!)
+        positionToString(opt.targetPosition) === positionToString(move.captureTarget) &&
+        positionToString(opt.landingPosition) === positionToString(move.to)
       );
     });
 
@@ -2267,6 +2508,15 @@ export class ClientSandboxEngine {
     await this.handleLegacyMovementClick(position, key, stackAtPos);
   }
 
+  /**
+   * Legacy sandbox-specific movement handler used when the orchestrator
+   * adapter is disabled.
+   *
+   * @deprecated Phase 4 legacy path — use SandboxOrchestratorAdapter with the
+   * shared turn orchestrator instead. This helper will be removed once all
+   * tests and UI flows rely on orchestrator-backed movement. See Wave 5.4 in
+   * TODO.md for deprecation timeline.
+   */
   private async handleLegacyMovementClick(
     position: Position,
     key: string,
@@ -2424,7 +2674,6 @@ export class ClientSandboxEngine {
       segmentIndex,
     };
 
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       state = this.gameState;
       const options = this.enumerateCaptureSegmentsFrom(currentPosition, playerNumber);
@@ -2437,7 +2686,7 @@ export class ClientSandboxEngine {
             ...pendingSegment,
             after: this.gameState,
             isFinal: true,
-          } as any);
+          });
         }
 
         return;
@@ -2447,7 +2696,7 @@ export class ClientSandboxEngine {
         await this.handleCaptureSegmentApplied({
           ...pendingSegment,
           isFinal: false,
-        } as any);
+        });
       }
 
       let nextSegment: { from: Position; target: Position; landing: Position } | undefined;
@@ -2459,11 +2708,11 @@ export class ClientSandboxEngine {
           landingPosition: opt.landing,
         }));
 
-        const choice = {
+        const choice: CaptureDirectionChoice = {
           id: `sandbox-capture-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           gameId: state.id,
           playerNumber,
-          type: 'capture_direction' as const,
+          type: 'capture_direction',
           prompt: 'Select capture direction',
           options: captureMoves.map((opt) => ({
             targetPosition: opt.targetPosition,
@@ -2473,9 +2722,9 @@ export class ClientSandboxEngine {
           })),
         };
 
-        const response = await this.interactionHandler.requestChoice(choice as any);
+        const response = await this.interactionHandler.requestChoice(choice);
         const selected = options.find((opt) => {
-          const o = (response as any).selectedOption;
+          const o = response.selectedOption;
           return (
             o &&
             positionToString(o.targetPosition) === positionToString(opt.target) &&
@@ -2530,11 +2779,7 @@ export class ClientSandboxEngine {
     // next AI turn. This keeps sandbox traces aligned with backend
     // move-driven decision phases.
     if (this.gameState.currentPhase === 'line_processing') {
-      if (
-        typeof process !== 'undefined' &&
-        (process as any).env &&
-        (process as any).env.NODE_ENV === 'test'
-      ) {
+      if (isTestEnvironment()) {
         // eslint-disable-next-line no-console
         console.log('[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: line_processing');
       }
@@ -2546,11 +2791,7 @@ export class ClientSandboxEngine {
 
     // Same traceMode handling for territory_processing
     if (this.gameState.currentPhase === 'territory_processing') {
-      if (
-        typeof process !== 'undefined' &&
-        (process as any).env &&
-        (process as any).env.NODE_ENV === 'test'
-      ) {
+      if (isTestEnvironment()) {
         // eslint-disable-next-line no-console
         console.log(
           '[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: territory_processing',
@@ -2578,11 +2819,7 @@ export class ClientSandboxEngine {
       currentPhase: 'territory_processing',
     };
 
-    if (
-      typeof process !== 'undefined' &&
-      (process as any).env &&
-      (process as any).env.NODE_ENV === 'test'
-    ) {
+    if (isTestEnvironment()) {
       // eslint-disable-next-line no-console
       console.log(
         '[ClientSandboxEngine.advanceAfterMovement] Calling advanceTurnAndPhaseForCurrentPlayer',
@@ -2648,7 +2885,6 @@ export class ClientSandboxEngine {
     let pendingSelfElimination = false;
 
     // Keep processing until no further eligible regions remain.
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const disconnected = findDisconnectedRegionsOnBoard(state.board);
       if (disconnected.length === 0) {
@@ -2689,8 +2925,8 @@ export class ClientSandboxEngine {
           }),
         };
 
-        const response = await this.interactionHandler.requestChoice(choice as any);
-        const selected = (response as any).selectedOption;
+        const response = await this.interactionHandler.requestChoice(choice);
+        const selected = response.selectedOption;
         const index = parseInt(selected.regionId, 10);
         const selectedRegion = eligible[index] ?? eligible[0];
         regionSpaces = selectedRegion.spaces;
@@ -2783,13 +3019,9 @@ export class ClientSandboxEngine {
         const message =
           'ClientSandboxEngine territory invariant violation (processDisconnectedRegionsForCurrentPlayer):\n' +
           errors.join('\n');
-        // eslint-disable-next-line no-console
+
         console.error(message);
-        if (
-          typeof process !== 'undefined' &&
-          !!(process as any).env &&
-          (process as any).env.NODE_ENV === 'test'
-        ) {
+        if (isTestEnvironment()) {
           throw new Error(message);
         }
       }
@@ -2913,12 +3145,7 @@ export class ClientSandboxEngine {
     // Test-only diagnostic logging: when a victory is detected, emit a
     // compact snapshot so we can understand why gameStatus flipped to
     // 'completed' in early-turn scenarios (e.g. mixedPlayers tests).
-    if (
-      result &&
-      typeof process !== 'undefined' &&
-      !!(process as any).env &&
-      (process as any).env.NODE_ENV === 'test'
-    ) {
+    if (result && isTestEnvironment()) {
       // eslint-disable-next-line no-console
       console.log('[ClientSandboxEngine Victory Debug]', {
         reason: result.reason,
@@ -3027,7 +3254,6 @@ export class ClientSandboxEngine {
     //   a cap via forceEliminateCapOnBoard.
     // - Overlength lines: default to Option 2 (minimum contiguous subset of
     //   length L, no elimination) for the first available line.
-    // eslint-disable-next-line no-constant-condition
     while (true) {
       const moves = this.getValidLineProcessingMovesForCurrentPlayer();
       const processLineMoves = moves.filter((m) => m.type === 'process_line');
@@ -3161,12 +3387,13 @@ export class ClientSandboxEngine {
     // Delegate legality (including caps + no-dead-placement) to the canonical
     // PlacementAggregate validator so sandbox semantics stay aligned with the
     // shared rules engine and backend RuleEngine.
-    const validation = validatePlacementAggregate(state, {
+    const action: PlaceRingAction = {
       type: 'PLACE_RING',
       playerId: state.currentPlayer,
       position,
       count,
-    } as any);
+    };
+    const validation = validatePlacementAggregate(state, action);
 
     if (!validation.valid) {
       return false;
@@ -3260,7 +3487,7 @@ export class ClientSandboxEngine {
 
     // This path should not be used in normal gameplay; log for diagnostics
     // so we can detect any remaining legacy usage in staging/production.
-    // eslint-disable-next-line no-console
+
     console.warn(
       '[ClientSandboxEngine.applyCanonicalMoveInternal] Falling back to legacy sandbox logic (orchestrator adapter disabled).'
     );
@@ -3332,9 +3559,9 @@ export class ClientSandboxEngine {
           break;
         }
 
-        const eligibility = evaluateSkipPlacementEligibilityAggregate(state, move.player);
-        const aggregateEligible =
-          (eligibility as any).eligible ?? (eligibility as any).canSkip ?? false;
+        const eligibility: SkipPlacementEligibilityResult =
+          evaluateSkipPlacementEligibilityAggregate(state, move.player);
+        const aggregateEligible = eligibility.eligible;
 
         if (!aggregateEligible) {
           break;
@@ -3400,7 +3627,16 @@ export class ClientSandboxEngine {
               currentPhase: 'chain_capture',
             };
           }
+          // Record minimal chain-capture state for legacy sandbox getValidMoves()
+          // so tests can enumerate continue_capture_segment options from the
+          // correct landing position.
+          this._chainCapturePlayer = move.player;
+          this._chainCaptureCurrentPosition = move.to as Position;
         } else {
+          // No legal continuations remain; clear any stale legacy chain state.
+          this._chainCapturePlayer = null;
+          this._chainCaptureCurrentPosition = null;
+
           // No legal continuations remain; the capture chain is complete.
           // Process lines and territory consequences but do NOT advance the
           // turn yet - that happens AFTER appendHistoryEntry in applyCanonicalMove
@@ -3658,15 +3894,10 @@ export class ClientSandboxEngine {
     // markers, or collapsed spaces. This mirrors the backend
     // BoardManager.assertBoardInvariants helper but is intentionally wired
     // only for tests so production builds avoid the extra scan cost.
-    if (
-      changed &&
-      typeof process !== 'undefined' &&
-      (process as any).env &&
-      (process as any).env.NODE_ENV === 'test'
-    ) {
-      const selfAny = this as any;
-      if (typeof selfAny.assertBoardInvariants === 'function') {
-        selfAny.assertBoardInvariants(`applyCanonicalMoveInternal:${move.type}`);
+    if (changed && isTestEnvironment()) {
+      const testAugmented = this as unknown as ClientSandboxEngineTestAugmented;
+      if (typeof testAugmented.assertBoardInvariants === 'function') {
+        testAugmented.assertBoardInvariants(`applyCanonicalMoveInternal:${move.type}`);
       }
     }
 
@@ -3683,9 +3914,7 @@ export class ClientSandboxEngine {
   private async applyCanonicalProcessTerritoryRegion(move: Move): Promise<boolean> {
     if (move.type !== 'process_territory_region') {
       throw new Error(
-        `ClientSandboxEngine.applyCanonicalProcessTerritoryRegion: expected process_territory_region, got ${
-          (move as any).type
-        }`
+        `ClientSandboxEngine.applyCanonicalProcessTerritoryRegion: expected process_territory_region, got ${move.type}`
       );
     }
 
@@ -3727,9 +3956,7 @@ export class ClientSandboxEngine {
     ];
 
     if (!supportedTypes.includes(move.type)) {
-      throw new Error(
-        `ClientSandboxEngine.applyCanonicalMove: unsupported move type ${(move as any).type}`
-      );
+      throw new Error(`ClientSandboxEngine.applyCanonicalMove: unsupported move type ${move.type}`);
     }
 
     const changed = await this.applyCanonicalMoveInternal(move, {
@@ -3773,50 +4000,42 @@ export class ClientSandboxEngine {
 // Test-only: attach a lightweight board-invariant helper to the prototype so
 // invariant tests can exercise internal board sanity checks without expanding
 // the public class surface for production code.
-(ClientSandboxEngine.prototype as any).assertBoardInvariants = function (
-  this: ClientSandboxEngine,
-  context: string
-): void {
-  const isTestEnv =
-    typeof process !== 'undefined' &&
-    !!(process as any).env &&
-    (process as any).env.NODE_ENV === 'test';
+(ClientSandboxEngine.prototype as unknown as Record<string, unknown>).assertBoardInvariants =
+  function (this: ClientSandboxEngine, context: string): void {
+    const board: BoardState = (this as unknown as { gameState: GameState }).gameState.board;
+    const errors: string[] = [];
 
-  const board: BoardState = (this as any).gameState.board as BoardState;
-  const errors: string[] = [];
-
-  // Invariant 1: no stacks may exist on collapsed territory.
-  for (const key of board.stacks.keys()) {
-    if (board.collapsedSpaces.has(key)) {
-      errors.push(`stack present on collapsed space at ${key}`);
+    // Invariant 1: no stacks may exist on collapsed territory.
+    for (const key of board.stacks.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`stack present on collapsed space at ${key}`);
+      }
     }
-  }
 
-  // Invariant 2: a cell may not host both a stack and a marker.
-  for (const key of board.stacks.keys()) {
-    if (board.markers.has(key)) {
-      errors.push(`stack and marker coexist at ${key}`);
+    // Invariant 2: a cell may not host both a stack and a marker.
+    for (const key of board.stacks.keys()) {
+      if (board.markers.has(key)) {
+        errors.push(`stack and marker coexist at ${key}`);
+      }
     }
-  }
 
-  // Invariant 3: a cell may not host both a marker and collapsed territory.
-  for (const key of board.markers.keys()) {
-    if (board.collapsedSpaces.has(key)) {
-      errors.push(`marker present on collapsed space at ${key}`);
+    // Invariant 3: a cell may not host both a marker and collapsed territory.
+    for (const key of board.markers.keys()) {
+      if (board.collapsedSpaces.has(key)) {
+        errors.push(`marker present on collapsed space at ${key}`);
+      }
     }
-  }
 
-  if (errors.length === 0) {
-    return;
-  }
+    if (errors.length === 0) {
+      return;
+    }
 
-  const message =
-    `ClientSandboxEngine invariant violation (${context}):` + '\n' + errors.join('\n');
+    const message =
+      `ClientSandboxEngine invariant violation (${context}):` + '\n' + errors.join('\n');
 
-  // eslint-disable-next-line no-console
-  console.error(message);
+    console.error(message);
 
-  if (isTestEnv) {
-    throw new Error(message);
-  }
-};
+    if (isTestEnvironment()) {
+      throw new Error(message);
+    }
+  };

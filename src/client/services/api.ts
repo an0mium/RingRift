@@ -1,6 +1,14 @@
 import axios from 'axios';
 import { User } from '../../shared/types/user';
-import { Game, CreateGameRequest, BoardType, GameStatus } from '../../shared/types/game';
+import {
+  Game,
+  CreateGameRequest,
+  BoardType,
+  GameStatus,
+  GameResult,
+  Move,
+} from '../../shared/types/game';
+import { readEnv } from '../../shared/utils/envFlags';
 
 /**
  * Response format for game history endpoint
@@ -28,6 +36,21 @@ export interface GameHistoryResponse {
   gameId: string;
   moves: GameHistoryMove[];
   totalMoves: number;
+  /**
+   * Optional terminal GameResult projection when a finished game's history
+   * is requested. This allows history consumers to distinguish timeout,
+   * resignation, abandonment, and other victory conditions without making
+   * a separate call to the game-details endpoint.
+   */
+  result?: {
+    reason: GameResult['reason'];
+    /**
+     * Winner seat index (1-based) when known. May be null for draws or
+     * abandonment without a winner, and omitted entirely when the game has
+     * not yet finished.
+     */
+    winner?: number | null;
+  };
 }
 
 /**
@@ -93,12 +116,7 @@ export interface UserGamesResponse {
  *   in [`vite.config.ts`](vite.config.ts:29).
  */
 function getApiBaseUrl(): string {
-  const env =
-    typeof process !== 'undefined' && (process as any).env
-      ? ((process as any).env as Record<string, string | undefined>)
-      : {};
-
-  const explicit = env.VITE_API_URL;
+  const explicit = readEnv('VITE_API_URL');
   if (explicit && typeof explicit === 'string') {
     return explicit.replace(/\/$/, '');
   }
@@ -258,7 +276,7 @@ export const gameApi = {
     await api.post(`/games/${gameId}/leave`);
   },
 
-  async makeMove(gameId: string, move: any): Promise<void> {
+  async makeMove(gameId: string, move: Move): Promise<void> {
     await api.post(`/games/${gameId}/moves`, { move });
   },
 

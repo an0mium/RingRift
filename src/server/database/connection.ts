@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 
@@ -54,7 +54,10 @@ export const connectDatabase = async (): Promise<PrismaClient> => {
     if (config.isDevelopment) {
       // Type-safe event handling using Prisma's built-in event types
       const prismaWithEvents = prisma as PrismaClient & {
-        $on: (event: 'query' | 'error' | 'info' | 'warn', callback: (e: PrismaQueryEvent | PrismaLogEvent) => void) => void;
+        $on: (
+          event: 'query' | 'error' | 'info' | 'warn',
+          callback: (e: PrismaQueryEvent | PrismaLogEvent) => void
+        ) => void;
       };
 
       prismaWithEvents.$on('query', (e) => {
@@ -110,7 +113,7 @@ export const checkDatabaseHealth = async (): Promise<boolean> => {
     if (!prisma) {
       return false;
     }
-    
+
     await prisma.$queryRaw`SELECT 1`;
     return true;
   } catch (error) {

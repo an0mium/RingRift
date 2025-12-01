@@ -1,0 +1,285 @@
+{
+  "version": "v2",
+  "generated": "2025-12-01T10:55:00.000Z",
+  "count": 2,
+  "categories": ["territory_processing", "victory"],
+  "description": "Test vectors for near-victory territory scenarios - Player 1 is one territory region away from winning",
+  "vectors": [
+    {
+      "id": "near_victory_territory.process.single_region",
+      "version": "v2",
+      "category": "victory",
+      "description": "Player 1 with 32 territory spaces processes a single-cell region to reach 33+ and trigger victory",
+      "tags": ["territory", "victory", "territory_control", "near_victory"],
+      "skip": "Invalid test vector: board state doesn't represent a processable territory region. The space at (4,4) is empty but not bordered by collapsed spaces only, so it cannot be detected as a processable territory region. Needs board state fix to properly test territory victory.",
+      "source": "manual",
+      "createdAt": "2025-12-01T10:55:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "near-victory-territory-001",
+          "gameType": "standard",
+          "boardType": "square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              },
+              "6,7": {
+                "position": { "x": 6, "y": 7 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {
+              "0,0": 1,
+              "0,1": 1,
+              "0,2": 1,
+              "0,3": 1,
+              "0,4": 1,
+              "0,5": 1,
+              "0,6": 1,
+              "0,7": 1,
+              "1,0": 1,
+              "1,1": 1,
+              "1,2": 1,
+              "1,3": 1,
+              "1,4": 1,
+              "1,5": 1,
+              "1,6": 1,
+              "1,7": 1,
+              "2,0": 1,
+              "2,1": 1,
+              "2,2": 1,
+              "2,3": 1,
+              "2,4": 1,
+              "2,5": 1,
+              "2,6": 1,
+              "2,7": 1,
+              "3,0": 1,
+              "3,1": 1,
+              "3,2": 1,
+              "3,3": 1,
+              "3,4": 1,
+              "3,5": 1,
+              "3,6": 1,
+              "3,7": 1
+            },
+            "territories": {
+              "pending_victory_region": {
+                "spaces": [{ "x": 4, "y": 4 }],
+                "controllingPlayer": 1,
+                "isDisconnected": false
+              }
+            },
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 10,
+              "eliminatedRings": 0,
+              "territorySpaces": 32,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 10,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 20,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0,
+          "pendingTerritoryDecision": {
+            "territories": ["pending_victory_region"],
+            "currentIndex": 0
+          }
+        },
+        "move": {
+          "id": "process-victory-region",
+          "type": "process_territory_region",
+          "player": 1,
+          "to": { "x": 4, "y": 4 },
+          "disconnectedRegions": [
+            {
+              "spaces": [{ "x": 4, "y": 4 }],
+              "controllingPlayer": 1,
+              "isDisconnected": false
+            }
+          ],
+          "timestamp": "2025-12-01T10:55:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 20
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "completed",
+          "player1TerritorySpaces": 33,
+          "victoryReason": "territory_control",
+          "victoryWinner": 1,
+          "sInvariantDelta": 1
+        }
+      }
+    },
+    {
+      "id": "near_victory_territory.process.multi_cell_region",
+      "version": "v2",
+      "category": "victory",
+      "description": "Player 1 with 31 territory spaces processes a 2-cell region (with border markers) to push past 33 and trigger victory",
+      "tags": ["territory", "victory", "territory_control", "near_victory"],
+      "source": "manual",
+      "createdAt": "2025-12-01T10:55:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "near-victory-territory-002",
+          "gameType": "standard",
+          "boardType": "square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1, 1],
+                "stackHeight": 3,
+                "capHeight": 3,
+                "controllingPlayer": 1
+              },
+              "5,5": {
+                "position": { "x": 5, "y": 5 },
+                "rings": [2, 2],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 2
+              }
+            },
+            "markers": {
+              "4,3": { "player": 1, "position": { "x": 4, "y": 3 }, "type": "regular" },
+              "5,3": { "player": 1, "position": { "x": 5, "y": 3 }, "type": "regular" }
+            },
+            "collapsedSpaces": {
+              "0,0": 1,
+              "0,1": 1,
+              "0,2": 1,
+              "0,3": 1,
+              "0,4": 1,
+              "0,5": 1,
+              "0,6": 1,
+              "0,7": 1,
+              "1,0": 1,
+              "1,1": 1,
+              "1,2": 1,
+              "1,3": 1,
+              "1,4": 1,
+              "1,5": 1,
+              "1,6": 1,
+              "1,7": 1,
+              "2,0": 1,
+              "2,1": 1,
+              "2,2": 1,
+              "2,3": 1,
+              "2,4": 1,
+              "2,5": 1,
+              "2,6": 1,
+              "2,7": 1,
+              "3,0": 1,
+              "3,1": 1,
+              "3,2": 1,
+              "3,3": 1,
+              "3,4": 1,
+              "3,5": 1,
+              "3,6": 1
+            },
+            "territories": {
+              "pending_victory_region": {
+                "spaces": [
+                  { "x": 4, "y": 4 },
+                  { "x": 4, "y": 5 }
+                ],
+                "controllingPlayer": 1,
+                "isDisconnected": false
+              }
+            },
+            "eliminatedRings": { "1": 2, "2": 4 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 8,
+              "eliminatedRings": 2,
+              "territorySpaces": 31,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 8,
+              "eliminatedRings": 4,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 25,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 6,
+          "pendingTerritoryDecision": {
+            "territories": ["pending_victory_region"],
+            "currentIndex": 0
+          }
+        },
+        "move": {
+          "id": "process-victory-region-multi",
+          "type": "process_territory_region",
+          "player": 1,
+          "to": { "x": 4, "y": 4 },
+          "disconnectedRegions": [
+            {
+              "spaces": [
+                { "x": 4, "y": 4 },
+                { "x": 4, "y": 5 }
+              ],
+              "controllingPlayer": 1,
+              "isDisconnected": false
+            }
+          ],
+          "timestamp": "2025-12-01T10:55:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 25
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "completed",
+          "victoryReason": "territory_control",
+          "victoryWinner": 1,
+          "sInvariantDelta": 2
+        }
+      }
+    }
+  ]
+}

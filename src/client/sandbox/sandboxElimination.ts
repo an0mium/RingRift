@@ -1,10 +1,8 @@
-import type { BoardState, Player, Position, RingStack } from '../../shared/engine';
+import type { BoardState, Player, RingStack } from '../../shared/engine';
 import { positionToString, calculateCapHeight } from '../../shared/engine';
+import { flagEnabled, isTestEnvironment } from '../../shared/utils/envFlags';
 
-const TERRITORY_TRACE_DEBUG =
-  typeof process !== 'undefined' &&
-  !!(process as any).env &&
-  ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+const TERRITORY_TRACE_DEBUG = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
 export interface ForcedEliminationResult {
   board: BoardState;
@@ -18,10 +16,7 @@ function assertForcedEliminationConsistency(
   after: { board: BoardState; players: Player[]; delta: number },
   playerNumber: number
 ): void {
-  const isTestEnv =
-    typeof process !== 'undefined' &&
-    !!(process as any).env &&
-    (process as any).env.NODE_ENV === 'test';
+  const isTestEnv = isTestEnvironment();
 
   const sumEliminated = (players: Player[]): number =>
     players.reduce((acc, p) => acc + p.eliminatedRings, 0);
@@ -63,7 +58,6 @@ function assertForcedEliminationConsistency(
 
   const message = `sandboxElimination invariant violation (${context}):` + '\n' + errors.join('\n');
 
-  // eslint-disable-next-line no-console
   console.error(message);
 
   if (isTestEnv) {

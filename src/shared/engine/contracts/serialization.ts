@@ -69,6 +69,8 @@ export interface SerializedGameState {
   }>;
   currentPlayer: number;
   currentPhase: string;
+  /** Chain capture position during chain_capture phase */
+  chainCapturePosition?: Position;
   turnNumber: number;
   moveHistory: Move[];
   gameStatus: string;
@@ -169,7 +171,7 @@ export function serializeGameState(state: GameState): SerializedGameState {
   // Compute turnNumber from moveHistory length (1-based)
   const turnNumber = (state.moveHistory?.length ?? 0) + 1;
 
-  return {
+  const serialized: SerializedGameState = {
     gameId: state.id,
     board: serializeBoardState(state.board),
     players: state.players.map((p) => ({
@@ -188,6 +190,13 @@ export function serializeGameState(state: GameState): SerializedGameState {
     territoryVictoryThreshold: state.territoryVictoryThreshold,
     totalRingsEliminated: state.totalRingsEliminated,
   };
+
+  // Include chainCapturePosition if present (during chain_capture phase)
+  if (state.chainCapturePosition) {
+    serialized.chainCapturePosition = { ...state.chainCapturePosition };
+  }
+
+  return serialized;
 }
 
 /**
@@ -213,6 +222,7 @@ export function deserializeGameState(data: SerializedGameState): GameState {
     })),
     currentPlayer: data.currentPlayer,
     currentPhase: data.currentPhase as GameState['currentPhase'],
+    chainCapturePosition: data.chainCapturePosition,
     moveHistory: data.moveHistory.map((m) => ({ ...m })),
     history: [],
     gameStatus: data.gameStatus as GameState['gameStatus'],

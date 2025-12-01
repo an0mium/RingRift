@@ -8,7 +8,11 @@ import { logger } from '../utils/logger';
 import { PlayerChoiceResponse } from '../../shared/types/game';
 import { GameSessionManager } from '../game/GameSessionManager';
 import { config } from '../config';
-import { WebSocketPayloadSchemas } from '../../shared/validation/websocketSchemas';
+import {
+  WebSocketPayloadSchemas,
+  PlayerMovePayload,
+  ChatMessagePayload,
+} from '../../shared/validation/websocketSchemas';
 import {
   WebSocketErrorCode,
   WebSocketErrorPayload,
@@ -24,6 +28,22 @@ import {
   markDisconnectedExpired,
   markDisconnectedPendingReconnect,
 } from '../../shared/stateMachines/connection';
+import { getChatPersistenceService } from '../services/ChatPersistenceService';
+import { getRematchService } from '../services/RematchService';
+import type {
+  RematchRequestClientPayload,
+  RematchResponseClientPayload,
+} from '../../shared/types/websocket';
+
+/**
+ * Extract only the keys from ServerToClientEvents that have defined (non-optional) handlers.
+ * This ensures generic emit helpers work correctly with TypeScript's Parameters<> utility.
+ */
+type DefinedServerEvent = {
+  [K in keyof ServerToClientEvents]-?: ServerToClientEvents[K] extends (...args: infer _A) => void
+    ? K
+    : never;
+}[keyof ServerToClientEvents];
 
 export interface AuthenticatedSocket extends Socket<ClientToServerEvents, ServerToClientEvents> {
   userId?: string;
@@ -577,6 +597,196 @@ export class WebSocketServer {
         }
       });
 
+      // Handle rematch requests
+      socket.on('rematch_request', async (data: unknown) => {
+        try {
+          const payload = data as RematchRequestClientPayload;
+          if (!payload.gameId) {
+            this.emitError(socket, 'INVALID_PAYLOAD', 'Missing gameId', 'rematch_request');
+            return;
+          }
+
+          if (!socket.userId) {
+            this.emitError(socket, 'ACCESS_DENIED', 'User not authenticated', 'rematch_request');
+            return;
+          }
+
+          const rematchService = getRematchService();
+          const result = await rematchService.createRematchRequest(payload.gameId, socket.userId);
+
+          if (!result.success || !result.request) {
+            this.emitError(
+              socket,
+              'INVALID_PAYLOAD',
+              result.error || 'Failed to create rematch request',
+              'rematch_request'
+            );
+            return;
+          }
+
+          // Broadcast to all players in the game room
+          this.io.to(payload.gameId).emit('rematch_requested', {
+            id: result.request.id,
+            gameId: result.request.gameId,
+            requesterId: result.request.requesterId,
+            requesterUsername: result.request.requesterUsername,
+            expiresAt: result.request.expiresAt.toISOString(),
+          });
+
+          logger.info('Rematch request broadcast', {
+            requestId: result.request.id,
+            gameId: payload.gameId,
+            requesterId: socket.userId,
+          });
+        } catch (error) {
+          logger.error('Error handling rematch_request', {
+            socketId: socket.id,
+            userId: socket.userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          this.emitError(
+            socket,
+            'INTERNAL_ERROR',
+            'Failed to process rematch request',
+            'rematch_request'
+          );
+        }
+      });
+
+      // Handle rematch responses (accept/decline)
+      socket.on('rematch_respond', async (data: unknown) => {
+        try {
+          const payload = data as RematchResponseClientPayload;
+          if (!payload.requestId) {
+            this.emitError(socket, 'INVALID_PAYLOAD', 'Missing requestId', 'rematch_respond');
+            return;
+          }
+
+          if (!socket.userId) {
+            this.emitError(socket, 'ACCESS_DENIED', 'User not authenticated', 'rematch_respond');
+            return;
+          }
+
+          const rematchService = getRematchService();
+
+          if (payload.accept) {
+            // Accept rematch - creates a new game
+            const result = await rematchService.acceptRematch(
+              payload.requestId,
+              socket.userId,
+              async (originalGameId: string) => {
+                // Create a new game based on the original game settings
+                const prisma = getDatabaseClient();
+                if (!prisma) {
+                  throw new Error('Database not available');
+                }
+
+                const originalGame = await prisma.game.findUnique({
+                  where: { id: originalGameId },
+                  select: {
+                    boardType: true,
+                    maxPlayers: true,
+                    timeControl: true,
+                    isRated: true,
+                    allowSpectators: true,
+                    player1Id: true,
+                    player2Id: true,
+                    player3Id: true,
+                    player4Id: true,
+                  },
+                });
+
+                if (!originalGame) {
+                  throw new Error('Original game not found');
+                }
+
+                // Create new game with swapped player positions (for fairness)
+                const newGame = await prisma.game.create({
+                  data: {
+                    boardType: originalGame.boardType,
+                    maxPlayers: originalGame.maxPlayers,
+                    timeControl: originalGame.timeControl ?? {
+                      initialTime: 300000,
+                      increment: 5000,
+                    },
+                    isRated: originalGame.isRated,
+                    allowSpectators: originalGame.allowSpectators,
+                    status: 'waiting',
+                    player1Id: originalGame.player2Id, // Swap first two players
+                    player2Id: originalGame.player1Id,
+                    player3Id: originalGame.player3Id,
+                    player4Id: originalGame.player4Id,
+                  },
+                });
+
+                return newGame.id;
+              }
+            );
+
+            if (!result.success || !result.request) {
+              this.emitError(
+                socket,
+                'INVALID_PAYLOAD',
+                result.error || 'Failed to accept rematch',
+                'rematch_respond'
+              );
+              return;
+            }
+
+            // Broadcast response to all players in the original game room
+            this.io.to(result.request.gameId).emit('rematch_response', {
+              requestId: payload.requestId,
+              gameId: result.request.gameId,
+              status: 'accepted' as const,
+              ...(result.newGameId ? { newGameId: result.newGameId } : {}),
+            });
+
+            logger.info('Rematch accepted', {
+              requestId: payload.requestId,
+              accepterId: socket.userId,
+              newGameId: result.newGameId,
+            });
+          } else {
+            // Decline rematch
+            const result = await rematchService.declineRematch(payload.requestId, socket.userId);
+
+            if (!result.success || !result.request) {
+              this.emitError(
+                socket,
+                'INVALID_PAYLOAD',
+                result.error || 'Failed to decline rematch',
+                'rematch_respond'
+              );
+              return;
+            }
+
+            // Broadcast decline to all players
+            this.io.to(result.request.gameId).emit('rematch_response', {
+              requestId: payload.requestId,
+              gameId: result.request.gameId,
+              status: 'declined' as const,
+            });
+
+            logger.info('Rematch declined', {
+              requestId: payload.requestId,
+              declinerId: socket.userId,
+            });
+          }
+        } catch (error) {
+          logger.error('Error handling rematch_respond', {
+            socketId: socket.id,
+            userId: socket.userId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          this.emitError(
+            socket,
+            'INTERNAL_ERROR',
+            'Failed to process rematch response',
+            'rematch_respond'
+          );
+        }
+      });
+
       // Handle disconnection
       socket.on('disconnect', () => {
         this.handleDisconnect(socket);
@@ -651,7 +861,7 @@ export class WebSocketServer {
         Boolean
       );
 
-      const isPlayer = playerIds.includes(socket.userId!);
+      const isPlayer = socket.userId ? playerIds.includes(socket.userId) : false;
       const canSpectate = game.allowSpectators;
 
       if (!isPlayer && !canSpectate) {
@@ -700,7 +910,7 @@ export class WebSocketServer {
       if (!this.gameRooms.has(gameId)) {
         this.gameRooms.set(gameId, new Set());
       }
-      this.gameRooms.get(gameId)!.add(socket.id);
+      this.gameRooms.get(gameId)?.add(socket.id);
 
       // Send current game state with full RingRift state
       socket.emit('game_state', {
@@ -713,6 +923,32 @@ export class WebSocketServer {
         timestamp: new Date().toISOString(),
       });
 
+      // Send chat history for this game
+      try {
+        const chatService = getChatPersistenceService();
+        const chatMessages = await chatService.getMessagesForGame(gameId);
+        if (chatMessages.length > 0) {
+          socket.emit('chat_history', {
+            gameId,
+            messages: chatMessages.map((msg) => ({
+              id: msg.id,
+              gameId: msg.gameId,
+              userId: msg.userId,
+              username: msg.username,
+              message: msg.message,
+              createdAt: msg.createdAt.toISOString(),
+            })),
+          });
+        }
+      } catch (chatError) {
+        // Non-fatal: log and continue without chat history
+        logger.warn('Failed to load chat history on join', {
+          gameId,
+          userId: socket.userId,
+          error: chatError instanceof Error ? chatError.message : String(chatError),
+        });
+      }
+
       // Notify others in the room - use appropriate event based on reconnection status
       if (isReconnection && pendingReconnection) {
         socket.to(gameId).emit('player_reconnected', {
@@ -720,8 +956,8 @@ export class WebSocketServer {
           data: {
             gameId,
             player: {
-              id: socket.userId!,
-              username: socket.username!,
+              id: socket.userId ?? '',
+              username: socket.username ?? '',
             },
             playerNumber: pendingReconnection.playerNumber,
           },
@@ -733,8 +969,8 @@ export class WebSocketServer {
           data: {
             gameId,
             player: {
-              id: socket.userId!,
-              username: socket.username!,
+              id: socket.userId ?? '',
+              username: socket.username ?? '',
             },
           },
           timestamp: new Date().toISOString(),
@@ -757,9 +993,10 @@ export class WebSocketServer {
     socket.leave(gameId);
 
     // Remove from game room tracking
-    if (this.gameRooms.has(gameId)) {
-      this.gameRooms.get(gameId)!.delete(socket.id);
-      if (this.gameRooms.get(gameId)!.size === 0) {
+    const room = this.gameRooms.get(gameId);
+    if (room) {
+      room.delete(socket.id);
+      if (room.size === 0) {
         this.gameRooms.delete(gameId);
       }
     }
@@ -770,8 +1007,8 @@ export class WebSocketServer {
       data: {
         gameId,
         player: {
-          id: socket.userId!,
-          username: socket.username!,
+          id: socket.userId ?? '',
+          username: socket.username ?? '',
         },
       },
       timestamp: new Date().toISOString(),
@@ -786,7 +1023,7 @@ export class WebSocketServer {
     });
   }
 
-  private async handlePlayerMove(socket: AuthenticatedSocket, data: any) {
+  private async handlePlayerMove(socket: AuthenticatedSocket, data: PlayerMovePayload) {
     const { gameId, move } = data;
 
     if (!socket.gameId || socket.gameId !== gameId) {
@@ -796,7 +1033,12 @@ export class WebSocketServer {
     // Wrap move processing in a lock to prevent race conditions
     await this.sessionManager.withGameLock(gameId, async () => {
       const session = await this.sessionManager.getOrCreateSession(gameId);
-      await session.handlePlayerMove(socket, move);
+      // Type assertion needed: Zod-inferred types have subtle differences from
+      // GameSession's PlayerMoveData due to exactOptionalPropertyTypes setting
+      await session.handlePlayerMove(
+        socket,
+        move as Parameters<typeof session.handlePlayerMove>[1]
+      );
     });
   }
 
@@ -820,11 +1062,15 @@ export class WebSocketServer {
     });
   }
 
-  private async handleChatMessage(socket: AuthenticatedSocket, data: any) {
+  private async handleChatMessage(socket: AuthenticatedSocket, data: ChatMessagePayload) {
     const { gameId, text } = data;
 
     if (!gameId || !text) {
       throw new Error('Missing gameId or text');
+    }
+
+    if (!socket.userId) {
+      throw new Error('User not authenticated');
     }
 
     // Verify user is in the game room
@@ -840,19 +1086,53 @@ export class WebSocketServer {
       return;
     }
 
-    // Broadcast chat message to all players in the game
-    this.io.to(gameId).emit('chat_message', {
-      sender: socket.username || 'Unknown',
-      text,
-      timestamp: new Date().toISOString(),
-    });
+    // Persist the chat message to the database
+    try {
+      const chatService = getChatPersistenceService();
+      const savedMessage = await chatService.saveMessage({
+        gameId,
+        userId: socket.userId,
+        message: text,
+      });
 
-    logger.info('Chat message sent', {
-      userId: socket.userId,
-      gameId,
-      socketId: socket.id,
-      messageLength: text.length,
-    });
+      // Broadcast persisted chat message to all players in the game
+      this.io.to(gameId).emit('chat_message_persisted', {
+        id: savedMessage.id,
+        gameId: savedMessage.gameId,
+        userId: savedMessage.userId,
+        username: savedMessage.username,
+        message: savedMessage.message,
+        createdAt: savedMessage.createdAt.toISOString(),
+      });
+
+      // Also emit legacy chat_message for backward compatibility
+      this.io.to(gameId).emit('chat_message', {
+        sender: savedMessage.username,
+        text: savedMessage.message,
+        timestamp: savedMessage.createdAt.toISOString(),
+      });
+
+      logger.info('Chat message persisted and sent', {
+        messageId: savedMessage.id,
+        userId: socket.userId,
+        gameId,
+        socketId: socket.id,
+        messageLength: text.length,
+      });
+    } catch (error) {
+      // If persistence fails, still broadcast the message (graceful degradation)
+      logger.error('Failed to persist chat message, broadcasting anyway', {
+        userId: socket.userId,
+        gameId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      this.io.to(gameId).emit('chat_message', {
+        sender: socket.username || 'Unknown',
+        text,
+        timestamp: new Date().toISOString(),
+      });
+    }
   }
 
   private handleDisconnect(socket: AuthenticatedSocket) {
@@ -877,10 +1157,13 @@ export class WebSocketServer {
     }
 
     // Remove from game room tracking
-    if (socket.gameId && this.gameRooms.has(socket.gameId)) {
-      this.gameRooms.get(socket.gameId)!.delete(socket.id);
-      if (this.gameRooms.get(socket.gameId)!.size === 0) {
-        this.gameRooms.delete(socket.gameId);
+    if (socket.gameId) {
+      const disconnectRoom = this.gameRooms.get(socket.gameId);
+      if (disconnectRoom) {
+        disconnectRoom.delete(socket.id);
+        if (disconnectRoom.size === 0) {
+          this.gameRooms.delete(socket.gameId);
+        }
       }
 
       // Notify others in the room
@@ -889,8 +1172,8 @@ export class WebSocketServer {
         data: {
           gameId: socket.gameId,
           player: {
-            id: socket.userId!,
-            username: socket.username!,
+            id: socket.userId ?? '',
+            username: socket.username ?? '',
           },
         },
         timestamp: new Date().toISOString(),
@@ -908,9 +1191,28 @@ export class WebSocketServer {
           const player = gameState.players.find(
             (p: { id: string; playerNumber: number }) => p.id === userId
           );
+          const isSpectator = gameState.spectators.includes(userId);
+
+          // Spectators do not participate in the reconnection timeout /
+          // abandonment flow. When a spectator disconnects we simply clear
+          // their connection diagnostics entry (if any) and avoid scheduling
+          // a reconnection window.
+          if (!player && isSpectator) {
+            const key = `${gameId}:${userId}`;
+            const hadState = this.playerConnectionStates.delete(key);
+
+            if (hadState) {
+              logger.info('Spectator disconnected without reconnection window', {
+                userId,
+                gameId,
+              });
+            }
+
+            return;
+          }
 
           // Only set up reconnection window for actual players, not spectators
-          if (player && !gameState.spectators.includes(userId)) {
+          if (player && !isSpectator) {
             const reconnectionKey = `${gameId}:${userId}`;
 
             // Clear any existing timeout for this user/game combo
@@ -981,14 +1283,80 @@ export class WebSocketServer {
     if (session) {
       // Cancel all pending choices for this player
       session.getInteractionHandler().cancelAllChoicesForPlayer(playerNumber);
+
+      // Best-effort game-level abandonment handling. This runs under the
+      // per-game lock so that engine and persistence updates remain
+      // consistent with any concurrent HTTP or WebSocket activity.
+      void this.sessionManager.withGameLock(gameId, async () => {
+        const lockedSession = this.sessionManager.getSession(gameId);
+        if (!lockedSession) {
+          return;
+        }
+
+        const state = lockedSession.getGameState();
+        if (state.gameStatus !== 'active') {
+          return;
+        }
+
+        const humanPlayers = state.players.filter((p) => p.type === 'human');
+        if (humanPlayers.length === 0) {
+          return;
+        }
+
+        const disconnectingPlayer = humanPlayers.find(
+          (p) => p.playerNumber === playerNumber && p.id === userId
+        );
+        if (!disconnectingPlayer) {
+          return;
+        }
+
+        const otherHumans = humanPlayers.filter((p) => p.id !== userId);
+
+        // Determine whether at least one human opponent remains connected
+        // or within their own reconnect window.
+        const anyOpponentStillAlive = otherHumans.some((p) => {
+          const s = this.playerConnectionStates.get(`${gameId}:${p.id}`);
+          return s && s.kind !== 'disconnected_expired';
+        });
+
+        const shouldAwardWin = state.isRated && anyOpponentStillAlive;
+
+        try {
+          await lockedSession.handleAbandonmentForDisconnectedPlayer(playerNumber, shouldAwardWin);
+        } catch (err) {
+          logger.error('Failed to apply abandonment after reconnection timeout', {
+            gameId,
+            userId,
+            playerNumber,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      });
     }
   }
 
+  /**
+   * Handle a clean resignation initiated via HTTP (e.g. POST /games/:gameId/leave)
+   * by routing through the active GameSession so that GameEngine can produce a
+   * canonical GameResult and GamePersistenceService.finishGame is invoked.
+   */
+  public async handlePlayerResignFromHttp(gameId: string, userId: string): Promise<void> {
+    await this.sessionManager.withGameLock(gameId, async () => {
+      const session = await this.sessionManager.getOrCreateSession(gameId);
+      await session.handlePlayerResignationByUserId(userId);
+    });
+  }
+
   // Public methods for external use
-  public sendToUser(userId: string, event: keyof ServerToClientEvents, data: any) {
+  public sendToUser<E extends DefinedServerEvent>(
+    userId: string,
+    event: E,
+    data: Parameters<ServerToClientEvents[E]>[0]
+  ) {
     const socketId = this.userSockets.get(userId);
     if (socketId) {
-      this.io.to(socketId).emit(event, data);
+      // Type assertion needed due to socket.io's complex DecorateAcknowledgements type
+      (this.io.to(socketId) as { emit: (ev: E, d: typeof data) => void }).emit(event, data);
     }
   }
 
@@ -1053,8 +1421,13 @@ export class WebSocketServer {
     return 1;
   }
 
-  public sendToGame(gameId: string, event: keyof ServerToClientEvents, data: any) {
-    this.io.to(gameId).emit(event, data);
+  public sendToGame<E extends DefinedServerEvent>(
+    gameId: string,
+    event: E,
+    data: Parameters<ServerToClientEvents[E]>[0]
+  ) {
+    // Type assertion needed due to socket.io's complex DecorateAcknowledgements type
+    (this.io.to(gameId) as { emit: (ev: E, d: typeof data) => void }).emit(event, data);
   }
 
   public getConnectedUsers(): string[] {
@@ -1086,13 +1459,13 @@ export class WebSocketServer {
    * compact view without tightening coupling.
    */
   public getGameDiagnosticsForGame(gameId: string): {
-    sessionStatus: any | null;
-    lastAIRequestState: any | null;
-    aiDiagnostics: any | null;
+    sessionStatus: unknown;
+    lastAIRequestState: unknown;
+    aiDiagnostics: unknown;
     connections: Record<string, PlayerConnectionState>;
     hasInMemorySession: boolean;
   } {
-    const session = this.sessionManager.getSession(gameId) as any | undefined;
+    const session = this.sessionManager.getSession(gameId);
 
     const connections: Record<string, PlayerConnectionState> = {};
     const prefix = `${gameId}:`;
@@ -1136,8 +1509,15 @@ export class WebSocketServer {
   }
 
   // Lobby broadcast methods
-  public broadcastLobbyEvent(event: keyof ServerToClientEvents, data: any) {
-    this.io.to(WebSocketServer.LOBBY_ROOM).emit(event, data);
+  public broadcastLobbyEvent<E extends DefinedServerEvent>(
+    event: E,
+    data: Parameters<ServerToClientEvents[E]>[0]
+  ) {
+    // Type assertion needed due to socket.io's complex DecorateAcknowledgements type
+    (this.io.to(WebSocketServer.LOBBY_ROOM) as { emit: (ev: E, d: typeof data) => void }).emit(
+      event,
+      data
+    );
     logger.debug('Broadcast lobby event', { event, lobbyRoom: WebSocketServer.LOBBY_ROOM });
   }
 }

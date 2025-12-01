@@ -14,7 +14,22 @@ from app.models import (
     RingStack,
     MarkerInfo,
     Player,
+    Move,
+    MoveType,
 )
+
+
+def _make_mock_move(player: int, x: int, y: int) -> Move:
+    """Create a valid Move object for testing with all required fields."""
+    return Move(
+        id=f"m-{x}-{y}",
+        type=MoveType.PLACE_RING,
+        player=player,
+        to=Position(x=x, y=y),
+        timestamp=datetime.now(),
+        thinkTime=0,
+        moveNumber=1,
+    )
 
 
 class TestHeuristicAI(unittest.TestCase):
@@ -648,14 +663,10 @@ class TestHeuristicAIMoveSampling(unittest.TestCase):
             training_move_sample_limit=None,
         )
         ai = HeuristicAI(player_number=1, config=config)
-        
+
         # Create mock moves
-        from app.models import Move, MoveType
-        moves = [
-            Move(type=MoveType.PLACE_RING, player=1, to=Position(x=i, y=0))
-            for i in range(20)
-        ]
-        
+        moves = [_make_mock_move(player=1, x=i, y=0) for i in range(20)]
+
         result = ai._sample_moves_for_training(moves)
         self.assertEqual(len(result), 20)
         self.assertEqual(result, moves)
@@ -669,13 +680,9 @@ class TestHeuristicAIMoveSampling(unittest.TestCase):
             training_move_sample_limit=100,
         )
         ai = HeuristicAI(player_number=1, config=config)
-        
-        from app.models import Move, MoveType
-        moves = [
-            Move(type=MoveType.PLACE_RING, player=1, to=Position(x=i, y=0))
-            for i in range(50)
-        ]
-        
+
+        moves = [_make_mock_move(player=1, x=i, y=0) for i in range(50)]
+
         result = ai._sample_moves_for_training(moves)
         self.assertEqual(len(result), 50)
         self.assertEqual(result, moves)
@@ -689,13 +696,9 @@ class TestHeuristicAIMoveSampling(unittest.TestCase):
             training_move_sample_limit=10,
         )
         ai = HeuristicAI(player_number=1, config=config)
-        
-        from app.models import Move, MoveType
-        moves = [
-            Move(type=MoveType.PLACE_RING, player=1, to=Position(x=i, y=0))
-            for i in range(100)
-        ]
-        
+
+        moves = [_make_mock_move(player=1, x=i, y=0) for i in range(100)]
+
         result = ai._sample_moves_for_training(moves)
         self.assertEqual(len(result), 10)
         # All sampled moves should be from the original list
@@ -710,20 +713,16 @@ class TestHeuristicAIMoveSampling(unittest.TestCase):
             rng_seed=12345,
             training_move_sample_limit=5,
         )
-        
-        from app.models import Move, MoveType
-        moves = [
-            Move(type=MoveType.PLACE_RING, player=1, to=Position(x=i, y=0))
-            for i in range(50)
-        ]
-        
+
+        moves = [_make_mock_move(player=1, x=i, y=0) for i in range(50)]
+
         # Create two AIs with same config
         ai1 = HeuristicAI(player_number=1, config=config)
         ai2 = HeuristicAI(player_number=1, config=config)
-        
+
         result1 = ai1._sample_moves_for_training(moves)
         result2 = ai2._sample_moves_for_training(moves)
-        
+
         # Should get identical samples
         self.assertEqual(result1, result2)
 
@@ -736,21 +735,17 @@ class TestHeuristicAIMoveSampling(unittest.TestCase):
             training_move_sample_limit=5,
         )
         ai = HeuristicAI(player_number=1, config=config)
-        
-        from app.models import Move, MoveType
-        moves = [
-            Move(type=MoveType.PLACE_RING, player=1, to=Position(x=i, y=0))
-            for i in range(50)
-        ]
-        
+
+        moves = [_make_mock_move(player=1, x=i, y=0) for i in range(50)]
+
         # Sample at move_count=0
         ai.move_count = 0
         result_a = ai._sample_moves_for_training(moves)
-        
+
         # Sample at move_count=1 (should differ due to seeding)
         ai.move_count = 1
         result_b = ai._sample_moves_for_training(moves)
-        
+
         # Results should be different (high probability with 50 moves, 5 sample)
         # Note: There's a tiny chance they could be equal by coincidence,
         # but with these numbers it's extremely unlikely
@@ -766,13 +761,9 @@ class TestHeuristicAIMoveSampling(unittest.TestCase):
                 training_move_sample_limit=limit,
             )
             ai = HeuristicAI(player_number=1, config=config)
-            
-            from app.models import Move, MoveType
-            moves = [
-                Move(type=MoveType.PLACE_RING, player=1, to=Position(x=i, y=0))
-                for i in range(20)
-            ]
-            
+
+            moves = [_make_mock_move(player=1, x=i, y=0) for i in range(20)]
+
             result = ai._sample_moves_for_training(moves)
             self.assertEqual(len(result), 20, f"Failed for limit={limit}")
 

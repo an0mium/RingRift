@@ -8,7 +8,7 @@
 - **Current Status:** [CURRENT_STATE_ASSESSMENT.md](../CURRENT_STATE_ASSESSMENT.md:1) - What works, what doesn't, and verified code status.
 - **Goals & Scope:** [PROJECT_GOALS.md](../PROJECT_GOALS.md:1) – Canonical project goals, success criteria, and scope boundaries, including the **ruleset design goals & rationale** (emergent complexity from simple mechanics, tensionful and non-trivially unpredictable scoring/lead dynamics, and explicit human–computer competitive balance).
 - **Ruleset Invariants:** [docs/INVARIANTS_AND_PARITY_FRAMEWORK.md](./INVARIANTS_AND_PARITY_FRAMEWORK.md:1) – Catalogue of rules-level invariants and TS↔Python↔host parity expectations, including P0 semantics for active-no-moves and forced elimination (`INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`).
-- **Weakest Aspects & Hardest Problems:** [WEAKNESS_ASSESSMENT_REPORT.md](../WEAKNESS_ASSESSMENT_REPORT.md) – Latest comprehensive weakness assessment (Pass 18A: host integration & orchestrator rollout); see also [docs/PASS18A_ASSESSMENT_REPORT.md](./PASS18A_ASSESSMENT_REPORT.md) for the full assessment report.
+- **Weakest Aspects & Hardest Problems:** [WEAKNESS_ASSESSMENT_REPORT.md](../WEAKNESS_ASSESSMENT_REPORT.md) – Latest comprehensive weakness assessment (Pass 18-3: Frontend UX Polish); see also [docs/PASS18_ASSESSMENT_REPORT_PASS3.md](./PASS18_ASSESSMENT_REPORT_PASS3.md) for the full assessment report.
 - **Roadmap:** [STRATEGIC_ROADMAP.md](../STRATEGIC_ROADMAP.md:1) - Future plans and milestones derived from the goals in [PROJECT_GOALS.md](../PROJECT_GOALS.md:1).
 - **Rules Engine:** [RULES_ENGINE_ARCHITECTURE.md](../RULES_ENGINE_ARCHITECTURE.md:1) – Complete rules engine architecture including orchestration layer.
 - **Lifecycle & State Machines:** [docs/CANONICAL_ENGINE_API.md](./CANONICAL_ENGINE_API.md:1) – canonical engine API; [docs/STATE_MACHINES.md](./STATE_MACHINES.md:1) – shared session/AI/choice/connection state machines over the canonical API.
@@ -35,9 +35,11 @@ The following documents record the 4-phase architecture remediation completed No
 - [archive/PHASE3_ADAPTER_MIGRATION_REPORT.md](../archive/PHASE3_ADAPTER_MIGRATION_REPORT.md) - Historical backend and sandbox adapter migration report (superseded by `ARCHITECTURE_ASSESSMENT.md` and `ARCHITECTURE_REMEDIATION_PLAN.md`).
 - [archive/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md](../archive/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md) - Historical Python contract test runner report (superseded by `docs/PYTHON_PARITY_REQUIREMENTS.md`, `AI_ARCHITECTURE.md`, and `ai-service/README.md`).
 - **Current holistic assessment passes:**
-  - [docs/PASS18A_ASSESSMENT_REPORT.md](./PASS18A_ASSESSMENT_REPORT.md:1) – **Latest (2025-11-30):** Full-project reassessment post-ANM/termination remediation and test stabilization. All tests green.
-  - [docs/PASS17_ASSESSMENT_REPORT.md](./PASS17_ASSESSMENT_REPORT.md:1) – Focused assessment on orchestrator rollout, invariants/parity, AI healthchecks, and remaining P0/P1 gaps.
-  - [docs/PASS16_ASSESSMENT_REPORT.md](./PASS16_ASSESSMENT_REPORT.md:1) – Comprehensive assessment after shared-engine consolidation and frontend UX improvements.
+  - [docs/PASS19A_ASSESSMENT_REPORT.md](./PASS19A_ASSESSMENT_REPORT.md:1) – **Latest (2025-11-30):** Post-code cleanup & documentation refresh. 2,709 tests passing, 0 failing, 63 ARIA attrs. Weakest: Frontend UX (3.5/5). Hardest: Incremental refinement.
+  - [docs/PASS18_ASSESSMENT_REPORT_PASS3.md](./PASS18_ASSESSMENT_REPORT_PASS3.md:1) – Third-Pass Global Assessment. Weakest aspect: Frontend UX. Hardest problem: Test Suite Cleanup.
+  - [docs/PASS18C_ASSESSMENT_REPORT.md](./PASS18C_ASSESSMENT_REPORT.md:1) – Post-accessibility & type safety remediation. 0 TS errors, 55 ARIA attrs.
+  - [docs/PASS18A_ASSESSMENT_REPORT.md](./PASS18A_ASSESSMENT_REPORT.md:1) – Post-ANM/termination remediation and test stabilization.
+  - [docs/PASS17_ASSESSMENT_REPORT.md](./PASS17_ASSESSMENT_REPORT.md:1) – Orchestrator rollout, invariants/parity, AI healthchecks.
 
 ### Canonical Orchestrator (NEW)
 

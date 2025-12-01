@@ -102,7 +102,7 @@ describe('GameHUD (view model path)', () => {
 
     render(<GameHUD viewModel={hud} timeControl={gameState.timeControl} />);
 
-    expect(screen.getByText('Spectator')).toBeInTheDocument();
+    expect(screen.getByText('Spectator Mode')).toBeInTheDocument();
     expect(screen.getByTestId('victory-conditions-help')).toBeInTheDocument();
   });
 });

@@ -7,6 +7,7 @@ import {
   BoardSummary,
   positionToString,
 } from '../types/game';
+import { debugLog, flagEnabled } from '../utils/envFlags';
 
 /**
  * Shared, browser-safe core helpers for RingRift engine logic.
@@ -248,32 +249,32 @@ export function validateCaptureSegmentOnBoard(
   player: number,
   board: CaptureSegmentBoardView
 ): boolean {
-  const debug = typeof process !== 'undefined' && !!process.env.RINGRIFT_DEBUG_CAPTURE;
+  const debug = flagEnabled('RINGRIFT_DEBUG_CAPTURE');
 
   if (
     !board.isValidPosition(from) ||
     !board.isValidPosition(target) ||
     !board.isValidPosition(landing)
   ) {
-    if (debug) console.log('Invalid position(s)');
+    debugLog(debug, 'Invalid position(s)');
     return false;
   }
 
   const attacker = board.getStackAt(from);
   if (!attacker || attacker.controllingPlayer !== player) {
-    if (debug) console.log('Invalid attacker', attacker, player);
+    debugLog(debug, 'Invalid attacker', attacker, player);
     return false;
   }
 
   const targetStack = board.getStackAt(target);
   if (!targetStack) {
-    if (debug) console.log('No target stack');
+    debugLog(debug, 'No target stack');
     return false;
   }
 
   // Cap height must be >= target's cap height (Section 10.1)
   if (attacker.capHeight < targetStack.capHeight) {
-    if (debug) console.log('Insufficient cap height', attacker.capHeight, targetStack.capHeight);
+    debugLog(debug, 'Insufficient cap height', attacker.capHeight, targetStack.capHeight);
     return false;
   }
 
@@ -290,17 +291,17 @@ export function validateCaptureSegmentOnBoard(
     // coordinates change (the third is implied by x + y + z = 0).
     const coordChanges = [dx !== 0, dy !== 0, dz !== 0].filter(Boolean).length;
     if (coordChanges !== 2) {
-      if (debug) console.log('Invalid hex direction');
+      debugLog(debug, 'Invalid hex direction');
       return false;
     }
   } else {
     // Square boards: orthogonal or diagonal only.
     if (dx === 0 && dy === 0) {
-      if (debug) console.log('Zero movement');
+      debugLog(debug, 'Zero movement');
       return false;
     }
     if (dx !== 0 && dy !== 0 && Math.abs(dx) !== Math.abs(dy)) {
-      if (debug) console.log('Invalid square direction');
+      debugLog(debug, 'Invalid square direction');
       return false;
     }
   }
@@ -310,16 +311,16 @@ export function validateCaptureSegmentOnBoard(
   const pathToTarget = getPathPositions(from, target).slice(1, -1);
   for (const pos of pathToTarget) {
     if (!board.isValidPosition(pos)) {
-      if (debug) console.log('Invalid path pos', pos);
+      debugLog(debug, 'Invalid path pos', pos);
       return false;
     }
     if (board.isCollapsedSpace(pos)) {
-      if (debug) console.log('Path blocked by collapsed', pos);
+      debugLog(debug, 'Path blocked by collapsed', pos);
       return false;
     }
     const stack = board.getStackAt(pos);
     if (stack) {
-      if (debug) console.log('Path blocked by stack', pos);
+      debugLog(debug, 'Path blocked by stack', pos);
       return false;
     }
   }
@@ -330,22 +331,22 @@ export function validateCaptureSegmentOnBoard(
   const dz2 = (landing.z || 0) - (from.z || 0);
 
   if (dx !== 0 && Math.sign(dx) !== Math.sign(dx2)) {
-    if (debug) console.log('Direction mismatch X');
+    debugLog(debug, 'Direction mismatch X');
     return false;
   }
   if (dy !== 0 && Math.sign(dy) !== Math.sign(dy2)) {
-    if (debug) console.log('Direction mismatch Y');
+    debugLog(debug, 'Direction mismatch Y');
     return false;
   }
   if (dz !== 0 && Math.sign(dz) !== Math.sign(dz2)) {
-    if (debug) console.log('Direction mismatch Z');
+    debugLog(debug, 'Direction mismatch Z');
     return false;
   }
 
   const distToTarget = Math.abs(dx) + Math.abs(dy) + Math.abs(dz);
   const distToLanding = Math.abs(dx2) + Math.abs(dy2) + Math.abs(dz2);
   if (distToLanding <= distToTarget) {
-    if (debug) console.log('Landing not beyond target');
+    debugLog(debug, 'Landing not beyond target');
     return false;
   }
 
@@ -354,14 +355,14 @@ export function validateCaptureSegmentOnBoard(
   // This allows extended landings beyond the target as long as the path is clear.
   const segmentDistance = calculateDistance(boardType, from, landing);
   if (segmentDistance < attacker.stackHeight) {
-    if (debug)
-      console.log(
-        'Distance < stackHeight',
-        segmentDistance,
-        typeof segmentDistance,
-        attacker.stackHeight,
-        typeof attacker.stackHeight
-      );
+    debugLog(
+      debug,
+      'Distance < stackHeight',
+      segmentDistance,
+      typeof segmentDistance,
+      attacker.stackHeight,
+      typeof attacker.stackHeight
+    );
     return false;
   }
 
@@ -369,28 +370,28 @@ export function validateCaptureSegmentOnBoard(
   const pathFromTarget = getPathPositions(target, landing).slice(1, -1);
   for (const pos of pathFromTarget) {
     if (!board.isValidPosition(pos)) {
-      if (debug) console.log('Invalid landing path pos', pos);
+      debugLog(debug, 'Invalid landing path pos', pos);
       return false;
     }
     if (board.isCollapsedSpace(pos)) {
-      if (debug) console.log('Landing path blocked by collapsed', pos);
+      debugLog(debug, 'Landing path blocked by collapsed', pos);
       return false;
     }
     const stack = board.getStackAt(pos);
     if (stack) {
-      if (debug) console.log('Landing path blocked by stack', pos);
+      debugLog(debug, 'Landing path blocked by stack', pos);
       return false;
     }
   }
 
   // Landing space must be empty (no stack) and not collapsed.
   if (board.isCollapsedSpace(landing)) {
-    if (debug) console.log('Landing is collapsed');
+    debugLog(debug, 'Landing is collapsed');
     return false;
   }
   const landingStack = board.getStackAt(landing);
   if (landingStack) {
-    if (debug) console.log('Landing occupied by stack');
+    debugLog(debug, 'Landing occupied by stack');
     return false;
   }
 

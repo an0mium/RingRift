@@ -149,7 +149,12 @@ function parseDockerCompose(filePath: string): DockerComposeConfig | null {
     }
 
     // Service subsections (4-space indent)
-    if (currentSection === 'services' && currentService && leadingSpaces === 4 && trimmed.endsWith(':')) {
+    if (
+      currentSection === 'services' &&
+      currentService &&
+      leadingSpaces === 4 &&
+      trimmed.endsWith(':')
+    ) {
       currentServiceSection = trimmed.slice(0, -1);
       continue;
     }
@@ -297,7 +302,9 @@ function validateDockerCompose(
 
       // Check for hardcoded secrets
       if (isHardcodedSecret(varName, value)) {
-        result.warnings.push(`[${serviceName}] Hardcoded secret detected: ${varName}=${value.slice(0, 20)}...`);
+        result.warnings.push(
+          `[${serviceName}] Hardcoded secret detected: ${varName}=${value.slice(0, 20)}...`
+        );
       }
     }
 
@@ -309,7 +316,9 @@ function validateDockerCompose(
         // Check if service has condition-based depends_on (implies healthcheck elsewhere)
         const hasCondition = service.dependsOn.length === 0;
         if (hasCondition) {
-          result.warnings.push(`[${serviceName}] No healthcheck configured for staging environment`);
+          result.warnings.push(
+            `[${serviceName}] No healthcheck configured for staging environment`
+          );
         }
       }
     }
@@ -324,7 +333,9 @@ function validateDockerCompose(
     for (const port of service.ports) {
       const hostPort = port.split(':')[0];
       if (portMappings.has(hostPort)) {
-        result.errors.push(`[${serviceName}] Port conflict: ${hostPort} already mapped to ${portMappings.get(hostPort)}`);
+        result.errors.push(
+          `[${serviceName}] Port conflict: ${hostPort} already mapped to ${portMappings.get(hostPort)}`
+        );
         result.valid = false;
       }
       portMappings.set(hostPort, serviceName);
@@ -441,7 +452,9 @@ function validateDockerfile(dockerfilePath: string): ValidationResult {
   // Check for .dockerignore reference
   const dockerignorePath = path.join(path.dirname(dockerfilePath), '.dockerignore');
   if (!fs.existsSync(dockerignorePath)) {
-    result.warnings.push('.dockerignore file not found - consider adding one to reduce build context');
+    result.warnings.push(
+      '.dockerignore file not found - consider adding one to reduce build context'
+    );
   }
 
   return result;
@@ -501,6 +514,80 @@ function validateEnvSchema(
   return result;
 }
 
+/**
+ * Validate .env.staging for correct Phase 1 orchestrator configuration
+ */
+function validateStagingEnv(stagingEnvPath: string): ValidationResult {
+  const result: ValidationResult = {
+    file: stagingEnvPath,
+    valid: true,
+    errors: [],
+    warnings: [],
+  };
+
+  if (!fs.existsSync(stagingEnvPath)) {
+    result.warnings.push('.env.staging not found - skipping staging config validation');
+    return result;
+  }
+
+  const envVars = parseEnvExample(stagingEnvPath);
+
+  // Phase 1 Orchestrator Configuration Checks
+  const requiredConfig = {
+    RINGRIFT_RULES_MODE: 'ts',
+    ORCHESTRATOR_ADAPTER_ENABLED: 'true',
+    ORCHESTRATOR_ROLLOUT_PERCENTAGE: '100',
+    ORCHESTRATOR_SHADOW_MODE_ENABLED: 'false',
+  };
+
+  for (const [key, expectedValue] of Object.entries(requiredConfig)) {
+    const actualValue = envVars.get(key);
+    if (actualValue !== expectedValue) {
+      result.errors.push(
+        `Invalid Phase 1 configuration: ${key} should be "${expectedValue}", found "${actualValue || 'undefined'}"`
+      );
+      result.valid = false;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Validate CI workflow for required orchestrator jobs
+ */
+function validateCIWorkflow(ciWorkflowPath: string): ValidationResult {
+  const result: ValidationResult = {
+    file: ciWorkflowPath,
+    valid: true,
+    errors: [],
+    warnings: [],
+  };
+
+  if (!fs.existsSync(ciWorkflowPath)) {
+    result.errors.push('CI workflow file not found');
+    result.valid = false;
+    return result;
+  }
+
+  const content = fs.readFileSync(ciWorkflowPath, 'utf-8');
+
+  const requiredJobs = [
+    'orchestrator-soak-smoke',
+    'orchestrator-short-soak',
+    'orchestrator-parity',
+  ];
+
+  for (const job of requiredJobs) {
+    if (!content.includes(`${job}:`)) {
+      result.errors.push(`Missing required CI job: ${job}`);
+      result.valid = false;
+    }
+  }
+
+  return result;
+}
+
 // ============================================================================
 // Main Validation
 // ============================================================================
@@ -522,7 +609,12 @@ function validateDeploymentConfigs(): ValidationResult[] {
   console.log(`📄 Validating ${dockerComposePath}`);
   const dockerComposeConfig = parseDockerCompose(dockerComposePath);
   if (dockerComposeConfig) {
-    const composeResult = validateDockerCompose(dockerComposePath, dockerComposeConfig, envExampleVars, false);
+    const composeResult = validateDockerCompose(
+      dockerComposePath,
+      dockerComposeConfig,
+      envExampleVars,
+      false
+    );
     results.push(composeResult);
 
     // Validate volumes
@@ -546,7 +638,12 @@ function validateDeploymentConfigs(): ValidationResult[] {
   console.log(`📄 Validating ${stagingComposePath}`);
   const stagingComposeConfig = parseDockerCompose(stagingComposePath);
   if (stagingComposeConfig) {
-    const stagingResult = validateDockerCompose(stagingComposePath, stagingComposeConfig, envExampleVars, true);
+    const stagingResult = validateDockerCompose(
+      stagingComposePath,
+      stagingComposeConfig,
+      envExampleVars,
+      true
+    );
     results.push(stagingResult);
     console.log(`   Found ${stagingComposeConfig.services.size} service overrides\n`);
   } else {
@@ -570,6 +667,20 @@ function validateDeploymentConfigs(): ValidationResult[] {
   console.log(`📄 Cross-validating ${envSchemaPath} against .env.example`);
   const schemaResult = validateEnvSchema(envExampleVars, envSchemaPath);
   results.push(schemaResult);
+  console.log('');
+
+  // Validate .env.staging configuration
+  const stagingEnvPath = path.join(projectRoot, '.env.staging');
+  console.log(`📄 Validating ${stagingEnvPath} for Phase 1 compliance`);
+  const stagingEnvResult = validateStagingEnv(stagingEnvPath);
+  results.push(stagingEnvResult);
+  console.log('');
+
+  // Validate CI workflow
+  const ciWorkflowPath = path.join(projectRoot, '.github/workflows/ci.yml');
+  console.log(`📄 Validating ${ciWorkflowPath} for orchestrator jobs`);
+  const ciResult = validateCIWorkflow(ciWorkflowPath);
+  results.push(ciResult);
   console.log('');
 
   return results;

@@ -1,4 +1,8 @@
-import { MatchmakingPreferences, MatchmakingStatus } from '../../shared/types/websocket';
+import {
+  MatchmakingPreferences,
+  MatchmakingStatus,
+  WebSocketErrorPayload,
+} from '../../shared/types/websocket';
 import { GameStatus } from '@prisma/client';
 import { getDatabaseClient } from '../database/connection';
 import { WebSocketServer } from '../websocket/server';
@@ -191,8 +195,13 @@ export class MatchmakingService {
     } catch (err) {
       logger.error('Failed to create match', err);
       // Re-queue players? Or notify error?
-      this.wsServer.sendToUser(player1.userId, 'error', { message: 'Failed to create match' });
-      this.wsServer.sendToUser(player2.userId, 'error', { message: 'Failed to create match' });
+      const errorPayload: WebSocketErrorPayload = {
+        type: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to create match',
+      };
+      this.wsServer.sendToUser(player1.userId, 'error', errorPayload);
+      this.wsServer.sendToUser(player2.userId, 'error', errorPayload);
     }
   }
 

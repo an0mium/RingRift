@@ -7,6 +7,8 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Select';
 import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/types/websocket';
+import { readEnv } from '../../shared/utils/envFlags';
+import { extractErrorMessage } from '../utils/errorReporting';
 
 interface FormState {
   boardType: BoardType;
@@ -23,11 +25,11 @@ interface FormState {
 }
 
 interface LobbyFilters {
-  boardType?: BoardType | 'all';
-  isRated?: boolean | 'all';
-  playerCount?: number | 'all';
-  searchTerm?: string;
-  showInProgress?: boolean;
+  boardType?: BoardType | 'all' | undefined;
+  isRated?: boolean | 'all' | undefined;
+  playerCount?: number | 'all' | undefined;
+  searchTerm?: string | undefined;
+  showInProgress?: boolean | undefined;
 }
 
 type SortOption = 'created' | 'players' | 'board_type' | 'rating';
@@ -47,15 +49,10 @@ const defaultForm: FormState = {
 };
 
 function getSocketBaseUrl(): string {
-  const env =
-    typeof process !== 'undefined' && (process as any).env
-      ? ((process as any).env as Record<string, string | undefined>)
-      : {};
-
-  const wsUrl = env.VITE_WS_URL;
+  const wsUrl = readEnv('VITE_WS_URL');
   if (wsUrl) return wsUrl.replace(/\/$/, '');
 
-  const apiUrl = env.VITE_API_URL;
+  const apiUrl = readEnv('VITE_API_URL');
   if (apiUrl) {
     const base = apiUrl.replace(/\/?api\/?$/, '');
     return base.replace(/\/$/, '');
@@ -479,19 +476,16 @@ export default function LobbyPage() {
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      console.log('Lobby WebSocket connected');
       socket.emit('lobby:subscribe');
     });
 
     socket.on('lobby:game_created', (game: Game) => {
-      console.log('New game created:', game);
       setAvailableGames((prev) => [game, ...prev]);
     });
 
     socket.on(
       'lobby:game_joined',
-      ({ gameId, playerCount }: { gameId: string; playerCount: number }) => {
-        console.log('Game joined:', gameId, playerCount);
+      ({ gameId, playerCount: _playerCount }: { gameId: string; playerCount: number }) => {
         setAvailableGames((prev) =>
           prev.map((g) => {
             if (g.id === gameId) {
@@ -505,12 +499,10 @@ export default function LobbyPage() {
     );
 
     socket.on('lobby:game_started', ({ gameId }: { gameId: string }) => {
-      console.log('Game started:', gameId);
       setAvailableGames((prev) => prev.filter((g) => g.id !== gameId));
     });
 
     socket.on('lobby:game_cancelled', ({ gameId }: { gameId: string }) => {
-      console.log('Game cancelled:', gameId);
       setAvailableGames((prev) => prev.filter((g) => g.id !== gameId));
     });
 
@@ -559,30 +551,27 @@ export default function LobbyPage() {
           initialTime: form.initialTime,
           increment: form.increment,
         },
-        aiOpponents:
-          form.aiCount > 0
-            ? {
+        // Use conditional spreads to avoid assigning undefined with exactOptionalPropertyTypes
+        ...(form.aiCount > 0
+          ? {
+              aiOpponents: {
                 count: form.aiCount,
                 difficulty: Array(form.aiCount).fill(form.aiDifficulty),
                 mode: form.aiMode,
                 aiType: form.aiType,
-              }
-            : undefined,
+              },
+            }
+          : {}),
         // For now, expose the swap rule as a default-on 2-player variant from
         // the lobby. Future UI can add an explicit toggle; until then, hosts
         // can still disable it via direct API calls.
-        rulesOptions:
-          form.maxPlayers === 2
-            ? { swapRuleEnabled: true }
-            : undefined,
+        ...(form.maxPlayers === 2 ? { rulesOptions: { swapRuleEnabled: true } } : {}),
       };
 
       const game = await gameApi.createGame(payload);
       navigate(`/game/${game.id}`);
-    } catch (err: any) {
-      const message =
-        err?.response?.data?.error?.message || err?.message || 'Failed to create game';
-      setError(message);
+    } catch (error: unknown) {
+      setError(extractErrorMessage(error, 'Failed to create game'));
     } finally {
       setIsSubmitting(false);
     }
@@ -593,9 +582,8 @@ export default function LobbyPage() {
       setJoinError(null);
       await gameApi.joinGame(gameId);
       navigate(`/game/${gameId}`);
-    } catch (err: any) {
-      const message = err?.response?.data?.error?.message || err?.message || 'Failed to join game';
-      setJoinError(message);
+    } catch (error: unknown) {
+      setJoinError(extractErrorMessage(error, 'Failed to join game'));
       fetchAvailableGames();
     }
   };
@@ -608,8 +596,11 @@ export default function LobbyPage() {
     try {
       await gameApi.leaveGame(gameId);
       setAvailableGames((prev) => prev.filter((g) => g.id !== gameId));
-    } catch (err: any) {
-      console.error('Failed to cancel game:', err);
+    } catch (error: unknown) {
+      // Best-effort cancellation; log but don't surface to user
+      if (typeof window !== 'undefined' && 'console' in window) {
+        console.error('Failed to cancel game:', error);
+      }
     }
   };
 

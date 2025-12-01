@@ -1,0 +1,24 @@
+{
+  "mismatches_by_suite": {
+    "contract_vectors_v2": 1
+  },
+  "mismatches_by_type": {
+    "status": 1
+  },
+  "mismatches_total": 1,
+  "parity_ids_by_suite": {
+    "contract_vectors_v2": "PARITY-TS-PY-CONTRACT-VECTORS",
+    "plateau_snapshots": "PARITY-TS-PY-SEED-PLATEAU"
+  },
+  "profile": "parity-healthcheck",
+  "samples": [
+    {
+      "case_id": "chain_capture.depth2.segment1.capture_phase.square19",
+      "details": "currentPhase: expected 'chain_capture', got 'capture'",
+      "mismatch_type": "status",
+      "suite": "contract_vectors_v2"
+    }
+  ],
+  "suites": ["contract_vectors_v2", "plateau_snapshots"],
+  "total_cases": 19
+}

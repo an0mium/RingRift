@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { registerAndLogin, createGame } from './helpers/test-utils';
+import {
+  registerAndLogin,
+  createGame,
+  createNearVictoryGame,
+  makeMove,
+} from './helpers/test-utils';
 import { GamePage } from './pages';
 
 /**
@@ -98,17 +103,18 @@ test.describe('Victory Conditions E2E Tests', () => {
   });
 
   test.describe('Post-Game Options', () => {
-    test.skip('victory modal shows return to lobby button', async ({ page }) => {
-      // Skip: Requires game to complete to see the victory modal
-      // When enabled, this test verifies the Return to Lobby button functionality
-
+    test('victory modal shows return to lobby button after win', async ({ page }) => {
+      // Uses near-victory fixture to fast-forward to a game state where one
+      // capture triggers elimination victory. Player 1 stack at (3,3) can
+      // capture Player 2 single ring at (4,3).
       await registerAndLogin(page);
-      await createGame(page, { vsAI: true });
+      await createNearVictoryGame(page);
 
-      // ... Complete game somehow ...
+      // Make the winning capture move: (3,3) -> (4,3)
+      await makeMove(page, '3,3', '4,3');
 
-      // Wait for victory modal
-      const victoryModal = page.locator('.victory-modal');
+      // Wait for victory modal to appear
+      const victoryModal = page.locator('[data-testid="victory-modal"], .victory-modal');
       await expect(victoryModal).toBeVisible({ timeout: 30_000 });
 
       // Verify Return to Lobby button exists
@@ -125,17 +131,17 @@ test.describe('Victory Conditions E2E Tests', () => {
       await expect(page.getByRole('heading', { name: /Game Lobby/i })).toBeVisible();
     });
 
-    test.skip('victory modal shows rematch option', async ({ page }) => {
-      // Skip: Requires game completion and rematch implementation
-      // When enabled, this test verifies the Request Rematch button functionality
-
+    test('victory modal shows rematch option after win', async ({ page }) => {
+      // Uses near-victory fixture to fast-forward to a game state where one
+      // capture triggers elimination victory.
       await registerAndLogin(page);
-      await createGame(page, { vsAI: true });
+      await createNearVictoryGame(page);
 
-      // ... Complete game somehow ...
+      // Make the winning capture move
+      await makeMove(page, '3,3', '4,3');
 
       // Wait for victory modal
-      const victoryModal = page.locator('.victory-modal');
+      const victoryModal = page.locator('[data-testid="victory-modal"], .victory-modal');
       await expect(victoryModal).toBeVisible({ timeout: 30_000 });
 
       // Verify rematch button exists

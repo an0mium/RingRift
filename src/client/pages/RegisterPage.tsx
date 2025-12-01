@@ -1,6 +1,7 @@
 import React, { useState, FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { extractErrorMessage } from '../utils/errorReporting';
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -38,13 +39,11 @@ export default function RegisterPage() {
       // On successful registration, you are logged in via AuthContext
       // and redirected into the main app shell.
       navigate('/');
-    } catch (err: any) {
-      const errorData = err?.response?.data;
-      const message =
-        errorData?.error?.message ||
-        errorData?.message ||
-        err?.message ||
-        'Registration failed. Please check your details and try again.';
+    } catch (error: unknown) {
+      const message = extractErrorMessage(
+        error,
+        'Registration failed. Please check your details and try again.'
+      );
       setError(message);
     } finally {
       setIsSubmitting(false);

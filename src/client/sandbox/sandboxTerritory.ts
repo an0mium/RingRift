@@ -32,7 +32,6 @@ import type {
   TerritoryProcessingContext,
 } from '../../shared/engine';
 import {
-  positionToString,
   findDisconnectedRegions as findDisconnectedRegionsShared,
   getBorderMarkerPositionsForRegion as getSharedBorderMarkers,
   applyTerritoryRegion,

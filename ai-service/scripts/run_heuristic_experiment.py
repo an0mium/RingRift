@@ -94,6 +94,7 @@ from app.rules.default_engine import (  # type: ignore  # noqa: E402
 from app.training.env import (  # type: ignore  # noqa: E402
     get_two_player_training_kwargs,
 )
+from app.utils.progress_reporter import ProgressReporter  # type: ignore  # noqa: E402
 
 
 BOARD_TYPES: Dict[str, BoardType] = {
@@ -295,11 +296,32 @@ def run_match(
     board: str,
     games: int,
 ) -> MatchStats:
-    """Run a multi-game match with side-swapping and collect stats."""
+    """Run a multi-game match with side-swapping and collect stats.
+
+    This helper uses :class:`ProgressReporter` to emit throttled, time-based
+    progress updates so that long heuristic experiments do not appear
+    stalled when running large numbers of games per match.
+    """
 
     wins_a = 0
     wins_b = 0
     draws = 0
+
+    context_label = " ".join(
+        [
+            f"mode={mode}",
+            f"diff={difficulty}",
+            f"board={board}",
+            f"A={profile_a_id}",
+            f"B={profile_b_id}",
+        ]
+    )
+    reporter = ProgressReporter(
+        total_units=games,
+        unit_name="games",
+        report_interval_sec=10.0,
+        context_label=context_label,
+    )
 
     for i in range(games):
         if i % 2 == 0:
@@ -331,7 +353,17 @@ def run_match(
             else:
                 draws += 1
 
-    return MatchStats(
+        games_completed = i + 1
+        reporter.update(
+            completed=games_completed,
+            extra_metrics={
+                "wins_a": wins_a,
+                "wins_b": wins_b,
+                "draws": draws,
+            },
+        )
+
+    match = MatchStats(
         mode=mode,
         difficulty=difficulty,
         board=board,
@@ -342,6 +374,19 @@ def run_match(
         wins_b=wins_b,
         draws=draws,
     )
+
+    # Emit a final summary line with winrates for quick inspection.
+    reporter.finish(
+        extra_metrics={
+            "wins_a": wins_a,
+            "wins_b": wins_b,
+            "draws": draws,
+            "winrate_a_excl_draws": match.winrate_a_excl_draws,
+            "winrate_b_excl_draws": match.winrate_b_excl_draws,
+        },
+    )
+
+    return match
 
 
 def _parse_list(value: str) -> List[str]:
@@ -581,6 +626,8 @@ def run_cmaes_train(args: argparse.Namespace) -> None:
         state_pool_id=state_pool_id,
         eval_boards=eval_boards,
         eval_randomness=eval_randomness,
+        progress_interval_sec=args.cmaes_progress_interval_sec,
+        enable_eval_progress=not args.cmaes_disable_eval_progress,
     )
 
     print(
@@ -779,6 +826,26 @@ def _parse_args() -> argparse.Namespace:
         help=(
             "Logical run identifier used for CMA-ES training when "
             "mode=cmaes-train (optional)."
+        ),
+    )
+    parser.add_argument(
+        "--cmaes-progress-interval-sec",
+        type=float,
+        default=10.0,
+        help=(
+            "Minimum seconds between CMA-ES optimisation progress log "
+            "lines when mode=cmaes-train (default: 10.0). This is passed "
+            "through to the shared OptimizationProgressReporter and "
+            "per-board evaluation reporters."
+        ),
+    )
+    parser.add_argument(
+        "--cmaes-disable-eval-progress",
+        action="store_true",
+        help=(
+            "Disable per-board evaluation progress reporters during "
+            "CMA-ES runs orchestrated via mode=cmaes-train, relying "
+            "solely on the outer optimisation-level reporter."
         ),
     )
     return parser.parse_args()

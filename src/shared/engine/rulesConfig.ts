@@ -15,7 +15,7 @@ import { BOARD_CONFIGS, BoardType, RulesOptions } from '../types/game';
 export function getEffectiveLineLengthThreshold(
   boardType: BoardType,
   numPlayers: number,
-  rulesOptions?: RulesOptions
+  _rulesOptions?: RulesOptions
 ): number {
   const base = BOARD_CONFIGS[boardType].lineLength;
 

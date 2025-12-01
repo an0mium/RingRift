@@ -1,5 +1,6 @@
 import { Move, positionToString } from '../types/game';
 import type { Position, Territory } from '../types/game';
+import { flagEnabled, debugLog } from '../utils/envFlags';
 import {
   GameState as EngineGameState,
   GameAction,
@@ -196,12 +197,16 @@ function mapChooseLineRewardMove(move: Move, state: EngineGameState): ChooseLine
     if (line && collapsedPositions.length === line.positions.length) {
       selection = 'COLLAPSE_ALL';
     } else {
-      console.log('DEBUG: mapChooseLineRewardMove defaulting to MINIMUM_COLLAPSE', {
-        lineLength: line?.positions.length,
-        collapsedLength: collapsedPositions.length,
-        linePositions: line?.positions,
-        collapsedPositions,
-      });
+      debugLog(
+        flagEnabled('RINGRIFT_TRACE_DEBUG'),
+        'DEBUG: mapChooseLineRewardMove defaulting to MINIMUM_COLLAPSE',
+        {
+          lineLength: line?.positions.length,
+          collapsedLength: collapsedPositions.length,
+          linePositions: line?.positions,
+          collapsedPositions,
+        }
+      );
       selection = 'MINIMUM_COLLAPSE';
     }
   }
@@ -297,7 +302,7 @@ function resolveRegionIdFromMove(move: Move, state: EngineGameState): string {
         return id;
       }
     }
-    console.log('DEBUG: resolveRegionIdFromMove failed', {
+    debugLog(flagEnabled('RINGRIFT_TRACE_DEBUG'), 'DEBUG: resolveRegionIdFromMove failed', {
       candidateSpaces: Array.from(targetKeys),
       territories: Array.from(territories.entries()).map(([id, r]) => ({
         id,

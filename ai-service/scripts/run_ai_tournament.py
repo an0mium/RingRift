@@ -7,7 +7,9 @@ from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 
 # Add the parent directory to sys.path to allow imports from app
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.utils.progress_reporter import SoakProgressReporter
 
 from app.models import (
     GameState, BoardType, GamePhase, GameStatus, Player, TimeControl,
@@ -226,8 +228,16 @@ def main():
         "p2_wins": 0,
         "draws": 0
     }
-    
+
+    # Initialize progress reporter for time-based progress output (~10s intervals)
+    progress_reporter = SoakProgressReporter(
+        total_games=args.games,
+        report_interval_sec=10.0,
+        context_label=f"{args.p1}_vs_{args.p2}_{args.board}",
+    )
+
     for i in range(args.games):
+        game_start_time = time.time()
         print(f"\nMatch {i+1}/{args.games}")
         
         # Swap sides every other game to ensure fairness
@@ -250,7 +260,17 @@ def main():
                 stats["p1_wins"] += 1 # ai1 (P1 originally) won as Player 2
             else:
                 stats["draws"] += 1
-                
+
+        # Record game completion for progress reporting
+        game_duration = time.time() - game_start_time
+        progress_reporter.record_game(
+            moves=0,  # Move count not tracked at this level
+            duration_sec=game_duration,
+        )
+
+    # Emit final progress summary
+    progress_reporter.finish()
+
     print("\n" + "=" * 40)
     print("Final Results:")
     print(f"  {args.p1} (P1): {stats['p1_wins']} wins")

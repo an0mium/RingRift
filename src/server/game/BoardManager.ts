@@ -16,23 +16,16 @@ import {
   findLinesForPlayer as findLinesForPlayerShared,
 } from '../../shared/engine';
 import { getBorderMarkerPositionsForRegion as getSharedBorderMarkers } from '../../shared/engine/territoryBorders';
+import { flagEnabled, isTestEnvironment, debugLog } from '../../shared/utils/envFlags';
 
-const TERRITORY_TRACE_DEBUG =
-  typeof process !== 'undefined' &&
-  !!(process as any).env &&
-  ['1', 'true', 'TRUE'].includes((process as any).env.RINGRIFT_TRACE_DEBUG ?? '');
+const TERRITORY_TRACE_DEBUG = flagEnabled('RINGRIFT_TRACE_DEBUG');
 
 // When true, backend BoardManager will treat board invariant violations as
 // hard errors (throwing in tests) rather than best-effort diagnostics. This
 // mirrors the ClientSandboxEngine assertBoardInvariants helper and is used
 // by rules/parity tests to surface exclusivity bugs early.
 const BOARD_INVARIANTS_STRICT =
-  typeof process !== 'undefined' &&
-  !!(process as any).env &&
-  ((process as any).env.NODE_ENV === 'test' ||
-    ['1', 'true', 'TRUE'].includes(
-      (process as any).env.RINGRIFT_ENABLE_BACKEND_BOARD_INVARIANTS ?? ''
-    ));
+  isTestEnvironment() || flagEnabled('RINGRIFT_ENABLE_BACKEND_BOARD_INVARIANTS');
 
 export class BoardManager {
   private boardType: BoardType;
@@ -59,7 +52,6 @@ export class BoardManager {
     // Keep runtime logging behaviour very similar to the previous
     // console.error calls so existing diagnostics remain useful, but
     // funnel everything through a single structured hook.
-    // eslint-disable-next-line no-console
     console.error('[BoardManager] board repair', {
       kind,
       details,
@@ -95,10 +87,8 @@ export class BoardManager {
    * condition is constant-false, but the references are sufficient to
    * satisfy the compiler while preserving the helpers for future research.
    */
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
   private _retainLegacyRegionHelpersForDebug(): void {
-    // eslint-disable-next-line no-constant-condition
-    if (false) {
+    if (false as boolean) {
       const _withBorder = this.findRegionsWithBorderColor.bind(this);
       const _withoutBorder = this.findRegionsWithoutMarkerBorder.bind(this);
       // Retain legacy line-geometry helpers for diagnostics/historical context.
@@ -179,7 +169,6 @@ export class BoardManager {
 
     const message = `[BoardManager] invariant violation (${context}):` + '\n' + errors.join('\n');
 
-    // eslint-disable-next-line no-console
     console.error(message);
 
     if (BOARD_INVARIANTS_STRICT) {
@@ -558,7 +547,8 @@ export class BoardManager {
     const queue = [startPosition];
 
     while (queue.length > 0) {
-      const current = queue.shift()!;
+      const current = queue.shift();
+      if (!current) continue;
       const currentKey = positionToString(current);
 
       if (visited.has(currentKey)) continue;
@@ -667,8 +657,7 @@ export class BoardManager {
       )
       .sort();
 
-    // eslint-disable-next-line no-console
-    console.log('[BoardManager.debugFindAllLines]', {
+    debugLog(flagEnabled('RINGRIFT_TRACE_DEBUG'), '[BoardManager.debugFindAllLines]', {
       boardType: this.boardType,
       markerCount: board.markers.size,
       stackCount: board.stacks.size,
@@ -1059,7 +1048,8 @@ export class BoardManager {
     const localVisited = new Set<string>();
 
     while (queue.length > 0) {
-      const currentKey = queue.shift()!;
+      const currentKey = queue.shift();
+      if (!currentKey) continue;
 
       if (localVisited.has(currentKey)) continue;
       localVisited.add(currentKey);
@@ -1104,7 +1094,8 @@ export class BoardManager {
     const localVisited = new Set<string>();
 
     while (queue.length > 0) {
-      const currentKey = queue.shift()!;
+      const currentKey = queue.shift();
+      if (!currentKey) continue;
 
       if (localVisited.has(currentKey)) continue;
       localVisited.add(currentKey);
@@ -1206,8 +1197,7 @@ export class BoardManager {
       const regionSpacesSample = regionSpaces.slice(0, 12).map(positionToString);
       const borderMarkersSample = positions.slice(0, 12).map(positionToString);
 
-      // eslint-disable-next-line no-console
-      console.log('[BoardManager.getBorderMarkerPositions]', {
+      debugLog(TERRITORY_TRACE_DEBUG, '[BoardManager.getBorderMarkerPositions]', {
         boardType: board.type,
         regionSize: regionSpaces.length,
         borderCount: positions.length,

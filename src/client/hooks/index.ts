@@ -35,7 +35,11 @@ export {
 } from './useGameState';
 
 // Decision countdown helper
-export { useDecisionCountdown, type UseDecisionCountdownArgs, type DecisionCountdownState } from './useDecisionCountdown';
+export {
+  useDecisionCountdown,
+  type UseDecisionCountdownArgs,
+  type DecisionCountdownState,
+} from './useDecisionCountdown';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Connection Hooks
@@ -71,3 +75,14 @@ export {
   type PendingChoiceState,
   type ActionCapabilities,
 } from './useGameActions';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Animation Hooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  // Manual animation control
+  useMoveAnimation,
+  // Auto-detect animations from game state
+  useAutoMoveAnimation,
+} from './useMoveAnimation';

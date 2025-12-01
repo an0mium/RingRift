@@ -26,7 +26,7 @@ router.get(
   '/orchestrator/status',
   authenticate,
   authorize(['admin']),
-  (req: AuthenticatedRequest, res) => {
+  (_req: AuthenticatedRequest, res) => {
     const orchestratorConfig = config.featureFlags.orchestrator;
     const cbState = orchestratorRollout.getCircuitBreakerState();
     const errorRatePercent = orchestratorRollout.getErrorRate();

@@ -214,7 +214,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.2–2.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.2–4.4, 13.4, 13.5, 15.4 Q24.
 
 ---
- 
+
 ## 4.5 Active-No-Moves & Forced Elimination Semantics (R2xx)
 
 - **[RR-CANON-R200] Global legal actions for the current player.**
@@ -269,6 +269,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - **Other phases.**
       - For `ring_placement`, `movement`, `capture`, and `chain_capture`, ANM avoidance is already enforced by RR-CANON-R070–R072, RR-CANON-R080–R082, and RR-CANON-R090–R103:
         - If P has rings in hand but no legal placements, P must effectively skip placement and proceed to movement.
+        - **If P has no rings in hand (`ringsInHand == 0`) but controls stacks, placement is forbidden (RR-CANON-R080) and the engine must immediately transition to `movement` phase and enumerate movement/capture moves for P's controlled stacks.** This scenario commonly arises mid-game when a player has placed all their rings but still has board presence. The `getValidMoves` enumeration must return movement moves, not `skip_placement` (which requires `ringsInHand > 0`).
         - If P controls stacks but has no legal placement, movement, or capture, forced elimination must be applied (RR-CANON-R072/RR-CANON-R100).
         - If P has no turn-material at all, they must not remain `currentPlayer` in an ACTIVE state (RR-CANON-R201).
 
@@ -315,7 +316,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 > - Invariant and parity expectations for these rules are described in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:119) under `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, `INV-TERMINATION`, and `PARITY-TS-PY-ACTIVE-NO-MOVES`.
 
 ---
- 
+
 ## 5. Action Types and Legality
 
 ### 5.1 Ring placement
@@ -390,6 +391,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - Those rings are credited to P as eliminated.
     - If the stack becomes empty, remove it.
   - If after this elimination P still has no legal action, P's turn ends.
+  - Control-flip edge case: If P's only control over a stack was a cap of height 1 (a single ring of P on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes P to have **zero controlled stacks** and **zero rings in hand**, P becomes "temporarily inactive" (per RR-CANON-R170) immediately. Turn rotation should skip P and proceed to the next player who has material.
   - Note (canonical choice): text in the Complete Rules suggesting that caps might already be eliminated while stacks remain is treated as unreachable; the forced-elimination rule is always applicable whenever P controls any stack.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.4, 13.4, 13.5, 15.4 Q24.
 

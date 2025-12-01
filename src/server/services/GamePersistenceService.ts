@@ -1,31 +1,29 @@
 import {
   Prisma,
-  PrismaClient,
   Game as PrismaGame,
   Move as PrismaMove,
   MoveType as PrismaMoveType,
   GameStatus as PrismaGameStatus,
   BoardType as PrismaBoardType,
 } from '@prisma/client';
-import { getDatabaseClient, withTransaction } from '../database/connection';
+import { getDatabaseClient } from '../database/connection';
 import { logger } from '../utils/logger';
 import {
   Move,
   MoveType,
   GameState,
-  Player,
   Position,
   BoardType,
   TimeControl,
   GameResult,
   GameStatus,
+  RingStack,
+  CaptureType,
+  LineInfo,
+  Territory,
 } from '../../shared/types/game';
 import { RatingService, RatingUpdateResult } from './RatingService';
-import {
-  getDisplayUsername,
-  isDeletedUserUsername,
-  DELETED_USER_DISPLAY_NAME,
-} from '../routes/user';
+import { getDisplayUsername, isDeletedUserUsername } from '../routes/user';
 
 /**
  * Configuration for creating a new game in the database
@@ -172,10 +170,12 @@ export class GamePersistenceService {
 
     try {
       // Convert Move to position and moveData as JSON-serializable objects
-      const position = JSON.parse(JSON.stringify({
-        from: data.move.from,
-        to: data.move.to,
-      }));
+      const position = JSON.parse(
+        JSON.stringify({
+          from: data.move.from,
+          to: data.move.to,
+        })
+      );
 
       // Rich move data for replay and analysis
       const moveData = JSON.parse(JSON.stringify(this.serializeMoveData(data.move)));
@@ -219,10 +219,12 @@ export class GamePersistenceService {
 
     try {
       // Convert Move to position and moveData as JSON-serializable objects
-      const position = JSON.parse(JSON.stringify({
-        from: data.move.from,
-        to: data.move.to,
-      }));
+      const position = JSON.parse(
+        JSON.stringify({
+          from: data.move.from,
+          to: data.move.to,
+        })
+      );
 
       const moveData = JSON.parse(JSON.stringify(this.serializeMoveData(data.move)));
 
@@ -403,30 +405,43 @@ export class GamePersistenceService {
         isRated: existingGame.isRated,
       });
 
-      // Process rating updates for rated games
+      // Process rating updates for rated games. Abandonment-without-winner in
+      // rated games is treated as a non-competitive termination and MUST NOT
+      // change ratings (P18.3-1 §4.3), even though the game row itself may
+      // still be marked isRated=true for auditing.
       let ratingUpdates: RatingUpdateResult[] | undefined;
       if (existingGame.isRated) {
-        const playerIds = [
-          existingGame.player1Id,
-          existingGame.player2Id,
-          existingGame.player3Id,
-          existingGame.player4Id,
-        ].filter((id): id is string => !!id);
+        const reason = result?.reason;
+        const skipForAbandonmentDraw = reason === 'abandonment' && !winnerId;
 
-        if (playerIds.length >= 2) {
-          try {
-            ratingUpdates = await RatingService.processGameResult(gameId, winnerId, playerIds);
-            logger.info('Ratings updated after game completion', {
-              gameId,
-              updates: ratingUpdates,
-            });
-          } catch (ratingError) {
-            // Log but don't fail the game completion if rating update fails
-            logger.error('Failed to update ratings after game completion', {
-              gameId,
-              error: ratingError instanceof Error ? ratingError.message : String(ratingError),
-            });
+        if (!skipForAbandonmentDraw) {
+          const playerIds = [
+            existingGame.player1Id,
+            existingGame.player2Id,
+            existingGame.player3Id,
+            existingGame.player4Id,
+          ].filter((id): id is string => !!id);
+
+          if (playerIds.length >= 2) {
+            try {
+              ratingUpdates = await RatingService.processGameResult(gameId, winnerId, playerIds);
+              logger.info('Ratings updated after game completion', {
+                gameId,
+                updates: ratingUpdates,
+              });
+            } catch (ratingError) {
+              // Log but don't fail the game completion if rating update fails
+              logger.error('Failed to update ratings after game completion', {
+                gameId,
+                error: ratingError instanceof Error ? ratingError.message : String(ratingError),
+              });
+            }
           }
+        } else {
+          logger.info('Skipping rating update for abandonment without winner', {
+            gameId,
+            reason,
+          });
         }
       }
 
@@ -592,7 +607,7 @@ export class GamePersistenceService {
         select: { id: true },
       });
       return !!game;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -673,9 +688,9 @@ export class GamePersistenceService {
     // This is used by the /games/:gameId/history HTTP route to surface
     // autoResolved badges in the history UI without requiring a schema
     // migration (the data lives entirely inside moveData JSON).
-    const decisionAutoResolved = (move as any).decisionAutoResolved;
-    if (decisionAutoResolved) {
-      base.decisionAutoResolved = decisionAutoResolved;
+    const moveWithMeta = move as Move & { decisionAutoResolved?: unknown };
+    if (moveWithMeta.decisionAutoResolved) {
+      base.decisionAutoResolved = moveWithMeta.decisionAutoResolved;
     }
 
     return base;
@@ -685,7 +700,7 @@ export class GamePersistenceService {
    * Deserialize a database move record to domain Move
    */
   private static deserializeMove(dbMove: PrismaMove): Move {
-    const moveData = (dbMove as any).moveData as Record<string, unknown> | null;
+    const moveData = (dbMove as { moveData?: unknown }).moveData as Record<string, unknown> | null;
     const position = dbMove.position as { from?: Position; to?: Position } | null;
 
     // If we have rich moveData, use it
@@ -707,25 +722,32 @@ export class GamePersistenceService {
         result.placedOnStack = moveData.placedOnStack as boolean;
       if (moveData.placementCount !== undefined)
         result.placementCount = moveData.placementCount as number;
-      if (moveData.stackMoved) result.stackMoved = moveData.stackMoved as any;
+      if (moveData.stackMoved) result.stackMoved = moveData.stackMoved as RingStack;
       if (moveData.minimumDistance !== undefined)
         result.minimumDistance = moveData.minimumDistance as number;
       if (moveData.actualDistance !== undefined)
         result.actualDistance = moveData.actualDistance as number;
       if (moveData.markerLeft) result.markerLeft = moveData.markerLeft as Position;
-      if (moveData.captureType) result.captureType = moveData.captureType as any;
+      if (moveData.captureType) result.captureType = moveData.captureType as CaptureType;
       if (moveData.captureTarget) result.captureTarget = moveData.captureTarget as Position;
-      if (moveData.capturedStacks) result.capturedStacks = moveData.capturedStacks as any;
-      if (moveData.captureChain) result.captureChain = moveData.captureChain as any;
-      if (moveData.overtakenRings) result.overtakenRings = moveData.overtakenRings as any;
-      if (moveData.formedLines) result.formedLines = moveData.formedLines as any;
-      if (moveData.collapsedMarkers) result.collapsedMarkers = moveData.collapsedMarkers as any;
-      if (moveData.claimedTerritory) result.claimedTerritory = moveData.claimedTerritory as any;
+      if (moveData.capturedStacks) result.capturedStacks = moveData.capturedStacks as RingStack[];
+      if (moveData.captureChain) result.captureChain = moveData.captureChain as Position[];
+      if (moveData.overtakenRings) result.overtakenRings = moveData.overtakenRings as number[];
+      if (moveData.formedLines) result.formedLines = moveData.formedLines as LineInfo[];
+      if (moveData.collapsedMarkers)
+        result.collapsedMarkers = moveData.collapsedMarkers as Position[];
+      if (moveData.claimedTerritory)
+        result.claimedTerritory = moveData.claimedTerritory as Territory[];
       if (moveData.disconnectedRegions)
-        result.disconnectedRegions = moveData.disconnectedRegions as any;
-      if (moveData.eliminatedRings) result.eliminatedRings = moveData.eliminatedRings as any;
+        result.disconnectedRegions = moveData.disconnectedRegions as Territory[];
+      if (moveData.eliminatedRings)
+        result.eliminatedRings = moveData.eliminatedRings as { player: number; count: number }[];
       if (moveData.eliminationFromStack)
-        result.eliminationFromStack = moveData.eliminationFromStack as any;
+        result.eliminationFromStack = moveData.eliminationFromStack as {
+          position: Position;
+          capHeight: number;
+          totalHeight: number;
+        };
 
       return result;
     }
