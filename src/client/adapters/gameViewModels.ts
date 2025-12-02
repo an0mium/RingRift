@@ -97,8 +97,9 @@ export interface PlayerViewModel {
 }
 
 /**
- * Complete HUD view model
- */
+ /**
+  * Complete HUD view model
+  */
 export interface HUDDecisionPhaseViewModel {
   /** Whether a decision is currently active for any player. */
   isActive: boolean;
@@ -132,8 +133,18 @@ export interface HUDDecisionPhaseViewModel {
   isServerCapped?: boolean | undefined;
   /** Spectator-oriented status text derived from ChoiceViewModel.copy.spectatorLabel. */
   spectatorLabel: string;
+  /**
+   * Optional compact status chip used by HUDs to surface high-attention prompts
+   * for specific decision types (e.g., ring elimination).
+   */
+  statusChip?:
+    | {
+        text: string;
+        /** Visual tone hint for the chip styling. */
+        tone: 'info' | 'attention';
+      }
+    | undefined;
 }
-
 export interface HUDViewModel {
   phase: PhaseViewModel;
   players: PlayerViewModel[];
@@ -599,8 +610,12 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     heartbeatAge > HEARTBEAT_STALE_THRESHOLD_MS &&
     connectionStatus === 'connected';
 
-  const phase = toPhaseViewModel(gameState.currentPhase);
+  let phase = toPhaseViewModel(gameState.currentPhase);
   const players = gameState.players.map((p) => toPlayerViewModel(p, gameState, currentUserId));
+
+  // Precompute choice view model (if any) so we can reuse it for both HUD phase
+  // styling and decision-phase metadata without duplicating mapping logic.
+  const pendingChoiceVm = pendingChoice ? getChoiceViewModel(pendingChoice) : null;
 
   const turnNumber = gameState.moveHistory.length;
   const moveNumber =
@@ -635,16 +650,41 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     subPhaseDetail = 'Processing disconnected regions';
   }
 
+  // When a line-related decision is active during line/territory processing,
+  // present a celebratory "Line Formation" phase label and styling in the HUD
+  // while keeping the underlying phaseKey aligned with engine semantics.
+  if (
+    pendingChoiceVm &&
+    gameState.gameStatus === 'active' &&
+    (gameState.currentPhase === 'line_processing' ||
+      gameState.currentPhase === 'territory_processing')
+  ) {
+    const isLineDecisionKind =
+      pendingChoiceVm.kind === 'line_order' ||
+      pendingChoiceVm.kind === 'line_reward' ||
+      pendingChoiceVm.kind === 'ring_elimination';
+
+    if (isLineDecisionKind) {
+      phase = {
+        ...phase,
+        label: 'Line Formation',
+        description: 'Resolve completed lines and select any elimination rewards.',
+        colorClass: 'bg-amber-500',
+        icon: '✨',
+      };
+    }
+  }
+
   // Decision-phase detail derived from pending PlayerChoice + choiceViewModels.
   let decisionPhase: HUDDecisionPhaseViewModel | undefined;
-  if (pendingChoice && gameState.gameStatus === 'active') {
+  if (pendingChoice && pendingChoiceVm && gameState.gameStatus === 'active') {
     const actingPlayer = gameState.players.find(
       (p) => p.playerNumber === pendingChoice.playerNumber
     );
     const actingPlayerName = actingPlayer?.username || `Player ${pendingChoice.playerNumber}`;
     const isLocalActor = !!(currentUserId && actingPlayer && actingPlayer.id === currentUserId);
 
-    const vm = getChoiceViewModel(pendingChoice);
+    const vm = pendingChoiceVm;
 
     // Prefer a precomputed countdown when provided (e.g. from a dedicated
     // DecisionUI hook); otherwise derive remaining time from the deadline.
@@ -664,6 +704,15 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
 
     const spectatorLabel = vm.copy.spectatorLabel({ actingPlayerName });
 
+    // Optional compact status chip for specific decision kinds.
+    let statusChip: HUDDecisionPhaseViewModel['statusChip'];
+    if (vm.kind === 'ring_elimination') {
+      statusChip = {
+        text: 'Select stack cap to eliminate',
+        tone: 'attention',
+      };
+    }
+
     decisionPhase = {
       isActive: true,
       actingPlayerNumber: pendingChoice.playerNumber,
@@ -677,6 +726,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       warningThresholdMs: vm.timeout.warningThresholdMs,
       isServerCapped: vm.timeout.showCountdown ? decisionIsServerCapped : undefined,
       spectatorLabel,
+      statusChip,
     };
   }
 
@@ -1080,7 +1130,7 @@ function createCellViewModel(
   }
 
   let markerViewModel: MarkerViewModel | undefined;
-  if (marker && marker.type === 'regular') {
+  if (!stack && marker && marker.type === 'regular') {
     const colors = getPlayerColors(marker.player);
     markerViewModel = {
       position: pos,

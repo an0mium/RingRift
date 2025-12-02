@@ -224,13 +224,13 @@ describe('envFlags helpers', () => {
   });
 
   describe('orchestrator config presets', () => {
-    it('config.orchestrator matches CI orchestrator-ON profile', async () => {
+    // NOTE: rolloutPercentage was removed in Phase 3 migration - orchestrator is permanently enabled
+    it('config.orchestrator matches CI orchestrator-ON profile (Phase 3)', async () => {
       process.env = {
         ...process.env,
         NODE_ENV: 'test',
         RINGRIFT_RULES_MODE: 'ts',
         ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_ROLLOUT_PERCENTAGE: '100',
         ORCHESTRATOR_SHADOW_MODE_ENABLED: 'false',
       } as any;
 
@@ -239,21 +239,20 @@ describe('envFlags helpers', () => {
 
       expect(config.orchestrator.rulesMode).toBe('ts');
       expect(config.orchestrator.adapterEnabled).toBe(true);
-      expect(config.orchestrator.rolloutPercentage).toBe(100);
+      // Phase 3: rolloutPercentage removed - orchestrator permanently enabled
       expect(config.orchestrator.shadowModeEnabled).toBe(false);
 
       expect(config.featureFlags.orchestrator.adapterEnabled).toBe(true);
-      expect(config.featureFlags.orchestrator.rolloutPercentage).toBe(100);
+      // Phase 3: rolloutPercentage removed from featureFlags
       expect(config.featureFlags.orchestrator.shadowModeEnabled).toBe(false);
     });
 
-    it('config.orchestrator supports a Phase 2 shadow profile', async () => {
+    it('config.orchestrator supports shadow mode (Phase 3)', async () => {
       process.env = {
         ...process.env,
         NODE_ENV: 'production',
         RINGRIFT_RULES_MODE: 'shadow',
         ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_ROLLOUT_PERCENTAGE: '0',
         ORCHESTRATOR_SHADOW_MODE_ENABLED: 'true',
       } as any;
 
@@ -262,11 +261,11 @@ describe('envFlags helpers', () => {
 
       expect(config.orchestrator.rulesMode).toBe('shadow');
       expect(config.orchestrator.adapterEnabled).toBe(true);
-      expect(config.orchestrator.rolloutPercentage).toBe(0);
+      // Phase 3: rolloutPercentage removed - orchestrator permanently enabled
       expect(config.orchestrator.shadowModeEnabled).toBe(true);
 
       expect(config.featureFlags.orchestrator.adapterEnabled).toBe(true);
-      expect(config.featureFlags.orchestrator.rolloutPercentage).toBe(0);
+      // Phase 3: rolloutPercentage removed from featureFlags
       expect(config.featureFlags.orchestrator.shadowModeEnabled).toBe(true);
     });
   });

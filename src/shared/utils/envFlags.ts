@@ -72,6 +72,16 @@ export function isSandboxAiParityModeEnabled(): boolean {
 }
 
 /**
+ * Debug flag for visual/behavioural sandbox board animations (movement,
+ * captures, destination pulses). When enabled, client-side code may emit
+ * additional console diagnostics describing how animations were derived
+ * from GameState and board diffs.
+ */
+export function isSandboxAnimationDebugEnabled(): boolean {
+  return flagEnabled('RINGRIFT_SANDBOX_ANIMATION_DEBUG');
+}
+
+/**
  * Feature flag for enabling experimental local heuristic-based AI selection
  * in TypeScript hosts (backend fallback + sandbox AI).
  *

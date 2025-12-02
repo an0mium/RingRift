@@ -8,6 +8,7 @@ import {
 import {
   enumeratePlacementPositions,
   evaluateSkipPlacementEligibility,
+  SkipPlacementEligibilityResult,
 } from './aggregates/PlacementAggregate';
 import { enumerateProcessLineMoves } from './aggregates/LineAggregate';
 import {
@@ -128,9 +129,7 @@ function hasAnyGlobalMovementOrCapture(state: GameState, player: number): boolea
       continue;
     }
 
-    if (
-      hasAnyLegalMoveOrCaptureFromOnBoard(boardType, stack.position, player, view)
-    ) {
+    if (hasAnyLegalMoveOrCaptureFromOnBoard(boardType, stack.position, player, view)) {
       return true;
     }
   }
@@ -171,8 +170,11 @@ export function hasPhaseLocalInteractiveMove(state: GameState, player: number): 
       if (hasGlobalPlacementAction(state, player)) {
         return true;
       }
-      const eligibility = evaluateSkipPlacementEligibility(state, player);
-      return !!(eligibility as any).eligible;
+      const eligibility: SkipPlacementEligibilityResult = evaluateSkipPlacementEligibility(
+        state,
+        player
+      );
+      return eligibility.eligible;
     }
 
     case 'movement':
@@ -292,7 +294,7 @@ export function applyForcedEliminationForPlayer(
 
   let smallestCap = Number.POSITIVE_INFINITY;
 
-  for (const stack of state.board.stacks.values() as any) {
+  for (const stack of state.board.stacks.values()) {
     if (stack.controllingPlayer !== player || stack.stackHeight <= 0) {
       continue;
     }

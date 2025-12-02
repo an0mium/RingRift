@@ -739,8 +739,6 @@ class NeuralNetAI(BaseAI):
         """
         Select the best move using neural network evaluation.
         """
-        self.simulate_thinking(min_ms=300, max_ms=1000)
-
         # Update history for the current game state
         current_features, _ = self._extract_features(game_state)
         game_id = game_state.id
@@ -1279,6 +1277,20 @@ class NeuralNetAI(BaseAI):
             move_data = {
                 "id": "decoded",
                 "type": "skip_placement",
+                "player": game_state.current_player,
+                "to": {"x": 0, "y": 0},
+                "timestamp": datetime.now(),
+                "thinkTime": 0,
+                "moveNumber": 0,
+            }
+            return Move(**move_data)
+
+        # Swap sides (pie rule)
+        swap_sides_index = skip_index + 1
+        if index == swap_sides_index:
+            move_data = {
+                "id": "decoded",
+                "type": "swap_sides",
                 "player": game_state.current_player,
                 "to": {"x": 0, "y": 0},
                 "timestamp": datetime.now(),

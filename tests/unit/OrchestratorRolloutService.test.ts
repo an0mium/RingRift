@@ -190,8 +190,8 @@ describe('OrchestratorRolloutService', () => {
 
         const decision = service.selectEngine('session-123', undefined);
 
-        // Should proceed to percentage check since no userId
-        expect(decision.reason).toBe('percentage_excluded');
+        // Phase 3: percentage rollout removed, defaults to orchestrator
+        expect(decision.reason).toBe('default_enabled');
       });
     });
 
@@ -240,33 +240,36 @@ describe('OrchestratorRolloutService', () => {
       });
     });
 
-    describe('5. Percentage Rollout', () => {
-      it('should return ORCHESTRATOR when rollout is 100%', () => {
-        mockOrchestratorConfig.rolloutPercentage = 100;
+    describe('5. Default Enabled (Phase 3 - Percentage Rollout Removed)', () => {
+      // NOTE: Phase 3 migration removed percentage-based rollout.
+      // All sessions now default to orchestrator/shadow mode.
+
+      it('should return ORCHESTRATOR by default (ignores rolloutPercentage)', () => {
+        mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
 
         const decision = service.selectEngine('any-session-id');
 
         expect(decision.engine).toBe(EngineSelection.ORCHESTRATOR);
-        expect(decision.reason).toBe('percentage_rollout');
+        expect(decision.reason).toBe('default_enabled');
       });
 
-      it('should return LEGACY when rollout is 0%', () => {
-        mockOrchestratorConfig.rolloutPercentage = 0;
+      it('should return ORCHESTRATOR even when rolloutPercentage is 0 (Phase 3)', () => {
+        mockOrchestratorConfig.rolloutPercentage = 0; // Ignored in Phase 3
 
         const decision = service.selectEngine('any-session-id');
 
-        expect(decision.engine).toBe(EngineSelection.LEGACY);
-        expect(decision.reason).toBe('percentage_excluded');
+        expect(decision.engine).toBe(EngineSelection.ORCHESTRATOR);
+        expect(decision.reason).toBe('default_enabled');
       });
 
-      it('should return SHADOW when selected by percentage and shadow mode enabled', () => {
-        mockOrchestratorConfig.rolloutPercentage = 100;
+      it('should return SHADOW when shadow mode enabled (ignores rolloutPercentage)', () => {
+        mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
         mockOrchestratorConfig.shadowModeEnabled = true;
 
         const decision = service.selectEngine('session-123');
 
         expect(decision.engine).toBe(EngineSelection.SHADOW);
-        expect(decision.reason).toBe('percentage_rollout_shadow');
+        expect(decision.reason).toBe('default_enabled_shadow');
       });
     });
   });
@@ -285,7 +288,7 @@ describe('OrchestratorRolloutService', () => {
 
     it('Phase 1 / staging orchestrator-only routes typical sessions to ORCHESTRATOR', () => {
       mockOrchestratorConfig.adapterEnabled = true;
-      mockOrchestratorConfig.rolloutPercentage = 100;
+      mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
       mockOrchestratorConfig.shadowModeEnabled = false;
       mockOrchestratorConfig.allowlistUsers = [];
       mockOrchestratorConfig.denylistUsers = [];
@@ -300,12 +303,13 @@ describe('OrchestratorRolloutService', () => {
 
       const decision = service.selectEngine('staging-session', 'staging-user');
       expect(decision.engine).toBe(EngineSelection.ORCHESTRATOR);
-      expect(decision.reason).toBe('percentage_rollout');
+      // Phase 3: percentage rollout removed, defaults to orchestrator
+      expect(decision.reason).toBe('default_enabled');
     });
 
-    it('Phase 2 / production shadow uses SHADOW for allowlisted users and LEGACY otherwise', () => {
+    it('Phase 2 / production shadow uses SHADOW for allowlisted users and SHADOW for others (Phase 3 default)', () => {
       mockOrchestratorConfig.adapterEnabled = true;
-      mockOrchestratorConfig.rolloutPercentage = 0;
+      mockOrchestratorConfig.rolloutPercentage = 0; // Ignored in Phase 3
       mockOrchestratorConfig.shadowModeEnabled = true;
       mockOrchestratorConfig.allowlistUsers = ['vip-user'];
       mockOrchestratorConfig.denylistUsers = [];
@@ -320,15 +324,15 @@ describe('OrchestratorRolloutService', () => {
       expect(allowlisted.engine).toBe(EngineSelection.SHADOW);
       expect(allowlisted.reason).toBe('allowlist_shadow');
 
-      // Non-allowlisted user, no percentage rollout → LEGACY
+      // Phase 3: Non-allowlisted user also gets SHADOW (default enabled with shadow mode)
       const regular = service.selectEngine('prod-session-2', 'regular-user');
-      expect(regular.engine).toBe(EngineSelection.LEGACY);
-      expect(regular.reason).toBe('percentage_excluded');
+      expect(regular.engine).toBe(EngineSelection.SHADOW);
+      expect(regular.reason).toBe('default_enabled_shadow');
     });
 
-    it('Phase 3 / incremental rollout honors circuit breaker and percentage', () => {
+    it('Phase 3 / default enabled honors circuit breaker (percentage ignored)', () => {
       mockOrchestratorConfig.adapterEnabled = true;
-      mockOrchestratorConfig.rolloutPercentage = 25;
+      mockOrchestratorConfig.rolloutPercentage = 25; // Ignored in Phase 3
       mockOrchestratorConfig.shadowModeEnabled = false;
       mockOrchestratorConfig.allowlistUsers = [];
       mockOrchestratorConfig.denylistUsers = [];
@@ -338,22 +342,14 @@ describe('OrchestratorRolloutService', () => {
         errorWindowSeconds: 300,
       };
 
-      // First, with circuit breaker closed, some sessions should be routed to ORCHESTRATOR
-      let sawOrchestrator = false;
-      let sawLegacy = false;
-      for (let i = 0; i < 200; i++) {
+      // Phase 3: All sessions should be routed to ORCHESTRATOR (percentage ignored)
+      for (let i = 0; i < 10; i++) {
         const decision = service.selectEngine(`rollout-session-${i}`);
-        if (decision.engine === EngineSelection.ORCHESTRATOR) {
-          sawOrchestrator = true;
-        } else {
-          sawLegacy = true;
-        }
-        if (sawOrchestrator && sawLegacy) break;
+        expect(decision.engine).toBe(EngineSelection.ORCHESTRATOR);
+        expect(decision.reason).toBe('default_enabled');
       }
-      expect(sawOrchestrator).toBe(true);
-      expect(sawLegacy).toBe(true);
 
-      // Now trip the circuit breaker and confirm it forces LEGACY regardless of percentage
+      // Now trip the circuit breaker and confirm it forces LEGACY
       for (let i = 0; i < 20; i++) {
         service.recordError();
       }
@@ -365,9 +361,12 @@ describe('OrchestratorRolloutService', () => {
     });
   });
 
-  describe('Consistent Hashing', () => {
+  describe('Consistent Hashing (Legacy - Phase 3 now default enabled)', () => {
+    // NOTE: Phase 3 migration removed percentage-based rollout.
+    // These tests verify that behavior is now consistent (always orchestrator).
+
     it('should return consistent results for the same session ID', () => {
-      mockOrchestratorConfig.rolloutPercentage = 50;
+      mockOrchestratorConfig.rolloutPercentage = 50; // Ignored in Phase 3
 
       const decision1 = service.selectEngine('test-session-abc');
       const decision2 = service.selectEngine('test-session-abc');
@@ -376,10 +375,12 @@ describe('OrchestratorRolloutService', () => {
       expect(decision1.engine).toBe(decision2.engine);
       expect(decision2.engine).toBe(decision3.engine);
       expect(decision1.reason).toBe(decision2.reason);
+      // Phase 3: All go to orchestrator
+      expect(decision1.engine).toBe(EngineSelection.ORCHESTRATOR);
     });
 
-    it('should produce different results for different session IDs at 50% rollout', () => {
-      mockOrchestratorConfig.rolloutPercentage = 50;
+    it('should return ORCHESTRATOR for all sessions (Phase 3 - percentage ignored)', () => {
+      mockOrchestratorConfig.rolloutPercentage = 50; // Ignored in Phase 3
 
       const results = new Set<EngineSelection>();
       for (let i = 0; i < 100; i++) {
@@ -387,17 +388,16 @@ describe('OrchestratorRolloutService', () => {
         results.add(decision.engine);
       }
 
-      // At 50%, we should see both LEGACY and ORCHESTRATOR
-      expect(results.size).toBe(2);
+      // Phase 3: All sessions go to ORCHESTRATOR (percentage ignored)
+      expect(results.size).toBe(1);
       expect(results.has(EngineSelection.ORCHESTRATOR)).toBe(true);
-      expect(results.has(EngineSelection.LEGACY)).toBe(true);
     });
 
-    it('should distribute roughly evenly at 50%', () => {
-      mockOrchestratorConfig.rolloutPercentage = 50;
+    it('should route all sessions to ORCHESTRATOR (Phase 3 - percentage ignored)', () => {
+      mockOrchestratorConfig.rolloutPercentage = 50; // Ignored in Phase 3
 
       let orchestratorCount = 0;
-      const totalSessions = 10000;
+      const totalSessions = 100;
 
       for (let i = 0; i < totalSessions; i++) {
         const decision = service.selectEngine(`session-${i}-${Math.random()}`);
@@ -406,17 +406,16 @@ describe('OrchestratorRolloutService', () => {
         }
       }
 
-      // Should be roughly 50% with some statistical tolerance (45-55%)
-      expect(orchestratorCount).toBeGreaterThan(totalSessions * 0.45);
-      expect(orchestratorCount).toBeLessThan(totalSessions * 0.55);
+      // Phase 3: All sessions go to orchestrator
+      expect(orchestratorCount).toBe(totalSessions);
     });
 
-    it('should respect percentage boundaries', () => {
-      // Test at 10%
-      mockOrchestratorConfig.rolloutPercentage = 10;
+    it('should ignore percentage boundaries (Phase 3 - all go to orchestrator)', () => {
+      // Phase 3: percentage is ignored, all sessions go to orchestrator
+      mockOrchestratorConfig.rolloutPercentage = 10; // Ignored
 
       let orchestratorCount = 0;
-      const totalSessions = 5000;
+      const totalSessions = 100;
 
       for (let i = 0; i < totalSessions; i++) {
         const decision = service.selectEngine(`test-${i}`);
@@ -425,9 +424,8 @@ describe('OrchestratorRolloutService', () => {
         }
       }
 
-      // Should be roughly 10% with tolerance (7-13%)
-      expect(orchestratorCount).toBeGreaterThan(totalSessions * 0.07);
-      expect(orchestratorCount).toBeLessThan(totalSessions * 0.13);
+      // Phase 3: All go to orchestrator regardless of percentage
+      expect(orchestratorCount).toBe(totalSessions);
     });
   });
 
@@ -698,14 +696,15 @@ describe('OrchestratorRolloutService', () => {
   });
 
   describe('Shadow Mode', () => {
-    it('should return SHADOW for percentage rollout when shadow mode enabled', () => {
-      mockOrchestratorConfig.rolloutPercentage = 100;
+    it('should return SHADOW when shadow mode enabled (Phase 3 default)', () => {
+      mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
       mockOrchestratorConfig.shadowModeEnabled = true;
 
       const decision = service.selectEngine('session-123');
 
       expect(decision.engine).toBe(EngineSelection.SHADOW);
-      expect(decision.reason).toBe('percentage_rollout_shadow');
+      // Phase 3: default_enabled_shadow instead of percentage_rollout_shadow
+      expect(decision.reason).toBe('default_enabled_shadow');
     });
 
     it('should return SHADOW for allowlisted users when shadow mode enabled', () => {
@@ -719,13 +718,14 @@ describe('OrchestratorRolloutService', () => {
     });
 
     it('should return ORCHESTRATOR when shadow mode is disabled', () => {
-      mockOrchestratorConfig.rolloutPercentage = 100;
+      mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
       mockOrchestratorConfig.shadowModeEnabled = false;
 
       const decision = service.selectEngine('session-123');
 
       expect(decision.engine).toBe(EngineSelection.ORCHESTRATOR);
-      expect(decision.reason).toBe('percentage_rollout');
+      // Phase 3: default_enabled instead of percentage_rollout
+      expect(decision.reason).toBe('default_enabled');
     });
   });
 
@@ -886,9 +886,8 @@ describe('OrchestratorRolloutService', () => {
 describe('Singleton Export', () => {
   it('should export a singleton instance', async () => {
     // Import the singleton - must be done dynamically to get fresh import
-    const { orchestratorRollout } = await import(
-      '../../src/server/services/OrchestratorRolloutService'
-    );
+    const { orchestratorRollout } =
+      await import('../../src/server/services/OrchestratorRolloutService');
 
     expect(orchestratorRollout).toBeDefined();
     expect(orchestratorRollout).toBeInstanceOf(OrchestratorRolloutService);

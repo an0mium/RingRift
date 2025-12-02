@@ -1,11 +1,13 @@
-"""
-MCTS AI implementation for RingRift
-Uses Monte Carlo Tree Search for move selection
+"""MCTS AI implementation for RingRift.
 
-When `config.use_incremental_search` is True (the default), MCTSAI uses
-the make/unmake pattern on MutableGameState for faster search by avoiding
-object allocation overhead. When False, it falls back to the legacy
-immutable state cloning via apply_move().
+This module implements a Monte Carlo Tree Search (MCTS) agent used by the
+Python AI service. It supports both immutable (legacy) and mutable
+make/unmake search modes, gated by ``config.use_incremental_search``.
+
+When incremental search is enabled (the default), :class:`MCTSAI` operates
+on :class:`MutableGameState` and a lightweight node representation to
+reduce allocation overhead. The legacy path uses full :class:`GameState`
+clones for backwards‑compatible behaviour and debugging.
 """
 
 import logging
@@ -34,13 +36,21 @@ logger = logging.getLogger(__name__)
 
 class MCTSNode:
     """MCTS tree node for legacy (immutable) search.
-    
-    Stores a reference to the game state for each node in the tree.
+
+    Each node owns its own :class:`GameState` snapshot. This path trades
+    memory for simplicity and is kept primarily for A/B testing against
+    the incremental implementation and for debugging.
     """
-    def __init__(self, game_state: GameState, parent=None, move=None):
-        self.game_state = game_state
-        self.parent = parent
-        self.move = move
+
+    def __init__(
+        self,
+        game_state: GameState,
+        parent: Optional["MCTSNode"] = None,
+        move: Optional[Move] = None,
+    ) -> None:
+        self.game_state: GameState = game_state
+        self.parent: Optional["MCTSNode"] = parent
+        self.move: Optional[Move] = move
         self.children: List["MCTSNode"] = []
         self.wins = 0
         self.visits = 0
@@ -119,9 +129,11 @@ class MCTSNode:
 
 class MCTSNodeLite:
     """Lightweight MCTS tree node for incremental (mutable) search.
-    
-    Does NOT store game state - state is maintained externally via
-    make/unmake pattern. This reduces memory footprint significantly.
+
+    This variant does **not** store a :class:`GameState`; the caller
+    maintains a single mutable state and uses make/unmake to traverse
+    the tree. This dramatically reduces memory usage while preserving
+    behaviour.
     """
     __slots__ = [
         'parent', 'move', 'children', 'wins', 'visits',
@@ -133,8 +145,8 @@ class MCTSNodeLite:
         parent: Optional["MCTSNodeLite"] = None,
         move: Optional[Move] = None
     ):
-        self.parent = parent
-        self.move = move
+        self.parent: Optional["MCTSNodeLite"] = parent
+        self.move: Optional[Move] = move
         self.children: List["MCTSNodeLite"] = []
         self.wins = 0.0
         self.visits = 0
@@ -379,14 +391,14 @@ class DynamicBatchSizer:
 
 
 class MCTSAI(HeuristicAI):
-    """AI that uses Monte Carlo Tree Search.
-    
-    When `config.use_incremental_search` is True (the default), MCTSAI
-    uses the make/unmake pattern on MutableGameState for faster search
-    by avoiding object allocation overhead. When False, it falls back
-    to the legacy immutable state cloning via apply_move().
+    """Monte Carlo Tree Search AI with neural network evaluation.
+
+    MCTSAI combines MCTS with neural network value/policy estimates for
+    stronger play. It supports both legacy (immutable) and incremental
+    (mutable) search modes and reuses parts of :class:`HeuristicAI` for
+    rollout policies.
     """
-    
+
     def __init__(
         self,
         player_number: int,
@@ -395,17 +407,18 @@ class MCTSAI(HeuristicAI):
         dynamic_sizer: Optional[DynamicBatchSizer] = None,
         enable_dynamic_batching: bool = False,
     ):
-        """Initialize MCTS AI.
-        
+        """Initialize a new MCTS AI instance.
+
         Args:
-            player_number: The player number (1 or 2)
-            config: AI configuration
-            memory_config: Memory configuration for bounded structures
-            dynamic_sizer: Optional dynamic batch sizer for memory-aware
-                batching
+            player_number: The player number (1 or 2).
+            config: AI configuration for this instance.
+            memory_config: Memory configuration for bounded structures.
+            dynamic_sizer: Optional dynamic batch sizer for memory‑aware
+                batching.
             enable_dynamic_batching: Enable dynamic batching (default:
-                False for backward compatibility). If True and dynamic_sizer
-                is None, a default DynamicBatchSizer will be created.
+                ``False`` for backward compatibility). If ``True`` and
+                ``dynamic_sizer`` is ``None``, a default :class:`DynamicBatchSizer`
+                will be created.
         """
         super().__init__(player_number, config)
         
@@ -460,15 +473,6 @@ class MCTSAI(HeuristicAI):
         
         # Lightweight tree root for incremental search
         self.last_root_lite: Optional[MCTSNodeLite] = None
-
-    def simulate_thinking(self, min_ms: int = 100, max_ms: int = 2000) -> None:
-        """Override BaseAI.simulate_thinking.
-
-        For search-based AIs we interpret config.think_time as the total
-        search budget, so MCTSAI does not add any additional sleep on top
-        of its Monte Carlo loop.
-        """
-        return
 
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """Select the best move using MCTS"""

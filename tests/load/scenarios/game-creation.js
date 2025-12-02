@@ -17,6 +17,10 @@ const gameCreationErrors = new Counter('game_creation_errors');
 const gameCreationSuccess = new Rate('game_creation_success_rate');
 const gameCreationLatency = new Trend('game_creation_latency_ms');
 
+ // Auth state: use a shared pre-seeded load-test user for all VUs
+ const userEmail = 'loadtest_user_1@loadtest.local';
+ const userPassword = 'TestPassword123!';
+
 // Test configuration aligned with production staging SLOs
 export const options = {
   stages: [
@@ -29,8 +33,8 @@ export const options = {
   thresholds: {
     // HTTP request duration - staging SLOs from STRATEGIC_ROADMAP.md §2.1
     'http_req_duration': [
-      'p95<800',   // Staging: p95 ≤ 800ms for POST /api/games
-      'p99<1500'   // Staging: p99 ≤ 1500ms
+      'p(95)<800',   // Staging: p95 ≤ 800ms for POST /api/games
+      'p(99)<1500'   // Staging: p99 ≤ 1500ms
     ],
     
     // Error rate - staging SLO < 1.0%
@@ -38,7 +42,7 @@ export const options = {
     
     // Custom metrics
     'game_creation_success_rate': ['rate>0.99'],
-    'game_creation_latency_ms': ['p95<800', 'p99<1500']
+    'game_creation_latency_ms': ['p(95)<800', 'p(99)<1500']
   },
   
   // Test metadata
@@ -54,19 +58,65 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:3001';
 const API_PREFIX = '/api';
 
 /**
- * Setup function - runs once per VU before iterations
+ * Safely parse create-game API response and unwrap { success, data: { game } }.
+ */
+function parseCreateGameResponse(res) {
+  try {
+    const body = JSON.parse(res.body);
+    const game = body && body.data && body.data.game ? body.data.game : null;
+    return { body, game };
+  } catch (error) {
+    return { body: null, game: null };
+  }
+}
+
+/**
+ * Setup function - runs once before the test and returns shared auth state
  */
 export function setup() {
   console.log(`Starting game creation load test against ${BASE_URL}`);
   console.log('Target load: 50 concurrent users creating games');
-  
+
   // Health check
   const healthCheck = http.get(`${BASE_URL}/health`);
   check(healthCheck, {
     'health check successful': (r) => r.status === 200
   });
-  
-  return { baseUrl: BASE_URL };
+
+  // Login once as a pre-seeded load-test user and share the token with all VUs
+  const loginRes = http.post(
+    `${BASE_URL}${API_PREFIX}/auth/login`,
+    JSON.stringify({
+      email: userEmail,
+      password: userPassword,
+    }),
+    {
+      headers: { 'Content-Type': 'application/json' },
+      tags: { name: 'auth-login-setup' },
+    }
+  );
+
+  const loginOk = check(loginRes, {
+    'setup login successful': (r) => r.status === 200,
+    'setup access token present': (r) => {
+      try {
+        const body = JSON.parse(r.body);
+        return body && body.data && typeof body.data.accessToken === 'string';
+      } catch {
+        return false;
+      }
+    },
+  });
+
+  if (!loginOk) {
+    // Fail fast: without a valid token, the scenario cannot proceed meaningfully
+    throw new Error(`Setup login failed: status=${loginRes.status} body=${loginRes.body}`);
+  }
+
+  const parsed = JSON.parse(loginRes.body);
+  const token = parsed.data.accessToken;
+
+  return { baseUrl: BASE_URL, token };
 }
 
 /**
@@ -74,138 +124,97 @@ export function setup() {
  */
 export default function(data) {
   const baseUrl = data.baseUrl;
-  
-  // Step 1: Register/Login
-  const userId = `load-test-user-${__VU}-${Date.now()}`;
-  const password = 'TestPassword123!';
-  
-  const registerRes = http.post(`${baseUrl}${API_PREFIX}/auth/register`, JSON.stringify({
-    username: userId,
-    email: `${userId}@loadtest.local`,
-    password: password
-  }), {
-    headers: { 'Content-Type': 'application/json' },
-    tags: { name: 'auth-register' }
-  });
-  
-  const registerSuccess = check(registerRes, {
-    'registration successful': (r) => r.status === 201 || r.status === 409, // 409 if already exists
-  });
-  
-  if (!registerSuccess) {
-    gameCreationErrors.add(1);
-    return;
-  }
-  
-  sleep(0.5); // Brief pause between operations
-  
-  // Step 2: Login
-  const loginRes = http.post(`${baseUrl}${API_PREFIX}/auth/login`, JSON.stringify({
-    username: userId,
-    password: password
-  }), {
-    headers: { 'Content-Type': 'application/json' },
-    tags: { name: 'auth-login' }
-  });
-  
-  const loginSuccess = check(loginRes, {
-    'login successful': (r) => r.status === 200,
-    'token received': (r) => {
-      try {
-        const body = JSON.parse(r.body);
-        return body.token && body.token.length > 0;
-      } catch {
-        return false;
-      }
-    }
-  });
-  
-  if (!loginSuccess) {
-    gameCreationErrors.add(1);
-    return;
-  }
-  
-  const token = JSON.parse(loginRes.body).token;
+  const token = data.token;
+
   const authHeaders = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`
+    'Authorization': `Bearer ${token}`,
   };
-  
+
   sleep(0.5);
-  
+
   // Step 3: Create Game (main scenario focus)
   const boardTypes = ['square8', 'square19', 'hexagonal'];
   const boardType = boardTypes[Math.floor(Math.random() * boardTypes.length)];
-  const playerCounts = [2, 3, 4];
-  const playerCount = playerCounts[Math.floor(Math.random() * playerCounts.length)];
-  
+  const maxPlayersOptions = [2, 3, 4];
+  const maxPlayers = maxPlayersOptions[Math.floor(Math.random() * maxPlayersOptions.length)];
+
   const gameConfig = {
     name: `Load Test Game ${__VU}-${__ITER}`,
     boardType: boardType,
-    playerCount: playerCount,
+    maxPlayers: maxPlayers,
     isPrivate: false,
-    aiPlayers: Math.floor(Math.random() * (playerCount - 1)) // 0 to playerCount-1 AI players
+    timeControl: {
+      initialTime: 300,
+      increment: 5,
+      type: 'blitz',
+    },
+    isRated: true,
   };
-  
+
   const startTime = Date.now();
   const createGameRes = http.post(`${baseUrl}${API_PREFIX}/games`, JSON.stringify(gameConfig), {
     headers: authHeaders,
-    tags: { name: 'create-game' }
+    tags: { name: 'create-game' },
   });
   const createGameDuration = Date.now() - startTime;
-  
+
+  const parsedCreate = parseCreateGameResponse(createGameRes);
   const gameCreated = check(createGameRes, {
-    'game created successfully': (r) => r.status === 201,
-    'game ID returned': (r) => {
-      try {
-        const body = JSON.parse(r.body);
-        return body.id && body.id.length > 0;
-      } catch {
-        return false;
-      }
-    },
-    'game config matches': (r) => {
-      try {
-        const body = JSON.parse(r.body);
-        return body.boardType === boardType && body.playerCount === playerCount;
-      } catch {
-        return false;
-      }
-    }
+    'status is 201': (r) => r.status === 201,
+    'response payload parsed': () => parsedCreate.body !== null && parsedCreate.game !== null,
+    'game ID returned': () => Boolean(parsedCreate.game && parsedCreate.game.id),
+    'game config matches': () =>
+      !!(
+        parsedCreate.game &&
+        parsedCreate.game.boardType === boardType &&
+        parsedCreate.game.maxPlayers === maxPlayers
+      ),
   });
-  
+
   // Track metrics
   gameCreationLatency.add(createGameDuration);
   gameCreationSuccess.add(gameCreated);
-  
+
   if (!gameCreated) {
     gameCreationErrors.add(1);
     console.error(`Game creation failed for VU ${__VU}: ${createGameRes.status} - ${createGameRes.body}`);
     return;
   }
-  
-  const gameId = JSON.parse(createGameRes.body).id;
-  
+
+  const gameId = parsedCreate.game.id;
+
   sleep(0.5);
-  
+
   // Step 4: Fetch Game State (validates read path)
   const getGameRes = http.get(`${baseUrl}${API_PREFIX}/games/${gameId}`, {
     headers: authHeaders,
-    tags: { name: 'get-game' }
+    tags: { name: 'get-game' },
   });
-  
-  check(getGameRes, {
+
+  const gameStateOk = check(getGameRes, {
     'game state retrieved': (r) => r.status === 200,
     'game state valid': (r) => {
       try {
         const body = JSON.parse(r.body);
-        return body.id === gameId;
+        const game = body && body.data && body.data.game ? body.data.game : null;
+        return !!(game && game.id === gameId);
       } catch {
         return false;
       }
-    }
+    },
   });
-  
+
+  if (!gameStateOk) {
+    const bodySnippet =
+      typeof getGameRes.body === 'string' && getGameRes.body.length > 200
+        ? `${getGameRes.body.substring(0, 200)}...`
+        : getGameRes.body;
+    console.error(
+      `Game state fetch failed for VU ${__VU}: status=${getGameRes.status} body=${bodySnippet}`
+    );
+  }
+
   // Think time - simulates user reviewing game before next action
   sleep(1 + Math.random() * 2); // 1-3 seconds
 }

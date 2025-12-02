@@ -5,7 +5,7 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import path from 'path';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     // Bundle analyzer - generates stats.html in dist folder
@@ -16,14 +16,19 @@ export default defineConfig({
       brotliSize: true,
     }),
     // Copy contract test vectors to public scenarios directory for sandbox mode
-    viteStaticCopy({
-      targets: [
-        {
-          src: '../../tests/fixtures/contract-vectors/v2/*.vectors.json',
-          dest: 'scenarios/vectors',
-        },
-      ],
-    }),
+    // Only needed in development/test, not in Docker production builds
+    ...(mode !== 'production'
+      ? [
+          viteStaticCopy({
+            targets: [
+              {
+                src: '../../tests/fixtures/contract-vectors/v2/*.vectors.json',
+                dest: 'scenarios/vectors',
+              },
+            ],
+          }),
+        ]
+      : []),
   ],
   root: 'src/client',
   build: {
@@ -82,4 +87,4 @@ export default defineConfig({
       '@/shared': path.resolve(__dirname, './src/shared'),
     },
   },
-});
+}));

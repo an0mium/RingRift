@@ -22,6 +22,6 @@ export function mutateCapture(
   state: EngineGameState,
   action: OvertakingCaptureAction | ContinueChainAction
 ): EngineGameState {
-  const nextShared = mutateCaptureAggregate(state as unknown as SharedGameState, action as any);
+  const nextShared = mutateCaptureAggregate(state as unknown as SharedGameState, action);
   return nextShared as unknown as EngineGameState;
 }

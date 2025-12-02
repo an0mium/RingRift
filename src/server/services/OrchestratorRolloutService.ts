@@ -143,31 +143,14 @@ export class OrchestratorRolloutService {
       return decision;
     }
 
-    // 5. Percentage rollout using consistent hash
-    const percentage = orchestratorConfig.rolloutPercentage;
-    const sessionBucket = this.hashToPercentage(sessionId);
-
-    if (percentage >= 100 || sessionBucket < percentage) {
-      const decision = this.shadowOrOrchestrator('percentage_rollout');
-      logger.debug('Engine selection: percentage rollout included', {
-        sessionId,
-        userId,
-        sessionBucket,
-        rolloutPercentage: percentage,
-        decision: decision.reason,
-        engine: decision.engine,
-      });
-      return decision;
-    }
-
-    // Session not selected by percentage
-    const decision = { engine: EngineSelection.LEGACY, reason: 'percentage_excluded' };
-    logger.debug('Engine selection: percentage rollout excluded', {
+    // 5. Orchestrator permanently enabled (Phase 3 migration - percentage rollout removed)
+    // All sessions not caught by earlier guards proceed to orchestrator/shadow mode
+    const decision = this.shadowOrOrchestrator('default_enabled');
+    logger.debug('Engine selection: orchestrator enabled by default', {
       sessionId,
       userId,
-      sessionBucket,
-      rolloutPercentage: percentage,
       decision: decision.reason,
+      engine: decision.engine,
     });
     return decision;
   }
@@ -183,26 +166,6 @@ export class OrchestratorRolloutService {
       return { engine: EngineSelection.SHADOW, reason: `${baseReason}_shadow` };
     }
     return { engine: EngineSelection.ORCHESTRATOR, reason: baseReason };
-  }
-
-  /**
-   * Consistent hash of session ID to 0-99 percentage bucket.
-   *
-   * Uses a simple djb2-like hash function to deterministically map session IDs
-   * to percentage buckets. The same session ID will always map to the same
-   * bucket, ensuring consistent engine selection for a given session.
-   *
-   * @param sessionId - The session ID to hash
-   * @returns A number from 0 to 99
-   */
-  private hashToPercentage(sessionId: string): number {
-    let hash = 0;
-    for (let i = 0; i < sessionId.length; i++) {
-      // djb2-like hash: hash * 33 + charCode
-      hash = (hash << 5) - hash + sessionId.charCodeAt(i);
-      hash = hash & hash; // Convert to 32bit integer
-    }
-    return Math.abs(hash % 100);
   }
 
   /**

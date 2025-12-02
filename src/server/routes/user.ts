@@ -20,7 +20,7 @@ let wsServer: WebSocketServer | null = null;
  * Set the WebSocket server reference for this route module.
  * Called during route setup to enable WebSocket session termination.
  */
-export function setWebSocketServer(server: WebSocketServer): void {
+export function setWebSocketServer(server: WebSocketServer | null): void {
   wsServer = server;
 }
 

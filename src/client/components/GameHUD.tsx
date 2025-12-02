@@ -864,6 +864,22 @@ function GameHUDFromViewModel({
       <PhaseIndicator phase={phase} />
       <SubPhaseDetails detail={subPhaseDetail} />
 
+      {/* Decision-specific status chip (e.g. ring elimination prompt) */}
+      {decisionPhase?.statusChip && (
+        <div className="mt-2 inline-flex items-center gap-2">
+          <span
+            className={
+              decisionPhase.statusChip.tone === 'attention'
+                ? 'px-3 py-1 rounded-full bg-amber-500 text-slate-950 text-[11px] font-semibold shadow-sm shadow-amber-500/40 border border-amber-300'
+                : 'px-3 py-1 rounded-full bg-sky-900/60 text-sky-100 text-[11px] font-medium border border-sky-500/60'
+            }
+            data-testid="hud-decision-status-chip"
+          >
+            {decisionPhase.statusChip.text}
+          </span>
+        </div>
+      )}
+
       {pieRuleSummary && (
         <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-900/60 border border-amber-500/60 text-[11px] text-amber-100">
           <span className="font-semibold uppercase tracking-wide">Pie rule</span>

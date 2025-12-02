@@ -131,6 +131,26 @@ export function exportGameStateToFile(gameState: GameState, name: string): void 
 }
 
 /**
+ * Build a lightweight, test-friendly fixture object from a GameState.
+ * This is intended for copying into Jest tests so that bugs discovered
+ * via the sandbox UI can be reproduced as scripted fixtures.
+ */
+export function buildTestFixtureFromGameState(gameState: GameState): unknown {
+  const serializedState = serializeGameState(gameState);
+
+  return {
+    kind: 'ringrift_sandbox_fixture_v1',
+    boardType: gameState.boardType,
+    currentPhase: gameState.currentPhase,
+    currentPlayer: gameState.currentPlayer,
+    rngSeed: (gameState as GameState & { rngSeed?: number | null }).rngSeed ?? null,
+    moveHistory: gameState.moveHistory ?? [],
+    historyLength: gameState.history?.length ?? 0,
+    state: serializedState,
+  };
+}
+
+/**
  * Validation result for imported scenarios.
  */
 export interface ScenarioValidationResult {

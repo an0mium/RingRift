@@ -34,6 +34,15 @@ jest.mock('@/client/contexts/AuthContext', () => ({
 
 jest.mock('../../../src/client/services/api');
 
+// Mock ReplayService to prevent unhandled async state updates after tests complete
+const mockStoreGame = jest.fn().mockResolvedValue({ success: true, totalMoves: 10 });
+jest.mock('../../../src/client/services/ReplayService', () => ({
+  __esModule: true,
+  getReplayService: () => ({
+    storeGame: mockStoreGame,
+  }),
+}));
+
 let mockSandboxValue: any;
 
 // Choice + AI helpers wired via useSandboxInteractions mock
@@ -226,6 +235,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
     mockSandboxValue = createMockSandboxContext();
     mockMaybeRunSandboxAiIfNeeded.mockReset();
     mockChoiceResolve.mockReset();
+    mockStoreGame.mockClear();
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -584,7 +594,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
   // 6. Victory modal wiring for local sandbox games
   // ───────────────────────────────────────────────────────────────────────────
 
-  it('shows VictoryModal when sandboxVictoryResult is present and resets engine on Return to Lobby', () => {
+  it('shows VictoryModal when sandboxVictoryResult is present and resets engine on Return to Lobby', async () => {
     const players = createPlayers();
     const completedState = createSandboxGameState({
       players,
@@ -620,6 +630,11 @@ describe('SandboxGameHost (React host behaviour)', () => {
     });
 
     render(<SandboxGameHost />);
+
+    // Wait for the auto-save effect to complete to avoid act() warnings
+    await waitFor(() => {
+      expect(mockStoreGame).toHaveBeenCalled();
+    });
 
     // When a victory result is returned by the sandbox engine, the VictoryModal
     // should be open and show the Return to Lobby button.

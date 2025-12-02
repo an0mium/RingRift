@@ -3,7 +3,7 @@ import {
   MatchmakingStatus,
   WebSocketErrorPayload,
 } from '../../shared/types/websocket';
-import { GameStatus } from '@prisma/client';
+import { BoardType as PrismaBoardType, GameStatus } from '@prisma/client';
 import { getDatabaseClient } from '../database/connection';
 import { WebSocketServer } from '../websocket/server';
 import { logger } from '../utils/logger';
@@ -160,7 +160,7 @@ export class MatchmakingService {
       // Note: This duplicates some logic from game routes, ideally should be shared
       const game = await prisma.game.create({
         data: {
-          boardType: player1.preferences.boardType as any,
+          boardType: player1.preferences.boardType as PrismaBoardType,
           maxPlayers: 2,
           // Use player1's time control preferences as baseline (or average)
           // For simplicity, using fixed values or player1's min

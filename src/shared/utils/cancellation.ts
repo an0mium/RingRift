@@ -50,6 +50,18 @@ export interface CancellationSource {
   cancel(reason?: CancellationReason): void;
 }
 
+/**
+ * Extended cancellation source returned by {@link createLinkedCancellationSource}.
+ * Includes a `syncFromParent` method for explicitly checking parent cancellation.
+ */
+export interface LinkedCancellationSource extends CancellationSource {
+  /**
+   * Checks if the parent token is canceled and propagates to this child.
+   * Callers should invoke this periodically from their own loops to observe parent cancellation.
+   */
+  syncFromParent(): void;
+}
+
 export function createCancellationSource(): CancellationSource {
   let canceled = false;
   let reason: CancellationReason | undefined;
@@ -67,7 +79,7 @@ export function createCancellationSource(): CancellationSource {
       const message = `Operation canceled${detail}`;
       const error = new Error(message);
       // Preserve the original reason on the error object for richer logging.
-      (error as any).cancellationReason = reason;
+      (error as unknown as { cancellationReason: CancellationReason }).cancellationReason = reason;
       throw error;
     },
   };
@@ -94,14 +106,10 @@ export function createCancellationSource(): CancellationSource {
  * a long-lived parent token and we need shorter-lived child tokens for
  * individual AI requests or WebSocket choices.
  */
-export function createLinkedCancellationSource(parent: CancellationToken): CancellationSource {
+export function createLinkedCancellationSource(
+  parent: CancellationToken
+): LinkedCancellationSource {
   const child = createCancellationSource();
-
-  // If the parent is already canceled, propagate immediately.
-  if (parent.isCanceled) {
-    child.cancel(parent.reason);
-    return child;
-  }
 
   // Best-effort polling hook – callers should invoke this periodically from
   // their own loops (for example inside a setInterval or request lifecycle)
@@ -113,8 +121,15 @@ export function createLinkedCancellationSource(parent: CancellationToken): Cance
     }
   }
 
-  // Expose the sync function for explicit use by hosts.
-  (child as any).syncFromParent = syncFromParent;
+  // If the parent is already canceled, propagate immediately.
+  if (parent.isCanceled) {
+    child.cancel(parent.reason);
+  }
 
-  return child;
+  // Return an extended source with the sync function exposed.
+  return {
+    token: child.token,
+    cancel: child.cancel.bind(child),
+    syncFromParent,
+  };
 }

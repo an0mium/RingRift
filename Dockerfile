@@ -18,6 +18,9 @@ RUN npm ci && npm cache clean --force
 COPY src/ ./src/
 COPY prisma ./prisma
 
+# Generate Prisma client before build (required for TypeScript compilation)
+RUN npx prisma generate
+
 # Build both server and client (server bundle + Vite SPA)
 RUN npm run build
 
@@ -52,4 +55,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
 # Start the application
-CMD ["node", "dist/server/index.js"]
+CMD ["node", "dist/server/server/index.js"]

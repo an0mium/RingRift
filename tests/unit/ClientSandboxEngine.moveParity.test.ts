@@ -23,20 +23,12 @@ import {
 } from '../utils/fixtures';
 import { movementRuleScenarios } from '../scenarios/rulesMatrix';
 
-/**
- * Parity test: sandbox movement landings vs backend RuleEngine.getValidMoves.
- *
- * For a small handcrafted position, we compare:
- * - sandbox: ClientSandboxEngine.getValidLandingPositionsForCurrentPlayer(from), and
- * - backend: RuleEngine.getValidMoves(gameState) filtered to movement moves
- *   originating from the same source stack.
- *
- * This helps ensure sandbox move gating stays aligned with backend
- * semantics (path rules, marker rules, stack merging landings).
- */
-
 describe('ClientSandboxEngine movement parity with RuleEngine', () => {
   const boardType: BoardType = 'square8';
+
+  function pos(x: number, y: number): Position {
+    return { x, y };
+  }
 
   function createSandboxEngine(): ClientSandboxEngine {
     const config: SandboxConfig = {
@@ -247,5 +239,54 @@ describe('ClientSandboxEngine movement parity with RuleEngine', () => {
 
     expect(sandboxLandingKeys).toContain(ownKey);
     expect(sandboxLandingKeys).not.toContain(oppKey);
+  });
+
+  test('getValidLandingPositionsForCurrentPlayer includes both capture and non-capture landings when overtaking is optional', () => {
+    const engine = createSandboxEngine();
+    const engineAny = engine as any;
+    const sandboxState: GameState = engineAny.gameState as GameState;
+
+    sandboxState.currentPlayer = 1;
+    sandboxState.currentPhase = 'movement';
+
+    const board = sandboxState.board;
+    board.stacks.clear();
+    board.markers.clear();
+    board.collapsedSpaces.clear();
+
+    // Scenario inspired by captureSequenceEnumeration "square8: branching (2 single-capture paths)":
+    // a height-3 stack at (3,3) with capture targets to the east and north.
+    const from: Position = pos(3, 3);
+    addStack(board, from, 1, 3);
+    addStack(board, pos(5, 3), 2, 2); // East target
+    addStack(board, pos(3, 5), 2, 2); // North target
+
+    // Sanity: there should be at least one capture segment from this stack.
+    const captureSegments: Array<{ from: Position; target: Position; landing: Position }> =
+      engineAny.enumerateCaptureSegmentsFrom(from, 1);
+    const captureFromThisStack = captureSegments.filter(
+      (seg) => positionToString(seg.from) === positionToString(from)
+    );
+    expect(captureFromThisStack.length).toBeGreaterThan(0);
+
+    // And at least one simple (non-capturing) landing from the same stack.
+    const simpleLandings: Array<{ fromKey: string; to: Position }> =
+      engineAny.enumerateSimpleMovementLandings(1);
+    const simpleFromThisStack = simpleLandings.filter((m) => m.fromKey === positionToString(from));
+    expect(simpleFromThisStack.length).toBeGreaterThan(0);
+
+    const targets = engine.getValidLandingPositionsForCurrentPlayer(from);
+    const targetKeys = new Set(targets.map((p) => positionToString(p)));
+
+    // All capture landings from this stack should be surfaced as valid targets.
+    for (const seg of captureFromThisStack) {
+      const key = positionToString(seg.landing);
+      expect(targetKeys.has(key)).toBe(true);
+    }
+
+    // At least one simple landing from this stack should also be surfaced.
+    const simpleKeys = simpleFromThisStack.map((m) => positionToString(m.to));
+    const hasSimpleInTargets = simpleKeys.some((key) => targetKeys.has(key));
+    expect(hasSimpleInTargets).toBe(true);
   });
 });

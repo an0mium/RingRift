@@ -1,16 +1,17 @@
 # RingRift Current State Assessment
 
-**Assessment Date:** 2025-12-01 (Post-PASS20)
+**Assessment Date:** 2025-12-01 (Post-PASS20-21)
 **Last CI Test Runs:** 2025-12-01 (TypeScript CI-gated suites: 2,987 passed, 0 failing; Python: 836 passing)
 **Last Full Jest Snapshot:** See `jest-results.json` and [`docs/PASS20_ASSESSMENT.md`](docs/PASS20_ASSESSMENT.md) for extended/diagnostic profile analysis
 **Assessor:** Code + Test Review + CI Analysis
 **Purpose:** Factual status of the codebase as it exists today
 
-> **PASS20 Update (2025-12-01):** This document has been updated to reflect PASS18/19/20 completed work:
+> **PASS20-21 Update (2025-12-01):** This document has been updated to reflect PASS18/19/20/21 completed work:
 >
 > - **PASS18 (33 tasks):** Host parity, RNG alignment, decision lifecycle, orchestrator Phase 4 rollout, extended contract vectors (49 cases)
 > - **PASS19 (12 tasks):** E2E test infrastructure, game fixtures, type safety improvements, test rewrites
-> - **PASS20 (25 tasks):** Phase 3 orchestrator migration complete, ~1,118 lines legacy code removed, TEST_CATEGORIES.md documentation
+> - **PASS20 (25 tasks):** Phase 3 orchestrator migration complete, ~1,176 lines legacy code removed, TEST_CATEGORIES.md documentation
+> - **PASS21 (Observability Infrastructure):** 3 Grafana dashboards created, k6 load testing framework implemented, monitoring stack by default
 > - **Orchestrator Migration:** ✅ Phase 3 COMPLETE – See [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md)
 > - All CI-gated TypeScript tests passing (2,987 tests), Python tests stable (836 tests)
 > - Project health status: **GREEN**
@@ -62,13 +63,22 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
 
 - **PASS20 Complete (25 tasks, 2025-12-01):**
   - **Phase 3 Orchestrator Migration COMPLETE** – All critical legacy code paths removed
-  - **Legacy Code Removed:** ~1,118 lines (RuleEngine methods, feature flags, ClientSandboxEngine legacy, obsolete tests)
+  - **Legacy Code Removed:** ~1,176 lines (RuleEngine methods, feature flags, ClientSandboxEngine legacy, obsolete tests)
   - **Test Suite Stabilization** – 6 critical test issues fixed
   - **Victory Detection Bug** – Fixed victory condition edge case
   - **Documentation** – [`docs/TEST_CATEGORIES.md`](docs/TEST_CATEGORIES.md), [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md)
   - See full summary: [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md)
 
-- **Current Focus (Post-PASS20):** With the test suite stabilized and documented, the primary focus is **Frontend UX Polish** (sandbox scenario picker, spectator UI, and other quality‑of‑life features) and **E2E Coverage Expansion** (complex multiplayer scenarios: timeout notifications, reconnection, concurrent resignation).
+- **PASS21 Complete (Observability Infrastructure, 2025-12-01):**
+  - **Observability:** 3 Grafana dashboards created (game-performance, rules-correctness, system-health)
+  - **Load Testing:** k6 framework implemented with 4 production-scale scenarios
+  - **Monitoring:** Monitoring stack runs by default (moved from optional profile)
+  - **Dashboards:** 22 panels across performance, correctness, and health metrics
+  - **Test Coverage:** Context coverage dramatically improved (GameContext 89.52%, SandboxContext 84.21%)
+  - **Observability Score:** Improved from 2.5/5 → 4.5/5
+  - See full assessment: [`docs/PASS21_ASSESSMENT_REPORT.md`](docs/PASS21_ASSESSMENT_REPORT.md)
+
+- **Current Focus (Post-PASS21):** With observability infrastructure in place and load testing framework implemented, the primary focus is **Production Validation** (running load tests at scale, establishing baseline metrics) and **Frontend UX Polish** (scenario picker refinement, spectator UI improvements, keyboard navigation testing).
 
 - **Core Rules:** Movement, markers, captures (including chains), lines, territory, forced elimination, and victory are implemented in the shared TypeScript rules engine under [`src/shared/engine`](src/shared/engine/types.ts) and reused by backend and sandbox hosts. These helpers are exercised by focused Jest suites with 285+ test files providing comprehensive coverage.
 - **Backend & Sandbox Hosts:** The backend `RuleEngine` / `GameEngine` and the client `ClientSandboxEngine` act as thin adapters over the shared helpers, wiring in IO (WebSockets/HTTP, persistence, AI) while delegating core game mechanics to shared validators/mutators and geometry helpers.
@@ -307,7 +317,7 @@ This section summarizes the risk status as of PASS20 completion (2025-12-01).
 
 | Risk                          | Status                                  | Next Step                                                                                                       |
 | ----------------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Frontend UX completeness      | P0/P1 tasks pending                     | Sandbox scenario picker, spectator UI improvements                                                              |
+| Frontend UX completeness      | P0/P1 tasks pending                     | Sandbox scenario picker refinement, spectator UI improvements                                                   |
 | E2E multiplayer coverage      | Infra in place, targeted coverage added | Focus remaining work on heavier soaks / load (multi‑game sessions, longer chains) rather than basic correctness |
 | Production preview validation | Not yet exercised                       | Needs real traffic validation                                                                                   |
 | Hexagonal geometry edge cases | Coverage improved via test vectors      | Monitor for new edge cases in play                                                                              |
@@ -365,6 +375,9 @@ Key remaining work for production deployment:
 - **TypeScript tests (CI-gated):** 2,987 passing, 0 failing, ~130 skipped
 - **Python tests:** 836 tests passing
 - **Contract tests:** 49 test vectors with 100% cross-language parity (0 mismatches)
+- **Overall coverage:** ~69% lines (improved from 65.55%)
+  - GameContext.tsx: 89.52% coverage (was 0%)
+  - SandboxContext.tsx: 84.21% coverage (was 0%)
 
 **Test Health (PASS20 Complete):**
 
@@ -421,16 +434,17 @@ The project has reached a mature beta state with consolidated architecture. PASS
 
 ---
 
-## 📊 Component Scores (Post-PASS20)
+## 📊 Component Scores (Post-PASS21)
 
-| Component                    | Score | Trend | Notes                                                        |
-| :--------------------------- | :---: | :---: | :----------------------------------------------------------- |
-| **Rules Engine (Shared TS)** | 4.5/5 |   ➔   | Victory bug fixed in PASS20                                  |
-| **Rules Engine (Python)**    | 4.5/5 |   ➔   | Stable, 836 tests passing                                    |
-| **Test Suite**               | 4.0/5 |   ↗   | Fixed from 3.0 – failures resolved, TEST_CATEGORIES.md added |
-| **Documentation**            | 4.0/5 |   ↗   | Fixed from 3.5 – TEST_CATEGORIES.md, pass reports complete   |
-| **WebSocket**                | 4.0/5 |   ↗   | Fixed from 3.5 – 42/42 tests passing with test helpers       |
-| **Frontend UX**              | 3.5/5 |   ➔   | Still needs polish work (sandbox, spectator UI)              |
-| **Backend API**              | 4.0/5 |   ➔   | Solid routes, session management robust                      |
-| **AI Service**               | 4.0/5 |   ➔   | Heuristic functional, training infra exists                  |
-| **DevOps/CI**                | 4.0/5 |   ➔   | CI jobs wired, diagnostic suites documented                  |
+| Component                    | Score | Trend | Notes                                                    |
+| :--------------------------- | :---: | :---: | :------------------------------------------------------- |
+| **Rules Engine (Shared TS)** | 4.7/5 |   ➔   | Excellent, orchestrator at 100%, minor doc gaps          |
+| **Rules Engine (Python)**    | 4.5/5 |   ➔   | Stable, 836 tests passing                                |
+| **Test Suite**               | 4.0/5 |   ➔   | Stable, failures resolved, TEST_CATEGORIES.md added      |
+| **Observability/Monitoring** | 4.5/5 |   ↗   | Improved from 2.5 – 3 dashboards, k6 load tests, default |
+| **Documentation**            | 4.0/5 |   ➔   | Comprehensive, DOCUMENTATION_INDEX.md created            |
+| **WebSocket**                | 4.0/5 |   ➔   | 42/42 tests passing with test helpers                    |
+| **Frontend UX**              | 3.5/5 |   ➔   | Still needs polish work (sandbox, spectator UI)          |
+| **Backend API**              | 4.2/5 |   ➔   | Solid routes, session management robust                  |
+| **AI Service**               | 4.0/5 |   ➔   | Heuristic functional, training infra exists              |
+| **DevOps/CI**                | 4.0/5 |   ➔   | CI jobs wired, diagnostic suites documented              |

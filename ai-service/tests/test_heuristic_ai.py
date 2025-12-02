@@ -309,6 +309,70 @@ class TestHeuristicAI(unittest.TestCase):
 
         self.assertGreater(nearer, base)
 
+    def test_evaluate_position_prefers_near_victory_territory_state(self):
+        """
+        From the full evaluator's perspective, progressing towards a
+        territory win should strictly improve the position.
+        """
+        base_state = self.game_state.copy(deep=True)
+        near_victory_state = self.game_state.copy(deep=True)
+
+        base_p1, base_p2 = base_state.players
+        near_p1, near_p2 = near_victory_state.players
+
+        base_state.victory_threshold = 19
+        base_state.territory_victory_threshold = 33
+        base_p1.territory_spaces = 0
+        base_p2.territory_spaces = 0
+
+        near_victory_state.victory_threshold = 19
+        near_victory_state.territory_victory_threshold = 33
+        near_p1.territory_spaces = 32
+        near_p2.territory_spaces = 0
+
+        base_score = self.ai.evaluate_position(base_state)
+        near_score = self.ai.evaluate_position(near_victory_state)
+
+        self.assertGreater(
+            near_score,
+            base_score,
+            "Near-victory territory configuration should evaluate higher "
+            "than the baseline state.",
+        )
+
+    def test_evaluate_position_prefers_near_victory_elimination_state(self):
+        """
+        From the full evaluator's perspective, progressing towards an
+        elimination win should strictly improve the position.
+        """
+        base_state = self.game_state.copy(deep=True)
+        near_victory_state = self.game_state.copy(deep=True)
+
+        base_state.victory_threshold = 10
+        base_state.territory_victory_threshold = 100
+        near_victory_state.victory_threshold = 10
+        near_victory_state.territory_victory_threshold = 100
+
+        base_p1, base_p2 = base_state.players
+        near_p1, near_p2 = near_victory_state.players
+
+        base_p1.eliminated_rings = 0
+        base_p2.eliminated_rings = 0
+
+        # Move Player 1 close to an elimination victory (9/10 rings).
+        near_p1.eliminated_rings = 9
+        near_p2.eliminated_rings = 0
+
+        base_score = self.ai.evaluate_position(base_state)
+        near_score = self.ai.evaluate_position(near_victory_state)
+
+        self.assertGreater(
+            near_score,
+            base_score,
+            "Near-elimination configuration should evaluate higher than the "
+            "baseline state.",
+        )
+
     def test_evaluate_lps_action_advantage_rewards_unique_actions(self):
         """
         LPS action advantage should reward being one of the few players
@@ -537,6 +601,130 @@ class TestHeuristicAI(unittest.TestCase):
         # threat), and the large-gap scenario should be strictly worse.
         self.assertLessEqual(small_gap, 0.0)
         self.assertLess(large_gap, small_gap)
+
+    def test_overtake_potential_rewards_chain_capture_alignment(self):
+        """
+        In a chain-capture-style diagonal alignment where our stack has
+        clear overtaking potential along a line of weaker opponent stacks,
+        _evaluate_overtake_potential should return a strictly positive
+        score.
+
+        This mirrors the geometry used in the chain_capture_extended
+        vectors: a friendly stack at (0,0) and opponent stacks at
+        (1,1), (3,3), (5,5), (6,7) on an 8x8 square board. From our
+        stack's perspective, these are all visible in line-of-sight and
+        individually overtaking-capable, so the heuristic should detect
+        meaningful capture potential.
+        """
+        board = self.game_state.board
+        board.stacks.clear()
+
+        # Our stack at the origin with capHeight=2 (can overtake stacks with capHeight=1).
+        # The overtake potential heuristic requires stack.cap_height > adj_stack.cap_height.
+        board.stacks["0,0"] = RingStack(
+            position=Position(x=0, y=0),
+            rings=[1, 1],
+            stackHeight=2,
+            capHeight=2,
+            controllingPlayer=1,
+        )
+
+        # Opponent stacks along the extended diagonal and a trailing target.
+        # These have capHeight=1 so our stack can overtake them.
+        for x, y in [(1, 1), (3, 3), (5, 5), (6, 7)]:
+            key = f"{x},{y}"
+            board.stacks[key] = RingStack(
+                position=Position(x=x, y=y),
+                rings=[2],
+                stackHeight=1,
+                capHeight=1,
+                controllingPlayer=2,
+            )
+
+        score = self.ai._evaluate_overtake_potential(self.game_state)
+
+        self.assertGreater(
+            score,
+            0.0,
+            "Extended diagonal chain-capture alignment should yield a "
+            "positive overtake potential score.",
+        )
+
+    def test_territory_closure_and_safety_behave_sensibly_around_chain_region(
+        self,
+    ):
+        """
+        Territory structure terms should behave sensibly in a region
+        adjacent to a potential chain-capture lane:
+
+        - As markers cluster more tightly, _evaluate_territory_closure
+          should improve (higher score).
+        - As an opponent stack moves closer to that cluster, the
+          territory safety score should become more negative.
+        """
+        board = self.game_state.board
+        board.stacks.clear()
+        board.markers.clear()
+
+        # Baseline: loose marker cluster far from any opponent stacks.
+        for x, y in [(1, 1), (4, 4)]:
+            key = f"{x},{y}"
+            board.markers[key] = MarkerInfo(
+                player=1,
+                position=Position(x=x, y=y),
+                type="regular",
+            )
+
+        # Opponent stack placed far from the cluster.
+        board.stacks["7,7"] = RingStack(
+            position=Position(x=7, y=7),
+            rings=[2],
+            stackHeight=1,
+            capHeight=1,
+            controllingPlayer=2,
+        )
+
+        loose_closure = self.ai._evaluate_territory_closure(self.game_state)
+        safe_score = self.ai._evaluate_territory_safety(self.game_state)
+
+        # Tighter cluster: move markers closer together near a diagonal lane
+        # reminiscent of the chain_capture_extended geometry.
+        board.markers.clear()
+        for x, y in [(1, 1), (2, 2), (3, 3)]:
+            key = f"{x},{y}"
+            board.markers[key] = MarkerInfo(
+                player=1,
+                position=Position(x=x, y=y),
+                type="regular",
+            )
+
+        tight_closure = self.ai._evaluate_territory_closure(self.game_state)
+
+        self.assertGreater(
+            tight_closure,
+            loose_closure,
+            "A tighter diagonal marker cluster near a potential chain "
+            "region should improve the territory-closure evaluation.",
+        )
+
+        # Now move the opponent stack closer to the cluster to verify that
+        # territory safety penalises nearby threats more strongly.
+        board.stacks["7,7"] = RingStack(
+            position=Position(x=4, y=4),
+            rings=[2],
+            stackHeight=1,
+            capHeight=1,
+            controllingPlayer=2,
+        )
+
+        risky_score = self.ai._evaluate_territory_safety(self.game_state)
+
+        self.assertLess(
+            risky_score,
+            safe_score,
+            "When an opponent stack moves closer to the clustered markers, "
+            "territory safety should become more negative.",
+        )
 
 
 class TestHeuristicAIConfig(unittest.TestCase):
@@ -810,6 +998,170 @@ class TestHeuristicAIMoveSampling(unittest.TestCase):
 
             result = ai._sample_moves_for_training(moves)
             self.assertEqual(len(result), 20, f"Failed for limit={limit}")
+
+
+class TestHeuristicAIMoveSelectionDeterminism(unittest.TestCase):
+    """Tests for HeuristicAI.move selection determinism and preferences."""
+
+    def setUp(self):
+        self.config = AIConfig(
+            difficulty=5,
+            randomness=0.0,
+            rng_seed=999,
+            think_time=0,
+        )
+
+        # Minimal symmetric game state suitable for selection tests.
+        self.game_state = GameState(
+            id="selection-test-game",
+            boardType=BoardType.SQUARE8,
+            rngSeed=None,
+            board=BoardState(
+                type=BoardType.SQUARE8,
+                size=8,
+                stacks={},
+                markers={},
+                collapsed_spaces={},
+                eliminatedRings={},
+            ),
+            players=[
+                Player(
+                    id="p1",
+                    username="P1",
+                    type="human",
+                    playerNumber=1,
+                    isReady=True,
+                    timeRemaining=600,
+                    ringsInHand=10,
+                    eliminatedRings=0,
+                    territorySpaces=0,
+                    aiDifficulty=None,
+                ),
+                Player(
+                    id="p2",
+                    username="P2",
+                    type="human",
+                    playerNumber=2,
+                    isReady=True,
+                    timeRemaining=600,
+                    ringsInHand=10,
+                    eliminatedRings=0,
+                    territorySpaces=0,
+                    aiDifficulty=None,
+                ),
+            ],
+            currentPhase=GamePhase.MOVEMENT,
+            currentPlayer=1,
+            moveHistory=[],
+            timeControl=TimeControl(initialTime=600, increment=0, type="blitz"),
+            spectators=[],
+            gameStatus=GameStatus.ACTIVE,
+            createdAt=datetime.now(),
+            lastMoveAt=datetime.now(),
+            isRated=False,
+            maxPlayers=2,
+            totalRingsInPlay=36,
+            totalRingsEliminated=0,
+            victoryThreshold=19,
+            territoryVictoryThreshold=33,
+            chainCaptureState=None,
+            mustMoveFromStackKey=None,
+            zobristHash=None,
+            lpsRoundIndex=0,
+            lpsCurrentRoundActorMask={},
+            lpsExclusivePlayerForCompletedRound=None,
+        )
+
+    def test_select_move_prefers_better_evaluated_state(self):
+        """
+        When one candidate move leads to a clearly better heuristic
+        position, select_move should prefer that move.
+        """
+
+        class DummyRulesEngine:
+            def __init__(self, move_to_state):
+                self._move_to_state = move_to_state
+
+            def get_valid_moves(self, game_state, player_number):
+                return list(self._move_to_state.keys())
+
+            def apply_move(self, game_state, move):
+                return self._move_to_state[move]
+
+        worse_state = self.game_state.copy(deep=True)
+        better_state = self.game_state.copy(deep=True)
+
+        # In the better state, give Player 1 a large territory lead so the
+        # full evaluator rates it higher.
+        better_p1, better_p2 = better_state.players
+        better_p1.territory_spaces = 20
+        better_p2.territory_spaces = 0
+
+        move_worse = _make_mock_move(player=1, x=1, y=1)
+        move_better = _make_mock_move(player=1, x=2, y=2)
+
+        move_to_state = {
+            move_worse: worse_state,
+            move_better: better_state,
+        }
+
+        ai = HeuristicAI(player_number=1, config=self.config)
+        ai.rules_engine = DummyRulesEngine(move_to_state)
+
+        selected = ai.select_move(self.game_state)
+
+        self.assertEqual(
+            selected,
+            move_better,
+            "HeuristicAI should prefer the move leading to the better "
+            "evaluated territory state.",
+        )
+
+    def test_tie_break_is_deterministic_for_fixed_seed(self):
+        """
+        When multiple moves lead to identically evaluated states,
+        tie-breaking should be deterministic for a fixed rng_seed.
+        """
+
+        class DummyRulesEngine:
+            def __init__(self, move_to_state):
+                self._move_to_state = move_to_state
+
+            def get_valid_moves(self, game_state, player_number):
+                return list(self._move_to_state.keys())
+
+            def apply_move(self, game_state, move):
+                return self._move_to_state[move]
+
+        # Two distinct moves that both lead to identical cloned states so
+        # the heuristic evaluation is exactly tied.
+        move_a = _make_mock_move(player=1, x=1, y=1)
+        move_b = _make_mock_move(player=1, x=2, y=2)
+
+        state_a = self.game_state.copy(deep=True)
+        state_b = self.game_state.copy(deep=True)
+
+        move_to_state = {
+            move_a: state_a,
+            move_b: state_b,
+        }
+
+        ai1 = HeuristicAI(player_number=1, config=self.config)
+        ai2 = HeuristicAI(player_number=1, config=self.config)
+
+        ai1.rules_engine = DummyRulesEngine(move_to_state)
+        ai2.rules_engine = DummyRulesEngine(move_to_state)
+
+        selected1 = ai1.select_move(self.game_state)
+        selected2 = ai2.select_move(self.game_state)
+
+        self.assertIn(selected1, [move_a, move_b])
+        self.assertEqual(
+            selected1,
+            selected2,
+            "Two HeuristicAI instances with the same rng_seed should make "
+            "the same tie-broken choice.",
+        )
 
 
 class TestHeuristicAISwapEvaluation(unittest.TestCase):

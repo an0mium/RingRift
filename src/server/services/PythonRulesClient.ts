@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import { GameState, Move } from '../../shared/types/game';
 import { logger } from '../utils/logger';
 import { config } from '../config';
+import { getMetricsService } from './MetricsService';
 
 export interface RulesEvalResponse {
   valid: boolean;
@@ -69,6 +70,24 @@ export class PythonRulesClient {
         response: err.response?.data,
         status: err.response?.status,
       });
+
+      // Best-effort mapping of Python-side failures into rules error metrics.
+      try {
+        const status = err.response?.status;
+        const hasValidationPayload =
+          !!err.response?.data &&
+          (typeof err.response.data === 'string'
+            ? err.response.data.includes('validation_error')
+            : JSON.stringify(err.response.data).includes('validation_error'));
+
+        if (status === 400 || status === 422 || hasValidationPayload) {
+          getMetricsService().recordRulesError('validation');
+        } else {
+          getMetricsService().recordRulesError('internal');
+        }
+      } catch {
+        // Metrics must never break gameplay; ignore metrics failures.
+      }
 
       throw error;
     }

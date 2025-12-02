@@ -19,6 +19,7 @@ import { gameApi } from '../services/api';
 import {
   BoardState,
   GameState,
+  Move,
   Position,
   positionToString,
   positionsEqual,
@@ -39,6 +40,7 @@ import {
   usePendingChoice,
   useChatMessages,
   type PendingChoiceView,
+  type PartialMove,
 } from '../hooks/useGameActions';
 import { useDecisionCountdown } from '../hooks/useDecisionCountdown';
 import { useAutoMoveAnimation } from '../hooks/useMoveAnimation';
@@ -308,7 +310,7 @@ function useBackendDecisionUI(): BackendDecisionUIState {
     // The underlying hook already knows which choice is pending; we ignore the
     // explicit choice argument and delegate to respond() for safety.
     respondToChoice: (_choice, selectedOption) => {
-      respond(selectedOption as any);
+      respond(selectedOption as PlayerChoice['options'][number]);
     },
     pendingChoiceView: view,
   };
@@ -723,7 +725,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           to: preferred.to,
           placementCount: preferred.placementCount,
           placedOnStack: preferred.placedOnStack,
-        } as any);
+        } as PartialMove);
 
         setSelected(undefined);
         setValidTargets([]);
@@ -768,7 +770,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           type: matching.type,
           from: matching.from,
           to: matching.to,
-        } as any);
+        } as PartialMove);
 
         setSelected(undefined);
         setValidTargets([]);
@@ -815,7 +817,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       return;
     }
 
-    let chosen: any | undefined;
+    let chosen: Move | undefined;
 
     if (!hasStack) {
       const twoRing = placeMovesAtPos.find((m) => (m.placementCount ?? 1) === 2);
@@ -834,7 +836,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       to: chosen.to,
       placementCount: chosen.placementCount,
       placedOnStack: chosen.placedOnStack,
-    } as any);
+    } as PartialMove);
 
     setSelected(undefined);
     setValidTargets([]);
@@ -894,7 +896,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       to: chosen.to,
       placementCount: chosen.placementCount,
       placedOnStack: chosen.placedOnStack,
-    } as any);
+    } as PartialMove);
 
     setSelected(undefined);
     setValidTargets([]);
@@ -1218,7 +1220,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
                       submitMove({
                         type: 'swap_sides',
                         to: { x: 0, y: 0 },
-                      } as any);
+                      } as PartialMove);
                     }}
                   >
                     Swap colours

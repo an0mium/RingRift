@@ -251,7 +251,7 @@ function createForcedEliminationDecision(state: GameState): PendingDecision | un
 
   const options: Move[] = [];
 
-  for (const stack of state.board.stacks.values() as any) {
+  for (const stack of state.board.stacks.values()) {
     if (stack.controllingPlayer !== player || stack.stackHeight <= 0) {
       continue;
     }

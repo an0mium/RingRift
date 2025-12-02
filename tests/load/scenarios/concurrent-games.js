@@ -39,14 +39,14 @@ export const options = {
   thresholds: {
     // Game state retrieval should remain fast even at scale
     'http_req_duration{name:get-game}': [
-      'p95<400',   // Staging: p95 ≤ 400ms for GET /api/games/:id
-      'p99<800'    // Staging: p99 ≤ 800ms
+      'p(95)<400',   // Staging: p95 ≤ 400ms for GET /api/games/:id
+      'p(99)<800'    // Staging: p99 ≤ 800ms
     ],
     
     // Game creation overhead at scale
     'http_req_duration{name:create-game}': [
-      'p95<800',
-      'p99<1500'
+      'p(95)<800',
+      'p(99)<1500'
     ],
     
     // Error rate - must remain low even at peak concurrency

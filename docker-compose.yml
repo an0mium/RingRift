@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   app:
     build: .
@@ -7,7 +5,7 @@ services:
       - '3000:3000'
       - '3001:3001'
     environment:
-      - NODE_ENV=production
+      - NODE_ENV=development
       - DATABASE_URL=postgresql://ringrift:${DB_PASSWORD:-password}@postgres:5432/ringrift
       - REDIS_URL=redis://redis:6379
       # WARNING: The default JWT_* secrets below are intended for local development only.
@@ -21,6 +19,18 @@ services:
       # Do not change this to 'multi-*' in production unless you understand and accept
       # the risks described in README.md and QUICKSTART.md.
       - RINGRIFT_APP_TOPOLOGY=single
+
+      # Temporarily relaxed rate limits for k6 load testing.
+      # NOTE: These values are for staging/load-test use only and should not be used in production.
+      - RATE_LIMIT_API_POINTS=100000
+      - RATE_LIMIT_API_AUTH_POINTS=100000
+      - RATE_LIMIT_AUTH_POINTS=100000
+      - RATE_LIMIT_AUTH_LOGIN_POINTS=100000
+      - RATE_LIMIT_AUTH_REGISTER_POINTS=100000
+      - RATE_LIMIT_GAME_POINTS=100000
+      - RATE_LIMIT_GAME_CREATE_USER_POINTS=10000
+      - RATE_LIMIT_GAME_CREATE_IP_POINTS=10000
+
     depends_on:
       - postgres
       - redis
@@ -73,7 +83,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     ports:
@@ -173,7 +183,7 @@ services:
       - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3002}
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - ./monitoring/grafana/provisioning/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
       - ./monitoring/grafana/provisioning/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
     depends_on:

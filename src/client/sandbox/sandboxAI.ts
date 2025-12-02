@@ -66,14 +66,15 @@ declare global {
 
 /**
  * Get (and lazily initialise) the in-browser sandbox AI trace buffer
- * used for debugging AI stalls. In non-browser or non-diagnostics
- * builds this returns null so the rest of the code can no-op.
+ * used for debugging AI stalls. In non-browser builds this returns
+ * null so the rest of the code can no-op.
+ *
+ * NOTE: The stall-diagnostics flag still guards additional console
+ * logging and warning spam, but the trace buffer itself is now always
+ * available so that "Copy AI trace" never returns an empty array in
+ * normal dev runs.
  */
 function getSandboxTraceBuffer(): SandboxAITurnTraceEntry[] | null {
-  if (!SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED) {
-    return null;
-  }
-
   if (typeof window === 'undefined') {
     return null;
   }

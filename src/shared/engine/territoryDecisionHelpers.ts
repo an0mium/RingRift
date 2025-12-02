@@ -1,4 +1,4 @@
-import type { GameState, Move, Territory } from '../types/game';
+import type { GameState, Move, Territory, RingStack } from '../types/game';
 import { positionToString } from '../types/game';
 import { calculateCapHeight } from './core';
 import {
@@ -431,7 +431,7 @@ export function enumerateTerritoryEliminationMoves(
     }
   }
 
-  const stacks: { key: string; stack: any }[] = [];
+  const stacks: { key: string; stack: RingStack }[] = [];
   for (const [key, stack] of board.stacks.entries()) {
     if (stack.controllingPlayer === player) {
       stacks.push({ key, stack });

@@ -917,15 +917,15 @@ and referenced from the rollout and alerting docs:
 - **Invariant violations (invariant soaks):**  
   `ringrift_orchestrator_invariant_violations_total{type, invariant_id}` – counter for detected
   violations of S‑invariant and related progress invariants during normal
-  traffic and orchestrator soaks.  
+  traffic and orchestrator soaks.
   - `type` is a low‑level violation identifier emitted by hosts and the soak harness
     (for example `S_INVARIANT_DECREASED`, `ACTIVE_NO_MOVES`,
-    `NEGATIVE_STACK_HEIGHT`, `ORCHESTRATOR_VALIDATE_MOVE_FAILED`).  
+    `NEGATIVE_STACK_HEIGHT`, `ORCHESTRATOR_VALIDATE_MOVE_FAILED`).
   - `invariant_id` is a high‑level invariant ID from
     `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md` (for example `INV-S-MONOTONIC`,
     `INV-ACTIVE-NO-MOVES`, `INV-STATE-STRUCTURAL`, `INV-ORCH-VALIDATION`,
     `INV-TERMINATION`), derived from `type` by `MetricsService`.  
-  Violations are:
+    Violations are:
   - surfaced via short/long soak JSON summaries
     (`results/orchestrator_soak_smoke.json`,
     `results/orchestrator_soak_nightly.json`),
@@ -936,15 +936,15 @@ and referenced from the rollout and alerting docs:
     generally group by `invariant_id` rather than raw `type` strings.
 
 - **Rules-parity mismatches (TS ↔ Python):**  
-  In addition to the per-dimension counters used by `RulesParity*` alerts:  
-  - `ringrift_rules_parity_valid_mismatch_total`  
-  - `ringrift_rules_parity_hash_mismatch_total`  
+  In addition to the per-dimension counters used by `RulesParity*` alerts:
+  - `ringrift_rules_parity_valid_mismatch_total`
+  - `ringrift_rules_parity_hash_mismatch_total`
   - `ringrift_rules_parity_game_status_mismatch_total`  
-  the backend also exposes a unified counter:  
-  `ringrift_rules_parity_mismatches_total{mismatch_type, suite}` – incremented by `RulesBackendFacade.compareTsAndPython()` via `rulesParityMetrics` / `MetricsService.recordRulesParityMismatch`.  
-  - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`} and matches the parity IDs in `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`.  
+    the backend also exposes a unified counter:  
+    `ringrift_rules_parity_mismatches_total{mismatch_type, suite}` – incremented by `RulesBackendFacade.compareTsAndPython()` via `rulesParityMetrics` / `MetricsService.recordRulesParityMismatch`.
+  - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`} and matches the parity IDs in `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`.
   - `suite` identifies the parity harness, for example `runtime_shadow`, `runtime_python_mode`, or `runtime_ts`.  
-  This metric allows dashboards to aggregate and break down parity incidents across suites while keeping alert expressions focused on the per-dimension counters above.
+    This metric allows dashboards to aggregate and break down parity incidents across suites while keeping alert expressions focused on the per-dimension counters above.
 
 Host implementors must treat these metrics as **observability surfaces over
 the canonical orchestrator behaviour**, not as alternative sources of truth
@@ -1273,13 +1273,128 @@ Adapters (Server GameEngine, Client Sandbox, Python AI Service) must handle:
 
 ### 5.3 Infrastructure
 
-| Requirement           | Description                                             |
-| --------------------- | ------------------------------------------------------- |
-| **Persistence**       | Save/restore GameState to database or local storage     |
-| **WebSocket Events**  | Emit state changes, move notifications, choice requests |
-| **Parity Validation** | (Python) Shadow contract validation against TS engine   |
+| Requirement           | Description                                                                                |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| **Persistence**       | Save/restore GameState to database or local storage                                        |
+| **WebSocket Events**  | Emit state changes, move notifications, choice requests, lobby/rematch/reconnection events |
+| **Parity Validation** | (Python) Shadow contract validation against TS engine                                      |
 
 ---
+
+## 6. WebSocket Lifecycle Profiles (Backend Host)
+
+> **Scope:** This section describes how the canonical engine API is exercised over
+> the WebSocket transport for backend‑hosted games. The concrete event names and
+> payloads are defined in `src/shared/types/websocket.ts` and validated by
+> `src/shared/validation/websocketSchemas.ts`; this section documents their
+> **intended lifecycle** at a high level.
+
+### 6.1 Core Game Loop Events
+
+- **Connection & game join**
+  - `join_game` – client requests to join a particular game room (as player or spectator).
+  - `leave_game` – client leaves a game room; may trigger abandonment logic when initiated by players.
+  - `game_state` – server → client authoritative `GameStateUpdateMessage`, including the canonical `GameState`, optional `validMoves`, and diff metadata.
+  - `game_over` – server → client terminal `GameOverMessage`, carrying the final `GameState` (for inspection) and `GameResult` (winner, reason).
+
+- **Move submission**
+  - `player_move` – geometry‑based move payload (`from`/`to`/`captureTarget`), validated and mapped to canonical `Move` via `GameEngine.makeMove`.
+  - `player_move_by_id` – canonical move selection (`{ gameId, moveId }`), where `moveId` comes directly from `GameState.validMoves[*].id`.
+  - Both flows ultimately call into the orchestrator adapter (`TurnEngineAdapter`) so that all rules processing is driven by canonical `Move` objects.
+
+- **Decision phases**
+  - `player_choice_required` – server → client `PlayerChoice` payload indicating an interactive decision derived from a `PendingDecision` (`line_order`, `line_reward`, `region_order`, `elimination_target`, `capture_direction`, `chain_capture`).
+  - `player_choice_response` – client → server `PlayerChoiceResponse`, carrying:
+    - `choiceId`
+    - `selectedOption` (UI‑oriented discriminant such as `option_1_collapse_all_and_eliminate`)
+    - optionally `choiceType` and auxiliary fields
+  - The backend maps `selectedOption` back to a canonical `Move.id` via the `moveId` fields on the `PlayerChoice` options and feeds that `Move` back into the orchestrator.
+
+- **Decision‑phase timeouts**
+  - `decision_phase_timeout_warning` – server → client warning that a pending decision is approaching auto‑resolution; carries `DecisionPhaseTimeoutWarningPayload` (deadline, decision type, player).
+  - `decision_phase_timed_out` – server → client notification that a decision has been auto‑resolved according to the timeout policy; the subsequent `game_state` diff includes `decisionAutoResolved` metadata so HUDs can surface what happened.
+
+### 6.2 Reconnection Window Semantics
+
+The backend maintains a **bounded reconnection window** for players via
+`pendingReconnections` and a connection state machine (`PlayerConnectionState`):
+
+- **Disconnect handling**
+  - When a player disconnects from a game room:
+    - The WebSocket server emits `player_disconnected` to the remaining participants.
+    - A reconnection window is started for that `(gameId, userId)` pair; the default window is `RECONNECTION_TIMEOUT_MS = 30_000` ms.
+    - `playerConnectionStates` is updated to `disconnected_pending_reconnect` for that player.
+  - Spectators do **not** receive a reconnection window; their disconnect simply clears any diagnostics entry.
+
+- **Reconnect handling**
+  - If the same user reconnects (via a fresh `join_game` and authenticated socket) before the window expires:
+    - The server restores their player slot, re‑joins them to the room, and emits `player_reconnected` to other participants.
+    - `playerConnectionStates` is updated back to `connected`.
+    - The reconnection timeout entry in `pendingReconnections` is cleared.
+
+- **Reconnection timeout**
+  - If the reconnection window expires without a successful reconnect:
+    - `handleReconnectionTimeout(gameId, userId, playerNumber)`:
+      - Marks the connection state as `disconnected_expired`.
+      - Cancels all pending choices for that player via `GameSession.getInteractionHandler().cancelAllChoicesForPlayer`.
+      - Optionally triggers abandonment handling (e.g. awarding a rated win to the remaining human opponent) via `GameSession.handleAbandonmentForDisconnectedPlayer`.
+    - A `decision_phase_timed_out` + subsequent `game_state` diff reflect the updated game status on the client side.
+
+Client adapters such as `GameContext` track these events via:
+
+- `onConnectionStatusChange` → user‑visible connection status (`connecting`, `connected`, `reconnecting`).
+- `onDecisionPhaseTimeoutWarning` / `onDecisionPhaseTimedOut` → HUD banners and logs.
+
+### 6.3 Lobby Events
+
+Lobby interactions are implemented as a light‑weight, WebSocket‑backed side channel over the same Socket.IO connection:
+
+- **Subscription lifecycle**
+  - `lobby:subscribe` – client → server, opt‑in to lobby updates; the server adds the socket to the dedicated lobby room (`WebSocketServer.LOBBY_ROOM`).
+  - `lobby:unsubscribe` – client → server, opt‑out; the server removes the socket from the lobby room.
+
+- **Broadcast events** (server → lobby room)
+  - `lobby:game_created` – emitted when a new game becomes joinable; includes a minimal `Game` summary used by the lobby list.
+  - `lobby:game_joined` – emitted when another player joins a listed game; the payload includes `gameId` and updated player counts.
+  - `lobby:game_started` – emitted when a game transitions from waiting to active; lobby clients typically remove it from the “available games” list.
+  - `lobby:game_cancelled` – emitted when a pending game is cancelled; clients drop it from the list.
+
+`LobbyPage.tsx` consumes these events to keep the lobby view in sync with the backend while also supporting an initial HTTP fetch (`GET /games/lobby/available`). The WebSocket contracts remain thin shims over the canonical HTTP game summary model.
+
+### 6.4 Rematch Flow
+
+The **rematch** feature builds on the existing game lifecycle and WebSocket transport:
+
+- **Requesting a rematch (client → server)**
+  - `rematch_request` – emitted by a player after `game_over`, typically from the victory modal in `BackendGameHost`.
+  - Payload: includes the original `gameId` and, implicitly, the requester’s user ID from the authenticated socket.
+
+- **Server‑side handling**
+  - The WebSocket server delegates to `RematchService` to:
+    - Validate the request (original game exists, requester may request a rematch).
+    - Create a pending rematch record.
+    - Optionally construct a **new game** by cloning key settings (board type, max players, time control, `allowSpectators`, etc.) and swapping initial seat assignments for fairness.
+
+- **Rematch notifications (server → clients)**
+  - `rematch_requested` – emitted to all participants in the original game room, carrying a `RematchRequestPayload` (request ID, requesting player, original game metadata).
+  - `rematch_response` – emitted when a participant responds:
+    - `status: 'accepted'` and a `newGameId` when the rematch is accepted and the follow‑up game has been created.
+    - `status: 'declined'` when a participant declines.
+    - `status: 'expired'` if the request timed out without all required responses.
+
+- **Responding to a rematch (client → server)**
+  - `rematch_respond` – client acknowledgment of a pending request, with payload:
+    - `requestId`
+    - `accept: boolean`
+  - The server enforces that only authorized participants may accept/decline and broadcasts the resulting `rematch_response` to the original game room.
+
+On the client side, `GameContext` exposes:
+
+- `pendingRematchRequest: RematchRequestPayload | null`
+- `requestRematch()`, `acceptRematch(requestId)`, `declineRematch(requestId)`
+- `rematchGameId: string | null` – used by `BackendGameHost` to redirect the user into the newly created game after an accepted rematch.
+
+Rematch logic is intentionally implemented **on top of** the canonical GameState/Move lifecycle: follow‑up games are regular games with freshly initialized `GameState` instances and do not alter the rules engine surface.
 
 ## 6. API Stability Guarantees
 

@@ -2,6 +2,7 @@ import {
   BoardState,
   LineInfo,
   Position,
+  RingStack,
   BOARD_CONFIGS,
   positionToString,
   stringToPosition,
@@ -184,7 +185,7 @@ function isCollapsedSpace(position: Position, board: BoardState): boolean {
   return board.collapsedSpaces.has(posKey);
 }
 
-function getStack(position: Position, board: BoardState): any | undefined {
+function getStack(position: Position, board: BoardState): RingStack | undefined {
   const posKey = positionToString(position);
   return board.stacks.get(posKey);
 }

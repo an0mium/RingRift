@@ -49,7 +49,11 @@ class DefaultRulesEngine(RulesEngine):
        GameEngine-derived state; mutators remain shadow-only for now.
     """
 
-    def __init__(self, mutator_first: bool | None = None):
+    def __init__(
+        self,
+        mutator_first: bool | None = None,
+        skip_shadow_contracts: bool | None = None,
+    ):
         self.validators: List[Validator] = [
             PlacementValidator(),
             MovementValidator(),
@@ -65,6 +69,26 @@ class DefaultRulesEngine(RulesEngine):
             TerritoryMutator(),
             TurnMutator(),
         ]
+
+        # Performance optimization: skip shadow contract validation.
+        #
+        # Shadow contracts run deep copies of state and compare mutator results
+        # against GameEngine results for correctness validation. This is useful
+        # during development but adds ~60-80% overhead for training/self-play.
+        #
+        # Set RINGRIFT_SKIP_SHADOW_CONTRACTS=true for training/benchmarking.
+        skip_shadow_env = os.getenv(
+            "RINGRIFT_SKIP_SHADOW_CONTRACTS", ""
+        ).lower()
+        if skip_shadow_contracts is not None:
+            self._skip_shadow_contracts = skip_shadow_contracts
+        else:
+            self._skip_shadow_contracts = skip_shadow_env in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
 
         # Configuration for the optional mutator-first orchestration path.
         #
@@ -321,6 +345,11 @@ class DefaultRulesEngine(RulesEngine):
 
         # Canonical result: always computed via GameEngine.apply_move.
         next_via_engine = GameEngine.apply_move(state, move)
+
+        # Fast path: skip shadow contracts for training/benchmarking.
+        # Shadow contracts add ~60-80% overhead due to deep copies.
+        if self._skip_shadow_contracts:
+            return next_via_engine
 
         # --- Per-move mutator shadow contracts (board + players only) ---
         if move.type == MoveType.PLACE_RING:

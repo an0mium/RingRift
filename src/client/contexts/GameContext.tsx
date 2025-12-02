@@ -63,7 +63,7 @@ interface GameContextType {
    * or null if no explicit timeout was provided by the server.
    */
   choiceDeadline: number | null;
-  respondToChoice: (choice: PlayerChoice, selectedOption: any) => void;
+  respondToChoice: (choice: PlayerChoice, selectedOption: unknown) => void;
 
   // Move submission (backend game mode)
   submitMove: (partialMove: Omit<Move, 'id' | 'timestamp' | 'thinkTime' | 'moveNumber'>) => void;
@@ -230,6 +230,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       },
       onError: (payload: WebSocketErrorPayload | unknown) => {
         let message: string;
+        // Type guard for extracting optional properties from unknown payloads
+        const asRecord = payload as Record<string, unknown> | null | undefined;
 
         if (
           payload &&
@@ -241,7 +243,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           message = err.message || 'Game error';
         } else {
           console.error('Game socket error', payload);
-          message = (payload as any)?.message || 'Game error';
+          message =
+            (typeof asRecord?.message === 'string' ? asRecord.message : null) || 'Game error';
         }
 
         setError(message);
@@ -251,8 +254,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         if (isErrorReportingEnabled()) {
           void reportClientError(payload, {
             type: 'game_socket_error',
-            code: (payload as any)?.code,
-            event: (payload as any)?.event,
+            code: typeof asRecord?.code === 'string' ? asRecord.code : undefined,
+            event: typeof asRecord?.event === 'string' ? asRecord.event : undefined,
             gameId,
             message,
           });
@@ -414,7 +417,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const respondToChoice = useCallback(
-    (choice: PlayerChoice, selectedOption: any) => {
+    (choice: PlayerChoice, selectedOption: unknown) => {
       const connection = connectionRef.current;
       if (!connection || !gameId) {
         console.warn('respondToChoice called without active connection/game');
@@ -436,13 +439,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Type-safe access to optional captureTarget field
+      const moveWithCapture = partialMove as typeof partialMove & {
+        captureTarget?: Move['captureTarget'];
+      };
       const move: Move = {
         id: '',
         type: partialMove.type,
         player: partialMove.player,
         ...(partialMove.from !== undefined ? { from: partialMove.from } : {}),
         to: partialMove.to,
-        captureTarget: (partialMove as any).captureTarget,
+        captureTarget: moveWithCapture.captureTarget,
         timestamp: new Date(),
         thinkTime: 0,
         moveNumber: (gameState?.moveHistory.length ?? 0) + 1,

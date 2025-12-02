@@ -116,8 +116,6 @@ class TestMCTSAI(unittest.TestCase):
         mock_move = MagicMock()
         mock_move.type = "move"
         mock_get_valid_moves.return_value = [mock_move]
-        
-        self.ai.simulate_thinking = MagicMock()
 
         # Mock neural net to avoid actual inference or fallback to heuristic
         self.ai.neural_net = MagicMock()
@@ -136,8 +134,6 @@ class TestMCTSAI(unittest.TestCase):
     @patch('app.game_engine.GameEngine.get_valid_moves')
     def test_select_move_no_valid_moves(self, mock_get_valid_moves):
         mock_get_valid_moves.return_value = []
-        self.ai.simulate_thinking = MagicMock()
-        
         move = self.ai.select_move(self.game_state)
         self.assertIsNone(move)
 

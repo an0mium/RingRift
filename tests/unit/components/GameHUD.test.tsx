@@ -109,6 +109,7 @@ describe('GameHUD – view-model props', () => {
   function createHUDViewModel(): HUDViewModel {
     return {
       phase: {
+        phaseKey: 'movement',
         label: 'Movement Phase',
         description: 'Move a stack or capture opponent pieces',
         icon: '⚡',
@@ -210,5 +211,49 @@ describe('GameHUD – view-model props', () => {
     expect(screen.getAllByText(/2:00|1:30/).length).toBeGreaterThan(0);
 
     jest.useRealTimers();
+  });
+
+  it('renders Line Formation phase and ring-elimination status chip when provided', () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        label: 'Line Formation',
+        description: 'Resolve completed lines and select any elimination rewards.',
+        icon: '✨',
+        colorClass: 'bg-amber-500',
+      },
+      decisionPhase: {
+        isActive: true,
+        actingPlayerNumber: 1,
+        actingPlayerName: 'Alice',
+        isLocalActor: true,
+        label: 'Your decision: Ring elimination',
+        description: 'Choose which stack to eliminate from.',
+        shortLabel: 'Ring elimination',
+        timeRemainingMs: null,
+        showCountdown: false,
+        warningThresholdMs: undefined,
+        isServerCapped: undefined,
+        spectatorLabel: 'Waiting for Alice to choose a stack for ring elimination',
+        statusChip: {
+          text: 'Select stack cap to eliminate',
+          tone: 'attention',
+        },
+      },
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    expect(screen.getByText(/Line Formation/i)).toBeInTheDocument();
+    const chip = screen.getByTestId('hud-decision-status-chip');
+    expect(chip).toHaveTextContent('Select stack cap to eliminate');
+    expect(chip).toHaveClass('bg-amber-500');
   });
 });

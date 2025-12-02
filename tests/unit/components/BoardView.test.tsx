@@ -202,6 +202,7 @@ describe('BoardView', () => {
       const secondaryCell = container.querySelector('button[data-x="2"][data-y="2"]');
 
       expect(primaryCell).toHaveClass('decision-highlight-primary');
+      expect(primaryCell).toHaveClass('line-formation-burst');
       expect(primaryCell).toHaveAttribute('data-decision-highlight', 'primary');
 
       expect(secondaryCell).toHaveClass('decision-highlight-secondary');
@@ -255,6 +256,99 @@ describe('BoardView', () => {
       // Marker should be visible (checking for marker styling)
       const markerElement = document.querySelector('.border-emerald-400');
       expect(markerElement).toBeInTheDocument();
+    });
+
+    it('does not render a marker when a stack is present on the same cell', () => {
+      const board = createEmptyBoardState('square8');
+
+      // Stack and marker at the same position; view model should prefer stack.
+      const pos: Position = { x: 2, y: 2 };
+      const key = '2,2';
+
+      const stack: RingStack = {
+        position: pos,
+        rings: [1, 1],
+        stackHeight: 2,
+        capHeight: 2,
+        controllingPlayer: 1,
+      };
+
+      board.stacks.set(key, stack);
+      board.markers.set(key, { type: 'regular', player: 1, position: pos });
+
+      const { container } = render(<BoardView boardType="square8" board={board} />);
+
+      const cell = container.querySelector('button[data-x="2"][data-y="2"]');
+      expect(cell).toBeInTheDocument();
+
+      // Cell should show stack info but no marker border class.
+      expect(container.textContent).toContain('H2');
+      expect(container.textContent).toContain('C2');
+
+      const markerInCell = (cell as HTMLElement).querySelector('.border-emerald-400');
+      expect(markerInCell).toBeNull();
+    });
+  });
+
+  describe('movement destination pulses', () => {
+    it('applies destination pulse only to landing stack on hex boards', async () => {
+      const origin: Position = { x: 0, y: 0, z: 0 };
+      const dest: Position = { x: 0, y: 2, z: -2 };
+
+      // Initial board: stack at origin only
+      const preBoard = createEmptyBoardState('hexagonal');
+      preBoard.type = 'hexagonal';
+      preBoard.size = 11;
+      preBoard.stacks.set('0,0,0', {
+        position: origin,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      });
+
+      const { container, rerender } = render(<BoardView boardType="hexagonal" board={preBoard} />);
+
+      // Post-move board: stack moved to dest, marker left at origin
+      const postBoard = createEmptyBoardState('hexagonal');
+      postBoard.type = 'hexagonal';
+      postBoard.size = 11;
+      postBoard.stacks.set('0,2,-2', {
+        position: dest,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      });
+      postBoard.markers.set('0,0,0', {
+        position: origin,
+        player: 1,
+        type: 'regular',
+      });
+
+      rerender(<BoardView boardType="hexagonal" board={postBoard} />);
+
+      // Wait for BoardView's board-diff effect to run and apply animations.
+      const getCells = () => {
+        const originCell = container.querySelector(
+          'button[data-x="0"][data-y="0"][data-z="0"]'
+        ) as HTMLButtonElement | null;
+        const destCell = container.querySelector(
+          'button[data-x="0"][data-y="2"][data-z="-2"]'
+        ) as HTMLButtonElement | null;
+        return { originCell, destCell };
+      };
+
+      await screen.findByTestId('board-view');
+
+      const { originCell, destCell } = getCells();
+      expect(originCell).not.toBeNull();
+      expect(destCell).not.toBeNull();
+
+      // The origin (marker-only) cell should not have the destination pulse,
+      // while the landing stack cell should.
+      expect(originCell).not.toHaveClass('move-destination-pulse');
+      expect(destCell).toHaveClass('move-destination-pulse');
     });
   });
 

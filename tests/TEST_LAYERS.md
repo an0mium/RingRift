@@ -20,7 +20,7 @@
 │ Location: tests/e2e/                                                         │
 │ Run: Before release, after major changes                                     │
 │ Speed: Slow (~minutes)                                                       │
-│ Count: 2 test files                                                          │
+│ Count: ~20 test files                                                        │
 └─────────────────────────────────────────────────────────────────────────────┘
                                     ▲
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -97,12 +97,12 @@ Test individual functions, modules, and components in isolation.
 
 #### Infrastructure
 
-| File                          | Purpose                  | Keep/Review                                                                                                 |
-| ----------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `envFlags.test.ts`            | Environment flag parsing | ✅ Keep                                                                                                     |
-| `notation.test.ts`            | Move notation parsing    | ✅ Keep                                                                                                     |
-| `NoRandomInCoreRules.test.ts` | Determinism guard        | ✅ Keep                                                                                                     |
-| `RNGDeterminism.test.ts`      | RNG consistency          | 🕒 Historical (removed; superseded by `EngineDeterminism.shared.test.ts` and `NoRandomInCoreRules.test.ts`) |
+| File                          | Purpose                  | Keep/Review                                                                                                                   |
+| ----------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `envFlags.test.ts`            | Environment flag parsing | ✅ Keep                                                                                                                       |
+| `notation.test.ts`            | Move notation parsing    | ✅ Keep                                                                                                                       |
+| `NoRandomInCoreRules.test.ts` | Determinism guard        | ✅ Keep                                                                                                                       |
+| `RNGDeterminism.test.ts`      | RNG consistency          | ✅ Keep (low-level SeededRNG API guard that complements `EngineDeterminism.shared.test.ts` and `NoRandomInCoreRules.test.ts`) |
 
 ---
 
@@ -189,10 +189,23 @@ Validate complete user journeys in a real browser environment.
 
 ### Test Files (`tests/e2e/`)
 
-| File                    | Purpose             |
-| ----------------------- | ------------------- |
-| `auth.e2e.spec.ts`      | Authentication flow |
-| `game-flow.e2e.spec.ts` | Game play flow      |
+| File                                                                         | Purpose                                     |
+| ---------------------------------------------------------------------------- | ------------------------------------------- |
+| `auth.e2e.spec.ts`                                                           | Authentication and basic navigation         |
+| `game-flow.e2e.spec.ts`                                                      | Core 1v1 game flow                          |
+| `multiplayer.e2e.spec.ts`                                                    | Multiplayer lobby + in-game coordination    |
+| `ai-game.e2e.spec.ts`                                                        | AI‑vs‑human / AI‑vs‑AI backend games        |
+| `reconnection.simulation.test.ts`                                            | Network partitions and reconnection windows |
+| `decision-phase-timeout.e2e.spec.ts`                                         | Decision‑phase timeout flows                |
+| `timeout-and-ratings.e2e.spec.ts`                                            | Timers, timeouts, and rating behaviour      |
+| `sandbox.e2e.spec.ts`                                                        | Sandbox UX and rules‑complete local games   |
+| `backendHost.host-ux.e2e.spec.ts`                                            | Backend host game HUD/controls UX           |
+| `sandboxHost.host-ux.e2e.spec.ts`                                            | Sandbox host HUD/controls UX                |
+| `boardControls.overlay.e2e.spec.ts`                                          | Board controls overlay interactions         |
+| `ratings.e2e.spec.ts`                                                        | Ratings display and recent games            |
+| `victory-conditions.e2e.spec.ts`                                             | Victory modal flows and end‑game UX         |
+| `visual-regression.e2e.spec.ts`                                              | Visual regression snapshots for key screens |
+| _(see `tests/e2e/` for additional smoke/metrics helpers and focused slices)_ |                                             |
 
 ### When to Run
 
@@ -293,6 +306,26 @@ Some tests duplicate behavior across engines:
 >
 > - **Semantic gates in CI:** `*.shared.test.ts` suites, contract‑vector tests (`tests/contracts/**` + `tests/fixtures/contract-vectors/v2/**`), and RulesMatrix/FAQ scenario suites (`tests/scenarios/RulesMatrix.*.test.ts`, `tests/scenarios/FAQ_*.test.ts`) are the primary rules **authorities** and should be treated as hard gates in CI.
 > - **Diagnostic / legacy suites:** Seeded trace parity, backend↔sandbox parity suites (`Backend_vs_Sandbox.*`, `TerritoryParity.*`, `Sandbox_vs_Backend.*`), and historical/seed‑specific tests are **diagnostic nets**. They may run in separate jobs or be skipped/env‑gated; when they disagree with the semantic gates, the `.shared` + contracts + RulesMatrix suites win.
+
+### Jest profiles → Layer mapping
+
+The main Jest scripts in `package.json` map onto the conceptual layers in this document as follows:
+
+| Script                                  | Scope (high level)                                                                                            | Primary Layer(s)                 | Notes                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `npm test`                              | All Jest tests (TS) excluding `tests/e2e/` and `tests/unit/archive/`                                          | Layers 1–3                       | Default local/CI run; see `testPathIgnorePatterns` in `jest.config.js`.                          |
+| `npm run test:core`                     | Fast, CI‑gated core suites; excludes heavy diagnostics and some large parity/scenario suites                  | Layers 1–2 (subset)              | Designed to stay under ~5 minutes; see exclusion patterns in `package.json`.                     |
+| `npm run test:unit`                     | All `tests/unit/**` Jest suites                                                                               | Layers 1–3 (TS unit+integration) | Convenience target for iterating on unit/adaptor tests.                                          |
+| `npm run test:ts-rules-engine`          | Rules‑level TS suites: `RefactoredEngine`, `*.rules.*`, `RulesMatrix.*`                                       | Layer 2 (canonical rules)        | Primary semantic anchor for TS rules; pairs with contract vectors and FAQ/RulesMatrix scenarios. |
+| `npm run test:ts-parity`                | TS parity/trace suites: `*Parity.*`, `traceParity`, `Python_vs_TS.traceParity`                                | Parity/diagnostic (between 2–3)  | Diagnostic only; semantics anchored by shared‑engine + contract/scenario suites.                 |
+| `npm run test:ts-integration`           | Integration‑level suites: `tests/integration/**`, `WebSocketServer.*`, `FullGameFlow.test`                    | Layer 3                          | WebSocket, HTTP, AI‑service, and session orchestration flows.                                    |
+| `npm run test:orchestrator-parity`      | Orchestrator‑gating profile: `.shared` tests, contract vectors, RulesMatrix, FAQ, key territory suites        | Layers 1–2 (orchestrator focus)  | Runs with adapters forced ON; intended as a semantic gate for orchestrator behaviour in CI.      |
+| `npm run test:orchestrator-parity:ts`   | TS‑only orchestrator slices: orchestrator multi‑phase scenarios, line/territory/chain‑capture decision suites | Layers 1–2 (orchestrator focus)  | Narrower TS subset used when iterating on orchestrator/adapter code.                             |
+| `npm run test:orchestrator:s-invariant` | Single S‑invariant regression suite (`OrchestratorSInvariant.regression.test.ts`)                             | Layer 2 (invariants)             | Focused guardrail for S‑invariant / progress semantics under orchestrator.                       |
+| `npm run test:ai-backend:quiet`         | Backend AI simulation slice (`GameEngine.aiSimulation.test.ts`)                                               | Diagnostic (rules/AI)            | Quiet run; useful when debugging backend AI progress/termination behaviour.                      |
+| `npm run test:ai-sandbox:quiet`         | Sandbox AI simulation slice (`ClientSandboxEngine.aiSimulation.test.ts`)                                      | Diagnostic (rules/AI)            | Quiet run; complements backend AI simulations for sandbox AI plateau/stall diagnostics.          |
+| `npm run test:ai-movement:quiet`        | Sandbox AI movement/capture slice (`ClientSandboxEngine.aiMovementCaptures.test.ts`)                          | Diagnostic (rules/AI)            | Focused on AI movement/capture coverage; not part of core CI gates.                              |
+| `npm run test:e2e`                      | All Playwright E2E suites in `tests/e2e/**`                                                                   | Layer 4                          | Full browser‑based user journeys; runs via Playwright, not Jest.                                 |
 
 ### Fast Feedback (< 2 min)
 

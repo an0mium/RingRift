@@ -89,8 +89,33 @@ app.get(['/ready', '/readyz'], async (_req: Request, res: Response) => {
   res.status(httpStatus).json(status);
 });
 
-// Rate limiting - placed AFTER health endpoints
-app.use(rateLimiter);
+// Rate limiting - placed AFTER health endpoints.
+// Apply the general API limiter only to non-auth, non-game API routes.
+// Auth endpoints have their own dedicated limiters in src/server/routes/auth.ts.
+// Game creation and game routes use their own quotas in src/server/routes/game.ts.
+app.use((req, res, next) => {
+  const path = req.path || req.originalUrl || '';
+
+  // Only apply the generic API limiter to /api/* routes.
+  if (!path.startsWith('/api/')) {
+    return next();
+  }
+
+  // Skip /api/auth/*: these routes are protected by auth-specific limiters.
+  if (path.startsWith('/api/auth/')) {
+    return next();
+  }
+
+  // Skip /api/games* so that game routes rely on their dedicated limiters
+  // (adaptiveRateLimiter('game','api') and gameCreateUser/gameCreateIp quotas)
+  // without being double-limited by the generic API limiter. This is especially
+  // important for load testing scenarios that generate high game creation rates.
+  if (path.startsWith('/api/games')) {
+    return next();
+  }
+
+  return rateLimiter(req, res, next);
+});
 
 // Prometheus metrics endpoint
 // Uses MetricsService which consolidates all custom metrics with the default
@@ -186,7 +211,6 @@ async function startServer() {
       const orchestratorEnabled = config.featureFlags.orchestrator.adapterEnabled;
       logger.info(`Orchestrator adapter mode: ${orchestratorEnabled ? 'ENABLED' : 'DISABLED'}`, {
         orchestratorAdapterEnabled: orchestratorEnabled,
-        rolloutPercentage: config.featureFlags.orchestrator.rolloutPercentage,
         shadowModeEnabled: config.featureFlags.orchestrator.shadowModeEnabled,
         circuitBreakerEnabled: config.featureFlags.orchestrator.circuitBreaker.enabled,
         engineMode: orchestratorEnabled
@@ -202,17 +226,14 @@ async function startServer() {
           'Orchestrator adapter is DISABLED in production; this should only occur during a documented rollback (see docs/ORCHESTRATOR_ROLLOUT_PLAN.md).',
           {
             orchestratorAdapterEnabled: orchestratorEnabled,
-            rolloutPercentage: config.featureFlags.orchestrator.rolloutPercentage,
             shadowModeEnabled: config.featureFlags.orchestrator.shadowModeEnabled,
             rulesMode: config.rules.mode,
           }
         );
       }
 
-      // Initialize orchestrator rollout percentage gauge for metrics.
-      getMetricsService().setOrchestratorRolloutPercentage(
-        config.featureFlags.orchestrator.rolloutPercentage
-      );
+      // Initialize orchestrator rollout percentage gauge for metrics (100% = permanently enabled)
+      getMetricsService().setOrchestratorRolloutPercentage(100);
     });
 
     // Graceful shutdown

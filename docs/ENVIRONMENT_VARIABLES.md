@@ -1,6 +1,6 @@
 # Environment Variables Reference
 
-> **Doc Status (2025-11-30): Active**
+> **Doc Status (2025-12-01): Active**
 >
 > **Role:** Canonical reference for all environment variables used by RingRift across development, staging, and production, including defaults, ranges, and security considerations. Intended for operators and developers wiring config into Docker, Kubernetes, and CI.
 >
@@ -45,6 +45,7 @@ This document provides comprehensive documentation for all environment variables
 - [Data Retention](#data-retention)
 - [Python Training Flags](#python-training-flags)
 - [Debug Flags](#debug-flags)
+- [Deprecated Variables](#deprecated-variables)
 
 ---
 
@@ -81,6 +82,16 @@ HTTP server port for the main API.
 | Required | No        |
 
 Server bind address. Use `0.0.0.0` to listen on all interfaces.
+
+### `npm_package_version`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | None     |
+| Required | No       |
+
+Application version automatically injected by npm during build. Used for version display and telemetry.
 
 ---
 
@@ -295,6 +306,16 @@ bcrypt rounds for password hashing. Higher = more secure but slower.
 AI service base URL.
 
 **Docker Compose:** Use `http://ai-service:8001`
+
+### `RINGRIFT_AI_SERVICE_URL`
+
+| Property | Value                              |
+| -------- | ---------------------------------- |
+| Type     | `string` (URL)                     |
+| Default  | `http://localhost:8001` (dev only) |
+| Required | No                                 |
+
+Client-side AI service URL used by the React app (for example, by `ReplayService` to talk to the GameReplayDB replay API). When set at build/runtime, this value is propagated via Vite and should typically match `AI_SERVICE_URL` in environments where the browser can reach the AI service directly.
 
 ### `AI_SERVICE_REQUEST_TIMEOUT_MS`
 
@@ -550,70 +571,51 @@ Prometheus metrics server port.
 
 ### `ORCHESTRATOR_ADAPTER_ENABLED`
 
-| Property | Value                     |
-| -------- | ------------------------- |
-| Type     | `boolean`                 |
-| Values   | `true`, `false`, `1`, `0` |
-| Default  | `true`                    |
-| Required | No                        |
+| Property | Value                             |
+| -------- | --------------------------------- |
+| Type     | `boolean` (hardcoded)             |
+| Values   | `true` (always)                   |
+| Default  | `true` (hardcoded)                |
+| Required | No                                |
+| Since    | PASS20 (2025-12-01)               |
+| Modified | **Hardcoded to `true` in PASS20** |
 
-Enable the orchestrator adapter for unified turn processing.
+**PERMANENTLY ENABLED** as of PASS20 (2025-12-01). The orchestrator adapter is now the canonical turn processor. This variable is **hardcoded to `true`** and no longer reads from environment variables.
 
-When enabled (default), the server and sandbox engines use the canonical orchestrator
-(`src/shared/engine/orchestration/`) via adapter wrappers for turn processing.
-This is the production default after Phase 4 Orchestrator Rollout completed
-(see `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` for rollout phases).
+The `useOrchestratorAdapter` property on [`GameEngine`](../src/server/game/GameEngine.ts) and [`ClientSandboxEngine`](../src/client/sandbox/ClientSandboxEngine.ts) remains for internal state management but always evaluates to true. The legacy turn processing path has been completely removed.
 
-**Production Status (as of 2025-11-30):**
+**Migration Completed:**
 
-- Orchestrator adapter is now the default (`true`) at 100% rollout in CI
-- All ~2,600+ TypeScript tests pass with orchestrator enabled
-- Soak tests show zero invariant violations across all board types (square8, square19, hexagonal)
-- Legacy tests that manipulate internal state are skipped by design
-
-**Monitoring Checklist:**
-
-- [x] No increase in game errors/exceptions
-- [x] No divergence in move validation (cross-platform parity)
-- [x] No performance regression (AI response time)
-- [x] No difference in game outcomes (victory distribution)
-
-**Rollback:**
-Set `ORCHESTRATOR_ADAPTER_ENABLED=false` to immediately revert to legacy path.
-No data migration required - flag is purely behavioral.
+- Phase 3 migration complete (PASS20)
+- ~1,118 lines of legacy code removed
+- All 2,987+ TypeScript tests passing with orchestrator
+- Zero invariant violations in soak tests
 
 **Related Documentation:**
 
-- [Orchestrator Rollout Plan](./ORCHESTRATOR_ROLLOUT_PLAN.md)
-- [Orchestrator Rollout Runbook](./runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md)
+- [`docs/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](./ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)
+- [`docs/PASS20_COMPLETION_SUMMARY.md`](./PASS20_COMPLETION_SUMMARY.md)
+
+### `ENABLE_ANALYSIS_MODE`
+
+| Property | Value     |
+| -------- | --------- |
+| Type     | `boolean` |
+| Default  | `false`   |
+| Required | No        |
+
+Enable AI analysis mode for position evaluation streaming. When enabled, allows clients to request continuous position analysis from the AI service.
 
 ### Orchestrator rollout controls
 
-These variables control **gradual rollout** and **automatic rollback** of the
-canonical TS orchestrator in production. They are evaluated by
-`OrchestratorRolloutService` and should typically be adjusted only in staging
-or by on-call operators following a runbook.
+These variables control **automatic rollback** of the orchestrator in production.
+They are evaluated by `OrchestratorRolloutService` and should typically be adjusted
+only in staging or by on-call operators following a runbook.
 
 For recommended combinations of `NODE_ENV`, `RINGRIFT_APP_TOPOLOGY`,
 `RINGRIFT_RULES_MODE`, and the orchestrator flags across CI, staging, and
 production phases, see the env/phase presets table in
 [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1](./ORCHESTRATOR_ROLLOUT_PLAN.md#811-environment-and-flag-presets-by-phase).
-
-#### `ORCHESTRATOR_ROLLOUT_PERCENTAGE`
-
-| Property | Value    |
-| -------- | -------- |
-| Type     | `number` |
-| Range    | 0-100    |
-| Default  | `100`    |
-| Required | No       |
-
-Percentage of eligible sessions to route through the orchestrator when
-`ORCHESTRATOR_ADAPTER_ENABLED=true`.
-
-- `0` → orchestrator adapter is effectively disabled (all traffic on legacy path).
-- `100` → all eligible sessions use the orchestrator (current default).
-- Intermediate values (e.g. `10`, `50`) enable **canary-style rollout**.
 
 #### `ORCHESTRATOR_SHADOW_MODE_ENABLED`
 
@@ -751,7 +753,13 @@ Game inactivity timeout (minutes). Inactive games are cleaned up.
 | Default  | `2000`   |
 | Required | No       |
 
-AI thinking time in milliseconds.
+Legacy AI thinking-time budget in milliseconds.
+
+This value is currently **not used to introduce any artificial delay** in AI
+responses. Historical code paths used it to pad AI moves for UX; those hooks
+have been removed so that AI moves are returned as soon as they are computed.
+The variable is kept in the schema for backwards compatibility and may be
+repurposed as a soft search-budget hint in future orchestration layers.
 
 ### `MAX_SPECTATORS_PER_GAME`
 
@@ -762,6 +770,42 @@ AI thinking time in milliseconds.
 | Required | No       |
 
 Maximum spectators per game.
+
+### Decision Phase Timeouts
+
+Optional overrides for decision-phase timeouts. Primarily intended for non-production environments and specialized test harnesses (e.g., Playwright E2E) that need shorter timeouts to exercise decision timeout behavior end-to-end.
+
+When unset, the server falls back to hard-coded defaults in [`unified.ts`](../src/shared/engine/orchestration/unified.ts): 30s total timeout, 5s warning, 15s extension.
+
+#### `DECISION_PHASE_TIMEOUT_MS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | None     |
+| Required | No       |
+
+Total timeout for decision phase in milliseconds. Default: 30000ms (30s) when unset.
+
+#### `DECISION_PHASE_TIMEOUT_WARNING_MS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | None     |
+| Required | No       |
+
+Warning threshold for decision phase in milliseconds. Default: 5000ms (5s) when unset.
+
+#### `DECISION_PHASE_TIMEOUT_EXTENSION_MS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | None     |
+| Required | No       |
+
+Extension duration for decision phase in milliseconds. Default: 15000ms (15s) when unset.
 
 ---
 
@@ -1100,6 +1144,37 @@ These flags are for development and debugging only. **Do not enable in productio
 | `RINGRIFT_LOCAL_AI_HEURISTIC_MODE`             | `false` | Enable local AI heuristic mode                                                                           |
 | `RINGRIFT_TRACE_DEBUG`                         | `false` | Enable high-detail trace logging (capture, territory, orchestrator S-invariant) to logs/console in tests |
 | `RINGRIFT_AI_DEBUG`                            | `false` | Mirror AI diagnostics from logs/ai/\*.log to the console for local debugging                             |
+
+---
+
+## Deprecated Variables
+
+These variables were removed during project evolution. They are listed here for historical reference.
+
+### `ORCHESTRATOR_ROLLOUT_PERCENTAGE`
+
+| Property | Value                                    |
+| -------- | ---------------------------------------- |
+| Type     | `number` (0-100)                         |
+| Removed  | PASS20 (2025-12-01)                      |
+| Reason   | Orchestrator permanently enabled at 100% |
+
+**Status:** REMOVED
+
+Percentage of eligible sessions to route through the orchestrator. This variable controlled gradual rollout during the orchestrator migration phases.
+
+**Migration Path:**
+
+- Phase 1-2: Variable controlled canary rollout (0-100%)
+- PASS20 Phase 3: Orchestrator hardcoded to 100%, variable deprecated
+- The orchestrator is now permanently enabled and cannot be disabled
+
+**If Present:** This variable is ignored. The orchestrator always processes 100% of traffic.
+
+**Related Changes:**
+
+- [`ORCHESTRATOR_ADAPTER_ENABLED`](#orchestrator_adapter_enabled) - Now hardcoded to `true`
+- See [`docs/PASS20_COMPLETION_SUMMARY.md`](./PASS20_COMPLETION_SUMMARY.md) for migration details
 
 ---
 

@@ -77,16 +77,11 @@ export abstract class AIPlayer {
     return this.playerNumber;
   }
 
-  /**
-   * Simulate thinking time for better UX
-   * Returns a promise that resolves after the configured think time
-   */
   protected async simulateThinking(): Promise<void> {
-    if (this.config.thinkTime && this.config.thinkTime > 0) {
-      return new Promise((resolve) => {
-        setTimeout(resolve, this.config.thinkTime);
-      });
-    }
+    // Legacy compatibility hook for historical "thinking time" behaviour.
+    // This method must not introduce any artificial delay: AI responses
+    // should be returned as soon as they are computed.
+    return;
   }
 
   /**

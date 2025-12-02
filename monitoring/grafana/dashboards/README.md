@@ -270,13 +270,13 @@ All metrics are exposed by [`src/server/services/MetricsService.ts`](../../src/s
 
 ### Rules Correctness Metrics
 
-- `ringrift_parity_checks_total` (Counter) - Not yet implemented
-- `ringrift_contract_tests_passing` (Gauge) - Not yet implemented
-- `ringrift_contract_tests_total` (Gauge) - Not yet implemented
-- `ringrift_rules_errors_total` (Counter) - Not yet implemented
-- `ringrift_line_detection_duration_ms` (Histogram) - Not yet implemented
+- `ringrift_parity_checks_total` (Counter) - Implemented in `MetricsService`; instrumentation wired in select parity/soak harnesses
+- `ringrift_contract_tests_passing` (Gauge) - Implemented in `MetricsService`; updated by contract/vector runners
+- `ringrift_contract_tests_total` (Gauge) - Implemented in `MetricsService`; updated by contract/vector runners
+- `ringrift_rules_errors_total` (Counter) - Implemented in `MetricsService`; reserved for hard validation/mutation failures
+- `ringrift_line_detection_duration_ms` (Histogram) - Implemented in `MetricsService`; ready for line/territory detection timing
 - `ringrift_capture_chain_depth` (Histogram) - Not yet implemented
-- `ringrift_moves_rejected_total` (Counter) - Not yet implemented
+- `ringrift_moves_rejected_total` (Counter) - Implemented and wired for WebSocket move rejections and decision timeouts
 
 ### System Health Metrics
 
@@ -284,32 +284,37 @@ All metrics are exposed by [`src/server/services/MetricsService.ts`](../../src/s
 - `http_request_duration_seconds` (Histogram) - Line 241
 - `ringrift_websocket_connections` (Gauge) - Line 301
 - `ringrift_service_response_time_seconds` (Histogram) - Line 320
-- `ringrift_cache_hits_total` (Counter) - Not yet implemented
-- `ringrift_cache_misses_total` (Counter) - Not yet implemented
+- `ringrift_cache_hits_total` (Counter) - Implemented and wired via `CacheService` Redis helpers
+- `ringrift_cache_misses_total` (Counter) - Implemented and wired via `CacheService` Redis helpers
 - `ringrift_service_status` (Gauge) - Line 310
 - `process_resident_memory_bytes` (Gauge) - Standard Node.js metric
 - `nodejs_eventloop_lag_seconds` (Gauge) - Standard Node.js metric
 
 ## Implementation Notes
 
-### Missing Metrics
+### Missing / Partially Wired Metrics
 
-The following metrics are referenced in dashboards but not yet implemented in [`MetricsService.ts`](../../src/server/services/MetricsService.ts):
+The following metrics are referenced in dashboards and now exist in
+[`MetricsService.ts`](../../src/server/services/MetricsService.ts), but their
+instrumentation is either limited to specific harnesses or still being rolled
+out across all hosts:
 
 **Rules Correctness Dashboard:**
 
-- `ringrift_parity_checks_total` - Runtime parity check results
-- `ringrift_contract_tests_passing` / `ringrift_contract_tests_total` - Contract vector pass rate
-- `ringrift_rules_errors_total` - Rules engine validation/mutation errors
-- `ringrift_line_detection_duration_ms` - Line/territory detection performance
-- `ringrift_capture_chain_depth` - Capture chain length distribution
-- `ringrift_moves_rejected_total` - Move validation failure reasons
+- `ringrift_parity_checks_total` - Runtime parity check results (parity/soak harnesses)
+- `ringrift_contract_tests_passing` / `ringrift_contract_tests_total` - Contract vector pass rate (contract/vector runners)
+- `ringrift_rules_errors_total` - Rules engine validation/mutation errors (reserved for hard failures)
+- `ringrift_line_detection_duration_ms` - Line/territory detection performance (ready for adoption)
+- `ringrift_moves_rejected_total` - Move validation failure reasons (wired for WebSocket move rejections and decision timeouts)
+- `ringrift_capture_chain_depth` - Capture chain length distribution (**still TODO**)
 
 **System Health Dashboard:**
 
-- `ringrift_cache_hits_total` / `ringrift_cache_misses_total` - Redis cache metrics
+- `ringrift_cache_hits_total` / `ringrift_cache_misses_total` - Redis cache metrics (wired via `CacheService`)
 
-These metrics should be added to MetricsService and instrumented in the relevant code paths to enable full dashboard functionality.
+Future PASS22+ work can extend instrumentation for the partially wired metrics
+and add the remaining `ringrift_capture_chain_depth` histogram where capture
+chains are computed.
 
 ## Troubleshooting
 

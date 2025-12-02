@@ -42,15 +42,6 @@ class MinimaxAI(HeuristicAI):
             config, 'use_incremental_search', True
         )
 
-    def simulate_thinking(self, min_ms: int = 100, max_ms: int = 2000) -> None:
-        """Override BaseAI.simulate_thinking.
-
-        Search-based engines treat config.think_time as a wall-clock budget
-        for the search itself, so MinimaxAI does not add any extra sleep on
-        top of the search loop.
-        """
-        return
-
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """
         Select the best move using minimax
@@ -62,7 +53,7 @@ class MinimaxAI(HeuristicAI):
             Best move or None if no valid moves
         """
         # For search-based AIs we treat config.think_time as a search budget
-        # rather than adding an extra sleep via simulate_thinking.
+        # and never add any artificial sleep or delay.
         
         # Get all valid moves via the canonical rules engine
         valid_moves = self.get_valid_moves(game_state)

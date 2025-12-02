@@ -80,6 +80,7 @@ jest.mock('../../src/server/services/MetricsService', () => ({
     recordAbnormalTermination: jest.fn(),
     updateGameSessionStatusCurrent: jest.fn(),
     recordMoveApplied: jest.fn(),
+    recordMoveRejected: jest.fn(),
   }),
 }));
 

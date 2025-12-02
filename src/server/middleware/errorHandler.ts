@@ -215,7 +215,11 @@ export const errorHandler = (
  * }));
  * ```
  */
-type AsyncRequestHandler = (req: Request, res: Response, next: NextFunction) => Promise<any> | any;
+type AsyncRequestHandler = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => Promise<void> | void;
 
 export const asyncHandler = (fn: AsyncRequestHandler) => {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -229,7 +233,11 @@ export const asyncHandler = (fn: AsyncRequestHandler) => {
  * @deprecated Use `new ApiError({ code, message })` instead.
  * This function is kept for backward compatibility with existing code.
  */
-export const createError = (message: string, statusCode: number = 500, code?: string): AppError | ApiError => {
+export const createError = (
+  message: string,
+  statusCode: number = 500,
+  code?: string
+): AppError | ApiError => {
   // If a standardized code is provided, use ApiError
   if (code) {
     const normalizedCode = normalizeErrorCode(code);

@@ -529,9 +529,9 @@ export function parseMoveResult(data: unknown): ZodMoveResult {
 export function formatZodError(error: z.ZodError | undefined | null): string {
   const zodError = error as z.ZodError | undefined;
   // Zod 4 exposes `issues`; older versions used `errors`. Support both defensively.
-  const issues = zodError?.issues ?? (zodError as any)?.errors;
+  const issues = zodError?.issues ?? (zodError as { errors?: z.ZodIssue[] } | undefined)?.errors;
 
-  if (!issues || !Array.isArray(issues)) {
+  if (!issues || !Array.isArray(issues) || issues.length === 0) {
     // Fallback for unexpected inputs; preserve basic error information if present.
     if (error instanceof Error && error.message) {
       return error.message;
@@ -540,9 +540,21 @@ export function formatZodError(error: z.ZodError | undefined | null): string {
   }
 
   return issues
-    .map((e: { path: (string | number)[]; message: string }) => {
-      const path = e.path.length > 0 ? `${e.path.join('.')}: ` : '';
-      return `${path}${e.message}`;
+    .map((issue) => {
+      const zodIssue = issue as z.ZodIssue;
+
+      const rawPath = Array.isArray(zodIssue.path) ? zodIssue.path : [];
+      const normalizedPath = rawPath.map((seg: unknown) =>
+        typeof seg === 'string' || typeof seg === 'number' ? seg : String(seg)
+      );
+      const pathPrefix = normalizedPath.length > 0 ? `${normalizedPath.join('.')}: ` : '';
+
+      const message =
+        typeof zodIssue.message === 'string' && zodIssue.message.length > 0
+          ? zodIssue.message
+          : 'Invalid data';
+
+      return `${pathPrefix}${message}`;
     })
     .join('; ');
 }

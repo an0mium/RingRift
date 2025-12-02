@@ -143,9 +143,46 @@ export type GameEventType =
   | 'GAME_COMPLETED'
   | 'ERROR_OCCURRED';
 
+/** Payload for ACTION_PROCESSED events */
+export interface ActionProcessedPayload {
+  action: GameAction;
+  newState: GameState;
+}
+
+/** Payload for ERROR_OCCURRED events */
+export interface ErrorOccurredPayload {
+  error: string;
+  code: string;
+}
+
+/** Payload for PHASE_CHANGED events */
+export interface PhaseChangedPayload {
+  previousPhase: GamePhase;
+  newPhase: GamePhase;
+}
+
+/** Payload for GAME_COMPLETED events */
+export interface GameCompletedPayload {
+  winner?: number;
+  reason: string;
+}
+
+/** Payload for GAME_INITIALIZED events */
+export interface GameInitializedPayload {
+  initialState: GameState;
+}
+
+/** Union of all possible event payloads */
+export type GameEventPayload =
+  | ActionProcessedPayload
+  | ErrorOccurredPayload
+  | PhaseChangedPayload
+  | GameCompletedPayload
+  | GameInitializedPayload;
+
 export interface GameEvent {
   type: GameEventType;
   gameId: string;
   timestamp: number;
-  payload?: any;
+  payload?: unknown;
 }

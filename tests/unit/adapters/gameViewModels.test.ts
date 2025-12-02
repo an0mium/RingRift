@@ -780,6 +780,81 @@ describe('toHUDViewModel - decisionPhase mapping', () => {
     expect(hud.decisionPhase?.showCountdown).toBe(true);
     expect(hud.decisionPhase?.isServerCapped).toBe(true);
   });
+
+  it('uses a Line Formation phase label and celebratory styling for line reward decisions', () => {
+    const player1 = createTestPlayer(1, { id: 'user-1', username: 'Alice' });
+    const player2 = createTestPlayer(2, { id: 'user-2', username: 'Bob' });
+
+    const gameState = createTestGameState({
+      players: [player1, player2],
+      currentPlayer: 1,
+      currentPhase: 'line_processing',
+      gameStatus: 'active',
+    });
+
+    const choice: PlayerChoice = {
+      id: 'choice-line-reward',
+      type: 'line_reward_option',
+      playerNumber: 1,
+      options: ['add_ring', 'add_stack'] as any,
+    } as any;
+
+    const hud = toHUDViewModel(
+      gameState,
+      createDefaultHUDOptions({
+        currentUserId: 'user-1',
+        pendingChoice: choice,
+      } as Partial<ToHUDViewModelOptions>)
+    );
+
+    expect(hud.phase.phaseKey).toBe('line_processing');
+    expect(hud.phase.label).toBe('Line Formation');
+    expect(hud.phase.description).toMatch(/completed lines/i);
+    expect(hud.phase.colorClass).toBe('bg-amber-500');
+    expect(hud.phase.icon).toBe('✨');
+  });
+
+  it('surfaces an attention status chip for ring elimination decisions during territory processing', () => {
+    const player1 = createTestPlayer(1, { id: 'user-1', username: 'Alice' });
+    const player2 = createTestPlayer(2, { id: 'user-2', username: 'Bob' });
+
+    const gameState = createTestGameState({
+      players: [player1, player2],
+      currentPlayer: 1,
+      currentPhase: 'territory_processing',
+      gameStatus: 'active',
+    });
+
+    const choice: PlayerChoice = {
+      id: 'choice-ring-elim',
+      type: 'ring_elimination',
+      playerNumber: 1,
+      options: [
+        {
+          stackPosition: { x: 0, y: 0 },
+          capHeight: 1,
+          totalHeight: 3,
+          moveId: 'm1',
+        },
+      ] as any,
+    } as any;
+
+    const hud = toHUDViewModel(
+      gameState,
+      createDefaultHUDOptions({
+        currentUserId: 'user-1',
+        pendingChoice: choice,
+      } as Partial<ToHUDViewModelOptions>)
+    );
+
+    expect(hud.phase.phaseKey).toBe('territory_processing');
+    expect(hud.phase.label).toBe('Line Formation');
+    expect(hud.decisionPhase).toBeDefined();
+    expect(hud.decisionPhase?.statusChip).toEqual({
+      text: 'Select stack cap to eliminate',
+      tone: 'attention',
+    });
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════

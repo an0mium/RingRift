@@ -94,6 +94,8 @@ BASE_V1_BALANCED_WEIGHTS: HeuristicWeights = {
     "WEIGHT_SWAP_EDGE_BONUS": 2.0,          # Bonus for edge positions (moderate)
     "WEIGHT_SWAP_DIAGONAL_BONUS": 6.0,      # Bonus for key diagonal positions
     "WEIGHT_SWAP_OPENING_STRENGTH": 20.0,   # Multiplier for normalized strength
+    # v1.4: Training diversity - Swap decision randomness
+    "WEIGHT_SWAP_EXPLORATION_TEMPERATURE": 0.0,  # Swap noise (0=deterministic)
 }
  
  
@@ -149,6 +151,8 @@ HEURISTIC_WEIGHT_KEYS: list[str] = [
     "WEIGHT_SWAP_EDGE_BONUS",
     "WEIGHT_SWAP_DIAGONAL_BONUS",
     "WEIGHT_SWAP_OPENING_STRENGTH",
+    # v1.4: Training diversity - Swap decision randomness
+    "WEIGHT_SWAP_EXPLORATION_TEMPERATURE",
 ]
  
  
@@ -266,6 +270,16 @@ HEURISTIC_WEIGHT_PROFILES: Dict[str, HeuristicWeights] = {
     "heuristic_v1_aggressive": HEURISTIC_V1_AGGRESSIVE,
     "heuristic_v1_territorial": HEURISTIC_V1_TERRITORIAL,
     "heuristic_v1_defensive": HEURISTIC_V1_DEFENSIVE,
+    # Player-count-specific profiles. These start as balanced but can be
+    # overridden by trained weights via load_trained_profiles_if_available()
+    # or the RINGRIFT_TRAINED_HEURISTIC_PROFILES environment variable.
+    # Use get_weights_for_player_count() to auto-select the right profile.
+    "heuristic_v1_2p": HEURISTIC_V1_BALANCED,
+    "heuristic_v1_3p": HEURISTIC_V1_BALANCED,
+    "heuristic_v1_4p": HEURISTIC_V1_BALANCED,
+    # Optimized ensemble profile (average of player-specific trained weights).
+    # Falls back to balanced until trained weights are loaded.
+    "heuristic_v1_optimized": HEURISTIC_V1_BALANCED,
     # Canonical ladder-linked ids. These currently all reference the
     # balanced profile but can be re-pointed in future without changing the
     # external difficulty contract.
@@ -274,6 +288,48 @@ HEURISTIC_WEIGHT_PROFILES: Dict[str, HeuristicWeights] = {
     "v1-heuristic-4": HEURISTIC_V1_BALANCED,
     "v1-heuristic-5": HEURISTIC_V1_BALANCED,
 }
+
+
+# --- Player-count-specific weight selection ---------------------------------
+
+PLAYER_COUNT_PROFILE_MAP: Dict[int, str] = {
+    2: "heuristic_v1_2p",
+    3: "heuristic_v1_3p",
+    4: "heuristic_v1_4p",
+}
+
+
+def get_weights_for_player_count(
+    num_players: int,
+    fallback_profile: str = "heuristic_v1_balanced",
+) -> HeuristicWeights:
+    """Return the best weight profile for a given player count.
+
+    This function enables automatic selection of player-count-specific weights
+    that have been optimized through separate training runs. If no specific
+    profile exists for the player count, falls back to the specified profile.
+
+    Parameters
+    ----------
+    num_players:
+        Number of players in the game (2, 3, or 4).
+    fallback_profile:
+        Profile ID to use if no player-specific profile exists.
+
+    Returns
+    -------
+    HeuristicWeights
+        The weight profile to use.
+
+    Example
+    -------
+    >>> from app.ai.heuristic_weights import get_weights_for_player_count
+    >>> weights = get_weights_for_player_count(3)  # Returns 3-player optimized
+    """
+    profile_id = PLAYER_COUNT_PROFILE_MAP.get(num_players)
+    if profile_id and profile_id in HEURISTIC_WEIGHT_PROFILES:
+        return HEURISTIC_WEIGHT_PROFILES[profile_id]
+    return HEURISTIC_WEIGHT_PROFILES.get(fallback_profile, HEURISTIC_V1_BALANCED)
 
 
 def get_weights(profile_id: str) -> HeuristicWeights:

@@ -50,12 +50,12 @@ export const options = {
     
     // Message latency - real-time feel
     'websocket_message_latency_ms': [
-      'p95<200',  // Most messages arrive quickly
-      'p99<500'   // Even slow messages acceptable
+      'p(95)<200',  // Most messages arrive quickly
+      'p(99)<500'   // Even slow messages acceptable
     ],
     
     // Connection stability - should maintain for 5+ minutes per STRATEGIC_ROADMAP
-    'websocket_connection_duration_ms': ['p50>300000'], // Median >5 minutes
+    'websocket_connection_duration_ms': ['p(50)>300000'], // Median >5 minutes
   },
   
   tags: {

@@ -331,6 +331,36 @@ describe('Protected game route authorization', () => {
     expect(res.body.error.code).toBe('AUTH_TOKEN_REQUIRED');
   });
 
+  it('GET /api/games/:gameId returns 400 GAME_INVALID_ID for malformed gameId', async () => {
+    const app = createTestApp();
+
+    const res = await request(app)
+      .get('/api/games/not-a-valid-id')
+      .set('Authorization', 'Bearer user-1')
+      .expect(400);
+
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('GAME_INVALID_ID');
+    // Invalid IDs should be rejected at validation layer without hitting the DB.
+    expect(mockPrisma.game.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('GET /api/games/:gameId returns 404 GAME_NOT_FOUND for well-formed but missing gameId', async () => {
+    const validButMissingGameId = '550e8400-e29b-41d4-a716-4466554400ff';
+    mockPrisma.game.findUnique.mockResolvedValueOnce(null as any);
+
+    const app = createTestApp();
+
+    const res = await request(app)
+      .get(`/api/games/${validButMissingGameId}`)
+      .set('Authorization', 'Bearer user-1')
+      .expect(404);
+
+    expect(res.body.success).toBe(false);
+    expect(res.body.error.code).toBe('GAME_NOT_FOUND');
+    expect(mockPrisma.game.findUnique).toHaveBeenCalled();
+  });
+
   it('GET /api/games/:gameId denies access to non-participants when spectators are disabled', async () => {
     const validGameId = '550e8400-e29b-41d4-a716-446655440001';
     mockPrisma.game.findUnique.mockResolvedValueOnce({

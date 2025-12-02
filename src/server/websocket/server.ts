@@ -188,7 +188,7 @@ export class WebSocketServer {
     this.io.use(async (socket: AuthenticatedSocket, next) => {
       try {
         const rawToken =
-          (socket.handshake.auth && (socket.handshake.auth as any).token) ||
+          (socket.handshake.auth && (socket.handshake.auth as Record<string, unknown>).token) ||
           socket.handshake.query.token;
 
         if (!rawToken || typeof rawToken !== 'string') {
@@ -376,16 +376,20 @@ export class WebSocketServer {
               userId: socket.userId,
               error: error instanceof Error ? error.message : String(error),
             });
+            getMetricsService().recordMoveRejected('db_unavailable');
             this.emitError(socket, 'INTERNAL_ERROR', 'Unable to process move', 'player_move');
           } else if (message === 'Game not found') {
+            getMetricsService().recordMoveRejected('game_not_found');
             this.emitError(socket, 'GAME_NOT_FOUND', 'Game not found', 'player_move');
           } else if (message === 'Game is not active') {
+            getMetricsService().recordMoveRejected('game_not_active');
             this.emitError(socket, 'INTERNAL_ERROR', 'Game is not active', 'player_move');
           } else if (
             message === 'Spectators cannot make moves' ||
             message === 'Current socket user is not a player in this game' ||
             message === 'Not in game room'
           ) {
+            getMetricsService().recordMoveRejected('authz');
             this.emitError(
               socket,
               'ACCESS_DENIED',
@@ -396,6 +400,7 @@ export class WebSocketServer {
             message === 'Invalid move position payload' ||
             message === 'Move destination is required'
           ) {
+            getMetricsService().recordMoveRejected('invalid_payload');
             this.emitError(socket, 'INVALID_PAYLOAD', 'Invalid move payload', 'player_move');
           } else {
             // Default: treat as a rules-engine rejection of an illegal move.
@@ -405,6 +410,7 @@ export class WebSocketServer {
               gameId: socket.gameId,
               message,
             });
+            getMetricsService().recordMoveRejected('rules_invalid');
             this.emitError(
               socket,
               'MOVE_REJECTED',
@@ -440,6 +446,7 @@ export class WebSocketServer {
               userId: socket.userId,
               error: error instanceof Error ? error.message : String(error),
             });
+            getMetricsService().recordMoveRejected('db_unavailable');
             this.emitError(
               socket,
               'INTERNAL_ERROR',
@@ -447,14 +454,17 @@ export class WebSocketServer {
               'player_move_by_id'
             );
           } else if (message === 'Game not found') {
+            getMetricsService().recordMoveRejected('game_not_found');
             this.emitError(socket, 'GAME_NOT_FOUND', 'Game not found', 'player_move_by_id');
           } else if (message === 'Game is not active') {
+            getMetricsService().recordMoveRejected('game_not_active');
             this.emitError(socket, 'INTERNAL_ERROR', 'Game is not active', 'player_move_by_id');
           } else if (
             message === 'Spectators cannot make moves' ||
             message === 'Current socket user is not a player in this game' ||
             message === 'Not in game room'
           ) {
+            getMetricsService().recordMoveRejected('authz');
             this.emitError(
               socket,
               'ACCESS_DENIED',
@@ -469,6 +479,7 @@ export class WebSocketServer {
               gameId: socket.gameId,
               message,
             });
+            getMetricsService().recordMoveRejected('rules_invalid');
             this.emitError(
               socket,
               'MOVE_REJECTED',

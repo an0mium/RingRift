@@ -1,4 +1,4 @@
-import { GameState, Move } from '../types/game';
+import { GameState, Move, Position } from '../types/game';
 
 /**
  * Shared local move-selection policy used by both the backend AI fallback
@@ -14,6 +14,8 @@ import { GameState, Move } from '../types/game';
  *   (e.g. skip_placement) exist, randomly decide whether to place based
  *   on the ratio between the number of placement options and the number
  *   of non-placement moves.
+ * - For swap_sides moves: evaluates the opening position strength and
+ *   decides whether to swap based on P1's opening advantage.
  *
  * This helper is intentionally side-effect free so it can be used from
  * both server and client bundles without pulling in server-only logging
@@ -21,16 +23,137 @@ import { GameState, Move } from '../types/game';
  */
 export type LocalAIRng = () => number;
 
+/**
+ * Evaluate whether P2 should swap sides based on P1's opening position.
+ * Returns a score where positive values favor swapping.
+ */
+function evaluateSwapOpportunity(gameState: GameState, randomness: number = 0): number {
+  // Only applies to 2-player games
+  if (gameState.players.length !== 2) {
+    return 0;
+  }
+
+  // Find P1's stacks (the opponent's position at time of swap)
+  const p1Stacks = Object.values(gameState.board.stacks).filter((s) => s.controllingPlayer === 1);
+
+  if (p1Stacks.length === 0) {
+    return 0;
+  }
+
+  // Calculate center positions based on board type
+  const centerPositions = getCenterPositions(gameState);
+  let swapValue = 0;
+
+  for (const stack of p1Stacks) {
+    const posKey = `${stack.position.x},${stack.position.y}`;
+
+    // High bonus for center stacks
+    if (centerPositions.has(posKey)) {
+      swapValue += 15.0;
+    }
+
+    // Adjacency bonus - check if near center
+    const isNearCenter = isAdjacentToCenter(stack.position, centerPositions, gameState);
+    if (isNearCenter) {
+      swapValue += 3.0;
+    }
+
+    // Height bonus
+    swapValue += stack.stackHeight * 2.0;
+  }
+
+  // Add optional randomness for training diversity
+  if (randomness > 0) {
+    const noise = (Math.random() - 0.5) * randomness * 20;
+    swapValue += noise;
+  }
+
+  return swapValue;
+}
+
+/**
+ * Get center position keys for the board
+ */
+function getCenterPositions(gameState: GameState): Set<string> {
+  const size = gameState.board.size;
+  const centers = new Set<string>();
+
+  if (gameState.board.type === 'square8' || gameState.board.type === 'square19') {
+    // For square boards, center is the middle positions
+    const mid = Math.floor(size / 2);
+    if (size % 2 === 0) {
+      // Even size: 4 center positions
+      centers.add(`${mid - 1},${mid - 1}`);
+      centers.add(`${mid - 1},${mid}`);
+      centers.add(`${mid},${mid - 1}`);
+      centers.add(`${mid},${mid}`);
+    } else {
+      // Odd size: 1 center position
+      centers.add(`${mid},${mid}`);
+    }
+  }
+
+  return centers;
+}
+
+/**
+ * Check if a position is adjacent to any center position
+ */
+function isAdjacentToCenter(
+  pos: Position,
+  centerPositions: Set<string>,
+  _gameState: GameState
+): boolean {
+  const adjacentOffsets = [
+    [-1, -1],
+    [0, -1],
+    [1, -1],
+    [-1, 0],
+    [1, 0],
+    [-1, 1],
+    [0, 1],
+    [1, 1],
+  ];
+
+  for (const [dx, dy] of adjacentOffsets) {
+    const adjX = pos.x + dx;
+    const adjY = pos.y + dy;
+    const adjKey = `${adjX},${adjY}`;
+    if (centerPositions.has(adjKey)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function chooseLocalMoveFromCandidates(
   playerNumber: number,
   gameState: GameState,
   candidates: Move[],
-  rng: LocalAIRng
+  rng: LocalAIRng,
+  randomness: number = 0
 ): Move | null {
-  // The current selection policy depends only on phase and move types,
-  // but we keep playerNumber in the signature for future per-player
-  // tuning. Mark it as used to satisfy strict TS settings.
-  void playerNumber;
+  if (!candidates.length) {
+    return null;
+  }
+
+  // Handle swap_sides moves with strategic evaluation
+  const swapMoves = candidates.filter((m) => m.type === 'swap_sides');
+  const nonSwapMoves = candidates.filter((m) => m.type !== 'swap_sides');
+
+  if (swapMoves.length > 0 && playerNumber === 2) {
+    // Evaluate swap opportunity
+    const swapValue = evaluateSwapOpportunity(gameState, randomness);
+
+    // Threshold: swap if opening is advantageous (positive value)
+    // With randomness, this creates diversity in swap decisions
+    if (swapValue > 0) {
+      return swapMoves[0]!;
+    }
+    // Otherwise, continue with non-swap moves
+    candidates = nonSwapMoves;
+  }
 
   if (!candidates.length) {
     return null;

@@ -39,6 +39,7 @@ import { getReplayService } from '../services/ReplayService';
 import type { SandboxInteractionHandler } from '../sandbox/ClientSandboxEngine';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { serializeGameState } from '../../shared/engine/contracts/serialization';
+import { buildTestFixtureFromGameState } from '../sandbox/statePersistence';
 
 const BOARD_PRESETS: Array<{
   value: BoardType;
@@ -273,6 +274,12 @@ export const SandboxGameHost: React.FC = () => {
     ((response: PlayerChoiceResponseFor<PlayerChoice>) => void) | null
   >(null);
 
+  const lastSandboxPhaseRef = useRef<string | null>(null);
+
+  // Sandbox-only visual cue: transient highlight of newly-collapsed line
+  // segments, populated from the engine after automatic line processing.
+  const [recentLineHighlights, setRecentLineHighlights] = useState<Position[]>([]);
+
   const {
     handleCellClick: handleSandboxCellClick,
     handleCellDoubleClick: handleSandboxCellDoubleClick,
@@ -286,6 +293,37 @@ export const SandboxGameHost: React.FC = () => {
     setValidTargets,
     choiceResolverRef: sandboxChoiceResolverRef,
   });
+
+  // Consume any recent line highlights from the sandbox engine whenever the
+  // sandbox state version advances. Highlights are cleared automatically
+  // after a short delay so they behave as a brief visual cue rather than a
+  // persistent overlay.
+  useEffect(() => {
+    if (!sandboxEngine) {
+      setRecentLineHighlights([]);
+      return;
+    }
+
+    const positions =
+      typeof (sandboxEngine as any).consumeRecentLineHighlights === 'function'
+        ? sandboxEngine.consumeRecentLineHighlights()
+        : [];
+
+    if (positions.length === 0) {
+      setRecentLineHighlights([]);
+      return;
+    }
+
+    setRecentLineHighlights(positions);
+
+    const timeoutId = window.setTimeout(() => {
+      setRecentLineHighlights([]);
+    }, 1800);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [sandboxEngine, _sandboxStateVersion]);
 
   const requestSandboxEvaluation = useCallback(async () => {
     // Get game state from engine directly to avoid forward reference issues
@@ -654,6 +692,34 @@ export const SandboxGameHost: React.FC = () => {
     }
   };
 
+  const handleCopySandboxFixture = async () => {
+    try {
+      if (!sandboxGameState) {
+        toast.error('No sandbox game is currently active.');
+        return;
+      }
+
+      const fixture = buildTestFixtureFromGameState(sandboxGameState);
+      const payload = JSON.stringify(fixture, null, 2);
+
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        navigator.clipboard.writeText
+      ) {
+        await navigator.clipboard.writeText(payload);
+        toast.success('Sandbox test fixture copied to clipboard');
+      } else {
+        // eslint-disable-next-line no-console
+        console.log('Sandbox test fixture', fixture);
+        toast.success('Sandbox test fixture logged to console (clipboard API unavailable).');
+      }
+    } catch (err) {
+      console.error('Failed to export sandbox test fixture', err);
+      toast.error('Failed to export sandbox test fixture; see console for details.');
+    }
+  };
+
   // Game view once configured (local sandbox)
   const sandboxGameState: GameState | null = sandboxEngine ? sandboxEngine.getGameState() : null;
   const sandboxVictoryResult = sandboxEngine ? sandboxEngine.getVictoryResult() : null;
@@ -677,6 +743,12 @@ export const SandboxGameHost: React.FC = () => {
   const _boardDisplayBlurb =
     boardPresetInfo?.blurb ?? 'Custom layout selected for this local sandbox match.';
 
+  // When a ring elimination decision is active in the sandbox, repurpose the
+  // heuristic/status chip under the board as an explicit elimination prompt so
+  // it mirrors the backend HUD directive.
+  const isRingEliminationChoice =
+    (sandboxCaptureChoice ?? sandboxPendingChoice)?.type === 'ring_elimination';
+
   const sandboxPlayersList =
     sandboxGameState?.players ??
     Array.from({ length: config.numPlayers }, (_, idx) => ({
@@ -696,8 +768,91 @@ export const SandboxGameHost: React.FC = () => {
   const sandboxPhaseKey = sandboxGameState?.currentPhase ?? 'ring_placement';
   const sandboxPhaseDetails = PHASE_COPY[sandboxPhaseKey] ?? PHASE_COPY.ring_placement;
 
+  useEffect(() => {
+    if (!sandboxGameState) {
+      lastSandboxPhaseRef.current = null;
+      return;
+    }
+
+    const previousPhase = lastSandboxPhaseRef.current;
+    const nextPhase = sandboxGameState.currentPhase;
+
+    if (previousPhase !== nextPhase) {
+      const stacksSnapshot = Array.from(sandboxGameState.board.stacks.entries()).map(
+        ([key, stack]) => ({
+          key,
+          height: stack.stackHeight,
+          cap: stack.capHeight,
+          controllingPlayer: stack.controllingPlayer,
+        })
+      );
+
+      // eslint-disable-next-line no-console
+      console.log('[SandboxPhaseDebug][SandboxGameHost] Phase change in sandbox', {
+        from: previousPhase,
+        to: nextPhase,
+        currentPlayer: sandboxGameState.currentPlayer,
+        gameStatus: sandboxGameState.gameStatus,
+        stacks: stacksSnapshot,
+      });
+
+      if (nextPhase === 'line_processing') {
+        const formedLinesSnapshot =
+          sandboxGameState.board.formedLines?.map((line) => ({
+            player: line.player,
+            length: line.length,
+            positions: line.positions.map((pos) => positionToString(pos)),
+          })) ?? [];
+
+        // eslint-disable-next-line no-console
+        console.log(
+          '[SandboxPhaseDebug][SandboxGameHost] Entered line_processing with formedLines',
+          formedLinesSnapshot
+        );
+      }
+
+      lastSandboxPhaseRef.current = nextPhase;
+    }
+  }, [sandboxGameState]);
+
   const humanSeatCount = sandboxPlayersList.filter((p) => p.type === 'human').length;
   const aiSeatCount = sandboxPlayersList.length - humanSeatCount;
+
+  // Whenever the sandbox state reflects an active AI turn, trigger the
+  // sandbox AI loop after a short delay. This keeps AI progression in
+  // sync with orchestrator-driven state changes (including line/territory
+  // processing and elimination decisions) without requiring an extra
+  // board click from the user.
+  useEffect(() => {
+    if (!sandboxEngine || !sandboxGameState) {
+      return;
+    }
+
+    const current = sandboxGameState.players.find(
+      (p) => p.playerNumber === sandboxGameState.currentPlayer
+    );
+
+    if (sandboxGameState.gameStatus !== 'active' || !current || current.type !== 'ai') {
+      return;
+    }
+
+    setSandboxLastProgressAt(Date.now());
+    setSandboxStallWarning(null);
+
+    const timeoutId = window.setTimeout(() => {
+      maybeRunSandboxAiIfNeeded();
+    }, 60);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    sandboxEngine,
+    sandboxGameState,
+    maybeRunSandboxAiIfNeeded,
+    setSandboxLastProgressAt,
+    setSandboxStallWarning,
+  ]);
 
   // Derive board VM + HUD-like summaries
   const primaryValidTargets =
@@ -711,10 +866,33 @@ export const SandboxGameHost: React.FC = () => {
   // geometry is always visible while the capture UI is open.
   const activePendingChoice: PlayerChoice | null = sandboxCaptureChoice ?? sandboxPendingChoice;
 
-  const decisionHighlights =
+  const baseDecisionHighlights =
     sandboxGameState && activePendingChoice
       ? deriveBoardDecisionHighlights(sandboxGameState, activePendingChoice)
       : undefined;
+
+  // Merge transient line highlights into the decision highlight model so
+  // recently-collapsed lines receive a brief visual cue even when no
+  // explicit line-order/reward choice is surfaced.
+  let decisionHighlights = baseDecisionHighlights;
+  if (recentLineHighlights.length > 0) {
+    const recentKeys = new Set(recentLineHighlights.map((pos) => positionToString(pos)));
+    const existing = baseDecisionHighlights?.highlights ?? [];
+
+    const extraHighlights = Array.from(recentKeys)
+      .filter((key) => !existing.some((h) => h.positionKey === key))
+      .map((key) => ({
+        positionKey: key,
+        intensity: 'primary' as const,
+      }));
+
+    if (extraHighlights.length > 0) {
+      decisionHighlights = {
+        choiceKind: baseDecisionHighlights?.choiceKind ?? 'line_order',
+        highlights: [...existing, ...extraHighlights],
+      };
+    }
+  }
 
   const sandboxBoardViewModel = sandboxBoardState
     ? toBoardViewModel(sandboxBoardState, {
@@ -723,6 +901,43 @@ export const SandboxGameHost: React.FC = () => {
         decisionHighlights,
       })
     : null;
+
+  useEffect(() => {
+    if (!sandboxBoardState || !sandboxBoardViewModel) {
+      return;
+    }
+
+    if (sandboxPhaseKey !== 'line_processing') {
+      return;
+    }
+
+    const stacksSnapshot = Array.from(sandboxBoardState.stacks.entries()).map(([key, stack]) => ({
+      key,
+      height: stack.stackHeight,
+      cap: stack.capHeight,
+      controllingPlayer: stack.controllingPlayer,
+    }));
+
+    const decisionHighlightsSnapshot =
+      decisionHighlights?.highlights?.map((h) => h.positionKey) ?? [];
+
+    // eslint-disable-next-line no-console
+    console.log('[SandboxPhaseDebug][SandboxGameHost] BoardView props in line_processing', {
+      boardType: sandboxBoardState.type,
+      phase: sandboxPhaseKey,
+      stacks: stacksSnapshot,
+      selectedPosition: selected ? positionToString(selected) : null,
+      validTargets: displayedValidTargets.map((pos) => positionToString(pos)),
+      decisionHighlights: decisionHighlightsSnapshot,
+    });
+  }, [
+    sandboxBoardState,
+    sandboxBoardViewModel,
+    sandboxPhaseKey,
+    selected,
+    displayedValidTargets,
+    decisionHighlights,
+  ]);
 
   const sandboxVictoryViewModel = sandboxVictoryResult
     ? toVictoryViewModel(
@@ -1208,7 +1423,11 @@ export const SandboxGameHost: React.FC = () => {
         )}
 
         <ChoiceDialog
-          choice={sandboxPendingChoice}
+          choice={
+            sandboxPendingChoice && sandboxPendingChoice.type === 'ring_elimination'
+              ? null
+              : sandboxPendingChoice
+          }
           deadline={null}
           onSelectOption={(choice, option) => {
             const resolver = sandboxChoiceResolverRef.current;
@@ -1222,6 +1441,11 @@ export const SandboxGameHost: React.FC = () => {
               sandboxChoiceResolverRef.current = null;
             }
             setSandboxPendingChoice(null);
+            // Bump sandbox state version so the AI turn loop
+            // and any derived view models observe the post-
+            // decision state (including advancing to an AI
+            // turn after line/territory decisions).
+            setSandboxStateVersion((v) => v + 1);
           }}
         />
 
@@ -1244,6 +1468,13 @@ export const SandboxGameHost: React.FC = () => {
                         className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-sky-400 hover:text-sky-200 transition"
                       >
                         Save State
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleCopySandboxFixture}
+                        className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
+                      >
+                        Copy Test Fixture
                       </button>
                       <button
                         type="button"
@@ -1330,8 +1561,16 @@ export const SandboxGameHost: React.FC = () => {
 
                 <section className="mt-1 p-3 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 text-xs text-slate-200">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-600">
-                      {boardDisplaySubtitle}
+                    <span
+                      className={
+                        isRingEliminationChoice
+                          ? 'px-2 py-1 rounded-full bg-amber-500 text-slate-950 font-semibold border border-amber-300 shadow-sm shadow-amber-500/40'
+                          : 'px-2 py-1 rounded-full bg-slate-800/80 border border-slate-600'
+                      }
+                    >
+                      {isRingEliminationChoice
+                        ? 'Select stack cap to eliminate'
+                        : boardDisplaySubtitle}
                     </span>
                     <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-600">
                       Players: {config.numPlayers} ({humanSeatCount} human, {aiSeatCount} AI)

@@ -20,9 +20,11 @@ import type {
 import {
   BOARD_CONFIGS,
   positionToString,
-  computeProgressSnapshot,
-  summarizeBoard,
+  stringToPosition,
+  createHistoryEntry,
   hashGameState,
+  isValidPosition,
+  playerHasMaterial,
   canProcessTerritoryRegion,
   enumerateProcessTerritoryRegionMoves,
   enumerateProcessLineMoves,
@@ -36,20 +38,25 @@ import {
   enumerateTerritoryEliminationMoves,
   applyCaptureSegment as applyCaptureSegmentAggregate,
   enumerateAllCaptureMoves as enumerateAllCaptureMovesAggregate,
-  applySimpleMovement,
-  getChainCaptureContinuationInfo as getChainCaptureContinuationInfoAggregate,
   // Canonical placement aggregate API (TS SSOT)
   enumeratePlacementPositions,
-  evaluateSkipPlacementEligibilityAggregate,
   validatePlacementAggregate,
   applyPlacementMoveAggregate,
-  validatePlacementOnBoard,
-  type PlacementContext,
-  type SkipPlacementEligibilityResult,
   // Type guards for move narrowing
   isCaptureMove,
   type PlaceRingAction,
+  // LPS tracking helpers
+  createLpsTrackingState,
+  updateLpsTracking,
+  evaluateLpsVictory,
+  buildLpsVictoryResult,
+  isLpsActivePhase,
+  // Swap sides (pie rule) helpers
+  shouldOfferSwapSides,
+  // Player state helpers
+  hasAnyRealAction,
 } from '../../shared/engine';
+import type { LpsTrackingState } from '../../shared/engine';
 import {
   deserializeGameState,
   serializeGameState,
@@ -61,11 +68,7 @@ import type {
   PlayerChoiceResponse,
   CaptureDirectionChoice,
 } from '../../shared/types/game';
-import {
-  isSandboxAiTraceModeEnabled,
-  isTestEnvironment,
-  readEnv,
-} from '../../shared/utils/envFlags';
+import { isSandboxAiTraceModeEnabled, isTestEnvironment } from '../../shared/utils/envFlags';
 import { SeededRNG, generateGameSeed } from '../../shared/utils/rng';
 import { applyMarkerEffectsAlongPathOnBoard } from '../../shared/engine';
 import { enumerateSimpleMovementLandings } from './sandboxMovement';
@@ -209,31 +212,23 @@ export class ClientSandboxEngine {
   // the sandbox engine.
   private _pendingTerritorySelfElimination: boolean = false;
 
-  /**
-   * Legacy-only snapshot of an in-progress chain capture when the
-   * orchestrator adapter is disabled. This mirrors the minimal surface
-   * of GameEngine.chainCaptureState needed for sandbox getValidMoves()
-   * to expose continue_capture_segment candidates during the
-   * chain_capture phase.
-   */
-  private _chainCapturePlayer: number | null = null;
-  private _chainCaptureCurrentPosition: Position | null = null;
+  // Transient highlight buffer used by the sandbox host to render a brief
+  // visual cue for newly-collapsed line segments. Populated by
+  // processLinesForCurrentPlayer and consumed via consumeRecentLineHighlights.
+  private _recentLineHighlightKeys: string[] = [];
 
   // Test-only checkpoint hook used by parity/diagnostic harnesses to capture
   // GameState snapshots at key points inside canonical move application and
   // post-movement processing. When unset, all debugCheckpoint calls are no-ops.
   /**
    * Host-internal metadata for last-player-standing (R172) detection.
-   * These fields track, per round, which players had any real actions
-   * available (placement, non-capture movement, or overtaking capture)
-   * at the start of their most recent interactive turn. They are kept
-   * off of GameState so sandbox snapshots and wire formats remain
-   * unchanged.
+   * This uses the shared LpsTrackingState from lpsTracking.ts to track,
+   * per round, which players had any real actions available (placement,
+   * non-capture movement, or overtaking capture) at the start of their
+   * most recent interactive turn. Kept off of GameState so sandbox
+   * snapshots and wire formats remain unchanged.
    */
-  private _lpsRoundIndex: number = 0;
-  private _lpsCurrentRoundActorMask: Map<number, boolean> = new Map();
-  private _lpsCurrentRoundFirstPlayer: number | null = null;
-  private _lpsExclusivePlayerForCompletedRound: number | null = null;
+  private _lpsState: LpsTrackingState = createLpsTrackingState();
 
   private _debugCheckpointHook?: ((label: string, state: GameState) => void) | undefined;
 
@@ -320,36 +315,20 @@ export class ClientSandboxEngine {
    */
   private appendHistoryEntry(before: GameState, action: Move): void {
     const after = this.getGameState();
-    const progressBefore = computeProgressSnapshot(before);
-    const progressAfter = computeProgressSnapshot(after);
 
-    // Normalise moveNumber so that sandbox history always uses a contiguous
-    // 1..N sequence regardless of how callers populated Move.moveNumber.
-    const nextMoveNumber = this.gameState.history.length + 1;
-
-    const normalizedAction: Move = {
-      ...action,
-      moveNumber: nextMoveNumber,
-    };
-
-    const entry: GameHistoryEntry = {
-      moveNumber: nextMoveNumber,
-      action: normalizedAction,
-      actor: normalizedAction.player,
-      phaseBefore: before.currentPhase,
-      phaseAfter: after.currentPhase,
-      statusBefore: before.gameStatus,
-      statusAfter: after.gameStatus,
-      progressBefore,
-      progressAfter,
-      stateHashBefore: hashGameState(before),
-      stateHashAfter: hashGameState(after),
-      boardBeforeSummary: summarizeBoard(before.board),
-      boardAfterSummary: summarizeBoard(after.board),
-    };
+    // Use the shared helper to create a consistent history entry.
+    // normalizeMoveNumber ensures sandbox history uses a contiguous 1..N
+    // sequence regardless of how callers populated Move.moveNumber.
+    const entry = createHistoryEntry(before, after, action, {
+      normalizeMoveNumber: true,
+    });
 
     this.gameState = {
       ...this.gameState,
+      // Keep moveHistory in sync with canonical actions so board
+      // animation hooks (useAutoMoveAnimation) can observe new moves
+      // in both backend and sandbox hosts.
+      moveHistory: [...this.gameState.moveHistory, action],
       history: [...this.gameState.history, entry],
     };
   }
@@ -849,6 +828,18 @@ export class ClientSandboxEngine {
   }
 
   /**
+   * Sandbox-only helper: return and clear the most recently-collapsed line
+   * positions for the current game. The sandbox host uses this to render a
+   * brief visual cue after automatic line processing, without embedding any
+   * rules logic in React.
+   */
+  public consumeRecentLineHighlights(): Position[] {
+    const keys = this._recentLineHighlightKeys;
+    this._recentLineHighlightKeys = [];
+    return keys.map((posStr) => stringToPosition(posStr));
+  }
+
+  /**
    * Get a serialized snapshot of the current game state.
    * Used for saving custom scenarios.
    */
@@ -893,14 +884,8 @@ export class ClientSandboxEngine {
     this._lastAIMove = null;
     this._pendingLineRewardElimination = false;
     this._pendingTerritorySelfElimination = false;
-    this._chainCapturePlayer = null;
-    this._chainCaptureCurrentPosition = null;
-
-    // 5. Reset LPS tracking state
-    this._lpsRoundIndex = 0;
-    this._lpsCurrentRoundActorMask = new Map();
-    this._lpsCurrentRoundFirstPlayer = null;
-    this._lpsExclusivePlayerForCompletedRound = null;
+    // 5. Reset LPS tracking state using shared helper
+    this._lpsState = createLpsTrackingState();
 
     // 6. Clear victory result
     this.victoryResult = null;
@@ -1090,15 +1075,28 @@ export class ClientSandboxEngine {
     const playerNumber = this.gameState.currentPlayer;
     const fromKey = positionToString(from);
 
-    // 1. Check for capture segments
+    // 1. Enumerate capture segments from this stack.
     const captureSegments = this.enumerateCaptureSegmentsFrom(from, playerNumber);
-    if (captureSegments.length > 0) {
-      return captureSegments.map((seg) => seg.landing);
+    const captureLandings = captureSegments.map((seg) => seg.landing);
+
+    // 2. Enumerate simple (non-capturing) movement options from this stack.
+    const simpleMoves = this.enumerateSimpleMovementLandings(playerNumber).filter(
+      (m) => m.fromKey === fromKey
+    );
+    const simpleLandings = simpleMoves.map((m) => m.to);
+
+    // 3. Return the union of capture and simple landings, deduplicated.
+    const allLandings: Position[] = [];
+    const seen = new Set<string>();
+
+    for (const pos of [...captureLandings, ...simpleLandings]) {
+      const key = positionToString(pos);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      allLandings.push(pos);
     }
 
-    // 2. Check for simple movement
-    const simpleMoves = this.enumerateSimpleMovementLandings(playerNumber);
-    return simpleMoves.filter((m) => m.fromKey === fromKey).map((m) => m.to);
+    return allLandings;
   }
 
   /**
@@ -1129,7 +1127,7 @@ export class ClientSandboxEngine {
       this.gameState.boardType,
       this.gameState.board,
       playerNumber,
-      (pos: Position) => this.isValidPosition(pos)
+      (pos: Position) => this.isValidPositionLocal(pos)
     );
   }
 
@@ -1138,78 +1136,35 @@ export class ClientSandboxEngine {
    * at the start of their turn (placement, non-capture movement, or
    * overtaking capture). Forced elimination and decision moves do not
    * count as real actions.
+   *
+   * Delegates to the shared hasAnyRealAction helper with sandbox-specific
+   * move enumerators.
    */
   private hasAnyRealActionForPlayer(playerNumber: number): boolean {
-    if (this.gameState.gameStatus !== 'active') {
-      return false;
-    }
-
-    const player = this.gameState.players.find((p) => p.playerNumber === playerNumber);
-    if (!player) {
-      return false;
-    }
-
-    if (!this.playerHasMaterial(playerNumber)) {
-      return false;
-    }
-
-    // Ring placement
-    const placements = this.enumerateLegalRingPlacements(playerNumber);
-    if (placements.length > 0) {
-      return true;
-    }
-
-    // Non-capture movement
-    const simpleMoves = this.enumerateSimpleMovementLandings(playerNumber);
-    if (simpleMoves.length > 0) {
-      return true;
-    }
-
-    // Overtaking capture from any controlled stack
-    const board = this.gameState.board;
-    for (const stack of board.stacks.values()) {
-      if (stack.controllingPlayer !== playerNumber) continue;
-      const segments = this.enumerateCaptureSegmentsFrom(stack.position, playerNumber);
-      if (segments.length > 0) {
-        return true;
-      }
-    }
-
-    return false;
+    return hasAnyRealAction(this.gameState, playerNumber, {
+      hasPlacement: (pn) => this.enumerateLegalRingPlacements(pn).length > 0,
+      hasMovement: (pn) => this.enumerateSimpleMovementLandings(pn).length > 0,
+      hasCapture: (pn) => {
+        const board = this.gameState.board;
+        for (const stack of board.stacks.values()) {
+          if (stack.controllingPlayer !== pn) continue;
+          if (this.enumerateCaptureSegmentsFrom(stack.position, pn).length > 0) {
+            return true;
+          }
+        }
+        return false;
+      },
+    });
   }
 
   /**
    * Determine whether the current sandbox state should expose a swap_sides
-   * meta-move (pie rule) for Player 2. This mirrors the backend
-   * GameEngine.shouldOfferSwapSidesMetaMove gate so that local sandbox games
-   * follow the same one-time swap semantics as backend games.
+   * meta-move (pie rule) for Player 2.
+   *
+   * Delegates to the shared shouldOfferSwapSides() helper from swapSidesHelpers.ts.
    */
   private shouldOfferSwapSidesMetaMove(): boolean {
-    const state = this.gameState;
-
-    if (!state.rulesOptions?.swapRuleEnabled) return false;
-    if (state.gameStatus !== 'active') return false;
-    if (state.players.length !== 2) return false;
-    if (state.currentPlayer !== 2) return false;
-
-    if (
-      state.currentPhase !== 'ring_placement' &&
-      state.currentPhase !== 'movement' &&
-      state.currentPhase !== 'capture' &&
-      state.currentPhase !== 'chain_capture'
-    ) {
-      return false;
-    }
-
-    if (state.moveHistory.length === 0) return false;
-
-    const hasSwapMove = state.moveHistory.some((m) => m.type === 'swap_sides');
-    if (hasSwapMove) return false;
-
-    const hasP1Move = state.moveHistory.some((m) => m.player === 1);
-    const hasP2Move = state.moveHistory.some((m) => m.player === 2 && m.type !== 'swap_sides');
-
-    return hasP1Move && !hasP2Move;
+    return shouldOfferSwapSides(this.gameState);
   }
 
   /**
@@ -1221,17 +1176,11 @@ export class ClientSandboxEngine {
   }
 
   /**
-   * True if the player has any material left: at least one controlled
-   * stack or at least one ring in hand.
+   * True if the player has any material left: any rings in play or in hand.
+   * Delegates to the shared playerHasMaterial helper.
    */
-  private playerHasMaterial(playerNumber: number): boolean {
-    const board = this.gameState.board;
-    const player = this.gameState.players.find((p) => p.playerNumber === playerNumber);
-    const hasStacks = Array.from(board.stacks.values()).some(
-      (stack) => stack.controllingPlayer === playerNumber
-    );
-    const ringsInHand = player?.ringsInHand ?? 0;
-    return hasStacks || ringsInHand > 0;
+  private playerHasMaterialLocal(playerNumber: number): boolean {
+    return playerHasMaterial(this.gameState, playerNumber);
   }
 
   /**
@@ -1307,199 +1256,78 @@ export class ClientSandboxEngine {
   /**
    * Update last-player-standing round tracking for the current player.
    *
-   * This mirrors the backend and Python LPS helpers by:
-   * - Computing whether the current player has any real actions.
-   * - Recording that fact in _lpsCurrentRoundActorMask.
-   * - When all active players have been seen in this round, determining
-   *   whether exactly one player had real actions and, if so, recording
-   *   them as _lpsExclusivePlayerForCompletedRound.
+   * Delegates to the shared updateLpsTracking() helper from lpsTracking.ts.
    */
   private updateLpsRoundTrackingForCurrentPlayer(): void {
     if (this.gameState.gameStatus !== 'active') {
       return;
     }
 
+    if (!isLpsActivePhase(this.gameState.currentPhase)) {
+      return;
+    }
+
     const state = this.gameState;
-    const current = state.currentPlayer;
+    const currentPlayer = state.currentPlayer;
 
     const activePlayers = state.players
-      .filter((p) => this.playerHasMaterial(p.playerNumber))
+      .filter((p) => this.playerHasMaterialLocal(p.playerNumber))
       .map((p) => p.playerNumber);
 
-    if (activePlayers.length === 0) {
-      return;
-    }
+    const hasRealAction = this.hasAnyRealActionForPlayer(currentPlayer);
 
-    const activeSet = new Set(activePlayers);
-    if (!activeSet.has(current)) {
-      return;
-    }
-
-    const first = this._lpsCurrentRoundFirstPlayer;
-    const startingNewCycle = first === null || !activeSet.has(first);
-
-    if (startingNewCycle) {
-      this._lpsRoundIndex += 1;
-      this._lpsCurrentRoundFirstPlayer = current;
-      this._lpsCurrentRoundActorMask.clear();
-      this._lpsExclusivePlayerForCompletedRound = null;
-    } else if (current === first && this._lpsCurrentRoundActorMask.size > 0) {
-      // Completed the previous round; finalise it before starting a new one.
-      this.finalizeCompletedLpsRound(activePlayers);
-      this._lpsRoundIndex += 1;
-      this._lpsCurrentRoundActorMask.clear();
-      this._lpsCurrentRoundFirstPlayer = current;
-    }
-
-    const hasRealAction = this.hasAnyRealActionForPlayer(current);
-    this._lpsCurrentRoundActorMask.set(current, hasRealAction);
+    // Delegate to shared helper which mutates _lpsState in place
+    updateLpsTracking(this._lpsState, {
+      currentPlayer,
+      activePlayers,
+      hasRealAction,
+    });
   }
 
-  /**
-   * Finalise a completed round by determining whether exactly one active
-   * player had any real actions throughout the round.
-   */
-  private finalizeCompletedLpsRound(activePlayers: number[]): void {
-    const truePlayers: number[] = [];
-    for (const pid of activePlayers) {
-      if (this._lpsCurrentRoundActorMask.get(pid)) {
-        truePlayers.push(pid);
-      }
-    }
-
-    if (truePlayers.length === 1) {
-      this._lpsExclusivePlayerForCompletedRound = truePlayers[0];
-    } else {
-      this._lpsExclusivePlayerForCompletedRound = null;
-    }
-  }
+  // NOTE: finalizeCompletedLpsRound is now handled internally by updateLpsTracking()
 
   /**
-   * Build a GameResult for a last-player-standing victory, mirroring the
-   * sandboxVictory score aggregation used for other victory reasons.
+   * Build a GameResult for a last-player-standing victory.
+   * Delegates to the shared buildLpsVictoryResult() helper from lpsTracking.ts.
    */
   private buildLastPlayerStandingResult(winner: number): GameResult {
-    const state = this.gameState;
-    const board = state.board;
-
-    const perPlayer: {
-      [playerNumber: number]: {
-        ringsRemaining: number;
-        territorySpaces: number;
-        ringsEliminated: number;
-      };
-    } = {};
-
-    for (const p of state.players) {
-      perPlayer[p.playerNumber] = {
-        ringsRemaining: 0,
-        territorySpaces: p.territorySpaces,
-        ringsEliminated: p.eliminatedRings,
-      };
-    }
-
-    for (const stack of board.stacks.values()) {
-      const owner = stack.controllingPlayer;
-      const entry = perPlayer[owner];
-      if (entry) {
-        entry.ringsRemaining += stack.stackHeight;
-      }
-    }
-
-    const ringsRemaining: { [playerNumber: number]: number } = {};
-    const territorySpaces: { [playerNumber: number]: number } = {};
-    const ringsEliminated: { [playerNumber: number]: number } = {};
-
-    for (const p of state.players) {
-      const entry = perPlayer[p.playerNumber];
-      ringsRemaining[p.playerNumber] = entry ? entry.ringsRemaining : 0;
-      territorySpaces[p.playerNumber] = entry ? entry.territorySpaces : 0;
-      ringsEliminated[p.playerNumber] = entry ? entry.ringsEliminated : 0;
-    }
-
-    return {
-      winner,
-      reason: 'last_player_standing',
-      finalScore: {
-        ringsEliminated,
-        territorySpaces,
-        ringsRemaining,
-      },
-    };
+    return buildLpsVictoryResult(this.gameState, winner);
   }
 
   /**
    * Check whether R172 is satisfied at the start of the current player's
    * interactive turn and, if so, end the sandbox game with an LPS result.
+   *
+   * Delegates to the shared evaluateLpsVictory() helper from lpsTracking.ts.
    */
   private maybeEndGameByLastPlayerStanding(): void {
-    if (this.gameState.gameStatus !== 'active') {
-      return;
-    }
-
-    const phase = this.gameState.currentPhase;
-    if (
-      phase !== 'ring_placement' &&
-      phase !== 'movement' &&
-      phase !== 'capture' &&
-      phase !== 'chain_capture'
-    ) {
-      return;
-    }
-
-    const candidate = this._lpsExclusivePlayerForCompletedRound;
-    if (candidate == null) {
-      return;
-    }
-
     const state = this.gameState;
-    if (state.currentPlayer !== candidate) {
+
+    const lpsResult = evaluateLpsVictory({
+      gameState: state,
+      lps: this._lpsState,
+      hasAnyRealAction: (pn) => this.hasAnyRealActionForPlayer(pn),
+      hasMaterial: (pn) => this.playerHasMaterialLocal(pn),
+    });
+
+    if (!lpsResult.isVictory || lpsResult.winner === undefined) {
       return;
     }
 
-    if (!this.hasAnyRealActionForPlayer(candidate)) {
-      // Candidate no longer has real actions; require a fresh qualifying round.
-      this._lpsExclusivePlayerForCompletedRound = null;
-      return;
-    }
-
-    const _board = state.board;
-    let othersHaveActions = false;
-
-    for (const p of state.players) {
-      if (p.playerNumber === candidate) {
-        continue;
-      }
-      if (!this.playerHasMaterial(p.playerNumber)) {
-        continue;
-      }
-      if (this.hasAnyRealActionForPlayer(p.playerNumber)) {
-        othersHaveActions = true;
-        break;
-      }
-    }
-
-    if (othersHaveActions) {
-      // Another player with material regained a real action before R172 fired.
-      this._lpsExclusivePlayerForCompletedRound = null;
-      return;
-    }
-
-    const result = this.buildLastPlayerStandingResult(candidate);
+    const winner = lpsResult.winner;
+    const result = this.buildLastPlayerStandingResult(winner);
 
     this.gameState = {
       ...state,
       gameStatus: 'completed',
-      winner: candidate,
+      winner,
       // Normalise terminal phase away from decision phases for UI/parity.
       currentPhase: 'ring_placement',
     };
     this.victoryResult = result;
 
-    // Reset round tracking after a terminal LPS outcome.
-    this._lpsCurrentRoundActorMask.clear();
-    this._lpsCurrentRoundFirstPlayer = null;
-    this._lpsExclusivePlayerForCompletedRound = null;
+    // Reset LPS tracking state after a terminal outcome
+    this._lpsState = createLpsTrackingState();
   }
 
   /**
@@ -1526,9 +1354,9 @@ export class ClientSandboxEngine {
       currentPlayer: this.gameState.currentPlayer,
       currentPhase: this.gameState.currentPhase,
       gameStatus: this.gameState.gameStatus,
-      lpsRoundIndex: this._lpsRoundIndex,
-      lpsCurrentRoundFirstPlayer: this._lpsCurrentRoundFirstPlayer,
-      lpsExclusivePlayerForCompletedRound: this._lpsExclusivePlayerForCompletedRound,
+      lpsRoundIndex: this._lpsState.roundIndex,
+      lpsCurrentRoundFirstPlayer: this._lpsState.currentRoundFirstPlayer,
+      lpsExclusivePlayerForCompletedRound: this._lpsState.exclusivePlayerForCompletedRound,
     };
 
     this.updateLpsRoundTrackingForCurrentPlayer();
@@ -1538,9 +1366,9 @@ export class ClientSandboxEngine {
       currentPlayer: this.gameState.currentPlayer,
       currentPhase: this.gameState.currentPhase,
       gameStatus: this.gameState.gameStatus,
-      lpsRoundIndex: this._lpsRoundIndex,
-      lpsCurrentRoundFirstPlayer: this._lpsCurrentRoundFirstPlayer,
-      lpsExclusivePlayerForCompletedRound: this._lpsExclusivePlayerForCompletedRound,
+      lpsRoundIndex: this._lpsState.roundIndex,
+      lpsCurrentRoundFirstPlayer: this._lpsState.currentRoundFirstPlayer,
+      lpsExclusivePlayerForCompletedRound: this._lpsState.exclusivePlayerForCompletedRound,
     };
 
     if (isTestEnvironment()) {
@@ -1584,7 +1412,7 @@ export class ClientSandboxEngine {
     board: BoardState
   ): boolean {
     const view: PlacementBoardView = {
-      isValidPosition: (pos) => this.isValidPosition(pos),
+      isValidPosition: (pos) => this.isValidPositionLocal(pos),
       isCollapsedSpace: (pos, b) => this.isCollapsedSpace(pos, b),
       getMarkerOwner: (pos, b) => this.getMarkerOwner(pos, b),
     };
@@ -1914,41 +1742,12 @@ export class ClientSandboxEngine {
   }
 
   /**
-   * Local helper to parse a position string produced by positionToString
-   * back into a Position object. This mirrors the backend stringToPosition
-   * but is kept local to avoid pulling in additional shared helpers.
+   * Local position validity check delegating to the shared helper
+   * for consistent semantics with the backend BoardManager.
    */
-  private stringToPositionLocal(posStr: string): Position {
-    const parts = posStr.split(',').map(Number);
-    if (parts.length === 2) {
-      const [x, y] = parts;
-      return { x, y };
-    }
-    if (parts.length === 3) {
-      const [x, y, z] = parts;
-      return { x, y, z };
-    }
-    // Defensive fallback; should not occur if positionToString format is
-    // consistent.
-    return { x: 0, y: 0 };
-  }
-
-  /**
-   * Local position validity check mirroring BoardManager semantics so we can
-   * safely use shared capture helpers on the client.
-   */
-  private isValidPosition(pos: Position): boolean {
+  private isValidPositionLocal(pos: Position): boolean {
     const config = BOARD_CONFIGS[this.gameState.boardType];
-    if (this.gameState.boardType === 'hexagonal') {
-      const radius = config.size - 1;
-      const x = pos.x;
-      const y = pos.y;
-      const z = pos.z !== undefined ? pos.z : -x - y;
-      const distance = Math.max(Math.abs(x), Math.abs(y), Math.abs(z));
-      return distance <= radius;
-    }
-    // Square boards: 0..size-1 grid
-    return pos.x >= 0 && pos.x < config.size && pos.y >= 0 && pos.y < config.size;
+    return isValidPosition(pos, this.gameState.boardType, config.size);
   }
 
   private isCollapsedSpace(position: Position, board: BoardState = this.gameState.board): boolean {
@@ -2034,8 +1833,8 @@ export class ClientSandboxEngine {
     return findAllLinesOnBoard(
       this.gameState.boardType,
       board,
-      (pos: Position) => this.isValidPosition(pos),
-      (posStr: string) => this.stringToPositionLocal(posStr)
+      (pos: Position) => this.isValidPositionLocal(pos),
+      stringToPosition
     );
   }
 
@@ -2161,7 +1960,7 @@ export class ClientSandboxEngine {
 
     // Synchronous selection / deselection logic to preserve existing
     // click-to-select semantics used by tests and the UI.
-    if (!this.isValidPosition(position)) {
+    if (!this.isValidPositionLocal(position)) {
       this._selectedStackKey = undefined;
       return;
     }
@@ -2840,6 +2639,12 @@ export class ClientSandboxEngine {
     //   a cap via forceEliminateCapOnBoard.
     // - Overlength lines: default to Option 2 (minimum contiguous subset of
     //   length L, no elimination) for the first available line.
+    //
+    // While processing, accumulate the positions of any markers that collapse
+    // to territory so the sandbox host can render a brief visual cue for the
+    // newly-formed line segments.
+    const recentLineKeys = new Set<string>();
+
     while (true) {
       const moves = this.getValidLineProcessingMovesForCurrentPlayer();
       const processLineMoves = moves.filter((m) => m.type === 'process_line');
@@ -2925,6 +2730,19 @@ export class ClientSandboxEngine {
 
       this.gameState = nextState;
 
+      // Track collapsed marker positions for sandbox-only visual cues. When
+      // the shared helper reports explicit collapsedMarkers, prefer those;
+      // otherwise fall back to the original line geometry when available.
+      if (outcome.collapsedMarkers && outcome.collapsedMarkers.length > 0) {
+        for (const pos of outcome.collapsedMarkers) {
+          recentLineKeys.add(positionToString(pos));
+        }
+      } else if (line && line.positions && line.positions.length > 0) {
+        for (const pos of line.positions) {
+          recentLineKeys.add(positionToString(pos));
+        }
+      }
+
       // For automatic sandbox flows, immediately apply the cap elimination
       // when the shared helper reports a pending line-reward elimination
       // (exact-length lines and collapse-all rewards).
@@ -2936,6 +2754,10 @@ export class ClientSandboxEngine {
       // can replay the exact same sequence into both engines.
       this.appendHistoryEntry(beforeState, moveToApply);
     }
+
+    // Publish the accumulated highlights for the sandbox host. When no lines
+    // were processed this call, this clears any previous highlight buffer.
+    this._recentLineHighlightKeys = Array.from(recentLineKeys);
   }
 
   /**
@@ -3044,7 +2866,7 @@ export class ClientSandboxEngine {
    */
   private async applyCanonicalMoveInternal(
     move: Move,
-    opts: { bypassNoDeadPlacement?: boolean } = {}
+    _opts: { bypassNoDeadPlacement?: boolean } = {}
   ): Promise<boolean> {
     this.debugCheckpoint(`before-applyCanonicalMoveInternal-${move.type}`);
     const beforeHash = hashGameState(this.getGameState());

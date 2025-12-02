@@ -1,0 +1,118 @@
+/**
+ * ClockManager - Player Timer Management
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Manages per-player move timers for enforcing time controls in games.
+ * Extracted from GameEngine to improve separation of concerns.
+ *
+ * Features:
+ * - Start/stop individual player timers
+ * - Automatic timeout callback when time expires
+ * - Clean disposal of all timers
+ * - Test environment awareness (no-op in Jest)
+ *
+ * @module ClockManager
+ */
+
+import { config } from '../../config';
+
+type TimerHandle = ReturnType<typeof setTimeout>;
+
+export interface ClockManagerConfig {
+  /** Called when a player's time expires */
+  onTimeout: (playerNumber: number) => void;
+  /** If true, timers are disabled (for test environments) */
+  disableTimers?: boolean;
+}
+
+export interface PlayerTimeInfo {
+  playerNumber: number;
+  timeRemaining: number;
+  isAI: boolean;
+}
+
+/**
+ * Manages move timers for enforcing time controls.
+ *
+ * In Jest test environments, timers are no-oped to prevent keeping the
+ * Node event loop alive after tests complete.
+ */
+export class ClockManager {
+  private timers: Map<number, TimerHandle> = new Map();
+  private config: ClockManagerConfig;
+  private isDisabled: boolean;
+
+  constructor(clockConfig: ClockManagerConfig) {
+    this.config = clockConfig;
+    // Disable timers in test environments to avoid Jest warnings
+    this.isDisabled = clockConfig.disableTimers ?? config.isTest === true;
+  }
+
+  /**
+   * Start a timer for the specified player.
+   *
+   * @param player - Player info including time remaining
+   */
+  startTimer(player: PlayerTimeInfo): void {
+    // Don't start timers for AI players (they don't use real time)
+    if (player.isAI) {
+      return;
+    }
+
+    // Don't start timers in test/disabled mode
+    if (this.isDisabled) {
+      return;
+    }
+
+    // Clear any existing timer for this player
+    this.stopTimer(player.playerNumber);
+
+    const timer = setTimeout(() => {
+      this.config.onTimeout(player.playerNumber);
+    }, player.timeRemaining);
+
+    this.timers.set(player.playerNumber, timer);
+  }
+
+  /**
+   * Stop the timer for the specified player.
+   *
+   * @param playerNumber - The player whose timer to stop
+   */
+  stopTimer(playerNumber: number): void {
+    const timer = this.timers.get(playerNumber);
+    if (timer) {
+      clearTimeout(timer);
+      this.timers.delete(playerNumber);
+    }
+  }
+
+  /**
+   * Stop all active timers.
+   * Call this when the game ends.
+   */
+  stopAllTimers(): void {
+    for (const timer of this.timers.values()) {
+      clearTimeout(timer);
+    }
+    this.timers.clear();
+  }
+
+  /**
+   * Check if a timer is active for the specified player.
+   *
+   * @param playerNumber - The player to check
+   * @returns true if a timer is currently running
+   */
+  hasActiveTimer(playerNumber: number): boolean {
+    return this.timers.has(playerNumber);
+  }
+
+  /**
+   * Get the number of active timers.
+   * Useful for debugging and testing.
+   */
+  get activeTimerCount(): number {
+    return this.timers.size;
+  }
+}

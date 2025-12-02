@@ -1,19 +1,37 @@
-from typing import List, Optional, Tuple
+from __future__ import annotations
+
+import os
+from typing import List, Optional, Tuple, Set, Dict
 from .models import (
     BoardState, Position, RingStack, BoardType, LineInfo, Territory,
     ProgressSnapshot, GameState
 )
 
+# Environment flag to use fast territory detection
+# Fast territory detection using pre-computed geometry and NumPy arrays.
+# Tested for parity with original implementation - safe to enable by default.
+USE_FAST_TERRITORY = os.getenv('RINGRIFT_USE_FAST_TERRITORY', 'true').lower() == 'true'
+
 
 class BoardManager:
-    """
-    Helper class for board operations, mirroring TypeScript BoardManager
+    """Helper for board‑level operations in the AI service.
+
+    This class mirrors the behaviour of the TypeScript ``BoardManager``
+    used by the shared engine and backend host, providing:
+
+    - stack/marker/collapsed‑space queries,
+    - board hashing for trace/parity tooling, and
+    - line/territory discovery helpers used by the Python rules engine.
+
+    It is intentionally side‑effect‑free; callers pass in ``BoardState``
+    instances and receive derived views or new value objects.
     """
 
     @staticmethod
     def get_stack(
         position: Position, board: BoardState
     ) -> Optional[RingStack]:
+        """Return the stack at ``position`` or ``None`` if empty."""
         pos_key = position.to_key()
         return board.stacks.get(pos_key)
 
@@ -21,18 +39,19 @@ class BoardManager:
     def is_valid_position(
         position: Position, board_type: BoardType, size: int
     ) -> bool:
+        """Return True if ``position`` is on the board for ``board_type``."""
         if board_type == BoardType.SQUARE8:
             return 0 <= position.x < 8 and 0 <= position.y < 8
         elif board_type == BoardType.SQUARE19:
             return 0 <= position.x < 19 and 0 <= position.y < 19
         elif board_type == BoardType.HEXAGONAL:
-            if position.z is None:
-                return False
+            # Compute z from x,y if not provided (hex constraint: x + y + z = 0)
+            z = position.z if position.z is not None else -position.x - position.y
             radius = size - 1
-            return (abs(position.x) <= radius and 
-                    abs(position.y) <= radius and 
-                    abs(position.z) <= radius and
-                    position.x + position.y + position.z == 0)
+            return (abs(position.x) <= radius and
+                    abs(position.y) <= radius and
+                    abs(z) <= radius and
+                    position.x + position.y + z == 0)
         return False
 
     @staticmethod
@@ -192,6 +211,14 @@ class BoardManager:
         The `player_number` argument is kept for API compatibility but is not
         used in the discovery algorithm.
         """
+        # Use fast path with pre-computed geometry when enabled
+        if USE_FAST_TERRITORY:
+            try:
+                from .ai.territory_cache import find_disconnected_regions_fast
+                return find_disconnected_regions_fast(board, player_number)
+            except ImportError:
+                pass  # Fall back to original implementation
+
         regions: List[Territory] = []
 
         # Identify active players (those with stacks on board)
@@ -252,7 +279,9 @@ class BoardManager:
                         and abs(y) <= radius
                         and abs(z) <= radius
                     ):
-                        positions.append(Position(x=x, y=y, z=z))
+                        # NOTE: Don't include z in Position to ensure to_key()
+                        # returns 'x,y' format matching how stacks are stored.
+                        positions.append(Position(x=x, y=y))
         return positions
 
     @staticmethod

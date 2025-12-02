@@ -66,16 +66,22 @@ describe('Validation Schemas', () => {
   });
 
   describe('GameIdParamSchema', () => {
-    it('accepts valid gameId parameter', () => {
-      const result = GameIdParamSchema.safeParse({
+    it('accepts valid UUID and CUID gameId values', () => {
+      const uuidResult = GameIdParamSchema.safeParse({
         gameId: '123e4567-e89b-12d3-a456-426614174000',
       });
-      expect(result.success).toBe(true);
+      const cuidResult = GameIdParamSchema.safeParse({
+        gameId: 'c0123456789abcdefghijklmn',
+      });
+
+      expect(uuidResult.success).toBe(true);
+      expect(cuidResult.success).toBe(true);
     });
 
     it('rejects missing or invalid gameId', () => {
       expect(GameIdParamSchema.safeParse({}).success).toBe(false);
       expect(GameIdParamSchema.safeParse({ gameId: 'not-valid' }).success).toBe(false);
+      expect(GameIdParamSchema.safeParse({ gameId: 'c123' }).success).toBe(false);
     });
   });
 

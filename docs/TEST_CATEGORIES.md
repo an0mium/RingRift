@@ -233,7 +233,7 @@ npm run test:all:quiet:log
 **Files/patterns:**
 
 - Host/trace parity:
-  - `tests/unit/Backend_vs_Sandbox.*.test.ts`
+  - `tests/unit/Backend_vs_Sandbox.*.test.ts` (plus historical suites under `archive/tests/unit/Backend_vs_Sandbox.*.test.ts`)
   - `tests/unit/Seed*.parity.test.ts`
   - `tests/unit/TraceParity.seed*.test.ts`
   - `tests/unit/Python_vs_TS.traceParity.test.ts`

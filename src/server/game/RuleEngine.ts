@@ -32,12 +32,6 @@ import {
   validatePlacementOnBoardAggregate,
   enumeratePlacementPositions,
   evaluateSkipPlacementEligibilityAggregate,
-  // Canonical non-capture movement mutation (TS SSOT)
-  applySimpleMovement as applySimpleMovementAggregate,
-  // Canonical capture mutation (TS SSOT)
-  applyCapture as applyCaptureAggregate,
-  // Canonical placement mutation (TS SSOT)
-  applyPlacementMoveAggregate,
   // Chain capture continuation enumeration
   getChainCaptureContinuationInfo,
   // Type guards for move narrowing
@@ -362,92 +356,7 @@ export class RuleEngine {
       getMarkerOwner: (pos: Position) => this.boardManager.getMarker(pos, board),
     };
 
-    return validateCaptureSegmentOnBoard(
-      this.boardType as any,
-      from,
-      target,
-      landing,
-      player,
-      view
-    );
-  }
-
-  /**
-   * Processes ring placement
-   */
-  private processRingPlacement(move: Move, gameState: GameState): void {
-    if (move.type !== 'place_ring') {
-      return;
-    }
-
-    const outcome = applyPlacementMoveAggregate(gameState, move);
-
-    // Mutate the cloned GameState in-place so callers (processMove and any
-    // tests that inspect the returned state) observe the canonical outcome
-    // produced by the shared placement aggregate.
-    Object.assign(gameState, outcome.nextState);
-  }
-
-  /**
-   * Processes stack movement via the canonical shared MovementAggregate.
-   */
-  private processStackMovement(move: Move, gameState: GameState): void {
-    if (!move.from || !move.to) {
-      return;
-    }
-
-    // Delegate non-capturing movement mutation (marker-path effects,
-    // landing-on-own-marker elimination, and elimination accounting) to the
-    // shared MovementAggregate so backend RuleEngine, GameEngine, sandbox,
-    // and orchestrator all share a single source of truth for board effects.
-    const outcome = applySimpleMovementAggregate(gameState, {
-      from: move.from,
-      to: move.to,
-      player: move.player,
-    });
-
-    // Mutate the cloned GameState in-place so callers (processMove and any
-    // tests that inspect the returned state) observe the canonical outcome
-    // produced by the shared engine.
-    Object.assign(gameState, outcome.nextState);
-  }
-
-  /**
-   * Processes capture using the canonical shared capture aggregate.
-   *
-   * This is now a thin adapter over {@link applyCaptureAggregate}, which
-   * performs all marker-path effects, stack updates, and landing-on-own-marker
-   * elimination. Any legacy adjacency-based chain-reaction behaviour has been
-   * removed so that the shared CaptureAggregate is the single source of truth
-   * for capture semantics.
-   */
-  private processCapture(move: Move, gameState: GameState): void {
-    if (!move.from || !move.to || !move.captureTarget) {
-      return;
-    }
-
-    const result = applyCaptureAggregate(gameState, move);
-
-    if (!result.success) {
-      // Defensive diagnostic: this should not occur if RuleEngine validation
-      // and the shared validator are in sync. Log and treat as a no-op rather
-      // than attempting a partial/manual mutation.
-
-      console.error('[RuleEngine.processCapture] CaptureAggregate.applyCapture failed', {
-        reason: result.reason,
-        moveType: move.type,
-        player: move.player,
-        from: positionToString(move.from),
-        captureTarget: positionToString(move.captureTarget),
-        to: positionToString(move.to),
-      });
-      return;
-    }
-
-    // Mutate the cloned GameState in-place so that callers (processMove and any
-    // tests that inspect the returned state) observe the canonical capture
-    // outcome produced by the shared engine.
-    Object.assign(gameState, result.newState);
+    return validateCaptureSegmentOnBoard(this.boardType, from, target, landing, player, view);
   }
 
   /**
@@ -993,50 +902,6 @@ export class RuleEngine {
     return distance === 1;
   }
 
-  private getAdjacentPositions(pos: Position): Position[] {
-    const adjacent: Position[] = [];
-
-    if (this.boardConfig.type === 'hexagonal') {
-      // Hexagonal adjacency
-      const directions = [
-        { x: 1, y: 0, z: -1 }, // East
-        { x: 0, y: 1, z: -1 }, // Southeast
-        { x: -1, y: 1, z: 0 }, // Southwest
-        { x: -1, y: 0, z: 1 }, // West
-        { x: 0, y: -1, z: 1 }, // Northwest
-        { x: 1, y: -1, z: 0 }, // Northeast
-      ];
-
-      for (const dir of directions) {
-        const newPos: Position = {
-          x: pos.x + dir.x,
-          y: pos.y + dir.y,
-          z: (pos.z || 0) + dir.z,
-        };
-        if (this.boardManager.isValidPosition(newPos)) {
-          adjacent.push(newPos);
-        }
-      }
-    } else {
-      // Moore adjacency for square boards (8 directions)
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          if (dx === 0 && dy === 0) continue;
-
-          const newPos: Position = {
-            x: pos.x + dx,
-            y: pos.y + dy,
-          };
-          if (this.boardManager.isValidPosition(newPos)) {
-            adjacent.push(newPos);
-          }
-        }
-      }
-    }
-
-    return adjacent;
-  }
-
   /**
    * True if the move from `from` to `to` is along a straight ray consistent
    * with the board's movement directions (8-direction Moore for square,
@@ -1063,23 +928,6 @@ export class RuleEngine {
       return false;
     }
     return true;
-  }
-
-  private cloneGameState(gameState: GameState): GameState {
-    return {
-      ...gameState,
-      board: {
-        ...gameState.board,
-        stacks: new Map(gameState.board.stacks),
-        markers: new Map(gameState.board.markers),
-        territories: new Map(gameState.board.territories),
-        formedLines: [...gameState.board.formedLines],
-        eliminatedRings: { ...gameState.board.eliminatedRings },
-      },
-      moveHistory: [...gameState.moveHistory],
-      players: [...gameState.players],
-      spectators: [...gameState.spectators],
-    };
   }
 
   /**

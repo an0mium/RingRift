@@ -315,7 +315,7 @@ export class WebSocketInteractionHandler implements PlayerInteractionHandler {
     // All PlayerChoice variants have an `options` array. We use a simple
     // structural comparison for now; this can be upgraded to per-type
     // discrimination if needed.
-    const options = (choice as any).options as readonly unknown[] | undefined;
+    const options = (choice as { options?: readonly unknown[] }).options;
     if (!options || !Array.isArray(options)) {
       return false;
     }

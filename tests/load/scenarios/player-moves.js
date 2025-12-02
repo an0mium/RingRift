@@ -43,8 +43,8 @@ export const options = {
   thresholds: {
     // Move submission latency - staging SLOs from STRATEGIC_ROADMAP §2.2
     'move_submission_latency_ms': [
-      'p95<300',   // Staging: 95% ≤ 300ms
-      'p99<600'    // Staging: 99% ≤ 600ms
+      'p(95)<300',   // Staging: 95% ≤ 300ms
+      'p(99)<600'    // Staging: 99% ≤ 600ms
     ],
     
     // Stall rate - moves taking >2s should be rare
@@ -55,8 +55,8 @@ export const options = {
     
     // Turn processing (includes validation + state update)
     'turn_processing_latency_ms': [
-      'p95<400',
-      'p99<800'
+      'p(95)<400',
+      'p(99)<800'
     ]
   },
   

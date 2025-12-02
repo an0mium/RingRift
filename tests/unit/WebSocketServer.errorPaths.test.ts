@@ -88,6 +88,7 @@ jest.mock('../../src/server/services/MetricsService', () => ({
     incWebSocketConnections: jest.fn(),
     decWebSocketConnections: jest.fn(),
     recordWebsocketReconnection: jest.fn(),
+    recordMoveRejected: jest.fn(),
   }),
 }));
 

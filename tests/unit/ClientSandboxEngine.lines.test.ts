@@ -129,6 +129,13 @@ describe('ClientSandboxEngine line processing', () => {
 
     // Territory spaces should have increased by exactly the line length.
     expect(player1.territorySpaces).toBe(initialTerritory + requiredLength);
+
+    // Sandbox-only visual cue: recent line highlights should match the
+    // collapsed marker positions for this exact-length line.
+    const recentHighlights = engine.consumeRecentLineHighlights();
+    const recentKeys = new Set(recentHighlights.map((p) => positionToString(p)));
+    const expectedKeys = new Set(linePositions.map((p) => positionToString(p)));
+    expect(recentKeys).toEqual(expectedKeys);
   });
 
   test('longer-than-required line collapses minimum markers without elimination', () => {

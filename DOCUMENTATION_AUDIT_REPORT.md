@@ -998,3 +998,153 @@ This establishes a fully green SSoT drift-guard baseline. Future documentation o
 - Or remove/alter SSoT banners on key docs,
 
 will cause CI to fail until the corresponding mappings/docs/tests are updated, ensuring the documentation set remains coupled to executable sources of truth.
+
+## 2025-12-01 PASS20-21 Documentation Updates
+
+### PASS20 Completion (Orchestrator Phase 3)
+
+**Scope:** Orchestrator migration Phase 3 completion and test suite stabilization
+
+**Key Achievements:**
+
+- ✅ ~1,176 lines legacy code removed
+- ✅ Feature flags hardcoded/removed
+- ✅ All 2,987 TypeScript tests passing
+- ✅ TEST_CATEGORIES.md documentation created
+- ✅ ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md created
+
+**Documents Updated:**
+
+- `CURRENT_STATE_ASSESSMENT.md` - Updated with PASS20 completion status
+- `docs/PASS20_COMPLETION_SUMMARY.md` - Created comprehensive summary
+- `docs/PASS20_ASSESSMENT.md` - Created assessment report
+- `docs/TEST_CATEGORIES.md` - Created test categorization guide
+
+**Code Changes:**
+
+- Removed `RuleEngine` deprecated methods (~120 lines)
+- Removed feature flag infrastructure (~19 lines)
+- Removed `ClientSandboxEngine` legacy methods (786 lines)
+- Deleted obsolete test files (193 lines)
+- **Total legacy code removed:** ~1,176 lines
+
+### PASS21 Observability Implementation
+
+**Scope:** Observability infrastructure and load testing framework
+
+**Key Achievements:**
+
+- ✅ 3 Grafana dashboards created (22 panels total)
+  - `monitoring/grafana/dashboards/game-performance.json` - Game metrics, AI latency, terminations
+  - `monitoring/grafana/dashboards/rules-correctness.json` - Parity and correctness metrics
+  - `monitoring/grafana/dashboards/system-health.json` - HTTP, WebSocket, infrastructure health
+- ✅ k6 load testing framework implemented
+  - Scenario P1: Mixed human vs AI ladder (40-60 players, 20-30 moves)
+  - Scenario P2: AI-heavy concurrent games (60-100 players, 10-20 AI games)
+  - Scenario P3: Reconnects and spectators (40-60 players + 20-40 spectators)
+  - Scenario P4: Long-running AI games (10-20 games, 60+ moves)
+- ✅ Monitoring stack moved from optional to default
+- ✅ DOCUMENTATION_INDEX.md created
+- ✅ Observability score improved: 2.5/5 → 4.5/5
+
+**Documents Updated:**
+
+- `CURRENT_STATE_ASSESSMENT.md` - Updated observability score, added PASS21 summary, updated component scores
+- `STRATEGIC_ROADMAP.md` - Marked monitoring/load testing items complete, updated load scenarios
+- `TODO.md` - Marked Wave 5 complete, added Wave 6 (observability) and Wave 7 (validation)
+- `PROJECT_GOALS.md` - Updated production readiness criteria, marked environment rollout complete
+- `ARCHITECTURE_ASSESSMENT.md` - Added observability to strengths, updated completion status
+- `DOCUMENTATION_AUDIT_REPORT.md` - Recorded PASS20-21 changes (this section)
+- `docs/PASS21_ASSESSMENT_REPORT.md` - Created comprehensive assessment
+
+**Infrastructure Added:**
+
+- `monitoring/grafana/dashboards/game-performance.json` (dashboard definition)
+- `monitoring/grafana/dashboards/rules-correctness.json` (dashboard definition)
+- `monitoring/grafana/dashboards/system-health.json` (dashboard definition)
+- `monitoring/grafana/provisioning/dashboards.yml` (provisioning config)
+- `monitoring/grafana/provisioning/datasources.yml` (datasource config)
+- k6 load testing scenarios (4 production-scale tests)
+
+**Test Coverage Improvements:**
+
+- GameContext.tsx: 0% → 89.52%
+- SandboxContext.tsx: 0% → 84.21%
+- Overall coverage: 65.55% → ~69%
+
+### Cross-Document Consistency Verification
+
+**Metrics Alignment Check (PASS20-21):**
+
+All documents now use consistent metrics:
+
+- ✅ TypeScript tests: 2,987 passing, ~130 skipped
+- ✅ Python tests: 836 passing
+- ✅ Contract vectors: 49/49 (0 mismatches)
+- ✅ Legacy code removed: ~1,176 lines (PASS20)
+- ✅ Observability score: 4.5/5 (improved from 2.5/5)
+- ✅ Overall coverage: ~69% lines (improved from 65.55%)
+- ✅ Orchestrator status: Phase 3 complete, 100% rollout
+
+**Cross-Reference Validation:**
+
+Documents correctly reference each other:
+
+- ✅ CURRENT_STATE_ASSESSMENT.md ← PASS20_COMPLETION_SUMMARY.md
+- ✅ CURRENT_STATE_ASSESSMENT.md ← PASS21_ASSESSMENT_REPORT.md
+- ✅ STRATEGIC_ROADMAP.md → PROJECT_GOALS.md (scope/success criteria)
+- ✅ TODO.md → STRATEGIC_ROADMAP.md (tactical → strategic)
+- ✅ PROJECT_GOALS.md ← CURRENT_STATE_ASSESSMENT.md (goals ← status)
+- ✅ ARCHITECTURE_ASSESSMENT.md → CURRENT_STATE_ASSESSMENT.md (architecture → implementation)
+
+**Key Documentation Relationships:**
+
+```
+PROJECT_GOALS.md (What we want to achieve)
+     ↓
+STRATEGIC_ROADMAP.md (How we plan to get there - SLOs, phases)
+     ↓
+TODO.md (Tactical execution - waves, tasks)
+     ↓
+CURRENT_STATE_ASSESSMENT.md (Where we are now - factual status)
+     ↑
+PASS20_COMPLETION_SUMMARY.md & PASS21_ASSESSMENT_REPORT.md (Historical achievements)
+```
+
+### Verification Checklist Updates
+
+**PASS20-21 Items:**
+
+- [x] Updated CURRENT_STATE_ASSESSMENT.md with PASS20-21 progress
+- [x] Updated STRATEGIC_ROADMAP.md with completed items
+- [x] Updated TODO.md with Wave 5 complete, Wave 6/7 added
+- [x] Updated PROJECT_GOALS.md with production readiness progress
+- [x] Updated ARCHITECTURE_ASSESSMENT.md with observability
+- [x] Added PASS20-21 section to DOCUMENTATION_AUDIT_REPORT.md
+- [x] Verified metric consistency across all documents
+- [x] Validated cross-references between documents
+- [x] Created PASS20-21_DOCUMENTATION_UPDATE_PLAN.md for reference
+
+### Summary of Changes
+
+**6 core documents updated** with PASS20-21 achievements:
+
+1. **CURRENT_STATE_ASSESSMENT.md** - Assessment date updated to Post-PASS20-21, added PASS21 summary block, updated test coverage metrics (+GameContext/SandboxContext), updated component scores (Observability 2.5→4.5), updated current focus
+2. **STRATEGIC_ROADMAP.md** - Marked observability/monitoring complete, updated legacy code count (1,147→1,176), added dashboard/load testing completion markers, updated load scenario status
+3. **TODO.md** - Marked Wave 5 complete with ✅, marked all Wave 5 subtasks complete, added Wave 6 (Observability) complete, added Wave 7 (Production Validation) as next
+4. **PROJECT_GOALS.md** - Updated highest-risk area analysis, updated test coverage table, marked orchestrator criteria complete, added observability criteria, updated environment rollout status
+5. **ARCHITECTURE_ASSESSMENT.md** - Updated last updated date, added observability to remediation complete note, added observability to strengths, updated next steps
+6. **DOCUMENTATION_AUDIT_REPORT.md** - Added this PASS20-21 section documenting all changes
+
+**Documentation produced:**
+
+- `PASS20-21_DOCUMENTATION_UPDATE_PLAN.md` - Comprehensive update plan with all changes detailed
+
+**Consistency validated:**
+
+- All documents reference same test counts (2,987 TS, 836 Python, 49 contract vectors)
+- All documents show ~1,176 lines legacy code removed
+- All documents show observability 4.5/5
+- All documents show Phase 3 orchestrator complete
+- All documents reference PASS21 observability achievements
+- Cross-references validated and accurate

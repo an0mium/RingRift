@@ -535,7 +535,56 @@ is:
 > See also: `docs/PYTHON_PARITY_REQUIREMENTS.md` for the full function/type
 > parity matrix and shadow‑contract design.
 
-## 11. How to extend this matrix
+## 11. Coverage Targets & Status
+
+To keep this matrix actionable and aligned with `KNOWN_ISSUES.md` P0.3, we use
+the following concrete coverage targets:
+
+- **FAQ scenarios (Q1–Q24)**
+  - **Target:** Every FAQ question must:
+    - Have at least one **backend scenario test** that encodes the emblematic
+      board position and asserts the documented behaviour.
+    - Be represented in this matrix with a **Status** of `✅ COVERED` once both
+      the scenario test and any required engine/unit coverage are in place.
+  - **Current status:** All FAQ entries Q1–Q24 in Section 9 are marked
+    `✅ COVERED` with explicit Jest file mappings. Future FAQ additions or
+    changes must update this table and add corresponding tests before being
+    considered complete.
+
+- **Rules clusters (Movement, Chain, Lines, Territory, Victory)**
+  - **Target:** For each major cluster:
+    - At least one **backend** scenario suite and, where relevant, at least one
+      **sandbox** scenario or parity suite.
+    - Contract vectors and/or parity tests that exercise the same behaviour at
+      the engine/contracts layer.
+  - **Current status:** The cluster tables above meet this target for the
+    v1.0 rules set. New rules or clarifications (for example, additional
+    combined line+territory near‑victory patterns) should be added as new rows
+    with an initial `PARTIAL` status until both backend and sandbox coverage
+    are in place.
+
+- **Host/transport integration (WebSocket / PlayerChoice / AI boundary)**
+  - **Target:** For rules that require complex interaction (line/territory
+    decisions, capture direction, forced elimination, swap_sides), at least:
+    - One scenario test at the **rules/engine** level, and
+    - One integration test at the **host/transport** level (WebSocket or AI
+      boundary), linked from this matrix.
+  - **Current status:** Existing rows call out key WebSocket and AI tests
+    (for example line/territory decision integration and Q23 parity). When
+    adding new interaction‑heavy rules, ensure both layers are represented
+    before marking the scenario `COVERED`.
+
+- **TS↔Python parity**
+  - **Target:** For each rules cluster, at least one contract vector family and
+    associated Python parity test, linked from the "Contract/Parity Coverage"
+    section above.
+  - **Current status:** Extended v2 contract vectors (movement, capture,
+    lines, territory, placement, combined line+territory) and the associated
+    TS/Python suites meet this target for the v1.0 rules surface. New rules
+    that materially affect engine behaviour should add or extend contract
+    vectors before being treated as production‑ready.
+
+## 12. How to extend this matrix
 
 1. **When adding a new scenario test:**
    - Decide which rule/FAQ it encodes.

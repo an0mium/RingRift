@@ -1825,6 +1825,12 @@ export class GameSession {
       return 0;
     });
 
+    // Record a move rejection signal for a human decision that timed out and
+    // was auto-resolved by the host rather than explicitly chosen by the
+    // player. This feeds the ringrift_moves_rejected_total metric used by
+    // the Rules Correctness dashboard.
+    getMetricsService().recordMoveRejected('decision_timeout_auto_rejected');
+
     const selected = sortedCandidates[0];
 
     let result: RulesResult;

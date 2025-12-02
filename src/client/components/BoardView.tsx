@@ -7,6 +7,7 @@ import {
   positionToString,
   positionsEqual,
 } from '../../shared/types/game';
+import { debugLog, isSandboxAnimationDebugEnabled } from '../../shared/utils/envFlags';
 import { computeBoardMovementGrid } from '../utils/boardMovementGrid';
 import type { MovementGrid } from '../utils/boardMovementGrid';
 import type { BoardViewModel, CellViewModel, StackViewModel } from '../adapters/gameViewModels';
@@ -375,10 +376,15 @@ const MoveAnimationLayer: React.FC<MoveAnimationLayerProps> = ({
     [cellRefs, containerRef]
   );
 
-  // Duration per segment
-  const segmentDuration = animation.type === 'chain_capture' ? 200 : 250;
+  // Duration per segment (slightly longer to make motion clearly visible
+  // on large boards such as full hex).
+  const segmentDuration = animation.type === 'chain_capture' ? 520 : 600;
 
   // Animate through the path
+  // NOTE: `position` is intentionally NOT in the dependency array.
+  // Including it would cause infinite re-renders because setPosition() is called
+  // in the animation loop, which would trigger effect cleanup and restart,
+  // preventing the animation from ever completing.
   useEffect(() => {
     if (path.length < 2) {
       onComplete();
@@ -402,10 +408,8 @@ const MoveAnimationLayer: React.FC<MoveAnimationLayerProps> = ({
       return;
     }
 
-    // Set initial position
-    if (position === null) {
-      setPosition(fromCenter);
-    }
+    // Set initial position (only on first render when position is null)
+    setPosition((prev) => prev ?? fromCenter);
 
     startTimeRef.current = null;
 
@@ -444,8 +448,8 @@ const MoveAnimationLayer: React.FC<MoveAnimationLayerProps> = ({
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [currentStep, path, getCellCenter, segmentDuration, onComplete, position]);
-
+  }, [currentStep, path, getCellCenter, segmentDuration, onComplete]);
+  // ^ position intentionally excluded - see comment above
   if (!position || path.length < 2) {
     return null;
   }
@@ -528,7 +532,6 @@ export const BoardView: React.FC<BoardViewProps> = ({
     }
     return map;
   }, [viewModel]);
-
   // Precompute a lookup map for decision highlights when provided. When
   // multiple highlights target the same cell, primary intensity wins.
   const highlightByKey = useMemo(() => {
@@ -542,6 +545,14 @@ export const BoardView: React.FC<BoardViewProps> = ({
     }
     return map;
   }, [viewModel]);
+
+  // Lightweight flag indicating whether the current decision highlight context
+  // is line-related (line order / line reward). Used to apply a brief, more
+  // celebratory burst animation to primary-highlighted cells when a line has
+  // just been completed and is being resolved.
+  const isLineDecisionContext =
+    viewModel?.decisionHighlights?.choiceKind === 'line_order' ||
+    viewModel?.decisionHighlights?.choiceKind === 'line_reward';
 
   // Rules-lab overlays: lightweight lookup maps for lines and territory
   // regions so we can cheaply decorate cells without re-walking geometry.
@@ -849,6 +860,15 @@ export const BoardView: React.FC<BoardViewProps> = ({
 
     // Update animations state
     if (newAnimations.length > 0) {
+      debugLog(
+        isSandboxAnimationDebugEnabled(),
+        '[SandboxAnimationDebug] BoardView: board-diff animations',
+        {
+          boardType: board.type,
+          positions: newAnimations.map((a) => ({ key: a.position, type: a.type })),
+        }
+      );
+
       setAnimations(newAnimations);
 
       // Clear animations after they complete (use the longest duration: 400ms for capture)
@@ -1050,9 +1070,14 @@ export const BoardView: React.FC<BoardViewProps> = ({
       }
     }
 
-    // Store grid with the exact dimensions used to compute normalized coords
+    // Store grid with the exact dimensions used to compute normalized coords.
+    // NOTE: We intentionally avoid depending on the full BoardState here
+    // because hosts like the sandbox clone the board on every render; using
+    // board identity as a dependency would cause this layout effect to fire
+    // after each commit, leading to an infinite update loop. Geometry only
+    // depends on board type and logical size.
     setMovementGridData({ grid: { centers, edges }, width, height, scaleFactor });
-  }, [showMovementGrid, board, effectiveBoardType]);
+  }, [showMovementGrid, effectiveBoardType, board.size]);
 
   // Extract grid and stored dimensions for rendering
   const movementGrid = movementGridData?.grid ?? null;
@@ -1251,9 +1276,33 @@ export const BoardView: React.FC<BoardViewProps> = ({
         // are rendered more prominently than secondary ones, but both should coexist
         // cleanly with selection and valid-move styling.
         const decisionHighlight = highlightByKey.get(key);
+        const hasStackForPulse = !!(cellVM?.stack || stack);
+        // Destination pulse for recent moves: derive from the internal
+        // board-diff animation state so we always highlight the actual
+        // landing stack, independent of move-history timing.
+        const isMoveDestination =
+          hasStackForPulse &&
+          animations.some(
+            (anim) =>
+              anim.position === key &&
+              (anim.type === 'move' || anim.type === 'capture' || anim.type === 'chain_capture')
+          );
+
+        if (isMoveDestination) {
+          debugLog(
+            isSandboxAnimationDebugEnabled(),
+            '[SandboxAnimationDebug] BoardView: destination pulse (square)',
+            {
+              key,
+              boardType,
+              hasStack: !!stack,
+              hasCellVMStack: !!cellVM?.stack,
+            }
+          );
+        }
         const decisionHighlightClass =
           decisionHighlight === 'primary'
-            ? 'decision-highlight-primary'
+            ? `decision-highlight-primary ${isLineDecisionContext ? 'line-formation-burst' : ''}`
             : decisionHighlight === 'secondary'
               ? 'decision-highlight-secondary'
               : '';
@@ -1264,6 +1313,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
           'border-slate-600 text-slate-900',
           territoryClasses || baseSquareBg,
           decisionHighlightClass,
+          isMoveDestination ? 'move-destination-pulse' : '',
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting on square boards: thin, bright-green inset
           // ring plus a light near-white emerald tint that reads clearly even
@@ -1276,7 +1326,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
           .join(' ');
 
         const hasMarkerVM = !!cellVM?.marker;
-        const hasMarkerBoard = marker && marker.type === 'regular';
+        // If a stack is present, suppress raw marker rendering from the
+        // board state to avoid visual stack+marker overlap. In that case,
+        // rely on the view model (if any) to decide what to show.
+        const hasMarkerBoard = !stack && marker && marker.type === 'regular';
         const hasMarker = hasMarkerVM || hasMarkerBoard;
         const markerColorClass =
           cellVM?.marker?.colorClass ??
@@ -1466,9 +1519,30 @@ export const BoardView: React.FC<BoardViewProps> = ({
 
         // Decision-phase highlight intensity for this hex cell, if any.
         const decisionHighlight = highlightByKey.get(key);
+        const hasStackForPulse = !!(cellVM?.stack || stack);
+        const isMoveDestination =
+          hasStackForPulse &&
+          animations.some(
+            (anim) =>
+              anim.position === key &&
+              (anim.type === 'move' || anim.type === 'capture' || anim.type === 'chain_capture')
+          );
+
+        if (isMoveDestination) {
+          debugLog(
+            isSandboxAnimationDebugEnabled(),
+            '[SandboxAnimationDebug] BoardView: destination pulse (hex)',
+            {
+              key,
+              boardType,
+              hasStack: !!stack,
+              hasCellVMStack: !!cellVM?.stack,
+            }
+          );
+        }
         const decisionHighlightClass =
           decisionHighlight === 'primary'
-            ? 'decision-highlight-primary'
+            ? `decision-highlight-primary ${isLineDecisionContext ? 'line-formation-burst' : ''}`
             : decisionHighlight === 'secondary'
               ? 'decision-highlight-secondary'
               : '';
@@ -1478,6 +1552,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
           'border-slate-600 text-slate-100',
           territoryClasses,
           decisionHighlightClass,
+          isMoveDestination ? 'move-destination-pulse' : '',
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting with subtle pulse animation
           effectiveIsValid
@@ -1488,7 +1563,11 @@ export const BoardView: React.FC<BoardViewProps> = ({
           .join(' ');
 
         const hasMarkerVM = !!cellVM?.marker;
-        const hasMarkerBoard = marker && marker.type === 'regular';
+        // Suppress raw marker rendering when a stack is present at the same
+        // position, so hex cells do not visually show both a stack and a
+        // marker overlay. Any combined representation should be driven by
+        // the view model instead.
+        const hasMarkerBoard = !stack && marker && marker.type === 'regular';
         const hasMarker = hasMarkerVM || hasMarkerBoard;
         const markerColorClass =
           cellVM?.marker?.colorClass ??

@@ -42,37 +42,34 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
    * service via globalAIEngine.getLineRewardChoice (when an AI
    * configuration exists), and fall back to the local heuristic when
    * the service is unavailable or unconfigured.
+   *
+   * Returns the selected option from the choice's options array, typed
+   * according to the specific choice variant.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async selectOption(choice: PlayerChoice): Promise<any> {
+  private async selectOption(choice: PlayerChoice): Promise<PlayerChoice['options'][number]> {
     switch (choice.type) {
       case 'line_order':
-        return this.selectLineOrderOption(choice as LineOrderChoice);
+        return this.selectLineOrderOption(choice);
       case 'line_reward_option':
-        return this.selectLineRewardOption(choice as LineRewardChoice);
+        return this.selectLineRewardOption(choice);
       case 'ring_elimination':
-        return this.selectRingEliminationOption(choice as RingEliminationChoice);
+        return this.selectRingEliminationOption(choice);
       case 'region_order':
-        return this.selectRegionOrderOption(choice as RegionOrderChoice);
+        return this.selectRegionOrderOption(choice);
       case 'capture_direction':
-        return this.selectCaptureDirectionOption(choice as CaptureDirectionChoice);
+        return this.selectCaptureDirectionOption(choice);
       default: {
-        // Fallback: first option, if present. This mirrors the engine's
-        // historical "first option" behaviour and ensures we always
-        // return a valid member of choice.options. A choice with no
-        // options is a protocol violation and treated as a hard error.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const anyChoice = choice as any;
-        if (!anyChoice.options || anyChoice.options.length === 0) {
-          logger.error('AIInteractionHandler received choice with no options', {
-            choiceId: anyChoice.id,
-            choiceType: anyChoice.type,
-            playerNumber: anyChoice.playerNumber,
-          });
-          const choiceType = anyChoice.type ?? 'unknown';
-          throw new Error(`PlayerChoice[${choiceType}] must have at least one option`);
-        }
-        return anyChoice.options[0];
+        // TypeScript exhaustiveness check: if this line is reached,
+        // a new choice type was added without updating this switch.
+        // The never type assertion ensures compile-time errors for
+        // unhandled cases.
+        const exhaustiveCheck: never = choice;
+        logger.error('AIInteractionHandler received unknown choice type', {
+          choiceId: (exhaustiveCheck as PlayerChoice).id,
+          choiceType: (exhaustiveCheck as PlayerChoice).type,
+          playerNumber: (exhaustiveCheck as PlayerChoice).playerNumber,
+        });
+        throw new Error(`Unhandled PlayerChoice type: ${(exhaustiveCheck as PlayerChoice).type}`);
       }
     }
   }

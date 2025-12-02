@@ -98,6 +98,9 @@ export { BOARD_CONFIGS } from '../types/game';
 // Position Utilities
 export { positionToString, stringToPosition, positionsEqual } from '../types/game';
 
+// Board Position Validation
+export { isValidPosition } from './validators/utils';
+
 // =============================================================================
 // ENGINE TYPES (from src/shared/engine/types.ts)
 // =============================================================================
@@ -566,3 +569,114 @@ export type {
   PendingDecision,
   ProcessTurnResult,
 } from './orchestration/types';
+
+// =============================================================================
+// HISTORY HELPERS
+// =============================================================================
+// Location: historyHelpers.ts
+// Shared history entry creation helpers for consistent GameHistoryEntry records
+
+export type { CreateHistoryEntryOptions } from './historyHelpers';
+
+export {
+  createHistoryEntry,
+  createProgressFromBoardSummary,
+  appendHistoryEntryToState,
+} from './historyHelpers';
+
+// =============================================================================
+// SWAP SIDES (PIE RULE) HELPERS
+// =============================================================================
+// Location: swapSidesHelpers.ts
+// Shared swap sides eligibility and validation helpers
+// Rule Reference: RR-CANON R180-R184 (Pie Rule / Swap Sides)
+
+export {
+  shouldOfferSwapSides,
+  validateSwapSidesMove,
+  applySwapSidesIdentitySwap,
+} from './swapSidesHelpers';
+
+// =============================================================================
+// LAST-PLAYER-STANDING (LPS) TRACKING
+// =============================================================================
+// Location: lpsTracking.ts
+// Shared LPS round tracking and victory evaluation helpers
+// Rule Reference: RR-CANON R172 (Last Player Standing Victory)
+
+export type {
+  LpsTrackingState,
+  LpsUpdateOptions,
+  LpsEvaluationOptions,
+  LpsEvaluationResult,
+} from './lpsTracking';
+
+export {
+  createLpsTrackingState,
+  resetLpsTrackingState,
+  updateLpsTracking,
+  finalizeCompletedLpsRound,
+  evaluateLpsVictory,
+  isLpsActivePhase,
+  buildLpsVictoryResult,
+} from './lpsTracking';
+
+// =============================================================================
+// CHAIN CAPTURE TRACKING
+// =============================================================================
+// Location: chainCaptureTracking.ts
+// Shared chain capture state management helpers
+// Rule Reference: RR-CANON R084, R085 (Chain captures)
+
+export type { MinimalChainCaptureState, ChainCaptureEvaluation } from './chainCaptureTracking';
+
+export {
+  // State creation
+  createEmptyChainCaptureState,
+  createFullChainCaptureState,
+  createMinimalChainCaptureState,
+  // State updates
+  updateChainCapturePosition,
+  updateFullChainCaptureState,
+  clearChainCaptureState,
+  // Evaluation
+  evaluateChainCaptureContinuation,
+  isChainCapturePhase,
+  isChainCaptureActive,
+  getChainCapturePosition,
+  getChainCapturePlayer,
+  // High-level processing
+  processChainCaptureResult,
+  validateChainCaptureContinuation,
+  getChainCaptureMoves,
+} from './chainCaptureTracking';
+
+// =============================================================================
+// PLAYER STATE HELPERS
+// =============================================================================
+// Location: playerStateHelpers.ts
+// Shared helpers for checking player material and action availability
+// Rule Reference: RR-CANON R172 (Last Player Standing Victory)
+
+export type { ActionAvailabilityDelegates } from './playerStateHelpers';
+
+export {
+  playerHasMaterial,
+  playerControlsAnyStack,
+  playerHasActiveMaterial,
+  hasAnyRealAction,
+} from './playerStateHelpers';
+
+// =============================================================================
+// BOARD MUTATION HELPERS
+// =============================================================================
+// Location: boardMutationHelpers.ts
+// Utility functions for in-place board state mutation
+// Preserves object references while replacing contents
+
+export {
+  replaceMapContents,
+  replaceArrayContents,
+  replaceObjectContents,
+  copyBoardStateInPlace,
+} from './boardMutationHelpers';

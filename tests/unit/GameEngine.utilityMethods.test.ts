@@ -246,7 +246,7 @@ describe('GameEngine utility methods', () => {
   });
 });
 
-describe('GameEngine orchestrator adapter control', () => {
+describe('GameEngine orchestrator adapter (deprecated)', () => {
   let engine: GameEngine;
   const timeControl: TimeControl = { initialTime: 600, increment: 0, type: 'blitz' };
 
@@ -279,69 +279,23 @@ describe('GameEngine orchestrator adapter control', () => {
     engine = new GameEngine('test-adapter', 'square8', createPlayers(), timeControl, false);
   });
 
-  it('enables orchestrator adapter', () => {
-    engine.enableOrchestratorAdapter();
+  it('isOrchestratorAdapterEnabled always returns true (legacy path removed)', () => {
+    // Orchestrator is now the only path - always enabled
+    expect(engine.isOrchestratorAdapterEnabled()).toBe(true);
+
+    // disableOrchestratorAdapter is now a no-op
+    engine.disableOrchestratorAdapter();
     expect(engine.isOrchestratorAdapterEnabled()).toBe(true);
   });
 
-  it('disables orchestrator adapter', () => {
+  it('toggle methods are no-ops (legacy path removed)', () => {
+    // Both enable/disable are no-ops - orchestrator is always used
     engine.disableOrchestratorAdapter();
-    expect(engine.isOrchestratorAdapterEnabled()).toBe(false);
-  });
-
-  it('reports correct state after multiple toggles', () => {
-    // Store initial state (may be enabled by config)
-    const initialState = engine.isOrchestratorAdapterEnabled();
-
-    engine.disableOrchestratorAdapter();
-    expect(engine.isOrchestratorAdapterEnabled()).toBe(false);
-
     engine.enableOrchestratorAdapter();
-    expect(engine.isOrchestratorAdapterEnabled()).toBe(true);
-
-    engine.disableOrchestratorAdapter();
-    expect(engine.isOrchestratorAdapterEnabled()).toBe(false);
-  });
-});
-
-describe('GameEngine move-driven decision phases', () => {
-  let engine: GameEngine;
-  const timeControl: TimeControl = { initialTime: 600, increment: 0, type: 'blitz' };
-
-  const createPlayers = (): Player[] => [
-    {
-      id: 'p1',
-      username: 'Player1',
-      playerNumber: 1,
-      type: 'ai',
-      isReady: true,
-      timeRemaining: 600000,
-      ringsInHand: BOARD_CONFIGS['square8'].ringsPerPlayer,
-      eliminatedRings: 0,
-      territorySpaces: 0,
-    },
-    {
-      id: 'p2',
-      username: 'Player2',
-      playerNumber: 2,
-      type: 'ai',
-      isReady: true,
-      timeRemaining: 600000,
-      ringsInHand: BOARD_CONFIGS['square8'].ringsPerPlayer,
-      eliminatedRings: 0,
-      territorySpaces: 0,
-    },
-  ];
-
-  beforeEach(() => {
-    engine = new GameEngine('test-decision', 'square8', createPlayers(), timeControl, false);
-  });
-
-  it('enables move-driven decision phases', () => {
-    // This method modifies internal flags for decision handling
     engine.enableMoveDrivenDecisionPhases();
-    // The effect is internal - just verify it doesn't throw
-    expect(true).toBe(true);
+
+    // Verify no throws - all are safe no-ops
+    expect(engine.isOrchestratorAdapterEnabled()).toBe(true);
   });
 });
 

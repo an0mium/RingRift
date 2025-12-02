@@ -17,7 +17,6 @@ import type { GameState, Move, GameResult } from '../../shared/engine';
 import { hashGameState } from '../../shared/engine';
 import {
   processTurn,
-  processTurnAsync,
   validateMove,
   getValidMoves,
 } from '../../shared/engine/orchestration/turnOrchestrator';
@@ -193,43 +192,85 @@ export class SandboxOrchestratorAdapter {
    */
   public async processMove(move: Move): Promise<SandboxMoveResult> {
     const startTime = Date.now();
-    const state = this.stateAccessor.getGameState();
-    const hashBefore = hashGameState(state);
+    const initialState = this.stateAccessor.getGameState();
+    const hashBefore = hashGameState(initialState);
 
-    this.callbacks?.debugHook?.('before-processMove', state);
+    this.callbacks?.debugHook?.('before-processMove', initialState);
     this.callbacks?.onMoveStarted?.(move);
 
     try {
-      // Validate the move first
-      const validation = validateMove(state, move);
+      // Validate the move first against the current state
+      const validation = validateMove(initialState, move);
       if (!validation.valid) {
         return {
           success: false,
-          nextState: state,
+          nextState: initialState,
           error: validation.reason || 'Invalid move',
         };
       }
 
-      // Process through the orchestrator
       const delegates = this.createProcessingDelegates();
-      const result = await processTurnAsync(state, move, delegates);
 
-      // Update state
-      this.stateAccessor.updateGameState(result.nextState);
+      // Helper to run processTurn and accumulate phase metadata
+      let phasesTraversed: string[] = [];
+      const runProcessTurn = (state: GameState, moveToApply: Move): ProcessTurnResult => {
+        const result = processTurn(state, moveToApply);
+        if (result.metadata?.phasesTraversed?.length) {
+          phasesTraversed = phasesTraversed.concat(result.metadata.phasesTraversed);
+        }
+        return result;
+      };
 
-      // Handle chain capture pending decision: store the continuation options
-      // so getValidMoves() can return them during chain_capture phase.
+      // Apply the primary move first so the sandbox engine/state accessor
+      // reflect the post-move board BEFORE any pending decisions are surfaced.
+      let workingState = initialState;
+      let result = runProcessTurn(workingState, move);
+      workingState = result.nextState;
+      this.stateAccessor.updateGameState(workingState);
+
+      // Resolve any pending decisions (line order, rewards, territory, elimination)
+      // in-process, updating the sandbox game state after each canonical move so
+      // the UI always sees the latest board snapshot during decision phases.
+      while (result.status === 'awaiting_decision' && result.pendingDecision) {
+        const decision = result.pendingDecision;
+
+        // Chain-capture decisions are handled specially: expose the available
+        // continuation moves via getValidMoves() and return without auto-resolving.
+        if (decision.type === 'chain_capture') {
+          this.chainCaptureOptions = decision.options;
+          break;
+        }
+
+        // For all other decision types, mirror processTurnAsync semantics:
+        // emit a decision_required event, delegate to the decision handler,
+        // then emit decision_resolved and continue processing.
+        delegates.onProcessingEvent?.({
+          type: 'decision_required',
+          timestamp: new Date(),
+          payload: { decision },
+        });
+
+        const chosenMove = await delegates.resolveDecision(decision);
+
+        delegates.onProcessingEvent?.({
+          type: 'decision_resolved',
+          timestamp: new Date(),
+          payload: { decision, chosenMove },
+        });
+
+        result = runProcessTurn(workingState, chosenMove);
+        workingState = result.nextState;
+        this.stateAccessor.updateGameState(workingState);
+      }
+
+      // If we did not end in a chain_capture decision, clear any stale options.
       if (
-        result.status === 'awaiting_decision' &&
-        result.pendingDecision?.type === 'chain_capture'
+        !(result.status === 'awaiting_decision' && result.pendingDecision?.type === 'chain_capture')
       ) {
-        this.chainCaptureOptions = result.pendingDecision.options;
-      } else {
-        // Clear chain capture options when not in chain capture
         this.chainCaptureOptions = undefined;
       }
 
-      const hashAfter = hashGameState(result.nextState);
+      const hashAfter = hashGameState(workingState);
       const durationMs = Date.now() - startTime;
 
       // Convert victory result if present
@@ -240,18 +281,18 @@ export class SandboxOrchestratorAdapter {
 
       const moveResult: SandboxMoveResult = {
         success: true,
-        nextState: result.nextState,
+        nextState: workingState,
         victoryResult,
         metadata: {
           hashBefore,
           hashAfter,
           stateChanged: hashBefore !== hashAfter,
           durationMs,
-          phasesTraversed: result.metadata?.phasesTraversed ?? [],
+          phasesTraversed,
         },
       };
 
-      this.callbacks?.debugHook?.('after-processMove', result.nextState);
+      this.callbacks?.debugHook?.('after-processMove', workingState);
       this.callbacks?.onMoveCompleted?.(move, moveResult);
 
       return moveResult;
@@ -264,7 +305,7 @@ export class SandboxOrchestratorAdapter {
 
       return {
         success: false,
-        nextState: state,
+        nextState: initialState,
         error: errorMessage,
       };
     }

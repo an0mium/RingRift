@@ -166,7 +166,7 @@ export class ApiError extends Error {
     }
     const error = new ApiError(opts);
     // Override timestamp to preserve original
-    (error as any).timestamp = this.timestamp;
+    (error as unknown as { timestamp: Date }).timestamp = this.timestamp;
     return error;
   }
 
@@ -197,14 +197,18 @@ export class ApiError extends Error {
     // Error instance
     if (error instanceof Error) {
       // Check if it has our error properties (from createError legacy function)
-      const anyError = error as any;
-      if (anyError.code && anyError.statusCode) {
+      const errorWithProps = error as Error & {
+        code?: string;
+        statusCode?: number;
+        isOperational?: boolean;
+      };
+      if (errorWithProps.code && errorWithProps.statusCode) {
         return new ApiError({
-          code: anyError.code,
+          code: errorWithProps.code,
           message: error.message,
-          statusCode: anyError.statusCode,
+          statusCode: errorWithProps.statusCode,
           cause: error,
-          isOperational: anyError.isOperational ?? true,
+          isOperational: errorWithProps.isOperational ?? true,
         });
       }
 

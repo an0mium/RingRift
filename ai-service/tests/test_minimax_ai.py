@@ -88,7 +88,6 @@ class TestMinimaxAI(unittest.TestCase):
         ):
             # Simplify evaluation logic for the purposes of this unit test.
             self.ai.evaluate_position = MagicMock(return_value=10)
-            self.ai.simulate_thinking = MagicMock()
             self.ai.should_pick_random_move = MagicMock(return_value=False)
 
             move = self.ai.select_move(self.game_state)
@@ -104,7 +103,6 @@ class TestMinimaxAI(unittest.TestCase):
             "get_valid_moves",
             return_value=[],
         ):
-            self.ai.simulate_thinking = MagicMock()
             move = self.ai.select_move(self.game_state)
 
         self.assertIsNone(move)

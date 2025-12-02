@@ -176,4 +176,43 @@ describe('RuleEngine skip_placement validation parity with PlacementAggregate', 
     expect(aggregateFlag).toBe(false);
     expect(ruleEngineValid).toBe(false);
   });
+
+  it('rejects skip_placement when player has no rings in hand even if aggregate allows it', () => {
+    const { engine, state } = createRuleEngineAndState();
+
+    // Add a controlled stack with legal movement so the aggregate returns eligible=true
+    // Stack at (3,3) controlled by player 1 with height 2
+    state.board.stacks.set('3,3', {
+      position: { x: 3, y: 3 },
+      rings: [1, 1],
+      controllingPlayer: 1,
+      stackHeight: 2,
+      capHeight: 2,
+    });
+
+    const player = state.players.find((p) => p.playerNumber === 1)!;
+    player.ringsInHand = 0;
+
+    const skipMove: Move = {
+      id: 'skip-3',
+      type: 'skip_placement',
+      player: 1,
+      from: undefined,
+      to: { x: 0, y: 0 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1,
+    } as Move;
+
+    const aggregateEligibility = evaluateSkipPlacementEligibilityAggregate(state, 1);
+    const aggregateFlag =
+      (aggregateEligibility as any).eligible ?? (aggregateEligibility as any).canSkip ?? false;
+
+    // Backend tightening: even if the aggregate helper reports that a skip
+    // would be semantically fine, RuleEngine must still reject skip_placement
+    // when the active player has no rings in hand.
+    expect(aggregateFlag).toBe(true);
+    const ruleEngineValid = engine.validateMove(skipMove, state);
+    expect(ruleEngineValid).toBe(false);
+  });
 });

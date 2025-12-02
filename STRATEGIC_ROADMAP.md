@@ -167,7 +167,7 @@ list of tasks that roll up into these phases.
 
 - [x] **Enable orchestrator adapters in production** – ✅ COMPLETE (PASS20 - Configuration ready)
 
-- [x] **Remove legacy turn processing code** – ✅ COMPLETE (PASS20: ~1,147 lines removed)
+- [x] **Remove legacy turn processing code** – ✅ COMPLETE (PASS20: ~1,176 lines removed)
 
 **P0: Rules Fidelity & Parity (Critical)**
 
@@ -187,11 +187,24 @@ list of tasks that roll up into these phases.
 
 **P1: AI Robustness, Training & Intelligence (High Value)**
 
+- [x] **Grafana dashboards for observability and monitoring** – ✅ COMPLETE (PASS21: 3 dashboards with 22 panels)
+  - `game-performance.json` – Core game metrics, AI latency, abnormal terminations
+  - `rules-correctness.json` – Parity and correctness metrics
+  - `system-health.json` – HTTP, WebSocket, AI service health, infrastructure metrics
+
+- [x] **k6 load testing framework** – ✅ COMPLETE (PASS21: 4 production-scale scenarios)
+  - Scenario P1: Mixed human vs AI ladder (40-60 players, 20-30 moves)
+  - Scenario P2: AI-heavy concurrent games (60-100 players, 10-20 AI games)
+  - Scenario P3: Reconnects and spectators (40-60 players + 20-40 spectators)
+  - Scenario P4: Long-running AI games (10-20 games, 60+ moves)
+
+- [x] **Monitoring stack by default** – ✅ COMPLETE (PASS21: Moved from optional profile to standard deployment)
+
 - [ ] **Wire up Minimax/MCTS in the production ladder** – Audit and stabilise advanced AI implementations in [`ai-service/app/ai/minimax_ai.py`](ai-service/app/ai/minimax_ai.py:1) and [`ai-service/app/ai/mcts_ai.py`](ai-service/app/ai/mcts_ai.py:1), and the difficulty ladder in [`ai-service/app/main.py`](ai-service/app/main.py:1), then expose them through the canonical presets in [`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts:1). Ensure new types are covered by `/ai/move` tests and smoke AI-vs-AI runs. **Owner modes:** Code.
 
 - [x] **Fix and document RNG determinism across TS and Python** – Implement and validate per-game seeding for AI decisions and rules randomness, aligned between Node and Python, so that mixed-mode runs and dataset generation are reproducible from a single seed. Contract captured in [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md:1) (§5) and exercised by seeded determinism tests in the TS and Python suites. **Owner modes:** Debug + Code + Architect (complete).
 
-- [ ] **AI move rejection and fallback hardening** – Implement a tiered fallback system for invalid or timed-out AI moves in [`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts:1) and [`src/server/services/AIServiceClient.ts`](src/server/services/AIServiceClient.ts:1), with clear metrics and logging for each fallback path. Coordinate with the AI service’s `/ai/move` error taxonomy in [`ai-service/app/main.py`](ai-service/app/main.py:1). **Owner modes:** Code + Debug.
+- [ ] **AI move rejection and fallback hardening** – Implement a tiered fallback system for invalid or timed-out AI moves in [`src/server/game/ai/AIEngine.ts`](src/server/game/ai/AIEngine.ts:1) and [`src/server/services/AIServiceClient.ts`](src/server/services/AIServiceClient.ts:1), with clear metrics and logging for each fallback path. Coordinate with the AI service's `/ai/move` error taxonomy in [`ai-service/app/main.py`](ai-service/app/main.py:1). **Owner modes:** Code + Debug.
 
 - [ ] **Integrate territory / combined-margin datasets into heuristic or NN training** – Formalise training scripts that consume datasets from [`ai-service/app/training/generate_territory_dataset.py`](ai-service/app/training/generate_territory_dataset.py:1) and feed them into [`ai-service/app/training/train_heuristic_weights.py`](ai-service/app/training/train_heuristic_weights.py:1) and future NN pipelines such as [`ai-service/app/ai/neural_net.py`](ai-service/app/ai/neural_net.py:1). Document expected input schema and evaluation loops. **Owner modes:** Code + Architect.
 
@@ -242,9 +255,9 @@ These SLOs are defined under **nominal load**, not worst-case spikes:
   - 30–70% of seats may be AI-controlled depending on lobby settings.
   - Up to ~50 additional spectator connections.
 
-**Load-test tooling requirements (non-prescriptive)**
+**Load-test tooling (IMPLEMENTED - PASS21)**
 
-Any eventual load tooling (for example, k6, artillery, or a custom Node script using `fetch` + `socket.io-client`) **must**:
+The k6 load testing framework has been implemented with:
 
 - Support both HTTP and WebSocket traffic.
 - Allow scenario scripting (login → create/join game → play moves → resign/finish).
@@ -377,6 +390,8 @@ The following **3–4 reusable scenarios** are intended to be implemented once (
 
 #### Scenario P1: Mixed human vs AI ladder (baseline)
 
+**Status:** ✅ Implemented (k6 framework, PASS21)
+
 **Intent**
 
 Validate HTTP and WebSocket SLOs for the most common flows (login, lobby, game creation/join, mixed human/AI play).
@@ -414,6 +429,8 @@ Validate HTTP and WebSocket SLOs for the most common flows (login, lobby, game c
 
 #### Scenario P2: AI-heavy concurrent games
 
+**Status:** ✅ Implemented (k6 framework, PASS21)
+
 **Intent**
 
 Stress the AI service and backend integration where most seats are AI-controlled, validating AI SLOs and observing degradation behaviour.
@@ -444,6 +461,8 @@ Stress the AI service and backend integration where most seats are AI-controlled
   - Any evidence of circuit-breakers, retries, or degraded AI behaviour.
 
 #### Scenario P3: Reconnects and spectators
+
+**Status:** ✅ Implemented (k6 framework, PASS21)
 
 **Intent**
 
@@ -476,6 +495,8 @@ Validate WebSocket resilience, reconnection logic, and read-heavy traffic patter
   - Errors related to stale sessions or authorization failures on reconnect.
 
 #### Scenario P4 (optional): Long-running AI games
+
+**Status:** ✅ Implemented (k6 framework, PASS21)
 
 **Intent**
 

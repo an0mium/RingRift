@@ -37,7 +37,6 @@ router.get(
       data: {
         config: {
           adapterEnabled: orchestratorConfig.adapterEnabled,
-          rolloutPercentage: orchestratorConfig.rolloutPercentage,
           shadowModeEnabled: orchestratorConfig.shadowModeEnabled,
           allowlistUsers: orchestratorConfig.allowlistUsers,
           denylistUsers: orchestratorConfig.denylistUsers,

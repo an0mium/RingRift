@@ -151,21 +151,28 @@ export class MetricsService {
   public readonly aiRequestTimeoutTotal: Counter<string>;
 
   // ===================
+  // Move Rejection Metrics
+  // ===================
+
+  /** Counter: Total moves rejected by the server, labelled by reason */
+  public readonly movesRejectedTotal: Counter<'reason'>;
+
+  // ===================
   // Rules Parity Metrics (already exist, re-exported for convenience)
   // ===================
- 
+
   /** Counter: TS vs Python rules validation verdict mismatch */
   public readonly rulesParityValidMismatch: Counter<string>;
- 
+
   /** Counter: TS vs Python rules post-move state hash mismatch */
   public readonly rulesParityHashMismatch: Counter<string>;
- 
+
   /** Counter: TS vs Python rules S-invariant mismatch */
   public readonly rulesParitySMismatch: Counter<string>;
- 
+
   /** Counter: TS vs Python rules gameStatus mismatch */
   public readonly rulesParityGameStatusMismatch: Counter<string>;
- 
+
   /**
    * Unified counter: TS vs Python rules mismatches by mismatch type and
    * suite/parity bucket. This provides a single surface for alerts and
@@ -207,24 +214,56 @@ export class MetricsService {
   // ===================
   // Orchestrator Rollout Metrics
   // ===================
- 
+
   /** Counter: Total game sessions by engine selection and reason */
   public readonly orchestratorSessionsTotal: Counter<'engine' | 'selection_reason'>;
- 
+
   /** Counter: Total moves processed by engine and outcome */
   public readonly orchestratorMovesTotal: Counter<'engine' | 'outcome'>;
- 
+
   /** Gauge: Orchestrator circuit breaker state (0=closed, 1=open) */
   public readonly orchestratorCircuitBreakerState: Gauge<string>;
- 
+
   /** Gauge: Current orchestrator error rate (0.0–1.0) */
   public readonly orchestratorErrorRate: Gauge<string>;
- 
+
   /** Gauge: Configured orchestrator rollout percentage (0–100) */
   public readonly orchestratorRolloutPercentage: Gauge<string>;
- 
+
   /** Counter: Total orchestrator-related invariant violations by type */
   public readonly orchestratorInvariantViolationsTotal: Counter<'type' | 'invariant_id'>;
+
+  // ===================
+  // Rules Correctness Dashboard Metrics
+  // ===================
+
+  /** Counter: Parity checks between TS and Python implementations */
+  private parityChecks: Counter<'result'>;
+
+  /** Gauge: Number of contract test vectors currently passing */
+  private contractTestsPassing: Gauge<string>;
+
+  /** Gauge: Total number of contract test vectors */
+  private contractTestsTotal: Gauge<string>;
+
+  /** Counter: Rules engine validation/mutation errors by type */
+  private rulesErrors: Counter<'error_type'>;
+
+  /** Histogram: Line detection processing time in milliseconds */
+  private lineDetectionDuration: Histogram<string>;
+
+  /** Histogram: Capture chain depth (segments per chain) */
+  private captureChainDepth: Histogram<string>;
+
+  // ===================
+  // System Health Dashboard Metrics
+  // ===================
+
+  /** Counter: Redis cache hits */
+  private cacheHits: Counter<string>;
+
+  /** Counter: Redis cache misses */
+  private cacheMisses: Counter<string>;
 
   /**
    * Private constructor - use getInstance() instead.
@@ -415,6 +454,16 @@ export class MetricsService {
     });
 
     // ===================
+    // Move Rejection Metrics
+    // ===================
+
+    this.movesRejectedTotal = new Counter({
+      name: 'ringrift_moves_rejected_total',
+      help: 'Total number of moves rejected by the server, labelled by reason',
+      labelNames: ['reason'] as const,
+    });
+
+    // ===================
     // Rules Parity Metrics
     // ===================
 
@@ -521,6 +570,58 @@ export class MetricsService {
       // while `invariant_id` is a high-level invariant from
       // docs/INVARIANTS_AND_PARITY_FRAMEWORK.md (e.g. INV-S-MONOTONIC).
       labelNames: ['type', 'invariant_id'] as const,
+    });
+
+    // ===================
+    // Rules Correctness Dashboard Metrics
+    // ===================
+
+    this.parityChecks = new Counter({
+      name: 'ringrift_parity_checks_total',
+      help: 'Total parity checks between TS and Python implementations',
+      labelNames: ['result'] as const,
+    });
+
+    this.contractTestsPassing = new Gauge({
+      name: 'ringrift_contract_tests_passing',
+      help: 'Number of contract test vectors currently passing',
+    });
+
+    this.contractTestsTotal = new Gauge({
+      name: 'ringrift_contract_tests_total',
+      help: 'Total number of contract test vectors',
+    });
+
+    this.rulesErrors = new Counter({
+      name: 'ringrift_rules_errors_total',
+      help: 'Total rules engine validation/mutation errors',
+      labelNames: ['error_type'] as const,
+    });
+
+    this.lineDetectionDuration = new Histogram({
+      name: 'ringrift_line_detection_duration_ms',
+      help: 'Line detection processing time in milliseconds',
+      buckets: [10, 25, 50, 100, 250, 500, 1000],
+    });
+
+    this.captureChainDepth = new Histogram({
+      name: 'ringrift_capture_chain_depth',
+      help: 'Distribution of capture chain depths (number of segments in a chain)',
+      buckets: [1, 2, 3, 4, 5, 6, 8, 10],
+    });
+
+    // ===================
+    // System Health Dashboard Metrics
+    // ===================
+
+    this.cacheHits = new Counter({
+      name: 'ringrift_cache_hits_total',
+      help: 'Total Redis cache hits',
+    });
+
+    this.cacheMisses = new Counter({
+      name: 'ringrift_cache_misses_total',
+      help: 'Total Redis cache misses',
     });
 
     this.initialized = true;
@@ -990,6 +1091,94 @@ export class MetricsService {
   public recordOrchestratorInvariantViolation(type: string, invariantId?: string): void {
     const resolvedInvariantId = invariantId ?? this.mapInvariantTypeToId(type);
     this.orchestratorInvariantViolationsTotal.labels(type, resolvedInvariantId).inc();
+  }
+
+  // ===================
+  // Rules Correctness Metrics Helpers
+  // ===================
+
+  /**
+   * Record a parity check between TS and Python implementations.
+   * Used to track consistency validation between the two rule engines.
+   *
+   * @param success - Whether the parity check passed (true) or failed (false)
+   */
+  public recordParityCheck(success: boolean): void {
+    this.parityChecks.inc({ result: success ? 'success' : 'failure' });
+  }
+
+  /**
+   * Update contract test metrics with current pass/total counts.
+   * Provides visibility into contract vector validation coverage.
+   *
+   * @param passing - Number of contract test vectors currently passing
+   * @param total - Total number of contract test vectors
+   */
+  public updateContractTestMetrics(passing: number, total: number): void {
+    this.contractTestsPassing.set(passing);
+    this.contractTestsTotal.set(total);
+  }
+
+  /**
+   * Record a rules engine error during validation or mutation.
+   * Tracks different types of errors for troubleshooting and alerts.
+   *
+   * @param errorType - Type of error: 'validation', 'mutation', or 'internal'
+   */
+  public recordRulesError(errorType: 'validation' | 'mutation' | 'internal'): void {
+    this.rulesErrors.inc({ error_type: errorType });
+  }
+
+  /**
+   * Record line detection processing duration.
+   * Tracks performance of line detection algorithms in the rules engine.
+   *
+   * @param durationMs - Processing time in milliseconds
+   */
+  public recordLineDetection(durationMs: number): void {
+    this.lineDetectionDuration.observe(durationMs);
+  }
+
+  /**
+   * Record a capture chain depth sample for analytics.
+   * Tracks how many segments typical chain captures contain.
+   *
+   * @param depth - Number of segments in a single capture chain (>= 1)
+   */
+  public recordCaptureChainDepth(depth: number): void {
+    if (depth > 0) {
+      this.captureChainDepth.observe(depth);
+    }
+  }
+
+  /**
+   * Record a rejected move and its high-level reason.
+   *
+   * @param reason - Short, stable reason identifier (e.g. 'rules_invalid', 'invalid_payload',
+   *                 'authz', 'game_not_active', 'db_unavailable', 'decision_timeout_auto_rejected').
+   */
+  public recordMoveRejected(reason: string): void {
+    this.movesRejectedTotal.inc({ reason });
+  }
+
+  // ===================
+  // System Health Metrics Helpers
+  // ===================
+
+  /**
+   * Record a Redis cache hit.
+   * Tracks successful cache retrievals for monitoring cache effectiveness.
+   */
+  public recordCacheHit(): void {
+    this.cacheHits.inc();
+  }
+
+  /**
+   * Record a Redis cache miss.
+   * Tracks cache misses to monitor cache effectiveness and identify patterns.
+   */
+  public recordCacheMiss(): void {
+    this.cacheMisses.inc();
   }
 }
 

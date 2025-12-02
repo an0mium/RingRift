@@ -177,21 +177,26 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     }
 
     const POLL_INTERVAL_MS = 1000;
-    const anyWindow = window as any;
+    // Type-safe access to debug globals on window
+    const windowWithDebug = window as Window & { __RINGRIFT_SANDBOX_TRACE__?: unknown[] };
     let lastSeenStallTimestamp = 0;
 
     const id = window.setInterval(() => {
-      const trace = (anyWindow.__RINGRIFT_SANDBOX_TRACE__ ?? []) as any[];
+      const trace = windowWithDebug.__RINGRIFT_SANDBOX_TRACE__ ?? [];
       if (!Array.isArray(trace) || trace.length === 0) {
         return;
       }
 
-      const latestStall = [...trace].reverse().find((entry) => entry && entry.kind === 'stall');
+      const latestStall = [...trace].reverse().find((entry) => {
+        const entryRecord = entry as Record<string, unknown> | null | undefined;
+        return entryRecord && entryRecord.kind === 'stall';
+      });
       if (!latestStall) {
         return;
       }
 
-      const ts = typeof latestStall.timestamp === 'number' ? latestStall.timestamp : Date.now();
+      const stall = latestStall as Record<string, unknown>;
+      const ts = typeof stall.timestamp === 'number' ? stall.timestamp : Date.now();
       if (ts <= lastSeenStallTimestamp) {
         return;
       }
@@ -201,7 +206,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       setSandboxStallWarning(
         (prev) =>
           prev ??
-          'Sandbox AI stall detected by diagnostics: consecutive AI turns are not changing the game state. Use “Copy AI trace” for detailed debugging.'
+          'Sandbox AI stall detected by diagnostics: consecutive AI turns are not changing the game state. Use "Copy AI trace" for detailed debugging.'
       );
     }, POLL_INTERVAL_MS);
 
@@ -223,17 +228,27 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const anyWindow = window as any;
-    const setter = (message: string, trace: unknown) => {
+    // Type-safe interface for E2E test globals. We only declare the E2E setter
+    // here since __RINGRIFT_SANDBOX_TRACE__ is already declared globally in
+    // sandboxAI.ts via `declare global { interface Window { ... } }`.
+    type E2ESetterFn = (message: string, trace: unknown) => void;
+    interface WindowWithE2EDebug extends Window {
+      __RINGRIFT_E2E_SET_SANDBOX_STALL__?: E2ESetterFn;
+    }
+
+    const windowWithE2E = window as WindowWithE2EDebug;
+    const setter: E2ESetterFn = (message: string, trace: unknown) => {
       setSandboxStallWarning(message);
-      anyWindow.__RINGRIFT_SANDBOX_TRACE__ = trace;
+      // Cast through the global Window type which already has the trace typed
+      (window as Window).__RINGRIFT_SANDBOX_TRACE__ =
+        trace as typeof window.__RINGRIFT_SANDBOX_TRACE__;
     };
 
-    anyWindow.__RINGRIFT_E2E_SET_SANDBOX_STALL__ = setter;
+    windowWithE2E.__RINGRIFT_E2E_SET_SANDBOX_STALL__ = setter;
 
     return () => {
-      if (anyWindow.__RINGRIFT_E2E_SET_SANDBOX_STALL__ === setter) {
-        delete anyWindow.__RINGRIFT_E2E_SET_SANDBOX_STALL__;
+      if (windowWithE2E.__RINGRIFT_E2E_SET_SANDBOX_STALL__ === setter) {
+        delete windowWithE2E.__RINGRIFT_E2E_SET_SANDBOX_STALL__;
       }
     };
   }, []);

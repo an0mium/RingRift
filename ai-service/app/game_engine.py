@@ -1,7 +1,13 @@
+"""Core game engine for the RingRift AI service.
+
+This module provides a lightweight, Python-hosted view of the RingRift
+rules sufficient for AI search, evaluation, and TS↔Python contract tests.
+It mirrors the shared TypeScript engine semantics where required for
+parity, but should be treated as a *host adapter* rather than an
+independent rules SSoT.
 """
-Game Engine for RingRift AI Service
-Provides move generation and state simulation logic
-"""
+
+from __future__ import annotations
 
 from typing import List, Optional
 import sys
@@ -10,7 +16,7 @@ import json
 import time
 from .models import (
     GameState, Move, Position, BoardType, GamePhase, RingStack, MarkerInfo,
-    GameStatus, MoveType
+    GameStatus, MoveType, BoardState
 )
 from .board_manager import BoardManager
 from .ai.zobrist import ZobristHash
@@ -27,27 +33,41 @@ STRICT_NO_MOVE_INVARIANT = os.environ.get(
 
 
 def _debug(msg: str) -> None:
+    """Write a debug message to stderr when engine debug is enabled."""
     if DEBUG_ENGINE:
         sys.stderr.write(msg)
 
 
 class GameEngine:
-    """
-    Game engine implementation for AI service
-    Provides valid move generation and state transition logic
+    """Python GameEngine used by the AI service.
+
+    This engine:
+
+    - Mirrors the shared TS engine semantics closely enough for AI search,
+      training, and TS↔Python parity tests.
+    - Exposes `get_valid_moves` and `apply_move` as the primary APIs for
+      AI agents and training loops.
+    - Maintains a small in‑memory move cache keyed by a canonical
+      `hash_game_state` string to avoid recomputing legal moves for
+      identical positions.
+
+    It is *not* a separate rules SSoT; when in doubt the TS engine and
+    rules documentation win and this module should be updated to match.
     """
     
-    # Cache for valid moves: key=state_hash, value=List[Move]
-    _move_cache = {}
-    _cache_hits = 0
-    _cache_misses = 0
+    # Cache for valid moves: key = f"{state_hash}:{player_number}"
+    _move_cache: dict[str, List[Move]] = {}
+    _cache_hits: int = 0
+    _cache_misses: int = 0
 
     @staticmethod
     def get_valid_moves(
         game_state: GameState, player_number: int
     ) -> List[Move]:
-        """
-        Get all valid moves for a player in the current game state
+        """Return all valid moves for ``player_number`` in ``game_state``.
+
+        This mirrors the TS `GameEngine.getValidMoves` surface and is used
+        as the primary legal‑move generator for AI agents and parity tests.
         """
         # Only generate moves if it's the player's turn
         if game_state.current_player != player_number:
@@ -1143,17 +1163,24 @@ class GameEngine:
         Python analogue of
         placementHelpers.createHypotheticalBoardWithPlacement.
 
-        Returns a deep-copied BoardState with `count` rings for `player`
+        Returns a shallow-copied BoardState with `count` rings for `player`
         placed at `position`, recomputing stackHeight, controllingPlayer,
         and capHeight.
+
+        Uses model_construct for ~5x faster creation by skipping validation.
         """
-        hyp = board.model_copy(deep=True)
-        hyp.stacks = dict(board.stacks)
-        hyp.markers = dict(board.markers)
-        hyp.collapsed_spaces = dict(board.collapsed_spaces)
-        hyp.formed_lines = list(board.formed_lines)
-        hyp.territories = dict(board.territories)
-        hyp.eliminated_rings = dict(board.eliminated_rings)
+        # Use model_construct to skip Pydantic validation (faster)
+        # We copy all dict/list fields to avoid mutating the original
+        hyp = BoardState.model_construct(
+            type=board.type,
+            size=board.size,
+            stacks=dict(board.stacks),
+            markers=dict(board.markers),
+            collapsedSpaces=dict(board.collapsed_spaces),
+            eliminatedRings=dict(board.eliminated_rings),
+            formedLines=list(board.formed_lines),
+            territories=dict(board.territories),
+        )
 
         pos_key = position.to_key()
         existing = hyp.stacks.get(pos_key)
@@ -1594,7 +1621,8 @@ class GameEngine:
         # _get_capture_moves identifies the attacker at from_pos (it
         # looks at the last move's .to when no chain_capture_state is
         # active).
-        synthetic_move = Move(  # type: ignore[call-arg]
+        # Use model_construct for faster creation (skips validation)
+        synthetic_move = Move.model_construct(
             id="hypothetical-placement",
             type=MoveType.PLACE_RING,
             player=player_number,
@@ -1780,10 +1808,14 @@ class GameEngine:
             if max_per_placement <= 0:
                 continue
 
-            # Enumerate placement counts using hypothetical board + reachability
-            for placement_count in range(1, max_per_placement + 1):
+            # Optimization: Check placement counts in reverse order (highest first).
+            # If a higher count is valid (can move stack_height+ spaces), lower counts
+            # are also valid (shorter minimum distance). This reduces hypothetical
+            # checks from up to 3 per position to just 1 for most valid positions.
+            valid_from_count = None
+            for placement_count in range(max_per_placement, 0, -1):
                 if placement_count > max_available:
-                    break
+                    continue
 
                 hyp_board = (
                     GameEngine._create_hypothetical_board_with_placement(
@@ -1794,27 +1826,34 @@ class GameEngine:
                     )
                 )
 
-                if not GameEngine._has_any_movement_or_capture_after_hypothetical_placement(
+                if GameEngine._has_any_movement_or_capture_after_hypothetical_placement(
                     game_state,
                     player_number,
                     pos,
                     hyp_board,
                 ):
-                    continue
+                    # This count and all lower counts are valid
+                    valid_from_count = placement_count
+                    break
 
-                moves.append(
-                    Move(
-                        id="simulated",
-                        type=MoveType.PLACE_RING,
-                        player=player_number,
-                        to=pos,
-                        timestamp=game_state.last_move_at,
-                        thinkTime=0,
-                        moveNumber=len(game_state.move_history) + 1,
-                        placementCount=placement_count,
-                        placedOnStack=is_occupied,
-                    )  # type: ignore
-                )
+            # Add moves for all valid placement counts
+            if valid_from_count is not None:
+                for count in range(1, valid_from_count + 1):
+                    if count > max_available:
+                        break
+                    moves.append(
+                        Move(
+                            id="simulated",
+                            type=MoveType.PLACE_RING,
+                            player=player_number,
+                            to=pos,
+                            timestamp=game_state.last_move_at,
+                            thinkTime=0,
+                            moveNumber=len(game_state.move_history) + 1,
+                            placementCount=count,
+                            placedOnStack=is_occupied,
+                        )  # type: ignore
+                    )
 
         return moves
 

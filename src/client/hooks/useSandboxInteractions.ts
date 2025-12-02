@@ -23,6 +23,8 @@ export function useSandboxInteractions({
   const {
     sandboxEngine,
     isConfigured,
+    sandboxPendingChoice,
+    setSandboxPendingChoice,
     sandboxCaptureChoice,
     setSandboxCaptureChoice,
     setSandboxCaptureTargets,
@@ -94,12 +96,50 @@ export function useSandboxInteractions({
   // available (Stage 2 harness), otherwise fall back to the legacy
   // LocalSandboxState controller.
   const handleCellClick = (pos: Position) => {
+    // When a ring_elimination choice is pending, treat clicks on highlighted
+    // stacks as selecting the corresponding elimination option instead of
+    // sending a normal click into the engine. This keeps elimination UX
+    // board-driven and avoids an extra blocking dialog in sandbox mode.
+    if (sandboxPendingChoice && sandboxPendingChoice.type === 'ring_elimination') {
+      const currentChoice = sandboxPendingChoice;
+      const options = (currentChoice.options ?? []) as Array<{ stackPosition: Position }>;
+      const matching = options.find((opt) => positionsEqual(opt.stackPosition, pos));
+
+      if (matching) {
+        const resolver = choiceResolverRef.current;
+        if (resolver) {
+          // Resolve on the next tick so the orchestrator can finish
+          // applying the elimination decision before we trigger any
+          // follow-up AI turns or re-renders.
+          resolver({
+            choiceId: currentChoice.id,
+            playerNumber: currentChoice.playerNumber,
+            choiceType: currentChoice.type,
+            selectedOption: matching,
+          } as PlayerChoiceResponseFor<PlayerChoice>);
+        }
+        choiceResolverRef.current = null;
+        // Clear the pending choice and advance sandbox state version on
+        // the next macrotask to give the engine time to settle into the
+        // post-decision state.
+        window.setTimeout(() => {
+          setSandboxPendingChoice(null);
+          setSandboxStateVersion((v) => v + 1);
+          // After resolving elimination, immediately check whether the
+          // turn has advanced to an AI seat and, if so, start the AI loop.
+          maybeRunSandboxAiIfNeeded();
+        }, 0);
+      }
+      // Ignore clicks that are not on a highlighted elimination stack.
+      return;
+    }
+
     // When a capture_direction choice is pending in the local sandbox,
     // interpret clicks as selecting one of the highlighted landing
     // squares instead of sending a normal click into the engine.
     if (sandboxCaptureChoice && sandboxCaptureChoice.type === 'capture_direction') {
-      const currentChoice: any = sandboxCaptureChoice;
-      const options: any[] = (currentChoice.options ?? []) as any[];
+      const currentChoice = sandboxCaptureChoice;
+      const options = (currentChoice.options ?? []) as Array<{ landingPosition: Position }>;
       const matching = options.find((opt) => positionsEqual(opt.landingPosition, pos));
 
       if (matching) {
@@ -190,11 +230,20 @@ export function useSandboxInteractions({
       // the move and then let the AI respond.
       const isTarget = validTargets.some((t) => positionsEqual(t, pos));
       if (isTarget) {
-        engine.handleHumanCellClick(pos);
+        // Clear selection/highlights immediately so movement overlays do not
+        // persist while the orchestrator processes post-move consequences
+        // (lines, territory, and any ring_elimination decisions).
         setSelected(undefined);
         setValidTargets([]);
-        setSandboxTurn((t) => t + 1);
-        setSandboxStateVersion((v) => v + 1);
+        void (async () => {
+          await engine.handleHumanCellClick(pos);
+          setSandboxTurn((t) => t + 1);
+          setSandboxStateVersion((v) => v + 1);
+          // After a successful human move (which may trigger line/territory
+          // processing and advance the turn), immediately check whether it is
+          // now an AI player's turn and, if so, start the AI loop.
+          maybeRunSandboxAiIfNeeded();
+        })();
         return;
       }
 
@@ -343,35 +392,6 @@ export function useSandboxInteractions({
       sandboxEngine.clearSelection();
     }
   };
-
-  // Auto-trigger AI turns when state version changes (after human moves).
-  useEffect(() => {
-    if (!isConfigured || !sandboxEngine) {
-      return;
-    }
-
-    const engine = sandboxEngine;
-    const state = engine.getGameState();
-    const current = state.players.find((p) => p.playerNumber === state.currentPlayer);
-
-    // Only trigger if it's an active AI turn
-    if (state.gameStatus === 'active' && current && current.type === 'ai') {
-      // Update progress timestamp to prevent false stall warnings
-      setSandboxLastProgressAt(Date.now());
-      setSandboxStallWarning(null);
-
-      // Small delay to allow React state to settle, then start AI turn loop
-      const timeoutId = window.setTimeout(() => {
-        void runSandboxAiTurnLoop();
-      }, 50);
-
-      return () => {
-        window.clearTimeout(timeoutId);
-      };
-    }
-
-    return;
-  }, [isConfigured, sandboxStateVersion]);
 
   return {
     handleCellClick,

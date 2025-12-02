@@ -239,11 +239,11 @@ Planned work:
 
 **Near-term P0.4 tasks inferred from current test failures:**
 
-- [ ] Finalize backend chain-capture semantics for cyclic/triangle patterns so that FAQ scenarios in [`rulesMatrix.ts`](tests/scenarios/rulesMatrix.ts) and [`GameEngine.cyclicCapture.*.test.ts`](tests/unit/GameEngine.cyclicCapture.scenarios.test.ts) pass under the new model.
-- [ ] Migrate `ComplexChainCaptures` and `RulesMatrix.ChainCapture` suites to drive chains via `chain_capture` + `continue_capture_segment` rather than internal while-loops.
-- [ ] Mirror the chain-capture phase and `continue_capture_segment` moves into [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts) and [`sandboxAI`](src/client/sandbox/sandboxAI.ts), then restore:
-  - [ ] [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)
-  - [ ] `TraceParity.seed*.firstDivergence.test.ts` (trace parity helpers for seeds 5/14/17)
+- [x] Finalize backend chain-capture semantics for cyclic/triangle patterns so that FAQ scenarios in [`rulesMatrix.ts`](tests/scenarios/rulesMatrix.ts) and [`GameEngine.cyclicCapture.*.test.ts`](tests/unit/GameEngine.cyclicCapture.scenarios.test.ts) pass under the new model. (See `GameEngine.cyclicCapture.scenarios.test.ts` and `tests/scenarios/ComplexChainCaptures.test.ts` for the current FAQ-aligned coverage.)
+- [x] Migrate `ComplexChainCaptures` and `RulesMatrix.ChainCapture` suites to drive chains via `chain_capture` + `continue_capture_segment` rather than internal while-loops. (Both suites now resolve mandatory continuations via `GameEngine.getValidMoves` in the `chain_capture` phase.)
+- [x] Mirror the chain-capture phase and `continue_capture_segment` moves into [`ClientSandboxEngine`](src/client/sandbox/ClientSandboxEngine.ts) and [`sandboxAI`](src/client/sandbox/sandboxAI.ts), then restore:
+  - [x] [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts)
+  - [x] `TraceParity.seed*.firstDivergence.test.ts` (trace parity helpers for seeds 5/14/17)
 - [ ] Once chain capture is stable across backend and sandbox, extend the same Move/phase unification to line-processing and territory-processing (as described above).
 - [ ] Keep `tests/integration/FullGameFlow.test.ts` green by ensuring AI-vs-AI backend games using local AI fallback always reach a terminal `gameStatus` (e.g. `completed`/`finished`) within the configured move budget. Treat regressions here as part of P0.4 since they exercise the unified Move model end-to-end.
 
@@ -363,13 +363,20 @@ cleanup of legacy paths.
       harnesses under `archive/` and ensure SSOT checks prevent regressions.
       _Concrete deprecation/cleanup steps are documented under **Wave 5.4 – Legacy path deprecation and cleanup**._
 
-## Wave 5 – Orchestrator Production Rollout (P0/P1)
+## Wave 5 – Orchestrator Production Rollout (P0/P1) - ✅ COMPLETE
 
 > **Goal:** Make the canonical orchestrator + adapters the _only_ production
 > turn path, with safe rollout across environments and removal of legacy
 > turn‑processing code once stable.
+>
+> **Status (2025-12-01):** ✅ **PHASE 3 COMPLETE**
+>
+> - Orchestrator at 100% in all environments
+> - ~1,176 lines legacy code removed
+> - Feature flags hardcoded/removed
+> - Legacy paths deprecated and removed
 
-### Wave 5.1 – Staging orchestrator enablement
+### Wave 5.1 – Staging orchestrator enablement ✅
 
 - [x] Enable `useOrchestratorAdapter` (and any equivalent flags) by default in
       **staging** for both:
@@ -382,23 +389,23 @@ cleanup of legacy paths.
 - [x] Document the staging orchestrator posture in `CURRENT_STATE_ASSESSMENT.md`
       and/or environment runbooks so operators know which adapter is active.
 
-### Wave 5.2 – Orchestrator‑ON validation suites
+### Wave 5.2 – Orchestrator‑ON validation suites ✅
 
 Run these suites with orchestrator adapters forced ON (backend + sandbox) and
 keep them green; treat regressions as P0 until resolved.
 
-- [ ] WebSocket + session flows (backend host):
-  - [ ] `tests/integration/GameReconnection.test.ts`
-  - [ ] `tests/integration/GameSession.aiDeterminism.test.ts`
-  - [ ] `tests/integration/AIResilience.test.ts`
-  - [ ] `tests/integration/LobbyRealtime.test.ts`
+- [x] WebSocket + session flows (backend host):
+  - [x] `tests/integration/GameReconnection.test.ts`
+  - [x] `tests/integration/GameSession.aiDeterminism.test.ts`
+  - [x] `tests/integration/AIResilience.test.ts`
+  - [x] `tests/integration/LobbyRealtime.test.ts`
 - [x] Orchestrator multi‑phase scenarios (backend + sandbox):
   - [x] `tests/scenarios/Orchestrator.Backend.multiPhase.test.ts`
   - [x] `tests/scenarios/Orchestrator.Sandbox.multiPhase.test.ts`
-- [ ] Decision‑heavy rules flows (line / territory / chain‑capture):
-  - [ ] Line reward / line order suites (GameEngine + ClientSandboxEngine).
-  - [ ] Territory processing + self‑elimination suites.
-  - [ ] Complex chain‑capture scenarios.
+- [x] Decision‑heavy rules flows (line / territory / chain‑capture):
+  - [x] Line reward / line order suites (GameEngine + ClientSandboxEngine).
+  - [x] Territory processing + self‑elimination suites.
+  - [x] Complex chain‑capture scenarios.
 - [x] Invariant and contract guards (already wired in CI, but re‑run locally
       when changing flags):
   - [x] Orchestrator invariant soaks via `scripts/run-orchestrator-soak.ts`.
@@ -406,7 +413,7 @@ keep them green; treat regressions as P0 until resolved.
         `ai-service/tests/contracts/test_contract_vectors.py`.
         _All contract vectors pass with orchestrator-ON as of the `test:orchestrator-parity` suite._
 
-### Wave 5.3 – Production rollout with circuit‑breakers
+### Wave 5.3 – Production rollout with circuit‑breakers ✅
 
 - [x] Define and document production flag presets for Phases 2–4 in
       `src/server/config/env.ts` / `src/server/config/unified.ts` so they match
@@ -425,23 +432,23 @@ keep them green; treat regressions as P0 until resolved.
   - [x] Ensure orchestrator invariant soaks and short parity suites are
         documented as pre‑prod gates in `docs/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`.
 
-### Wave 5.4 – Legacy path deprecation and cleanup
+### Wave 5.4 – Legacy path deprecation and cleanup ✅
 
 - [x] Mark remaining legacy turn‑processing paths as **deprecated** in:
   - [x] `src/server/game/RuleEngine.ts` / `GameEngine.ts`.
         _`processMove()`, `processChainReactions()`, `processLineFormation()`,
-        `processTerritoryDisconnection()` all annotated with `@deprecated Phase 4 legacy path`._
+        `processTerritoryDisconnection()` all removed (~120 lines)._
   - [x] `src/client/sandbox/ClientSandboxEngine.ts`.
-        _`handleLegacyMovementClick()` annotated with `@deprecated Phase 4 legacy path`._
+        _Legacy methods removed (786 lines)._
   - [x] Any sandbox‑only helpers that still implement bespoke turn/phase loops.
         _Tier 1 modules (sandboxTurnEngine, sandboxMovementEngine, sandboxLinesEngine,
-        sandboxTerritoryEngine) deleted in Phase 6.2._
+        sandboxTerritoryEngine) deleted in PASS20._
 - [x] Migrate tests that still exercise legacy‑only flows to:
   - [x] Go through `TurnEngineAdapter` / `SandboxOrchestratorAdapter`, **or**
   - [x] Target the shared engine directly (aggregates/helpers) where host
         concerns are not required.
 
-  **Legacy‑path tests migration status (verified 2025-12-01):**
+  **Legacy‑path tests migration status (completed PASS20):**
   All identified tests have been audited and migrated:
   - Tests now use shared engine aggregates (e.g. `GameEngine.lines.scenarios.test.ts` → LineAggregate)
   - Tests now use orchestrator adapters (e.g. `Orchestrator.Backend.multiPhase.test.ts`)
@@ -449,23 +456,88 @@ keep them green; treat regressions as P0 until resolved.
   - Tests skipped with explanation (e.g. `GameEngine.territoryDisconnection.hex.test.ts`)
 
   **Historical harnesses now trimmed to stubs / contract‑vector coverage only:**
-  - `tests/unit/ExportLineAndTerritorySnapshot.test.ts` – stub
-  - `tests/scenarios/RulesMatrix.Comprehensive.test.ts` – contract vector checks only
-  - `tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts` – stub
-  - `tests/unit/GameEngine.lineRewardChoiceWebSocketIntegration.test.ts` – stub
-  - `tests/scenarios/LineAndTerritory.test.ts` – stub
-  - `tests/unit/GameEngine.victory.LPS.crossInteraction.test.ts` – stub
-  - `tests/unit/GameEngine.territoryDisconnection.hex.test.ts` – skipped with docs
+  - Obsolete test files deleted (193 lines)
+  - See PASS20_COMPLETION_SUMMARY.md for full details
 
-- [ ] Once orchestrator behaviour is stable in production for a full release
-      window and all high‑signal suites remain green:
-  - [ ] Remove legacy turn‑processing implementations from backend and
-        sandbox hosts.
-  - [ ] Preserve any historically valuable harnesses under `archive/` with
-        clear "legacy" annotations.
-  - [ ] Update `ARCHITECTURE_ASSESSMENT.md`, `RULES_ENGINE_ARCHITECTURE.md`,
-        and `STATE_MACHINES.md` so the orchestrator + adapters are the only
-        described production paths.
+- [x] Legacy turn‑processing implementations removed from backend and sandbox hosts
+      _PASS20 complete: ~1,176 lines removed total_
+      _Phase 4 (Tier 2 sandbox cleanup) deferred to post-MVP_
+
+## Wave 6 – Observability & Production Readiness (P0/P1) - ✅ COMPLETE
+
+> **Goal:** Implement comprehensive observability infrastructure and validate production-scale performance.
+>
+> **Status (2025-12-01):** ✅ **COMPLETE**
+>
+> - 3 Grafana dashboards created with 22 panels
+> - k6 load testing framework + 4 scenarios implemented
+> - Monitoring stack runs by default
+> - DOCUMENTATION_INDEX.md created
+
+### Wave 6.1 – Grafana Dashboard Implementation ✅
+
+- [x] Create game-performance dashboard (moves, AI latency, abnormal terminations)
+- [x] Create rules-correctness dashboard (parity, invariants)
+- [x] Create system-health dashboard (HTTP, WebSocket, infrastructure)
+- [x] Wire dashboards to Prometheus data sources
+- [x] Add provisioning configuration for automated deployment
+
+### Wave 6.2 – Load Testing Framework ✅
+
+- [x] Implement k6 load testing tool
+- [x] Create Scenario P1: Mixed human vs AI ladder (40-60 players, 20-30 moves)
+- [x] Create Scenario P2: AI-heavy concurrent games (60-100 players, 10-20 AI games)
+- [x] Create Scenario P3: Reconnects and spectators (40-60 players + 20-40 spectators)
+- [x] Create Scenario P4: Long-running AI games (10-20 games, 60+ moves)
+
+### Wave 6.3 – Monitoring Infrastructure ✅
+
+- [x] Move monitoring stack from optional profile to default
+- [x] Ensure Prometheus metrics export from all services
+- [x] Configure alerting thresholds
+- [x] Document dashboard usage and alert response
+
+### Wave 6.4 – Documentation & Indexing ✅
+
+- [x] Create DOCUMENTATION_INDEX.md comprehensive index
+- [x] Update all references to monitoring capabilities
+- [x] Document load testing scenarios and SLOs
+- [x] Add PASS21 assessment report
+
+## Wave 7 – Production Validation & Scaling (P0 - NEXT)
+
+> **Goal:** Validate system performance at production scale and establish operational baselines.
+>
+> **Status:** 🔄 IN PLANNING
+
+### Wave 7.1 – Load Test Execution
+
+- [ ] Run Scenario P1 against staging (40-60 players, validate SLOs)
+- [ ] Run Scenario P2 against staging (AI-heavy, 10-20 concurrent AI games)
+- [ ] Run Scenario P3 against staging (reconnection + spectator resilience)
+- [ ] Run Scenario P4 against staging (long-running games, memory/performance)
+- [ ] Document results and identify bottlenecks
+
+### Wave 7.2 – Baseline Metrics Establishment
+
+- [ ] Capture "healthy system" metric ranges from staging runs
+- [ ] Document p50/p95/p99 latencies for all critical paths
+- [ ] Establish capacity model (games per instance, concurrent players)
+- [ ] Tune alert thresholds based on observed behavior
+
+### Wave 7.3 – Operational Drills
+
+- [ ] Execute secrets rotation drill
+- [ ] Execute backup/restore drill
+- [ ] Simulate incident response scenarios
+- [ ] Document lessons learned and refine runbooks
+
+### Wave 7.4 – Production Preview
+
+- [ ] Deploy to production-like environment
+- [ ] Run smoke tests with real traffic patterns
+- [ ] Validate monitoring and alerting
+- [ ] Execute go/no-go checklist
 
 ## Phase 3 – Multiplayer Polish (P1)
 

@@ -11,6 +11,7 @@ import {
   ChooseLineRewardAction,
   ProcessTerritoryAction,
   EliminateStackAction,
+  SkipPlacementAction,
 } from './types';
 import { validateMovement } from './validators/MovementValidator';
 import { validatePlacement, validateSkipPlacement } from './validators/PlacementValidator';
@@ -117,7 +118,7 @@ export class GameEngine {
       case 'ELIMINATE_STACK':
         return validateEliminateStack(this.state, action as EliminateStackAction);
       case 'SKIP_PLACEMENT':
-        return validateSkipPlacement(this.state, action as any);
+        return validateSkipPlacement(this.state, action as SkipPlacementAction);
       default:
         return { valid: false, reason: 'Unknown action type', code: 'UNKNOWN_ACTION' };
     }

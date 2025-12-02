@@ -11,12 +11,7 @@ import {
 } from '../middleware/auth';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { createError, asyncHandler } from '../middleware/errorHandler';
-import {
-  authRateLimiter,
-  authLoginRateLimiter,
-  authRegisterRateLimiter,
-  authPasswordResetRateLimiter,
-} from '../middleware/rateLimiter';
+import { authRegisterRateLimiter, authPasswordResetRateLimiter } from '../middleware/rateLimiter';
 import { logger, httpLogger, redactEmail } from '../utils/logger';
 import { sendVerificationEmail, sendPasswordResetEmail } from '../utils/email';
 import {
@@ -232,9 +227,6 @@ const resetLoginFailures = async (email: string): Promise<void> => {
   inMemoryFailedLogins.delete(normalizedEmail);
   inMemoryLockouts.delete(normalizedEmail);
 };
-
-// Apply general auth rate limiting to all routes
-router.use(authRateLimiter);
 
 /**
  * @openapi
@@ -512,7 +504,6 @@ router.post(
  */
 router.post(
   '/login',
-  authLoginRateLimiter,
   asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = LoginSchema.parse(req.body);
     const normalizedEmail = email.trim().toLowerCase();

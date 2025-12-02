@@ -470,8 +470,8 @@ export function parseEnv(
 
     const issues = Array.isArray(zodError.issues)
       ? zodError.issues
-      : Array.isArray((zodError as any).errors)
-        ? (zodError as any).errors
+      : Array.isArray(zodError.errors)
+        ? zodError.errors
         : [];
 
     const errors =

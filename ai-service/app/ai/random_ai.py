@@ -1,6 +1,7 @@
-"""
-Random AI implementation for RingRift
-Selects moves randomly from valid options
+"""Random AI implementation for RingRift.
+
+This agent selects uniformly random legal moves using the per‑instance RNG.
+It is primarily intended for testing, baselines, and very low difficulties.
 """
 
 from typing import Optional, Dict
@@ -10,21 +11,17 @@ from ..models import GameState, Move
 
 
 class RandomAI(BaseAI):
-    """AI that selects random valid moves"""
-    
+    """AI that selects random valid moves."""
+
     def select_move(self, game_state: GameState) -> Optional[Move]:
-        """
-        Select a random valid move
-        
+        """Select a random valid move for ``game_state``.
+
         Args:
-            game_state: Current game state
-            
+            game_state: Current game state.
+
         Returns:
-            Random valid move or None if no valid moves
+            A random valid :class:`Move` or ``None`` if no legal moves exist.
         """
-        # Simulate thinking for natural behavior
-        self.simulate_thinking(min_ms=200, max_ms=800)
-        
         # Get all valid moves using the canonical rules engine
         valid_moves = self.rules_engine.get_valid_moves(
             game_state, self.player_number
@@ -40,17 +37,18 @@ class RandomAI(BaseAI):
         return selected
     
     def evaluate_position(self, game_state: GameState) -> float:
-        """
-        Evaluate position (random AI doesn't really evaluate, returns neutral)
-        
+        """Return a small random evaluation for ``game_state``.
+
+        RandomAI does not attempt to evaluate positions meaningfully. It
+        returns a small random value to introduce variance in diagnostic
+        tooling that inspects scalar evaluations.
+
         Args:
-            game_state: Current game state
-            
+            game_state: Current game state (unused).
+
         Returns:
-            0.0 (neutral evaluation)
+            A small random float in ``[-0.1, 0.1]``.
         """
-        # Random AI doesn't evaluate positions
-        # Return small random value to simulate variance (per-instance RNG).
         return self.rng.uniform(-0.1, 0.1)
     
     def get_evaluation_breakdown(

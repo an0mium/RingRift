@@ -1,12 +1,17 @@
 """
-Descent AI implementation for RingRift
-Based on "A Simple AlphaZero" (arXiv:2008.01188v4)
+Descent AI implementation for RingRift.
 
-When `config.use_incremental_search` is True (the default), DescentAI uses
-the make/unmake pattern on MutableGameState for faster search by avoiding
-object allocation overhead. When False, it falls back to the legacy
-immutable state cloning via apply_move().
+This agent implements a Descent / UBFM‑style tree search (inspired by
+“A Simple AlphaZero” – arXiv:2008.01188v4) over a shared rules engine.
+
+When ``config.use_incremental_search`` is True (the default), DescentAI uses
+the make/unmake pattern on ``MutableGameState`` for faster search by
+avoiding repeated object allocation. When False, it falls back to the
+legacy immutable state cloning via ``apply_move()``. Both modes are kept
+for A/B testing and for backwards‑compatible behaviour.
 """
+
+from __future__ import annotations
 
 import logging
 from typing import Optional, List, Dict, Any, Tuple
@@ -39,10 +44,13 @@ class NodeStatus(Enum):
 
 
 class DescentAI(BaseAI):
-    """
-    AI that uses Descent Tree Search algorithm.
-    Descent is a modification of Unbounded Best-First Minimax (UBFM).
-    It iteratively extends the best sequence of actions to the terminal states.
+    """AI that uses a Descent / UBFM‑style tree search.
+
+    DescentAI incrementally extends the most promising sequence of actions
+    towards terminal states, using bounded transposition tables and an
+    optional neural network backend for value/policy estimates. It supports
+    both immutable (legacy) and mutable (make/unmake) search modes, gated
+    by ``config.use_incremental_search``.
     """
     
     def __init__(
@@ -103,21 +111,23 @@ class DescentAI(BaseAI):
         )
 
     def get_search_data(self) -> List[Tuple[Any, float]]:
-        """Retrieve and clear the search log.
-        
-        Note: For training, set collect_training_data=True before calling
-        select_move to enable search data collection.
+        """Retrieve and clear the accumulated search log.
+
+        Note:
+            For training, set ``collect_training_data=True`` (or call
+            :meth:`enable_training_data_collection`) before running
+            :meth:`select_move` to enable search‑data collection.
         """
         data = self.search_log
         self.search_log = []
         return data
     
     def enable_training_data_collection(self, enabled: bool = True) -> None:
-        """Enable or disable search data collection for training.
-        
-        When disabled (default), search_log is not populated, preventing
-        memory accumulation in inference-only scenarios.
-        
+        """Enable or disable search‑data collection for training.
+
+        When disabled (the default), :attr:`search_log` is not populated,
+        preventing memory accumulation in inference‑only scenarios.
+
         Args:
             enabled: Whether to collect training data during search.
         """

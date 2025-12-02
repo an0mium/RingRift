@@ -47,14 +47,14 @@ rather than missing core mechanics.
 
 **Component(s):** `GameEngine`, `captureChainEngine`
 **Severity:** P1 (Coverage Gap)
-**Status:** Core logic exists; complex scenarios need tests.
-**Details:** While basic and overtaking captures work, complex chain patterns like 180-degree reversals and cyclic captures (A->B->A) are supported by the engine but lack robust scenario tests to guarantee they behave exactly as per the FAQ in all edge cases.
+**Status:** Core logic and FAQ-aligned scenario suites exist; remaining work is incremental edge-case coverage and diagnostic harness tuning.
+**Details:** Complex chain patterns such as 180-degree reversals, cyclic loops, strategic chain-ending choices, and zig-zag sequences are now covered by targeted scenario tests (for example `GameEngine.cyclicCapture.scenarios.test.ts`, `GameEngine.cyclicCapture.hex.scenarios.test.ts`, and `tests/scenarios/ComplexChainCaptures.test.ts`). The residual risk is limited to additional exotic geometries and the performance characteristics of deep diagnostic search harnesses (for example the skipped `GameEngine.cyclicCapture.hex.height3.test.ts` sandbox search), rather than a lack of tests for the core rules semantics.
 
 ### P0.3 – Incomplete Scenario Test Coverage for Rules & FAQ
 
 **Component(s):** GameEngine, RuleEngine, BoardManager, tests  
 **Severity:** Critical for long-term confidence  
-**Status:** Core behaviours covered by focused tests; many rule/FAQ scenarios still untested
+**Status:** Systematic rules/FAQ scenario matrix implemented; Q1–Q24 and the major rules clusters are covered by backend and sandbox scenario suites, with remaining work focused on incremental extensions and future rule additions.
 
 **What’s implemented and tested:**
 
@@ -79,18 +79,11 @@ rather than missing core mechanics.
 
 **What’s still missing:**
 
-- A **systematic scenario suite** derived from `ringrift_complete_rules.md` and
-  the FAQ (Q1–Q24) that:
-  - Encodes each emblematic capture/chain example (including 180° reversals and
-    cyclic patterns) as a test fixture.
-  - Covers complex line + territory interactions and late-game territory
-    victories across all board types.
-  - Exercises forced elimination, stalemates, and corner/edge cases.
-- Broader coverage across all turn phases and choice sequences, especially
-  when multiple choices occur in a single turn (e.g. chain → line → territory
-  with several PlayerChoices in between).
+- Ongoing maintenance of the **systematic scenario matrix** in `RULES_SCENARIO_MATRIX.md` as rules docs evolve, including any newly added FAQ examples or clarifications.
+- Additional emblematic scenarios for especially intricate combinations (for example, late-game line + territory interactions and near-victory territory margins across all board types), beyond the already-covered Q1–Q24 set.
+- Broader coverage across all turn phases and choice sequences in a single turn (e.g. chain → line → territory with several PlayerChoices in between), to complement the existing focused suites.
 - Clear, per-module coverage targets and CI-enforced minimums for the rules
-  axis (BoardManager/RuleEngine/GameEngine).
+  axis (BoardManager/RuleEngine/GameEngine), tied back to the scenario matrix.
 
 **Impact:**
 
@@ -175,11 +168,11 @@ The following divergences are tracked in [PARITY_SEED_TRIAGE.md](./docs/PARITY_S
 
 ## 🟠 P1 – High-Priority Issues (UX, AI, Multiplayer)
 
-### P1.1 – Frontend UX & Sandbox Experience Still Early
+### P1.1 – Frontend UX & Sandbox Experience Still Developer-Centric
 
 **Component(s):** React client (BoardView, GamePage, GameHUD, GameContext, ChoiceDialog, `/sandbox` UI)
 **Severity:** High for player experience
-**Status:** Functional for development/playtesting; UX still basic
+**Status:** Core HUD/history/sandbox tooling implemented; overall UX still tuned for developers
 
 **Current capabilities:**
 
@@ -203,30 +196,43 @@ The following divergences are tracked in [PARITY_SEED_TRIAGE.md](./docs/PARITY_S
   This behaviour is covered by
   `tests/unit/ClientSandboxEngine.mixedPlayers.test.ts` and the updated
   `/sandbox` wiring in `GamePage`.
-
 - `ChoiceDialog` renders all PlayerChoice variants and is wired to
   `GameContext.respondToChoice`, so humans can answer line-reward,
   ring-elimination, region-order, and capture-direction prompts in
   backend-driven games.
+- `GameHUD` and related view models surface per‑player ring and Territory
+  counts, AI profile information, timers, current phase/instruction text,
+  connection/spectator status, and decision-phase countdown banners for both
+  backend and sandbox games.
+- Backend-driven games (`BackendGameHost.tsx`) include an in‑UI move and event
+  history surface via `MoveHistory`, `GameEventLog`, `GameHistoryPanel`, and
+  `EvaluationPanel`, plus chat and board-controls overlays.
+- The `/sandbox` UI (`SandboxGameHost.tsx`) now includes:
+  - Seat/board configuration with quick-start presets.
+  - A scenario picker and reset flow (`ScenarioPickerModal`) plus saved‑state
+    export/import (`SaveStateDialog`, scenario persistence helpers).
+  - A replay browser and playback controls (`ReplayPanel`) backed by the game
+    replay database, with the ability to fork new sandbox games from any
+    replay position.
+  - Phase guides, sandbox notes, AI stall diagnostics, and AI evaluation
+    tooling wired through `EvaluationPanel`.
 
-**Missing / rough areas:**
+**Remaining polish areas:**
 
 - HUD and status:
-  - No fully fleshed-out per-player HUD with ring/territory counts,
-    AI profile info, and timers.
-  - Limited visibility into current phase, pending choice type, and choice
-    deadlines.
-  - No in-UI move/choice history log for debugging and teaching.
+  - Visual hierarchy and copy are still primarily tuned for developers and
+    playtesters rather than first‑time players.
+  - Decision-phase and timeout banners exist but could benefit from additional
+    UX polish and broader scenario coverage.
 - Sandbox UX:
-  - The client-local sandbox engine is implemented and rules-complete, but the
-    surrounding UI is still developer-centric (no scenario picker, limited
-    reset/inspect tooling, minimal guidance for new players).
-  - Parity diagnostics and scenario-driven tests exist but are not yet exposed
-    in a user-friendly way in the sandbox UI itself.
-- End-of-game flows:
-  - Victory/defeat summary and post-game analysis UX are still minimal beyond
-    the core `VictoryModal`; there is no rich post-game breakdown or replay
-    view.
+  - Advanced tooling (AI stall diagnostics, fixture/export helpers, replay DB)
+    is exposed directly in the `/sandbox` sidebar and remains developer‑oriented.
+  - Guided onboarding and beginner‑friendly presets/documentation are still
+    minimal.
+- End-of-game and analysis flows:
+  - Victory modals, replay, and evaluation panels are implemented for sandbox
+    and backend games, but richer post‑game summaries and teaching‑oriented
+    overlays remain future UX work.
 
 **Impact:**
 
@@ -236,13 +242,12 @@ rather than a wider, non-technical audience.
 
 **Planned direction:**
 
-- Implement a richer HUD (current phase, current player, ring/territory
-  statistics, AI profile, timers) for both backend and sandbox games.
-- Enhance the sandbox experience by adding simple scenario selection/reset
-  tools, clearer status indicators, and better visual cues for chain captures,
-  line/territory processing, forced elimination, and victory.
-- Add move/choice history and better inline explanations so parity/scenario
-  tests can be more easily reproduced and understood via the UI.
+- Continue refining HUD layout/copy, timeout banners, and spectator indicators
+  so the primary flows feel intuitive to non‑technical players.
+- Iterate on sandbox UX to balance powerful diagnostics (replay, fixtures,
+  AI tools) with a simpler learning surface for new players.
+- Expand inline explanations and teaching‑oriented overlays so rules/FAQ
+  scenarios surfaced in tests can also be explored comfortably via the UI.
 
 ---
 
@@ -250,7 +255,7 @@ rather than a wider, non-technical audience.
 
 **Component(s):** `src/server/websocket/server.ts`, GameContext, client pages  
 **Severity:** High for robust multiplayer  
-**Status:** Core loop present; broader lifecycle incomplete
+**Status:** Core loop, lobby, and reconnection flows are implemented and covered by tests; broader multiplayer lifecycle and UX still have gaps.
 
 **Current capabilities:**
 
@@ -260,21 +265,17 @@ rather than a wider, non-technical audience.
     `WebSocketInteractionHandler` and GameContext/ChoiceDialog.
   - Orchestrate AI turns via `WebSocketServer.maybePerformAITurn`, which calls
     `globalAIEngine.getAIMove` and feeds moves into `GameEngine.makeMove`.
-- There are focused integration tests for
-  WebSocket-backed choice flows and AI turns.
+- There are focused integration and unit tests for WebSocket-backed choice flows, AI turns, and reconnection behaviour (for example `tests/integration/GameReconnection.test.ts`, `tests/integration/LobbyRealtime.test.ts`, `tests/unit/GameSession.reconnectFlow.test.ts`, and `tests/e2e/reconnection.simulation.test.ts`).
+- Lobby real-time updates (`lobby:subscribe` / `lobby:game_created` / `lobby:game_started` / `lobby:game_cancelled`) are wired between `WebSocketServer.broadcastLobbyEvent` and `LobbyPage`, with filters and sorting on the client.
+- Player reconnection windows, abandonment semantics, and diagnostics are implemented via `pendingReconnections` and `playerConnectionStates` in `WebSocketServer`, with graceful handling of reconnects across multiple phases and completed games.
+- Spectator mode is supported end-to-end: spectators can join via lobby/HTTP routes, receive full game updates over WebSockets, and see spectator-oriented HUD hints and overlays in `BackendGameHost`, `GameHUD`, and `BoardControlsOverlay` (read-only boards, spectator badges, watcher counts).
 
 **Missing / incomplete:**
 
-- Robust lobby/matchmaking flows (listing/joining games, matchmaking, private
-  games) in both server and client.
-- Reconnection and resynchronization semantics beyond the core
-  disconnect-window + abandonment path (e.g. lobby→rejoin flows, richer HUD
-  signalling for reconnect vs. abandon).
-- Spectator UX and diagnostics: spectators can join and receive updates, but
-  there is no dedicated reconnection window, and spectator disconnects are
-  only lightly surfaced in diagnostics/UX.
-- A single, authoritative doc that lays out the full WebSocket turn/choice
-  lifecycle as observed by the client.
+- Matchmaking and rating-based queue flows: the lobby supports listing/joining/creating (including private games), but there is no automated matchmaker, ladder queue, or cross-game pairing logic yet.
+- Additional reconnection UX polish and coverage for cross-device / multi-tab scenarios, including richer HUD signalling for “reconnecting” vs. “abandoned” states and tighter integration with the rated timeout/abandonment rules used in e2e tests.
+- Spectator UX enhancements and diagnostics: spectators currently have a solid read-only view and basic HUD hints, but there is still room for more explicit spectator-focused affordances (for example dedicated spectator panels, clearer handling of spectator disconnects, and improved replay/analysis tooling).
+- Ongoing lifecycle documentation: `docs/CANONICAL_ENGINE_API.md` now describes the canonical move/decision/WebSocket flows, but it should be kept in sync with newer features such as rematch, lobby subscriptions, and reconnection windows, and expanded with end-to-end examples from the client’s point of view.
 
 **Impact:**
 

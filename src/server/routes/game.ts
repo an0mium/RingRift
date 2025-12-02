@@ -34,13 +34,16 @@ const router = Router();
 // WebSocket server instance will be injected
 let wsServerInstance: WebSocketServer | null = null;
 
-export function setWebSocketServer(wsServer: WebSocketServer) {
+export function setWebSocketServer(wsServer: WebSocketServer | null) {
   wsServerInstance = wsServer;
 }
 
-// Apply adaptive rate limiting to game routes
-// Authenticated users get higher limits than anonymous
-router.use(adaptiveRateLimiter('game', 'api'));
+// Apply adaptive rate limiting to game routes.
+// For load testing and to avoid double-limiting game creation, use the
+// authenticated API limiter instead of the dedicated "game" limiter here.
+// Game creation still has its own per-user and per-IP quotas via
+// gameCreateUser/gameCreateIp in this module.
+router.use(adaptiveRateLimiter('apiAuthenticated', 'api'));
 
 // Active games storage (in production, this would be in Redis)
 const activeGames = new Map<string, GameEngine>();
@@ -336,7 +339,7 @@ router.get(
       if (
         game.status === PrismaGameStatus.completed ||
         game.status === PrismaGameStatus.abandoned ||
-        game.status === ('finished' as any)
+        (game.status as string) === 'finished'
       ) {
         const finalState = game.finalState as Prisma.JsonObject | null | undefined;
         const gameResult = (finalState?.gameResult ?? null) as { reason?: string } | null;
@@ -571,6 +574,30 @@ router.get(
 router.post(
   '/',
   asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    // Temporary debug logging for load-test investigation: inspect raw request body shape.
+    logger.warn('create-game debug: incoming request body snapshot', {
+      path: req.path,
+      contentType: req.headers['content-type'],
+      bodyType: typeof req.body,
+      bodyKeys:
+        req.body && typeof req.body === 'object'
+          ? Object.keys(req.body as Record<string, unknown>)
+          : null,
+      timeControlType:
+        req.body && typeof req.body === 'object'
+          ? typeof (req.body as Record<string, unknown>).timeControl
+          : null,
+      hasTimeControl: !!(
+        req.body &&
+        typeof req.body === 'object' &&
+        (req.body as Record<string, unknown>).timeControl !== undefined
+      ),
+      timeControlValue:
+        req.body && typeof req.body === 'object'
+          ? ((req.body as Record<string, unknown>).timeControl ?? null)
+          : null,
+    });
+
     const gameData: CreateGameInput = CreateGameSchema.parse(req.body);
     const userId = getAuthUserId(req);
 

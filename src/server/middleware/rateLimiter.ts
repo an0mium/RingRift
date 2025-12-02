@@ -189,6 +189,7 @@ export const initializeRateLimiters = (redis: RedisClientType | null) => {
   logger.info('Rate limiters initialized', {
     mode: usingRedis ? 'redis' : 'memory',
     limiterCount: Object.keys(rateLimiters).length,
+    configs: Object.fromEntries(Object.entries(configs).map(([k, v]) => [k, v.points])),
   });
 };
 
@@ -370,6 +371,8 @@ const createRateLimiter = (
         limiter: limiterKey,
         path: req.path,
         retryAfter: secs,
+        error: rateLimitError instanceof Error ? rateLimitError.message : String(rateLimitError),
+        msBeforeNext: rejRes.msBeforeNext,
       });
 
       // Record rate limit hit metric
@@ -453,6 +456,8 @@ export const adaptiveRateLimiter = (
         isAuthenticated,
         path: req.path,
         retryAfter: secs,
+        error: error instanceof Error ? error.message : String(error),
+        msBeforeNext: rejRes.msBeforeNext,
       });
 
       // Record rate limit hit metric

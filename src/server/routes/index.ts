@@ -7,15 +7,17 @@ import adminRoutes from './admin';
 import { authenticate } from '../middleware/auth';
 import { httpLogger } from '../utils/logger';
 import { swaggerSpec } from '../openapi/config';
+import type { WebSocketServer } from '../websocket/server';
 
-export const setupRoutes = (wsServer?: any): Router => {
+export const setupRoutes = (wsServer: WebSocketServer): Router => {
   const router = Router();
 
   // Inject WebSocket server into routes that need it.
-  // Explicitly set to null when not provided to ensure proper test isolation
-  // and predictable behavior when routes are set up without a WebSocket server.
-  setGameWebSocketServer(wsServer ?? null);
-  setUserWebSocketServer(wsServer ?? null);
+  // In production we always attach a WebSocketServer instance here; tests that
+  // need to exercise routes without WebSocket integration should wire the game
+  // and user routers directly rather than going through setupRoutes.
+  setGameWebSocketServer(wsServer);
+  setUserWebSocketServer(wsServer);
 
   // OpenAPI Documentation
   // Swagger UI at /api/docs
@@ -64,7 +66,7 @@ export const setupRoutes = (wsServer?: any): Router => {
    */
   // Client-side error reporting endpoint (no auth; used by SPA error reporter)
   router.post('/client-errors', (req, res) => {
-    const body = (req as any).body ?? {};
+    const body = (req.body ?? {}) as Record<string, unknown>;
     const { name, message, stack, type, url, userAgent, timestamp, context } = body as {
       name?: unknown;
       message?: unknown;

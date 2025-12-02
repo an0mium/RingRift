@@ -212,6 +212,11 @@ export function getChainCaptureContinuationInfo(
   snapshot: ChainCaptureStateSnapshot,
   options?: ChainCaptureEnumerationOptions
 ): ChainCaptureContinuationInfo {
+  // NOTE: This helper is shared between backend and sandbox hosts, so it
+  // intentionally remains metrics-free. Backend hosts that need to emit
+  // capture-chain analytics (e.g. ringrift_capture_chain_depth) should
+  // compute per-chain depth from their own turn/decision metadata and call
+  // the MetricsService helper at the host layer instead of from here.
   const aggregateSnapshot = toAggregateSnapshot(snapshot);
   const aggregateOptions = toAggregateOptions(options);
 

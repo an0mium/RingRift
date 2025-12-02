@@ -1,6 +1,6 @@
 # AI Performance Runbook
 
-> **Doc Status (2025-11-28): Active Runbook**  
+> **Doc Status (2025-12-01): Active Runbook**  
 > **Role:** Guide for diagnosing and reducing high AI request latency when `AIRequestHighLatency` fires, and for understanding its impact on gameplay and fallback behaviour.
 >
 > **SSoT alignment:** This is **derived operational guidance** over:

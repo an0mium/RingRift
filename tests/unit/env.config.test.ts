@@ -13,6 +13,7 @@
 import {
   EnvSchema,
   parseEnv,
+  loadEnvOrExit,
   getEffectiveNodeEnv,
   isProduction,
   isStaging,
@@ -626,5 +627,37 @@ describe('Optional fields', () => {
     expect(result.data?.AI_SERVICE_URL).toBe('http://localhost:8001');
     expect(result.data?.SMTP_HOST).toBe('smtp.example.com');
     expect(result.data?.SMTP_PORT).toBe(587);
+  });
+});
+
+describe('loadEnvOrExit', () => {
+  it('logs validation errors and exits with code 1 when env is invalid', () => {
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      // no-op in tests
+    }) as any);
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const invalidEnv = { ...baseValidEnv, PORT: '0' };
+
+    expect(() => loadEnvOrExit(invalidEnv)).toThrow('Missing env data after successful parse');
+
+    expect(errorSpy).toHaveBeenCalledWith('❌ Invalid environment configuration:');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it('returns validated env without exiting when configuration is valid', () => {
+    const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((_code?: number) => {
+      // no-op in tests
+    }) as any);
+
+    const env = loadEnvOrExit(baseValidEnv);
+    expect(env.PORT).toBe(3000);
+    expect(env.NODE_ENV).toBe('development');
+    expect(exitSpy).not.toHaveBeenCalled();
+
+    exitSpy.mockRestore();
   });
 });

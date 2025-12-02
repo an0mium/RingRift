@@ -108,26 +108,34 @@ Together, these goals define **how the game should feel**: simple to describe at
 | **Parity harnesses**            | Backend ↔ sandbox ↔ Python engine behavior validation                                                                                                                                                                 | Catches divergence early      |
 | **CI/CD pipeline**              | Automated testing, linting, security scanning on every change                                                                                                                                                         | Maintains quality bar         |
 
-### 3.4 Current Highest-Risk Area (Frontend UX & Maintenance)
+### 3.4 Current Highest-Risk Area (Frontend UX & Production Validation)
 
-> **Status (2025-12-01): Highest-risk area and hardest outstanding problem**
+> **Status (2025-12-01): Improved Operational Readiness, Frontend UX Remains Priority**
 
-Following the successful rollout of the Orchestrator (100%) and stabilization of the rules engine, the highest risk has shifted to **Frontend UX Polish** and **Test Suite Maintenance**.
+Following PASS20-21 completion:
 
-- **Weakest aspect (Frontend UX Polish):**
-  The frontend lacks key features expected in a polished strategy game, specifically:
-  - **Keyboard Navigation:** Board cells are not keyboard-focusable.
-  - **Move History:** No detailed log or replay capability.
-  - **Sandbox Tooling:** No scenario picker or easy reset.
-  - **Spectator UI:** Minimal features.
+- ✅ **Orchestrator migration complete** (Phase 3, 100% rollout, ~1,176 lines legacy removed)
+- ✅ **Observability infrastructure implemented** (3 dashboards, k6 load testing)
+- ✅ **Critical context coverage improved** (GameContext 89.52%, SandboxContext 84.21%)
+- ✅ **Test suite stabilized** (2,987 TS tests passing, ~130 skipped with rationale)
 
-- **Hardest outstanding problem (Test Suite Cleanup):**
-  **Maintenance and cleanup of technical debt.**
-  - **176 skipped tests** need triage and resolution.
-  - **Legacy turn-processing paths** in `GameEngine.ts` need to be safely deprecated and removed.
-  - **~37 explicit `any` casts** remain.
+Remaining priorities:
 
-High-level risk framing and historical assessment for this area are summarised in [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:1).
+- **Frontend UX Polish (P1):**
+  The frontend still needs key features:
+  - **Scenario picker refinement** (implemented but needs polish)
+  - **Spectator UI improvements** (functional but minimal features)
+  - **Keyboard navigation** (implemented but needs comprehensive testing)
+  - **Move history/replay** (partially implemented, needs completion)
+
+- **Production Validation (P0):**
+  **Must execute before production launch:**
+  - Run load tests at target scale (100+ games, 200-300 players)
+  - Establish baseline "healthy system" metrics from staging runs
+  - Execute operational drills (secrets rotation, backup/restore)
+  - Validate all SLOs under real production-scale load
+
+High-level risk framing and historical assessment for this area are summarised in [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:1) and [`docs/PASS21_ASSESSMENT_REPORT.md`](docs/PASS21_ASSESSMENT_REPORT.md:1).
 
 ---
 
@@ -147,13 +155,14 @@ From [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:144-149):
 
 ### 4.2 Test Coverage Requirements
 
-| Category                  | Requirement              | Current Status                                                                                             |
-| ------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| **TypeScript tests**      | All passing              | All TypeScript test suites passing; see `CURRENT_STATE_ASSESSMENT.md` for live counts and coverage details |
-| **Python tests**          | All passing              | All Python test suites passing; see `CURRENT_STATE_ASSESSMENT.md` for live counts and coverage details     |
-| **Contract vectors**      | 100% parity              | Contract-based TS↔Python parity suites passing                                                             |
-| **Rules scenario matrix** | All FAQ examples covered | Coverage in progress                                                                                       |
-| **Integration tests**     | Core workflows passing   | AI resilience, reconnection, sessions                                                                      |
+| Category                  | Requirement              | Current Status                                                                 |
+| ------------------------- | ------------------------ | ------------------------------------------------------------------------------ |
+| **TypeScript tests**      | All passing              | ✅ 2,987 tests passing, ~130 skipped (see `CURRENT_STATE_ASSESSMENT.md`)       |
+| **Python tests**          | All passing              | ✅ 836 tests passing (see `CURRENT_STATE_ASSESSMENT.md`)                       |
+| **Contract vectors**      | 100% parity              | ✅ 49/49 passing, 0 mismatches                                                 |
+| **Coverage target**       | 80% lines                | 🟡 ~69% lines (improved from 65.55%), key contexts now covered (89.52%/84.21%) |
+| **Rules scenario matrix** | All FAQ examples covered | 🟡 Coverage in progress (~18-20/24 scenarios)                                  |
+| **Integration tests**     | Core workflows passing   | ✅ AI resilience, reconnection, sessions, contexts                             |
 
 > **Note:** Live test counts and coverage breakdowns are maintained in [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:236). This document is not the single source of truth for those numbers; it records only the high-level requirements.
 
@@ -179,18 +188,36 @@ To avoid duplicating live metrics, this section describes the **shape** of the t
 
 Environment posture and rollout discipline are first-class parts of v1.0 readiness, not an afterthought. At a high level, v1.0 is considered **environment‑ready** when:
 
-- **Canonical orchestrator is authoritative in production**
-  - Production gameplay traffic (HTTP + WebSocket) flows through the shared turn orchestrator via the backend adapter; legacy/alternate turn paths are removed or quarantined behind explicit diagnostics flags.
-  - The effective production profile matches the **Phase 3–4 orchestrator‑ON presets** in `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (TS rules authoritative, `ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE` at or near 100, shadow mode disabled for normal play).
+- **Canonical orchestrator is authoritative in production** ✅ **ACHIEVED (PASS20)**
+  - Production gameplay traffic flows through the shared turn orchestrator via the backend adapter
+  - Legacy turn paths removed (~1,176 lines in PASS20)
+  - Effective production profile matches **Phase 3 orchestrator‑ON** preset
+  - `ORCHESTRATOR_ADAPTER_ENABLED` hardcoded to `true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`
 
-- **Rollout phases are executed with SLO gates, not best‑effort**
-  - Staging runs in a sustained **Phase 1 – orchestrator‑only** posture, with SLOs from `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §8 (error rate, invariant violations, parity alerts) monitored and enforced.
-  - Production progresses through **Phase 2 – legacy authoritative + shadow**, then **Phase 3–4 – incremental orchestrator rollout → orchestrator‑only**, only when SLOs and error budgets are respected over the defined windows.
-  - Rollback paths and circuit‑breaker behaviour for orchestrator regressions are documented and exercised in staging before use in production.
+- **Rollout phases executed with SLO gates** ✅ **ACHIEVED (PASS20)**
+  - Staging runs in Phase 3 (orchestrator‑only) posture
+  - SLOs documented and monitoring infrastructure in place (PASS21)
+  - Rollback paths and circuit‑breaker behavior documented
+  - Phase 3 complete as of PASS20
 
-- **Invariants, parity, and AI healthchecks are part of promotion criteria**
-  - Orchestrator invariant metrics (`ringrift_orchestrator_invariant_violations_total{type,invariant_id}`) and Python strict‑invariant metrics (`ringrift_python_invariant_violations_total{invariant_id,type}`) have dashboards and alerts wired as in `docs/ALERTING_THRESHOLDS.md` and `docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`.
-  - Cross‑language parity suites (contract vectors, plateau snapshots, line+territory snapshots) and the Python AI self‑play healthcheck profile (nightly) are expected to be **stable and green** before promoting builds to staging/production.
+- **Invariants, parity, and AI healthchecks part of promotion** ✅ **ACHIEVED (PASS20-21)**
+  - Orchestrator invariant metrics and dashboards implemented (PASS21)
+  - Python strict‑invariant metrics tracked
+  - Cross‑language parity suites stable (49/49 contract vectors passing)
+  - AI healthcheck profile documented and passing
+  - 3 Grafana dashboards with 22 panels monitoring all critical metrics
+
+- **Observability infrastructure in place** ✅ **ACHIEVED (PASS21)**
+  - Game performance dashboard (moves, AI latency, abnormal terminations)
+  - Rules correctness dashboard (parity, invariants)
+  - System health dashboard (HTTP, WebSocket, infrastructure)
+  - k6 load testing framework with 4 production-scale scenarios
+
+- **Production validation pending** ⚠️ **NEXT STEP (Wave 7)**
+  - Load tests must be executed at target scale (100+ games, 200-300 players)
+  - Baseline metrics must be established from staging runs
+  - Operational drills must be rehearsed (secrets rotation, backup/restore)
+  - SLOs must be validated under real production-scale load
 
 These criteria are intentionally high‑level and goal‑oriented; detailed rollout tables, environment presets, and alert thresholds live in `STRATEGIC_ROADMAP.md`, `CURRENT_STATE_ASSESSMENT.md`, `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`, and `docs/ALERTING_THRESHOLDS.md`. When changing rollout strategy or SLOs, update those documents for implementation detail, and this section for the overarching success definition.
 

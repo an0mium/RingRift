@@ -71,6 +71,7 @@ jest.mock('../../src/server/services/MetricsService', () => ({
     recordGameSessionStatusTransition: jest.fn(),
     recordAbnormalTermination: jest.fn(),
     updateGameSessionStatusCurrent: jest.fn(),
+    recordMoveRejected: jest.fn(),
   }),
 }));
 

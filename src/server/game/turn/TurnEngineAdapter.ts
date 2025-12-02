@@ -246,9 +246,29 @@ export class TurnEngineAdapter {
 
   /**
    * Auto-select a decision option for AI players.
+   *
+   * For elimination_target decisions with no options (rare edge case where
+   * orchestrator signals elimination but no eligible stacks exist), we return
+   * a no-op elimination move to avoid crashing the game. This mirrors the
+   * defensive handling in GameEngine.DecisionHandler.
    */
   private autoSelectForAI(decision: PendingDecision): Move {
     if (decision.options.length === 0) {
+      // Defensive handling for elimination_target with no options
+      // (mirrors GameEngine.DecisionHandler behavior)
+      if (decision.type === 'elimination_target') {
+        const noopMove: Move = {
+          id: `noop-eliminate-${Date.now()}`,
+          type: 'eliminate_rings_from_stack',
+          player: decision.player,
+          // Use sentinel coordinate; elimination handler treats this as no-op
+          to: { x: 0, y: 0 },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber: 0,
+        };
+        return noopMove;
+      }
       throw new Error(`No options available for AI decision: ${decision.type}`);
     }
     // Simple strategy: pick first option

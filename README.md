@@ -26,8 +26,8 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 | ---------------- | --------------------------------------------------------------------------- |
 | CI Tests         | ![CI](https://github.com/OWNER/ringrift/actions/workflows/ci.yml/badge.svg) |
 | TypeScript Tests | 2,987 passing, 0 failing, ~130 skipped                                      |
-| Python Tests     | ~824 passing                                                                |
-| Contract Vectors | 91 vectors (16 files)                                                       |
+| Python Tests     | 836 passing                                                                 |
+| Contract Vectors | 49 vectors (16 files)                                                       |
 
 **Verification:** Code-verified assessment (see `CURRENT_STATE_ASSESSMENT.md` and `docs/PASS18_ASSESSMENT_REPORT_PASS3.md`)
 **Overall Progress:** Stable beta approaching production readiness; see `CURRENT_STATE_ASSESSMENT.md` for the latest high-level summary.
@@ -57,7 +57,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 
 - ⚠️ **Player choice system is implemented but not yet deeply battle-tested** – Shared types and `PlayerInteractionManager` exist and GameEngine uses them for line order, line reward, ring elimination, region order, and capture direction. `WebSocketInteractionHandler`, `GameContext`, and `ChoiceDialog` wire these choices to human clients for backend-driven games, and `AIInteractionHandler` answers choices for AI players via local heuristics and (for some choices) the Python AI service. What’s missing is broad scenario coverage (all FAQ/rules examples), polished UX around errors/timeouts, and full test coverage of complex multi-choice turns.
 - ⚠️ **Chain captures enforced engine-side; more edge-case tests still needed** – GameEngine maintains internal chain-capture state and uses `CaptureDirectionChoice` via `PlayerInteractionManager` to drive mandatory continuation when multiple follow-up captures exist. Core behaviour is covered by focused unit/integration tests, but additional rule/FAQ scenarios (e.g. complex 180° and cyclic patterns) and full UI/AI flows still need to be exercised and encoded as named scenarios.
-- ⚠️ **UI is functional but not polished** – Board rendering, a local sandbox, and backend game mode exist for 8x8, 19x19, and hex boards. Backend games now support “click source, click highlighted destination” moves and server-driven choices, and AI opponents can take turns. However, the HUD, timers, post-game flows, and multiplayer UX (spectators, reconnection, chat) still need refinement.
+- ⚠️ **UI is functional but still being polished** – Board rendering, a local sandbox, and backend game mode exist for 8x8, 19x19, and hex boards. Backend and sandbox games now share a richer HUD (`GameHUD`), in‑UI move/event history (`MoveHistory`, `GameEventLog`, `GameHistoryPanel`), improved Victory modals, and multiplayer UX (spectators, reconnection banners, chat). Further refinement of visual hierarchy, copy, and advanced flows is still planned.
 - ⚠️ **Testing is still evolving relative to rules complexity** – Dedicated Jest suites now cover the client-local sandbox engine (movement, captures, lines, territory, victory), backend engine/interaction paths, and a rules/FAQ scenario matrix (`RULES_SCENARIO_MATRIX.md`) including dedicated FAQ suites under `tests/scenarios/FAQ_*.test.ts`. Several seeded trace-parity suites and multi-host/AI fuzz harnesses remain diagnostic or partial rather than hard CI gates; see `CURRENT_STATE_ASSESSMENT.md` and `KNOWN_ISSUES.md` for details.
 - ⚠️ **AI Service integration is move- and choice-focused but still evolving** – The Python AI Service is integrated into the turn loop via `AIEngine`/`AIServiceClient` and `WebSocketServer.maybePerformAITurn`, so AI players can select moves in backend games. The service is also used for several PlayerChoices (`line_reward_option`, `ring_elimination`, `region_order`) behind `globalAIEngine`/`AIInteractionHandler`, with remaining choices currently answered via local heuristics. Higher-difficulty tactical behaviour and ML-based agents are future work.
 
@@ -435,16 +435,12 @@ For contributors looking for the most impactful work, the near-term focus areas 
      - Combined line + Territory situations that involve multiple PlayerChoices in one turn.
      - Hex-board edge cases for lines, Territory, and forced elimination.
      - Mirror high-value Rust tests from `RingRift Rust/ringrift/tests/` (starting with chain capture and Territory) into Jest where feasible.
-     2. **HUD & game lifecycle polish (GamePage/GameHUD)**
-        - Implement a richer HUD in `GameHUD` for both backend and sandbox games:
-          - Clear current player + phase indicators.
-          - Ring counts (in hand/on board/eliminated) per player.
-          - Territory-space counts, driven from `board.collapsedSpaces` and GameState.
-          - Timers (display-only for now) based on `timeControl` and per-player `timeRemaining`.
 
-   - Improve end-of-game UX using `VictoryModal` for both backend and sandbox modes, with a clear route back to the lobby.
+2. **HUD & game lifecycle polish (GamePage/GameHUD)**
+   - `GameHUD` now provides a richer HUD for both backend and sandbox games (current player + phase indicators, per-player ring/territory statistics, AI profile info, timers, connection/spectator status, and decision-phase banners).
+   - Continue improving end-of-game UX using `VictoryModal`, `GameHistoryPanel`, `ReplayPanel`, and `EvaluationPanel` for both backend and sandbox modes, with clear routes back to the lobby or sandbox setup.
 
-2. **AI boundary hardening & observability**
+3. **AI boundary hardening & observability**
    - Extend `AIEngine`/`AIServiceClient` tests to cover failures, timeouts, and fallback behaviour for move and choice endpoints.
    - Add lightweight logging/metrics around AI calls so we can see latency, error rates, and fallback usage in development.
 

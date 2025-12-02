@@ -18,6 +18,13 @@
 
 This document provides a comprehensive analysis of the RingRift AI Service, identifies verified weaknesses after code review, and proposes prioritized improvements. Several issues originally documented have been addressed, while new findings emerged from direct code inspection.
 
+As of the P19B/P20 passes, a small set of **late-game heuristic validation tests** has been added (`ai-service/tests/test_heuristic_ai.py`) to lock in expected preferences around:
+
+- Near-victory elimination and territory progress (`_evaluate_victory_proximity` and full `evaluate_position`).
+- Chain-capture-style overtake potential and nearby territory structure ( `_evaluate_overtake_potential`, `_evaluate_territory_closure`, `_evaluate_territory_safety`).
+
+These tests are designed to validate the existing v1 balanced profile rather than to redefine semantics. They serve as the safety net for future weight training/tuning runs.
+
 ---
 
 ## 1. Current State Assessment

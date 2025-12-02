@@ -1,58 +1,92 @@
-"""
-Base AI Player class for RingRift
-Abstract base class that all AI implementations inherit from
+"""Base AI player abstractions for the RingRift AI service.
+
+This module defines the :class:`BaseAI` interface that all concrete AI
+implementations (Random, Heuristic, Minimax, MCTS, Descent, etc.) inherit
+from, plus small utilities for RNG seeding and per‑instance randomness.
+
+The base class:
+
+* Owns an instance of the canonical Python ``RulesEngine`` host, used to
+  enumerate legal moves and apply state transitions.
+* Provides per‑instance RNGs wired to ``AIConfig.rng_seed`` (or a derived
+  training seed) so that random move selection and any rollout policies
+  remain reproducible under a fixed seed.
+* Leaves search/evaluation behaviour to subclasses via the abstract
+  :meth:`select_move` and :meth:`evaluate_position` methods.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
-import time
+from typing import Optional, List, Dict, TypeVar, Sequence
 import random
 
 from ..models import GameState, Move, AIConfig
 from ..rules.factory import get_rules_engine
 from ..rules.interfaces import RulesEngine
 
+T = TypeVar("T")
+
 
 def derive_training_seed(config: AIConfig, player_number: int) -> int:
-    """
-    Derive a deterministic but non-SSOT RNG seed for training/experiments.
+    """Derive a deterministic but non-SSOT RNG seed.
 
     This helper is used only when no explicit ``rng_seed`` is supplied on
-    ``AIConfig``. It intentionally does not depend on any game- or
+    :class:`AIConfig`. It intentionally does not depend on any game- or
     session-level identifiers so that:
-      - online gameplay paths (backed by the FastAPI /ai/move endpoint)
-        always use the seed chosen by the TypeScript hosts, and
-      - offline training/evaluation jobs can still get reproducible but
-        experiment-local randomness by threading a seed through their own
-        configuration objects.
+
+    - Online gameplay paths (backed by the FastAPI ``/ai/move`` endpoint)
+      always use the seed chosen by the TypeScript hosts, and
+    - Offline training/evaluation jobs can still get reproducible but
+      experiment-local randomness by threading a seed through their own
+      configuration objects.
 
     The current implementation mirrors the legacy behaviour by mixing the
     difficulty and player number into a 32‑bit value. Callers that care about
     experiment-level control should pass ``rng_seed`` explicitly instead of
     relying on this fallback.
+
+    Args:
+        config: AI configuration used to derive the seed.
+        player_number: The player index this AI controls (1‑based).
+
+    Returns:
+        A 32‑bit integer seed suitable for initialising :class:`random.Random`.
     """
     base = (config.difficulty * 1_000_003) ^ (player_number * 97_911)
     return int(base & 0xFFFFFFFF)
 
 
 class BaseAI(ABC):
-    """Abstract base class for all AI implementations"""
+    """Abstract base class for all AI implementations.
+
+    Subclasses must implement:
+
+    * :meth:`select_move` – choose a legal move (or ``None``) for the current
+      position.
+    * :meth:`evaluate_position` – return a scalar score from the AI's
+      perspective (larger is better).
+
+    The shared helpers (``get_valid_moves``, ``should_pick_random_move``,
+    etc.) provide consistent RNG behaviour and rules‑engine integration
+    across all AI families.
+    """
     
-    def __init__(self, player_number: int, config: AIConfig):
-        """
-        Initialize AI player
-        
+    def __init__(self, player_number: int, config: AIConfig) -> None:
+        """Initialize a new AI instance.
+
         Args:
-            player_number: The player number this AI controls (1-based)
-            config: AI configuration settings
+            player_number: The player number this AI controls (1‑based).
+            config: AI configuration settings for this instance.
         """
-        self.player_number = player_number
-        self.config = config
-        self.move_count = 0
+        self.player_number: int = player_number
+        self.config: AIConfig = config
+        # Incremented each time select_move returns a (non‑None) move.
+        self.move_count: int = 0
         self.rules_engine: RulesEngine = get_rules_engine()
 
-        # Per-instance RNG used for all stochastic behaviour (thinking delays,
-        # random move selection, rollout policies, etc.). Prefer an explicit
+        # Per-instance RNG used for all stochastic behaviour (random move
+        # selection, rollout policies, etc.). Prefer an explicit
         # rng_seed from AIConfig when provided; otherwise fall back to a
         # deterministic but non-SSOT training seed derived from the config.
         # In production, the FastAPI /ai/move endpoint is responsible for
@@ -91,102 +125,87 @@ class BaseAI(ABC):
         """
         pass
     
-    def get_evaluation_breakdown(
-        self, game_state: GameState
-    ) -> Dict[str, float]:
-        """
-        Get detailed breakdown of position evaluation
-        
+    def get_evaluation_breakdown(self, game_state: GameState) -> Dict[str, float]:
+        """Return a structured breakdown of the evaluation for ``game_state``.
+
+        Subclasses may override this to expose richer diagnostics (for example
+        per‑feature scores). The default implementation exposes only a
+        ``\"total\"`` entry mirroring :meth:`evaluate_position`.
+
         Args:
-            game_state: Current game state
-            
+            game_state: The position to evaluate.
+
         Returns:
-            Dictionary with evaluation components
+            A mapping from component name to scalar score.
         """
-        return {
-            "total": self.evaluate_position(game_state)
-        }
+        return {"total": self.evaluate_position(game_state)}
     
     def get_valid_moves(self, game_state: GameState) -> List[Move]:
-        """
-        Get all valid moves for the current position using the rules engine.
-        
+        """Return all legal moves for the current position.
+
+        This is a thin convenience wrapper around the canonical Python
+        :class:`RulesEngine`, configured at construction time.
+
         Args:
-            game_state: Current game state
-            
+            game_state: The position to generate moves for.
+
         Returns:
-            List of valid Move instances
+            A list of legal :class:`Move` objects for ``self.player_number``.
         """
         return self.rules_engine.get_valid_moves(
             game_state,
             self.player_number,
         )
     
-    def simulate_thinking(self, min_ms: int = 100, max_ms: int = 2000) -> None:
-        """
-        Simulate thinking time for more natural AI behavior
-        
-        Args:
-            min_ms: Minimum thinking time in milliseconds
-            max_ms: Maximum thinking time in milliseconds
-        """
-        if self.config.think_time is not None:
-            # Use configured think time
-            if self.config.think_time > 0:
-                time.sleep(self.config.think_time / 1000.0)
-        else:
-            # Random think time for more natural feel. Use the per-instance RNG
-            # so that thinking delays are reproducible under a fixed seed.
-            think_time = self.rng.randint(min_ms, max_ms)
-            time.sleep(think_time / 1000.0)
-    
     def should_pick_random_move(self) -> bool:
-        """
-        Determine if AI should pick a random move based on randomness setting
-        
+        """Return ``True`` if this move should be chosen at random.
+
+        The decision is a Bernoulli draw using the per‑instance RNG and the
+        configured ``randomness`` field on :class:`AIConfig`. A ``None`` or
+        zero ``randomness`` disables random play entirely.
+
         Returns:
-            True if should pick random move
+            ``True`` when a random move should be selected instead of the
+            deterministic best move.
         """
         if self.config.randomness is None or self.config.randomness == 0:
             return False
         return self.rng.random() < self.config.randomness
     
-    def get_random_element(self, items: List[Any]) -> Optional[Any]:
-        """
-        Get random element from list using the per-instance RNG.
-        
+    def get_random_element(self, items: Sequence[T]) -> Optional[T]:
+        """Return a random element from ``items`` using the per‑instance RNG.
+
         Args:
-            items: List of items
-            
+            items: Sequence of candidate values.
+
         Returns:
-            Random item or None if list is empty
+            A randomly chosen element, or ``None`` if ``items`` is empty.
         """
         if not items:
             return None
-        return self.rng.choice(items)
+        return self.rng.choice(list(items))
     
-    def shuffle_array(self, items: List[Any]) -> List[Any]:
-        """
-        Shuffle array in place and return it using the per-instance RNG.
-        
+    def shuffle_array(self, items: List[T]) -> List[T]:
+        """Shuffle ``items`` in-place using the per‑instance RNG.
+
         Args:
-            items: List to shuffle
-            
+            items: List to shuffle.
+
         Returns:
-            Shuffled list
+            The same list instance, after shuffling.
         """
         self.rng.shuffle(items)
         return items
     
     def get_opponent_numbers(self, game_state: GameState) -> List[int]:
-        """
-        Get list of opponent player numbers
-        
+        """Return the list of opponent player numbers for this game state.
+
         Args:
-            game_state: Current game state
-            
+            game_state: The current game state.
+
         Returns:
-            List of opponent player numbers
+            A list of player numbers for all players other than
+            ``self.player_number``.
         """
         return [
             p.player_number 
@@ -199,15 +218,16 @@ class BaseAI(ABC):
         game_state: GameState,
         player_number: Optional[int] = None,
     ):
-        """
-        Get player info for specified player (defaults to this AI's player)
-        
+        """Return the player record for ``player_number`` (or this AI).
+
         Args:
-            game_state: Current game state
-            player_number: Player number to get info for (None = this AI)
-            
+            game_state: The current game state.
+            player_number: Player to look up; when ``None``, this method
+                returns information for ``self.player_number``.
+
         Returns:
-            Player info or None if not found
+            The matching player object from ``game_state.players``, or
+            ``None`` if no such player exists.
         """
         target_player = (
             player_number if player_number is not None else self.player_number

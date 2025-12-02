@@ -1,7 +1,7 @@
 # RingRift Architecture Assessment & Roadmap
 
 **Assessment Date:** November 21, 2025
-**Last Updated:** November 27, 2025 (Phases 1-4 Complete)
+**Last Updated:** December 1, 2025 (Phases 1-4 Complete, PASS20-21)
 **Status:** Architecture overview, evaluation, and roadmap
 **Scope:** Server, client, shared engine, Python AI service, tests, and infrastructure
 
@@ -20,11 +20,14 @@
 >
 > This document consolidates previous assessments (`CODEBASE_EVALUATION.md`, `TECHNICAL_ARCHITECTURE_ANALYSIS.md`) and earlier designs (`REFACTORING_ARCHITECTURE_DESIGN.md`, `ringrift_architecture_plan.md`), updated to reflect the implemented orchestrator + aggregates + contracts stack and the SSoTs indexed in `DOCUMENTATION_INDEX.md`.
 >
-> **🎉 Remediation Complete (2025-11-26)**: The rules engine consolidation (Phases 1-4) is now complete with:
+> **🎉 Remediation Complete (2025-11-26)**: The rules engine consolidation (Phases 1-4) is now complete.
+> **🎉 Observability Implemented (2025-12-01, PASS21)**: Grafana dashboards and k6 load testing framework added.
 >
 > - Canonical turn orchestrator in [`src/shared/engine/orchestration/`](src/shared/engine/orchestration/)
 > - Backend host/adapter ([`TurnEngineAdapter.ts`](src/server/game/turn/TurnEngineAdapter.ts)) and client host/adapter ([`SandboxOrchestratorAdapter.ts`](src/client/sandbox/SandboxOrchestratorAdapter.ts))
-> - Cross-language contract tests achieving 100% parity (12 test vectors, 15 Python tests) via shared contracts under `src/shared/engine/contracts/*` and fixtures under `tests/fixtures/contract-vectors/v2/`
+> - Cross-language contract tests achieving 100% parity (49 test vectors) via shared contracts under `src/shared/engine/contracts/*` and fixtures under `tests/fixtures/contract-vectors/v2/`
+> - 3 Grafana dashboards (game-performance, rules-correctness, system-health) with 22 panels
+> - k6 load testing framework with 4 production-scale scenarios
 
 ---
 
@@ -83,10 +86,11 @@ RingRift follows a **TypeScript-first architecture** with a Node.js backend and 
 
 ### Strengths
 
-1.  **Rules Implementation:** Core mechanics (movement, capture chains, lines, territory) are implemented and verified across backend and sandbox.
-2.  **Type Safety:** Shared types prevent drift between frontend, backend, and AI service.
-3.  **Documentation:** Rules and architecture are well-documented and kept in sync.
-4.  **Infrastructure:** Docker/Compose setup is production-ready.
+1.  **Rules Implementation:** Core mechanics implemented and verified (49 contract vectors passing, comprehensive tests)
+2.  **Type Safety:** Shared types prevent drift between frontend, backend, and AI service
+3.  **Documentation:** Rules and architecture well-documented and kept in sync
+4.  **Infrastructure:** Docker/Compose setup production-ready
+5.  **Observability:** 3 Grafana dashboards + k6 load testing framework (PASS21)
 
 ### Risks & Technical Debt
 
@@ -196,8 +200,10 @@ Canonical rules semantics are expressed in terms of **`Move`** (from `src/shared
 ### Next Steps
 
 - ✅ Adapters enabled by default (PASS20 complete - December 2025)
-- ✅ Legacy code removed (PASS20: ~1,147 lines; Phase 4 deferred to post-MVP)
-- Complete production hardening (see historical `archive/PHASE1_REMEDIATION_PLAN.md` for the original remediation checklist and compare against the current consolidated engine state)
+- ✅ Legacy code removed (PASS20: ~1,176 lines; Phase 4 Tier 2 deferred to post-MVP)
+- ✅ Observability infrastructure (PASS21: 3 dashboards, k6 load testing)
+- 🔄 Production validation (Execute load tests at scale, establish baselines)
+- 🔄 Operational drills (Execute secrets rotation, backup/restore procedures)
 
 ---
 

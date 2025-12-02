@@ -5,8 +5,9 @@
 > **Assessor:** Architect mode – comprehensive system audit  
 > **Previous Pass:** PASS20 (29 subtasks: orchestrator Phase 3, ~1,118 lines legacy removed, test stabilization)
 
-> **Doc Status (2025-12-01): Active**  
-> Comprehensive assessment following PASS20 completion, identifying the project's weakest aspect, hardest unsolved problem, and critical gaps for production readiness.
+> **Doc Status (2025-12-01): Active (historical assessment)**  
+> Comprehensive assessment following PASS20 completion, identifying the project's weakest aspect, hardest unsolved problem, and critical gaps for production readiness.  
+> **Note:** Several observability gaps called out here (Grafana dashboards, k6 scenarios, monitoring profile defaults) were addressed during PASS21 and PASS22; see `CURRENT_STATE_ASSESSMENT.md` and `PASS22_COMPLETION_SUMMARY.md` for the up‑to‑date implementation status.
 
 ---
 
@@ -59,7 +60,7 @@ It **completely lacks**:
 
 ### 2.1 Why This Is the Weakest Area
 
-#### Evidence: Missing Critical Infrastructure
+#### Evidence: Missing Critical Infrastructure (at assessment time)
 
 1. **Grafana Dashboards Arrived Late (Now Present but Recently Added)**
    - `monitoring/grafana/dashboards/` now contains three provisioned dashboards:
@@ -69,24 +70,15 @@ It **completely lacks**:
    - Provisioning is wired via `monitoring/grafana/provisioning/dashboards.yml` and `datasources.yml`, mounted from `docker-compose.yml`.
    - **Gap shifted:** The core dashboard surfaces now exist, but baseline ranges, SLO wiring, and operator familiarity are still immature.
 
-2. **Monitoring Stack Optional, Not Default**
-   - `docker-compose.yml:121-122` - Prometheus/Grafana under `profiles: [monitoring]`
-   - Must explicitly enable with `docker-compose --profile monitoring up`
-   - Not part of standard deployment workflow
-   - Operators cannot observe system health without manual intervention
+2. **Monitoring Stack Optional, Not Default (pre‑PASS21)**
+   - At assessment time, Prometheus/Grafana ran under a `monitoring` profile in `docker-compose.yml` and had to be enabled explicitly via `docker compose --profile monitoring up`.
+   - This meant monitoring was not part of the standard deployment workflow and operators could not observe system health without manual intervention.
+   - Subsequent passes (PASS21/PASS22) moved the monitoring stack toward the default posture described in `CURRENT_STATE_ASSESSMENT.md`.
 
-3. **Load Testing Incomplete**
-   - Only exists: `npm run load:orchestrator:smoke` (minimal HTTP smoke)
-   - **Missing from STRATEGIC_ROADMAP.md §3**:
-     - Scenario P1: Mixed human vs AI ladder (40-60 players, 20-30 moves)
-     - Scenario P2: AI-heavy concurrent games (60-100 players, 10-20 AI games)
-     - Scenario P3: Reconnects and spectators (40-60 players + 20-40 spectators)
-     - Scenario P4: Long-running AI games (10-20 games, 60+ moves)
-   - **Never validated:**
-     - Target production scale (100+ concurrent games, 200-300 players)
-     - AI service under real concurrent load (10-20 AI games)
-     - WebSocket stability with spectators and reconnections
-     - Performance under 30+ minute game sessions
+3. **Load Testing Incomplete (pre‑k6 framework)**
+   - At assessment time, only a minimal smoke test (`npm run load:orchestrator:smoke`) existed.
+   - The four production‑scale scenarios described in `STRATEGIC_ROADMAP.md` §3 (mixed human vs AI, AI‑heavy games, reconnects/spectators, long‑running games) had not yet been implemented or executed.
+   - PASS21 introduced the k6 load‑testing framework and defined these scenarios; PASS22 then executed the `game-creation` scenario to establish baseline metrics (see `docs/runbooks/GAME_PERFORMANCE.md` and `PASS22_COMPLETION_SUMMARY.md`).
 
 4. **Operational Procedures Not Rehearsed**
    - `docs/runbooks/SECRETS_ROTATION_DRILL.md` - exists but status: "not yet exercised"
