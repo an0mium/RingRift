@@ -1,6 +1,12 @@
-"""
-Minimax AI implementation for RingRift
-Uses minimax algorithm with alpha-beta pruning for move selection
+"""Minimax AI implementation for RingRift.
+
+This agent uses depth‑limited minimax with alpha‑beta pruning and optional
+quiescence search. It supports both immutable (legacy) and mutable
+make/unmake search modes, gated by ``config.use_incremental_search``.
+
+In all modes, ``config.think_time`` (when set) is interpreted strictly as
+an upper bound on wall‑clock search time per move. No artificial delay is
+introduced once search has completed.
 """
 
 from typing import Optional, List
@@ -14,15 +20,28 @@ from ..rules.mutable_state import MutableGameState
 
 
 class MinimaxAI(HeuristicAI):
-    """AI that uses minimax with alpha-beta pruning.
-    
-    When `config.use_incremental_search` is True (the default), MinimaxAI
-    uses the make/unmake pattern on MutableGameState for 10-50x faster
-    search by avoiding object allocation overhead. When False, it falls
-    back to the legacy immutable state cloning via apply_move().
+    """AI that uses minimax with alpha‑beta pruning.
+
+    When ``config.use_incremental_search`` is True (the default),
+    :class:`MinimaxAI` uses the make/unmake pattern on
+    :class:`MutableGameState` for faster search by avoiding object
+    allocation overhead. When False, it falls back to the legacy
+    immutable state cloning via :meth:`RulesEngine.apply_move`.
+
+    Difficulty and depth:
+        The :attr:`AIConfig.difficulty` field controls the maximum search
+        depth via :meth:`_get_max_depth`:
+
+        - difficulty >= 9 → depth 5
+        - difficulty >= 7 → depth 4
+        - difficulty >= 4 → depth 3
+        - otherwise      → depth 2
+
+        Higher difficulty therefore yields deeper search, subject to the
+        global time budget enforced by ``config.think_time``.
     """
 
-    def __init__(self, player_number: int, config: AIConfig):
+    def __init__(self, player_number: int, config: AIConfig) -> None:
         super().__init__(player_number, config)
         # Use bounded tables to prevent memory leaks
         self.transposition_table: BoundedTranspositionTable = (
@@ -33,34 +52,40 @@ class MinimaxAI(HeuristicAI):
         self.killer_moves: BoundedTranspositionTable = (
             BoundedTranspositionTable(max_entries=10000)
         )
-        self.zobrist = ZobristHash()
-        self.start_time = 0.0
-        self.time_limit = 0.0
-        self.nodes_visited = 0
+        self.zobrist: ZobristHash = ZobristHash()
+        # Wall‑clock search bookkeeping, populated at the start of each
+        # select_move call and used by both legacy and incremental paths.
+        self.start_time: float = 0.0
+        self.time_limit: float = 0.0
+        self.nodes_visited: int = 0
         # Configuration option for incremental search
-        self.use_incremental_search = getattr(
+        self.use_incremental_search: bool = getattr(
             config, 'use_incremental_search', True
         )
 
     def select_move(self, game_state: GameState) -> Optional[Move]:
-        """
-        Select the best move using minimax
-        
+        """Select the best move using minimax search.
+
+        This method runs iterative‑deepening minimax up to a difficulty‑
+        dependent depth (see :meth:`_get_max_depth`), subject to a global
+        wall‑clock budget derived from ``config.think_time``. When
+        ``think_time`` is not set or non‑positive, a difficulty‑scaled
+        default budget is used instead. No additional sleeps or UX‑style
+        delays are added on top of the search time.
+
         Args:
-            game_state: Current game state
-            
+            game_state: Current game state.
+
         Returns:
-            Best move or None if no valid moves
+            The selected :class:`Move`, or ``None`` if there are no legal
+            moves for this player.
         """
-        # For search-based AIs we treat config.think_time as a search budget
-        # and never add any artificial sleep or delay.
-        
         # Get all valid moves via the canonical rules engine
         valid_moves = self.get_valid_moves(game_state)
-        
+
         if not valid_moves:
             return None
-             
+
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
             selected = self.get_random_element(valid_moves)
@@ -80,7 +105,7 @@ class MinimaxAI(HeuristicAI):
         self, game_state: GameState, valid_moves: List[Move]
     ) -> Move:
         """Legacy search using immutable state cloning via apply_move().
-        
+
         This is the original implementation preserved for backward
         compatibility and A/B testing against the new incremental search.
         """
@@ -103,11 +128,11 @@ class MinimaxAI(HeuristicAI):
 
         # Sort moves by heuristic score for better pruning
         scored_moves = self._score_and_sort_moves(game_state, valid_moves)
-        
+
         # Clear transposition table for new search
         self.transposition_table.clear()
         self.killer_moves.clear()
-        
+
         for depth in range(1, max_depth + 1):
             if time.time() - self.start_time > self.time_limit:
                 break
@@ -144,7 +169,7 @@ class MinimaxAI(HeuristicAI):
         self, game_state: GameState, valid_moves: List[Move]
     ) -> Move:
         """Incremental search using make/unmake on MutableGameState.
-        
+
         This provides 10-50x speedup by avoiding object allocation overhead
         during tree search. The MutableGameState is modified in-place and
         restored using MoveUndo tokens.
@@ -165,14 +190,14 @@ class MinimaxAI(HeuristicAI):
 
         # Sort moves by heuristic score for better pruning
         scored_moves = self._score_and_sort_moves(game_state, valid_moves)
-        
+
         # Clear transposition table for new search
         self.transposition_table.clear()
         self.killer_moves.clear()
-        
+
         # Create mutable state once for the entire search
         mutable_state = MutableGameState.from_immutable(game_state)
-        
+
         for depth in range(1, max_depth + 1):
             if time.time() - self.start_time > self.time_limit:
                 break
@@ -221,7 +246,7 @@ class MinimaxAI(HeuristicAI):
         self, game_state: GameState, valid_moves: List[Move]
     ) -> List[tuple]:
         """Score and sort moves for better alpha-beta pruning.
-        
+
         Uses 1-ply lookahead and move-type priority bonuses.
         """
         scored_moves = []
@@ -236,11 +261,11 @@ class MinimaxAI(HeuristicAI):
                 priority_bonus = 2000.0
             elif move.type == "overtaking_capture":
                 priority_bonus = 1000.0
-            
+
             next_state = self.rules_engine.apply_move(game_state, move)
             score = self.evaluate_position(next_state)
             scored_moves.append((score + priority_bonus, move))
-        
+
         # Sort descending
         scored_moves.sort(key=lambda x: x[0], reverse=True)
         return scored_moves
@@ -297,9 +322,9 @@ class MinimaxAI(HeuristicAI):
                 'flag': 'exact'
             })
             return score
-            
+
         current_player_num = game_state.current_player
-        
+
         # Check if game is over
         if game_state.game_status == "finished":
             # If I won, return huge score. If I lost, return huge negative.
@@ -331,14 +356,14 @@ class MinimaxAI(HeuristicAI):
         # 1. Killer moves
         # 2. Captures/Noisy moves
         # 3. History/Others
-        
+
         ordered_moves = []
         killer_moves_at_depth = self.killer_moves.get(depth) or []
-        
+
         # Separate killer moves
         killers = []
         others = []
-        
+
         for move in valid_moves:
             is_killer = False
             for k in killer_moves_at_depth:
@@ -377,7 +402,7 @@ class MinimaxAI(HeuristicAI):
                 next_state = self.rules_engine.apply_move(game_state, move)
                 # Determine who is next
                 next_is_me = (next_state.current_player == self.player_number)
-                
+
                 # Principal Variation Search (PVS)
                 if i == 0:
                     # Search first move with full window
@@ -408,13 +433,13 @@ class MinimaxAI(HeuristicAI):
                             killer_list.pop()
                         self.killer_moves.put(depth, killer_list)
                     break
-            
+
             flag = 'exact'
             if max_eval <= alpha:
                 flag = 'upperbound'
             elif max_eval >= beta:
                 flag = 'lowerbound'
-            
+
             self.transposition_table.put(state_hash, {
                 'score': max_eval,
                 'depth': depth,
@@ -457,13 +482,13 @@ class MinimaxAI(HeuristicAI):
                             killer_list.pop()
                         self.killer_moves.put(depth, killer_list)
                     break
-            
+
             flag = 'exact'
             if min_eval <= alpha:
                 flag = 'upperbound'
             elif min_eval >= beta:
                 flag = 'lowerbound'
-                
+
             self.transposition_table.put(state_hash, {
                 'score': min_eval,
                 'depth': depth,
@@ -485,7 +510,7 @@ class MinimaxAI(HeuristicAI):
     ) -> float:
         """
         Alpha-beta search using make/unmake pattern on MutableGameState.
-        
+
         This is the core of the incremental search implementation,
         providing significant speedup by avoiding object allocation
         during tree traversal.
@@ -518,9 +543,9 @@ class MinimaxAI(HeuristicAI):
                 'flag': 'exact'
             })
             return score
-            
+
         current_player_num = state.current_player
-        
+
         # Check if game is over
         if state.is_game_over():
             winner = state.get_winner()
@@ -551,7 +576,7 @@ class MinimaxAI(HeuristicAI):
             for i, move in enumerate(ordered_moves):
                 undo = state.make_move(move)
                 next_is_me = (state.current_player == self.player_number)
-                
+
                 # Principal Variation Search (PVS)
                 if i == 0:
                     eval_score = self._alpha_beta_mutable(
@@ -565,7 +590,7 @@ class MinimaxAI(HeuristicAI):
                         eval_score = self._alpha_beta_mutable(
                             state, depth - 1, eval_score, beta, next_is_me
                         )
-                
+
                 state.unmake_move(undo)
 
                 max_eval = max(max_eval, eval_score)
@@ -573,13 +598,13 @@ class MinimaxAI(HeuristicAI):
                 if beta <= alpha:
                     self._store_killer_move(move, depth)
                     break
-            
+
             flag = 'exact'
             if max_eval <= alpha:
                 flag = 'upperbound'
             elif max_eval >= beta:
                 flag = 'lowerbound'
-            
+
             self.transposition_table.put(state_hash, {
                 'score': max_eval,
                 'depth': depth,
@@ -605,7 +630,7 @@ class MinimaxAI(HeuristicAI):
                         eval_score = self._alpha_beta_mutable(
                             state, depth - 1, alpha, eval_score, next_is_me
                         )
-                
+
                 state.unmake_move(undo)
 
                 min_eval = min(min_eval, eval_score)
@@ -613,13 +638,13 @@ class MinimaxAI(HeuristicAI):
                 if beta <= alpha:
                     self._store_killer_move(move, depth)
                     break
-            
+
             flag = 'exact'
             if min_eval <= alpha:
                 flag = 'upperbound'
             elif min_eval >= beta:
                 flag = 'lowerbound'
-                
+
             self.transposition_table.put(state_hash, {
                 'score': min_eval,
                 'depth': depth,
@@ -637,7 +662,7 @@ class MinimaxAI(HeuristicAI):
     ) -> float:
         """
         Quiescence search using make/unmake pattern on MutableGameState.
-        
+
         Explores noisy moves (captures, line formations) to mitigate the
         horizon effect without the overhead of immutable state cloning.
         """
@@ -648,7 +673,7 @@ class MinimaxAI(HeuristicAI):
             and (time.time() - self.start_time) > self.time_limit
         ):
             return stand_pat
-        
+
         if maximizing_player:
             if stand_pat >= beta:
                 return beta
@@ -659,10 +684,10 @@ class MinimaxAI(HeuristicAI):
                 return alpha
             if beta > stand_pat:
                 beta = stand_pat
-        
+
         if depth <= 0:
             return stand_pat
-                
+
         # Get noisy moves
         current_player_num = state.current_player
         immutable = state.to_immutable()
@@ -685,7 +710,7 @@ class MinimaxAI(HeuristicAI):
 
         scored_moves = self._score_noisy_moves(noisy_moves)
         is_me = (current_player_num == self.player_number)
-        
+
         if is_me:
             for _, move in scored_moves:
                 undo = state.make_move(move)
@@ -693,7 +718,7 @@ class MinimaxAI(HeuristicAI):
                     state, alpha, beta, False, depth - 1
                 )
                 state.unmake_move(undo)
-                
+
                 if score >= beta:
                     return beta
                 if score > alpha:
@@ -707,7 +732,7 @@ class MinimaxAI(HeuristicAI):
                     state, alpha, beta, next_is_me, depth - 1
                 )
                 state.unmake_move(undo)
-                
+
                 if score <= alpha:
                     return alpha
                 if score < beta:
@@ -718,7 +743,7 @@ class MinimaxAI(HeuristicAI):
         """
         Evaluate MutableGameState by converting to immutable and using
         the parent HeuristicAI's evaluate_position method.
-        
+
         Note: This conversion adds some overhead, but is still faster than
         cloning state at every tree node. Future optimization could implement
         direct evaluation on MutableGameState.
@@ -732,7 +757,7 @@ class MinimaxAI(HeuristicAI):
                 return -100000.0
             else:
                 return 0.0
-        
+
         # Convert to immutable for evaluation
         immutable = state.to_immutable()
         return self.evaluate_position(immutable)
@@ -742,10 +767,10 @@ class MinimaxAI(HeuristicAI):
     ) -> List[Move]:
         """Order moves with killer heuristic for better pruning."""
         killer_moves_at_depth = self.killer_moves.get(depth) or []
-        
+
         killers = []
         others = []
-        
+
         for move in valid_moves:
             is_killer = False
             for k in killer_moves_at_depth:
@@ -836,7 +861,7 @@ class MinimaxAI(HeuristicAI):
             and (time.time() - self.start_time) > self.time_limit
         ):
             return stand_pat
-        
+
         if maximizing_player:
             if stand_pat >= beta:
                 return beta
@@ -847,13 +872,13 @@ class MinimaxAI(HeuristicAI):
                 return alpha
             if beta > stand_pat:
                 beta = stand_pat
-        
+
         if depth <= 0:
             return stand_pat
-                
+
         # Get noisy moves (captures, line formations)
         current_player_num = game_state.current_player
-         
+
         # We need to filter for noisy moves.
         # RulesEngine.get_valid_moves returns all moves.
         # We can filter by type.
@@ -876,7 +901,7 @@ class MinimaxAI(HeuristicAI):
 
         scored_moves = self._score_noisy_moves(noisy_moves)
         is_me = (current_player_num == self.player_number)
-        
+
         if is_me:
             for _, move in scored_moves:
                 next_state = self.rules_engine.apply_move(game_state, move)
@@ -887,7 +912,7 @@ class MinimaxAI(HeuristicAI):
                     False,
                     depth - 1,
                 )
-                
+
                 if score >= beta:
                     return beta
                 if score > alpha:
@@ -898,7 +923,7 @@ class MinimaxAI(HeuristicAI):
                 next_state = self.rules_engine.apply_move(game_state, move)
                 # Check who is next (similar to minimax)
                 next_is_me = (next_state.current_player == self.player_number)
-                 
+
                 score = self._quiescence_search(
                     next_state,
                     alpha,
@@ -906,7 +931,7 @@ class MinimaxAI(HeuristicAI):
                     next_is_me,
                     depth - 1,
                 )
-                
+
                 if score <= alpha:
                     return alpha
                 if score < beta:

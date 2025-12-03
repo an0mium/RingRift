@@ -4,6 +4,69 @@
 
 This document describes the test infrastructure components used in the RingRift project. The test infrastructure provides specialized utilities for testing complex multiplayer game scenarios, including multi-client WebSocket coordination, network resilience testing, time-controlled timeout testing, and deterministic game state fixtures.
 
+### Jest profiles and heavy diagnostics
+
+RingRift uses separate Jest profiles to keep core coverage runs fast and reliable:
+
+- Core coverage: `npm run test:coverage` runs Jest with `--coverage` and uses the centralized HEAVY_DIAGNOSTIC_SUITES list and coverage-aware testPathIgnorePatterns configuration in jest.config.js to exclude heavy diagnostic suites from coverage. This prevents known OOM/hang behaviour when instrumentation is enabled.
+- Heavy diagnostics: `npm run test:diagnostics` runs only the heavy diagnostic suites (for example, the legacy GameEngine.decisionPhases.MoveDriven and RuleEngine.movementCapture suites) without `--coverage`. These are intended for manual or scheduled runs, not for every PR.
+
+In practice:
+
+- Use `npm run test:coverage` for day-to-day coverage and CI gates; it is safe to run locally and in CI without hitting the heavy diagnostics.
+- Use `npm run test:diagnostics` when you need exhaustive decision-phase or movement/capture diagnostics; expect these runs to be significantly slower and more memory-intensive, and do not add `--coverage` to them.
+
+### Coverage resource limits & safe usage
+
+Coverage runs are intentionally clamped to avoid runaway resource usage:
+
+- **Worker cap for coverage:** When Jest is invoked with `--coverage`, the shared configuration in `jest.config.js` forces `maxWorkers` to `2` via an `isCoverageRun` guard. This ensures coverage runs can’t fan out into dozens of `jest-worker` processes.
+- **Finite coverage timeout:** Coverage runs use a higher but **finite** global Jest timeout (30 minutes), while non-coverage runs keep the 30s safety net:
+  - Non-coverage: `testTimeout = 30_000ms`
+  - Coverage: `testTimeout = 30 * 60 * 1000` (30 minutes)
+
+Canonical coverage entrypoints (preferred for humans and tools):
+
+- `npm run test:coverage` – Full project coverage (heavy diagnostics excluded via `HEAVY_DIAGNOSTIC_SUITES` and coverage-aware `testPathIgnorePatterns`).
+- `npm run test:coverage:shared-engine` – Focused coverage over `src/shared/engine/*.ts` using the unit-test layer as the driver.
+- `npm run test:coverage:server` – Backend/server-focused coverage (middleware + integration suites).
+
+Editors and AI tools should be configured to run these `npm` scripts instead of spawning raw `jest --coverage` / `npx jest --coverage` commands. This ensures coverage runs always pick up the global worker/timeout limits and the centralized ignore patterns.
+
+Diagnostics and heavy suites:
+
+- `npm run test:diagnostics` runs heavy/legacy diagnostics **without coverage** and should not be combined with `--coverage`. These suites are intentionally excluded from coverage collection to avoid OOMs and multi-hour hangs.
+
+Local cleanup / “panic button”:
+
+- `npm run test:kill-jest` is a **local-only** helper that attempts to kill any stray Jest parent and worker processes for this repo (using `pkill` on macOS). It is not used in CI.
+- To inspect active Jest processes manually, you can use:
+  - `pgrep -fl jest`
+  - `ps aux | grep jest | grep -v grep`
+
+### Jest layers and npm scripts (quick reference)
+
+The table below aligns the conceptual layers described in `tests/TEST_LAYERS.md` with concrete Jest commands and representative suites. All commands are defined in `package.json` and use the shared configuration in `jest.config.js`.
+
+| Layer / Profile                 | Purpose                                                             | Primary suites / patterns                                                                                                                     | How to run (npm script)                             |
+| ------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **Core unit + shared engine**   | Fast feedback on shared rules, small units, and adapters            | `tests/unit/*.shared.test.ts`, core rules/unit suites listed in `tests/TEST_LAYERS.md`                                                        | `npm run test:unit`                                 |
+| **Coverage (core focus)**       | Branch/statement coverage for src/\*\* (heavy suites excluded)      | All Jest suites except e2e/archive/heavy diagnostics; coverage thresholds enforced per-module in `jest.config.js`                             | `npm run test:coverage`                             |
+| **Core CI profile**             | PR gate for TS unit + most integration suites                       | All Jest tests except heavy diagnostics, e2e, and explicitly ignored long-running/parity suites (see `test:core` in `package.json`)           | `npm run test:core`                                 |
+| **Heavy diagnostics**           | Exhaustive legacy decision/movement diagnostics (non-gating)        | `tests/unit/GameEngine.decisionPhases.MoveDriven.test.ts`, `tests/unit/RuleEngine.movementCapture.test.ts`                                    | `npm run test:diagnostics`                          |
+| **TS rules-engine focus**       | Shared-engine rules, RulesMatrix, `.rules.` scenarios               | `RefactoredEngine.*`, `*.rules.*`, `RulesMatrix.*`                                                                                            | `npm run test:ts-rules-engine`                      |
+| **TS parity / trace suites**    | TS↔Python and host parity traces (diagnostic, non-semantic SSoT)    | `*Parity.*.test.ts`, `TraceParity.*.test.ts`, `Python_vs_TS.traceParity.test.ts`                                                              | `npm run test:ts-parity`                            |
+| **TS integration**              | Backend APIs, WebSocket flows, end-to-end GameSession orchestration | `tests/integration/**`, `WebSocketServer.*.test.ts`, `FullGameFlow.test.ts`                                                                   | `npm run test:ts-integration`                       |
+| **Orchestrator parity (TS)**    | Orchestrator-enabled shared-engine + contract/scenario suites       | `.shared.test.ts`, `tests/contracts/contractVectorRunner.test.ts`, `RulesMatrix.*.test.ts`, `FAQ_Q*.test.ts`, key territory/line/chain suites | `npm run test:orchestrator-parity`                  |
+| **AI/host diagnostics (TS)**    | Focused AI simulation / stall diagnostics (non-gating, quiet)       | `GameEngine.aiSimulation.test.ts`, `ClientSandboxEngine.aiSimulation.test.ts`, `ClientSandboxEngine.aiMovementCaptures.test.ts`               | `npm run test:ai-backend:quiet` / `:ai-sandbox:…`   |
+| **Playwright E2E**              | Browser journeys and UX flows (separate from Jest)                  | `tests/e2e/**` Playwright specs                                                                                                               | `npm run test:e2e` (and variants in `package.json`) |
+| **Python contracts (AI/rules)** | TS↔Python contract/v2 vector parity (Python side)                   | `ai-service/tests/contracts/test_contract_vectors.py` and related parity suites                                                               | `cd ai-service && pytest tests/contracts/`          |
+
+For more detail on how each suite is classified and which ones act as semantic gates vs diagnostics, see:
+
+- `tests/TEST_LAYERS.md` – layer definitions, examples, and CI usage.
+- `tests/TEST_SUITE_PARITY_PLAN.md` – fine-grained classification of parity/trace suites and their canonical anchors.
+
 ## Test Helpers
 
 ### MultiClientCoordinator
@@ -564,3 +627,5 @@ it('should timeout decision after 30 seconds', async () => {
 - [`docs/CONTRACT_VECTORS_DESIGN.md`](CONTRACT_VECTORS_DESIGN.md) - Contract vector design and implementation
 - [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](INVARIANTS_AND_PARITY_FRAMEWORK.md) - Parity testing framework
 - [`docs/TEST_CATEGORIES.md`](TEST_CATEGORIES.md) - Test categorization guide
+- [`tests/TEST_LAYERS.md`](../tests/TEST_LAYERS.md) - Layering, CI profiles, and example suites
+- [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md) - Parity/diagnostic suite map and TS↔Python anchors

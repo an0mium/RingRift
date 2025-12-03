@@ -368,14 +368,14 @@ describe('AIEngine service integration (profile-driven)', () => {
     > = {
       1: { aiType: InternalAIType.RANDOM, randomness: 0.5, thinkTime: 150 },
       2: { aiType: InternalAIType.HEURISTIC, randomness: 0.3, thinkTime: 200 },
-      3: { aiType: InternalAIType.MINIMAX, randomness: 0.2, thinkTime: 250 },
-      4: { aiType: InternalAIType.MINIMAX, randomness: 0.1, thinkTime: 300 },
-      5: { aiType: InternalAIType.MINIMAX, randomness: 0.05, thinkTime: 350 },
-      6: { aiType: InternalAIType.MINIMAX, randomness: 0.02, thinkTime: 400 },
-      7: { aiType: InternalAIType.MCTS, randomness: 0.0, thinkTime: 500 },
-      8: { aiType: InternalAIType.MCTS, randomness: 0.0, thinkTime: 600 },
-      9: { aiType: InternalAIType.DESCENT, randomness: 0.0, thinkTime: 700 },
-      10: { aiType: InternalAIType.DESCENT, randomness: 0.0, thinkTime: 800 },
+      3: { aiType: InternalAIType.MINIMAX, randomness: 0.2, thinkTime: 1250 },
+      4: { aiType: InternalAIType.MINIMAX, randomness: 0.1, thinkTime: 2100 },
+      5: { aiType: InternalAIType.MINIMAX, randomness: 0.05, thinkTime: 3500 },
+      6: { aiType: InternalAIType.MINIMAX, randomness: 0.02, thinkTime: 4800 },
+      7: { aiType: InternalAIType.MCTS, randomness: 0.0, thinkTime: 7000 },
+      8: { aiType: InternalAIType.MCTS, randomness: 0.0, thinkTime: 9600 },
+      9: { aiType: InternalAIType.DESCENT, randomness: 0.0, thinkTime: 12600 },
+      10: { aiType: InternalAIType.DESCENT, randomness: 0.0, thinkTime: 16000 },
     };
 
     for (const [key, expectedPreset] of Object.entries(expected)) {
@@ -403,7 +403,7 @@ describe('AIEngine service integration (profile-driven)', () => {
     // Difficulty 7 should map to MCTS per the canonical ladder.
     expect(config!.aiType).toBe(InternalAIType.MCTS);
     expect(config!.randomness).toBeCloseTo(0.0);
-    expect(config!.thinkTime).toBe(500);
+    expect(config!.thinkTime).toBe(7000);
   });
 
   it('getAIMove uses canonical ladder aiType and service mapping for difficulty 8 (MCTS)', async () => {

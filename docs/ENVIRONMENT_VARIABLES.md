@@ -327,6 +327,14 @@ Client-side AI service URL used by the React app (for example, by `ReplayService
 
 AI service request timeout in milliseconds.
 
+On the TS backend, this value is surfaced as `config.aiService.requestTimeoutMs`
+and used by `GameSession` as the **hard host-level budget** for per-move AI
+service calls via `runWithTimeout` (see
+`GameSession.getAIMoveWithTimeout()` in `src/server/game/GameSession.ts` and
+`docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md` §3.2.1.2). It bounds AI _search
+time_ only; there is no additional artificial “thinking delay” layered on
+top of this timeout.
+
 ### `AI_RULES_REQUEST_TIMEOUT_MS`
 
 | Property | Value    |
@@ -499,6 +507,17 @@ Log output format. Use `json` in production, `pretty` for development.
 | Required | No              |
 
 Log file path. Logs also go to stdout.
+
+**Log fields and runbook alignment**
+
+Structured logs emitted by the backend include a common set of fields used throughout the incident runbooks (`HIGH_ERROR_RATE.md`, `RATE_LIMITING.md`, `RULES_PARITY.md`), for example:
+
+- `requestId` – per-request correlation ID (from `requestContext` / `requestContextStorage`).
+- `userId` – authenticated user identifier when available.
+- `method`, `path`, `statusCode` – HTTP verb, normalized path, and response status.
+- `code` – standardized error / parity / rate-limit code when present (for example `AUTH_INVALID_CREDENTIALS`, `RATE_LIMIT_EXCEEDED`, `SERVER_INTERNAL_ERROR`, `RULES_PARITY_*`).
+
+Operators can reliably filter logs on these fields when following the runbooks to correlate HTTP errors, rate limiting, and rules-parity incidents with specific requests and users.
 
 ---
 

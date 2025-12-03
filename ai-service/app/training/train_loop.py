@@ -118,7 +118,7 @@ def run_training_loop(config: Optional[TrainConfig] = None):
             data_path=data_file,
             save_path=candidate_model_file,
         )
-        
+
         # 3. Evaluation (Tournament)
         if os.path.exists(best_model_file):
             print("Running tournament: Candidate vs Best...")
@@ -126,14 +126,14 @@ def run_training_loop(config: Optional[TrainConfig] = None):
                 candidate_model_file, best_model_file, num_games=10
             )
             results = tournament.run()
-            
+
             # Promotion logic: Candidate must win > 55% of games
             # (excluding draws)
             total_decisive = results["A"] + results["B"]
             if total_decisive > 0:
                 win_rate = results["A"] / total_decisive
                 print(f"Candidate win rate: {win_rate:.2f}")
-                
+
                 if win_rate > 0.55:
                     print("Candidate promoted to Best Model!")
                     shutil.copy(candidate_model_file, best_model_file)

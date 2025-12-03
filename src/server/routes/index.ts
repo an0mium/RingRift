@@ -4,6 +4,7 @@ import authRoutes from './auth';
 import gameRoutes, { setWebSocketServer as setGameWebSocketServer } from './game';
 import userRoutes, { setWebSocketServer as setUserWebSocketServer } from './user';
 import adminRoutes from './admin';
+import selfplayRoutes from './selfplay';
 import { authenticate } from '../middleware/auth';
 import { httpLogger } from '../utils/logger';
 import { swaggerSpec } from '../openapi/config';
@@ -38,6 +39,7 @@ export const setupRoutes = (wsServer: WebSocketServer): Router => {
 
   // Public routes
   router.use('/auth', authRoutes);
+  router.use('/selfplay', selfplayRoutes); // Read-only access to recorded self-play games
 
   // Protected routes (require authentication)
   router.use('/games', authenticate, gameRoutes);
@@ -118,6 +120,7 @@ export const setupRoutes = (wsServer: WebSocketServer): Router => {
         auth: '/api/auth',
         games: '/api/games',
         users: '/api/users',
+        selfplay: '/api/selfplay',
         docs: '/api/docs',
       },
       documentation: '/api/docs',

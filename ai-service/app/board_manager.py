@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import List, Optional, Tuple, Set, Dict
+from typing import List, Optional, Tuple
 from .models import (
     BoardState, Position, RingStack, BoardType, LineInfo, Territory,
     ProgressSnapshot, GameState
@@ -102,7 +102,7 @@ class BoardManager:
         meta = f"{state.current_player}:{state.current_phase.value}:{state.game_status.value}"
         if state.must_move_from_stack_key:
             meta += f":must_move={state.must_move_from_stack_key}"
-        
+
         # Include capture context in hash
         if state.current_phase in ["capture", "chain_capture"]:
             if state.chain_capture_state:
@@ -818,7 +818,7 @@ class BoardManager:
         # Remove any marker at this position
         if pos_key in board.markers:
             del board.markers[pos_key]
-            
+
     @staticmethod
     def remove_stack(position: Position, board: BoardState):
         pos_key = position.to_key()
@@ -838,15 +838,15 @@ class BoardManager:
         """
         markers = len(game_state.board.markers)
         collapsed = len(game_state.board.collapsed_spaces)
-        
+
         # Calculate total eliminated rings
         eliminated_from_board = sum(game_state.board.eliminated_rings.values())
         eliminated = max(
             game_state.total_rings_eliminated, eliminated_from_board
         )
-        
+
         S = markers + collapsed + eliminated
-        
+
         return ProgressSnapshot(
             markers=markers,
             collapsed=collapsed,

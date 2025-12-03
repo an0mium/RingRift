@@ -197,7 +197,7 @@ describe('Standardized Error Response Format', () => {
 
     it('should create server errors', () => {
       expect(CommonErrors.databaseUnavailable().code).toBe(ErrorCodes.SERVER_DATABASE_UNAVAILABLE);
-      
+
       const cause = new Error('DB connection failed');
       const internal = CommonErrors.internalError(cause);
       expect(internal.code).toBe(ErrorCodes.SERVER_INTERNAL_ERROR);
@@ -420,6 +420,38 @@ describe('Standardized Error Response Format', () => {
       const responseArg = jsonMock.mock.calls[0][0];
       expect(responseArg.error.requestId).toBeUndefined();
     });
+
+    it('includes stack trace for 5xx errors in development mode only', () => {
+      const { config } = require('../../src/server/config');
+      config.isDevelopment = true;
+
+      const error = new ApiError({ code: ErrorCodes.SERVER_INTERNAL_ERROR });
+      error.stack = 'STACK_TRACE_EXAMPLE';
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      const responseArg = jsonMock.mock.calls[0][0] as any;
+      expect(statusMock).toHaveBeenCalledWith(500);
+      expect(responseArg.error.stack).toBeDefined();
+      expect(typeof responseArg.error.stack).toBe('string');
+
+      config.isDevelopment = false;
+    });
+
+    it('does not include stack trace for 4xx errors even in development mode', () => {
+      const { config } = require('../../src/server/config');
+      config.isDevelopment = true;
+
+      const error = new ApiError({ code: ErrorCodes.AUTH_INVALID_CREDENTIALS });
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      const responseArg = jsonMock.mock.calls[0][0] as any;
+      expect(statusMock).toHaveBeenCalledWith(401);
+      expect(responseArg.error.stack).toBeUndefined();
+
+      config.isDevelopment = false;
+    });
   });
 
   describe('notFoundHandler', () => {
@@ -438,7 +470,7 @@ describe('Standardized Error Response Format', () => {
   describe('createError backward compatibility', () => {
     it('should return ApiError with standardized code', () => {
       const error = createError('Test error', 400, 'INVALID_REQUEST');
-      
+
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).code).toBe('VALIDATION_INVALID_REQUEST');
     });
@@ -472,6 +504,49 @@ describe('Standardized Error Response Format', () => {
       await handler(mockRequest as Request, mockResponse as Response, mockNext);
 
       expect(mockNext).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('MongoDB/Prisma error handling', () => {
+    it('should handle CastError (invalid ID format)', () => {
+      const error = new Error('Cast to ObjectId failed');
+      error.name = 'CastError';
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(400);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({
+            code: 'VALIDATION_INVALID_ID',
+          }),
+        })
+      );
+    });
+
+    // Note: MongoError with code 11000 branch is unreachable in current implementation
+    // The explicit code property check runs first, converting 11000 to string
+    // and normalizeErrorCode("11000") returns SERVER_INTERNAL_ERROR.
+    // This is a known limitation - the branch at line 81 is dead code.
+  });
+
+  describe('Generic error fallback', () => {
+    it('should handle generic Error without special properties', () => {
+      const error = new Error('Unknown internal error');
+
+      errorHandler(error, mockRequest as Request, mockResponse as Response, mockNext);
+
+      expect(statusMock).toHaveBeenCalledWith(500);
+      expect(jsonMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          error: expect.objectContaining({
+            code: 'SERVER_INTERNAL_ERROR',
+            message: 'Unknown internal error',
+          }),
+        })
+      );
     });
   });
 

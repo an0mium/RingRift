@@ -18,7 +18,7 @@ The base class:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, TypeVar, Sequence
+from typing import Optional, List, Dict, TypeVar, Sequence, Any
 import random
 
 from ..models import GameState, Move, AIConfig
@@ -71,7 +71,7 @@ class BaseAI(ABC):
     etc.) provide consistent RNG behaviour and rules‑engine integration
     across all AI families.
     """
-    
+
     def __init__(self, player_number: int, config: AIConfig) -> None:
         """Initialize a new AI instance.
 
@@ -98,33 +98,33 @@ class BaseAI(ABC):
         else:
             self.rng_seed = derive_training_seed(self.config, self.player_number)
         self.rng: random.Random = random.Random(self.rng_seed)
-        
+
     @abstractmethod
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """
         Select the best move for the current game state
-        
+
         Args:
             game_state: Current game state
-            
+
         Returns:
             Selected move or None if no valid moves
         """
         pass
-    
+
     @abstractmethod
     def evaluate_position(self, game_state: GameState) -> float:
         """
         Evaluate the current position from this AI's perspective
-        
+
         Args:
             game_state: Current game state
-            
+
         Returns:
             Evaluation score (positive = good for this AI, negative = bad)
         """
         pass
-    
+
     def get_evaluation_breakdown(self, game_state: GameState) -> Dict[str, float]:
         """Return a structured breakdown of the evaluation for ``game_state``.
 
@@ -139,7 +139,7 @@ class BaseAI(ABC):
             A mapping from component name to scalar score.
         """
         return {"total": self.evaluate_position(game_state)}
-    
+
     def get_valid_moves(self, game_state: GameState) -> List[Move]:
         """Return all legal moves for the current position.
 
@@ -156,7 +156,7 @@ class BaseAI(ABC):
             game_state,
             self.player_number,
         )
-    
+
     def should_pick_random_move(self) -> bool:
         """Return ``True`` if this move should be chosen at random.
 
@@ -171,7 +171,7 @@ class BaseAI(ABC):
         if self.config.randomness is None or self.config.randomness == 0:
             return False
         return self.rng.random() < self.config.randomness
-    
+
     def get_random_element(self, items: Sequence[T]) -> Optional[T]:
         """Return a random element from ``items`` using the per‑instance RNG.
 
@@ -184,7 +184,7 @@ class BaseAI(ABC):
         if not items:
             return None
         return self.rng.choice(list(items))
-    
+
     def shuffle_array(self, items: List[T]) -> List[T]:
         """Shuffle ``items`` in-place using the per‑instance RNG.
 
@@ -196,7 +196,7 @@ class BaseAI(ABC):
         """
         self.rng.shuffle(items)
         return items
-    
+
     def get_opponent_numbers(self, game_state: GameState) -> List[int]:
         """Return the list of opponent player numbers for this game state.
 
@@ -208,16 +208,16 @@ class BaseAI(ABC):
             ``self.player_number``.
         """
         return [
-            p.player_number 
-            for p in game_state.players 
+            p.player_number
+            for p in game_state.players
             if p.player_number != self.player_number
         ]
-    
+
     def get_player_info(
         self,
         game_state: GameState,
         player_number: Optional[int] = None,
-    ):
+    ) -> Optional[Any]:
         """Return the player record for ``player_number`` (or this AI).
 
         Args:
@@ -236,7 +236,7 @@ class BaseAI(ABC):
             if player.player_number == target_player:
                 return player
         return None
-    
+
     def __repr__(self) -> str:
         """String representation of AI"""
         return (

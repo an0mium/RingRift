@@ -23,7 +23,7 @@ const MockGameFilters = jest.fn(({ className }: { className?: string }) =>
     className: className ?? '',
   })
 );
-const MockGameList = jest.fn(() =>
+const MockGameList = jest.fn((props?: any) =>
   require('react').createElement('div', { 'data-testid': 'game-list' })
 );
 const MockPlaybackControls = jest.fn(() =>
@@ -38,7 +38,7 @@ jest.mock('../../../src/client/components/ReplayPanel/GameFilters', () => ({
 }));
 
 jest.mock('../../../src/client/components/ReplayPanel/GameList', () => ({
-  GameList: () => MockGameList(),
+  GameList: (props: any) => MockGameList(props),
 }));
 
 jest.mock('../../../src/client/components/ReplayPanel/PlaybackControls', () => ({
@@ -163,5 +163,170 @@ describe('ReplayPanel', () => {
     expect(screen.getByText('Test error')).toBeInTheDocument();
 
     expect(screen.getByText(/← → Step • Space Play\/Pause • \[ \] Speed/i)).toBeInTheDocument();
+  });
+
+  it('shows checking state while verifying replay service availability', () => {
+    useReplayServiceAvailable.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    });
+
+    render(<ReplayPanel defaultCollapsed={false} />);
+
+    expect(screen.getByText(/Checking replay service.../i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Collapse/i })).toBeInTheDocument();
+  });
+
+  it('invokes parent callbacks with initial playback state and animation', () => {
+    const onStateChange = jest.fn();
+    const onReplayModeChange = jest.fn();
+    const onAnimationChange = jest.fn();
+
+    useReplayServiceAvailable.mockReturnValue({
+      data: true,
+      isLoading: false,
+    });
+
+    useGameList.mockReturnValue({
+      data: { games: [], total: 0, hasMore: false },
+      isLoading: false,
+      error: null,
+    });
+
+    useReplayPlayback.mockReturnValue({
+      gameId: 'replay-callback-game',
+      currentState: { id: 'state-1' },
+      currentMoveNumber: 0,
+      totalMoves: 0,
+      isPlaying: false,
+      playbackSpeed: 1,
+      isLoading: false,
+      canStepForward: false,
+      canStepBackward: false,
+      moves: [],
+      metadata: null,
+      error: null,
+      getCurrentMove: () => null,
+      loadGame: jest.fn(),
+      unloadGame: jest.fn(),
+      stepForward: jest.fn(),
+      stepBackward: jest.fn(),
+      togglePlay: jest.fn(),
+      jumpToStart: jest.fn(),
+      jumpToEnd: jest.fn(),
+      jumpToMove: jest.fn(),
+      setSpeed: jest.fn(),
+    });
+
+    render(
+      <ReplayPanel
+        defaultCollapsed={false}
+        onStateChange={onStateChange}
+        onReplayModeChange={onReplayModeChange}
+        onAnimationChange={onAnimationChange}
+      />
+    );
+
+    expect(onStateChange).toHaveBeenCalledWith(expect.objectContaining({ id: 'state-1' }));
+    expect(onReplayModeChange).toHaveBeenCalledWith(true);
+    // useReplayAnimation is mocked to always return { pendingAnimation: null }
+    expect(onAnimationChange).toHaveBeenCalledWith(null);
+  });
+
+  it('wires keyboard shortcuts to playback controls in replay mode', () => {
+    const stepForward = jest.fn();
+    const stepBackward = jest.fn();
+    const togglePlay = jest.fn();
+    const jumpToStart = jest.fn();
+    const jumpToEnd = jest.fn();
+    const jumpToMove = jest.fn();
+    const setSpeed = jest.fn();
+    const unloadGame = jest.fn();
+    const onForkFromPosition = jest.fn();
+
+    useReplayServiceAvailable.mockReturnValue({
+      data: true,
+      isLoading: false,
+    });
+
+    useGameList.mockReturnValue({
+      data: { games: [], total: 0, hasMore: false },
+      isLoading: false,
+      error: null,
+    });
+
+    useReplayPlayback.mockReturnValue({
+      gameId: 'keyboard-game',
+      currentState: { id: 'state-for-fork' },
+      currentMoveNumber: 3,
+      totalMoves: 10,
+      isPlaying: false,
+      playbackSpeed: 1,
+      isLoading: false,
+      canStepForward: true,
+      canStepBackward: true,
+      moves: [],
+      metadata: null,
+      error: null,
+      getCurrentMove: () => null,
+      loadGame: jest.fn(),
+      unloadGame,
+      stepForward,
+      stepBackward,
+      togglePlay,
+      jumpToStart,
+      jumpToEnd,
+      jumpToMove,
+      setSpeed,
+    });
+
+    render(<ReplayPanel defaultCollapsed={false} onForkFromPosition={onForkFromPosition} />);
+
+    // Arrow keys and h/l
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'l' });
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    fireEvent.keyDown(window, { key: 'h' });
+
+    expect(stepForward).toHaveBeenCalledTimes(2);
+    expect(stepBackward).toHaveBeenCalledTimes(2);
+
+    // Space toggles play / pause
+    fireEvent.keyDown(window, { key: ' ' });
+    expect(togglePlay).toHaveBeenCalledTimes(1);
+
+    // Home / 0 -> jumpToStart
+    fireEvent.keyDown(window, { key: 'Home' });
+    fireEvent.keyDown(window, { key: '0' });
+    expect(jumpToStart).toHaveBeenCalledTimes(2);
+
+    // End / $ -> jumpToEnd
+    fireEvent.keyDown(window, { key: 'End' });
+    fireEvent.keyDown(window, { key: '$' });
+    expect(jumpToEnd).toHaveBeenCalledTimes(2);
+
+    // Speed controls
+    fireEvent.keyDown(window, { key: '[' });
+    expect(setSpeed).toHaveBeenCalledWith(0.5);
+    fireEvent.keyDown(window, { key: ']' });
+    expect(setSpeed).toHaveBeenCalledWith(2);
+
+    // Fork shortcut (f) should call onForkFromPosition and unloadGame
+    fireEvent.keyDown(window, { key: 'f' });
+    expect(onForkFromPosition).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'state-for-fork' })
+    );
+    expect(unloadGame).toHaveBeenCalled();
+
+    // Escape should close replay (unload game)
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(unloadGame).toHaveBeenCalledTimes(2);
+
+    // Events originating from inputs should be ignored
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    fireEvent.keyDown(input, { key: 'ArrowRight' });
+    // No additional stepForward calls from input-targeted events
+    expect(stepForward).toHaveBeenCalledTimes(2);
   });
 });

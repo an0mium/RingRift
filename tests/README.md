@@ -52,23 +52,56 @@ tests/
 
 ## Running Tests
 
+### Quick “How do I run X?” guide
+
+This table mirrors the Jest layer/profile mapping in `docs/TEST_INFRASTRUCTURE.md` and `tests/TEST_LAYERS.md` and gives the shortest answer to “How do I run \<layer\>?“.
+
+| Goal / Layer                             | What it runs (high level)                                                                               | Command                                    |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| **Run all unit tests**                   | All `tests/unit/**` Jest suites (shared-engine, backend, sandbox, middleware, UI unit tests)            | `npm run test:unit`                        |
+| **Core PR/CI gate (fast core profile)**  | Unit + most integration tests, excluding heavy diagnostics and large parity/scenario suites             | `npm run test:core`                        |
+| **Check coverage (core focus)**          | All Jest tests except e2e/archive/heavy diagnostics, with coverage thresholds from `jest.config.js`     | `npm run test:coverage`                    |
+| **Run only heavy diagnostics**           | Legacy heavy suites (`GameEngine.decisionPhases.MoveDriven`, `RuleEngine.movementCapture`)              | `npm run test:diagnostics`                 |
+| **TS rules engine / RulesMatrix focus**  | Shared-engine rules suites: `RefactoredEngine`, `*.rules.*`, `RulesMatrix.*`, FAQ/RulesMatrix scenarios | `npm run test:ts-rules-engine`             |
+| **TS parity / trace diagnostics**        | TS↔Python and host parity traces: `*Parity.*`, `TraceParity.*`, `Python_vs_TS.traceParity.test.ts`      | `npm run test:ts-parity`                   |
+| **Backend/WebSocket/HTTP integration**   | Integration suites in `tests/integration/**`, `WebSocketServer.*`, `FullGameFlow.test.ts`               | `npm run test:ts-integration`              |
+| **Orchestrator parity (TS, adapter ON)** | `.shared` tests, contract vectors, RulesMatrix + FAQ suites, key territory/line/chain-capture decisions | `npm run test:orchestrator-parity`         |
+| **AI simulation diagnostics (backend)**  | `tests/unit/GameEngine.aiSimulation.test.ts`                                                            | `npm run test:ai-backend:quiet`            |
+| **AI simulation diagnostics (sandbox)**  | `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`                                                   | `npm run test:ai-sandbox:quiet`            |
+| **AI movement/capture diagnostics**      | `tests/unit/ClientSandboxEngine.aiMovementCaptures.test.ts`                                             | `npm run test:ai-movement:quiet`           |
+| **All Jest tests (TS, no Playwright)**   | Everything under Jest except `tests/e2e/**` and archived suites filtered by `jest.config.js`            | `npm test`                                 |
+| **All Playwright E2E tests**             | Browser-based journeys in `tests/e2e/**`                                                                | `npm run test:e2e`                         |
+| **Python contract vectors (AI/rules)**   | `ai-service/tests/contracts/test_contract_vectors.py` and related parity/contract tests                 | `cd ai-service && pytest tests/contracts/` |
+
+For a more detailed explanation of layers and which suites are semantic gates vs diagnostics, see:
+
+- `docs/TEST_INFRASTRUCTURE.md` – infra helpers, Jest profiles, and the full layer→command table.
+- `tests/TEST_LAYERS.md` – layer definitions, examples, and CI usage.
+- `tests/TEST_SUITE_PARITY_PLAN.md` – classification of parity/trace suites and their canonical anchors.
+
+For a more detailed explanation of layers and which suites are semantic gates vs diagnostics, see:
+
+- `docs/TEST_INFRASTRUCTURE.md` – infra helpers, Jest profiles, and the full layer→command table.
+- `tests/TEST_LAYERS.md` – layer definitions, examples, and CI usage.
+- `tests/TEST_SUITE_PARITY_PLAN.md` – classification of parity/trace suites and their canonical anchors.
+
 ### Test Profiles (P0-TEST-001)
 
-The test suite is split into two profiles to ensure CI reliability:
+The test suite is split into two core profiles to ensure CI reliability:
 
 #### Core Profile (`npm run test:core`)
 
-- **Purpose**: Fast, reliable tests for PR gates
-- **Runs**: All unit and integration tests EXCEPT heavy suites
-- **Duration**: Should complete in under 5 minutes
-- **Used by**: `npm run test:ci`
+- **Purpose**: Fast, reliable tests for PR gates.
+- **Runs**: All unit and integration tests EXCEPT heavy suites (see `package.json` and `jest.config.js` for ignore patterns).
+- **Duration**: Should complete in under 5 minutes.
+- **Used by**: `npm run test:ci`.
 
 #### Diagnostics Profile (`npm run test:diagnostics`)
 
-- **Purpose**: Heavy combinatorial/enumeration suites
-- **Runs**: Only the heavy diagnostic suites
-- **Duration**: May take 10+ minutes and require increased heap size
-- **Used by**: Nightly CI runs, manual debugging
+- **Purpose**: Heavy combinatorial/enumeration suites.
+- **Runs**: Only the heavy diagnostic suites.
+- **Duration**: May take 10+ minutes and require increased heap size.
+- **Used by**: Nightly CI runs, manual debugging.
 
 > **Orchestrator defaults:** Unless explicitly overridden, both profiles are
 > expected to run with `ORCHESTRATOR_ADAPTER_ENABLED=true` and
@@ -76,6 +109,26 @@ The test suite is split into two profiles to ensure CI reliability:
 > as the default rules path. Legacy/SHADOW modes and any tests that require
 > `ORCHESTRATOR_ADAPTER_ENABLED=false` should be considered **diagnostic
 > only** and are documented in `tests/TEST_LAYERS.md` / `tests/TEST_SUITE_PARITY_PLAN.md`.
+
+#### P0 Robustness Profile (`npm run test:p0-robustness`)
+
+- **Purpose**: One-stop “P0 robustness” lane that combines rules-engine, integration, and key parity/cancellation tests for real-world safety around Q7/Q20 territory and decision-phase termination.
+- **Runs (in order)**:
+  - `npm run test:ts-rules-engine` – shared-engine + orchestrator rules suites (RulesMatrix, FAQ, advanced turn/territory helpers).
+  - `npm run test:ts-integration` – backend/WebSocket/full game-flow integration tests.
+  - `jest --runInBand` on:
+    - `tests/contracts/contractVectorRunner.test.ts` (v2 contract vectors, including mixed line+territory sequences),
+    - `tests/parity/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts` (advanced capture + single-/multi-region line+territory backend↔sandbox parity),
+    - `tests/unit/WebSocketServer.sessionTermination.test.ts` (session termination + decision-phase cancellation, including AI-backed choices).
+- **Recommended use**: Local P0 gate for any change that touches rules, advanced territory behaviour, WebSocket lifecycle, or AI/decision-phase flows. CI can either call this script directly or treat its constituent lanes as required jobs.
+
+> **PR workflow tip:** For any PR that touches `src/shared/engine/**`, `src/server/game/**`, `src/client/sandbox/**`, or WebSocket/AI adapters, run:
+>
+> ```bash
+> npm run test:p0-robustness
+> ```
+>
+> locally before pushing. This is the canonical “rules + AI + WebSocket robustness” bundle and includes the fixed `Sandbox_vs_Backend.aiHeuristicCoverage` harness and `WebSocketServer.sessionTermination` tests as first-class signals (not flaky diagnostics).
 
 #### Heavy Suites (excluded from core)
 
@@ -344,7 +397,7 @@ and Python rules behave identically for a given ruleset:
   - [`archive/tests/unit/Backend_vs_Sandbox.traceParity.test.ts`](archive/tests/unit/Backend_vs_Sandbox.traceParity.test.ts:1) – **archived** seeded trace parity harness for movement/capture/placement between backend and sandbox (**diagnostic only; non‑canonical and not a CI gate**).
   - [`Backend_vs_Sandbox.eliminationTrace.test.ts`](tests/unit/Backend_vs_Sandbox.eliminationTrace.test.ts:1) – elimination and capture/placement consequence traces.
   - [`Backend_vs_Sandbox.seed5.internalStateParity.test.ts`](tests/unit/Backend_vs_Sandbox.seed5.internalStateParity.test.ts:1), [`Backend_vs_Sandbox.seed5.checkpoints.test.ts`](tests/unit/Backend_vs_Sandbox.seed5.checkpoints.test.ts:1) – deep internal-state parity for a canonical seed.
-  - [`archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts`](archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts:1), [`archive/tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts`](archive/tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts:1) – snapshot‑level regression nets (both suites fully archived; kept for historical debugging only and not part of CI‑gated lanes).
+  - [`archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts`](archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts:1), [`archive/tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts`](archive/tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts:1) – snapshot‑level regression nets (both suites fully archived; kept for historical debugging only and not part of CI‑gated lanes; thin `tests/parity/Backend_vs_Sandbox.seed{1,18}.snapshotParity.test.ts` stubs remain so older paths stay resolvable without affecting parity gates).
   - [`MarkerPath.GameEngine_vs_Sandbox.test.ts`](tests/unit/MarkerPath.GameEngine_vs_Sandbox.test.ts:1), [`CaptureMarker.GameEngine_vs_Sandbox.test.ts`](tests/unit/CaptureMarker.GameEngine_vs_Sandbox.test.ts:1) – marker‑path and capture/elimination parity harnesses.
 - **Territory & borders**
   - Board‑level region‑detection geometry:
@@ -1203,6 +1256,7 @@ This matrix links key sections of `ringrift_complete_rules.md` and FAQ entries t
   - (existing) `tests/unit/ClientSandboxEngine.regionOrderChoice.test.ts` — region‑order PlayerChoice in sandbox.
   - (existing) `tests/unit/GameEngine.territory.scenarios.test.ts` — explicit self‑elimination prerequisite and multi‑region chain reactions mapped to Q15, Q20, Q23.
   - (existing, diagnostic; `TerritoryParity` archived) `archive/tests/unit/TerritoryParity.GameEngine_vs_Sandbox.test.ts`, `tests/unit/TerritoryDecisions.GameEngine_vs_Sandbox.test.ts`, and related seed‑based parity suites — backend↔sandbox Q23 parity on larger boards and specific seeds (**diagnostic; canonical semantics live in the shared decision‑helper tests and RulesMatrix/FAQ territory suites such as `RulesMatrix.Territory.MiniRegion.test.ts` and `FAQ_Q22_Q23.test.ts`**).
+  - (existing) `tests/parity/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts` — advanced-phase backend↔sandbox parity harness for capture chains, single‑region line→territory, and mixed line+multi‑region territory flows (including Q20/Q23‑style two‑region scenarios on square8/19/hex).
 
 ### Victory conditions & stalemate
 
@@ -1220,6 +1274,7 @@ This matrix links key sections of `ringrift_complete_rules.md` and FAQ entries t
   - (existing) `tests/unit/PlayerInteractionManager.test.ts`
   - (existing) `tests/unit/WebSocketInteractionHandler.test.ts`
   - (existing) `tests/unit/AIInteractionHandler.test.ts`
+  - (existing) `tests/unit/WebSocketServer.sessionTermination.test.ts` — WebSocket session termination and decision‑phase cancellation semantics, including AI‑backed and human‑backed PlayerChoice flows (line rewards, ring elimination, region order) under `terminateUserSessions`.
   - (planned) Additional focused scenarios in the above suites to ensure each choice type has at least one rule/FAQ‑tagged test name.
 
 ---

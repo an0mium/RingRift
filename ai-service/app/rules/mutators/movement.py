@@ -430,5 +430,5 @@ class MovementMutator(Mutator):
         # This confirms extra elimination happened (forced).
         #
         # Let's modify `ai-service/app/rules/default_engine.py`.
-        
+
         state.last_move_at = move.timestamp

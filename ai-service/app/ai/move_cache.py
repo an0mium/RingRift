@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import os
 from collections import OrderedDict
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, TYPE_CHECKING
 import hashlib
 
 if TYPE_CHECKING:
-    from ..models import GameState, Move, BoardState
+    from ..models import GameState, Move
 
 # Maximum cache size (number of entries)
 MOVE_CACHE_SIZE = int(os.getenv('RINGRIFT_MOVE_CACHE_SIZE', '1000'))

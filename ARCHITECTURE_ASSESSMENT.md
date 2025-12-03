@@ -204,6 +204,10 @@ Canonical rules semantics are expressed in terms of **`Move`** (from `src/shared
 - ✅ Observability infrastructure (PASS21: 3 dashboards, k6 load testing)
 - 🔄 Production validation (Execute load tests at scale, establish baselines)
 - 🔄 Operational drills (Execute secrets rotation, backup/restore procedures)
+- 🔄 Phase‑2 robustness focus (Dec 2025):
+  - Engine/host lifecycle clarity (backend, sandbox, Python) for advanced phases via shared orchestrator/aggregates.
+  - WebSocket lifecycle + reconnection windows documented in `docs/CANONICAL_ENGINE_API.md` and backed by reconnection/lobby/rematch tests.
+  - TS↔Python territory & forced‑elimination parity finish‑up using contract vectors plus targeted Jest/Pytest suites.
 
 ---
 

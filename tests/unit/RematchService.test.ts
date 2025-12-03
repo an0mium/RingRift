@@ -315,6 +315,50 @@ describe('RematchService', () => {
   });
 });
 
+describe('RematchService - Database unavailable', () => {
+  let service: RematchService;
+  const { getDatabaseClient } = require('../../src/server/database/connection');
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    service = new RematchService();
+    getDatabaseClient.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    getDatabaseClient.mockReturnValue(mockPrisma);
+  });
+
+  it('should return error on createRematchRequest when database unavailable', async () => {
+    const result = await service.createRematchRequest('game-1', 'user-1');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Database not available');
+  });
+
+  it('should return error on acceptRematch when database unavailable', async () => {
+    const result = await service.acceptRematch('request-1', 'user-2', jest.fn());
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Database not available');
+  });
+
+  it('should return error on declineRematch when database unavailable', async () => {
+    const result = await service.declineRematch('request-1', 'user-2');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Database not available');
+  });
+
+  it('should throw on getPendingRequest when database unavailable', async () => {
+    await expect(service.getPendingRequest('game-1')).rejects.toThrow('Database not available');
+  });
+
+  it('should throw on expireOldRequests when database unavailable', async () => {
+    await expect(service.expireOldRequests()).rejects.toThrow('Database not available');
+  });
+});
+
 describe('RematchService error handling', () => {
   let service: RematchService;
 

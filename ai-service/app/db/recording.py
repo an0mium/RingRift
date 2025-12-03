@@ -3,17 +3,53 @@
 This module provides high-level helper functions for recording games to the
 SQLite database. It is intended to be used by self-play, training, and
 analysis scripts.
+
+Environment Variables
+---------------------
+RINGRIFT_RECORD_SELFPLAY_GAMES
+    Enable/disable game recording globally. Set to "false", "0", or "no" to
+    disable recording. Default: enabled (True).
+
+RINGRIFT_SELFPLAY_DB_PATH
+    Default path for the selfplay games database when no explicit path is
+    provided. Default: "data/games/selfplay.db"
 """
 
 from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime
 from typing import Dict, List, Optional, Any
 
 from app.db import GameReplayDB, GameWriter
-from app.models import GameState, GameStatus, Move
+from app.models import GameState, Move
+
+
+# -----------------------------------------------------------------------------
+# Environment variable configuration
+# -----------------------------------------------------------------------------
+
+# Default database path when none is specified
+DEFAULT_SELFPLAY_DB_PATH = "data/games/selfplay.db"
+
+
+def is_recording_enabled() -> bool:
+    """Check if game recording is enabled via environment variable.
+
+    Recording is enabled by default. Set RINGRIFT_RECORD_SELFPLAY_GAMES to
+    "false", "0", or "no" to disable.
+    """
+    env_val = os.environ.get("RINGRIFT_RECORD_SELFPLAY_GAMES", "true").lower()
+    return env_val not in ("false", "0", "no", "off", "disabled")
+
+
+def get_default_db_path() -> str:
+    """Get the default database path from environment or fallback.
+
+    Returns the value of RINGRIFT_SELFPLAY_DB_PATH if set, otherwise
+    DEFAULT_SELFPLAY_DB_PATH.
+    """
+    return os.environ.get("RINGRIFT_SELFPLAY_DB_PATH", DEFAULT_SELFPLAY_DB_PATH)
 
 
 class GameRecorder:
@@ -109,21 +145,59 @@ def record_completed_game(
 
 
 def get_or_create_db(
-    db_path: Optional[str],
-    default_path: str = "data/games/selfplay.db",
+    db_path: Optional[str] = None,
+    default_path: Optional[str] = None,
+    respect_env_disable: bool = True,
 ) -> Optional[GameReplayDB]:
     """Get or create a GameReplayDB instance.
 
+    This function respects the RINGRIFT_RECORD_SELFPLAY_GAMES and
+    RINGRIFT_SELFPLAY_DB_PATH environment variables.
+
     Args:
-        db_path: Path to the database file, or None to disable recording
-        default_path: Default path if db_path is empty string
+        db_path: Path to the database file. If None, uses environment default.
+                 Pass explicit empty string "" to disable recording for this call.
+        default_path: Fallback default path if db_path is None/empty. If not
+                      provided, uses RINGRIFT_SELFPLAY_DB_PATH or built-in default.
+        respect_env_disable: If True (default), returns None if
+                             RINGRIFT_RECORD_SELFPLAY_GAMES is set to disable.
+                             Set to False to ignore the global disable flag.
 
     Returns:
         GameReplayDB instance or None if recording is disabled
     """
-    if db_path is None:
+    # Check global env disable flag
+    if respect_env_disable and not is_recording_enabled():
         return None
 
-    path = db_path if db_path else default_path
+    # Explicit empty string means disable for this call
+    if db_path == "":
+        return None
+
+    # Determine path to use
+    if db_path:
+        path = db_path
+    elif default_path:
+        path = default_path
+    else:
+        path = get_default_db_path()
+
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     return GameReplayDB(path)
+
+
+def should_record_games(cli_no_record: bool = False) -> bool:
+    """Determine if games should be recorded based on CLI and env settings.
+
+    This is a convenience function for CLI scripts to combine the --no-record
+    flag with the environment variable.
+
+    Args:
+        cli_no_record: Value of the --no-record CLI flag (True = don't record)
+
+    Returns:
+        True if games should be recorded, False otherwise
+    """
+    if cli_no_record:
+        return False
+    return is_recording_enabled()

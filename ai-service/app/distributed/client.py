@@ -1,0 +1,557 @@
+"""
+HTTP client for distributed CMA-ES evaluation on local Mac cluster.
+
+This module provides the WorkerClient and DistributedEvaluator classes
+for distributing CMA-ES population evaluation across multiple worker
+machines.
+
+Usage:
+------
+    from app.distributed.client import DistributedEvaluator
+    from app.distributed.discovery import discover_workers
+
+    # Discover workers
+    workers = discover_workers()
+
+    # Create evaluator
+    evaluator = DistributedEvaluator(
+        workers=[w.url for w in workers],
+        board_type="square8",
+        num_players=2,
+        games_per_eval=24,
+    )
+
+    # Evaluate a population of candidates
+    fitness_scores = evaluator.evaluate_population(
+        population=[weights_1, weights_2, ...],
+        baseline_weights=baseline,
+    )
+"""
+from __future__ import annotations
+
+import json
+import logging
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from app.ai.heuristic_weights import (
+    BASE_V1_BALANCED_WEIGHTS,
+    HeuristicWeights,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TaskResult:
+    """Result from a worker evaluation task."""
+
+    task_id: str
+    candidate_id: int
+    fitness: float
+    games_played: int
+    evaluation_time_sec: float
+    worker_id: str
+    status: str  # "success" or "error"
+    error: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TaskResult":
+        return cls(
+            task_id=data.get("task_id", ""),
+            candidate_id=data.get("candidate_id", -1),
+            fitness=data.get("fitness", 0.0),
+            games_played=data.get("games_played", 0),
+            evaluation_time_sec=data.get("evaluation_time_sec", 0.0),
+            worker_id=data.get("worker_id", "unknown"),
+            status=data.get("status", "error"),
+            error=data.get("error"),
+        )
+
+
+@dataclass
+class EvaluationStats:
+    """Statistics from a distributed population evaluation."""
+
+    total_candidates: int = 0
+    successful_evaluations: int = 0
+    failed_evaluations: int = 0
+    total_games: int = 0
+    total_time_sec: float = 0.0
+    worker_task_counts: Dict[str, int] = field(default_factory=dict)
+
+    def add_result(self, result: TaskResult) -> None:
+        self.total_candidates += 1
+        if result.status == "success":
+            self.successful_evaluations += 1
+            self.total_games += result.games_played
+        else:
+            self.failed_evaluations += 1
+
+        worker = result.worker_id
+        self.worker_task_counts[worker] = self.worker_task_counts.get(worker, 0) + 1
+
+
+class WorkerClient:
+    """
+    HTTP client for communicating with a single worker.
+
+    Provides methods for health checks, pool preloading, and task evaluation.
+    """
+
+    def __init__(
+        self,
+        worker_url: str,
+        timeout: float = 300.0,
+    ):
+        """
+        Initialize worker client.
+
+        Parameters
+        ----------
+        worker_url : str
+            Worker address in format "host:port"
+        timeout : float
+            Request timeout in seconds
+        """
+        self.worker_url = worker_url
+        self.timeout = timeout
+        self._base_url = f"http://{worker_url}"
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Check worker health.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Health response or error dict
+        """
+        try:
+            url = f"{self._base_url}/health"
+            request = Request(url, method="GET")
+            with urlopen(request, timeout=5.0) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+    def is_healthy(self) -> bool:
+        """Check if worker is healthy."""
+        result = self.health_check()
+        return result.get("status") == "healthy"
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get detailed worker statistics."""
+        try:
+            url = f"{self._base_url}/stats"
+            request = Request(url, method="GET")
+            with urlopen(request, timeout=5.0) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+    def preload_pool(
+        self,
+        board_type: str,
+        num_players: int,
+        pool_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Request worker to preload a state pool.
+
+        Parameters
+        ----------
+        board_type : str
+            Board type (e.g., "square8")
+        num_players : int
+            Number of players
+        pool_id : str
+            State pool identifier
+
+        Returns
+        -------
+        Dict[str, Any]
+            Response with pool info or error
+        """
+        try:
+            url = f"{self._base_url}/preload-pool"
+            data = json.dumps({
+                "board_type": board_type,
+                "num_players": num_players,
+                "pool_id": pool_id,
+            }).encode("utf-8")
+            request = Request(
+                url,
+                data=data,
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urlopen(request, timeout=30.0) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+    def evaluate(self, task: Dict[str, Any]) -> TaskResult:
+        """
+        Submit an evaluation task to the worker.
+
+        Parameters
+        ----------
+        task : Dict[str, Any]
+            Task specification containing weights and config
+
+        Returns
+        -------
+        TaskResult
+            Evaluation result
+        """
+        try:
+            url = f"{self._base_url}/evaluate"
+            data = json.dumps(task).encode("utf-8")
+            request = Request(
+                url,
+                data=data,
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urlopen(request, timeout=self.timeout) as response:
+                result_data = json.loads(response.read().decode("utf-8"))
+                return TaskResult.from_dict(result_data)
+        except HTTPError as e:
+            error_body = e.read().decode("utf-8") if e.fp else str(e)
+            return TaskResult(
+                task_id=task.get("task_id", ""),
+                candidate_id=task.get("candidate_id", -1),
+                fitness=0.0,
+                games_played=0,
+                evaluation_time_sec=0.0,
+                worker_id=self.worker_url,
+                status="error",
+                error=f"HTTP {e.code}: {error_body}",
+            )
+        except URLError as e:
+            return TaskResult(
+                task_id=task.get("task_id", ""),
+                candidate_id=task.get("candidate_id", -1),
+                fitness=0.0,
+                games_played=0,
+                evaluation_time_sec=0.0,
+                worker_id=self.worker_url,
+                status="error",
+                error=f"URL error: {e.reason}",
+            )
+        except Exception as e:
+            return TaskResult(
+                task_id=task.get("task_id", ""),
+                candidate_id=task.get("candidate_id", -1),
+                fitness=0.0,
+                games_played=0,
+                evaluation_time_sec=0.0,
+                worker_id=self.worker_url,
+                status="error",
+                error=str(e),
+            )
+
+
+class DistributedEvaluator:
+    """
+    Distributed evaluator for CMA-ES population evaluation.
+
+    Distributes candidate evaluation tasks across multiple workers
+    using round-robin assignment with automatic retry on failure.
+    """
+
+    def __init__(
+        self,
+        workers: List[str],
+        board_type: str = "square8",
+        num_players: int = 2,
+        games_per_eval: int = 24,
+        eval_mode: str = "multi-start",
+        state_pool_id: str = "v1",
+        max_moves: int = 200,
+        eval_randomness: float = 0.0,
+        seed: Optional[int] = None,
+        timeout: float = 300.0,
+        max_retries: int = 2,
+        fallback_fitness: float = 0.0,
+    ):
+        """
+        Initialize the distributed evaluator.
+
+        Parameters
+        ----------
+        workers : List[str]
+            List of worker URLs in format "host:port"
+        board_type : str
+            Board type for evaluation
+        num_players : int
+            Number of players
+        games_per_eval : int
+            Games per candidate evaluation
+        eval_mode : str
+            Evaluation mode ("initial-only" or "multi-start")
+        state_pool_id : str
+            State pool ID for multi-start mode
+        max_moves : int
+            Maximum moves per game
+        eval_randomness : float
+            Randomness parameter for evaluation
+        seed : Optional[int]
+            Base seed for reproducibility
+        timeout : float
+            Request timeout in seconds
+        max_retries : int
+            Maximum retries for failed tasks
+        fallback_fitness : float
+            Fitness to use when all retries fail
+        """
+        self.workers = workers
+        self.board_type = board_type
+        self.num_players = num_players
+        self.games_per_eval = games_per_eval
+        self.eval_mode = eval_mode
+        self.state_pool_id = state_pool_id
+        self.max_moves = max_moves
+        self.eval_randomness = eval_randomness
+        self.seed = seed
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.fallback_fitness = fallback_fitness
+
+        # Create clients for each worker
+        self._clients = {url: WorkerClient(url, timeout) for url in workers}
+
+        # Track worker health
+        self._healthy_workers: List[str] = []
+        self._worker_task_idx = 0
+
+    def verify_workers(self) -> List[str]:
+        """
+        Verify which workers are healthy.
+
+        Returns list of healthy worker URLs.
+        """
+        healthy = []
+        for url, client in self._clients.items():
+            if client.is_healthy():
+                healthy.append(url)
+                logger.info(f"Worker {url} is healthy")
+            else:
+                logger.warning(f"Worker {url} is not healthy")
+        self._healthy_workers = healthy
+        return healthy
+
+    def preload_pools(self) -> Dict[str, Any]:
+        """
+        Preload state pools on all workers.
+
+        Returns dict mapping worker URL to preload result.
+        """
+        results = {}
+        for url, client in self._clients.items():
+            result = client.preload_pool(
+                self.board_type,
+                self.num_players,
+                self.state_pool_id,
+            )
+            results[url] = result
+            if result.get("status") == "success":
+                logger.info(
+                    f"Preloaded pool on {url}: "
+                    f"{result.get('pool_size', 0)} states"
+                )
+            else:
+                logger.warning(
+                    f"Failed to preload pool on {url}: "
+                    f"{result.get('error', 'unknown error')}"
+                )
+        return results
+
+    def _get_next_worker(self) -> str:
+        """Get next worker URL in round-robin fashion."""
+        if not self._healthy_workers:
+            self._healthy_workers = self.verify_workers()
+            if not self._healthy_workers:
+                raise RuntimeError("No healthy workers available")
+
+        worker = self._healthy_workers[self._worker_task_idx % len(self._healthy_workers)]
+        self._worker_task_idx += 1
+        return worker
+
+    def _create_task(
+        self,
+        candidate_id: int,
+        weights: HeuristicWeights,
+        baseline_weights: HeuristicWeights,
+    ) -> Dict[str, Any]:
+        """Create a task specification for a candidate."""
+        return {
+            "task_id": str(uuid.uuid4()),
+            "candidate_id": candidate_id,
+            "weights": weights,
+            "baseline_weights": baseline_weights,
+            "board_type": self.board_type,
+            "num_players": self.num_players,
+            "games_per_eval": self.games_per_eval,
+            "eval_mode": self.eval_mode,
+            "state_pool_id": self.state_pool_id,
+            "max_moves": self.max_moves,
+            "eval_randomness": self.eval_randomness,
+            "seed": self.seed,
+        }
+
+    def _evaluate_with_retry(
+        self,
+        task: Dict[str, Any],
+        worker_url: str,
+    ) -> TaskResult:
+        """Evaluate a task with retry logic."""
+        last_error = None
+        for attempt in range(self.max_retries + 1):
+            client = self._clients.get(worker_url)
+            if not client:
+                logger.error(f"No client for worker {worker_url}")
+                break
+
+            result = client.evaluate(task)
+            if result.status == "success":
+                return result
+
+            last_error = result.error
+            logger.warning(
+                f"Task {task['task_id']} failed on {worker_url} "
+                f"(attempt {attempt + 1}/{self.max_retries + 1}): {last_error}"
+            )
+
+            # Try a different worker for retry
+            if attempt < self.max_retries:
+                worker_url = self._get_next_worker()
+
+        # All retries failed
+        return TaskResult(
+            task_id=task.get("task_id", ""),
+            candidate_id=task.get("candidate_id", -1),
+            fitness=self.fallback_fitness,
+            games_played=0,
+            evaluation_time_sec=0.0,
+            worker_id="fallback",
+            status="error",
+            error=f"All retries failed: {last_error}",
+        )
+
+    def evaluate_population(
+        self,
+        population: List[HeuristicWeights],
+        baseline_weights: Optional[HeuristicWeights] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+    ) -> Tuple[List[float], EvaluationStats]:
+        """
+        Evaluate a population of candidates in parallel across workers.
+
+        Parameters
+        ----------
+        population : List[HeuristicWeights]
+            List of candidate weight dicts
+        baseline_weights : Optional[HeuristicWeights]
+            Baseline weights for evaluation (default: BASE_V1_BALANCED_WEIGHTS)
+        progress_callback : Optional[Callable[[int, int], None]]
+            Callback(completed, total) for progress reporting
+
+        Returns
+        -------
+        Tuple[List[float], EvaluationStats]
+            Tuple of (fitness_scores, statistics)
+        """
+        if not population:
+            return [], EvaluationStats()
+
+        if baseline_weights is None:
+            baseline_weights = BASE_V1_BALANCED_WEIGHTS
+
+        # Verify workers
+        healthy = self.verify_workers()
+        if not healthy:
+            raise RuntimeError("No healthy workers available")
+
+        logger.info(
+            f"Evaluating {len(population)} candidates across "
+            f"{len(healthy)} workers"
+        )
+
+        # Create tasks
+        tasks = []
+        for i, weights in enumerate(population):
+            task = self._create_task(i, weights, baseline_weights)
+            worker = self._get_next_worker()
+            tasks.append((task, worker))
+
+        # Execute in parallel
+        start_time = time.time()
+        results: Dict[int, TaskResult] = {}
+        stats = EvaluationStats()
+
+        with ThreadPoolExecutor(max_workers=len(healthy)) as executor:
+            futures = {}
+            for task, worker in tasks:
+                future = executor.submit(
+                    self._evaluate_with_retry, task, worker
+                )
+                futures[future] = task["candidate_id"]
+
+            completed = 0
+            for future in as_completed(futures):
+                candidate_id = futures[future]
+                try:
+                    result = future.result()
+                    results[result.candidate_id] = result
+                    stats.add_result(result)
+                except Exception as e:
+                    logger.exception(f"Task for candidate {candidate_id} failed: {e}")
+                    results[candidate_id] = TaskResult(
+                        task_id="",
+                        candidate_id=candidate_id,
+                        fitness=self.fallback_fitness,
+                        games_played=0,
+                        evaluation_time_sec=0.0,
+                        worker_id="error",
+                        status="error",
+                        error=str(e),
+                    )
+                    stats.failed_evaluations += 1
+
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed, len(population))
+
+        stats.total_time_sec = time.time() - start_time
+
+        # Build fitness list in order
+        fitness_scores = []
+        for i in range(len(population)):
+            if i in results:
+                fitness_scores.append(results[i].fitness)
+            else:
+                logger.warning(f"No result for candidate {i}, using fallback")
+                fitness_scores.append(self.fallback_fitness)
+
+        logger.info(
+            f"Population evaluation complete: "
+            f"{stats.successful_evaluations}/{len(population)} successful, "
+            f"{stats.total_games} games, {stats.total_time_sec:.1f}s"
+        )
+
+        return fitness_scores, stats
+
+    def get_worker_stats(self) -> Dict[str, Dict[str, Any]]:
+        """Get statistics from all workers."""
+        stats = {}
+        for url, client in self._clients.items():
+            stats[url] = client.get_stats()
+        return stats

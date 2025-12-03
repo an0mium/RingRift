@@ -196,7 +196,7 @@ export function useAutoMoveAnimation(gameState: GameState | null) {
 function deriveMovePositionsFromBoards(
   prevBoard: GameState['board'],
   nextBoard: GameState['board'],
-  playerNumber: number
+  _playerNumber: number
 ): { from?: Position; to?: Position } {
   const removedKeys: string[] = [];
   const addedKeys: string[] = [];

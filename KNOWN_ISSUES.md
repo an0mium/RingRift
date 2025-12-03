@@ -561,8 +561,17 @@ These issues have been addressed but are kept here for context:
   - P18.2-\*: RNG seed handling alignment
   - P18.3-\*: Decision lifecycle and timeout semantics
   - P18.4-\*: Orchestrator Phase 4 (100% rollout)
-  - P18.5-\*: Extended contract vectors (43 cases, 0 mismatches) and swap_sides parity
+  - P18.5-\*: Extended contract vectors (54 cases, 0 mismatches) and swap_sides parity
     See [WEAKNESS_ASSESSMENT_REPORT.md](./WEAKNESS_ASSESSMENT_REPORT.md) Section 3 for details.
+- **Python ELIMINATE_RINGS_FROM_STACK Phase Handling (Dec 2025)** –
+  Fixed Python engine phase transitions after ELIMINATE_RINGS_FROM_STACK moves
+  in `ai-service/app/game_engine.py`. The fix distinguishes terminal vs
+  non-terminal cases:
+  - **Terminal** (no stacks left AND no rings in hand): Stay on current player,
+    set phase to `territory_processing` (game over state)
+  - **Non-terminal**: Rotate to next player, set phase to `ring_placement`
+    This resolved 7 contract vector failures in the territory/forced_elimination
+    test bundles, bringing v2 contract vectors to 54 passed, 0 failed, 24 skipped.
 
 For a more narrative description of what works today vs what remains, see
 [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md).

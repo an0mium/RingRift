@@ -94,6 +94,17 @@ describe('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => {
       timeControl,
       false
     );
+
+    // For 2-player heuristic coverage runs, mirror the sandbox default of
+    // enabling the pie rule (swap_sides meta-move) so that backend and
+    // sandbox see the same swap_sides availability.
+    if (numPlayers === 2) {
+      const state = engine.getGameState();
+      (engine as any).gameState = {
+        ...state,
+        rulesOptions: { ...(state.rulesOptions ?? {}), swapRuleEnabled: true },
+      };
+    }
     const started = engine.startGame();
     if (!started) {
       throw new Error('Failed to start GameEngine for sandbox vs backend heuristic coverage test');
@@ -442,6 +453,13 @@ describe('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => {
     }
 
     if (a.type !== b.type) return false;
+
+    // For pie-rule meta-moves (swap_sides), any matching swap for the same
+    // player is treated as equivalent. Coordinates are sentinel-only and not
+    // semantically meaningful.
+    if (a.type === 'swap_sides' && b.type === 'swap_sides') {
+      return true;
+    }
 
     // For placement moves, we only care that both place on the same
     // destination; placementCount and other metadata can differ.

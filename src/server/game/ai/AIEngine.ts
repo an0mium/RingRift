@@ -40,6 +40,7 @@ export enum AIType {
 
 export interface AIConfig {
   difficulty: number;
+  /** Optional search-budget hint in milliseconds. Must not be used to add artificial delay after a move is chosen. */
   thinkTime?: number;
   randomness?: number;
   /** Tactical engine chosen for this AI config. */
@@ -71,10 +72,9 @@ export interface AIDiagnostics {
  * `ai-service/app/main.py` so that a given numeric difficulty corresponds to
  * the same underlying AI engine and coarse behaviour on both sides.
  *
- * Think times are intentionally modest (hundreds of milliseconds) to keep
- * tests and local development responsive; search-based engines (Minimax/MCTS)
- * interpret `thinkTime` as a search budget, while simpler engines treat it as
- * UX-oriented delay.
+ * Think times are conceptual per-move search budgets only. Hosts and engines
+ * must never use `thinkTime` to insert artificial wall-clock delay after a
+ * move has been selected; simpler engines are expected to ignore it entirely.
  */
 export const AI_DIFFICULTY_PRESETS: Record<number, Partial<AIConfig> & { profileId: string }> = {
   1: {
@@ -92,49 +92,49 @@ export const AI_DIFFICULTY_PRESETS: Record<number, Partial<AIConfig> & { profile
   3: {
     aiType: AIType.MINIMAX,
     randomness: 0.2,
-    thinkTime: 250,
+    thinkTime: 1250,
     profileId: 'v1-minimax-3',
   },
   4: {
     aiType: AIType.MINIMAX,
     randomness: 0.1,
-    thinkTime: 300,
+    thinkTime: 2100,
     profileId: 'v1-minimax-4',
   },
   5: {
     aiType: AIType.MINIMAX,
     randomness: 0.05,
-    thinkTime: 350,
+    thinkTime: 3500,
     profileId: 'v1-minimax-5',
   },
   6: {
     aiType: AIType.MINIMAX,
     randomness: 0.02,
-    thinkTime: 400,
+    thinkTime: 4800,
     profileId: 'v1-minimax-6',
   },
   7: {
     aiType: AIType.MCTS,
     randomness: 0.0,
-    thinkTime: 500,
+    thinkTime: 7000,
     profileId: 'v1-mcts-7',
   },
   8: {
     aiType: AIType.MCTS,
     randomness: 0.0,
-    thinkTime: 600,
+    thinkTime: 9600,
     profileId: 'v1-mcts-8',
   },
   9: {
     aiType: AIType.DESCENT,
     randomness: 0.0,
-    thinkTime: 700,
+    thinkTime: 12600,
     profileId: 'v1-descent-9',
   },
   10: {
     aiType: AIType.DESCENT,
     randomness: 0.0,
-    thinkTime: 800,
+    thinkTime: 16000,
     profileId: 'v1-descent-10',
   },
 };
@@ -870,7 +870,8 @@ export class AIEngine {
   async getRingEliminationChoice(
     playerNumber: number,
     gameState: GameState | null,
-    options: RingEliminationChoice['options']
+    options: RingEliminationChoice['options'],
+    requestOptions?: { token?: CancellationToken }
   ): Promise<RingEliminationChoice['options'][number]> {
     const config = this.aiConfigs.get(playerNumber);
 
@@ -886,7 +887,8 @@ export class AIEngine {
         playerNumber,
         config.difficulty,
         serviceAIType,
-        options
+        options,
+        requestOptions
       );
 
       logger.info('AI ring_elimination choice generated', {
@@ -917,7 +919,8 @@ export class AIEngine {
   async getRegionOrderChoice(
     playerNumber: number,
     gameState: GameState | null,
-    options: RegionOrderChoice['options']
+    options: RegionOrderChoice['options'],
+    requestOptions?: { token?: CancellationToken }
   ): Promise<RegionOrderChoice['options'][number]> {
     const config = this.aiConfigs.get(playerNumber);
 
@@ -933,7 +936,8 @@ export class AIEngine {
         playerNumber,
         config.difficulty,
         serviceAIType,
-        options
+        options,
+        requestOptions
       );
 
       logger.info('AI region_order choice generated', {
@@ -963,7 +967,8 @@ export class AIEngine {
   async getLineOrderChoice(
     playerNumber: number,
     gameState: GameState | null,
-    options: LineOrderChoice['options']
+    options: LineOrderChoice['options'],
+    requestOptions?: { token?: CancellationToken }
   ): Promise<LineOrderChoice['options'][number]> {
     const config = this.aiConfigs.get(playerNumber);
 
@@ -979,7 +984,8 @@ export class AIEngine {
         playerNumber,
         config.difficulty,
         serviceAIType,
-        options
+        options,
+        requestOptions
       );
 
       logger.info('AI line_order choice generated', {
@@ -1009,7 +1015,8 @@ export class AIEngine {
   async getCaptureDirectionChoice(
     playerNumber: number,
     gameState: GameState | null,
-    options: CaptureDirectionChoice['options']
+    options: CaptureDirectionChoice['options'],
+    requestOptions?: { token?: CancellationToken }
   ): Promise<CaptureDirectionChoice['options'][number]> {
     const config = this.aiConfigs.get(playerNumber);
 
@@ -1025,7 +1032,8 @@ export class AIEngine {
         playerNumber,
         config.difficulty,
         serviceAIType,
-        options
+        options,
+        requestOptions
       );
 
       logger.info('AI capture_direction choice generated', {

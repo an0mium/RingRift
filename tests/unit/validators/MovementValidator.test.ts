@@ -400,5 +400,45 @@ describe('MovementValidator', () => {
       expect(result.valid).toBe(false);
       expect(result.code).toBe('INVALID_DIRECTION');
     });
+
+    it('rejects hex movement when path is blocked by collapsed space', () => {
+      // Move along a hex axis from (0,0,0) to (3,-3,0); inner path should
+      // include (1,-1,0) and (2,-2,0). Mark one of these as collapsed.
+      state.board.collapsedSpaces.set(posStr(1, -1, 0), 1);
+
+      const action: MoveStackAction = {
+        type: 'move_stack',
+        playerId: 1,
+        from: pos(0, 0, 0),
+        to: pos(3, -3, 0),
+      };
+
+      const result = validateMovement(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('PATH_BLOCKED');
+    });
+
+    it('rejects hex movement when path is blocked by another stack', () => {
+      // Place an opponent stack on the inner path position (1,-1,0).
+      const blockingStack: RingStack = {
+        position: pos(1, -1, 0),
+        rings: [2],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 2,
+      };
+      state.board.stacks.set(posStr(1, -1, 0), blockingStack);
+
+      const action: MoveStackAction = {
+        type: 'move_stack',
+        playerId: 1,
+        from: pos(0, 0, 0),
+        to: pos(3, -3, 0),
+      };
+
+      const result = validateMovement(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('PATH_BLOCKED');
+    });
   });
 });

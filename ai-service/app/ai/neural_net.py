@@ -1,6 +1,13 @@
-"""
-Neural Network AI implementation for RingRift
-Uses a simple feedforward neural network for move evaluation
+"""Neural-network-backed AI implementation for RingRift.
+
+This module implements the convolutional policy/value network used by the
+Python AI service and the :class:`NeuralNetAI` wrapper that integrates it
+with the shared :class:`BaseAI` interface.
+
+The same model architecture is used for both inference (online play,
+parity tests) and training. Behaviour is configured via :class:`AIConfig`
+fields such as ``nn_model_id``, ``allow_fresh_weights``, and
+``history_length``; see :class:`NeuralNetAI` for details.
 """
 
 import logging
@@ -225,7 +232,7 @@ class RingRiftCNN(nn.Module):
     ):
         super(RingRiftCNN, self).__init__()
         self.board_size = board_size
-        
+
         # Input channels = base_channels * (history_length + 1)
         # Base channels = 10
         # Default history length = 3 (Current + 3 Previous)
@@ -249,12 +256,12 @@ class RingRiftCNN(nn.Module):
         )
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
-        
+
         # Residual blocks
         self.res_blocks = nn.ModuleList([
             ResidualBlock(num_filters) for _ in range(num_res_blocks)
         ])
-        
+
         # Adaptive Pooling to handle variable board sizes (e.g. 8x8, 19x19)
         # We pool to a fixed 4x4 grid before flattening, ensuring the FC layer
         # input size is constant.
@@ -262,17 +269,17 @@ class RingRiftCNN(nn.Module):
         # sizes, though retraining/finetuning is recommended for drastic size
         # changes.
         self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
-        
+
         # Fully connected layers
         # Input size is now num_filters * 4 * 4 (fixed)
         conv_out_size = num_filters * 4 * 4
         self.fc1 = nn.Linear(conv_out_size + global_features, 256)
         self.dropout = nn.Dropout(0.3)
-        
+
         # Value head
         self.value_head = nn.Linear(256, 1)
         self.tanh = nn.Tanh()
-        
+
         # Policy head
         # We use a large fixed size to accommodate up to 19x19 boards.
         # For smaller boards, we mask the invalid logits during
@@ -283,13 +290,13 @@ class RingRiftCNN(nn.Module):
 
     def forward(self, x, globals):
         x = self.relu(self.bn1(self.conv1(x)))
-        
+
         for block in self.res_blocks:
             x = block(x)
-        
+
         # Adaptive pooling to fixed size
         x = self.adaptive_pool(x)
-        
+
         x = x.view(x.size(0), -1)  # Flatten
 
         # Concatenate global features
@@ -297,7 +304,7 @@ class RingRiftCNN(nn.Module):
 
         x = self.relu(self.fc1(x))
         x = self.dropout(x)
-        
+
         value = self.tanh(self.value_head(x))  # Output between -1 and 1
         policy = self.policy_head(x)  # Logits for CrossEntropyLoss
 
@@ -325,25 +332,25 @@ class RingRiftCNN(nn.Module):
 class RingRiftCNN_MPS(nn.Module):
     """
     MPS-compatible variant of RingRiftCNN for Apple Silicon.
-    
+
     This model uses the same ResNet-style backbone as RingRiftCNN but replaces
     AdaptiveAvgPool2d (not supported on MPS) with manual global average pooling
     via torch.mean(). This maintains similar model capacity while ensuring
     compatibility with PyTorch's MPS backend on macOS.
-    
+
     Architecture Version:
         v1.0.0 - Initial MPS-compatible architecture mirroring RingRiftCNN
                  but using manual average pooling instead of AdaptiveAvgPool2d.
-    
+
     Key Differences from RingRiftCNN:
         - Uses torch.mean(dim=[-2, -1]) instead of nn.AdaptiveAvgPool2d((4, 4))
         - Fully compatible with MPS backend on Apple Silicon
         - Same parameter count and similar performance characteristics
     """
-    
+
     # Architecture version for checkpoint compatibility checking
     ARCHITECTURE_VERSION = "v1.0.0-mps"
-    
+
     def __init__(
         self,
         board_size: int = 8,
@@ -355,7 +362,7 @@ class RingRiftCNN_MPS(nn.Module):
     ):
         super(RingRiftCNN_MPS, self).__init__()
         self.board_size = board_size
-        
+
         # Input channels = base_channels * (history_length + 1)
         # Base channels = 10
         # Default history length = 3 (Current + 3 Previous)
@@ -372,35 +379,35 @@ class RingRiftCNN_MPS(nn.Module):
         # 8: My line potential
         # 9: Opponent line potential
         self.total_in_channels = in_channels * (history_length + 1)
-        
+
         # Initial convolution
         self.conv1 = nn.Conv2d(
             self.total_in_channels, num_filters, kernel_size=3, padding=1
         )
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
-        
+
         # Residual blocks
         self.res_blocks = nn.ModuleList([
             ResidualBlock(num_filters) for _ in range(num_res_blocks)
         ])
-        
+
         # MPS-compatible pooling: We use manual global average pooling
         # instead of AdaptiveAvgPool2d. This produces a fixed-size output
         # regardless of input spatial dimensions, allowing the same model
         # to handle 8x8, 19x19, and 21x21 boards.
         # The output is num_filters channels (no spatial dimensions).
-        
+
         # Fully connected layers
         # Input size is now just num_filters (after global average pooling)
         conv_out_size = num_filters
         self.fc1 = nn.Linear(conv_out_size + global_features, 256)
         self.dropout = nn.Dropout(0.3)
-        
+
         # Value head
         self.value_head = nn.Linear(256, 1)
         self.tanh = nn.Tanh()
-        
+
         # Policy head
         # We use a large fixed size to accommodate up to 19x19 boards.
         # For smaller boards, we mask the invalid logits during
@@ -408,28 +415,28 @@ class RingRiftCNN_MPS(nn.Module):
         # Max size 19x19: ~55,000
         self.policy_size = 55000
         self.policy_head = nn.Linear(256, self.policy_size)
-    
+
     def forward(self, x, globals):
         x = self.relu(self.bn1(self.conv1(x)))
-        
+
         for block in self.res_blocks:
             x = block(x)
-        
+
         # MPS-compatible global average pooling
         # Shape: [batch, num_filters, H, W] -> [batch, num_filters]
         x = torch.mean(x, dim=[-2, -1])
-        
+
         # Concatenate global features
         x = torch.cat((x, globals), dim=1)
-        
+
         x = self.relu(self.fc1(x))
         x = self.dropout(x)
-        
+
         value = self.tanh(self.value_head(x))  # Output between -1 and 1
         policy = self.policy_head(x)  # Logits for CrossEntropyLoss
-        
+
         return value, policy
-    
+
     def forward_single(
         self, feature: np.ndarray, globals_vec: np.ndarray
     ) -> tuple[float, np.ndarray]:
@@ -451,8 +458,32 @@ class RingRiftCNN_MPS(nn.Module):
 
 
 class NeuralNetAI(BaseAI):
-    """AI that uses a CNN to evaluate positions"""
-    
+    """AI that uses a CNN to evaluate positions.
+
+    Configuration overview (:class:`AIConfig` / related fields):
+
+    - ``nn_model_id``: Logical identifier for the model checkpoint
+      (e.g. ``"ringrift_v1"``). Resolved to ``<base_dir>/models/<id>.pth``
+      (or ``<id>_mps.pth`` for MPS builds). When omitted, falls back to
+      ``"ringrift_v1"``.
+    - ``allow_fresh_weights``: When ``True``, missing checkpoints are
+      treated as intentional and the network starts from random weights
+      without raising; when ``False`` (default), a WARNING is logged.
+    - ``history_length`` (environment / training wiring): Number of
+      previous board feature frames to include in the stacked CNN input
+      (in addition to the current frame). This controls temporal context
+      for both training and inference and must match the value used when
+      the checkpoint was trained.
+
+    Training vs inference:
+        The class itself is agnostic to training vs inference. In
+        production it is normally used in inference mode, with a
+        single model instance loaded onto a chosen device (MPS, CUDA,
+        or CPU). The :attr:`game_history` buffer accumulates per‑game
+        feature history keyed by ``GameState.id`` and is truncated to
+        ``history_length + 1`` frames per game to bound memory usage.
+    """
+
     def __init__(self, player_number: int, config: Any):
         super().__init__(player_number, config)
         # Initialize model
@@ -475,7 +506,7 @@ class NeuralNetAI(BaseAI):
         self.history_length = 3
         # Dict[str, List[np.ndarray]] - Keyed by game_id
         self.game_history = {}
-        
+
         # Device detection
         import os
 
@@ -484,7 +515,7 @@ class NeuralNetAI(BaseAI):
             or os.environ.get("PYTORCH_MPS_DISABLE")
         )
         force_cpu = bool(os.environ.get("RINGRIFT_FORCE_CPU"))
-        
+
         # Architecture selection
         # RINGRIFT_NN_ARCHITECTURE can be:
         # - "default": Use RingRiftCNN (default)
@@ -492,7 +523,7 @@ class NeuralNetAI(BaseAI):
         # - "auto": Auto-select MPS architecture if MPS available
         arch_type = os.environ.get("RINGRIFT_NN_ARCHITECTURE", "default")
         use_mps_arch = False
-        
+
         if arch_type == "mps":
             use_mps_arch = True
         elif arch_type == "auto":
@@ -500,7 +531,7 @@ class NeuralNetAI(BaseAI):
             if (torch.backends.mps.is_available() and
                 not disable_mps and not force_cpu):
                 use_mps_arch = True
-        
+
         # Device selection - prefer MPS when using MPS architecture
         if use_mps_arch:
             if (torch.backends.mps.is_available() and
@@ -522,7 +553,7 @@ class NeuralNetAI(BaseAI):
                 self.device = torch.device("cuda")
             else:
                 self.device = torch.device("cpu")
-        
+
         # Create model based on architecture selection
         if use_mps_arch:
             self.model = RingRiftCNN_MPS(
@@ -546,10 +577,10 @@ class NeuralNetAI(BaseAI):
             )
             self.architecture_type = "default"
             logger.info("Initialized RingRiftCNN architecture")
-        
+
         print(f"NeuralNetAI using device: {self.device}, "
               f"architecture: {self.architecture_type}")
-        
+
         self.model.to(self.device)
 
         # Load weights if available. When config.nn_model_id is provided, use
@@ -567,16 +598,16 @@ class NeuralNetAI(BaseAI):
         model_id = getattr(self.config, "nn_model_id", None)
         if not model_id:
             model_id = "ringrift_v1"
-        
+
         # Architecture-specific checkpoint naming
         # MPS checkpoints use "_mps" suffix (e.g., "ringrift_v1_mps.pth")
         if self.architecture_type == "mps":
             model_filename = f"{model_id}_mps.pth"
         else:
             model_filename = f"{model_id}.pth"
-        
+
         model_path = os.path.join(base_dir, "models", model_filename)
-        
+
         import os as os_mod
         if os_mod.path.exists(model_path):
             self._load_model_checkpoint(model_path)

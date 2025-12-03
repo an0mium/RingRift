@@ -60,15 +60,15 @@ class MCTSNode:
         self.prior = 0.0
         self.policy_map: Dict[str, float] = {}
 
-    def uct_select_child(self):
-        """Select child using PUCT formula with RAVE"""
+    def uct_select_child(self) -> "MCTSNode":
+        """Select child using PUCT formula with RAVE."""
         # PUCT = Q + c_puct * P * sqrt(N) / (1 + n)
         # RAVE: Value = (1 - beta) * Q + beta * AMAF
 
         c_puct = 1.0  # Exploration constant
         rave_k = 1000.0  # RAVE equivalence parameter
 
-        def puct_value(child):
+        def puct_value(child: "MCTSNode") -> float:
             # Calculate Q (MC value)
             if child.visits == 0:
                 q_value = 0.0
@@ -97,8 +97,13 @@ class MCTSNode:
 
         return max(self.children, key=puct_value)
 
-    def add_child(self, move, game_state, prior=None):
-        """Add a new child node"""
+    def add_child(
+        self,
+        move: Move,
+        game_state: GameState,
+        prior: Optional[float] = None,
+    ) -> "MCTSNode":
+        """Add a new child node."""
         child = MCTSNode(game_state, parent=self, move=move)
         if prior is not None:
             child.prior = prior
@@ -106,11 +111,15 @@ class MCTSNode:
         self.children.append(child)
         return child
 
-    def update(self, result, played_moves=None):
-        """Update node stats"""
+    def update(
+        self,
+        result: float,
+        played_moves: Optional[List[Move]] = None,
+    ) -> None:
+        """Update node stats."""
         self.visits += 1
         self.wins += result
-        
+
         if played_moves and self.move:
             # Update AMAF stats if this node's move was played in the
             # simulation. Check if self.move is in played_moves.
@@ -139,7 +148,7 @@ class MCTSNodeLite:
         'parent', 'move', 'children', 'wins', 'visits',
         'amaf_wins', 'amaf_visits', 'untried_moves', 'prior', 'policy_map'
     ]
-    
+
     def __init__(
         self,
         parent: Optional["MCTSNodeLite"] = None,
@@ -155,43 +164,43 @@ class MCTSNodeLite:
         self.untried_moves: List[Move] = []
         self.prior = 0.0
         self.policy_map: Dict[str, float] = {}
-    
+
     def is_leaf(self) -> bool:
         """Check if this is a leaf node (no children)."""
         return len(self.children) == 0
-    
+
     def is_fully_expanded(self) -> bool:
         """Check if all moves have been tried."""
         return len(self.untried_moves) == 0
-    
+
     def uct_select_child(self) -> "MCTSNodeLite":
         """Select child using PUCT formula with RAVE."""
         c_puct = 1.0
         rave_k = 1000.0
-        
+
         def puct_value(child: "MCTSNodeLite") -> float:
             if child.visits == 0:
                 q_value = 0.0
             else:
                 q_value = child.wins / child.visits
-            
+
             if child.amaf_visits == 0:
                 amaf_value = 0.0
             else:
                 amaf_value = child.amaf_wins / child.amaf_visits
-            
+
             beta = math.sqrt(rave_k / (3 * self.visits + rave_k))
             combined_value = (1 - beta) * q_value + beta * amaf_value
-            
+
             num_children = max(1, len(self.children))
             prior = child.prior if child.prior > 0 else 1.0 / num_children
             sqrt_visits = math.sqrt(self.visits)
             u_value = c_puct * prior * sqrt_visits / (1 + child.visits)
-            
+
             return combined_value + u_value
-        
+
         return max(self.children, key=puct_value)
-    
+
     def add_child(
         self,
         move: Move,
@@ -205,7 +214,7 @@ class MCTSNodeLite:
             self.untried_moves.remove(move)
         self.children.append(child)
         return child
-    
+
     def update(
         self,
         result: float,
@@ -214,7 +223,7 @@ class MCTSNodeLite:
         """Update node stats."""
         self.visits += 1
         self.wins += result
-        
+
         if played_moves and self.move:
             for m in played_moves:
                 if (
@@ -229,12 +238,12 @@ class MCTSNodeLite:
 
 class DynamicBatchSizer:
     """Dynamically adjusts MCTS batch size based on available memory.
-    
+
     This class monitors system memory and calculates optimal batch sizes
     for MCTS simulations, allowing more simulations when memory permits
     and gracefully reducing when memory is constrained.
     """
-    
+
     def __init__(
         self,
         memory_config: Optional[MemoryConfig] = None,
@@ -244,7 +253,7 @@ class DynamicBatchSizer:
         node_size_estimate: int = 500,
     ):
         """Initialize the dynamic batch sizer.
-        
+
         Args:
             memory_config: Memory configuration for limits
             batch_size_min: Minimum batch size (default: 100)
@@ -258,49 +267,49 @@ class DynamicBatchSizer:
         self.batch_size_max = batch_size_max
         self.memory_safety_margin = memory_safety_margin
         self.node_size_estimate = node_size_estimate
-        
+
         # Track actual memory usage to refine estimates
         self._memory_samples: List[Tuple[int, int]] = []
         self._last_batch_size = batch_size_max
         self._adjustment_count = 0
-    
+
     def get_optimal_batch_size(self, current_node_count: int = 0) -> int:
         """Calculate optimal batch size based on available memory.
-        
+
         Args:
             current_node_count: Current number of nodes in the tree
-            
+
         Returns:
             Optimal batch size within configured limits
         """
         # Get available memory
         mem_info = psutil.virtual_memory()
         available_bytes = mem_info.available
-        
+
         # Get inference budget from config
         inference_budget = self.memory_config.get_inference_limit_bytes()
-        
+
         # Apply safety margin
         safe_budget = int(inference_budget * self.memory_safety_margin)
-        
+
         # Use minimum of available memory and safe budget
         usable_memory = min(available_bytes, safe_budget)
-        
+
         # Estimate memory already used by current tree
         current_tree_memory = current_node_count * self.node_size_estimate
-        
+
         # Calculate remaining memory for new nodes
         remaining_memory = max(0, usable_memory - current_tree_memory)
-        
+
         # Calculate how many new nodes we can create
         # Each batch iteration may create up to batch_size new nodes
         max_new_nodes = remaining_memory // self.node_size_estimate
-        
+
         # Clamp to configured limits
         optimal = max(
             self.batch_size_min, min(self.batch_size_max, max_new_nodes)
         )
-        
+
         # Log if batch size changes significantly
         if abs(optimal - self._last_batch_size) >= self.batch_size_min // 2:
             self._adjustment_count += 1
@@ -315,67 +324,67 @@ class DynamicBatchSizer:
                 self._adjustment_count,
             )
             self._last_batch_size = optimal
-        
+
         return optimal
-    
+
     def record_memory_sample(self, node_count: int) -> None:
         """Record a memory sample to refine node size estimates.
-        
+
         Args:
             node_count: Current number of nodes in the tree
         """
         # Get current process memory
         process = psutil.Process()
         memory_bytes = process.memory_info().rss
-        
+
         self._memory_samples.append((node_count, memory_bytes))
-        
+
         # Keep only recent samples (last 100)
         if len(self._memory_samples) > 100:
             self._memory_samples = self._memory_samples[-100:]
-        
+
         # Refine estimate if we have enough samples
         if len(self._memory_samples) >= 10:
             self._refine_node_size_estimate()
-    
+
     def _refine_node_size_estimate(self) -> None:
         """Refine node size estimate based on memory samples."""
         if len(self._memory_samples) < 2:
             return
-        
+
         # Calculate average memory increase per node
         samples = sorted(self._memory_samples, key=lambda x: x[0])
-        
+
         # Use linear regression-like approach
         deltas = []
         for i in range(1, len(samples)):
             node_delta = samples[i][0] - samples[i - 1][0]
             mem_delta = samples[i][1] - samples[i - 1][1]
-            
+
             if node_delta > 0:
                 deltas.append(mem_delta / node_delta)
-        
+
         if deltas:
             # Use median to avoid outliers
             deltas.sort()
             median_idx = len(deltas) // 2
             estimated = int(deltas[median_idx])
-            
+
             # Only update if estimate is reasonable
             if 100 <= estimated <= 2000:
                 old_estimate = self.node_size_estimate
                 self.node_size_estimate = estimated
-                
+
                 if abs(self.node_size_estimate - old_estimate) > 50:
                     logger.debug(
                         "Refined MCTS node size estimate: %d -> %d bytes",
                         old_estimate,
                         self.node_size_estimate,
                     )
-    
+
     def stats(self) -> dict:
         """Return current stats.
-        
+
         Returns:
             Dictionary with current batch size, estimates, and adjustment count
         """
@@ -397,6 +406,31 @@ class MCTSAI(HeuristicAI):
     stronger play. It supports both legacy (immutable) and incremental
     (mutable) search modes and reuses parts of :class:`HeuristicAI` for
     rollout policies.
+
+    Configuration overview (:class:`AIConfig` / related fields):
+
+    - ``use_incremental_search``: When ``True`` (default), uses the
+      :class:`MutableGameState` make/unmake MCTS path
+      (:meth:`_search_incremental`); when ``False``, uses the legacy
+      immutable path (:meth:`_search_legacy`).
+    - ``think_time``: Per‑move wall‑clock budget in milliseconds. When
+      positive, both legacy and incremental searches treat this strictly
+      as a search‑time limit; otherwise a difficulty‑scaled default
+      (roughly 1.0s–5.5s) is used. No additional UX delay is added.
+    - ``randomness``: Routed through :meth:`BaseAI.should_pick_random_move`
+      to allow occasional random move selection before invoking MCTS.
+    - ``nn_model_id`` / related NN config: Passed into
+      :class:`NeuralNetAI` to select which checkpoint and architecture
+      are used for value/policy heads. When no model is available,
+      the agent falls back to heuristic rollouts.
+
+    Memory and batching:
+        Transposition tables for value/policy caches are sized using
+        :class:`MemoryConfig` (either injected via ``memory_config`` or
+        derived from the environment). Optional dynamic batch sizing for
+        leaf evaluation is controlled by ``enable_dynamic_batching`` and
+        an optional :class:`DynamicBatchSizer` instance, allowing MCTS to
+        adapt its batch sizes to available memory.
     """
 
     def __init__(
@@ -421,7 +455,7 @@ class MCTSAI(HeuristicAI):
                 will be created.
         """
         super().__init__(player_number, config)
-        
+
         # Configuration option for incremental search (make/unmake pattern)
         self.use_incremental_search = getattr(
             config, 'use_incremental_search', True
@@ -452,7 +486,7 @@ class MCTSAI(HeuristicAI):
 
         # Memory configuration for bounded structures
         self.memory_config = memory_config or MemoryConfig.from_env()
-        
+
         # Transposition table to cache neural network evaluations
         # Key: state_hash, Value: (value, policy)
         # Entry size estimate: ~400 bytes (MCTS stores larger policies)
@@ -461,7 +495,7 @@ class MCTSAI(HeuristicAI):
             tt_limit,
             entry_size_estimate=400,
         )
-        
+
         # Dynamic batch sizing (optional)
         self.enable_dynamic_batching = enable_dynamic_batching
         if enable_dynamic_batching:
@@ -470,12 +504,12 @@ class MCTSAI(HeuristicAI):
             )
         else:
             self.dynamic_sizer = dynamic_sizer
-        
+
         # Lightweight tree root for incremental search
         self.last_root_lite: Optional[MCTSNodeLite] = None
 
     def select_move(self, game_state: GameState) -> Optional[Move]:
-        """Select the best move using MCTS"""
+        """Select the best move using MCTS."""
         move, _ = self.select_move_and_policy(game_state)
         return move
 
@@ -486,7 +520,7 @@ class MCTSAI(HeuristicAI):
         """Select the best move using MCTS and return the policy distribution.
 
         Returns a tuple of (Best move, Policy distribution).
-        
+
         Routes to incremental (make/unmake) or legacy (immutable) search
         based on the use_incremental_search configuration.
         """
@@ -520,7 +554,7 @@ class MCTSAI(HeuristicAI):
         valid_moves: List[Move],
     ) -> tuple[Optional[Move], Optional[Dict[str, float]]]:
         """Legacy MCTS search using immutable state cloning via apply_move().
-        
+
         This is the original implementation preserved for backward
         compatibility and A/B testing against the new incremental search.
         """
@@ -561,9 +595,9 @@ class MCTSAI(HeuristicAI):
                 )
             else:
                 batch_size = default_batch_size
-            
+
             leaves: List[Tuple[MCTSNode, GameState, List[Move]]] = []
-            
+
             for _ in range(batch_size):
                 node = root
                 state = node.game_state
@@ -601,13 +635,13 @@ class MCTSAI(HeuristicAI):
 
             # Evaluation Phase
             self._evaluate_leaves_legacy(leaves, root)
-        
+
         # Record memory sample if dynamic batching is enabled
         if self.enable_dynamic_batching and self.dynamic_sizer is not None:
             self.dynamic_sizer.record_memory_sample(node_count)
-        
+
         self._log_stats()
-        
+
         # Select best move based on visits
         return self._select_best_move_legacy(root, valid_moves)
 
@@ -619,11 +653,11 @@ class MCTSAI(HeuristicAI):
         """Evaluate leaf nodes using neural network or heuristic rollout."""
         if self.neural_net:
             states = [leaf[1] for leaf in leaves]
-            
+
             cached_results: List[Tuple[int, float, Any]] = []
             uncached_indices: List[int] = []
             uncached_states: List[GameState] = []
-            
+
             for i, state in enumerate(states):
                 state_hash = state.zobrist_hash or 0
                 cached = self.transposition_table.get(state_hash)
@@ -632,10 +666,10 @@ class MCTSAI(HeuristicAI):
                 else:
                     uncached_indices.append(i)
                     uncached_states.append(state)
-            
+
             values: List[float] = [0.0] * len(states)
             policies: List[Any] = [None] * len(states)
-            
+
             for idx, val, pol in cached_results:
                 values[idx] = val
                 policies[idx] = pol
@@ -646,7 +680,7 @@ class MCTSAI(HeuristicAI):
                 and states
                 and states[0].board.type == BoardType.HEXAGONAL
             )
-            
+
             if uncached_states:
                 if use_hex_nn:
                     eval_values, eval_policies = self._evaluate_hex_batch(
@@ -656,11 +690,11 @@ class MCTSAI(HeuristicAI):
                     eval_values, eval_policies = (
                         self.neural_net.evaluate_batch(uncached_states)
                     )
-                
+
                 for j, orig_idx in enumerate(uncached_indices):
                     values[orig_idx] = eval_values[j]
                     policies[orig_idx] = eval_policies[j]
-                    
+
                     state_hash = uncached_states[j].zobrist_hash or 0
                     self.transposition_table.put(
                         state_hash,
@@ -730,7 +764,7 @@ class MCTSAI(HeuristicAI):
 
         eval_values = values_tensor.cpu().numpy().flatten().tolist()
         eval_policies = policy_probs.cpu().numpy()
-        
+
         return eval_values, list(eval_policies)
 
     def _update_node_policy_legacy(
@@ -747,7 +781,7 @@ class MCTSAI(HeuristicAI):
         )
         if not valid_moves_state:
             return
-        
+
         node.untried_moves = list(valid_moves_state)
         node.policy_map = {}
 
@@ -838,10 +872,10 @@ class MCTSAI(HeuristicAI):
                 uniform = 1.0 / len(root.children)
                 for child in root.children:
                     policy[str(child.move)] = uniform
-            
+
             best_child = max(root.children, key=lambda c: c.visits)
             selected = best_child.move
-            
+
             self.last_root = best_child
             self.last_root.parent = None
         else:
@@ -864,7 +898,7 @@ class MCTSAI(HeuristicAI):
         valid_moves: List[Move],
     ) -> tuple[Optional[Move], Optional[Dict[str, float]]]:
         """Incremental MCTS search using make/unmake on MutableGameState.
-        
+
         This provides significant speedup by avoiding object allocation
         overhead during tree search. State is modified in-place and restored
         using MoveUndo tokens.
@@ -909,16 +943,16 @@ class MCTSAI(HeuristicAI):
                 )
             else:
                 batch_size = default_batch_size
-            
+
             # Collect leaves for batch evaluation
             leaves: List[Tuple[MCTSNodeLite, List[MoveUndo], List[Move]]] = []
-            
+
             for _ in range(batch_size):
                 # Selection phase with make_move tracking
                 node, path_undos, played_moves = self._select_with_mutable(
                     root, mutable_state
                 )
-                
+
                 # Expansion phase
                 if node.untried_moves:
                     m = cast(Move, self.get_random_element(node.untried_moves))
@@ -947,13 +981,13 @@ class MCTSAI(HeuristicAI):
             self._evaluate_leaves_incremental(
                 leaves, mutable_state, root
             )
-        
+
         # Record memory sample if dynamic batching is enabled
         if self.enable_dynamic_batching and self.dynamic_sizer is not None:
             self.dynamic_sizer.record_memory_sample(node_count)
-        
+
         self._log_stats()
-        
+
         # Select best move based on visits
         return self._select_best_move_incremental(root, valid_moves)
 
@@ -963,13 +997,13 @@ class MCTSAI(HeuristicAI):
         mutable_state: MutableGameState,
     ) -> Tuple[MCTSNodeLite, List[MoveUndo], List[Move]]:
         """Traverse tree using make_move, tracking path for unmake.
-        
+
         Returns:
             Tuple of (selected node, undo tokens, played moves)
         """
         path_undos: List[MoveUndo] = []
         played_moves: List[Move] = []
-        
+
         # Selection - traverse to leaf
         while node.is_fully_expanded() and not node.is_leaf():
             node = node.uct_select_child()
@@ -977,7 +1011,7 @@ class MCTSAI(HeuristicAI):
                 undo = mutable_state.make_move(node.move)
                 path_undos.append(undo)
                 played_moves.append(node.move)
-        
+
         return node, path_undos, played_moves
 
     def _evaluate_leaves_incremental(
@@ -987,7 +1021,7 @@ class MCTSAI(HeuristicAI):
         root: MCTSNodeLite,
     ) -> None:
         """Evaluate leaf nodes using make/unmake pattern.
-        
+
         For each leaf, we replay the path to reach that state,
         evaluate, then unmake to return to root.
         """
@@ -998,20 +1032,20 @@ class MCTSAI(HeuristicAI):
                 # Replay path to reach this leaf
                 for undo in path_undos:
                     mutable_state.make_move(undo.move)
-                
+
                 # Convert to immutable for evaluation
                 immutable = mutable_state.to_immutable()
                 states.append(immutable)
-                
+
                 # Unmake to return to root
                 for undo in reversed(path_undos):
                     mutable_state.unmake_move(undo)
-            
+
             # Check transposition table
             cached_results: List[Tuple[int, float, Any]] = []
             uncached_indices: List[int] = []
             uncached_states: List[GameState] = []
-            
+
             for i, state in enumerate(states):
                 state_hash = state.zobrist_hash or 0
                 cached = self.transposition_table.get(state_hash)
@@ -1020,10 +1054,10 @@ class MCTSAI(HeuristicAI):
                 else:
                     uncached_indices.append(i)
                     uncached_states.append(state)
-            
+
             values: List[float] = [0.0] * len(states)
             policies: List[Any] = [None] * len(states)
-            
+
             for idx, val, pol in cached_results:
                 values[idx] = val
                 policies[idx] = pol
@@ -1034,7 +1068,7 @@ class MCTSAI(HeuristicAI):
                 and states
                 and states[0].board.type == BoardType.HEXAGONAL
             )
-            
+
             if uncached_states:
                 if use_hex_nn:
                     eval_values, eval_policies = self._evaluate_hex_batch(
@@ -1044,11 +1078,11 @@ class MCTSAI(HeuristicAI):
                     eval_values, eval_policies = (
                         self.neural_net.evaluate_batch(uncached_states)
                     )
-                
+
                 for j, orig_idx in enumerate(uncached_indices):
                     values[orig_idx] = eval_values[j]
                     policies[orig_idx] = eval_policies[j]
-                    
+
                     state_hash = uncached_states[j].zobrist_hash or 0
                     self.transposition_table.put(
                         state_hash,
@@ -1080,10 +1114,10 @@ class MCTSAI(HeuristicAI):
                 # Replay path to reach this leaf
                 for undo in path_undos:
                     mutable_state.make_move(undo.move)
-                
+
                 # Perform rollout
                 result = self._heuristic_rollout_mutable(mutable_state)
-                
+
                 # Unmake to return to root
                 for undo in reversed(path_undos):
                     mutable_state.unmake_move(undo)
@@ -1104,7 +1138,7 @@ class MCTSAI(HeuristicAI):
         self, mutable_state: MutableGameState
     ) -> float:
         """Perform heuristic-guided rollout simulation using make/unmake.
-        
+
         All rollout moves are made and then unmade to preserve state.
         """
         rollout_depth = 3
@@ -1130,7 +1164,7 @@ class MCTSAI(HeuristicAI):
 
         # Evaluate at rollout end
         result = self._evaluate_mutable(mutable_state)
-        
+
         # Unmake all rollout moves
         for undo in reversed(rollout_undos):
             mutable_state.unmake_move(undo)
@@ -1173,7 +1207,7 @@ class MCTSAI(HeuristicAI):
                 return -100000.0
             else:
                 return 0.0
-        
+
         immutable = state.to_immutable()
         return self.evaluate_position(immutable)
 
@@ -1191,7 +1225,7 @@ class MCTSAI(HeuristicAI):
         )
         if not valid_moves_state:
             return
-        
+
         node.untried_moves = list(valid_moves_state)
         node.policy_map = {}
 
@@ -1233,10 +1267,10 @@ class MCTSAI(HeuristicAI):
                 for child in root.children:
                     if child.move is not None:
                         policy[str(child.move)] = uniform
-            
+
             best_child = max(root.children, key=lambda c: c.visits)
             selected = best_child.move
-            
+
             self.last_root_lite = best_child
             self.last_root_lite.parent = None
         else:
@@ -1269,7 +1303,7 @@ class MCTSAI(HeuristicAI):
                 tt_stats["evictions"],
                 tt_stats["estimated_memory_mb"],
             )
-            
+
             if self.enable_dynamic_batching and self.dynamic_sizer is not None:
                 ds_stats = self.dynamic_sizer.stats()
                 logger.debug(
@@ -1279,10 +1313,10 @@ class MCTSAI(HeuristicAI):
                     ds_stats["node_size_estimate"],
                     ds_stats["adjustment_count"],
                 )
-    
+
     def clear_tree(self) -> None:
         """Clear the MCTS tree to free memory.
-        
+
         This should be called after move selection if memory is constrained.
         """
         if hasattr(self, "last_root"):

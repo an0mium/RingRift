@@ -34,6 +34,11 @@ import {
   pos,
 } from '../utils/fixtures';
 import * as sharedLineDetection from '../../src/shared/engine/lineDetection';
+import {
+  createSquareTwoRegionTerritoryScenario,
+  createSquare19TwoRegionTerritoryScenario,
+} from '../helpers/squareTerritoryScenario';
+import { createHexTwoRegionTerritoryScenario } from '../helpers/hexTerritoryScenario';
 
 /**
  * Backend vs Sandbox advanced-phase parity harness.
@@ -1053,6 +1058,488 @@ describe('Backend vs Sandbox advanced-phase parity – capture, line, territory'
         sandboxRegionSurface,
         'combined scenario region-processing surfaces'
       );
+    } finally {
+      findAllLinesSpy.mockRestore();
+    }
+  });
+
+  test('combined line + multi-region territory parity (line then two regions, square8)', async () => {
+    const { initialState, regionA, regionB } = createSquareTwoRegionTerritoryScenario(
+      'square-multi-region-line-then-territory'
+    );
+
+    const baseState = cloneGameState(initialState);
+
+    // Seed an overlength line for Player 1 on row 0, mirroring the
+    // single-region combined scenario but leaving both regions intact.
+    const boardType: BoardType = 'square8';
+    const requiredLength = getEffectiveLineLengthThreshold(
+      boardType,
+      baseState.players.length,
+      baseState.rulesOptions
+    );
+    const linePositions: Position[] = [];
+    // Use row y=3 to avoid overlapping any existing stacks in the
+    // two-region scenario geometry.
+    for (let x = 0; x < requiredLength + 1; x += 1) {
+      const p = pos(x, 3);
+      linePositions.push(p);
+      addMarker(baseState.board, p, 1);
+    }
+
+    baseState.currentPlayer = 1;
+    baseState.currentPhase = 'line_processing';
+
+    const findAllLinesSpy = jest.spyOn(sharedLineDetection, 'findAllLines').mockImplementation(
+      () =>
+        [
+          {
+            positions: linePositions,
+            player: 1,
+            length: linePositions.length,
+            direction: { x: 1, y: 0 },
+          },
+        ] as LineInfo[]
+    );
+
+    try {
+      const { backend, backendAny, sandbox, sandboxAny } = createHostsFromBaseState(baseState);
+      backend.enableMoveDrivenDecisionPhases();
+
+      expectStateParity(
+        backendAny.gameState as GameState,
+        sandboxAny.gameState as GameState,
+        'combined-multi-region-initial'
+      );
+
+      const currentPlayer = 1;
+      const backendLineMoves = backend
+        .getValidMoves(currentPlayer)
+        .filter((m) => m.type === 'process_line' || m.type === 'choose_line_reward');
+      const sandboxLineMoves: Move[] = (
+        sandboxAny.getValidLineProcessingMovesForCurrentPlayer
+          ? (sandboxAny.getValidLineProcessingMovesForCurrentPlayer() as Move[])
+          : []
+      ) as Move[];
+
+      expect(backendLineMoves.length).toBeGreaterThan(0);
+      expect(sandboxLineMoves.length).toBeGreaterThan(0);
+
+      expectMoveSetsEqual(
+        backendLineMoves,
+        sandboxLineMoves,
+        'combined multi-region line-processing surfaces'
+      );
+
+      const backendRewardMoves = backendLineMoves.filter((m) => m.type === 'choose_line_reward');
+      const minCollapseBackend = backendRewardMoves.find(
+        (m) => m.collapsedMarkers && m.collapsedMarkers.length === requiredLength
+      );
+      expect(minCollapseBackend).toBeDefined();
+
+      const minCollapseSandbox =
+        findMatchingMove(minCollapseBackend as Move, sandboxLineMoves) || minCollapseBackend!;
+
+      const {
+        id: _lidB,
+        timestamp: _ltsB,
+        moveNumber: _lmnB,
+        ...payloadLine
+      } = minCollapseBackend as any;
+      const resLine = await backend.makeMove(
+        payloadLine as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resLine.success).toBe(true);
+
+      await sandbox.applyCanonicalMove(minCollapseSandbox as Move);
+
+      let backendState = backend.getGameState();
+      let sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-after-line');
+
+      const keyFromPositions = (spaces: Position[]): string =>
+        spaces
+          .map((p) => positionToString(p))
+          .sort()
+          .join('|');
+
+      const regionAKey = keyFromPositions(regionA.spaces);
+      const regionBKey = keyFromPositions(regionB.spaces);
+
+      // STEP 2: Explicitly process Region B, using the shared Territory
+      // shape from the two-region helper to define the canonical move.
+      const backendRegionB: Move = {
+        id: 'multi-region-B',
+        type: 'process_territory_region',
+        player: currentPlayer,
+        disconnectedRegions: [
+          {
+            spaces: regionB.spaces,
+            controllingPlayer: 1,
+            isDisconnected: true,
+          },
+        ],
+        to: regionB.spaces[0],
+      } as any;
+
+      const {
+        id: _rbId,
+        timestamp: _rbTs,
+        moveNumber: _rbMn,
+        ...payloadRegionB
+      } = backendRegionB as any;
+      const resRegionB = await backend.makeMove(
+        payloadRegionB as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resRegionB.success).toBe(true);
+      await sandbox.applyCanonicalMove(backendRegionB);
+
+      backendState = backend.getGameState();
+      sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-after-regionB');
+
+      // STEP 3: Explicitly process Region A in the same fashion.
+      const backendRegionA: Move = {
+        id: 'multi-region-A',
+        type: 'process_territory_region',
+        player: currentPlayer,
+        disconnectedRegions: [
+          {
+            spaces: regionA.spaces,
+            controllingPlayer: 1,
+            isDisconnected: true,
+          },
+        ],
+        to: regionA.spaces[0],
+      } as any;
+
+      const {
+        id: _raId,
+        timestamp: _raTs,
+        moveNumber: _raMn,
+        ...payloadRegionA
+      } = backendRegionA as any;
+      const resRegionA = await backend.makeMove(
+        payloadRegionA as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resRegionA.success).toBe(true);
+      await sandbox.applyCanonicalMove(backendRegionA);
+
+      backendState = backend.getGameState();
+      sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-after-regionA');
+    } finally {
+      findAllLinesSpy.mockRestore();
+    }
+  });
+
+  test('combined line + multi-region territory parity (line then two regions, square19)', async () => {
+    const { initialState, regionA, regionB } = createSquare19TwoRegionTerritoryScenario(
+      'square19-multi-region-line-then-territory'
+    );
+
+    const baseState = cloneGameState(initialState);
+
+    const boardType: BoardType = 'square19';
+    const requiredLength = getEffectiveLineLengthThreshold(
+      boardType,
+      baseState.players.length,
+      baseState.rulesOptions
+    );
+    const linePositions: Position[] = [];
+    // Use row y=3 to avoid overlapping the Q23-style regions.
+    for (let x = 0; x < requiredLength + 1; x += 1) {
+      const p = pos(x, 3);
+      linePositions.push(p);
+      addMarker(baseState.board, p, 1);
+    }
+
+    baseState.currentPlayer = 1;
+    baseState.currentPhase = 'line_processing';
+
+    const findAllLinesSpy = jest.spyOn(sharedLineDetection, 'findAllLines').mockImplementation(
+      () =>
+        [
+          {
+            positions: linePositions,
+            player: 1,
+            length: linePositions.length,
+            direction: { x: 1, y: 0 },
+          },
+        ] as LineInfo[]
+    );
+
+    try {
+      const { backend, backendAny, sandbox, sandboxAny } = createHostsFromBaseState(baseState);
+      backend.enableMoveDrivenDecisionPhases();
+
+      expectStateParity(
+        backendAny.gameState as GameState,
+        sandboxAny.gameState as GameState,
+        'combined-multi-region-square19-initial'
+      );
+
+      const currentPlayer = 1;
+      const backendLineMoves = backend
+        .getValidMoves(currentPlayer)
+        .filter((m) => m.type === 'process_line' || m.type === 'choose_line_reward');
+      const sandboxLineMoves: Move[] = (
+        sandboxAny.getValidLineProcessingMovesForCurrentPlayer
+          ? (sandboxAny.getValidLineProcessingMovesForCurrentPlayer() as Move[])
+          : []
+      ) as Move[];
+
+      expect(backendLineMoves.length).toBeGreaterThan(0);
+      expect(sandboxLineMoves.length).toBeGreaterThan(0);
+
+      expectMoveSetsEqual(
+        backendLineMoves,
+        sandboxLineMoves,
+        'combined multi-region line-processing surfaces (square19)'
+      );
+
+      const backendRewardMoves = backendLineMoves.filter((m) => m.type === 'choose_line_reward');
+      const minCollapseBackend = backendRewardMoves.find(
+        (m) => m.collapsedMarkers && m.collapsedMarkers.length === requiredLength
+      );
+      expect(minCollapseBackend).toBeDefined();
+
+      const minCollapseSandbox =
+        findMatchingMove(minCollapseBackend as Move, sandboxLineMoves) || minCollapseBackend!;
+
+      const {
+        id: _lidB,
+        timestamp: _ltsB,
+        moveNumber: _lmnB,
+        ...payloadLine
+      } = minCollapseBackend as any;
+      const resLine = await backend.makeMove(
+        payloadLine as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resLine.success).toBe(true);
+
+      await sandbox.applyCanonicalMove(minCollapseSandbox as Move);
+
+      let backendState = backend.getGameState();
+      let sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-square19-after-line');
+
+      const backendRegionB: Move = {
+        id: 'square19-multi-region-B',
+        type: 'process_territory_region',
+        player: currentPlayer,
+        disconnectedRegions: [
+          {
+            spaces: regionB.spaces,
+            controllingPlayer: 1,
+            isDisconnected: true,
+          },
+        ],
+        to: regionB.spaces[0],
+      } as any;
+
+      const {
+        id: _rbId,
+        timestamp: _rbTs,
+        moveNumber: _rbMn,
+        ...payloadRegionB
+      } = backendRegionB as any;
+      const resRegionB = await backend.makeMove(
+        payloadRegionB as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resRegionB.success).toBe(true);
+      await sandbox.applyCanonicalMove(backendRegionB);
+
+      backendState = backend.getGameState();
+      sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-square19-after-regionB');
+
+      const backendRegionA: Move = {
+        id: 'square19-multi-region-A',
+        type: 'process_territory_region',
+        player: currentPlayer,
+        disconnectedRegions: [
+          {
+            spaces: regionA.spaces,
+            controllingPlayer: 1,
+            isDisconnected: true,
+          },
+        ],
+        to: regionA.spaces[0],
+      } as any;
+
+      const {
+        id: _raId,
+        timestamp: _raTs,
+        moveNumber: _raMn,
+        ...payloadRegionA
+      } = backendRegionA as any;
+      const resRegionA = await backend.makeMove(
+        payloadRegionA as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resRegionA.success).toBe(true);
+      await sandbox.applyCanonicalMove(backendRegionA);
+
+      backendState = backend.getGameState();
+      sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-square19-after-regionA');
+    } finally {
+      findAllLinesSpy.mockRestore();
+    }
+  });
+
+  test('combined line + multi-region territory parity (line then two regions, hexagonal)', async () => {
+    const { initialState, regionA, regionB } = createHexTwoRegionTerritoryScenario(
+      'hex-multi-region-line-then-territory'
+    );
+
+    const baseState = cloneGameState(initialState);
+
+    const boardType: BoardType = 'hexagonal';
+    const requiredLength = getEffectiveLineLengthThreshold(
+      boardType,
+      baseState.players.length,
+      baseState.rulesOptions
+    );
+    const length = requiredLength + 1;
+
+    const start: Position = pos(5, 0, -5);
+    const linePositions: Position[] = [];
+    for (let i = 0; i < length; i += 1) {
+      const p: Position = { x: start.x + i, y: start.y - i, z: start.z };
+      linePositions.push(p);
+      addMarker(baseState.board, p, 1);
+    }
+
+    baseState.currentPlayer = 1;
+    baseState.currentPhase = 'line_processing';
+
+    const findAllLinesSpy = jest.spyOn(sharedLineDetection, 'findAllLines').mockImplementation(
+      () =>
+        [
+          {
+            positions: linePositions,
+            player: 1,
+            length: linePositions.length,
+            direction: { x: 1, y: -1, z: 0 },
+          },
+        ] as any
+    );
+
+    try {
+      const { backend, backendAny, sandbox, sandboxAny } = createHostsFromBaseState(baseState);
+      backend.enableMoveDrivenDecisionPhases();
+
+      expectStateParity(
+        backendAny.gameState as GameState,
+        sandboxAny.gameState as GameState,
+        'combined-multi-region-hex-initial'
+      );
+
+      const currentPlayer = 1;
+      const backendLineMoves = backend
+        .getValidMoves(currentPlayer)
+        .filter((m) => m.type === 'process_line' || m.type === 'choose_line_reward');
+      const sandboxLineMoves: Move[] = (
+        sandboxAny.getValidLineProcessingMovesForCurrentPlayer
+          ? (sandboxAny.getValidLineProcessingMovesForCurrentPlayer() as Move[])
+          : []
+      ) as Move[];
+
+      expect(backendLineMoves.length).toBeGreaterThan(0);
+      expect(sandboxLineMoves.length).toBeGreaterThan(0);
+
+      expectMoveSetsEqual(
+        backendLineMoves,
+        sandboxLineMoves,
+        'combined multi-region line-processing surfaces (hex)'
+      );
+
+      const backendRewardMoves = backendLineMoves.filter((m) => m.type === 'choose_line_reward');
+      const minCollapseBackend = backendRewardMoves.find(
+        (m) => m.collapsedMarkers && m.collapsedMarkers.length === requiredLength
+      );
+      expect(minCollapseBackend).toBeDefined();
+
+      const minCollapseSandbox =
+        findMatchingMove(minCollapseBackend as Move, sandboxLineMoves) || minCollapseBackend!;
+
+      const {
+        id: _lidB,
+        timestamp: _ltsB,
+        moveNumber: _lmnB,
+        ...payloadLine
+      } = minCollapseBackend as any;
+      const resLine = await backend.makeMove(
+        payloadLine as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resLine.success).toBe(true);
+
+      await sandbox.applyCanonicalMove(minCollapseSandbox as Move);
+
+      let backendState = backend.getGameState();
+      let sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-hex-after-line');
+
+      const backendRegionB: Move = {
+        id: 'hex-multi-region-B',
+        type: 'process_territory_region',
+        player: currentPlayer,
+        disconnectedRegions: [
+          {
+            spaces: regionB.spaces,
+            controllingPlayer: 1,
+            isDisconnected: true,
+          },
+        ],
+        to: regionB.spaces[0],
+      } as any;
+
+      const {
+        id: _rbId,
+        timestamp: _rbTs,
+        moveNumber: _rbMn,
+        ...payloadRegionB
+      } = backendRegionB as any;
+      const resRegionB = await backend.makeMove(
+        payloadRegionB as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resRegionB.success).toBe(true);
+      await sandbox.applyCanonicalMove(backendRegionB);
+
+      backendState = backend.getGameState();
+      sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-hex-after-regionB');
+
+      const backendRegionA: Move = {
+        id: 'hex-multi-region-A',
+        type: 'process_territory_region',
+        player: currentPlayer,
+        disconnectedRegions: [
+          {
+            spaces: regionA.spaces,
+            controllingPlayer: 1,
+            isDisconnected: true,
+          },
+        ],
+        to: regionA.spaces[0],
+      } as any;
+
+      const {
+        id: _raId,
+        timestamp: _raTs,
+        moveNumber: _raMn,
+        ...payloadRegionA
+      } = backendRegionA as any;
+      const resRegionA = await backend.makeMove(
+        payloadRegionA as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
+      );
+      expect(resRegionA.success).toBe(true);
+      await sandbox.applyCanonicalMove(backendRegionA);
+
+      backendState = backend.getGameState();
+      sandboxState = sandbox.getGameState();
+      expectStateParity(backendState, sandboxState, 'combined-multi-region-hex-after-regionA');
     } finally {
       findAllLinesSpy.mockRestore();
     }

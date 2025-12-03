@@ -1,0 +1,26 @@
+"""
+Distributed training infrastructure for local Mac cluster and cloud deployment.
+
+This module provides:
+- Worker discovery via Bonjour/mDNS
+- HTTP client for distributed task execution
+- Coordinator utilities for CMA-ES population evaluation
+"""
+
+from .discovery import (
+    WorkerDiscovery,
+    discover_workers,
+    wait_for_workers,
+)
+from .client import (
+    WorkerClient,
+    DistributedEvaluator,
+)
+
+__all__ = [
+    "WorkerDiscovery",
+    "discover_workers",
+    "wait_for_workers",
+    "WorkerClient",
+    "DistributedEvaluator",
+]

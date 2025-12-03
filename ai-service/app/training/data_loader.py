@@ -276,7 +276,7 @@ class FileHandle:
             policy_indices_list,
             policy_values_list,
         )
-    
+
     def close(self) -> None:
         """Close file handle and release resources."""
         if self._data is not None:

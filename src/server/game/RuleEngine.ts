@@ -41,6 +41,16 @@ import { getMovementDirectionsForBoardType } from '../../shared/engine/core';
 import { flagEnabled, debugLog } from '../../shared/utils/envFlags';
 import { BoardManager } from './BoardManager';
 
+/**
+ * Backend `RuleEngine` adapter around the shared TS rules engine.
+ *
+ * This class is allowed to compose shared helpers and aggregates but must
+ * not define independent rules semantics. When in doubt, change the shared
+ * engine under `src/shared/engine/**` and update this adapter to call into
+ * it, following the ownership documented in
+ * `docs/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
+ */
+
 export class RuleEngine {
   private boardManager: BoardManager;
   private boardConfig: (typeof BOARD_CONFIGS)[keyof typeof BOARD_CONFIGS];

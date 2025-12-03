@@ -107,10 +107,10 @@ class Tournament:
         self.victory_reasons: Dict[str, int] = {
             reason: 0 for reason in VICTORY_REASONS
         }
-        
+
     def _create_ai(self, player_number: int, model_path: str) -> DescentAI:
         """Create an AI instance with specific model weights.
-        
+
         The checkpoint basename (without .pth) is treated as the nn_model_id so
         that NeuralNetAI can load it via AIConfig.nn_model_id. We keep the
         manual load as a fallback in case older DescentAI/NeuralNetAI versions
@@ -135,7 +135,7 @@ class Tournament:
                 ai.neural_net.model.eval()
             except Exception as e:
                 logger.error(f"Failed to load model {model_path}: {e}")
-        
+
         return ai
 
     def run(self) -> Dict[str, int]:
@@ -168,10 +168,10 @@ class Tournament:
                 p2_model = self.model_path_a
                 p1_label = "B"
                 p2_label = "A"
-                
+
             ai1 = self._create_ai(1, p1_model)
             ai2 = self._create_ai(2, p2_model)
-            
+
             winner, final_state = self._play_game(ai1, ai2)
 
             # Track victory reason for LPS and other victory types.

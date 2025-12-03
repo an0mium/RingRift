@@ -168,6 +168,31 @@ describe('GameHUD', () => {
     expect(screen.getByText(/Connected/)).toBeInTheDocument();
   });
 
+  it('should render reconnecting and disconnected connection statuses (legacy props path)', () => {
+    const gameState = createTestGameState();
+    const currentPlayer = gameState.players[0];
+
+    const { rerender } = render(
+      <GameHUD
+        gameState={gameState}
+        currentPlayer={currentPlayer}
+        connectionStatus="reconnecting"
+      />
+    );
+
+    expect(screen.getByText(/Reconnecting…/)).toBeInTheDocument();
+
+    rerender(
+      <GameHUD
+        gameState={gameState}
+        currentPlayer={currentPlayer}
+        connectionStatus="disconnected"
+      />
+    );
+
+    expect(screen.getByText(/Disconnected/)).toBeInTheDocument();
+  });
+
   it('should show spectator badge when spectating', () => {
     const gameState = createTestGameState();
     const currentPlayer = gameState.players[0];
@@ -259,6 +284,52 @@ describe('GameHUD', () => {
     expect(screen.getByText(/Elimination – eliminate/)).toBeInTheDocument();
     expect(screen.getByText(/Territory – control/)).toBeInTheDocument();
     expect(screen.getByText(/Last Player Standing/)).toBeInTheDocument();
+  });
+
+  describe('spectator banner (view model path)', () => {
+    it('renders spectator mode banner with accessible status when spectating', () => {
+      const gameState = createTestGameState({
+        spectators: ['spectator-1'],
+      });
+
+      const hudViewModel = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: true,
+        currentUserId: 'spectator-1',
+      });
+
+      render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
+
+      const banner = screen.getByRole('status');
+      expect(banner).toBeInTheDocument();
+      expect(banner).toHaveTextContent('Spectator Mode');
+      expect(banner).toHaveAttribute('aria-live', 'polite');
+      expect(screen.getByText('You are watching this game')).toBeInTheDocument();
+      expect(screen.getByText('1 viewer total')).toBeInTheDocument();
+    });
+
+    it('renders spectator count chip with accessible label for non-spectator viewers', () => {
+      const gameState = createTestGameState({
+        spectators: ['spectator-1', 'spectator-2'],
+      });
+
+      const hudViewModel = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: false,
+        currentUserId: 'p1',
+      });
+
+      render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
+
+      const chip = screen.getByRole('status', { name: /2 spectators/ });
+      expect(chip).toBeInTheDocument();
+      expect(chip).toHaveAttribute('title', '2 people watching');
+      expect(screen.getByText('2 watching')).toBeInTheDocument();
+    });
   });
 
   describe('decision phase banner (view model path)', () => {
@@ -442,7 +513,7 @@ describe('GameHUD', () => {
 
       const hudViewModel = toHUDViewModel(gameState, {
         instruction: undefined,
-        connectionStatus: 'connected',
+        connectionStatus: 'reconnecting',
         lastHeartbeatAt: Date.now(),
         isSpectator: false,
         currentUserId: 'p2',
@@ -452,6 +523,10 @@ describe('GameHUD', () => {
       });
 
       render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
+
+      // Connection banner should reflect reconnecting status while the
+      // decision banner continues to surface spectator-oriented copy.
+      expect(screen.getByText(/Connection: Reconnecting…/)).toBeInTheDocument();
 
       const banner = screen.getByTestId('decision-phase-banner');
       expect(banner).toBeInTheDocument();

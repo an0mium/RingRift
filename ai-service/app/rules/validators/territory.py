@@ -25,7 +25,7 @@ class TerritoryValidator(Validator):
         # 4. Region Existence & Disconnection Check
         # For PROCESS_TERRITORY_REGION, we are choosing a region to keep.
         # The move should correspond to a disconnected region in the state.
-        
+
         if move.type == MoveType.PROCESS_TERRITORY_REGION:
             # In TS, we check if the region ID exists in the disconnected
             # regions. Here, we check if there ARE any disconnected regions for
@@ -39,7 +39,7 @@ class TerritoryValidator(Validator):
                 if t.controlling_player == move.player and t.is_disconnected:
                     has_disconnected = True
                     break
-            
+
             if not has_disconnected:
                 return False
 
@@ -48,7 +48,7 @@ class TerritoryValidator(Validator):
         # have rings outside the disconnected region (or generally available).
         # This is a complex check in TS (canEliminateFromStack).
         # For now, we ensure the stack belongs to the player.
-        
+
         if move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
             if not move.to:
                 return False

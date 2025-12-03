@@ -17,6 +17,7 @@ import {
 import { evaluateVictory } from '../../src/shared/engine/victoryLogic';
 import type { GameState, Territory, Position } from '../../src/shared/types/game';
 import { positionToString } from '../../src/shared/types/game';
+import { computeProgressSnapshot } from '../../src/shared/engine/core';
 
 describe('Near-victory territory scenarios', () => {
   describe('createNearVictoryTerritoryFixture', () => {
@@ -103,7 +104,12 @@ describe('Near-victory territory scenarios', () => {
 
       const [, region] = regionEntry;
 
-      // Apply territory processing effects
+      // Capture S-invariant before processing for numeric cross-check.
+      const beforeSnapshot = computeProgressSnapshot(state);
+      const SBefore = beforeSnapshot.S;
+
+      // Apply territory processing effects (region collapse only; this
+      // fixture does not model self-elimination).
       for (const space of region.spaces) {
         state.board.collapsedSpaces.set(positionToString(space), 1);
       }
@@ -117,6 +123,13 @@ describe('Near-victory territory scenarios', () => {
       expect(result.isGameOver).toBe(true);
       expect(result.winner).toBe(1);
       expect(result.reason).toBe('territory_control');
+
+      // S-invariant delta should equal the number of newly collapsed
+      // spaces in this curated near-victory scenario.
+      const afterSnapshot = computeProgressSnapshot(state);
+      const SAfter = afterSnapshot.S;
+      const deltaS = SAfter - SBefore;
+      expect(deltaS).toBe(region.spaces.length);
     });
 
     it('should correctly calculate territory percentages', () => {

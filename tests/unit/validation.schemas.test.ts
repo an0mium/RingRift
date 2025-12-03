@@ -37,6 +37,9 @@ import {
   ResetPasswordSchema,
   createSuccessResponse,
   createErrorResponse,
+  ValidationError,
+  AuthenticationError,
+  AuthorizationError,
   type MoveInput,
 } from '../../src/shared/validation/schemas';
 import type { MoveType } from '../../src/shared/types/game';
@@ -117,6 +120,20 @@ describe('Validation Schemas', () => {
         expect(result.data.limit).toBe(50);
         expect(result.data.offset).toBe(100);
       }
+    });
+
+    it('accepts supported boardType filters and rejects invalid values', () => {
+      const boardTypes = ['square8', 'square19', 'hexagonal'] as const;
+
+      for (const boardType of boardTypes) {
+        const result = GameListingQuerySchema.safeParse({ boardType });
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.boardType).toBe(boardType);
+        }
+      }
+
+      expect(GameListingQuerySchema.safeParse({ boardType: 'circle' as any }).success).toBe(false);
     });
 
     it('rejects invalid status or out-of-range values', () => {
@@ -264,9 +281,74 @@ describe('Validation Schemas', () => {
         }).success
       ).toBe(false);
     });
+
+    it('accepts aiOpponents config and optional rulesOptions', () => {
+      const result = CreateGameSchema.safeParse({
+        ...validGame,
+        aiOpponents: {
+          count: 2,
+          difficulty: [3, 5],
+          mode: 'local_heuristic',
+          aiType: 'heuristic',
+        },
+        rulesOptions: {
+          swapRuleEnabled: true,
+        },
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.aiOpponents?.count).toBe(2);
+        expect(result.data.aiOpponents?.mode).toBe('local_heuristic');
+        expect(result.data.aiOpponents?.aiType).toBe('heuristic');
+        expect(result.data.rulesOptions?.swapRuleEnabled).toBe(true);
+      }
+    });
+
+    it('accepts all supported aiOpponents mode and aiType options', () => {
+      const modes = ['local_heuristic', 'service'] as const;
+      const aiTypes = ['random', 'heuristic', 'minimax', 'mcts'] as const;
+
+      for (const mode of modes) {
+        const result = CreateGameSchema.safeParse({
+          ...validGame,
+          aiOpponents: {
+            count: 1,
+            difficulty: [5],
+            mode,
+            aiType: 'random',
+          },
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.aiOpponents?.mode).toBe(mode);
+        }
+      }
+
+      for (const aiType of aiTypes) {
+        const result = CreateGameSchema.safeParse({
+          ...validGame,
+          aiOpponents: {
+            count: 1,
+            difficulty: [5],
+            mode: 'service',
+            aiType,
+          },
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.aiOpponents?.aiType).toBe(aiType);
+        }
+      }
+    });
   });
 
   describe('MoveSchema', () => {
+    // Structural validation for wire-level MovePayload as described in
+    // docs/CANONICAL_ENGINE_API.md (player_move) and mapped under the
+    // schemas/payload row in RULES_SCENARIO_MATRIX.md.
     it('accepts a valid place_ring move with string position', () => {
       const result = MoveSchema.safeParse({
         moveType: 'place_ring',
@@ -316,6 +398,22 @@ describe('Validation Schemas', () => {
         moveNumber: 1.5,
       });
       expect(result.success).toBe(false);
+    });
+
+    it('rejects moves with malformed position payloads', () => {
+      const numberPositionResult = MoveSchema.safeParse({
+        moveType: 'place_ring',
+        position: 123 as any,
+      });
+      expect(numberPositionResult.success).toBe(false);
+
+      const missingToResult = MoveSchema.safeParse({
+        moveType: 'move_ring',
+        position: {
+          from: { x: 0, y: 0 },
+        } as any,
+      });
+      expect(missingToResult.success).toBe(false);
     });
   });
 
@@ -388,6 +486,8 @@ describe('Validation Schemas', () => {
   });
 
   describe('SocketEventSchema', () => {
+    // Structural validation for generic WebSocket event envelopes used by
+    // docs/CANONICAL_ENGINE_API.md and referenced from RULES_SCENARIO_MATRIX.md.
     it('accepts minimal valid event payload', () => {
       const result = SocketEventSchema.safeParse({
         event: 'player_move',
@@ -407,6 +507,29 @@ describe('Validation Schemas', () => {
           data: {},
         }).success
       ).toBe(false);
+    });
+
+    it('accepts an optional Date timestamp when present', () => {
+      const now = new Date();
+      const result = SocketEventSchema.safeParse({
+        event: 'player_move',
+        data: {},
+        timestamp: now,
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.timestamp).toEqual(now);
+      }
+    });
+
+    it('rejects non-Date timestamps', () => {
+      const result = SocketEventSchema.safeParse({
+        event: 'player_move',
+        data: {},
+        timestamp: 'not-a-date' as any,
+      });
+      expect(result.success).toBe(false);
     });
   });
 
@@ -461,6 +584,47 @@ describe('Validation Schemas', () => {
       expect(ChatMessageSchema.safeParse({ ...base, content: 'a'.repeat(501) }).success).toBe(
         false
       );
+    });
+
+    it('defaults type to \"game\" when omitted', () => {
+      const result = ChatMessageSchema.safeParse({
+        gameId: '123e4567-e89b-12d3-a456-426614174000',
+        content: 'Hello world',
+      });
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.type).toBe('game');
+        expect(result.data.recipientId).toBeUndefined();
+      }
+    });
+
+    it('accepts spectator and private message types', () => {
+      const base = {
+        gameId: '123e4567-e89b-12d3-a456-426614174000',
+        content: 'Hello from spectator',
+      };
+
+      const spectator = ChatMessageSchema.safeParse({
+        ...base,
+        type: 'spectator',
+      });
+      expect(spectator.success).toBe(true);
+      if (spectator.success) {
+        expect(spectator.data.type).toBe('spectator');
+        expect(spectator.data.recipientId).toBeUndefined();
+      }
+
+      const recipientId = '123e4567-e89b-12d3-a456-426614174000';
+      const privateMessage = ChatMessageSchema.safeParse({
+        ...base,
+        type: 'private',
+        recipientId,
+      });
+      expect(privateMessage.success).toBe(true);
+      if (privateMessage.success) {
+        expect(privateMessage.data.type).toBe('private');
+        expect(privateMessage.data.recipientId).toBe(recipientId);
+      }
     });
   });
 
@@ -551,6 +715,31 @@ describe('Validation Schemas', () => {
       });
 
       expect(result.success).toBe(false);
+    });
+
+    it('accepts tournament without registrationDeadline', () => {
+      const now = Date.now();
+      const startsAt = new Date(now + 2 * 60 * 60 * 1000);
+
+      const result = CreateTournamentSchema.safeParse({
+        name: 'Open Registration Tournament',
+        format: 'swiss',
+        boardType: 'hexagonal',
+        maxParticipants: 32,
+        timeControl: {
+          initialTime: 300,
+          increment: 3,
+        },
+        isRated: false,
+        startsAt,
+        // registrationDeadline intentionally omitted
+      });
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.name).toBe('Open Registration Tournament');
+        expect(result.data.registrationDeadline).toBeUndefined();
+      }
     });
   });
 
@@ -705,6 +894,46 @@ describe('Validation Schemas', () => {
         }).success
       ).toBe(false);
     });
+
+    it('accepts other board types and terminal statuses', () => {
+      const base = {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        players: [basePlayer],
+        currentPlayer: 1,
+        isRated: false,
+        maxPlayers: 4,
+      };
+
+      const variants = [
+        {
+          boardType: 'square19' as const,
+          currentPhase: 'movement' as const,
+          gameStatus: 'active' as const,
+        },
+        {
+          boardType: 'hexagonal' as const,
+          currentPhase: 'territory_processing' as const,
+          gameStatus: 'completed' as const,
+        },
+      ];
+
+      for (const variant of variants) {
+        const result = GameStateSchema.safeParse({
+          ...base,
+          boardType: variant.boardType,
+          currentPhase: variant.currentPhase,
+          currentPlayer: 2,
+          gameStatus: variant.gameStatus,
+        });
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.boardType).toBe(variant.boardType);
+          expect(result.data.currentPhase).toBe(variant.currentPhase);
+          expect(result.data.gameStatus).toBe(variant.gameStatus);
+        }
+      }
+    });
   });
 
   describe('DecisionAutoResolvedMetaSchema', () => {
@@ -804,6 +1033,8 @@ describe('Sanitization Utilities', () => {
     it('handles non-string input gracefully', () => {
       expect(sanitizeString(null as any)).toBe('');
       expect(sanitizeString(undefined as any)).toBe('');
+      expect(sanitizeString(42 as any)).toBe('');
+      expect(sanitizeString({} as any)).toBe('');
     });
   });
 
@@ -817,6 +1048,13 @@ describe('Sanitization Utilities', () => {
 
     it('handles empty strings', () => {
       expect(sanitizeHtmlContent('')).toBe('');
+    });
+
+    it('handles non-string inputs gracefully', () => {
+      expect(sanitizeHtmlContent(null as any)).toBe('');
+      expect(sanitizeHtmlContent(undefined as any)).toBe('');
+      expect(sanitizeHtmlContent(42 as any)).toBe('');
+      expect(sanitizeHtmlContent({} as any)).toBe('');
     });
   });
 
@@ -832,6 +1070,18 @@ describe('Sanitization Utilities', () => {
         expect(result.data).toBe('helloworld');
       }
     });
+
+    it('uses default maxLength and minLength when not provided', () => {
+      const schemaDefaults = createSanitizedStringSchema();
+      // Default minLength is 1, so empty string fails
+      expect(schemaDefaults.safeParse('').success).toBe(false);
+      // Single char should pass with default minLength of 1
+      const singleChar = schemaDefaults.safeParse('x');
+      expect(singleChar.success).toBe(true);
+      if (singleChar.success) {
+        expect(singleChar.data).toBe('x');
+      }
+    });
   });
 
   describe('SafeStringSchema', () => {
@@ -841,6 +1091,61 @@ describe('Sanitization Utilities', () => {
       if (result.success) {
         expect(result.data).toBe('helloworld');
       }
+    });
+  });
+});
+
+describe('Custom Error Classes', () => {
+  describe('ValidationError', () => {
+    it('creates error with message only', () => {
+      const error = new ValidationError('Field is required');
+      expect(error).toBeInstanceOf(Error);
+      expect(error.name).toBe('ValidationError');
+      expect(error.message).toBe('Field is required');
+      expect(error.field).toBeUndefined();
+      expect(error.code).toBeUndefined();
+    });
+
+    it('creates error with message and field', () => {
+      const error = new ValidationError('Invalid format', 'email');
+      expect(error.message).toBe('Invalid format');
+      expect(error.field).toBe('email');
+      expect(error.code).toBeUndefined();
+    });
+
+    it('creates error with message, field, and code', () => {
+      const error = new ValidationError('Too short', 'password', 'E_MIN_LENGTH');
+      expect(error.message).toBe('Too short');
+      expect(error.field).toBe('password');
+      expect(error.code).toBe('E_MIN_LENGTH');
+    });
+  });
+
+  describe('AuthenticationError', () => {
+    it('creates error with default message', () => {
+      const error = new AuthenticationError();
+      expect(error).toBeInstanceOf(Error);
+      expect(error.name).toBe('AuthenticationError');
+      expect(error.message).toBe('Authentication required');
+    });
+
+    it('creates error with custom message', () => {
+      const error = new AuthenticationError('Token expired');
+      expect(error.message).toBe('Token expired');
+    });
+  });
+
+  describe('AuthorizationError', () => {
+    it('creates error with default message', () => {
+      const error = new AuthorizationError();
+      expect(error).toBeInstanceOf(Error);
+      expect(error.name).toBe('AuthorizationError');
+      expect(error.message).toBe('Insufficient permissions');
+    });
+
+    it('creates error with custom message', () => {
+      const error = new AuthorizationError('Admin access required');
+      expect(error.message).toBe('Admin access required');
     });
   });
 });

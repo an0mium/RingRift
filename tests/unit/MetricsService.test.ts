@@ -413,6 +413,19 @@ describe('MetricsService', () => {
         /ringrift_ai_turn_request_terminal_total\{kind="canceled",code="none",ai_error_type="client_abort"\} 1/
       );
     });
+
+    it('should record timed_out AI turn outcomes with explicit labels', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordAITurnRequestTerminal('timed_out', 'AI_SERVICE_TIMEOUT', 'deadline_exceeded');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_ai_turn_request_terminal_total');
+      expect(output).toMatch(
+        /ringrift_ai_turn_request_terminal_total\{kind="timed_out",code="AI_SERVICE_TIMEOUT",ai_error_type="deadline_exceeded"\} 1/
+      );
+    });
   });
 
   describe('Orchestrator rollout metrics', () => {
@@ -470,6 +483,351 @@ describe('MetricsService', () => {
       // Should include process metrics
       expect(output).toContain('process_cpu');
       expect(output).toContain('nodejs_heap');
+    });
+  });
+
+  describe('Rules Correctness Metrics', () => {
+    it('should track parity checks', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordParityCheck(true);
+      metrics.recordParityCheck(false);
+      metrics.recordParityCheck(true);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_parity_checks_total');
+      expect(output).toContain('result="success"');
+      expect(output).toContain('result="failure"');
+    });
+
+    it('should track contract test metrics', async () => {
+      const metrics = getMetricsService();
+
+      metrics.updateContractTestMetrics(95, 100);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_contract_tests_passing 95');
+      expect(output).toContain('ringrift_contract_tests_total 100');
+    });
+
+    it('should track rules errors', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordRulesError('validation');
+      metrics.recordRulesError('mutation');
+      metrics.recordRulesError('internal');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_rules_errors_total');
+      expect(output).toContain('error_type="validation"');
+      expect(output).toContain('error_type="mutation"');
+      expect(output).toContain('error_type="internal"');
+    });
+
+    it('should track line detection duration', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordLineDetection(25);
+      metrics.recordLineDetection(100);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_line_detection_duration_ms');
+    });
+
+    it('should track capture chain depth', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordCaptureChainDepth(2);
+      metrics.recordCaptureChainDepth(5);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_capture_chain_depth');
+    });
+
+    it('should ignore capture chain depth of 0 or less', async () => {
+      const metrics = getMetricsService();
+
+      // Before recording anything, get initial state
+      const outputBefore = await metrics.getMetrics();
+      const beforeMatch = outputBefore.match(/ringrift_capture_chain_depth_count (\d+)/);
+      const countBefore = beforeMatch ? parseInt(beforeMatch[1], 10) : 0;
+
+      // Try to record invalid depths
+      metrics.recordCaptureChainDepth(0);
+      metrics.recordCaptureChainDepth(-1);
+
+      const outputAfter = await metrics.getMetrics();
+      const afterMatch = outputAfter.match(/ringrift_capture_chain_depth_count (\d+)/);
+      const countAfter = afterMatch ? parseInt(afterMatch[1], 10) : 0;
+
+      // Count should not have increased
+      expect(countAfter).toBe(countBefore);
+    });
+
+    it('should track rules parity mismatches', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordRulesParityMismatch('validation', 'runtime_shadow');
+      metrics.recordRulesParityMismatch('hash', 'contract_vectors_v2');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_rules_parity_mismatches_total');
+      expect(output).toContain('mismatch_type="validation"');
+      expect(output).toContain('suite="runtime_shadow"');
+    });
+  });
+
+  describe('Move Rejection Metrics', () => {
+    it('should track rejected moves by reason', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordMoveRejected('rules_invalid');
+      metrics.recordMoveRejected('authz');
+      metrics.recordMoveRejected('decision_timeout_auto_rejected');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_moves_rejected_total');
+      expect(output).toContain('reason="rules_invalid"');
+      expect(output).toContain('reason="authz"');
+      expect(output).toContain('reason="decision_timeout_auto_rejected"');
+    });
+  });
+
+  describe('Cache Metrics', () => {
+    it('should track cache hits', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordCacheHit();
+      metrics.recordCacheHit();
+      metrics.recordCacheHit();
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_cache_hits_total 3');
+    });
+
+    it('should track cache misses', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordCacheMiss();
+      metrics.recordCacheMiss();
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_cache_misses_total 2');
+    });
+  });
+
+  describe('WebSocket Reconnection Metrics', () => {
+    it('should track reconnection attempts', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordWebsocketReconnection('success');
+      metrics.recordWebsocketReconnection('failed');
+      metrics.recordWebsocketReconnection('timeout');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_websocket_reconnection_total');
+      expect(output).toContain('result="success"');
+      expect(output).toContain('result="failed"');
+      expect(output).toContain('result="timeout"');
+    });
+  });
+
+  describe('Abnormal Termination Metrics', () => {
+    it('should track abnormal terminations', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordAbnormalTermination('timeout');
+      metrics.recordAbnormalTermination('disconnect');
+      metrics.recordAbnormalTermination('error');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_game_session_abnormal_termination_total');
+      expect(output).toContain('reason="timeout"');
+      expect(output).toContain('reason="disconnect"');
+    });
+  });
+
+  describe('AI Request Latency Metrics', () => {
+    it('should track AI request latency in milliseconds', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordAIRequestLatencyMs(150, 'success');
+      metrics.recordAIRequestLatencyMs(500, 'fallback');
+      metrics.recordAIRequestLatencyMs(5000, 'timeout');
+      metrics.recordAIRequestLatencyMs(100, 'error');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_ai_request_latency_ms');
+      expect(output).toContain('outcome="success"');
+      expect(output).toContain('outcome="fallback"');
+      expect(output).toContain('outcome="timeout"');
+      expect(output).toContain('outcome="error"');
+    });
+
+    it('should track AI request timeouts', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordAIRequestTimeout();
+      metrics.recordAIRequestTimeout();
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_ai_request_timeout_total 2');
+    });
+  });
+
+  describe('Additional Business Metric Helpers', () => {
+    it('should set active games directly', async () => {
+      const metrics = getMetricsService();
+
+      metrics.setActiveGames(42);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_games_active 42');
+    });
+
+    it('should set WebSocket connections directly', async () => {
+      const metrics = getMetricsService();
+
+      metrics.setWebSocketConnections(100);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('ringrift_websocket_connections 100');
+    });
+  });
+
+  describe('Invariant ID Mapping', () => {
+    it('should map TOTAL_RINGS_ELIMINATED_DECREASED to INV-ELIMINATION-MONOTONIC', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordOrchestratorInvariantViolation('TOTAL_RINGS_ELIMINATED_DECREASED');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain(
+        'ringrift_orchestrator_invariant_violations_total{type="TOTAL_RINGS_ELIMINATED_DECREASED",invariant_id="INV-ELIMINATION-MONOTONIC"}'
+      );
+    });
+
+    it('should map ACTIVE_NO_CANDIDATE_MOVES to INV-ACTIVE-NO-MOVES', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordOrchestratorInvariantViolation('ACTIVE_NO_CANDIDATE_MOVES');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain(
+        'ringrift_orchestrator_invariant_violations_total{type="ACTIVE_NO_CANDIDATE_MOVES",invariant_id="INV-ACTIVE-NO-MOVES"}'
+      );
+    });
+
+    it('should map structural invariant violations to INV-STATE-STRUCTURAL', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordOrchestratorInvariantViolation('NEGATIVE_STACK_HEIGHT');
+      metrics.recordOrchestratorInvariantViolation('STACK_HEIGHT_MISMATCH');
+      metrics.recordOrchestratorInvariantViolation('INVALID_CAP_HEIGHT');
+      metrics.recordOrchestratorInvariantViolation('NEGATIVE_ELIMINATED_RINGS');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('invariant_id="INV-STATE-STRUCTURAL"');
+    });
+
+    it('should map orchestrator validation failures to INV-ORCH-VALIDATION', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordOrchestratorInvariantViolation('ORCHESTRATOR_VALIDATE_MOVE_FAILED');
+      metrics.recordOrchestratorInvariantViolation('HOST_REJECTED_MOVE');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('invariant_id="INV-ORCH-VALIDATION"');
+    });
+
+    it('should map termination anomalies to INV-TERMINATION', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordOrchestratorInvariantViolation('UNEXPECTED_GAME_STATUS');
+      metrics.recordOrchestratorInvariantViolation('UNHANDLED_EXCEPTION');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('invariant_id="INV-TERMINATION"');
+    });
+
+    it('should map unknown violation types to INV-TERMINATION as fallback', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordOrchestratorInvariantViolation('UNKNOWN_VIOLATION_TYPE');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain(
+        'ringrift_orchestrator_invariant_violations_total{type="UNKNOWN_VIOLATION_TYPE",invariant_id="INV-TERMINATION"}'
+      );
+    });
+
+    it('should allow explicit invariantId override', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordOrchestratorInvariantViolation('CUSTOM_TYPE', 'INV-CUSTOM');
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain(
+        'ringrift_orchestrator_invariant_violations_total{type="CUSTOM_TYPE",invariant_id="INV-CUSTOM"}'
+      );
+    });
+  });
+
+  describe('Path Normalization Edge Cases', () => {
+    it('should strip query strings from paths', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordHttpRequest('GET', '/api/games?page=1&limit=10', 200, 0.05);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('path="/api/games"');
+      expect(output).not.toContain('page=');
+    });
+
+    it('should normalize MongoDB ObjectIds', async () => {
+      const metrics = getMetricsService();
+
+      metrics.recordHttpRequest('GET', '/api/users/507f1f77bcf86cd799439011', 200, 0.05);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('path="/api/users/:id"');
+    });
+
+    it('should keep short literal paths unchanged', async () => {
+      const metrics = getMetricsService();
+
+      // Short paths that don't look like IDs are preserved
+      metrics.recordHttpRequest('GET', '/api/health', 200, 0.05);
+      metrics.recordHttpRequest('GET', '/api/status', 200, 0.05);
+
+      const output = await metrics.getMetrics();
+
+      expect(output).toContain('path="/api/health"');
+      expect(output).toContain('path="/api/status"');
     });
   });
 });

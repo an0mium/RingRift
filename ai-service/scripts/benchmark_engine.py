@@ -46,21 +46,21 @@ def create_initial_state():
 
 def run_benchmark(num_games=10):
     print(f"Running benchmark: MCTS vs Descent ({num_games} games)", flush=True)
-    
+
     # Use moderate think time for benchmark accuracy
     config = AIConfig(difficulty=5, randomness=0.1, thinkTime=500)
-    
+
     # MCTS vs Descent
     mcts_wins = 0
     descent_wins = 0
     draws = 0
-    
+
     rules_engine = DefaultRulesEngine()
 
     for i in range(num_games):
         # Clear cache between games to prevent state leakage
         GameEngine.clear_cache()
-        
+
         # Alternate starting player
         if i % 2 == 0:
             p1_ai = MCTSAI(1, config)
@@ -72,37 +72,37 @@ def run_benchmark(num_games=10):
             p2_ai = MCTSAI(2, config)
             p1_name = "Descent"
             p2_name = "MCTS"
-            
-            
+
+
         state = create_initial_state()
         move_count = 0
-        
+
         print(f"Game {i+1}: {p1_name} (P1) vs {p2_name} (P2)", flush=True)
-        
+
         while state.game_status == GameStatus.ACTIVE and move_count < 200:
             current_player = state.current_player
             ai = p1_ai if current_player == 1 else p2_ai
-            
+
             start_time = time.time()
             move = ai.select_move(state)
             duration = time.time() - start_time
-            
+
             if not move:
                 print(f"  No move found for P{current_player} (Phase: {state.current_phase}, MustMove: {state.must_move_from_stack_key})", flush=True)
                 # If no move found, current player loses
                 state.winner = 2 if current_player == 1 else 1
                 state.game_status = GameStatus.FINISHED
                 break
-                
+
             # state = GameEngine.apply_move(state, move)
             state = rules_engine.apply_move(state, move)
             move_count += 1
-            
+
             print(f"  Move {move_count} ({duration:.2f}s) - P{current_player} played {move.type}", flush=True)
-                
+
         winner = state.winner
         print(f"  Winner: P{winner}", flush=True)
-        
+
         # Correct win tracking based on player roles
         if winner == 1:
             if p1_name == "MCTS": mcts_wins += 1
@@ -112,7 +112,7 @@ def run_benchmark(num_games=10):
             else: descent_wins += 1
         else:
             draws += 1
-            
+
     print("\nResults:")
     print(f"MCTS Wins: {mcts_wins}")
     print(f"Descent Wins: {descent_wins}")

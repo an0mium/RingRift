@@ -11,9 +11,11 @@
  * for advanced features. See k6.io/docs/using-k6/protocols/websockets
  */
 
+import http from 'k6/http';
 import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Gauge, Trend } from 'k6/metrics';
+import { loginAndGetToken } from '../auth/helpers.js';
 
 // Custom metrics
 const wsConnections = new Gauge('websocket_connections_active');
@@ -65,41 +67,113 @@ export const options = {
   }
 };
 
-const WS_URL = __ENV.WS_URL || 'ws://localhost:3001';
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:3001';
+/**
+ * WebSocket origin used for Socket.IO connections.
+ *
+ * This may be provided as either:
+ *   - WS_URL=ws://host:port
+ *   - WS_URL=http://host:port
+ *
+ * When not set, it falls back to BASE_URL so local runs behave like the
+ * browser client, which derives its socket origin from VITE_WS_URL /
+ * VITE_API_URL (see src/client/utils/socketBaseUrl.ts and LobbyPage).
+ */
+const WS_BASE = __ENV.WS_URL || BASE_URL;
 const API_PREFIX = '/api';
+
+/**
+ * Build a Socket.IO WebSocket endpoint that matches the production
+ * WebSocketServer contract:
+ *
+ *   - Path: /socket.io/
+ *   - Query params:
+ *       EIO=4&transport=websocket
+ *       token=<JWT> (for auth middleware)
+ *       vu=<VU id> (diagnostic only)
+ *
+ * k6 speaks plain WebSocket frames rather than the full Socket.IO
+ * protocol, but this is sufficient for:
+ *   - Completing the initial handshake (HTTP 101)
+ *   - Exercising WebSocketServer authentication and connection metrics
+ *
+ * The server will likely ignore or close connections that do not send
+ * valid Socket.IO frames after handshake, which is acceptable for this
+ * scenario: we are primarily interested in connection establishment and
+ * handshake throughput, not full game semantics.
+ */
+function buildSocketIoEndpoint(wsBase, token, vu) {
+  let origin = wsBase || '';
+  if (origin.startsWith('http://') || origin.startsWith('https://')) {
+    origin = origin.replace(/^http/, 'ws');
+  }
+  origin = origin.replace(/\/$/, '');
+
+  const path = '/socket.io/';
+  const params = [];
+  // Socket.IO v4 engine and transport selector
+  params.push('EIO=4', 'transport=websocket', `vu=${vu}`);
+  // WebSocketServer authentication middleware accepts the JWT via
+  // either handshake.auth.token (used by the browser client) or
+  // handshake.query.token. We use the query-string form here.
+  if (token) {
+    params.push(`token=${encodeURIComponent(token)}`);
+  }
+
+  const query = params.join('&');
+  return `${origin}${path}?${query}`;
+}
 
 export function setup() {
   console.log('Starting WebSocket connection stress test');
   console.log('Target: 500+ simultaneous WebSocket connections');
   console.log('Duration: 5+ minute sustained connection period');
-  
-  return { wsUrl: WS_URL, baseUrl: BASE_URL };
+
+  // Lightweight health check to match other scenarios and fail fast if
+  // the API is not reachable.
+  const healthCheck = http.get(`${BASE_URL}/health`);
+  check(healthCheck, {
+    'health check successful': (r) => r.status === 200,
+  });
+
+  // Use the shared auth helper so the WebSocket stress test reuses the
+  // canonical /api/auth/login contract with { email, password } and
+  // the same pre-seeded load-test user.
+  const { token, userId } = loginAndGetToken(BASE_URL, {
+    apiPrefix: API_PREFIX,
+    tags: { name: 'auth-login-setup' },
+  });
+
+  return { wsBase: WS_BASE, baseUrl: BASE_URL, token, userId };
 }
 
 export default function(data) {
-  const wsUrl = data.wsUrl;
+  const wsBase = data.wsBase;
   const baseUrl = data.baseUrl;
-  
+  const token = data.token;
+
   // Each VU maintains a WebSocket connection
   const connectionStart = Date.now();
   let messagesSent = 0;
   let messagesReceived = 0;
   let reconnectAttempts = 0;
-  
-  const userId = `ws-test-user-${__VU}`;
-  
-  // WebSocket connection with auth token
-  // Note: Actual URL may need auth token as query param or header
-  // Adjust based on WebSocketServer implementation
-  const wsEndpoint = `${wsUrl}/ws?userId=${userId}&vu=${__VU}`;
-  
-  const res = ws.connect(wsEndpoint, {
-    headers: {
-      'User-Agent': 'k6-load-test'
+
+  // WebSocket connection using the same Socket.IO path and auth
+  // semantics as the browser client (see SocketGameConnection and
+  // LobbyPage). We attach the JWT via the `token` query parameter and
+  // use the Socket.IO engine/transport selectors expected by
+  // WebSocketServer.
+  const wsEndpoint = buildSocketIoEndpoint(wsBase, token, __VU);
+
+  const res = ws.connect(
+    wsEndpoint,
+    {
+      headers: {
+        'User-Agent': 'k6-load-test',
+      },
+      tags: { vu: __VU.toString() },
     },
-    tags: { vu: __VU.toString() }
-  }, function(socket) {
+    function (socket) {
     
     // Track active connections
     wsConnections.add(1);

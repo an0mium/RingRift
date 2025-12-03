@@ -48,14 +48,14 @@ def classify_weight(
     negative_threshold: float = 0.45,
 ) -> WeightClassification:
     """Classify a weight based on its win rate.
-    
+
     Args:
         weight_name: Name of the weight
         win_rate: Win rate from sensitivity test (0.0 to 1.0)
         original_value: Original value from BASE_V1_BALANCED_WEIGHTS
         positive_threshold: Win rate threshold for positive signal (default 0.55)
         negative_threshold: Win rate threshold for negative signal (default 0.45)
-    
+
     Returns:
         WeightClassification with classification and recommended CMA-ES seed value
     """
@@ -98,26 +98,26 @@ def analyze_sensitivity_results(
     negative_threshold: float = 0.45,
 ) -> List[WeightClassification]:
     """Analyze sensitivity test results and classify all weights.
-    
+
     Args:
         results_path: Path to sensitivity test JSON output
         positive_threshold: Win rate threshold for positive signal
         negative_threshold: Win rate threshold for negative signal
-    
+
     Returns:
         List of WeightClassification objects sorted by win rate (descending)
     """
     with open(results_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    
+
     results = data.get('results', [])
     classifications: List[WeightClassification] = []
-    
+
     for result in results:
         weight_name = result['weight']
         win_rate = result['win_rate']
         original_value = BASE_V1_BALANCED_WEIGHTS.get(weight_name, 1.0)
-        
+
         classification = classify_weight(
             weight_name=weight_name,
             win_rate=win_rate,
@@ -126,7 +126,7 @@ def analyze_sensitivity_results(
             negative_threshold=negative_threshold,
         )
         classifications.append(classification)
-    
+
     # Sort by win rate descending
     classifications.sort(key=lambda c: c.win_rate, reverse=True)
     return classifications
@@ -137,30 +137,30 @@ def generate_cmaes_seed_weights(
     include_noise: bool = False,
 ) -> Dict[str, float]:
     """Generate CMA-ES seed weights from classifications.
-    
+
     Args:
         classifications: List of weight classifications
-        include_noise: If True, include noise-band weights at 0.0; 
+        include_noise: If True, include noise-band weights at 0.0;
                       if False, use a small value (0.1) to allow exploration
-    
+
     Returns:
         Dictionary of weight name -> CMA-ES seed value
     """
     weights: Dict[str, float] = {}
-    
+
     for c in classifications:
         if c.classification == 'noise' and not include_noise:
             # For noise band, use small non-zero value to allow exploration
             weights[c.weight_name] = 0.1 * (1.0 if c.original_value >= 0 else -1.0)
         else:
             weights[c.weight_name] = c.cmaes_seed_value
-    
+
     # Ensure all keys from HEURISTIC_WEIGHT_KEYS are present
     for key in HEURISTIC_WEIGHT_KEYS:
         if key not in weights:
             # Weight not in results - use original value
             weights[key] = BASE_V1_BALANCED_WEIGHTS.get(key, 0.0)
-    
+
     return weights
 
 
@@ -169,26 +169,26 @@ def print_classification_report(classifications: List[WeightClassification]) -> 
     print("\n" + "=" * 80)
     print("WEIGHT CLASSIFICATION REPORT")
     print("=" * 80)
-    
+
     positive = [c for c in classifications if c.classification == 'positive']
     negative = [c for c in classifications if c.classification == 'negative']
     noise = [c for c in classifications if c.classification == 'noise']
-    
+
     print(f"\n📈 STRONG POSITIVE SIGNAL ({len(positive)} weights) - Keep with positive sign:")
     print("-" * 80)
     for c in positive:
         print(f"  {c.weight_name:<45} WR: {c.win_rate:>6.1%} -> seed: {c.cmaes_seed_value:>8.2f}")
-    
+
     print(f"\n📉 STRONG NEGATIVE SIGNAL ({len(negative)} weights) - Invert sign for CMA-ES:")
     print("-" * 80)
     for c in negative:
         print(f"  {c.weight_name:<45} WR: {c.win_rate:>6.1%} -> seed: {c.cmaes_seed_value:>8.2f} (inverted)")
-    
+
     print(f"\n📊 NOISE BAND ({len(noise)} weights) - Candidate for pruning/zero:")
     print("-" * 80)
     for c in noise:
         print(f"  {c.weight_name:<45} WR: {c.win_rate:>6.1%} -> seed: {c.cmaes_seed_value:>8.2f}")
-    
+
     print("\n" + "=" * 80)
     print("SUMMARY")
     print("=" * 80)
@@ -231,13 +231,13 @@ def main():
         action="store_true",
         help="Include noise-band weights as exactly 0.0 (default: use small values for exploration)"
     )
-    
+
     args = parser.parse_args()
-    
+
     if not os.path.exists(args.input):
         print(f"Error: Input file not found: {args.input}")
         sys.exit(1)
-    
+
     # Load and analyze results
     print(f"Loading sensitivity results from: {args.input}")
     classifications = analyze_sensitivity_results(
@@ -245,23 +245,23 @@ def main():
         positive_threshold=args.positive_threshold,
         negative_threshold=args.negative_threshold,
     )
-    
+
     # Print report
     print_classification_report(classifications)
-    
+
     # Generate CMA-ES seed weights
     cmaes_weights = generate_cmaes_seed_weights(
         classifications,
         include_noise=args.include_noise_zeros,
     )
-    
+
     # Save output
     os.makedirs(os.path.dirname(args.output) or ".", exist_ok=True)
-    
+
     # Load original input metadata
     with open(args.input, 'r', encoding='utf-8') as f:
         input_data = json.load(f)
-    
+
     output_data = {
         "meta": {
             "source": args.input,
@@ -288,10 +288,10 @@ def main():
             for c in classifications
         ]
     }
-    
+
     with open(args.output, 'w', encoding='utf-8') as f:
         json.dump(output_data, f, indent=2, sort_keys=True)
-    
+
     print(f"\nCMA-ES seed weights saved to: {args.output}")
     print("\nTo use with CMA-ES optimization:")
     print(f"  python scripts/run_cmaes_optimization.py --baseline {args.output}")

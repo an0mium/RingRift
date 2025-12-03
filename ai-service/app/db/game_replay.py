@@ -18,11 +18,10 @@ import logging
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, Optional, Tuple
 
-from app.models import BoardType, GameState, GameStatus, Move
+from app.models import BoardType, GameState, Move
 
 logger = logging.getLogger(__name__)
 

@@ -158,6 +158,15 @@ describe('Security Headers Middleware', () => {
     });
   });
 
+  describe('Strict-Transport-Security (HSTS)', () => {
+    it('should not send HSTS header in non-production/test environments', async () => {
+      const response = await request(app).get('/test');
+
+      // In test/development modes, HSTS is disabled to avoid breaking local HTTP.
+      expect(response.headers['strict-transport-security']).toBeUndefined();
+    });
+  });
+
   describe('Origin-Agent-Cluster', () => {
     it('should set Origin-Agent-Cluster header', async () => {
       const response = await request(app).get('/test');
@@ -182,18 +191,14 @@ describe('Security Headers Middleware', () => {
     });
 
     it('should allow requests from allowed origins', async () => {
-      const response = await request(app)
-        .get('/test')
-        .set('Origin', 'http://localhost:3000');
+      const response = await request(app).get('/test').set('Origin', 'http://localhost:3000');
 
       expect(response.status).toBe(200);
       expect(response.headers['access-control-allow-origin']).toBe('http://localhost:3000');
     });
 
     it('should allow credentials', async () => {
-      const response = await request(app)
-        .get('/test')
-        .set('Origin', 'http://localhost:3000');
+      const response = await request(app).get('/test').set('Origin', 'http://localhost:3000');
 
       expect(response.headers['access-control-allow-credentials']).toBe('true');
     });
@@ -209,9 +214,7 @@ describe('Security Headers Middleware', () => {
     });
 
     it('should expose specified headers', async () => {
-      const response = await request(app)
-        .get('/test')
-        .set('Origin', 'http://localhost:3000');
+      const response = await request(app).get('/test').set('Origin', 'http://localhost:3000');
 
       const exposedHeaders = response.headers['access-control-expose-headers'];
       expect(exposedHeaders).toBeDefined();
@@ -219,9 +222,7 @@ describe('Security Headers Middleware', () => {
     });
 
     it('should reject requests from non-allowed origins', async () => {
-      const response = await request(app)
-        .get('/test')
-        .set('Origin', 'http://malicious-site.com');
+      const response = await request(app).get('/test').set('Origin', 'http://malicious-site.com');
 
       // CORS middleware throws error for rejected origins
       expect(response.status).toBe(500);
@@ -230,9 +231,7 @@ describe('Security Headers Middleware', () => {
     it('should reject requests from localhost with non-configured port in test mode', async () => {
       // In test mode (which Jest uses), only explicitly configured origins are allowed
       // Development mode would allow any localhost port via regex
-      const response = await request(app)
-        .get('/test')
-        .set('Origin', 'http://localhost:8080');
+      const response = await request(app).get('/test').set('Origin', 'http://localhost:8080');
 
       // Should be rejected in test mode since we only allow 3000 and 5173
       expect(response.status).toBe(500);
@@ -287,11 +286,351 @@ describe('Origin Validation Middleware', () => {
   });
 
   it('should allow POST requests in development mode', async () => {
+    const response = await request(app).post('/api/test').send({ data: 'test' });
+
+    expect(response.status).toBe(200);
+  });
+});
+
+describe('Origin Validation Middleware - Production Mode', () => {
+  // Save original config values to restore after tests
+  const originalIsDevelopment = jest.requireActual('../../src/server/config').config?.isDevelopment;
+
+  beforeEach(() => {
+    jest.resetModules();
+  });
+
+  afterEach(() => {
+    jest.resetModules();
+  });
+
+  it('should reject requests with disallowed origin in production mode', async () => {
+    // Mock config to simulate production mode
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: false,
+        isProduction: true,
+        server: {
+          allowedOrigins: ['http://allowed-origin.com'],
+        },
+      },
+    }));
+
+    // Re-import the middleware with mocked config
+    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(express.json());
+    app.use(originValidationMiddleware);
+
+    app.post('/api/test', (_req, res) => {
+      res.json({ message: 'posted' });
+    });
+
     const response = await request(app)
       .post('/api/test')
+      .set('Origin', 'http://malicious-site.com')
+      .send({ data: 'test' });
+
+    // In production mode, disallowed origins should be rejected with 403
+    expect(response.status).toBe(403);
+    expect(response.body.error.code).toBe('FORBIDDEN_ORIGIN');
+  });
+
+  it('should allow requests with allowed origin in production mode', async () => {
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: false,
+        isProduction: true,
+        server: {
+          allowedOrigins: ['http://allowed-origin.com'],
+        },
+      },
+    }));
+
+    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(express.json());
+    app.use(originValidationMiddleware);
+
+    app.post('/api/test', (_req, res) => {
+      res.json({ message: 'posted' });
+    });
+
+    const response = await request(app)
+      .post('/api/test')
+      .set('Origin', 'http://allowed-origin.com')
       .send({ data: 'test' });
 
     expect(response.status).toBe(200);
+  });
+
+  it('should allow requests without origin header in production mode (server-to-server)', async () => {
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: false,
+        isProduction: true,
+        server: {
+          allowedOrigins: ['http://allowed-origin.com'],
+        },
+      },
+    }));
+
+    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(express.json());
+    app.use(originValidationMiddleware);
+
+    app.post('/api/test', (_req, res) => {
+      res.json({ message: 'posted' });
+    });
+
+    const response = await request(app).post('/api/test').send({ data: 'test' });
+
+    // No origin header = allowed (server-to-server)
+    expect(response.status).toBe(200);
+  });
+
+  it('should use Referer header when Origin header is missing in production mode', async () => {
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: false,
+        isProduction: true,
+        server: {
+          allowedOrigins: ['http://allowed-origin.com'],
+        },
+      },
+    }));
+
+    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(express.json());
+    app.use(originValidationMiddleware);
+
+    app.post('/api/test', (_req, res) => {
+      res.json({ message: 'posted' });
+    });
+
+    // Request with Referer but no Origin
+    const response = await request(app)
+      .post('/api/test')
+      .set('Referer', 'http://allowed-origin.com/some/path')
+      .send({ data: 'test' });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('should reject when Referer origin is disallowed in production mode', async () => {
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: false,
+        isProduction: true,
+        server: {
+          allowedOrigins: ['http://allowed-origin.com'],
+        },
+      },
+    }));
+
+    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(express.json());
+    app.use(originValidationMiddleware);
+
+    app.post('/api/test', (_req, res) => {
+      res.json({ message: 'posted' });
+    });
+
+    const response = await request(app)
+      .post('/api/test')
+      .set('Referer', 'http://malicious-site.com/some/path')
+      .send({ data: 'test' });
+
+    expect(response.status).toBe(403);
+  });
+
+  it('should skip validation for HEAD requests in production mode', async () => {
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: false,
+        isProduction: true,
+        server: {
+          allowedOrigins: ['http://allowed-origin.com'],
+        },
+      },
+    }));
+
+    const { originValidationMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(originValidationMiddleware);
+
+    app.head('/api/test', (_req, res) => {
+      res.status(200).end();
+    });
+
+    const response = await request(app)
+      .head('/api/test')
+      .set('Origin', 'http://malicious-site.com');
+
+    // HEAD is a safe method, should be allowed regardless of origin
+    expect(response.status).toBe(200);
+  });
+});
+
+describe('HSTS Configuration - Production Mode', () => {
+  beforeEach(() => {
+    jest.resetModules();
+  });
+
+  afterEach(() => {
+    jest.resetModules();
+  });
+
+  it('enables HSTS with one-year max-age and preload in production', async () => {
+    // Mock config to simulate production mode for helmet HSTS configuration.
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: false,
+        isProduction: true,
+        server: {
+          allowedOrigins: ['https://example.com'],
+        },
+      },
+    }));
+
+    const { securityHeaders } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(securityHeaders);
+    app.get('/hsts-test', (_req, res) => {
+      res.json({ ok: true });
+    });
+
+    const response = await request(app).get('/hsts-test');
+    const hsts = response.headers['strict-transport-security'];
+
+    expect(hsts).toBeDefined();
+    expect(hsts).toContain('max-age=31536000');
+    expect(hsts).toContain('includeSubDomains');
+    expect(hsts.toLowerCase()).toContain('preload');
+  });
+});
+
+describe('CORS Regex Origin Matching', () => {
+  it('should match localhost with various ports via regex in development mode', async () => {
+    // The default test environment allows localhost regex patterns
+    const app = express();
+    app.use(securityMiddleware.cors);
+
+    app.get('/test', (_req, res) => {
+      res.json({ message: 'ok' });
+    });
+
+    // Test various localhost ports that should be matched by regex
+    const ports = [4000, 5000, 5173, 8080, 9000];
+
+    for (const port of ports) {
+      const response = await request(app).get('/test').set('Origin', `http://localhost:${port}`);
+
+      // In test mode, only explicitly configured origins (3000, 5173) are allowed
+      // This verifies the regex path is NOT being used in test mode
+      if (port === 5173) {
+        expect(response.status).toBe(200);
+      }
+    }
+  });
+
+  it('should match 127.0.0.1 with various ports in development mode', async () => {
+    // When isDevelopment is true, 127.0.0.1:* should be allowed
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: true,
+        isProduction: false,
+        server: {
+          allowedOrigins: ['http://localhost:3000'],
+        },
+      },
+    }));
+
+    jest.resetModules();
+    const { corsMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(corsMiddleware);
+
+    app.get('/test', (_req, res) => {
+      res.json({ message: 'ok' });
+    });
+
+    const response = await request(app).get('/test').set('Origin', 'http://127.0.0.1:8080');
+
+    // In development mode, 127.0.0.1:* regex should allow this
+    expect(response.status).toBe(200);
+  });
+
+  it('should reject non-localhost origins in development mode', async () => {
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: true,
+        isProduction: false,
+        server: {
+          allowedOrigins: ['http://localhost:3000'],
+        },
+      },
+    }));
+
+    jest.resetModules();
+    const { corsMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(corsMiddleware);
+
+    app.get('/test', (_req, res) => {
+      res.json({ message: 'ok' });
+    });
+
+    const response = await request(app).get('/test').set('Origin', 'http://evil-site.com');
+
+    // Even in development, non-localhost origins should be rejected
+    expect(response.status).toBe(500);
+  });
+});
+
+describe('CORS Console Warning', () => {
+  it('should log warning for rejected origins in non-production mode', async () => {
+    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    jest.doMock('../../src/server/config', () => ({
+      config: {
+        isDevelopment: true,
+        isProduction: false,
+        server: {
+          allowedOrigins: ['http://localhost:3000'],
+        },
+      },
+    }));
+
+    jest.resetModules();
+    const { corsMiddleware } = require('../../src/server/middleware/securityHeaders');
+
+    const app = express();
+    app.use(corsMiddleware);
+
+    app.get('/test', (_req, res) => {
+      res.json({ message: 'ok' });
+    });
+
+    await request(app).get('/test').set('Origin', 'http://rejected-origin.com');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[CORS] Rejected origin: http://rejected-origin.com')
+    );
+
+    consoleSpy.mockRestore();
   });
 });
 

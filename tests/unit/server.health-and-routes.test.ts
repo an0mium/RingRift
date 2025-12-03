@@ -244,6 +244,59 @@ describe('Server health and API info routes', () => {
       // Verify isServiceReady returns true for degraded
       expect(isServiceReady(degradedResponse)).toBe(true);
     });
+
+    it('GET /ready returns 503 when HealthCheckService reports unhealthy', async () => {
+      const unhealthyResponse: HealthCheckResponse = {
+        status: 'unhealthy',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0-test',
+        uptime: 42,
+        checks: {
+          database: { status: 'unhealthy', error: 'Connection refused' },
+        },
+      };
+
+      const readinessSpy = jest
+        .spyOn(HealthCheckService, 'getReadinessStatus')
+        .mockResolvedValue(unhealthyResponse);
+
+      const app = createTestApp();
+
+      const res = await request(app).get('/ready').expect(503);
+
+      expect(res.body.status).toBe('unhealthy');
+      expect(res.body.checks?.database?.status).toBe('unhealthy');
+      expect(res.body.checks?.database?.error).toBe('Connection refused');
+
+      readinessSpy.mockRestore();
+    });
+
+    it('GET /ready returns 200 when HealthCheckService reports degraded (database still healthy)', async () => {
+      const degradedResponse: HealthCheckResponse = {
+        status: 'degraded',
+        timestamp: new Date().toISOString(),
+        version: '1.0.0-test',
+        uptime: 42,
+        checks: {
+          database: { status: 'healthy', latency: 5 },
+          redis: { status: 'degraded', error: 'Redis client not connected' },
+        },
+      };
+
+      const readinessSpy = jest
+        .spyOn(HealthCheckService, 'getReadinessStatus')
+        .mockResolvedValue(degradedResponse);
+
+      const app = createTestApp();
+
+      const res = await request(app).get('/ready').expect(200);
+
+      expect(res.body.status).toBe('degraded');
+      expect(res.body.checks?.database?.status).toBe('healthy');
+      expect(res.body.checks?.redis?.status).toBe('degraded');
+
+      readinessSpy.mockRestore();
+    });
   });
 
   it('GET /api returns API metadata and endpoint map', async () => {

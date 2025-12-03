@@ -37,11 +37,33 @@
 // To run everything (local dev):   npm run test
 // =============================================================================
 
-// Heavy diagnostic suite patterns (excluded from test:core, run by test:diagnostics)
+ // Heavy diagnostic suite patterns (excluded from test:core, run by test:diagnostics)
 const HEAVY_DIAGNOSTIC_SUITES = [
   'GameEngine\\.decisionPhases\\.MoveDriven\\.test\\.ts$',
   'RuleEngine\\.movementCapture\\.test\\.ts$',
 ];
+
+  // Detect when Jest is invoked with coverage so we can safely exclude
+ // heavy diagnostic suites that are known to be unstable under instrumentation.
+ const isCoverageRun = process.argv.includes('--coverage');
+ 
+ const COVERAGE_MAX_WORKERS = 2;
+ const COVERAGE_TEST_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes per-test timeout for coverage runs
+ 
+ // Base ignore patterns that always apply (regardless of coverage).
+const BASE_TEST_PATH_IGNORE_PATTERNS = [
+  '/node_modules/',
+  '/dist/',
+  '/build/',
+  '<rootDir>/tests/e2e/',
+  '<rootDir>/tests/unit/archive/',
+];
+
+// When collecting coverage, also ignore the heavy diagnostics suites to avoid
+// extremely long runtimes and Node heap OOMs.
+const COVERAGE_TEST_PATH_IGNORE_PATTERNS = isCoverageRun
+  ? [...BASE_TEST_PATH_IGNORE_PATTERNS, ...HEAVY_DIAGNOSTIC_SUITES]
+  : BASE_TEST_PATH_IGNORE_PATTERNS;
 
 module.exports = {
   // Use ts-jest preset for TypeScript support
@@ -152,30 +174,30 @@ module.exports = {
     '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/tests/__mocks__/fileMock.js',
   },
   
-  // Ignore patterns
-  // NOTE: E2E Playwright specs live under tests/e2e and are executed via
-  // `npm run test:e2e` / Playwright directly, not via Jest. We exclude them
-  // here so that "npm test" only runs Jest-based unit/contract/integration
-  // suites (see tests/TEST_LAYERS.md for layering).
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    '/dist/',
-    '/build/',
-    '<rootDir>/tests/e2e/',
-    '<rootDir>/tests/unit/archive/',
-  ],
-  
-  // ===========================================================================
-  // GLOBAL TEST TIMEOUT (CI Safety Net)
-  // ===========================================================================
-  // Default timeout for all tests. Individual tests may override with
-  // jest.setTimeout() when needed. This acts as a safety net to prevent
-  // tests from hanging indefinitely in CI environments.
-  //
-  // 30 seconds is generous enough for complex game simulations while still
-  // catching infinite loops and hung promises within a reasonable time.
-  // ===========================================================================
-  testTimeout: 30000,
+    // Ignore patterns
+    // NOTE: E2E Playwright specs live under tests/e2e and are executed via
+    // `npm run test:e2e` / Playwright directly, not via Jest. We exclude them
+    // here so that "npm test" only runs Jest-based unit/contract/integration
+    // suites (see tests/TEST_LAYERS.md for layering).
+    testPathIgnorePatterns: COVERAGE_TEST_PATH_IGNORE_PATTERNS,
+    
+      // ===========================================================================
+      // GLOBAL TEST TIMEOUT (CI Safety Net)
+      // ===========================================================================
+      // Default timeout for all tests. Individual tests may override with
+      // jest.setTimeout() when needed. This acts as a safety net to prevent
+      // tests from hanging indefinitely in CI environments.
+      //
+      // In non-coverage runs, 30 seconds is generous enough for complex game
+      // simulations while still catching infinite loops and hung promises within
+      // a reasonable time.
+      //
+      // Coverage runs get a much higher cap (30 minutes) to account for
+      // instrumentation overhead while still enforcing a finite upper bound on
+      // hung tests.
+      // ===========================================================================
+      testTimeout: isCoverageRun ? COVERAGE_TEST_TIMEOUT_MS : 30000,
+      maxWorkers: isCoverageRun ? COVERAGE_MAX_WORKERS : '50%',
   
   // Verbose output
   // Default to non-verbose so large suites (especially AI simulations)

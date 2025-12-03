@@ -12,6 +12,7 @@ import {
   toEventLogViewModel,
   toBoardViewModel,
   toVictoryViewModel,
+  deriveBoardDecisionHighlights,
   type HUDViewModel,
   type EventLogViewModel,
   type BoardViewModel,
@@ -745,6 +746,40 @@ describe('toHUDViewModel - decisionPhase mapping', () => {
     expect(hud.decisionPhase?.timeRemainingMs).toBe(10000);
 
     spy.mockRestore();
+  });
+
+  it('clamps negative choiceTimeRemainingMs to zero when showCountdown is true', () => {
+    const player1 = createTestPlayer(1, { id: 'user-1', username: 'Alice' });
+    const player2 = createTestPlayer(2, { id: 'user-2', username: 'Bob' });
+
+    const gameState = createTestGameState({
+      players: [player1, player2],
+      currentPlayer: 1,
+      currentPhase: 'line_processing',
+      gameStatus: 'active',
+    });
+
+    const choice: PlayerChoice = {
+      id: 'choice-negative-remaining',
+      type: 'line_reward_option',
+      playerNumber: 1,
+      options: ['add_ring', 'add_stack'] as any,
+      timeoutMs: 10_000,
+    } as any;
+
+    const hud = toHUDViewModel(
+      gameState,
+      createDefaultHUDOptions({
+        currentUserId: 'user-1',
+        pendingChoice: choice,
+        // Simulate a precomputed countdown that has dipped below zero.
+        choiceTimeRemainingMs: -500,
+      } as Partial<ToHUDViewModelOptions>)
+    );
+
+    expect(hud.decisionPhase).toBeDefined();
+    expect(hud.decisionPhase?.showCountdown).toBe(true);
+    expect(hud.decisionPhase?.timeRemainingMs).toBe(0);
   });
 
   it('threads decisionIsServerCapped into HUDDecisionPhaseViewModel when countdown is shown', () => {
@@ -2007,5 +2042,400 @@ describe('Full Transformation Pipeline', () => {
 
     expect(hud.phase.phaseKey).toBe('line_processing');
     expect(hud.subPhaseDetail).toBe('Processing 1 line');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Additional Branch Coverage Tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('AI Type Label Coverage', () => {
+  function createAIPlayerWithType(
+    playerNumber: number,
+    difficulty: number,
+    aiType: string
+  ): Player {
+    return {
+      ...createTestPlayer(playerNumber),
+      type: 'ai',
+      aiDifficulty: difficulty,
+      aiProfile: {
+        difficulty,
+        aiType: aiType as 'heuristic' | 'mcts' | 'minimax' | 'random' | 'descent',
+        mode: 'service',
+      },
+    };
+  }
+
+  it('should label random AI type', () => {
+    const aiPlayer = createAIPlayerWithType(2, 1, 'random');
+    const gameState = createTestGameState({ players: [createTestPlayer(1), aiPlayer] });
+    const options = createDefaultHUDOptions();
+
+    const hud = toHUDViewModel(gameState, options);
+
+    expect(hud.players[1].aiInfo.aiTypeLabel).toBe('Random');
+  });
+
+  it('should label minimax AI type', () => {
+    const aiPlayer = createAIPlayerWithType(2, 5, 'minimax');
+    const gameState = createTestGameState({ players: [createTestPlayer(1), aiPlayer] });
+    const options = createDefaultHUDOptions();
+
+    const hud = toHUDViewModel(gameState, options);
+
+    expect(hud.players[1].aiInfo.aiTypeLabel).toBe('Minimax');
+  });
+
+  it('should label mcts AI type', () => {
+    const aiPlayer = createAIPlayerWithType(2, 7, 'mcts');
+    const gameState = createTestGameState({ players: [createTestPlayer(1), aiPlayer] });
+    const options = createDefaultHUDOptions();
+
+    const hud = toHUDViewModel(gameState, options);
+
+    expect(hud.players[1].aiInfo.aiTypeLabel).toBe('MCTS');
+  });
+
+  it('should label descent AI type', () => {
+    const aiPlayer = createAIPlayerWithType(2, 9, 'descent');
+    const gameState = createTestGameState({ players: [createTestPlayer(1), aiPlayer] });
+    const options = createDefaultHUDOptions();
+
+    const hud = toHUDViewModel(gameState, options);
+
+    expect(hud.players[1].aiInfo.aiTypeLabel).toBe('Descent');
+  });
+
+  it('should default to AI for unknown types', () => {
+    const aiPlayer = createAIPlayerWithType(2, 5, 'unknown_type');
+    const gameState = createTestGameState({ players: [createTestPlayer(1), aiPlayer] });
+    const options = createDefaultHUDOptions();
+
+    const hud = toHUDViewModel(gameState, options);
+
+    expect(hud.players[1].aiInfo.aiTypeLabel).toBe('AI');
+  });
+});
+
+describe('History Entry Description Coverage', () => {
+  it('should format build_stack action', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'build_stack'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'build_stack').action,
+          type: 'build_stack',
+          to: { x: 2, y: 3 },
+          buildAmount: 2,
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('built stack');
+    expect(result.entries[0].text).toContain('(2, 3)');
+    expect(result.entries[0].text).toContain('Δ=2');
+  });
+
+  it('should format continue_capture_segment action', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'continue_capture_segment'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'continue_capture_segment').action,
+          type: 'continue_capture_segment',
+          captureTarget: { x: 3, y: 3 },
+          to: { x: 4, y: 4 },
+          overtakenRings: [2, 2, 2],
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('continued capture');
+    expect(result.entries[0].text).toContain('x3');
+  });
+
+  it('should format process_line action with multiple lines', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'process_line'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'process_line').action,
+          type: 'process_line',
+          formedLines: [
+            { positions: [], player: 1, length: 3, direction: { x: 1, y: 0 } },
+            { positions: [], player: 1, length: 4, direction: { x: 0, y: 1 } },
+          ],
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('processed 2 lines');
+  });
+
+  it('should format process_line action with no lines', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'process_line'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'process_line').action,
+          type: 'process_line',
+          formedLines: [],
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('Line processing');
+  });
+
+  it('should format process_territory_region action with regions', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'process_territory_region'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'process_territory_region').action,
+          type: 'process_territory_region',
+          claimedTerritory: [pos(0, 0), pos(1, 1)],
+          eliminatedRings: [],
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('Territory');
+    expect(result.entries[0].text).toContain('2 regions');
+  });
+
+  it('should format eliminate_rings_from_stack action with eliminations', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'eliminate_rings_from_stack'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'eliminate_rings_from_stack').action,
+          type: 'eliminate_rings_from_stack',
+          eliminatedRings: [
+            { player: 2, count: 3 },
+            { player: 2, count: 2 },
+          ],
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('elimination');
+    expect(result.entries[0].text).toContain('5 rings eliminated');
+  });
+
+  it('should format move_ring action', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'move_ring'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'move_ring').action,
+          type: 'move_ring',
+          from: { x: 1, y: 1 },
+          to: { x: 4, y: 4 },
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('moved from');
+    expect(result.entries[0].text).toContain('(1, 1)');
+    expect(result.entries[0].text).toContain('(4, 4)');
+  });
+
+  it('should format unknown action type with default message', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1),
+        action: {
+          ...createTestHistoryEntry(1, 1).action,
+          type: 'unknown_action_type' as Move['type'],
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('performed');
+    expect(result.entries[0].text).toContain('unknown_action_type');
+  });
+
+  it('should format position with z coordinate for hex boards', () => {
+    const history: GameHistoryEntry[] = [
+      {
+        ...createTestHistoryEntry(1, 1, 'move_stack'),
+        action: {
+          ...createTestHistoryEntry(1, 1, 'move_stack').action,
+          type: 'move_stack',
+          from: { x: 0, y: 0, z: 0 },
+          to: { x: 1, y: -1, z: 0 },
+        },
+      },
+    ];
+
+    const result = toEventLogViewModel(history, [], null);
+
+    expect(result.entries[0].text).toContain('(0, 0, 0)');
+    expect(result.entries[0].text).toContain('(1, -1, 0)');
+  });
+});
+
+describe('deriveBoardDecisionHighlights', () => {
+  it('should return undefined when no pending choice', () => {
+    const gameState = createTestGameState();
+
+    const result = deriveBoardDecisionHighlights(gameState, null);
+
+    expect(result).toBeUndefined();
+  });
+
+  it('should highlight positions for line_order choice', () => {
+    const gameState = createTestGameState();
+    const pendingChoice: PlayerChoice = {
+      id: 'choice-1',
+      type: 'line_order',
+      gameId: 'test-game',
+      playerNumber: 1,
+      prompt: 'Choose line order',
+      options: [
+        {
+          lineIndex: 0,
+          markerPositions: [pos(0, 0), pos(1, 0), pos(2, 0)],
+        },
+        {
+          lineIndex: 1,
+          markerPositions: [pos(0, 1), pos(0, 2)],
+        },
+      ],
+    };
+
+    const result = deriveBoardDecisionHighlights(gameState, pendingChoice);
+
+    expect(result).toBeDefined();
+    expect(result?.highlights.length).toBe(5);
+    expect(result?.highlights.every((h) => h.intensity === 'primary')).toBe(true);
+  });
+
+  it('should highlight positions for line_reward_option choice', () => {
+    const board = createTestBoard('square8');
+    board.formedLines = [
+      {
+        positions: [pos(0, 0), pos(1, 1), pos(2, 2), pos(3, 3)],
+        player: 1,
+        length: 4,
+        direction: { x: 1, y: 1 },
+      },
+    ];
+    const gameState = createTestGameState({ board, currentPlayer: 1 });
+    const pendingChoice: PlayerChoice = {
+      id: 'choice-1',
+      type: 'line_reward_option',
+      gameId: 'test-game',
+      playerNumber: 1,
+      prompt: 'Choose reward',
+      options: [
+        { rewardType: 'FULL_COLLAPSE', lineIndex: 0 },
+        { rewardType: 'MINIMUM_COLLAPSE', lineIndex: 0 },
+      ],
+    };
+
+    const result = deriveBoardDecisionHighlights(gameState, pendingChoice);
+
+    expect(result).toBeDefined();
+    expect(result?.highlights.length).toBe(4);
+  });
+
+  it('should highlight positions for ring_elimination choice', () => {
+    const gameState = createTestGameState();
+    const pendingChoice: PlayerChoice = {
+      id: 'choice-1',
+      type: 'ring_elimination',
+      gameId: 'test-game',
+      playerNumber: 1,
+      prompt: 'Choose ring to eliminate',
+      options: [
+        { stackPosition: pos(0, 0), ringCount: 2 },
+        { stackPosition: pos(1, 1), ringCount: 1 },
+      ],
+    };
+
+    const result = deriveBoardDecisionHighlights(gameState, pendingChoice);
+
+    expect(result).toBeDefined();
+    expect(result?.highlights.length).toBe(2);
+    expect(result?.highlights.every((h) => h.intensity === 'primary')).toBe(true);
+  });
+
+  it('should highlight positions for region_order choice', () => {
+    const gameState = createTestGameState();
+    const pendingChoice: PlayerChoice = {
+      id: 'choice-1',
+      type: 'region_order',
+      gameId: 'test-game',
+      playerNumber: 1,
+      prompt: 'Choose region order',
+      options: [
+        { regionIndex: 0, representativePosition: pos(0, 0), regionSize: 5 },
+        { regionIndex: 1, representativePosition: pos(3, 3), regionSize: 3 },
+      ],
+    };
+
+    const result = deriveBoardDecisionHighlights(gameState, pendingChoice);
+
+    expect(result).toBeDefined();
+    expect(result?.highlights.length).toBe(2);
+  });
+
+  it('should highlight positions for capture_direction choice', () => {
+    const gameState = createTestGameState();
+    const pendingChoice: PlayerChoice = {
+      id: 'choice-1',
+      type: 'capture_direction',
+      gameId: 'test-game',
+      playerNumber: 1,
+      prompt: 'Choose capture direction',
+      options: [
+        { targetPosition: pos(1, 0), landingPosition: pos(2, 0), capturedCapHeight: 1 },
+        { targetPosition: pos(0, 1), landingPosition: pos(0, 2), capturedCapHeight: 2 },
+      ],
+    };
+
+    const result = deriveBoardDecisionHighlights(gameState, pendingChoice);
+
+    expect(result).toBeDefined();
+    expect(result?.highlights.length).toBe(4);
+    const primaryHighlights = result?.highlights.filter((h) => h.intensity === 'primary');
+    const secondaryHighlights = result?.highlights.filter((h) => h.intensity === 'secondary');
+    expect(primaryHighlights?.length).toBe(2);
+    expect(secondaryHighlights?.length).toBe(2);
+  });
+
+  it('should return undefined for empty highlights', () => {
+    const gameState = createTestGameState();
+    const pendingChoice: PlayerChoice = {
+      id: 'choice-1',
+      type: 'line_order',
+      gameId: 'test-game',
+      playerNumber: 1,
+      prompt: 'Choose',
+      options: [], // Empty options means no highlights
+    };
+
+    const result = deriveBoardDecisionHighlights(gameState, pendingChoice);
+
+    expect(result).toBeUndefined();
   });
 });

@@ -352,6 +352,7 @@ Additional k6 scenarios:
 - The k6 suite defines additional scenarios under [`tests/load/scenarios`](tests/load/scenarios) (e.g. concurrent-games, player-moves, websocket-stress) that exercise concurrent game lifecycles, high-volume move traffic, and WebSocket behaviour.
 - These scenarios were **not executed as part of PASS22** due to the missing Docker-based execution environment.
 - Future passes (for example PASS23 or a dedicated production validation pass) should run these scenarios and extend the baseline metrics and capacity model beyond game creation.
+- As a follow-up to PASS22, the k6 scenarios and backend contracts have been aligned (auth payloads, game ID validation, and WebSocket handshake), so these scripts are now ready to provide meaningful load data once a Docker-based environment is available.
 
 ---
 

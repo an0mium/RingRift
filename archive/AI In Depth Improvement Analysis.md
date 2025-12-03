@@ -1076,8 +1076,11 @@ sequenceDiagram
 - AI time budgets appear in multiple places but are not coherently enforced:
   - [`AIConfig.thinkTime`](src/server/game/ai/AIEngine.ts:34) and `AI_DIFFICULTY_PRESETS` in [`AIEngine`](src/server/game/ai/AIEngine.ts:44) set rough per-difficulty `thinkTime` values.
 
-  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:25) has:
-    - `thinkTime` and a [`simulateThinking()`](src/server/game/ai/AIPlayer.ts:67) method.
+  - [`AIPlayer`](src/server/game/ai/AIPlayer.ts:25) historically had:
+    - `thinkTime` and a dedicated UX-oriented "thinking time" hook.
+      As of 2025-12 that hook has been removed and `thinkTime` is treated as
+      legacy metadata only; AI responses must be returned as soon as they are
+      computed, with no artificial delay applied.
     - `randomness` and `shouldPickRandomMove()`.
 
   - However:

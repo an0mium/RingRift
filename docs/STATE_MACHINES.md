@@ -132,6 +132,25 @@ Invariants:
   - Expose a small session snapshot to WebSocket handlers.
   - Drive timers and AI orchestration decisions without exposing full `GameState` payloads.
 
+Session lifecycles also act as **cancellation roots** for long‑lived async
+operations linked to a game:
+
+- `GameSession` maintains a per‑session `CancellationSource` created via
+  `createCancellationSource()` from `src/shared/utils/cancellation.ts`.
+- AI turns derive their time budgets and cancellation behaviour from this
+  source:
+  - `maybePerformAITurn` passes `sessionCancellationSource.token` into
+    `getAIMoveWithTimeout`, which in turn threads it through
+    `globalAIEngine.getAIMove` → `AIServiceClient.getAIMove`.
+  - When `GameSession.terminate(reason)` is called (for example due to
+    abnormal shutdown or account deletion), the session token is canceled
+    first, causing any subsequent AI requests to be cooperatively aborted
+    before hitting the network.
+  - The `AIRequestState` machine remains the authoritative record of
+    per‑request outcomes (`completed`, `timed_out`, `failed`, `canceled`);
+    session‑level cancellation simply prevents new work from being started
+    after termination.
+
 ---
 
 ## 3. AI Request Lifecycle (`aiRequest.ts`)
@@ -234,6 +253,38 @@ Invariants and semantics:
 
 > The AI request machine is **downstream of** the rules SSoT: it never changes which moves are legal, only how the host behaves when orchestrating AI turns (timeouts, fallbacks, metrics).
 
+### 3.4 Timeouts & Cancellation integration
+
+Two shared utilities underpin the timeout/cancellation behaviour used by
+`AIRequestState` and its hosts:
+
+- `src/shared/utils/cancellation.ts` – defines `CancellationToken` and
+  `CancellationSource` primitives plus `createLinkedCancellationSource` for
+  deriving child tokens from a parent session token.
+- `src/shared/utils/timeout.ts` – defines `runWithTimeout`, which wraps an
+  async operation and returns a structured result
+  (`{ kind: 'ok' | 'timeout' | 'canceled', durationMs, value? }`) instead of
+  throwing on timeout.
+
+`GameSession.getAIMoveWithTimeout` composes these pieces as follows:
+
+- Uses `runWithTimeout` around `globalAIEngine.getAIMove(...)` with an explicit
+  `timeoutMs` derived from configuration (`aiRequestTimeoutMs`).
+- On `kind === 'timeout'`, raises a synthetic timeout error that the
+  `AIRequestState` machine maps to `kind === 'timed_out'` via `markTimedOut`.
+- On `kind === 'canceled'`, surfaces a cancellation-specific error that can be
+  used to transition to `kind === 'canceled'` when a parent session token is
+  canceled.
+
+Hosts that adopt `CancellationToken` for long‑lived operations (for example
+game sessions or WebSocket lifecycles) are expected to:
+
+- Create a parent `CancellationSource` for the session.
+- Derive per‑request child sources via `createLinkedCancellationSource`.
+- Check `token.throwIfCanceled()` at appropriate boundaries inside async
+  workflows (AI turns, WebSocket handlers) so that cooperative cancellation
+  transitions `AIRequestState` into the `canceled` terminal state when needed.
+
 ---
 
 ## 4. Player Choice Lifecycle (`choice.ts`)
@@ -325,6 +376,38 @@ Diagnostics:
 
 - `requestedAt`, `deadlineAt`, and `completedAt` allow instrumentation of choice latency and timeout behaviour.
 - The machine is **transport-agnostic** – it can be driven by WebSocket messages, HTTP endpoints, or future transports as long as they honour the canonical API in `docs/CANONICAL_ENGINE_API.md`.
+
+### 4.3 WebSocket integration & CancellationToken threading
+
+The WebSocket flow for player choices and AI-backed decisions composes the
+`ChoiceStatus` machine with shared timeout/cancellation helpers:
+
+- `src/server/game/WebSocketInteractionHandler.ts`:
+  - Creates a `ChoiceStatus` via `makePendingChoiceStatus` when emitting
+    `player_choice_required`.
+  - Schedules a Node timer for the choice deadline; on expiry it:
+    - Transitions the status to `expired` via `markChoiceExpired`.
+    - Rejects the pending Promise, which callers (e.g. `GameSession`) map
+      into decision auto-resolution and metrics.
+  - On disconnect or explicit server cancel, calls
+    `cancelAllChoicesForPlayer`, using `markChoiceCanceled` with
+    `reason: 'DISCONNECT'` / `'SERVER_CANCEL'`.
+- `src/server/websocket/server.ts`:
+  - On reconnection window expiry (`handleReconnectionTimeout`), calls
+    `session.getInteractionHandler().cancelAllChoicesForPlayer(...)`
+    before invoking abandonment handling. This keeps the choice state
+    machine in sync with the connection state machine.
+
+For AI-backed choice flows (line rewards, ring elimination, region order),
+the backend also threads `CancellationToken` through the AI service client:
+
+- `AIEngine.getAIMove` and the AI choice helpers pass an optional
+  `{ token?: CancellationToken }` into `AIServiceClient` methods.
+- `AIServiceClient` performs cooperative pre-flight cancellation via
+  `options?.token?.throwIfCanceled(...)` before touching the network. When a
+  higher-level host cancels the token (for example via a per-request
+  `CancellationSource` tied to a WebSocket or session lifecycle), these
+  calls are short-circuited locally and no HTTP request is issued.
 
 ---
 

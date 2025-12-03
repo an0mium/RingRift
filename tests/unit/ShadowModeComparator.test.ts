@@ -1075,6 +1075,349 @@ describe('ShadowModeComparator', () => {
       expect(comparison.differences).not.toContainEqual(expect.stringMatching(/gameState:/));
     });
 
+    it('should detect gameState missing in legacy but present in orchestrator', async () => {
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameState: undefined }),
+        async () => createMockMoveResult({ gameState: createMockGameState() })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences).toContainEqual(
+        expect.stringMatching(/gameState:.*legacy missing.*orchestrator has state/)
+      );
+    });
+
+    it('should detect gameResult present in orchestrator but missing in legacy', async () => {
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameResult: undefined }),
+        async () =>
+          createMockMoveResult({
+            gameResult: {
+              winner: 1,
+              reason: 'ring_elimination',
+              finalScore: { ringsEliminated: {}, territorySpaces: {}, ringsRemaining: {} },
+            },
+          })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences).toContainEqual(
+        expect.stringMatching(/gameResult:.*missing in legacy.*present in orchestrator/)
+      );
+    });
+
+    it('should detect stack present in orchestrator but missing in legacy', async () => {
+      const board1: BoardState = {
+        stacks: new Map(),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const board2: BoardState = {
+        stacks: new Map([
+          [
+            '1,1',
+            {
+              position: { x: 1, y: 1 },
+              rings: [2],
+              stackHeight: 1,
+              capHeight: 1,
+              controllingPlayer: 2,
+            },
+          ],
+        ]),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board1 }) }),
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board2 }) })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences).toContainEqual(
+        expect.stringMatching(/stack at 1,1:.*missing in legacy.*exists in orchestrator/)
+      );
+    });
+
+    it('should detect formed lines count differences', async () => {
+      const board1: BoardState = {
+        stacks: new Map(),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [{ cells: [], player: 1, rewardClaimed: false }],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const board2: BoardState = {
+        stacks: new Map(),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board1 }) }),
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board2 }) })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences).toContainEqual(expect.stringMatching(/formedLinesCount:/));
+    });
+
+    it('should detect stack height differences', async () => {
+      const stack1: RingStack = {
+        position: { x: 0, y: 0 },
+        rings: [1, 2],
+        stackHeight: 2,
+        capHeight: 1,
+        controllingPlayer: 1,
+      };
+
+      const stack2: RingStack = {
+        position: { x: 0, y: 0 },
+        rings: [1, 2, 1],
+        stackHeight: 3,
+        capHeight: 1,
+        controllingPlayer: 1,
+      };
+
+      const board1: BoardState = {
+        stacks: new Map([['0,0', stack1]]),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const board2: BoardState = {
+        stacks: new Map([['0,0', stack2]]),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board1 }) }),
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board2 }) })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences.some((d) => d.includes('height:'))).toBe(true);
+    });
+
+    it('should detect capHeight differences', async () => {
+      const stack1: RingStack = {
+        position: { x: 0, y: 0 },
+        rings: [1, 2],
+        stackHeight: 2,
+        capHeight: 1,
+        controllingPlayer: 1,
+      };
+
+      const stack2: RingStack = {
+        position: { x: 0, y: 0 },
+        rings: [1, 2],
+        stackHeight: 2,
+        capHeight: 2,
+        controllingPlayer: 1,
+      };
+
+      const board1: BoardState = {
+        stacks: new Map([['0,0', stack1]]),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const board2: BoardState = {
+        stacks: new Map([['0,0', stack2]]),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        eliminatedRings: {},
+        size: 8,
+        type: 'square8',
+      };
+
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board1 }) }),
+        async () => createMockMoveResult({ gameState: createMockGameState({ board: board2 }) })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences.some((d) => d.includes('capHeight:'))).toBe(true);
+    });
+
+    it('should detect player count mismatch and skip player comparison', async () => {
+      const players1: Player[] = [
+        {
+          id: '1',
+          username: 'P1',
+          type: 'human',
+          playerNumber: 1,
+          isReady: true,
+          timeRemaining: 600000,
+          ringsInHand: 18,
+          eliminatedRings: 0,
+          territorySpaces: 0,
+        },
+      ];
+
+      const players2: Player[] = [
+        {
+          id: '1',
+          username: 'P1',
+          type: 'human',
+          playerNumber: 1,
+          isReady: true,
+          timeRemaining: 600000,
+          ringsInHand: 18,
+          eliminatedRings: 0,
+          territorySpaces: 0,
+        },
+        {
+          id: '2',
+          username: 'P2',
+          type: 'human',
+          playerNumber: 2,
+          isReady: true,
+          timeRemaining: 600000,
+          ringsInHand: 18,
+          eliminatedRings: 0,
+          territorySpaces: 0,
+        },
+      ];
+
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameState: createMockGameState({ players: players1 }) }),
+        async () => createMockMoveResult({ gameState: createMockGameState({ players: players2 }) })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences).toContainEqual(expect.stringMatching(/playerCount:/));
+    });
+
+    it('should detect eliminatedRings differences on player state', async () => {
+      const players1: Player[] = [
+        {
+          id: '1',
+          username: 'P1',
+          type: 'human',
+          playerNumber: 1,
+          isReady: true,
+          timeRemaining: 600000,
+          ringsInHand: 15,
+          eliminatedRings: 3,
+          territorySpaces: 0,
+        },
+      ];
+
+      const players2: Player[] = [
+        {
+          id: '1',
+          username: 'P1',
+          type: 'human',
+          playerNumber: 1,
+          isReady: true,
+          timeRemaining: 600000,
+          ringsInHand: 15,
+          eliminatedRings: 5,
+          territorySpaces: 0,
+        },
+      ];
+
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult({ gameState: createMockGameState({ players: players1 }) }),
+        async () => createMockMoveResult({ gameState: createMockGameState({ players: players2 }) })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences).toContainEqual(
+        expect.stringMatching(/player\[1\]\.eliminatedRings:/)
+      );
+    });
+
+    it('should detect move history length differences', async () => {
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () =>
+          createMockMoveResult({
+            gameState: createMockGameState({
+              moveHistory: [{ type: 'place_ring', player: 1, position: { x: 0, y: 0 } }],
+            }),
+          }),
+        async () =>
+          createMockMoveResult({
+            gameState: createMockGameState({ moveHistory: [] }),
+          })
+      );
+
+      expect(comparison.isMatch).toBe(false);
+      expect(comparison.differences).toContainEqual(expect.stringMatching(/turnNumber:/));
+    });
+
+    it('should handle non-Error thrown values in orchestrator', async () => {
+      const { comparison } = await comparator.compare(
+        'session-1',
+        1,
+        async () => createMockMoveResult(),
+        async () => {
+          throw 'string error'; // Non-Error thrown value
+        }
+      );
+
+      expect(comparison.orchestratorResult).toBeNull();
+      expect(comparison.differences).toContain('orchestrator_error');
+    });
+
     it('should handle null orchestrator result from error', async () => {
       const { comparison } = await comparator.compare(
         'session-1',
@@ -1117,12 +1460,10 @@ describe('Singleton Export', () => {
   });
 
   it('should be the same instance on multiple imports', async () => {
-    const { shadowComparator: instance1 } = await import(
-      '../../src/server/services/ShadowModeComparator'
-    );
-    const { shadowComparator: instance2 } = await import(
-      '../../src/server/services/ShadowModeComparator'
-    );
+    const { shadowComparator: instance1 } =
+      await import('../../src/server/services/ShadowModeComparator');
+    const { shadowComparator: instance2 } =
+      await import('../../src/server/services/ShadowModeComparator');
 
     expect(instance1).toBe(instance2);
   });

@@ -197,6 +197,7 @@ export function GameHistoryPanel({
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<GameHistoryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reloadVersion, setReloadVersion] = useState(0);
 
   // Fetch history when panel is expanded or gameId changes
   useEffect(() => {
@@ -231,7 +232,7 @@ export function GameHistoryPanel({
     return () => {
       cancelled = true;
     };
-  }, [gameId, collapsed, onError]);
+  }, [gameId, collapsed, onError, reloadVersion]);
 
   return (
     <div
@@ -286,8 +287,10 @@ export function GameHistoryPanel({
               <button
                 className="text-xs text-blue-400 hover:text-blue-300 underline"
                 onClick={() => {
+                  // Clear previous history and error, then trigger a refetch.
                   setHistory(null);
-                  setCollapsed(false);
+                  setError(null);
+                  setReloadVersion((v) => v + 1);
                 }}
               >
                 Retry

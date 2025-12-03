@@ -78,6 +78,7 @@ from app.models import (  # type: ignore  # noqa: E402
     GamePhase,
     GameState,
     GameStatus,
+    Move,
     MoveType,
     Player,
     TimeControl,
@@ -101,6 +102,25 @@ from app.utils.progress_reporter import (  # noqa: E402
     OptimizationProgressReporter,
     ProgressReporter,
 )
+from app.db.recording import (  # noqa: E402
+    record_completed_game,
+    get_or_create_db,
+    should_record_games,
+)
+from app.db import GameReplayDB  # noqa: E402
+
+# Distributed evaluation imports (optional - only needed for --distributed mode)
+try:
+    from app.distributed import (  # noqa: E402
+        DistributedEvaluator,
+        discover_workers,
+        wait_for_workers,
+        parse_manual_workers,
+        filter_healthy_workers,
+    )
+    DISTRIBUTED_AVAILABLE = True
+except ImportError:
+    DISTRIBUTED_AVAILABLE = False
 
 
 FitnessDebugCallback = Callable[
@@ -304,6 +324,8 @@ def play_single_game_from_state(
     rng_seed_base: Optional[int] = None,
     heuristic_eval_mode: Optional[str] = None,
     per_move_callback: Optional[Callable[[int], None]] = None,
+    game_db: Optional[GameReplayDB] = None,
+    game_metadata: Optional[Dict[str, Any]] = None,
 ) -> Tuple[int, int]:
     """Play a single game from a provided initial :class:`GameState`.
 
@@ -347,6 +369,7 @@ def play_single_game_from_state(
     game_state = initial_state
     rules_engine = DefaultRulesEngine()
     move_count = 0
+    moves_played: List[Move] = []  # Collect moves for recording
 
     while (
         game_state.game_status == GameStatus.ACTIVE and move_count < max_moves
@@ -367,12 +390,27 @@ def play_single_game_from_state(
         if move.type == MoveType.SWAP_SIDES:
             SWAP_SIDES_MOVE_COUNTER += 1
 
+        moves_played.append(move)  # Track move for recording
         game_state = rules_engine.apply_move(game_state, move)
         move_count += 1
 
         # Optional per-move callback for fine-grained progress reporting.
         if per_move_callback is not None:
             per_move_callback(move_count)
+
+    # Record game to database if enabled
+    if game_db is not None:
+        try:
+            record_completed_game(
+                db=game_db,
+                initial_state=initial_state,
+                final_state=game_state,
+                moves=moves_played,
+                metadata=game_metadata,
+            )
+        except Exception as e:
+            # Log but don't fail the evaluation if recording fails
+            print(f"WARNING: Failed to record game: {e}")
 
     if game_state.game_status != GameStatus.FINISHED:
         # Draw due to move limit
@@ -396,6 +434,8 @@ def play_single_game(
     randomness: float = 0.0,
     rng_seed_base: Optional[int] = None,
     heuristic_eval_mode: Optional[str] = None,
+    game_db: Optional[GameReplayDB] = None,
+    game_metadata: Optional[Dict[str, Any]] = None,
 ) -> Tuple[int, int]:
     """Play a single game between candidate and baseline weights.
 
@@ -413,6 +453,8 @@ def play_single_game(
         randomness=randomness,
         rng_seed_base=rng_seed_base,
         heuristic_eval_mode=heuristic_eval_mode,
+        game_db=game_db,
+        game_metadata=game_metadata,
     )
 
 
@@ -433,6 +475,8 @@ def evaluate_fitness(
     seed: Optional[int] = None,
     debug_callback: Optional[FitnessDebugCallback] = None,
     progress_reporter: Optional[ProgressReporter] = None,
+    game_db: Optional[GameReplayDB] = None,
+    recording_context: Optional[Dict[str, Any]] = None,
 ) -> float:
     """Evaluate fitness of candidate weights against one or more opponents.
 
@@ -596,6 +640,19 @@ def evaluate_fitness(
         game_seed = base_seed + i
 
         if eval_mode == "initial-only":
+            # Build game metadata for recording
+            game_record_metadata_init: Optional[Dict[str, Any]] = None
+            if game_db is not None:
+                game_record_metadata_init = {
+                    "source": "cmaes",
+                    "board_type": board_type.value,
+                    "num_players": 2,
+                    "game_index": i,
+                    "eval_mode": eval_mode,
+                }
+                if recording_context:
+                    game_record_metadata_init.update(recording_context)
+
             result, move_count = play_single_game(
                 candidate_weights,
                 opponent_weights_for_game,
@@ -605,6 +662,8 @@ def evaluate_fitness(
                 randomness=eval_randomness if use_randomness else 0.0,
                 rng_seed_base=game_seed if use_randomness else None,
                 heuristic_eval_mode=heuristic_eval_mode,
+                game_db=game_db,
+                game_metadata=game_record_metadata_init,
             )
         else:
             assert pool_states is not None  # for type-checkers
@@ -653,6 +712,20 @@ def evaluate_fitness(
 
                 move_progress_callback = _per_move_progress_callback
 
+            # Build game metadata for recording
+            game_record_metadata: Optional[Dict[str, Any]] = None
+            if game_db is not None:
+                game_record_metadata = {
+                    "source": "cmaes",
+                    "board_type": board_type.value,
+                    "num_players": 2,
+                    "game_index": i,
+                    "eval_mode": eval_mode,
+                    "state_pool_id": pool_id,
+                }
+                if recording_context:
+                    game_record_metadata.update(recording_context)
+
             result, move_count = play_single_game_from_state(
                 initial_state=initial_state,
                 candidate_weights=candidate_weights,
@@ -663,6 +736,8 @@ def evaluate_fitness(
                 rng_seed_base=game_seed if use_randomness else None,
                 heuristic_eval_mode=heuristic_eval_mode,
                 per_move_callback=move_progress_callback,
+                game_db=game_db,
+                game_metadata=game_record_metadata,
             )
 
         total_moves += move_count
@@ -784,6 +859,8 @@ def evaluate_fitness_over_boards(
     progress_label: Optional[str] = None,
     progress_interval_sec: Optional[float] = None,
     enable_eval_progress: bool = True,
+    game_db: Optional[GameReplayDB] = None,
+    recording_context: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, Dict[BoardType, float]]:
     """Evaluate candidate fitness averaged over multiple board types.
 
@@ -871,6 +948,8 @@ def evaluate_fitness_over_boards(
             seed=board_seed,
             debug_callback=board_debug_callback,
             progress_reporter=board_progress,
+            game_db=game_db,
+            recording_context=recording_context,
         )
         per_board_fitness[board_type] = fitness
 
@@ -1272,6 +1351,17 @@ class CMAESConfig:
     # When False, suppress per-board evaluation progress reporters and
     # rely solely on the generation-level optimisation reporter.
     enable_eval_progress: bool = True
+    # When True (default), record all self-play games to a SQLite database
+    # at {run_dir}/games.db. Use --no-record to disable.
+    record_games: bool = True
+    # Optional list of JSON profile file paths to inject into the initial
+    # CMA-ES population. Useful for seeding with known-good weights.
+    inject_profiles: Optional[List[str]] = None
+    # Distributed evaluation mode settings for local Mac cluster
+    distributed: bool = False
+    workers: Optional[List[str]] = None  # List of worker URLs (host:port)
+    discover_workers: bool = False  # Auto-discover workers via Bonjour
+    min_workers: int = 1  # Minimum workers required to start
 
 
 def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
@@ -1353,9 +1443,22 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
         "debug_plateau": config.debug_plateau,
         "progress_interval_sec": config.progress_interval_sec,
         "enable_eval_progress": config.enable_eval_progress,
+        "record_games": config.record_games,
     }
     with open(run_meta_path, "w", encoding="utf-8") as f:
         json.dump(run_meta, f, indent=2, sort_keys=True)
+
+    # Initialize game recording database if enabled
+    # Combines CLI --no-record flag with RINGRIFT_RECORD_SELFPLAY_GAMES env var
+    game_db: Optional[GameReplayDB] = None
+    game_db_path: Optional[str] = None
+    recording_enabled = should_record_games(cli_no_record=not config.record_games)
+    if recording_enabled:
+        game_db_path = os.path.join(run_dir, "games.db")
+        game_db = get_or_create_db(game_db_path, respect_env_disable=False)
+        print(f"  Game recording: {game_db_path}")
+    else:
+        print("  Game recording: disabled")
 
     # Initialize with baseline weights or resume from last checkpoint
     initial_weights = weights_to_array(baseline_weights)
@@ -1487,6 +1590,27 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
         cma_options,
     )
 
+    # Inject additional weight profiles into the initial population if provided
+    if config.inject_profiles:
+        injected_solutions = []
+        for profile_path in config.inject_profiles:
+            try:
+                with open(profile_path, "r", encoding="utf-8") as f:
+                    profile_data = json.load(f)
+                profile_weights = profile_data.get("weights", profile_data)
+                # Convert to ordered array matching WEIGHT_KEYS
+                ordered_values = [
+                    profile_weights.get(name, baseline_weights.get(name, 0.0))
+                    for name in WEIGHT_KEYS
+                ]
+                injected_solutions.append(ordered_values)
+                print(f"Loaded inject profile: {profile_path}")
+            except (FileNotFoundError, json.JSONDecodeError) as e:
+                print(f"Warning: Could not load inject profile {profile_path}: {e}")
+        if injected_solutions:
+            es.inject(injected_solutions)
+            print(f"Injected {len(injected_solutions)} profiles into initial population")
+
     print(f"CMA-ES initialized, will run for {config.generations} generations")
 
     # Initialize progress reporter for time-based progress output.
@@ -1495,6 +1619,63 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
         candidates_per_generation=config.population_size,
         report_interval_sec=config.progress_interval_sec,
     )
+
+    # Initialize distributed evaluator if requested
+    distributed_evaluator: Optional[Any] = None
+    if config.distributed:
+        if not DISTRIBUTED_AVAILABLE:
+            raise RuntimeError(
+                "Distributed mode requires the distributed module. "
+                "Run 'pip install zeroconf' if using auto-discovery."
+            )
+
+        # Get worker list
+        worker_urls: List[str] = []
+        if config.workers:
+            workers = parse_manual_workers(",".join(config.workers))
+            worker_urls = [w.url for w in workers]
+            print(f"  Using {len(worker_urls)} manually specified workers")
+        elif config.discover_workers:
+            print(f"  Discovering workers (waiting for {config.min_workers} minimum)...")
+            workers = wait_for_workers(
+                min_workers=config.min_workers,
+                timeout=30.0,
+            )
+            if len(workers) < config.min_workers:
+                raise RuntimeError(
+                    f"Not enough workers found. Required: {config.min_workers}, "
+                    f"found: {len(workers)}"
+                )
+            # Filter to healthy workers only
+            workers = filter_healthy_workers(workers)
+            worker_urls = [w.url for w in workers]
+            print(f"  Discovered {len(worker_urls)} healthy workers")
+        else:
+            raise RuntimeError(
+                "Distributed mode requires --workers or --discover-workers"
+            )
+
+        if not worker_urls:
+            raise RuntimeError("No workers available for distributed evaluation")
+
+        # Create evaluator (only supports single board for now)
+        board = eval_boards[0] if eval_boards else config.board_type
+        distributed_evaluator = DistributedEvaluator(
+            workers=worker_urls,
+            board_type=board.value,
+            num_players=config.num_players,
+            games_per_eval=config.games_per_eval,
+            eval_mode=config.eval_mode,
+            state_pool_id=config.state_pool_id or "v1",
+            max_moves=config.max_moves,
+            eval_randomness=config.eval_randomness,
+            seed=config.seed,
+        )
+
+        # Preload state pools on workers
+        print("  Preloading state pools on workers...")
+        distributed_evaluator.preload_pools()
+        print(f"  Distributed evaluator ready with {len(worker_urls)} workers")
 
     # Run for a fixed number of generations (ignore CMA-ES stopping criteria)
     for local_generation in range(1, config.generations + 1):
@@ -1520,105 +1701,158 @@ def run_cmaes_optimization(config: CMAESConfig) -> HeuristicWeights:
         boards_for_eval = eval_boards
         candidate_per_board_fitness: List[Dict[BoardType, float]] = []
 
-        for idx, solution in enumerate(solutions):
-            candidate_weights = array_to_weights(
-                np.array(solution, dtype=float)
+        # Distributed evaluation: evaluate entire population in parallel on workers
+        if distributed_evaluator is not None:
+            # Convert solutions to weight dicts
+            population_weights = [
+                array_to_weights(np.array(sol, dtype=float))
+                for sol in solutions
+            ]
+
+            # Progress callback
+            def distributed_progress(completed: int, total: int) -> None:
+                progress_reporter.update_candidates_evaluated(completed)
+
+            # Evaluate population on remote workers
+            fitness_scores, eval_stats = distributed_evaluator.evaluate_population(
+                population=population_weights,
+                baseline_weights=baseline_weights,
+                progress_callback=distributed_progress,
             )
 
-            # Optional per-candidate debug logging for plateau diagnosis.
-            if config.debug_plateau:
-                def cmaes_debug_hook(
-                    stats: Dict[str, Any],
-                    *,
-                    _generation: int = generation,
-                    _idx: int = idx,
-                ) -> None:
-                    print(
-                        "[CMAES] "
-                        f"gen={_generation} idx={_idx} "
-                        f"fitness={stats['fitness']:.4f} "
-                        f"W={stats['wins']} D={stats['draws']} "
-                        f"L={stats['losses']} "
-                        f"l2={stats['weight_l2']:.3f} "
-                        f"games={stats['games_per_eval']}"
+            # Convert to CMA-ES format (negate for minimization)
+            for idx, fitness in enumerate(fitness_scores):
+                gen_fitnesses.append(fitness)
+                fitnesses.append(-fitness)
+                # For distributed mode, we don't have per-board breakdown
+                # so use the aggregate fitness for all boards
+                per_board = {board: fitness for board in boards_for_eval}
+                candidate_per_board_fitness.append(per_board)
+
+            # Log distributed eval stats
+            if eval_stats.failed_evaluations > 0:
+                print(
+                    f"  [Distributed] Gen {generation}: "
+                    f"{eval_stats.successful_evaluations}/{eval_stats.total_candidates} "
+                    f"successful, {eval_stats.failed_evaluations} failed"
+                )
+
+        else:
+            # Local evaluation: evaluate candidates sequentially
+            for idx, solution in enumerate(solutions):
+                candidate_weights = array_to_weights(
+                    np.array(solution, dtype=float)
+                )
+
+                # Optional per-candidate debug logging for plateau diagnosis.
+                if config.debug_plateau:
+                    def cmaes_debug_hook(
+                        stats: Dict[str, Any],
+                        *,
+                        _generation: int = generation,
+                        _idx: int = idx,
+                    ) -> None:
+                        print(
+                            "[CMAES] "
+                            f"gen={_generation} idx={_idx} "
+                            f"fitness={stats['fitness']:.4f} "
+                            f"W={stats['wins']} D={stats['draws']} "
+                            f"L={stats['losses']} "
+                            f"l2={stats['weight_l2']:.3f} "
+                            f"games={stats['games_per_eval']}"
+                        )
+                else:
+                    cmaes_debug_hook = None  # type: ignore[assignment]
+
+                # Build recording context for this candidate evaluation
+                recording_context: Optional[Dict[str, Any]] = None
+                if game_db is not None:
+                    recording_context = {
+                        "run_id": run_id,
+                        "generation": generation,
+                        "candidate_idx": idx,
+                    }
+
+                # Multi-player evaluation (3p/4p) uses a different fitness function.
+                if config.num_players > 2:
+                    # evaluate_fitness_multiplayer returns a score in [-1, 1].
+                    # Normalise this to [0, 1] so that CMA-ES sees a consistent
+                    # fitness range with the 2-player win-rate metric.
+                    # NOTE: Multi-player evaluation does not support game recording
+                    # yet; game_db is ignored for this path.
+                    raw_score = evaluate_fitness_multiplayer(
+                        candidate_weights=candidate_weights,
+                        baseline_weights=baseline_weights,
+                        num_players=config.num_players,
+                        games_per_eval=config.games_per_eval,
+                        boards=boards_for_eval,
+                        state_pool_id=config.state_pool_id or "",
+                        seed=config.seed,
                     )
-            else:
-                cmaes_debug_hook = None  # type: ignore[assignment]
+                    fitness = (raw_score + 1.0) / 2.0
+                    # We do not have per-board breakdown from the multi-player
+                    # helper, so mirror the aggregate fitness across all boards
+                    # for reporting purposes.
+                    per_board_fitness = {
+                        board: fitness for board in boards_for_eval
+                    }
+                elif len(boards_for_eval) == 1:
+                    board_type = boards_for_eval[0]
+                    fitness = evaluate_fitness(
+                        candidate_weights,
+                        baseline_weights,
+                        config.games_per_eval,
+                        board_type,
+                        verbose=(verbose_eval and idx == 0),
+                        opponent_mode=config.opponent_mode,
+                        incumbent_weights=incumbent_for_generation,
+                        max_moves=config.max_moves,
+                        debug_hook=cmaes_debug_hook,
+                        eval_mode=config.eval_mode,
+                        state_pool_id=config.state_pool_id,
+                        eval_randomness=config.eval_randomness,
+                        seed=config.seed,
+                        game_db=game_db,
+                        recording_context=recording_context,
+                    )
+                    per_board_fitness = {board_type: fitness}
+                else:
+                    (
+                        aggregate_fitness,
+                        per_board_fitness,
+                    ) = evaluate_fitness_over_boards(
+                        candidate_weights=candidate_weights,
+                        baseline_weights=baseline_weights,
+                        games_per_eval=config.games_per_eval,
+                        boards=boards_for_eval,
+                        opponent_mode=config.opponent_mode,
+                        max_moves=config.max_moves,
+                        verbose=(verbose_eval and idx == 0),
+                        debug_hook=cmaes_debug_hook,
+                        eval_mode=config.eval_mode,
+                        state_pool_id=config.state_pool_id,
+                        seed=config.seed,
+                        eval_randomness=config.eval_randomness,
+                        progress_label=f"CMAES gen={generation} cand={idx+1}",
+                        progress_interval_sec=config.progress_interval_sec,
+                        enable_eval_progress=config.enable_eval_progress,
+                        game_db=game_db,
+                        recording_context=recording_context,
+                    )
+                    fitness = aggregate_fitness
 
-            # Multi-player evaluation (3p/4p) uses a different fitness function.
-            if config.num_players > 2:
-                # evaluate_fitness_multiplayer returns a score in [-1, 1].
-                # Normalise this to [0, 1] so that CMA-ES sees a consistent
-                # fitness range with the 2-player win-rate metric.
-                raw_score = evaluate_fitness_multiplayer(
-                    candidate_weights=candidate_weights,
-                    baseline_weights=baseline_weights,
-                    num_players=config.num_players,
-                    games_per_eval=config.games_per_eval,
-                    boards=boards_for_eval,
-                    state_pool_id=config.state_pool_id or "",
-                    seed=config.seed,
-                )
-                fitness = (raw_score + 1.0) / 2.0
-                # We do not have per-board breakdown from the multi-player
-                # helper, so mirror the aggregate fitness across all boards
-                # for reporting purposes.
-                per_board_fitness = {
-                    board: fitness for board in boards_for_eval
-                }
-            elif len(boards_for_eval) == 1:
-                board_type = boards_for_eval[0]
-                fitness = evaluate_fitness(
-                    candidate_weights,
-                    baseline_weights,
-                    config.games_per_eval,
-                    board_type,
-                    verbose=(verbose_eval and idx == 0),
-                    opponent_mode=config.opponent_mode,
-                    incumbent_weights=incumbent_for_generation,
-                    max_moves=config.max_moves,
-                    debug_hook=cmaes_debug_hook,
-                    eval_mode=config.eval_mode,
-                    state_pool_id=config.state_pool_id,
-                    eval_randomness=config.eval_randomness,
-                    seed=config.seed,
-                )
-                per_board_fitness = {board_type: fitness}
-            else:
-                (
-                    aggregate_fitness,
-                    per_board_fitness,
-                ) = evaluate_fitness_over_boards(
-                    candidate_weights=candidate_weights,
-                    baseline_weights=baseline_weights,
-                    games_per_eval=config.games_per_eval,
-                    boards=boards_for_eval,
-                    opponent_mode=config.opponent_mode,
-                    max_moves=config.max_moves,
-                    verbose=(verbose_eval and idx == 0),
-                    debug_hook=cmaes_debug_hook,
-                    eval_mode=config.eval_mode,
-                    state_pool_id=config.state_pool_id,
-                    seed=config.seed,
-                    eval_randomness=config.eval_randomness,
-                    progress_label=f"CMAES gen={generation} cand={idx+1}",
-                    progress_interval_sec=config.progress_interval_sec,
-                    enable_eval_progress=config.enable_eval_progress,
-                )
-                fitness = aggregate_fitness
+                candidate_per_board_fitness.append(per_board_fitness)
+                fitnesses.append(-fitness)  # Negate for minimization
+                gen_fitnesses.append(fitness)
 
-            candidate_per_board_fitness.append(per_board_fitness)
-            fitnesses.append(-fitness)  # Negate for minimization
-            gen_fitnesses.append(fitness)
-
-            # Record candidate evaluation for progress reporting
-            # games_per_eval * len(boards) games were played for this candidate
-            games_this_candidate = config.games_per_eval * len(boards_for_eval)
-            progress_reporter.record_candidate(
-                candidate_idx=idx + 1,
-                fitness=fitness,
-                games_played=games_this_candidate,
-            )
+                # Record candidate evaluation for progress reporting
+                # games_per_eval * len(boards) games were played for this candidate
+                games_this_candidate = config.games_per_eval * len(boards_for_eval)
+                progress_reporter.record_candidate(
+                    candidate_idx=idx + 1,
+                    fitness=fitness,
+                    games_played=games_this_candidate,
+                )
 
         # Update CMA-ES
         es.tell(solutions, fitnesses)
@@ -1910,6 +2144,67 @@ def main():
             "--state-pool-id hex_4p_pool_v1 for 4p Hex)."
         ),
     )
+    parser.add_argument(
+        "--no-record",
+        action="store_true",
+        help=(
+            "Disable game recording. By default, all self-play games are "
+            "recorded to {run_dir}/games.db for later replay and analysis. "
+            "Use this flag to skip recording if disk space or performance "
+            "is a concern."
+        ),
+    )
+    parser.add_argument(
+        "--inject-profiles",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated list of JSON profile file paths to inject into "
+            "the initial CMA-ES population. These profiles will be evaluated "
+            "alongside the randomly sampled candidates in the first generation. "
+            "Useful for seeding optimization with known-good weight profiles "
+            "from other player counts or board types."
+        ),
+    )
+    # Distributed evaluation mode arguments (local Mac cluster)
+    parser.add_argument(
+        "--distributed",
+        action="store_true",
+        help=(
+            "Enable distributed evaluation mode. Population evaluation will be "
+            "distributed across worker machines on the local network. Requires "
+            "workers to be running cluster_worker.py."
+        ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated list of worker URLs (host:port) for distributed "
+            "evaluation. Example: '192.168.1.10:8765,192.168.1.11:8765'. "
+            "If not provided and --distributed is set, will attempt to "
+            "auto-discover workers via Bonjour if --discover-workers is set."
+        ),
+    )
+    parser.add_argument(
+        "--discover-workers",
+        action="store_true",
+        help=(
+            "Auto-discover workers on the local network using Bonjour/mDNS. "
+            "Workers must be running cluster_worker.py with --register-bonjour. "
+            "Use with --distributed."
+        ),
+    )
+    parser.add_argument(
+        "--min-workers",
+        type=int,
+        default=1,
+        help=(
+            "Minimum number of workers required to start distributed evaluation. "
+            "If fewer workers are discovered, optimization will fail. Default: 1."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -1994,6 +2289,18 @@ def main():
         debug_plateau=args.debug_plateau,
         progress_interval_sec=args.progress_interval_sec,
         enable_eval_progress=not args.disable_eval_progress,
+        record_games=not args.no_record,
+        inject_profiles=(
+            [p.strip() for p in args.inject_profiles.split(",") if p.strip()]
+            if args.inject_profiles else None
+        ),
+        distributed=args.distributed,
+        workers=(
+            [w.strip() for w in args.workers.split(",") if w.strip()]
+            if args.workers else None
+        ),
+        discover_workers=args.discover_workers,
+        min_workers=args.min_workers,
     )
 
     run_cmaes_optimization(config)

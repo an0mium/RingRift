@@ -552,6 +552,58 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
   // Multiple captures in a row (chain capture simulation)
   // ═══════════════════════════════════════════════════════════════════════════
 
+  it('passes moveNumber option to aggregate layer', () => {
+    const state = createEmptyState();
+
+    // Attacker at (0, 0)
+    addStack(state, { x: 0, y: 0 }, [1, 1]);
+
+    // Target at (2, 0)
+    addStack(state, { x: 2, y: 0 }, [2]);
+
+    const snapshot: ChainCaptureStateSnapshot = {
+      player: 1,
+      currentPosition: { x: 0, y: 0 },
+    };
+
+    // Test with moveNumber option to cover the options.moveNumber !== undefined branch
+    const moves = enumerateChainCaptureSegments(state, snapshot, {
+      kind: 'initial',
+      moveNumber: 5,
+    });
+
+    expect(moves.length).toBeGreaterThan(0);
+    // The move should have the moveNumber set
+    expect(moves[0].moveNumber).toBe(5);
+  });
+
+  it('handles markers on the board (getMarkerOwner coverage)', () => {
+    const state = createEmptyState();
+
+    // Attacker at (0, 0)
+    addStack(state, { x: 0, y: 0 }, [1, 1]);
+
+    // Target at (2, 0)
+    addStack(state, { x: 2, y: 0 }, [2]);
+
+    // Add a marker at the target position - this exercises the getMarkerOwner function
+    // returning a marker instead of undefined
+    addMarker(state, { x: 2, y: 0 }, 2);
+
+    // Also add a marker at a potential landing position
+    addMarker(state, { x: 3, y: 0 }, 1);
+
+    const snapshot: ChainCaptureStateSnapshot = {
+      player: 1,
+      currentPosition: { x: 0, y: 0 },
+    };
+
+    const moves = enumerateChainCaptureSegments(state, snapshot, { kind: 'initial' });
+
+    // Should still find capture moves (markers don't block captures)
+    expect(moves.length).toBeGreaterThan(0);
+  });
+
   it('correctly handles progression through a chain of captures', () => {
     const state = createEmptyState();
 

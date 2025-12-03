@@ -24,7 +24,8 @@ import { GameState, Move } from '../../../shared/types/game';
 
 export interface AIConfig {
   difficulty: number; // 1-10 scale
-  thinkTime?: number; // Milliseconds to wait before move (for UX)
+  // Legacy metadata only; must not be used to delay moves
+  thinkTime?: number;
   randomness?: number; // 0-1 scale for move variation
 }
 
@@ -45,7 +46,6 @@ export abstract class AIPlayer {
   constructor(playerNumber: number, config: AIConfig) {
     this.playerNumber = playerNumber;
     this.config = {
-      thinkTime: 500, // Default 500ms
       randomness: 0.1, // Default 10% randomness
       ...config,
     };
@@ -75,13 +75,6 @@ export abstract class AIPlayer {
    */
   getPlayerNumber(): number {
     return this.playerNumber;
-  }
-
-  protected async simulateThinking(): Promise<void> {
-    // Legacy compatibility hook for historical "thinking time" behaviour.
-    // This method must not introduce any artificial delay: AI responses
-    // should be returned as soon as they are computed.
-    return;
   }
 
   /**

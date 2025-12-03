@@ -1,5 +1,6 @@
 import { AIServiceClient } from '../../../src/server/services/AIServiceClient';
 import { GameState } from '../../../src/shared/types/game';
+import { createCancellationSource } from '../../../src/shared/utils/cancellation';
 
 // Mock axios so that AIServiceClient does not perform real HTTP calls.
 // We use `var` for the mock handles because Jest hoists `jest.mock` calls,
@@ -99,5 +100,54 @@ describe('AIServiceClient concurrency backpressure', () => {
 
     // Only the first request should have attempted an HTTP call.
     expect(mockPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not issue HTTP calls for getAIMove when the token is already canceled', async () => {
+    const client = new AIServiceClient('http://ai.test');
+
+    const gameState: GameState = {
+      id: 'test-game-cancel',
+      boardType: 'square8',
+      board: {
+        type: 'square8',
+        stacks: new Map(),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+        pendingCaptureEvaluations: [],
+        eliminatedRings: {} as any,
+        size: 8,
+      } as any,
+      players: [] as any,
+      currentPhase: 'ring_placement',
+      currentPlayer: 1,
+      moveHistory: [],
+      history: [],
+      timeControl: { type: 'rapid', initialTime: 600000, increment: 0 } as any,
+      spectators: [] as any,
+      gameStatus: 'active',
+      createdAt: new Date(),
+      lastMoveAt: new Date(),
+      isRated: false,
+      maxPlayers: 2,
+      totalRingsInPlay: 0,
+      totalRingsEliminated: 0,
+      victoryThreshold: 0,
+      territoryVictoryThreshold: 0,
+      rngSeed: 456,
+    };
+
+    const source = createCancellationSource();
+    source.cancel('session_cleanup');
+
+    await expect(
+      client.getAIMove(gameState, 1, 5, undefined, undefined, { token: source.token })
+    ).rejects.toThrow(/Operation canceled/);
+
+    // Because the token was canceled before dispatch, the underlying axios
+    // client must not be called at all and concurrency counters stay at 0.
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(AIServiceClient.getInFlightRequestsForTest()).toBe(0);
   });
 });

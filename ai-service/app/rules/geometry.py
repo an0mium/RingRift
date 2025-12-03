@@ -18,17 +18,17 @@ class BoardGeometry:
     ) -> List[Position]:
         """
         Get all valid adjacent positions for a given position.
-        
+
         Args:
             position: The center position
             board_type: Type of board (square8, square19, hexagonal)
             board_size: Size of the board
-            
+
         Returns:
             List of valid adjacent Position objects
         """
         neighbors: List[Position] = []
-        
+
         if board_type in (BoardType.SQUARE8, BoardType.SQUARE19):
             limit = 8 if board_type == BoardType.SQUARE8 else 19
             for dx in (-1, 0, 1):
@@ -38,7 +38,7 @@ class BoardGeometry:
                     nx, ny = position.x + dx, position.y + dy
                     if 0 <= nx < limit and 0 <= ny < limit:
                         neighbors.append(Position(x=nx, y=ny))
-                        
+
         elif board_type == BoardType.HEXAGONAL:
             radius = board_size - 1
             directions = [
@@ -46,12 +46,12 @@ class BoardGeometry:
                 (0, 1, -1), (0, -1, 1),
                 (1, -1, 0), (-1, 1, 0)
             ]
-            
+
             # Ensure z is calculated if missing
             px = position.x
             py = position.y
             pz = position.z if position.z is not None else -px - py
-            
+
             for dx, dy, dz in directions:
                 nx, ny, nz = px + dx, py + dy, pz + dz
                 if (abs(nx) <= radius and
@@ -89,19 +89,19 @@ class BoardGeometry:
     ) -> Set[str]:
         """Get the set of position keys representing the center of the board"""
         center = set()
-        
+
         if board_type == BoardType.SQUARE8:
             # Center 2x2 of 8x8 board
             for x in [3, 4]:
                 for y in [3, 4]:
                     center.add(f"{x},{y}")
-        
+
         elif board_type == BoardType.SQUARE19:
             # Center 3x3 of 19x19 board
             for x in [8, 9, 10]:
                 for y in [8, 9, 10]:
                     center.add(f"{x},{y}")
-        
+
         elif board_type == BoardType.HEXAGONAL:
             # Center hexagon (distance 0-2 from origin)
             for x in range(-2, 3):
@@ -109,7 +109,7 @@ class BoardGeometry:
                     z = -x - y
                     if abs(x) <= 2 and abs(y) <= 2 and abs(z) <= 2:
                         center.add(f"{x},{y},{z}")
-                        
+
         return center
 
     @staticmethod
@@ -125,8 +125,8 @@ class BoardGeometry:
         elif board_type == BoardType.HEXAGONAL:
             radius = board_size - 1
             z = pos.z if pos.z is not None else -pos.x - pos.y
-            return (abs(pos.x) <= radius and 
-                    abs(pos.y) <= radius and 
+            return (abs(pos.x) <= radius and
+                    abs(pos.y) <= radius and
                     abs(z) <= radius)
         return False
 

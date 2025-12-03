@@ -470,6 +470,117 @@ describe('RatingService', () => {
         expect.any(Object)
       );
     });
+
+    it('should skip game not found (null)', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue(null);
+
+      const results = await RatingService.processGameResult('game1', 'player1', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(results).toEqual([]);
+      expect(logger.info).toHaveBeenCalledWith(
+        'Skipping rating update for unrated game',
+        expect.any(Object)
+      );
+    });
+
+    it('should warn when some players not found but still process', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      // Only return one player when two are expected
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'player1', rating: 1200, gamesPlayed: 10 },
+      ]);
+
+      const results = await RatingService.processGameResult('game1', 'player1', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Some players not found for rating update',
+        expect.objectContaining({
+          expected: 2,
+          found: 1,
+        })
+      );
+      // Should return empty because can't find both players for 2-player game
+      expect(results).toEqual([]);
+    });
+
+    it('should return empty array when neither player found in 2-player game', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      mockPrisma.user.findMany.mockResolvedValue([]);
+
+      const results = await RatingService.processGameResult('game1', 'player1', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(results).toEqual([]);
+      expect(logger.error).toHaveBeenCalledWith(
+        'Players not found for rating update',
+        expect.any(Object)
+      );
+    });
+
+    it('should update ratings when player2 wins 2-player game', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'player1', rating: 1200, gamesPlayed: 10 },
+        { id: 'player2', rating: 1200, gamesPlayed: 10 },
+      ]);
+      mockPrisma.$transaction.mockResolvedValue([{}, {}]);
+
+      const results = await RatingService.processGameResult('game1', 'player2', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(results).toHaveLength(2);
+      // Player 1 should lose rating (they lost)
+      expect(results[0].playerId).toBe('player1');
+      expect(results[0].newRating).toBeLessThan(1200);
+      // Player 2 should gain rating (they won)
+      expect(results[1].playerId).toBe('player2');
+      expect(results[1].newRating).toBeGreaterThan(1200);
+    });
+
+    it('should handle multiplayer with no clear winner (null winnerId)', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'player1', rating: 1200, gamesPlayed: 10 },
+        { id: 'player2', rating: 1200, gamesPlayed: 10 },
+        { id: 'player3', rating: 1200, gamesPlayed: 10 },
+      ]);
+      mockPrisma.$transaction.mockResolvedValue([{}, {}, {}]);
+
+      const results = await RatingService.processGameResult('game1', null, [
+        'player1',
+        'player2',
+        'player3',
+      ]);
+
+      expect(results).toHaveLength(3);
+      // All players should have rank 2 (no winner), so minimal changes
+    });
+
+    it('should handle non-Error thrown in processGameResult catch block', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      mockPrisma.user.findMany.mockRejectedValue('String error thrown');
+
+      await expect(
+        RatingService.processGameResult('game1', 'player1', ['player1', 'player2'])
+      ).rejects.toBe('String error thrown');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to process game result for ratings',
+        expect.objectContaining({
+          error: 'String error thrown',
+        })
+      );
+    });
   });
 
   describe('getPlayerRating', () => {
@@ -555,6 +666,33 @@ describe('RatingService', () => {
       const result = await RatingService.getPlayerRating('user1');
 
       expect(result?.rank).toBe(1); // Rank 1 (top player)
+    });
+
+    it('should log error and rethrow on database failure', async () => {
+      mockPrisma.user.findUnique.mockRejectedValue(new Error('Query failed'));
+
+      await expect(RatingService.getPlayerRating('user1')).rejects.toThrow('Query failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get player rating',
+        expect.objectContaining({
+          userId: 'user1',
+          error: 'Query failed',
+        })
+      );
+    });
+
+    it('should handle non-Error thrown in getPlayerRating catch block', async () => {
+      mockPrisma.user.findUnique.mockRejectedValue('String error');
+
+      await expect(RatingService.getPlayerRating('user1')).rejects.toBe('String error');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get player rating',
+        expect.objectContaining({
+          error: 'String error',
+        })
+      );
     });
   });
 
@@ -644,6 +782,32 @@ describe('RatingService', () => {
         })
       );
     });
+
+    it('should log error and rethrow on database failure', async () => {
+      mockPrisma.user.findMany.mockRejectedValue(new Error('Query failed'));
+
+      await expect(RatingService.getLeaderboard()).rejects.toThrow('Query failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get leaderboard',
+        expect.objectContaining({
+          error: 'Query failed',
+        })
+      );
+    });
+
+    it('should handle non-Error thrown in getLeaderboard catch block', async () => {
+      mockPrisma.user.findMany.mockRejectedValue('String error');
+
+      await expect(RatingService.getLeaderboard()).rejects.toBe('String error');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get leaderboard',
+        expect.objectContaining({
+          error: 'String error',
+        })
+      );
+    });
   });
 
   describe('getLeaderboardCount', () => {
@@ -676,6 +840,32 @@ describe('RatingService', () => {
           gamesPlayed: { gt: 0 },
         },
       });
+    });
+
+    it('should log error and rethrow on database failure', async () => {
+      mockPrisma.user.count.mockRejectedValue(new Error('Count failed'));
+
+      await expect(RatingService.getLeaderboardCount()).rejects.toThrow('Count failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get leaderboard count',
+        expect.objectContaining({
+          error: 'Count failed',
+        })
+      );
+    });
+
+    it('should handle non-Error thrown in getLeaderboardCount catch block', async () => {
+      mockPrisma.user.count.mockRejectedValue('String error');
+
+      await expect(RatingService.getLeaderboardCount()).rejects.toBe('String error');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get leaderboard count',
+        expect.objectContaining({
+          error: 'String error',
+        })
+      );
     });
   });
 
@@ -776,6 +966,172 @@ describe('RatingService', () => {
     it('should handle very small rating differences', () => {
       const expected = RatingService.calculateExpectedScore(1200, 1201);
       expect(expected).toBeCloseTo(0.5, 2);
+    });
+  });
+
+  describe('processGameResult - Additional Branch Coverage', () => {
+    let mockPrisma: any;
+
+    beforeEach(() => {
+      mockPrisma = {
+        game: {
+          findUnique: jest.fn(),
+        },
+        user: {
+          findMany: jest.fn(),
+          update: jest.fn(),
+        },
+        $transaction: jest.fn(),
+      };
+      (getDatabaseClient as jest.Mock).mockReturnValue(mockPrisma);
+    });
+
+    it('should update ratings when player2 wins (covers else branch)', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'player1', rating: 1200, gamesPlayed: 10 },
+        { id: 'player2', rating: 1200, gamesPlayed: 10 },
+      ]);
+      mockPrisma.$transaction.mockResolvedValue([{}, {}]);
+
+      // player2 wins (winnerId is player2, not player1)
+      const results = await RatingService.processGameResult('game1', 'player2', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(results).toHaveLength(2);
+      // Player1 should lose rating
+      expect(results[0].playerId).toBe('player1');
+      expect(results[0].change).toBeLessThan(0);
+      // Player2 should gain rating
+      expect(results[1].playerId).toBe('player2');
+      expect(results[1].change).toBeGreaterThan(0);
+    });
+
+    it('should warn when some players not found', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      // Return only 1 player when 2 expected
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'player1', rating: 1200, gamesPlayed: 10 },
+      ]);
+
+      const results = await RatingService.processGameResult('game1', 'player1', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Some players not found for rating update',
+        expect.objectContaining({
+          expected: 2,
+          found: 1,
+        })
+      );
+      // Should return empty because player2 not found
+      expect(results).toEqual([]);
+    });
+
+    it('should return empty array when player1 not found in 2-player game', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      // Return player2 but not player1
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'player2', rating: 1200, gamesPlayed: 10 },
+      ]);
+
+      const results = await RatingService.processGameResult('game1', 'player1', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Players not found for rating update',
+        expect.objectContaining({
+          gameId: 'game1',
+        })
+      );
+      expect(results).toEqual([]);
+    });
+
+    it('should return empty array when player2 not found in 2-player game', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ isRated: true });
+      // Return player1 but not player2
+      mockPrisma.user.findMany.mockResolvedValue([
+        { id: 'player1', rating: 1200, gamesPlayed: 10 },
+      ]);
+
+      const results = await RatingService.processGameResult('game1', 'player1', [
+        'player1',
+        'player2',
+      ]);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Players not found for rating update',
+        expect.any(Object)
+      );
+      expect(results).toEqual([]);
+    });
+  });
+
+  describe('Error Handling - Database Failures', () => {
+    let mockPrisma: any;
+
+    beforeEach(() => {
+      mockPrisma = {
+        user: {
+          findUnique: jest.fn(),
+          findMany: jest.fn(),
+          count: jest.fn(),
+        },
+      };
+      (getDatabaseClient as jest.Mock).mockReturnValue(mockPrisma);
+    });
+
+    it('should log error and throw when getPlayerRating fails', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'user1',
+        username: 'Test',
+        rating: 1200,
+        gamesPlayed: 10,
+        gamesWon: 5,
+      });
+      mockPrisma.user.count.mockRejectedValue(new Error('Count query failed'));
+
+      await expect(RatingService.getPlayerRating('user1')).rejects.toThrow('Count query failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get player rating',
+        expect.objectContaining({
+          userId: 'user1',
+          error: 'Count query failed',
+        })
+      );
+    });
+
+    it('should log error and throw when getLeaderboard fails', async () => {
+      mockPrisma.user.findMany.mockRejectedValue(new Error('Query failed'));
+
+      await expect(RatingService.getLeaderboard()).rejects.toThrow('Query failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get leaderboard',
+        expect.objectContaining({
+          error: 'Query failed',
+        })
+      );
+    });
+
+    it('should log error and throw when getLeaderboardCount fails', async () => {
+      mockPrisma.user.count.mockRejectedValue(new Error('Count failed'));
+
+      await expect(RatingService.getLeaderboardCount()).rejects.toThrow('Count failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get leaderboard count',
+        expect.objectContaining({
+          error: 'Count failed',
+        })
+      );
     });
   });
 });

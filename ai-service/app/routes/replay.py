@@ -16,7 +16,6 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.db.game_replay import GameReplayDB
-from app.models import GameState
 
 logger = logging.getLogger(__name__)
 

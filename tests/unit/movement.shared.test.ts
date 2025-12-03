@@ -61,6 +61,261 @@ function makeMovementView(boardType: BoardType, board: BoardState): MovementBoar
 const skipParityWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true';
 
 describe('enumerateSimpleMoveTargetsFromStack shared helper', () => {
+  describe('edge cases', () => {
+    test('returns empty array when no stack at position', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(3, 3);
+      const player = 1;
+
+      // No stack added at position
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      expect(targets).toEqual([]);
+    });
+
+    test('returns empty array when stack belongs to different player', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(3, 3);
+
+      // Stack belongs to player 2, but we're querying for player 1
+      addStack(board, from, 2, 2);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, 1, view);
+
+      expect(targets).toEqual([]);
+    });
+
+    test('returns empty array when stack has zero height', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(3, 3);
+      const player = 1;
+
+      // Add a stack and then modify it to have zero height
+      addStack(board, from, player, 1);
+      const stack = board.stacks.get(positionToString(from))!;
+      stack.stackHeight = 0;
+      stack.rings = [];
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      expect(targets).toEqual([]);
+    });
+
+    test('stops at collapsed space on movement path', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(2, 2);
+      const player = 1;
+
+      addStack(board, from, player, 2);
+
+      // Collapse a space on the east path
+      board.collapsedSpaces.set(positionToString(pos(3, 2)), 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // Should not include any positions to the east (blocked by collapsed)
+      const eastTargets = targets.filter((t) => t.to.y === 2 && t.to.x > 2);
+      expect(eastTargets).toHaveLength(0);
+    });
+
+    test('stops when path goes through another stack', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(1, 1);
+      const player = 1;
+
+      // Moving stack of height 2
+      addStack(board, from, player, 2);
+
+      // Blocking stack at (2,1) - on the east path
+      addStack(board, pos(2, 1), 2, 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // Should not include positions beyond (2,1) to the east
+      const farEastTargets = targets.filter((t) => t.to.y === 1 && t.to.x > 2);
+      expect(farEastTargets).toHaveLength(0);
+    });
+
+    test('stops when landing position is on a stack', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(1, 1);
+      const player = 1;
+
+      // Moving stack of height 2
+      addStack(board, from, player, 2);
+
+      // Stack at minimum distance position (exactly where we could land)
+      addStack(board, pos(3, 1), player, 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // (3,1) should not be a valid landing target since a stack is there
+      const targetAt3_1 = targets.find((t) => t.to.x === 3 && t.to.y === 1);
+      expect(targetAt3_1).toBeUndefined();
+    });
+
+    test('handles collapsed space as landing position', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(1, 1);
+      const player = 1;
+
+      addStack(board, from, player, 2);
+
+      // Collapse the space at exact minimum distance
+      board.collapsedSpaces.set(positionToString(pos(3, 1)), 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // (3,1) and beyond should not be reachable
+      const eastTargets = targets.filter((t) => t.to.y === 1 && t.to.x >= 3);
+      expect(eastTargets).toHaveLength(0);
+    });
+
+    test('stops when path position is invalid (near board edge)', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(7, 7); // Corner position
+      const player = 1;
+
+      addStack(board, from, player, 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // From corner, only limited directions are valid
+      // All targets should be within board bounds
+      for (const target of targets) {
+        expect(target.to.x).toBeGreaterThanOrEqual(0);
+        expect(target.to.x).toBeLessThan(8);
+        expect(target.to.y).toBeGreaterThanOrEqual(0);
+        expect(target.to.y).toBeLessThan(8);
+      }
+    });
+
+    test('handles hexagonal board z-coordinate', () => {
+      const boardType: BoardType = 'hexagonal';
+      const board = createTestBoard(boardType);
+      const from: Position = { x: 0, y: 0, z: 0 };
+      const player = 1;
+
+      addStack(board, from, player, 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // All targets should have valid z coordinates
+      for (const target of targets) {
+        expect(target.to.z).toBeDefined();
+        // For hexagonal, x + y + z should equal 0
+        expect(target.to.x + target.to.y + (target.to.z || 0)).toBe(0);
+      }
+    });
+
+    test('allows movement over opponent markers without landing', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(1, 1);
+      const player = 1;
+
+      addStack(board, from, player, 3);
+
+      // Opponent marker on the path at (2,1)
+      addMarker(board, pos(2, 1), 2);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // Cannot land on opponent marker at (2,1)
+      const landingOn2_1 = targets.find((t) => t.to.x === 2 && t.to.y === 1);
+      expect(landingOn2_1).toBeUndefined();
+
+      // But can land on positions beyond (3,1 or further)
+      const eastTargets = targets.filter((t) => t.to.y === 1 && t.to.x >= 3);
+      expect(eastTargets.length).toBeGreaterThan(0);
+    });
+
+    test('blocks ray when intermediate path position has collapsed space', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(0, 3);
+      const player = 1;
+
+      // Stack with height 3 - can move minimum distance 3
+      addStack(board, from, player, 3);
+
+      // Collapse an INTERMEDIATE position at (2,3) - between from (0,3) and potential landing (3,3) or beyond
+      // Path from (0,3) to (4,3) would include intermediate positions (1,3), (2,3), (3,3)
+      board.collapsedSpaces.set(positionToString(pos(2, 3)), 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // Position (3,3) at distance 3 should be blocked because path goes through collapsed (2,3)
+      const targetAt3_3 = targets.find((t) => t.to.x === 3 && t.to.y === 3);
+      expect(targetAt3_3).toBeUndefined();
+
+      // Positions further east should also be blocked
+      const farEastTargets = targets.filter((t) => t.to.y === 3 && t.to.x >= 3);
+      expect(farEastTargets).toHaveLength(0);
+    });
+
+    test('blocks ray when intermediate path position has a stack', () => {
+      const boardType: BoardType = 'square8';
+      const board = createTestBoard(boardType);
+      const from = pos(0, 3);
+      const player = 1;
+
+      // Stack with height 3 - can move minimum distance 3
+      addStack(board, from, player, 3);
+
+      // Another stack at INTERMEDIATE position (1,3) - between from (0,3) and potential landing (3,3)
+      addStack(board, pos(1, 3), 2, 1);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // Position (3,3) at distance 3 should be blocked because path goes through stack at (1,3)
+      const targetAt3_3 = targets.find((t) => t.to.x === 3 && t.to.y === 3);
+      expect(targetAt3_3).toBeUndefined();
+
+      // All positions east should be blocked
+      const eastTargets = targets.filter((t) => t.to.y === 3 && t.to.x > 0);
+      expect(eastTargets).toHaveLength(0);
+    });
+
+    test('blocks ray when intermediate path position is off board (edge case with hex coordinates)', () => {
+      const boardType: BoardType = 'hexagonal';
+      const board = createTestBoard(boardType);
+      // Start from edge of hex board
+      const from: Position = { x: 4, y: -4, z: 0 };
+      const player = 1;
+
+      addStack(board, from, player, 3);
+
+      const view = makeMovementView(boardType, board);
+      const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
+
+      // All targets should be valid positions (within board)
+      for (const target of targets) {
+        expect(view.isValidPosition(target.to)).toBe(true);
+      }
+    });
+  });
+
   test('square8: shared vs sandbox vs RuleEngine on open board', () => {
     const boardType: BoardType = 'square8';
     const board = createTestBoard(boardType);

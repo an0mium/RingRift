@@ -12,13 +12,13 @@ class ZobristHash:
     Singleton class to manage Zobrist hash keys.
     """
     _instance = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ZobristHash, cls).__new__(cls)
             cls._instance._initialize()
         return cls._instance
-    
+
     def _initialize(self):
         """Initialize random bitstrings for all board features.
 
@@ -77,22 +77,22 @@ class ZobristHash:
         rings_str = ",".join(str(r) for r in rings)
         key = f"{pos_key}|stack|{player}|{height}|{rings_str}"
         return self.table[self._index_for(key)]
-        
+
     def get_marker_hash(self, pos_key: str, player: int) -> int:
         """Get hash for a marker"""
         key = f"{pos_key}|marker|{player}"
         return self.table[self._index_for(key)]
-        
+
     def get_collapsed_hash(self, pos_key: str) -> int:
         """Get hash for a collapsed space"""
         key = f"{pos_key}|collapsed"
         return self.table[self._index_for(key)]
-        
+
     def get_player_hash(self, player: int) -> int:
         """Get hash for current player"""
         key = f"player|{player}"
         return self.table[self._index_for(key)]
-        
+
     def get_phase_hash(self, phase: str) -> int:
         """Get hash for current phase"""
         key = f"phase|{phase}"
@@ -101,26 +101,26 @@ class ZobristHash:
     def compute_initial_hash(self, game_state) -> int:
         """Compute full hash from scratch (expensive, O(N))"""
         h = 0
-        
+
         # Stacks
         for pos_key, stack in game_state.board.stacks.items():
             h ^= self.get_stack_hash(
-                pos_key, 
-                stack.controlling_player, 
-                stack.stack_height, 
+                pos_key,
+                stack.controlling_player,
+                stack.stack_height,
                 tuple(stack.rings)
             )
-            
+
         # Markers
         for pos_key, marker in game_state.board.markers.items():
             h ^= self.get_marker_hash(pos_key, marker.player)
-            
+
         # Collapsed
         for pos_key in game_state.board.collapsed_spaces:
             h ^= self.get_collapsed_hash(pos_key)
-            
+
         # Global state
         h ^= self.get_player_hash(game_state.current_player)
         h ^= self.get_phase_hash(game_state.current_phase)
-        
+
         return h

@@ -51,8 +51,31 @@ class DescentAI(BaseAI):
     optional neural network backend for value/policy estimates. It supports
     both immutable (legacy) and mutable (make/unmake) search modes, gated
     by ``config.use_incremental_search``.
+
+    Configuration overview (:class:`AIConfig` / related fields):
+
+    - ``use_incremental_search``: When ``True`` (default), uses the
+      :class:`MutableGameState` make/unmake path; when ``False``, falls
+      back to the legacy immutable path.
+    - ``think_time``: Per‑move wall‑clock budget in milliseconds. When
+      set to a positive value, both legacy and incremental paths treat
+      this purely as a **search time limit**; when unset or non‑positive,
+      a difficulty‑scaled default is used (roughly 0.1s–2.0s).
+    - ``randomness``: Passed through to :meth:`BaseAI.should_pick_random_move`
+      for occasional random move selection before entering the Descent
+      loop.
+    - ``nn_model_id`` / related NN config: Threaded into
+      :class:`NeuralNetAI` to control which checkpoint and architecture
+      are used for value/policy estimates when available. When no model
+      can be loaded, the agent safely degrades to purely heuristic search.
+
+    Memory configuration:
+        Transposition table sizing is controlled by :class:`MemoryConfig`,
+        which is either provided explicitly via ``memory_config`` or
+        derived from the environment. This determines the effective cap on
+        stored nodes and thus memory usage during deep searches.
     """
-    
+
     def __init__(
         self,
         player_number: int,
@@ -86,7 +109,7 @@ class DescentAI(BaseAI):
 
         # Memory configuration for bounded structures
         self.memory_config = memory_config or MemoryConfig.from_env()
-        
+
         # Transposition table to store values with bounded memory
         # Key: state_hash, Value: (value, children_values, status)
         # Entry size estimate: ~10000 bytes per entry.
@@ -97,14 +120,14 @@ class DescentAI(BaseAI):
             tt_limit,
             entry_size_estimate=10000,
         )
-        
+
         # Search log for Tree Learning
         # List of (features, value)
         # Only populated when collect_training_data is True to prevent
         # memory leaks in inference-only scenarios.
         self.collect_training_data: bool = False
         self.search_log: List[Tuple[Any, float]] = []
-        
+
         # Configuration option for incremental search (make/unmake pattern)
         self.use_incremental_search: bool = getattr(
             config, 'use_incremental_search', True
@@ -121,7 +144,7 @@ class DescentAI(BaseAI):
         data = self.search_log
         self.search_log = []
         return data
-    
+
     def enable_training_data_collection(self, enabled: bool = True) -> None:
         """Enable or disable search‑data collection for training.
 
@@ -135,21 +158,21 @@ class DescentAI(BaseAI):
         if not enabled:
             # Clear any existing data when disabling
             self.search_log.clear()
-        
+
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """
         Select the best move using Descent search.
-        
+
         Routes to incremental (make/unmake) or legacy (immutable) search
         based on the use_incremental_search configuration.
         """
         # No simulated thinking for Descent, we use the time for search.
-        
+
         # Get all valid moves for this AI player via the rules engine
         valid_moves = self.get_valid_moves(game_state)
         if not valid_moves:
             return None
-            
+
         if self.should_pick_random_move():
             selected = self.get_random_element(valid_moves)
             # get_random_element only returns None when the list is empty, but
@@ -157,7 +180,7 @@ class DescentAI(BaseAI):
             if selected is None:
                 return None
             return selected
-        
+
         # Route to incremental or legacy search based on config
         if self.use_incremental_search:
             return self._select_move_incremental(game_state, valid_moves)
@@ -168,7 +191,7 @@ class DescentAI(BaseAI):
         self, game_state: GameState, valid_moves: List[Move]
     ) -> Optional[Move]:
         """Legacy search using immutable state cloning via apply_move().
-        
+
         This is the original implementation preserved for backward
         compatibility and A/B testing against the new incremental search.
         """
@@ -179,9 +202,9 @@ class DescentAI(BaseAI):
             # Default time limit based on difficulty
             # Difficulty 1: 0.1s, Difficulty 10: 2.0s
             time_limit = 0.1 + (self.config.difficulty * 0.2)
-            
+
         end_time = time.time() + time_limit
-        
+
         # Run Descent iterations until the deadline or until the root is
         # proven solved.
         iterations = 0
@@ -192,7 +215,7 @@ class DescentAI(BaseAI):
                 deadline=end_time,
             )
             iterations += 1
-            
+
             # Completion: Stop if root is solved
             state_key = self._get_state_key(game_state)
             entry = self.transposition_table.get(state_key)
@@ -204,7 +227,7 @@ class DescentAI(BaseAI):
                         NodeStatus.PROVEN_LOSS,
                     ):
                         break
-            
+
         # Select best move from root
         state_key = self._get_state_key(game_state)
         entry = self.transposition_table.get(state_key)
@@ -213,7 +236,7 @@ class DescentAI(BaseAI):
                 _, children_values, _ = entry
             else:
                 _, children_values = entry
-                
+
             if children_values:
                 if game_state.current_player == self.player_number:
                     best_move_key = max(
@@ -226,7 +249,7 @@ class DescentAI(BaseAI):
                         key=lambda x: x[1][1],
                     )[0]
                 return children_values[best_move_key][0]
-        
+
         # Log transposition table stats at end of search
         if logger.isEnabledFor(logging.DEBUG):
             stats = self.transposition_table.stats()
@@ -240,7 +263,7 @@ class DescentAI(BaseAI):
                 stats["evictions"],
                 stats["hit_rate"] * 100,
             )
-        
+
         # Fallback if something went wrong or no search happened. Use the
         # per-instance RNG for reproducible behaviour under a fixed seed.
         fallback = self.get_random_element(valid_moves)
@@ -252,7 +275,7 @@ class DescentAI(BaseAI):
         self, game_state: GameState, valid_moves: List[Move]
     ) -> Optional[Move]:
         """Incremental search using make/unmake on MutableGameState.
-        
+
         This provides significant speedup by avoiding object allocation
         overhead during tree search. State is modified in-place and restored
         using MoveUndo tokens.
@@ -264,12 +287,12 @@ class DescentAI(BaseAI):
             # Default time limit based on difficulty
             # Difficulty 1: 0.1s, Difficulty 10: 2.0s
             time_limit = 0.1 + (self.config.difficulty * 0.2)
-            
+
         end_time = time.time() + time_limit
-        
+
         # Create mutable state once for the entire search
         mutable_state = MutableGameState.from_immutable(game_state)
-        
+
         # Run Descent iterations until the deadline or until the root is
         # proven solved.
         iterations = 0
@@ -280,7 +303,7 @@ class DescentAI(BaseAI):
                 deadline=end_time,
             )
             iterations += 1
-            
+
             # Completion: Stop if root is solved
             state_key = mutable_state.zobrist_hash
             entry = self.transposition_table.get(state_key)
@@ -292,7 +315,7 @@ class DescentAI(BaseAI):
                         NodeStatus.PROVEN_LOSS,
                     ):
                         break
-            
+
         # Select best move from root
         state_key = mutable_state.zobrist_hash
         entry = self.transposition_table.get(state_key)
@@ -301,7 +324,7 @@ class DescentAI(BaseAI):
                 _, children_values, _ = entry
             else:
                 _, children_values = entry
-                
+
             if children_values:
                 if mutable_state.current_player == self.player_number:
                     best_move_key = max(
@@ -314,7 +337,7 @@ class DescentAI(BaseAI):
                         key=lambda x: x[1][1],
                     )[0]
                 return children_values[best_move_key][0]
-        
+
         # Log transposition table stats at end of search
         if logger.isEnabledFor(logging.DEBUG):
             stats = self.transposition_table.stats()
@@ -329,7 +352,7 @@ class DescentAI(BaseAI):
                 stats["evictions"],
                 stats["hit_rate"] * 100,
             )
-        
+
         # Fallback if something went wrong or no search happened. Use the
         # per-instance RNG for reproducible behaviour under a fixed seed.
         fallback = self.get_random_element(valid_moves)
@@ -360,9 +383,9 @@ class DescentAI(BaseAI):
         # Check if terminal
         if state.game_status == "finished":
             return self._calculate_terminal_value(state, depth)
-                
+
         state_key = self._get_state_key(state)
-        
+
         # Check if state is in transposition table
         entry = self.transposition_table.get(state_key)
         if entry is not None:
@@ -401,9 +424,9 @@ class DescentAI(BaseAI):
                     children_values.items(),
                     key=lambda x: x[1][1],
                 )[0]
-             
+
             best_move = children_values[best_move_key][0]
-                
+
             # Descend using the canonical rules engine
             next_state = self.rules_engine.apply_move(state, best_move)
             val = self._descent_iteration(
@@ -411,7 +434,7 @@ class DescentAI(BaseAI):
                 depth + 1,
                 deadline=deadline,
             )
-            
+
             # Update child value
             # Preserve existing data (move, old_val, prob)
             old_data = children_values[best_move_key]
@@ -419,7 +442,7 @@ class DescentAI(BaseAI):
                 children_values[best_move_key] = (best_move, val, old_data[2])
             else:
                 children_values[best_move_key] = (best_move, val)
-            
+
             # Update current node value and status
             if state.current_player == self.player_number:
                 new_best_val = max(v[1] for v in children_values.values())
@@ -456,7 +479,7 @@ class DescentAI(BaseAI):
             if self.collect_training_data and self.neural_net:
                 features, _ = self.neural_net._extract_features(state)
                 self.search_log.append((features, new_best_val))
-                
+
             return new_best_val
 
         else:
@@ -465,10 +488,10 @@ class DescentAI(BaseAI):
                 state,
                 state.current_player,
             )
-            
+
             if not valid_moves:
                 return 0.0
-                
+
             # Get policy if available
             move_probs: Dict[str, float] = {}
             if self.neural_net:
@@ -579,7 +602,7 @@ class DescentAI(BaseAI):
                 # current best_val so far.
                 if deadline is not None and time.time() >= deadline:
                     break
-                
+
                 # Evaluate leaf
                 if next_state.game_status == "finished":
                     if next_state.winner == self.player_number:
@@ -590,16 +613,16 @@ class DescentAI(BaseAI):
                         val = 0.0
                 else:
                     val = self.evaluate_position(next_state)
-                
+
                 move_key = str(move)
                 prob = move_probs.get(move_key, 0.0)
                 children_values[move_key] = (move, val, prob)
-                
+
                 if state.current_player == self.player_number:
                     best_val = max(best_val, val)
                 else:
                     best_val = min(best_val, val)
-            
+
             # Determine status
             status = NodeStatus.HEURISTIC
             if best_val == 1.0 and state.current_player == self.player_number:
@@ -619,7 +642,7 @@ class DescentAI(BaseAI):
             if self.collect_training_data and self.neural_net:
                 features, _ = self.neural_net._extract_features(state)
                 self.search_log.append((features, best_val))
-                
+
             return best_val
 
     # =========================================================================
@@ -649,9 +672,9 @@ class DescentAI(BaseAI):
         # Check if terminal
         if state.is_game_over():
             return self._calculate_terminal_value_mutable(state, depth)
-                
+
         state_key = state.zobrist_hash
-        
+
         # Check if state is in transposition table
         entry = self.transposition_table.get(state_key)
         if entry is not None:
@@ -690,9 +713,9 @@ class DescentAI(BaseAI):
                     children_values.items(),
                     key=lambda x: x[1][1],
                 )[0]
-             
+
             best_move = children_values[best_move_key][0]
-                
+
             # Descend using make/unmake pattern
             undo = state.make_move(best_move)
             val = self._descent_iteration_mutable(
@@ -701,7 +724,7 @@ class DescentAI(BaseAI):
                 deadline=deadline,
             )
             state.unmake_move(undo)
-            
+
             # Update child value
             # Preserve existing data (move, old_val, prob)
             old_data = children_values[best_move_key]
@@ -709,7 +732,7 @@ class DescentAI(BaseAI):
                 children_values[best_move_key] = (best_move, val, old_data[2])
             else:
                 children_values[best_move_key] = (best_move, val)
-            
+
             # Update current node value and status
             if state.current_player == self.player_number:
                 new_best_val = max(v[1] for v in children_values.values())
@@ -747,7 +770,7 @@ class DescentAI(BaseAI):
                 immutable = state.to_immutable()
                 features, _ = self.neural_net._extract_features(immutable)
                 self.search_log.append((features, new_best_val))
-                
+
             return new_best_val
 
         else:
@@ -757,10 +780,10 @@ class DescentAI(BaseAI):
                 immutable,
                 state.current_player,
             )
-            
+
             if not valid_moves:
                 return 0.0
-                
+
             # Get policy if available
             move_probs: Dict[str, float] = {}
             if self.neural_net:
@@ -878,7 +901,7 @@ class DescentAI(BaseAI):
                 if deadline is not None and time.time() >= deadline:
                     state.unmake_move(undo)
                     break
-                
+
                 # Evaluate leaf
                 if state.is_game_over():
                     winner = state.get_winner()
@@ -890,18 +913,18 @@ class DescentAI(BaseAI):
                         val = 0.0
                 else:
                     val = self._evaluate_mutable(state)
-                
+
                 state.unmake_move(undo)
-                
+
                 move_key = str(move)
                 prob = move_probs.get(move_key, 0.0)
                 children_values[move_key] = (move, val, prob)
-                
+
                 if state.current_player == self.player_number:
                     best_val = max(best_val, val)
                 else:
                     best_val = min(best_val, val)
-            
+
             # Determine status
             status = NodeStatus.HEURISTIC
             if best_val == 1.0 and state.current_player == self.player_number:
@@ -921,14 +944,14 @@ class DescentAI(BaseAI):
             if self.collect_training_data and self.neural_net:
                 features, _ = self.neural_net._extract_features(immutable)
                 self.search_log.append((features, best_val))
-                
+
             return best_val
 
     def _calculate_terminal_value_mutable(
         self, state: MutableGameState, depth: int
     ) -> float:
         """Calculate terminal value for mutable state.
-        
+
         Includes bonuses and discount for tie-breaking.
         """
         base_val = 0.0
@@ -940,7 +963,7 @@ class DescentAI(BaseAI):
         else:
             # Draw
             return 0.0
-            
+
         # Bonuses for tie-breaking metrics (Territory, Eliminated, Markers)
         # Territory
         territory_count = 0
@@ -989,7 +1012,7 @@ class DescentAI(BaseAI):
 
     def _evaluate_mutable(self, state: MutableGameState) -> float:
         """Evaluate MutableGameState using neural net or heuristic.
-        
+
         Converts to immutable for neural net evaluation, or uses
         a simple heuristic directly on the mutable state.
         """
@@ -1024,7 +1047,7 @@ class DescentAI(BaseAI):
         # Fallback if hash is missing (shouldn't happen with updated engine)
         from .zobrist import ZobristHash
         return ZobristHash().compute_initial_hash(state)
-        
+
     def _calculate_terminal_value(self, state: GameState, depth: int) -> float:
         """Calculate terminal value with bonuses and discount"""
         base_val = 0.0
@@ -1035,7 +1058,7 @@ class DescentAI(BaseAI):
         else:
             # Draw
             return 0.0
-            
+
         # Bonuses for tie-breaking metrics (Territory, Eliminated, Markers)
         # Bonuses for tie-breaking metrics (Territory, Eliminated, Markers)
         # Territory

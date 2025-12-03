@@ -661,3 +661,97 @@ describe('loadEnvOrExit', () => {
     exitSpy.mockRestore();
   });
 });
+
+describe('Boolean transform coverage', () => {
+  describe('AI_FALLBACK_ENABLED transforms', () => {
+    it('should default to true when AI_FALLBACK_ENABLED is undefined', () => {
+      const envWithoutFlag = { ...baseValidEnv };
+      const result = parseEnv(envWithoutFlag);
+      expect(result.success).toBe(true);
+      expect(result.data?.AI_FALLBACK_ENABLED).toBe(true);
+    });
+
+    it('should return false when AI_FALLBACK_ENABLED is "false"', () => {
+      const result = parseEnv({ ...baseValidEnv, AI_FALLBACK_ENABLED: 'false' });
+      expect(result.success).toBe(true);
+      expect(result.data?.AI_FALLBACK_ENABLED).toBe(false);
+    });
+
+    it('should return false when AI_FALLBACK_ENABLED is "0"', () => {
+      const result = parseEnv({ ...baseValidEnv, AI_FALLBACK_ENABLED: '0' });
+      expect(result.success).toBe(true);
+      expect(result.data?.AI_FALLBACK_ENABLED).toBe(false);
+    });
+
+    it('should return true when AI_FALLBACK_ENABLED is "true"', () => {
+      const result = parseEnv({ ...baseValidEnv, AI_FALLBACK_ENABLED: 'true' });
+      expect(result.success).toBe(true);
+      expect(result.data?.AI_FALLBACK_ENABLED).toBe(true);
+    });
+
+    it('should return true when AI_FALLBACK_ENABLED is "1"', () => {
+      const result = parseEnv({ ...baseValidEnv, AI_FALLBACK_ENABLED: '1' });
+      expect(result.success).toBe(true);
+      expect(result.data?.AI_FALLBACK_ENABLED).toBe(true);
+    });
+  });
+
+  describe('ENABLE_ANALYSIS_MODE transforms', () => {
+    it('should default to false when ENABLE_ANALYSIS_MODE is undefined', () => {
+      const envWithoutFlag = { ...baseValidEnv };
+      const result = parseEnv(envWithoutFlag);
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_ANALYSIS_MODE).toBe(false);
+    });
+
+    it('should return true when ENABLE_ANALYSIS_MODE is "true"', () => {
+      const result = parseEnv({ ...baseValidEnv, ENABLE_ANALYSIS_MODE: 'true' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_ANALYSIS_MODE).toBe(true);
+    });
+
+    it('should return true when ENABLE_ANALYSIS_MODE is "1"', () => {
+      const result = parseEnv({ ...baseValidEnv, ENABLE_ANALYSIS_MODE: '1' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_ANALYSIS_MODE).toBe(true);
+    });
+
+    it('should return false when ENABLE_ANALYSIS_MODE is "false"', () => {
+      const result = parseEnv({ ...baseValidEnv, ENABLE_ANALYSIS_MODE: 'false' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_ANALYSIS_MODE).toBe(false);
+    });
+
+    it('should return false when ENABLE_ANALYSIS_MODE is arbitrary string', () => {
+      const result = parseEnv({ ...baseValidEnv, ENABLE_ANALYSIS_MODE: 'maybe' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ENABLE_ANALYSIS_MODE).toBe(false);
+    });
+  });
+
+  describe('ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED transforms', () => {
+    it('should default to true when set to "true"', () => {
+      const result = parseEnv({ ...baseValidEnv, ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED: 'true' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED).toBe(true);
+    });
+
+    it('should return true when set to "1"', () => {
+      const result = parseEnv({ ...baseValidEnv, ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED: '1' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED).toBe(true);
+    });
+
+    it('should return false when set to "false"', () => {
+      const result = parseEnv({ ...baseValidEnv, ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED: 'false' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED).toBe(false);
+    });
+
+    it('should return false when set to arbitrary string', () => {
+      const result = parseEnv({ ...baseValidEnv, ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED: '0' });
+      expect(result.success).toBe(true);
+      expect(result.data?.ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED).toBe(false);
+    });
+  });
+});

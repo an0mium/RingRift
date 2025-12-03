@@ -251,6 +251,46 @@ describe('Error Handler Middleware', () => {
         }),
       });
     });
+
+    it('should handle CastError (invalid MongoDB ID)', () => {
+      const error = new Error('Cast to ObjectId failed');
+      error.name = 'CastError';
+
+      errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+      expect(responseBody).toMatchObject({
+        error: expect.objectContaining({
+          code: 'VALIDATION_INVALID_ID',
+        }),
+      });
+    });
+
+    // Note: The MongoError with code 11000 check at line 80-81 in errorHandler.ts
+    // is unreachable because the `if (extError.code !== undefined)` check at line 64
+    // catches numeric codes first and normalizes them. This is a code quality issue
+    // in the source, not a test coverage issue.
+
+    it('should handle error with explicit code property', () => {
+      const error = new Error('Custom error') as Error & { code?: string };
+      error.code = 'RATE_LIMIT_EXCEEDED';
+
+      errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+      expect(responseBody).toMatchObject({
+        error: expect.objectContaining({
+          code: 'RATE_LIMIT_EXCEEDED',
+        }),
+      });
+    });
+
+    it('should handle error with custom status code property', () => {
+      const error = new Error('Custom error') as Error & { statusCode?: number };
+      error.statusCode = 422;
+
+      errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+      expect(responseStatus).toBe(422);
+    });
   });
 
   describe('Response formatting', () => {
@@ -273,6 +313,73 @@ describe('Error Handler Middleware', () => {
       errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
 
       expect(responseBody).toMatchObject({ success: false });
+    });
+  });
+
+  describe('Logging behaviour', () => {
+    it('logs server errors at error level', () => {
+      const { logger } = require('../../../src/server/utils/logger');
+      jest.clearAllMocks();
+
+      const error = new ApiError({
+        code: ErrorCodes.SERVER_INTERNAL_ERROR,
+        message: 'Fatal error',
+      });
+
+      errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Server Error:',
+        expect.objectContaining({
+          code: ErrorCodes.SERVER_INTERNAL_ERROR,
+          statusCode: expect.any(Number),
+        })
+      );
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('logs client errors at warn level', () => {
+      const { logger } = require('../../../src/server/utils/logger');
+      jest.clearAllMocks();
+
+      const error = new ApiError({
+        code: ErrorCodes.AUTH_INVALID_CREDENTIALS,
+        message: 'Invalid credentials',
+      });
+
+      errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Client Error:',
+        expect.objectContaining({
+          code: ErrorCodes.AUTH_INVALID_CREDENTIALS,
+          statusCode: expect.any(Number),
+        })
+      );
+      expect(logger.error).not.toHaveBeenCalled();
+    });
+
+    it('logs at info level for errors with status < 400', () => {
+      const { logger } = require('../../../src/server/utils/logger');
+      jest.clearAllMocks();
+
+      // Create an error with status 300 (redirect-style) to trigger info logging
+      const error = new ApiError({
+        code: 'CUSTOM_REDIRECT' as any,
+        message: 'Redirect info',
+        statusCode: 300,
+      });
+
+      errorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+      expect(logger.info).toHaveBeenCalledWith(
+        'Error:',
+        expect.objectContaining({
+          statusCode: 300,
+        })
+      );
+      expect(logger.warn).not.toHaveBeenCalled();
+      expect(logger.error).not.toHaveBeenCalled();
     });
   });
 });
@@ -391,5 +498,96 @@ describe('notFoundHandler', () => {
     notFoundHandler(mockReq as Request, mockRes as Response, mockNext);
 
     expect(mockNext).toHaveBeenCalledWith(expect.any(ApiError));
+  });
+});
+
+describe('Error Handler - Development Mode', () => {
+  let mockReq: Partial<Request & { requestId?: string }>;
+  let mockRes: Partial<Response>;
+  let mockNext: NextFunction;
+  let responseBody: unknown;
+  let responseStatus: number;
+
+  beforeAll(() => {
+    // Re-mock config for development mode
+    jest.doMock('../../../src/server/config', () => ({
+      config: {
+        isDevelopment: true,
+        isProduction: false,
+      },
+    }));
+  });
+
+  beforeEach(() => {
+    responseBody = null;
+    responseStatus = 0;
+
+    mockReq = {
+      url: '/api/test',
+      method: 'GET',
+      ip: '127.0.0.1',
+      originalUrl: '/api/test',
+      requestId: 'test-request-id',
+      get: jest.fn().mockReturnValue('Test User Agent'),
+    };
+
+    mockRes = {
+      status: jest.fn((code: number) => {
+        responseStatus = code;
+        return mockRes as Response;
+      }),
+      json: jest.fn((body: unknown) => {
+        responseBody = body;
+        return mockRes as Response;
+      }),
+    };
+
+    mockNext = jest.fn();
+  });
+
+  it('should include cause stack in development mode for 5xx errors', () => {
+    // Import fresh errorHandler with development config
+    jest.resetModules();
+    jest.doMock('../../../src/server/config', () => ({
+      config: {
+        isDevelopment: true,
+        isProduction: false,
+      },
+    }));
+    jest.doMock('../../../src/server/utils/logger', () => ({
+      logger: {
+        info: jest.fn(),
+        warn: jest.fn(),
+        error: jest.fn(),
+        debug: jest.fn(),
+      },
+      withRequestContext: jest.fn((req, ctx) => ctx),
+    }));
+
+    const {
+      errorHandler: devErrorHandler,
+    } = require('../../../src/server/middleware/errorHandler');
+    const {
+      ApiError: DevApiError,
+      ErrorCodes: DevErrorCodes,
+    } = require('../../../src/server/errors');
+
+    const causeError = new Error('Root cause');
+    causeError.stack = 'Error: Root cause\n    at test.js:1:1';
+
+    const error = new DevApiError({
+      code: DevErrorCodes.SERVER_INTERNAL_ERROR,
+      message: 'Something broke',
+      cause: causeError,
+    });
+
+    devErrorHandler(error, mockReq as Request, mockRes as Response, mockNext);
+
+    expect(responseStatus).toBe(500);
+    expect(responseBody).toMatchObject({
+      error: expect.objectContaining({
+        stack: expect.stringContaining('Root cause'),
+      }),
+    });
   });
 });

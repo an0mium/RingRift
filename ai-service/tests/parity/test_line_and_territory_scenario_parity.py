@@ -41,6 +41,8 @@ LINE_TERRITORY_SNAPSHOT_BY_BOARD = {
     BoardType.HEXAGONAL: PARITY_DIR / "line_territory_scenario_hexagonal.snapshot.json",
 }
 
+MULTI_REGION_SNAPSHOT = PARITY_DIR / "line_territory_multi_region_square8.snapshot.json"
+
 
 REQUIRED_LENGTH_BY_BOARD = {
     BoardType.SQUARE8: 3,
@@ -273,6 +275,85 @@ def test_line_and_territory_scenario_parity(board_type: BoardType) -> None:
         BoardManager.get_border_marker_positions = orig_get_border_markers
 
 
+def _multi_phase_vectors_path() -> Path:
+    """Return the path to the TS multi_phase_turn v2 vectors bundle."""
+    # Repo root is three levels up from this file:
+    # ai-service/tests/parity/test_line_and_territory_scenario_parity.py
+    repo_root = BASE_DIR.parent.parent.parent
+    return repo_root / "tests" / "fixtures" / "contract-vectors" / "v2" / "multi_phase_turn.vectors.json"
+
+
+@pytest.mark.skipif(
+    not _multi_phase_vectors_path().exists(),
+    reason="TS multi_phase_turn.vectors.json not found; run TS tests/fixtures generation first.",
+)
+def test_turn_line_then_territory_sequence_metadata() -> None:
+    """
+    Ensure the TS mixed line+territory multi-phase sequences are present and tagged.
+
+    This ties the Python line+territory parity suite back to the TS v2
+    contract bundle via the `sequence:turn.line_then_territory.*`
+    tags on the corresponding multi_phase vectors.
+    """
+    path = _multi_phase_vectors_path()
+    with path.open("r", encoding="utf-8") as f:
+        bundle = json.load(f)
+
+    vectors = bundle.get("vectors", [])
+    by_id = {v.get("id"): v for v in vectors}
+
+    # Square8 base sequence
+    base = by_id.get("multi_phase.full_sequence_with_territory")
+    assert base is not None, "Expected multi_phase.full_sequence_with_territory vector to exist"
+    base_tags = set(base.get("tags", []))
+    assert (
+        "sequence:turn.line_then_territory.square8" in base_tags
+    ), "multi_phase.full_sequence_with_territory missing sequence:turn.line_then_territory.square8 tag"
+
+    # Square19 analogue
+    sq19 = by_id.get("multi_phase.full_sequence_with_territory_square19")
+    assert (
+        sq19 is not None
+    ), "Expected multi_phase.full_sequence_with_territory_square19 vector to exist"
+    sq19_tags = set(sq19.get("tags", []))
+    assert (
+        "sequence:turn.line_then_territory.square19" in sq19_tags
+    ), "multi_phase.full_sequence_with_territory_square19 missing sequence:turn.line_then_territory.square19 tag"
+
+    # Hex analogue
+    hex_vec = by_id.get("multi_phase.full_sequence_with_territory_hex")
+    assert (
+        hex_vec is not None
+    ), "Expected multi_phase.full_sequence_with_territory_hex vector to exist"
+    hex_tags = set(hex_vec.get("tags", []))
+    assert (
+        "sequence:turn.line_then_territory.hex" in hex_tags
+    ), "multi_phase.full_sequence_with_territory_hex missing sequence:turn.line_then_territory.hex tag"
+
+    # Mixed multi-region metadata (sequence only; vectors are metadata and
+    # validated via TS/backend↔sandbox parity tests).
+    for v_id, tag in [
+        (
+            "multi_phase.line_then_multi_region_territory.square8.step1_line",
+            "sequence:turn.line_then_territory.multi_region.square8",
+        ),
+        (
+            "multi_phase.line_then_multi_region_territory.square19.step1_line",
+            "sequence:turn.line_then_territory.multi_region.square19",
+        ),
+        (
+            "multi_phase.line_then_multi_region_territory.hex.step1_line",
+            "sequence:turn.line_then_territory.multi_region.hex",
+        ),
+    ]:
+        vec = by_id.get(v_id)
+        assert (
+            vec is not None
+        ), f"Expected {v_id} vector to exist for mixed multi-region sequence"
+        tags = set(vec.get("tags", []))
+        assert tag in tags, f"{v_id} missing {tag} tag"
+
+
 @pytest.mark.parametrize(
     "board_type",
     [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL],
@@ -304,3 +385,74 @@ def test_line_and_territory_ts_snapshot_parity(board_type: BoardType) -> None:
     py_snapshot = _python_comparable_snapshot(ts_snapshot.get("label", "py"), state)
 
     assert _normalise_for_comparison(py_snapshot) == _normalise_for_comparison(ts_snapshot)
+
+
+def test_line_and_territory_multi_region_ts_snapshot_parity() -> None:
+    """
+    TS snapshot-based parity for the mixed line+multi-region scenario (square8).
+
+    This uses the TS-exported snapshot from
+    ExportLineAndTerritoryMultiRegionSnapshot.test.ts and checks that the
+    Python engine reconstructs an equivalent ComparableSnapshot.
+    """
+    if not MULTI_REGION_SNAPSHOT.exists():
+        pytest.skip(
+            "TS mixed line+multi-region snapshot fixture not found. "
+            "Run the TS exporter (ExportLineAndTerritoryMultiRegionSnapshot Jest test) first."
+        )
+
+    with MULTI_REGION_SNAPSHOT.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    ts_state = payload["state"]
+    ts_snapshot = payload["snapshot"]
+
+    # The exporter stores a serialized TS GameState under "state"; mirror the
+    # TS parity helper by treating that as the canonical TS snapshot shape for
+    # _build_game_state_from_snapshot.
+    # For the multi-region mixed case we assert a small set of core
+    # invariants instead of full structural equality. The TS fixture
+    # omits some fields required for a strict ComparableSnapshot match
+    # (markers/stacks layout), but the high-level metrics must agree.
+    state = _build_game_state_from_snapshot({
+        "boardType": ts_snapshot["boardType"],
+        "board": ts_state["board"],
+        "players": [
+            {
+                "playerNumber": p["playerNumber"],
+                "type": "human",
+                "ringsInHand": p["ringsInHand"],
+                "eliminatedRings": p["eliminatedRings"],
+                "territorySpaces": p["territorySpaces"],
+            }
+            for p in ts_state["players"]
+        ],
+        "currentPlayer": ts_state["currentPlayer"],
+        "currentPhase": ts_state["currentPhase"],
+        "gameStatus": ts_state["gameStatus"],
+        "totalRingsInPlay": ts_snapshot["totalRingsInPlay"],
+        "totalRingsEliminated": ts_state["totalRingsEliminated"],
+    })
+    py_snapshot = _python_comparable_snapshot(
+        ts_snapshot.get("label", "py"), state
+    )
+
+    norm_py = _normalise_for_comparison(py_snapshot)
+    norm_ts = _normalise_for_comparison(ts_snapshot)
+
+    # Basic header invariants
+    assert norm_py["boardType"] == norm_ts["boardType"]
+    assert norm_py["currentPlayer"] == norm_ts["currentPlayer"]
+    assert norm_py["currentPhase"] == norm_ts["currentPhase"]
+    assert norm_py["gameStatus"] == norm_ts["gameStatus"]
+
+    # Elimination and territory accounting invariants
+    assert norm_py["totalRingsEliminated"] == norm_ts["totalRingsEliminated"]
+
+    py_players = {p["playerNumber"]: p for p in norm_py["players"]}
+    ts_players = {p["playerNumber"]: p for p in norm_ts["players"]}
+
+    for num, ts_p in ts_players.items():
+      py_p = py_players[num]
+      assert py_p["eliminatedRings"] == ts_p["eliminatedRings"]
+      assert py_p["territorySpaces"] == ts_p["territorySpaces"]

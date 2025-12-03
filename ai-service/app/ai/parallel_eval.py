@@ -11,11 +11,10 @@ import os
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Dict, List, Tuple, Optional, TYPE_CHECKING
-from functools import partial
 import numpy as np
 
 if TYPE_CHECKING:
-    from ..models import Move, GameState
+    from .batch_eval import BoardArrays
 
 # Number of worker processes (default to CPU count - 1, min 1)
 NUM_WORKERS = max(1, int(os.getenv('RINGRIFT_EVAL_WORKERS', str(max(1, mp.cpu_count() - 1)))))

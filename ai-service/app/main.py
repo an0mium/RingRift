@@ -344,10 +344,10 @@ async def get_ai_move(request: MoveRequest):
 async def evaluate_position(request: EvaluationRequest):
     """
     Evaluate current position from a player's perspective
-    
+
     Args:
         request: EvaluationRequest with game state and player number
-        
+
     Returns:
         EvaluationResponse with position score and breakdown
     """
@@ -362,15 +362,15 @@ async def evaluate_position(request: EvaluationRequest):
             heuristic_profile_id="v1-heuristic-5",
         )
         ai = HeuristicAI(request.player_number, config)
-        
+
         score = ai.evaluate_position(request.game_state)
         breakdown = ai.get_evaluation_breakdown(request.game_state)
-        
+
         return EvaluationResponse(
             score=score,
             breakdown=breakdown
         )
-        
+
     except Exception as e:
         logger.error(f"Error evaluating position: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -907,9 +907,11 @@ class DifficultyProfile(TypedDict):
 
 # v1 canonical ladder. The randomness values intentionally mirror the legacy
 # mapping used by _get_randomness_for_difficulty while the think_time_ms
-# budget is kept small enough to be test-friendly. Search-based engines
-# (Minimax/MCTS) interpret think_time_ms as a wall-clock budget; purely
-# heuristic engines use it as a UX-oriented delay.
+# budget is expressed as a per-move search-time limit rather than a UX delay.
+# Search-based engines (Minimax/MCTS/Descent) interpret think_time_ms as a
+# hard upper bound on wall-clock search time; simpler engines may ignore it or
+# treat it as a soft search-budget hint but must not use it to delay after a
+# move has been selected.
 _CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
     1: {
         # Beginner: pure random baseline
@@ -929,56 +931,56 @@ _CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         # Lower-mid: very low-depth, low-budget minimax
         "ai_type": AIType.MINIMAX,
         "randomness": 0.2,
-        "think_time_ms": 250,
+        "think_time_ms": 1250,
         "profile_id": "v1-minimax-3",
     },
     4: {
         # Mid: minimax with slightly higher depth/budget
         "ai_type": AIType.MINIMAX,
         "randomness": 0.1,
-        "think_time_ms": 300,
+        "think_time_ms": 2100,
         "profile_id": "v1-minimax-4",
     },
     5: {
         # Upper-mid: minimax with moderate depth/budget
         "ai_type": AIType.MINIMAX,
         "randomness": 0.05,
-        "think_time_ms": 350,
+        "think_time_ms": 3500,
         "profile_id": "v1-minimax-5",
     },
     6: {
         # High: minimax with reduced randomness and higher budget
         "ai_type": AIType.MINIMAX,
         "randomness": 0.02,
-        "think_time_ms": 400,
+        "think_time_ms": 4800,
         "profile_id": "v1-minimax-6",
     },
     7: {
         # Expert: MCTS with NN guidance where available
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
-        "think_time_ms": 500,
+        "think_time_ms": 7000,
         "profile_id": "v1-mcts-7",
     },
     8: {
         # Strong expert: MCTS with larger search budget
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
-        "think_time_ms": 600,
+        "think_time_ms": 9600,
         "profile_id": "v1-mcts-8",
     },
     9: {
         # Master: Descent/UBFM-style search with NN guidance
         "ai_type": AIType.DESCENT,
         "randomness": 0.0,
-        "think_time_ms": 700,
+        "think_time_ms": 12600,
         "profile_id": "v1-descent-9",
     },
     10: {
         # Grandmaster: strongest Descent configuration
         "ai_type": AIType.DESCENT,
         "randomness": 0.0,
-        "think_time_ms": 800,
+        "think_time_ms": 16000,
         "profile_id": "v1-descent-10",
     },
 }

@@ -86,6 +86,28 @@
       (`ClientSandboxEngine.aiSimulation` with `RINGRIFT_ENABLE_SANDBOX_AI_SIM=1`),
       as tracked in P0.2 / P1.4 of `KNOWN_ISSUES.md`.
 
+#### 2.2.1 Current P0 Focus (Dec 2025)
+
+- **Engine/host lifecycle clarity:** Treat backend (`GameEngine` / `RuleEngine`),
+  client sandbox (`ClientSandboxEngine`), and Python
+  (`ai-service/app/game_engine.py`) strictly as adapters over the shared
+  orchestrator/aggregates for advanced phases (`chain_capture`,
+  `line_processing`, `territory_processing`, explicit self‑elimination). Any
+  remaining host‑level rules logic should either call shared helpers or be
+  clearly marked diagnostic/legacy.
+- **WebSocket lifecycle & reconnection windows:** Tighten the canonical
+  WebSocket API in `docs/CANONICAL_ENGINE_API.md` and keep reconnection,
+  lobby, rematch, and spectator semantics covered by:
+  `tests/integration/GameReconnection.test.ts`,
+  `tests/integration/LobbyRealtime.test.ts`,
+  `tests/e2e/reconnection.simulation.test.ts`, and related E2E slices.
+- **TS↔Python territory / forced‑elimination parity:** Finish aligning
+  territory detection, decision enumeration, and forced‑elimination sequences
+  between TS and Python using contract vectors +
+  `tests/unit/GameEngine.territoryDisconnection.test.ts`,
+  `tests/unit/territoryDecisionHelpers.shared.test.ts`,
+  and the Python parity suites under `ai-service/tests/`.
+
 #### 2.3 Rules Engine Parity (Python/TS)
 
 - [x] Implement `RulesBackendFacade` to abstract engine selection.

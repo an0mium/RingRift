@@ -1381,8 +1381,50 @@ export class WebSocketServer {
    * @returns The number of connections that were terminated
    */
   public terminateUserSessions(userId: string, reason: string = 'Session terminated'): number {
+    // Best-effort cleanup of any in-memory GameSession instances associated
+    // with this user so that session-scoped cancellation (AI turns, decision
+    // timers) runs alongside socket teardown.
+    const terminateSessionsForUser = (socket?: AuthenticatedSocket) => {
+      const gameIds = new Set<string>();
+
+      if (socket?.gameId) {
+        gameIds.add(socket.gameId);
+      }
+
+      // Also scan connection state diagnostics for any games where this user
+      // has a recorded connection snapshot.
+      const suffix = `:${userId}`;
+      for (const key of this.playerConnectionStates.keys()) {
+        if (key.endsWith(suffix)) {
+          const gameId = key.slice(0, -suffix.length);
+          if (gameId) {
+            gameIds.add(gameId);
+          }
+        }
+      }
+
+      for (const gameId of gameIds) {
+        const session = this.sessionManager.getSession(gameId);
+        if (session && typeof (session as any).terminate === 'function') {
+          try {
+            session.terminate('session_cleanup');
+          } catch (err) {
+            logger.warn('Failed to terminate GameSession during WebSocket session termination', {
+              userId,
+              gameId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      }
+    };
+
     const socketId = this.userSockets.get(userId);
     if (!socketId) {
+      // Even if there is no currently tracked socket, there may still be
+      // in-memory sessions (for example after a prior disconnect). Attempt
+      // session-level cleanup in a best-effort manner.
+      terminateSessionsForUser();
       logger.info('No active WebSocket connections found for user', { userId, reason });
       return 0;
     }
@@ -1392,9 +1434,14 @@ export class WebSocketServer {
       // Socket ID was tracked but socket is no longer in the server's collection
       // Clean up the stale mapping
       this.userSockets.delete(userId);
+      terminateSessionsForUser();
       logger.info('Stale socket mapping cleaned up for user', { userId, socketId, reason });
       return 0;
     }
+
+    // Invoke GameSession termination before tearing down the transport so
+    // that any session-scoped async work observes cancellation promptly.
+    terminateSessionsForUser(socket);
 
     // Emit an error event to inform the client before disconnecting
     const payload: WebSocketErrorPayload = {

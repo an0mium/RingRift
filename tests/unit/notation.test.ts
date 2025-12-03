@@ -87,6 +87,137 @@ describe('notation helpers', () => {
       } as Move;
       expect(formatMove(move, { boardType })).toBe('P3: C d4×e5→f6');
     });
+
+    it('formats line_formation moves', () => {
+      const move: Move = {
+        id: '',
+        type: 'line_formation',
+        player: 1,
+        to: pos(3, 3),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 10,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P1: L →d4');
+    });
+
+    it('formats territory_claim moves', () => {
+      const move: Move = {
+        id: '',
+        type: 'territory_claim',
+        player: 2,
+        to: pos(4, 4),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 11,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P2: T →e5');
+    });
+
+    it('formats skip_placement moves', () => {
+      const move: Move = {
+        id: '',
+        type: 'skip_placement',
+        player: 1,
+        to: pos(0, 0),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 12,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P1: S →a1');
+    });
+
+    it('formats unknown move types using the type name', () => {
+      const move: Move = {
+        id: '',
+        type: 'process_line' as any,
+        player: 1,
+        to: pos(2, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 13,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P1: process_line →c3');
+    });
+
+    it('formats move_ring without from position', () => {
+      const move: Move = {
+        id: '',
+        type: 'move_ring',
+        player: 1,
+        to: pos(3, 3),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 14,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P1: M d4');
+    });
+
+    it('formats move_stack without from or to position', () => {
+      const move: Move = {
+        id: '',
+        type: 'move_stack',
+        player: 2,
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 15,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P2: M');
+    });
+
+    it('formats overtaking capture without captureTarget', () => {
+      const move: Move = {
+        id: '',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 2),
+        to: pos(4, 4),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 16,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P1: C c3→e5');
+    });
+
+    it('formats overtaking capture without from or target positions', () => {
+      const move: Move = {
+        id: '',
+        type: 'overtaking_capture',
+        player: 1,
+        to: pos(5, 5),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 17,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P1: C');
+    });
+
+    it('formats fallback move types with from position', () => {
+      const move: Move = {
+        id: '',
+        type: 'continue_capture_segment' as any,
+        player: 1,
+        from: pos(1, 1),
+        to: pos(3, 3),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 18,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P1: continue_capture_segment b2 →d4');
+    });
+
+    it('formats fallback move types without from position', () => {
+      const move: Move = {
+        id: '',
+        type: 'eliminate_rings_from_stack' as any,
+        player: 2,
+        to: pos(5, 5),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 19,
+      } as Move;
+      expect(formatMove(move, { boardType })).toBe('P2: eliminate_rings_from_stack →f6');
+    });
   });
 
   describe('formatMoveList', () => {

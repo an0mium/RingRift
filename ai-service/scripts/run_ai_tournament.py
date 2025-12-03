@@ -185,23 +185,23 @@ def main():
     parser.add_argument("--p2-diff", type=int, default=5, help="Player 2 Difficulty (1-10)")
     parser.add_argument("--board", type=str, default="Square8", choices=BOARD_TYPES.keys(), help="Board Type")
     parser.add_argument("--games", type=int, default=10, help="Number of games to play")
-    
+
     args = parser.parse_args()
-    
+
     print(f"Tournament Configuration:")
     print(f"  Player 1: {args.p1} (Difficulty {args.p1_diff})")
     print(f"  Player 2: {args.p2} (Difficulty {args.p2_diff})")
     print(f"  Board: {args.board}")
     print(f"  Games: {args.games}")
     print("-" * 40)
-    
+
     # Initialize AIs
     # Note: We re-initialize or reset AIs per game if needed, but here we create instances once
     # and update player_number in run_game.
-    
+
     p1_class = AI_CLASSES[args.p1]
     p2_class = AI_CLASSES[args.p2]
-    
+
     # Create AI instances
     # We use player number 1 for initialization, but it will be updated in run_game
     ai1 = p1_class(
@@ -222,7 +222,7 @@ def main():
             rngSeed=None
         )
     )
-    
+
     stats = {
         "p1_wins": 0,
         "p2_wins": 0,
@@ -239,7 +239,7 @@ def main():
     for i in range(args.games):
         game_start_time = time.time()
         print(f"\nMatch {i+1}/{args.games}")
-        
+
         # Swap sides every other game to ensure fairness
         if i % 2 == 0:
             # P1 is Player 1

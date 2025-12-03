@@ -30,13 +30,86 @@ an explicit SLO around orchestrator-driven contract vectors:
   - the `orchestrator-parity` CI job in
     [`.github/workflows/ci.yml`](../.github/workflows/ci.yml:1), which runs:
     - `npm run test:orchestrator-parity:ts` (TS orchestrator suites), then
-    - `./scripts/run-python-contract-tests.sh --verbose`
-      (Python runner over the v2 contract vectors).
+      - `./scripts/run-python-contract-tests.sh --verbose`
+        (Python runner over the v2 contract vectors).
 - Any failure in `ai-service/tests/contracts/test_contract_vectors.py` under this
   job is considered a direct breach of `SLO-CI-ORCH-PARITY` in
   [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](./ORCHESTRATOR_ROLLOUT_PLAN.md#62-ci-slos)
   and must block rollout until resolved (either by fixing a bug or updating
   vectors/fixtures in line with the canonical TS engine).
+
+### 1.1 TS↔Python observability contract (rules + AI boundary)
+
+The TS backend and Python AI service are joined by a small number of HTTP
+surfaces and Prometheus metrics. For rules correctness and AI robustness, the
+following contracts are treated as canonical:
+
+- **Rules HTTP surface (`/rules/evaluate_move`):**
+  - TS calls this endpoint via `PythonRulesClient.evaluateMove` and expects:
+    - `status=200` with a JSON body `{ valid, validation_error?, next_state?, state_hash?, s_invariant?, game_status? }`.
+    - Validation failures to be expressed as `valid=false` with a human‑readable
+      `validation_error` string and **no** `next_state`, mapped to
+      `recordRulesError('validation')` on the TS side.
+    - Internal errors (exceptions in `DefaultRulesEngine` or `GameEngine`) to
+      surface as `status>=500` and be mapped to `recordRulesError('internal')`
+      by `PythonRulesClient`. These, in turn, contribute to
+      `ringrift_rules_errors_total{error_type="internal"}`.
+  - Python tests:
+    - `ai-service/tests/test_rules_evaluate_move.py` exercises:
+      - End‑to‑end parity between `/rules/evaluate_move` and
+        `GameEngine.apply_move` for hashes, S‑invariant, and `game_status`.
+      - The `valid=false` + `validation_error` contract for structurally invalid
+        moves.
+    - TS tests:
+      - `tests/unit/PythonRulesClient.test.ts` assert that:
+        - 4xx and payloads containing `validation_error` increment
+          `recordRulesError('validation')`.
+        - Network errors, empty/invalid payloads, or 5xx without validation
+          details increment `recordRulesError('internal')`.
+
+- **AI move surface (`/ai/move`):**
+  - TS calls this endpoint via `AIServiceClient.getAIMove` and expects:
+    - Latency and outcome to be observable via:
+      - **Python AI metrics (service-local, defined in `ai-service/app/metrics.py`):**
+        - `ai_move_requests_total{ai_type,difficulty,outcome="success|error"}` – per-request outcome counts.
+        - `ai_move_latency_seconds{ai_type,difficulty}` – wall-clock latency histogram.
+      - **TS AI metrics (backend, defined in `src/server/utils/rulesParityMetrics.ts` and `MetricsService`):**
+        - `ai_move_latency_ms{aiType,difficulty}` – backend-observed AI latency histogram (`aiMoveLatencyHistogram`).
+        - `ai_fallback_total{reason}` – counts of local AI fallbacks by reason.
+        - `ringrift_ai_turn_request_terminal_total{terminal_kind,code}` – terminal AI request outcomes derived from `AIRequestState`.
+    - Timeouts, overloads, and transport failures to be classified into
+      structured TS error codes (`AI_SERVICE_TIMEOUT`,
+      `AI_SERVICE_OVERLOADED`, `AI_SERVICE_UNAVAILABLE`, etc.) and mapped to:
+      - `ringrift_ai_turn_request_terminal_total{terminal_kind="failed",code=...}`
+        via the AI request state machine.
+      - `ai_fallback_total{reason=...}` / `recordAIFallback(reason)` for local
+        fallback paths.
+  - Python implementation:
+    - `ai-service/app/metrics.py` defines:
+      - `AI_MOVE_REQUESTS(ai_type,difficulty,outcome)`.
+      - `AI_MOVE_LATENCY(ai_type,difficulty)`.
+    - `ai-service/app/main.py:/ai/move`:
+      - Increments `AI_MOVE_REQUESTS{outcome="success"|"error"}` and observes
+        `AI_MOVE_LATENCY` for every request.
+
+- **Contract vectors + rules parity metrics:**
+  - TS uses `rulesParityMetrics` and `MetricsService.recordRulesParityMismatch`
+    to populate:
+    - `ringrift_rules_parity_valid_mismatch_total`.
+    - `ringrift_rules_parity_hash_mismatch_total`.
+    - `ringrift_rules_parity_s_mismatch_total`.
+    - `ringrift_rules_parity_game_status_mismatch_total`.
+    - Unified `ringrift_rules_parity_mismatches_total{mismatch_type,suite}`.
+  - Python:
+    - `ai-service/tests/contracts/test_contract_vectors.py` is the primary
+      runner over v2 vectors; any divergence is treated as a breach of
+      `SLO-CI-ORCH-PARITY` and should surface as `mismatch_type=...` increments
+      on the TS side when reproduced via the TS contract runner.
+  - Operational guidance:
+    - `docs/runbooks/RULES_PARITY.md` and `docs/ALERTING_THRESHOLDS.md` define
+      how to interpret `ringrift_rules_parity_*` and `ringrift_rules_errors_total`
+      in dashboards and alerts; this document only records the mapping between
+      Python behaviour, TS clients, and those metrics.
 
 ### 1.1 Purpose of Python Rules Engine
 
@@ -832,6 +905,32 @@ This section lists the **intended** new IDs, grouped by family with short semant
 - `territory_line.decision_auto_exit.square8`
   - Category: `territory_processing`, board: `square8`.
   - A territory-processing state where the active player has **no** Territory moves; after applying the final decision/placeholder, the engine must exit `territory_processing` and rotate turn such that the new active player has at least one legal action (`INV-PHASE-CONSISTENCY`, `INV-ACTIVE-NO-MOVES`).
+
+TS↔Python contract mapping for the `territory_line` family:
+
+- TS side:
+  - All `territory_line.*` vectors live in
+    `tests/fixtures/contract-vectors/v2/territory_line_endgame.vectors.json` and are exercised by
+    `tests/contracts/contractVectorRunner.test.ts` under the `territory_line_endgame` bundle.
+  - Turn/phase + territory/line interactions for these scenarios are further validated against hosts
+    via the multi-region territory decision suites:
+    - `tests/unit/TerritoryDecisions.GameEngine_vs_Sandbox.test.ts`
+    - `tests/unit/TerritoryDecisions.SquareRegionThenElim.GameEngine_vs_Sandbox.test.ts`
+    - `tests/unit/TerritoryDecisions.SquareTwoRegionThenElim.GameEngine_vs_Sandbox.test.ts`
+    - `tests/unit/TerritoryDecisions.Square19TwoRegionThenElim.GameEngine_vs_Sandbox.test.ts`
+    - `tests/unit/TerritoryDecisions.HexRegionThenElim.GameEngine_vs_Sandbox.test.ts`
+    - `tests/unit/TerritoryDecisions.HexTwoRegionThenElim.GameEngine_vs_Sandbox.test.ts`
+      (run as orchestrator diagnostics via `npm run test:orchestrator-parity` when
+      `ORCHESTRATOR_ADAPTER_ENABLED=true` and `TERRITORY_PARITY_ALLOW_ORCHESTRATOR=true`).
+- Python side:
+  - `ai-service/tests/contracts/test_contract_vectors.py` loads the `territory_line_endgame` bundle
+    alongside the other v2 families and asserts that applying each `territory_line.*` vector via
+    the Python host produces the same `next_state`, S-invariant delta, and `game_status` as the
+    TS orchestrator.
+  - `ai-service/tests/parity/test_line_and_territory_scenario_parity.py` contains scenario-level
+    parity checks that mirror the overlong-line + mini-region and single-point swing semantics for
+    these vectors; any divergence here is treated as a direct breach of the orchestrator parity SLO
+    for the territory+line endgame axis (see also `CONTRACT_VECTORS_DESIGN.md` §8.5.3).
 
 #### 8.5.4 Family D – Hex-specific edge and corner cases
 

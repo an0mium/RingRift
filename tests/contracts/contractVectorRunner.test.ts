@@ -223,7 +223,7 @@ describe('Contract Test Vectors', () => {
     });
   });
 
-  describe('Placement Vectors', () => {
+  describe('Placement Vectors (§§4, 8; FAQ Q1–Q3)', () => {
     let vectors: ContractTestVector[];
 
     beforeAll(() => {

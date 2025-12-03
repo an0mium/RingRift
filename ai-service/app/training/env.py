@@ -189,12 +189,12 @@ class RingRiftEnv:
 
     def reset(self, seed: Optional[int] = None) -> GameState:
         """Create a fresh GameState for self-play.
- 
+
         When `num_players` > 2, the initial state will contain that many
         AI-controlled players with per-player ring caps and victory
         thresholds aligned with the shared TypeScript initial-state
         helpers.
- 
+
         If `seed` is provided, it is threaded into Python RNGs used by
         any stochastic components (future variants); the core game rules
         remain deterministic.
@@ -204,7 +204,7 @@ class RingRiftEnv:
             # random, NumPy, and torch (including CUDA/cuDNN flags) are
             # all initialised consistently for this environment.
             seed_all(seed)
- 
+
         # Reuse a shared helper from generate_data
         # Avoid circular import by importing inside method
         from app.training.generate_data import create_initial_state

@@ -21,11 +21,13 @@ This directory contains the k6 load testing framework for validating RingRift at
 tests/load/
 ├── README.md                 # This file
 ├── package.json              # npm scripts for running tests
+├── auth/
+│   └── helpers.js            # Shared login helper for all k6 scenarios
 ├── scenarios/
 │   ├── game-creation.js      # Tests game creation rate and latency
 │   ├── concurrent-games.js   # Tests 100+ simultaneous games
-│   ├── player-moves.js       # Tests move submission latency
-│   └── websocket-stress.js   # Tests WebSocket connection limits (500+)
+│   ├── player-moves.js       # Tests move polling + (optional) HTTP moves
+│   └── websocket-stress.js   # Tests WebSocket/Socket.IO connection limits (500+)
 └── config/
     ├── thresholds.json       # Performance SLO thresholds by environment
     └── scenarios.json        # Test scenario configurations (smoke/load/stress)
@@ -121,6 +123,28 @@ npm run test:load:websocket-stress
 
 ## Test Scenarios
 
+### Shared Auth Helper
+
+All k6 scenarios share a common login helper:
+
+- [`auth/helpers.js`](auth/helpers.js:1)
+
+This helper:
+
+- Calls `POST /api/auth/login` with the canonical payload shape:
+
+  ```json
+  { "email": "loadtest_user_1@loadtest.local", "password": "TestPassword123!" }
+  ```
+
+- Allows overriding credentials via environment:
+  - `LOADTEST_EMAIL`
+  - `LOADTEST_PASSWORD`
+
+- Returns `{ token, userId }`, and the access token is passed into each scenario via its `setup()` function and reused by all VUs.
+
+Using a single helper keeps the load tests aligned with the production auth contract and avoids re-registering users under load.
+
 ### Scenario 1: Game Creation (`game-creation.js`)
 
 **Purpose:** Validate game creation latency and throughput under load.
@@ -205,11 +229,32 @@ k6 run --env BASE_URL=http://localhost:3001 scenarios/concurrent-games.js
 k6 run --env BASE_URL=http://localhost:3001 scenarios/player-moves.js
 ```
 
-**Note:** This scenario uses HTTP for move submission. For full WebSocket real-time testing, supplement with Playwright E2E tests.
+**Notes:**
+
+- This scenario:
+  - Authenticates via the shared helper.
+  - Creates AI-backed games via `POST /api/games` using the same payload shape as the frontend.
+  - Polls `GET /api/games/:gameId` for state, exercising the read path and turn progression under load.
+- HTTP move submission is currently **guarded behind a feature flag** in the script:
+
+  ```js
+  const MOVE_HTTP_ENDPOINT_ENABLED = false;
+  ```
+
+  This reflects the fact that, in production, moves are carried exclusively over WebSockets. When an HTTP move endpoint is introduced, this flag can be enabled and the payload adjusted to match the new contract.
+
+For full WebSocket real-time move testing today, supplement with Playwright E2E tests.
 
 ### Scenario 4: WebSocket Stress (`websocket-stress.js`)
 
 **Purpose:** Test WebSocket connection limits and stability.
+
+This scenario connects to the same Socket.IO endpoint used by the frontend client, including:
+
+- Path: `/socket.io/` with `EIO=4&transport=websocket`
+- JWT access token provided in the `token` query parameter
+
+so that `WebSocketServer` authentication and connection metrics are exercised under realistic, production-like handshake conditions.
 
 **Load Pattern:**
 

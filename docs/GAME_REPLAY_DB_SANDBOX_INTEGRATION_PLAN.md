@@ -1,9 +1,11 @@
 # GameReplayDB Sandbox Integration Plan
 
-> **Doc Status:** Draft (2025-12-01, partially implemented)
+> **Doc Status:** Draft (2025-12-02, partially implemented)
 >
-> This document outlines the plan to integrate the Python `GameReplayDB` (SQLite) with the TypeScript sandbox UI for game replay, analysis, and future training data visualization.  
+> This document outlines the plan to integrate the Python `GameReplayDB` (SQLite) with the TypeScript sandbox UI for game replay, analysis, and future training data visualization.
 > Since this plan was written, the FastAPI replay API (`ai-service/app/routes/replay.py`), TypeScript `ReplayService` (`src/client/services/ReplayService.ts`), and sandbox replay panel (`ReplayPanel` and related components under `src/client/components/ReplayPanel/`) have been implemented; remaining work is primarily around schema evolution, additional analytics, and UX polish.
+>
+> **See Also:** [Unified Self-Play Game Recording Plan](/.claude/plans/memoized-cuddling-abelson.md) — A comprehensive plan (Track 11 in TODO.md) to record ALL self-play games across the codebase (CMA-ES optimization, tournaments, soak tests) to the GameReplayDB for sandbox replay, neural network training, and evaluation pool generation.
 
 ## Overview
 

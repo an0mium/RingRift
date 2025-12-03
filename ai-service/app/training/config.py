@@ -25,12 +25,12 @@ class TrainConfig:
     # with NeuralNetAI, which expects checkpoints under
     # "<repo_root>/ai-service/models/<nn_model_id>.pth".
     model_id: str = "ringrift_v1"
-     
+
     # Paths
     data_dir: str = "ai-service/app/training/data"
     model_dir: str = "ai-service/models"
     log_dir: str = "ai-service/app/logs"
-     
+
     def __post_init__(self):
         import os
         os.makedirs(self.data_dir, exist_ok=True)

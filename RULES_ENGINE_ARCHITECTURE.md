@@ -211,15 +211,16 @@ truth:
      [`Backend_vs_Sandbox.eliminationTrace.test.ts`](tests/unit/Backend_vs_Sandbox.eliminationTrace.test.ts:1),
      [`Backend_vs_Sandbox.seed5.internalStateParity.test.ts`](tests/unit/Backend_vs_Sandbox.seed5.internalStateParity.test.ts:1),
      [`Backend_vs_Sandbox.seed5.checkpoints.test.ts`](tests/unit/Backend_vs_Sandbox.seed5.checkpoints.test.ts:1),
-     [`Backend_vs_Sandbox.seed1.snapshotParity.test.ts`](tests/unit/Backend_vs_Sandbox.seed1.snapshotParity.test.ts:1),
-     [`Backend_vs_Sandbox.seed18.snapshotParity.test.ts`](tests/unit/Backend_vs_Sandbox.seed18.snapshotParity.test.ts:1),
+     [`Backend_vs_Sandbox.seed1.snapshotParity.test.ts`](tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts:1) / [`archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts`](archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts:1),
+     [`Backend_vs_Sandbox.seed18.snapshotParity.test.ts`](tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts:1) / [`archive/tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts`](archive/tests/parity/Backend_vs_Sandbox.seed18.snapshotParity.test.ts:1),
      [`Sandbox_vs_Backend.aiRngParity.test.ts`](tests/unit/Sandbox_vs_Backend.aiRngParity.test.ts:1),
      [`Sandbox_vs_Backend.aiRngFullParity.test.ts`](tests/unit/Sandbox_vs_Backend.aiRngFullParity.test.ts:1),
      [`TerritoryParity.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryParity.GameEngine_vs_Sandbox.test.ts:1),
      [`TerritoryBorders.Backend_vs_Sandbox.test.ts`](tests/unit/TerritoryBorders.Backend_vs_Sandbox.test.ts:1),
      [`TerritoryCore.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryCore.GameEngine_vs_Sandbox.test.ts:1),
      [`MarkerPath.GameEngine_vs_Sandbox.test.ts`](tests/unit/MarkerPath.GameEngine_vs_Sandbox.test.ts:1),
-     [`TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts:1).
+     [`TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts`](tests/unit/TerritoryPendingFlag.GameEngine_vs_Sandbox.test.ts:1),
+     [`Sandbox_vs_Backend.aiHeuristicCoverage.test.ts`](tests/unit/Sandbox_vs_Backend.aiHeuristicCoverage.test.ts:1) (heuristic AI parity, including pie-rule/swap_sides and deep seeded runs).
    - Shared engine vs hosts (TypeScript):
      [`TraceFixtures.sharedEngineParity.test.ts`](tests/unit/TraceFixtures.sharedEngineParity.test.ts:1),
      [`EngineDeterminism.shared.test.ts`](tests/unit/EngineDeterminism.shared.test.ts:1),

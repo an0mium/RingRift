@@ -7,10 +7,10 @@ GameState objects, avoiding Pydantic validation overhead.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .lightweight_state import LightweightState, LightweightBoardType
+    from .lightweight_state import LightweightState
 
 # Pre-computed center positions for different board types
 # These are the most valuable positions for center control

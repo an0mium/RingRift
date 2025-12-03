@@ -435,6 +435,103 @@ describe('MovementAggregate.validateMovement', () => {
     const result = validateMovement(state, action);
     expect(result.valid).toBe(true);
   });
+
+  test('rejects zero-length (no-op) moves with from === to', () => {
+    const state = makeBaseState();
+    const origin = pos(2, 2);
+
+    const action: MoveStackAction = {
+      type: 'MOVE_STACK',
+      playerId: 1,
+      from: origin,
+      to: origin,
+    };
+
+    const result = validateMovement(state, action);
+    expect(result.valid).toBe(false);
+    if (result.valid) {
+      throw new Error('Expected validation failure for zero-length move');
+    }
+    // Either we reject on direction (no positive scalar multiple) or distance.
+    expect(['INVALID_DIRECTION', 'INSUFFICIENT_DISTANCE']).toContain(result.code);
+  });
+
+  test('accepts minimum-distance move on square19 respecting stack height (Rules §8.2 / Movement M2)', () => {
+    const board = createTestBoard('square19');
+    const from = pos(9, 9);
+    // Height 3 stack: minimum Chebyshev distance 3.
+    addStack(board, from, 1, 3);
+
+    const state = createTestGameState({
+      boardType: 'square19',
+      board,
+      currentPlayer: 1,
+      currentPhase: 'movement',
+    });
+
+    const action: MoveStackAction = {
+      type: 'MOVE_STACK',
+      playerId: 1,
+      from,
+      to: pos(12, 9),
+    };
+
+    const result = validateMovement(state, action);
+    expect(result.valid).toBe(true);
+  });
+
+  test('rejects off-board target on square19 while origin is valid', () => {
+    const board = createTestBoard('square19');
+    const from = pos(0, 0);
+    addStack(board, from, 1, 1);
+
+    const state = createTestGameState({
+      boardType: 'square19',
+      board,
+      currentPlayer: 1,
+      currentPhase: 'movement',
+    });
+
+    const action: MoveStackAction = {
+      type: 'MOVE_STACK',
+      playerId: 1,
+      from,
+      // Deliberately outside the 19×19 bounds.
+      to: pos(-1, 0),
+    };
+
+    const result = validateMovement(state, action);
+    expect(result.valid).toBe(false);
+    if (result.valid) {
+      throw new Error('Expected validation failure for off-board square19 target');
+    }
+    expect(result.code).toBe('INVALID_POSITION');
+  });
+
+  test('accepts a valid hex move along a cube axis with sufficient distance (Movement M1/M2, hex)', () => {
+    const board = createTestBoard('hexagonal');
+    const from: Position = { x: 0, y: 0, z: 0 };
+    // Height 2 stack: minimum distance 2.
+    addStack(board, from, 1, 2);
+
+    const state = createTestGameState({
+      boardType: 'hexagonal',
+      board,
+      currentPlayer: 1,
+      currentPhase: 'movement',
+    });
+
+    const action: MoveStackAction = {
+      type: 'MOVE_STACK',
+      playerId: 1,
+      from,
+      // One of the canonical axial directions scaled by 2.
+      to: { x: 2, y: -2, z: 0 },
+    };
+
+    const result = validateMovement(state, action);
+    expect(result.valid).toBe(true);
+  });
 });
 
 describe('MovementAggregate.mutateMovement', () => {
@@ -620,6 +717,62 @@ describe('MovementAggregate enumeration helpers', () => {
       expect(move.to).toBeDefined();
     }
   });
+
+  test('enumerateMovementTargets on hex board respects minimum distance and stays on-board (Movement M1/M2, hex)', () => {
+    const board = createTestBoard('hexagonal');
+    const from: Position = { x: 0, y: 0, z: 0 };
+    // Height 2 stack so minimum path distance must be ≥ 2 along allowed hex directions.
+    addStack(board, from, 1, 2);
+
+    const state = createTestGameState({
+      boardType: 'hexagonal',
+      board,
+      currentPlayer: 1,
+      currentPhase: 'movement',
+    });
+
+    const targets = enumerateMovementTargets(state, from);
+    expect(targets.length).toBeGreaterThan(0);
+
+    for (const to of targets) {
+      // For a cube-coordinate hex grid, distance is max(|dx|,|dy|,|dz|).
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const dz = (to.z || 0) - (from.z || 0);
+      const distance = Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
+      expect(distance).toBeGreaterThanOrEqual(2);
+
+      // Sanity check: coordinates remain on the board according to test helpers.
+      // createTestBoard('hexagonal') mirrors the same size/geometry used by shared helpers.
+      expect(Number.isInteger(to.x)).toBe(true);
+      expect(Number.isInteger(to.y)).toBe(true);
+    }
+  });
+
+  test('enumerateMovementTargets on square19 keeps targets within board bounds near edges', () => {
+    const board = createTestBoard('square19');
+    // Place a height-2 stack near the north-west corner to exercise edge geometry.
+    const from = pos(0, 0);
+    addStack(board, from, 1, 2);
+
+    const state = createTestGameState({
+      boardType: 'square19',
+      board,
+      currentPlayer: 1,
+      currentPhase: 'movement',
+    });
+
+    const targets = enumerateMovementTargets(state, from);
+    expect(targets.length).toBeGreaterThan(0);
+
+    for (const to of targets) {
+      // All targets must remain on the 0..18 grid in both coordinates.
+      expect(to.x).toBeGreaterThanOrEqual(0);
+      expect(to.x).toBeLessThan(19);
+      expect(to.y).toBeGreaterThanOrEqual(0);
+      expect(to.y).toBeLessThan(19);
+    }
+  });
 });
 
 describe('MovementAggregate.applyMovement', () => {
@@ -716,6 +869,50 @@ describe('MovementAggregate.applyMovement', () => {
     const directStacks = outcome.nextState.board.stacks;
     const wrappedStacks = wrapped.newState.board.stacks;
     expect(Array.from(wrappedStacks.entries())).toEqual(Array.from(directStacks.entries()));
+  });
+
+  test('movement-created collapsed spaces increase territorySpaces for acting player', () => {
+    const board = createTestBoard('square8');
+    const from = pos(2, 2);
+    const to = pos(5, 2);
+    // Stack height 3 so minimum distance requirement (Chebyshev) is satisfied.
+    addStack(board, from, 1, 3);
+
+    // Place two of player 1's markers along the eastward ray between from and to.
+    const pathMarkers = [pos(3, 2), pos(4, 2)];
+    for (const mPos of pathMarkers) {
+      addMarker(board, mPos, 1);
+    }
+
+    const state = createTestGameState({
+      boardType: 'square8',
+      board,
+      currentPlayer: 1,
+      currentPhase: 'movement',
+    });
+
+    // Sanity: no collapsed territory or territorySpaces before movement.
+    const beforeP1 = state.players.find((p) => p.playerNumber === 1);
+    expect(beforeP1?.territorySpaces).toBe(0);
+    expect(state.board.collapsedSpaces.size).toBe(0);
+
+    const outcome = applySimpleMovementAggregate(state as any, {
+      from,
+      to,
+      player: 1,
+    });
+
+    const after = outcome.nextState;
+    const collapsedForP1 = Array.from(after.board.collapsedSpaces.values()).filter(
+      (v) => v === 1
+    ).length;
+
+    // Exactly the two path markers should have collapsed.
+    expect(collapsedForP1).toBe(pathMarkers.length);
+
+    const afterP1 = after.players.find((p) => p.playerNumber === 1);
+    expect(afterP1).toBeDefined();
+    expect(afterP1?.territorySpaces).toBe(collapsedForP1);
   });
 
   test('returns a structured error when underlying movement throws', () => {

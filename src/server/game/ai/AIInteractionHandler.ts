@@ -9,6 +9,10 @@ import {
 } from '../../../shared/types/game';
 import { PlayerInteractionHandler } from '../PlayerInteractionManager';
 import { globalAIEngine } from './AIEngine';
+import {
+  createLinkedCancellationSource,
+  type CancellationToken,
+} from '../../../shared/utils/cancellation';
 import { logger } from '../../utils/logger';
 
 /**
@@ -24,6 +28,11 @@ import { logger } from '../../utils/logger';
  * replaced or augmented by Python AI service endpoints in the future.
  */
 export class AIInteractionHandler implements PlayerInteractionHandler {
+  private readonly sessionToken: CancellationToken | null;
+
+  constructor(sessionToken?: CancellationToken) {
+    this.sessionToken = sessionToken ?? null;
+  }
   async requestChoice(choice: PlayerChoice): Promise<PlayerChoiceResponse<unknown>> {
     const selectedOption = await this.selectOption(choice);
 
@@ -101,10 +110,18 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
 
     if (mode === 'service') {
       try {
+        const tokenSource =
+          this.sessionToken != null ? createLinkedCancellationSource(this.sessionToken) : null;
+
+        if (tokenSource) {
+          tokenSource.syncFromParent();
+        }
+
         const selected = await globalAIEngine.getLineOrderChoice(
           choice.playerNumber,
           null,
-          choice.options
+          choice.options,
+          tokenSource ? { token: tokenSource.token } : undefined
         );
 
         if (choice.options.includes(selected)) {
@@ -249,10 +266,18 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
 
     if (mode === 'service') {
       try {
+        const tokenSource =
+          this.sessionToken != null ? createLinkedCancellationSource(this.sessionToken) : null;
+
+        if (tokenSource) {
+          tokenSource.syncFromParent();
+        }
+
         const selected = await globalAIEngine.getRingEliminationChoice(
           choice.playerNumber,
           null,
-          choice.options
+          choice.options,
+          tokenSource ? { token: tokenSource.token } : undefined
         );
 
         // Defensive: ensure the returned option is one of the original
@@ -332,10 +357,18 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
 
     if (mode === 'service') {
       try {
+        const tokenSource =
+          this.sessionToken != null ? createLinkedCancellationSource(this.sessionToken) : null;
+
+        if (tokenSource) {
+          tokenSource.syncFromParent();
+        }
+
         const selected = await globalAIEngine.getRegionOrderChoice(
           choice.playerNumber,
           null,
-          choice.options
+          choice.options,
+          tokenSource ? { token: tokenSource.token } : undefined
         );
 
         // Defensive: ensure the returned option is one of the original
@@ -409,10 +442,18 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
 
     if (mode === 'service') {
       try {
+        const tokenSource =
+          this.sessionToken != null ? createLinkedCancellationSource(this.sessionToken) : null;
+
+        if (tokenSource) {
+          tokenSource.syncFromParent();
+        }
+
         const selected = await globalAIEngine.getCaptureDirectionChoice(
           choice.playerNumber,
           null,
-          choice.options
+          choice.options,
+          tokenSource ? { token: tokenSource.token } : undefined
         );
 
         if (choice.options.includes(selected)) {

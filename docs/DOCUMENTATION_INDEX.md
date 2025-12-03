@@ -1,7 +1,7 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-01  
-> **Maintenance:** Update this index when adding/removing docs  
+> **Last Updated:** 2025-12-02
+> **Maintenance:** Update this index when adding/removing docs
 > **Total Documents:** 110+ files cataloged
 
 This comprehensive index catalogs all documentation in the `docs/` directory and project root, organized by topic.  
@@ -369,9 +369,16 @@ Operational runbooks for deploying and managing RingRift. See [docs/runbooks/IND
 
 ### [ringrift_simple_human_rules.md](../ringrift_simple_human_rules.md)
 
-**Status:** Active  
-**Purpose:** Simplified human-readable rules summary for quick reference.  
+**Status:** Active
+**Purpose:** Simplified human-readable rules summary for quick reference.
 **Related Docs:** [ringrift_complete_rules.md](../ringrift_complete_rules.md)
+
+### [docs/GAME_COMPARISON_ANALYSIS.md](GAME_COMPARISON_ANALYSIS.md)
+
+**Status:** Active
+**Last Updated:** 2025-12-02
+**Purpose:** Comparative analysis of RingRift rules vs other abstract strategy games (YINSH, DVONN, TZAAR, Tak, Go). Assesses design influences, shared mechanics, and uniqueness (~65-70% novel combination).
+**Related Docs:** [RULES_CANONICAL_SPEC.md](../RULES_CANONICAL_SPEC.md), [ringrift_complete_rules.md](../ringrift_complete_rules.md)
 
 ### [RULES_IMPLEMENTATION_MAPPING.md](../RULES_IMPLEMENTATION_MAPPING.md)
 

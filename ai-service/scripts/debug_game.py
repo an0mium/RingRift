@@ -50,43 +50,43 @@ def print_board_state(state: GameState):
     print("\n=== Board State Dump ===")
     print(f"Phase: {state.current_phase}")
     print(f"Current Player: {state.current_player}")
-    
+
     p1 = next(p for p in state.players if p.player_number == 1)
     p2 = next(p for p in state.players if p.player_number == 2)
     print(f"P1 Rings in Hand: {p1.rings_in_hand}")
     print(f"P2 Rings in Hand: {p2.rings_in_hand}")
-    
+
     print("\nStacks:")
     for k, v in state.board.stacks.items():
         print(f"  {k}: Player {v.controlling_player}, Height {v.stack_height}, Cap {v.cap_height}, Rings {v.rings}")
-        
+
     print("\nMarkers:")
     for k, v in state.board.markers.items():
         print(f"  {k}: Player {v.player}")
-        
+
     print("\nCollapsed:")
     print(state.board.collapsed_spaces)
     print("========================\n")
 
 def run_debug_game():
     print("Running debug game: Descent (P1) vs MCTS (P2)")
-    
+
     # Use moderate think time
     config = AIConfig(difficulty=5, randomness=0.1, thinkTime=500)
-    
+
     p1_ai = DescentAI(1, config)
     p2_ai = MCTSAI(2, config)
-    
+
     state = create_initial_state()
     move_count = 0
-    
+
     while state.game_status == GameStatus.ACTIVE and move_count < 200:
         current_player = state.current_player
         ai = p1_ai if current_player == 1 else p2_ai
         ai_name = "Descent" if current_player == 1 else "MCTS"
-        
+
         print(f"Move {move_count + 1}: {ai_name} (P{current_player}) thinking...", end="", flush=True)
-        
+
         start_time = time.time()
         try:
             move = ai.select_move(state)
@@ -99,7 +99,7 @@ def run_debug_game():
 
         duration = time.time() - start_time
         print(f" Done ({duration:.2f}s)")
-        
+
         if not move:
             print(f"\n!!! No move found for {ai_name} (P{current_player}) !!!")
             print("Checking if GameEngine generates any moves...")
@@ -109,10 +109,10 @@ def run_debug_game():
                 print("First 3 valid moves:")
                 for m in valid_moves[:3]:
                     print(f"  {m.type} to {m.to}")
-            
+
             print_board_state(state)
             break
-            
+
         try:
             state = GameEngine.apply_move(state, move)
             move_count += 1
@@ -123,7 +123,7 @@ def run_debug_game():
             traceback.print_exc()
             print_board_state(state)
             break
-            
+
     print(f"Game ended. Winner: {state.winner}")
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@ import {
   createTestPlayer,
   addStack,
   addMarker,
+  addCollapsedSpace,
   pos,
 } from '../utils/fixtures';
 
@@ -202,5 +203,72 @@ describe('sandboxTerritory.rules – sandbox invariants (square8)', () => {
     // + totalRingsEliminatedDelta (internal + forced self-elimination).
     expect(deltaS).toBe(regionSpaces.length + totalRingsEliminatedDelta);
     expect(SAfter).toBeGreaterThanOrEqual(SBefore);
+  });
+
+  /**
+   * Edge case: pre-existing collapsed spaces outside the processed region
+   * should remain owned by their original controller and should not affect
+   * the per-region S-invariant delta. This mirrors the intent of the
+   * nearVictoryTerritory scenarios in RULES_SCENARIO_MATRIX.md, where
+   * previously claimed territory co-exists with a new disconnected region.
+   */
+  it('does not disturb existing collapsed spaces outside the processed region', () => {
+    const board: BoardState = createTestBoard(boardType);
+
+    const players: Player[] = [
+      createTestPlayer(movingPlayer, {
+        ringsInHand: 18,
+        eliminatedRings: 0,
+        territorySpaces: 5,
+      }),
+      createTestPlayer(victimPlayer, {
+        ringsInHand: 18,
+        eliminatedRings: 0,
+        territorySpaces: 0,
+      }),
+    ];
+
+    // Pre-existing collapsed space for the moving player outside the region.
+    const existingTerritoryPos = pos(0, 0);
+    addCollapsedSpace(board, existingTerritoryPos, movingPlayer);
+
+    const regionSpaces = [pos(2, 2), pos(2, 3)];
+    const internalStackHeight = 1;
+    for (const p of regionSpaces) {
+      addStack(board, p, victimPlayer, internalStackHeight);
+    }
+
+    const gameStateBefore: GameState = createTestGameState({
+      boardType,
+      board,
+      players,
+      totalRingsEliminated: 0,
+    });
+    const snapshotBefore = computeProgressSnapshot(gameStateBefore);
+    const SBefore = snapshotBefore.S;
+
+    const result = processDisconnectedRegionOnBoard(board, players, movingPlayer, regionSpaces);
+
+    const { board: boardAfter, players: playersAfter, totalRingsEliminatedDelta } = result;
+
+    // Existing collapsed space should remain collapsed for the same player.
+    const existingKey = positionToString(existingTerritoryPos);
+    expect(boardAfter.collapsedSpaces.get(existingKey)).toBe(movingPlayer);
+
+    const gameStateAfter: GameState = createTestGameState({
+      boardType,
+      board: boardAfter,
+      players: playersAfter,
+      totalRingsEliminated: totalRingsEliminatedDelta,
+    });
+    const snapshotAfter = computeProgressSnapshot(gameStateAfter);
+    const SAfter = snapshotAfter.S;
+
+    const deltaS = SAfter - SBefore;
+
+    // The S-invariant delta should still be explained entirely by the new
+    // region collapse and eliminations; pre-existing collapsed spaces are
+    // accounted for in both SBefore and SAfter.
+    expect(deltaS).toBe(regionSpaces.length + totalRingsEliminatedDelta);
   });
 });

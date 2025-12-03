@@ -11,5 +11,5 @@ class TerritoryMutator(Mutator):
             GameEngine._apply_forced_elimination(state, move)
         else:
             GameEngine._apply_territory_claim(state, move)
-        
+
         state.last_move_at = move.timestamp

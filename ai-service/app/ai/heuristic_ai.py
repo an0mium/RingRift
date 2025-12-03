@@ -31,6 +31,38 @@ exploration during training. This includes:
 A zero‑weight profile now produces zero evaluations (random play), enabling
 CMA‑ES, GA, and other optimisers to fully explore the fitness landscape.
 
+Known Weight Redundancies
+=========================
+**WEIGHT_TWO_IN_ROW vs WEIGHT_CONNECTED_NEIGHBOR**: These weights are
+mathematically redundant. Both count the same thing: adjacent marker pairs
+in line directions. The calculations in ``_evaluate_line_potential`` and
+``_evaluate_line_connectivity`` iterate over all markers, check each of
+6/8 directions, and add a bonus when there's an adjacent friendly marker
+at distance 1.
+
+The effective contribution from adjacent pairs is::
+
+    count × (WEIGHT_TWO_IN_ROW × WEIGHT_LINE_POTENTIAL +
+             WEIGHT_CONNECTED_NEIGHBOR × WEIGHT_LINE_CONNECTIVITY)
+
+This collapses to a single effective weight. The 4 parameters don't add
+expressiveness - CMA-ES searches a higher-dimensional space with redundant
+solutions.
+
+**Why keep both?** The methods themselves are still needed because:
+- ``_evaluate_line_potential`` has 3-in-row and 4-in-row (unique features)
+- ``_evaluate_line_connectivity`` has WEIGHT_GAP_POTENTIAL (unique feature)
+
+The performance impact of the redundant counting is negligible (~µs per
+evaluation). The CMA-ES impact is minor (2 extra dimensions). Left in place
+for now; consider consolidating in a future refactor.
+
+**Note on WEIGHT_CONNECTED_NEIGHBOR justification**: The original rationale
+("connected markers are harder to isolate and capture") is incorrect.
+RingRift has no Go-style capture mechanics - markers are NOT subject to
+surrounding/liberties capture. Markers can only be flipped when a stack
+moves over them. Their spatial connectivity provides no defensive benefit.
+
 Performance Optimization Flags (Environment Variables)
 =======================================================
 Safe optimizations (no change to play strength):
@@ -75,7 +107,6 @@ from .numba_eval import (
     NUMBA_AVAILABLE,
     evaluate_line_potential_numba,
     prepare_marker_arrays,
-    encode_key,
 )
 from .lightweight_state import LightweightState, MoveUndo
 from .lightweight_eval import evaluate_position_light, extract_weights_from_ai
@@ -147,7 +178,7 @@ def _get_parallel_executor() -> ProcessPoolExecutor:
     return _parallel_executor
 
 
-def _shutdown_parallel_executor():
+def _shutdown_parallel_executor() -> None:
     """Shutdown the global parallel executor."""
     global _parallel_executor
     if _parallel_executor is not None:
@@ -210,10 +241,11 @@ class HeuristicAI(BaseAI):
     fields on :class:`AIConfig` control evaluation depth and weight
     profiles respectively.
     """
-    
+
     # Evaluation weights for different factors
     WEIGHT_STACK_CONTROL = 10.0
     WEIGHT_STACK_HEIGHT = 5.0
+    WEIGHT_CAP_HEIGHT = 6.0  # v1.5: Summed cap height (capture power dominance)
     WEIGHT_TERRITORY = 8.0
     WEIGHT_RINGS_IN_HAND = 3.0
     WEIGHT_CENTER_CONTROL = 4.0
@@ -275,7 +307,7 @@ class HeuristicAI(BaseAI):
     WEIGHT_SWAP_EDGE_BONUS = 2.0          # Bonus for edge positions (moderate)
     WEIGHT_SWAP_DIAGONAL_BONUS = 6.0      # Bonus for key diagonal positions
     WEIGHT_SWAP_OPENING_STRENGTH = 20.0   # Multiplier for normalized opening strength (0-1)
-    
+
     # v1.4: Training diversity - Swap decision randomness
     # Controls stochastic exploration during training to create diverse swap decisions
     WEIGHT_SWAP_EXPLORATION_TEMPERATURE = 0.0  # Temperature for swap decision noise (0 = deterministic)
@@ -291,7 +323,7 @@ class HeuristicAI(BaseAI):
         constants for this instance. If no profile is found, the built-in
         defaults defined above are used unchanged to preserve current
         behaviour.
-        
+
         The ``use_incremental_search`` config option is read for API
         consistency with tree-search AIs but has minimal impact on
         HeuristicAI since it only performs single-depth evaluation.
@@ -410,7 +442,7 @@ class HeuristicAI(BaseAI):
 
         if not valid_moves:
             return None
-        
+
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
             selected = self.get_random_element(valid_moves)
@@ -535,32 +567,32 @@ class HeuristicAI(BaseAI):
                 if best_moves
                 else self.get_random_element(valid_moves)
             )
-        
+
         self.move_count += 1
         return selected
 
     def _sample_moves_for_training(self, moves: List[Move]) -> List[Move]:
         """
         Sample moves for evaluation if training_move_sample_limit is set.
-        
+
         This is a training/evaluation performance optimization that randomly
         samples a subset of moves when there are too many to evaluate
         efficiently. The sampling is deterministic when the AI's RNG seed
         is set, ensuring reproducibility.
-        
+
         Args:
             moves: Full list of valid moves
-            
+
         Returns:
             Either the original list (if no limit or under limit) or a
             random sample up to the configured limit.
         """
         limit = getattr(self.config, "training_move_sample_limit", None)
-        
+
         # No sampling if limit is not configured or moves are under limit
         if limit is None or limit <= 0 or len(moves) <= limit:
             return moves
-        
+
         # Use the AI's RNG for deterministic sampling when seeded
         rng_seed = getattr(self.config, "rng_seed", None)
         if rng_seed is not None:
@@ -858,10 +890,10 @@ class HeuristicAI(BaseAI):
     def evaluate_position(self, game_state: GameState) -> float:
         """
         Evaluate the current position using heuristics
-        
+
         Args:
             game_state: Current game state
-            
+
         Returns:
             Evaluation score (positive = good for this AI)
         """
@@ -970,7 +1002,7 @@ class HeuristicAI(BaseAI):
         )
 
         return scores
-     
+
     def get_evaluation_breakdown(
         self,
         game_state: GameState
@@ -989,18 +1021,23 @@ class HeuristicAI(BaseAI):
         breakdown: Dict[str, float] = {"total": total}
         breakdown.update(components)
         return breakdown
-    
+
     def _evaluate_stack_control(self, game_state: GameState) -> float:
         """Evaluate stack control.
 
         All penalties and bonuses use configurable weights to enable
         full weight-space exploration during training.
+
+        v1.5: Added cap height tracking - sum of cap_height across controlled
+        stacks measures capture power dominance separately from total height.
         """
         score = 0.0
         my_stacks = 0
         opponent_stacks = 0
         my_height = 0
         opponent_height = 0
+        my_cap_height = 0
+        opponent_cap_height = 0
 
         for stack in game_state.board.stacks.values():
             if stack.controlling_player == self.player_number:
@@ -1009,11 +1046,14 @@ class HeuristicAI(BaseAI):
                 h = stack.stack_height
                 effective_height = h if h <= 5 else 5 + (h - 5) * 0.1
                 my_height += effective_height
+                # Cap height measures capture power (per rules §10.1)
+                my_cap_height += stack.cap_height
             else:
                 opponent_stacks += 1
                 h = stack.stack_height
                 effective_height = h if h <= 5 else 5 + (h - 5) * 0.1
                 opponent_height += effective_height
+                opponent_cap_height += stack.cap_height
 
         # Stack diversification using configurable weights
         if my_stacks == 0:
@@ -1025,17 +1065,18 @@ class HeuristicAI(BaseAI):
 
         score += (my_stacks - opponent_stacks) * self.WEIGHT_STACK_CONTROL
         score += (my_height - opponent_height) * self.WEIGHT_STACK_HEIGHT
+        score += (my_cap_height - opponent_cap_height) * self.WEIGHT_CAP_HEIGHT
 
         return score
-    
+
     def _evaluate_territory(self, game_state: GameState) -> float:
         """Evaluate territory control"""
         my_player = self.get_player_info(game_state)
         if not my_player:
             return 0.0
-        
+
         my_territory = my_player.territory_spaces
-        
+
         # Compare with opponents
         opponent_territory = 0
         for player in game_state.players:
@@ -1046,21 +1087,21 @@ class HeuristicAI(BaseAI):
                 )
 
         return (my_territory - opponent_territory) * self.WEIGHT_TERRITORY
-    
+
     def _evaluate_rings_in_hand(self, game_state: GameState) -> float:
         """Evaluate rings remaining in hand"""
         my_player = self.get_player_info(game_state)
         if not my_player:
             return 0.0
-        
+
         # Having rings in hand is good (more placement options)
         return my_player.rings_in_hand * self.WEIGHT_RINGS_IN_HAND
-    
+
     def _evaluate_center_control(self, game_state: GameState) -> float:
         """Evaluate control of center positions"""
         score = 0.0
         center_positions = self._get_center_positions(game_state)
-        
+
         for pos_key in center_positions:
             if pos_key in game_state.board.stacks:
                 stack = game_state.board.stacks[pos_key]
@@ -1068,9 +1109,9 @@ class HeuristicAI(BaseAI):
                     score += self.WEIGHT_CENTER_CONTROL
                 else:
                     score -= self.WEIGHT_CENTER_CONTROL * 0.5
-        
+
         return score
-    
+
     def _evaluate_opponent_threats(self, game_state: GameState) -> float:
         """Evaluate opponent threats (stacks near our stacks)"""
         score = 0.0
@@ -1100,7 +1141,7 @@ class HeuristicAI(BaseAI):
                         )
 
         return score
-    
+
     def _evaluate_mobility(self, game_state: GameState) -> float:
         """Evaluate mobility (number of valid moves)"""
         # Optimization: Use pseudo-mobility instead of full move generation
@@ -1273,11 +1314,20 @@ class HeuristicAI(BaseAI):
         my_player = self.get_player_info(game_state)
         if not my_player:
             return 0.0
-            
+
         return my_player.eliminated_rings * self.WEIGHT_ELIMINATED_RINGS
 
     def _evaluate_line_potential(self, game_state: GameState) -> float:
-        """Evaluate potential to form lines.
+        """Evaluate potential to form lines (2, 3, 4 in a row).
+
+        Weights used:
+        - WEIGHT_TWO_IN_ROW: Adjacent marker pairs in line directions
+        - WEIGHT_THREE_IN_ROW: Three consecutive markers
+        - WEIGHT_FOUR_IN_ROW: Four consecutive markers (almost a winning line)
+
+        Note: WEIGHT_TWO_IN_ROW is redundant with WEIGHT_CONNECTED_NEIGHBOR in
+        _evaluate_line_connectivity - both count the same adjacent marker pairs.
+        See module docstring "Known Weight Redundancies" for details.
 
         Uses Numba JIT-compiled evaluation when available for ~10x speedup.
         Falls back to FastGeometry pre-computed offset tables for O(1) lookups.
@@ -1421,7 +1471,7 @@ class HeuristicAI(BaseAI):
         for marker in game_state.board.markers.values():
             if marker.player == self.player_number:
                 my_markers += 1
-                
+
         return my_markers * self.WEIGHT_MARKER_COUNT
 
     def _get_visible_stacks(
@@ -1612,16 +1662,25 @@ class HeuristicAI(BaseAI):
 
     # _evaluate_move is deprecated in favor of evaluate_position
     # on the simulated state
-    
+
     def _get_center_positions(self, game_state: GameState) -> FrozenSet[str]:
         """Get center position keys for the board using FastGeometry cache."""
         return self._fast_geo.get_center_positions(game_state.board.type)
-    
+
     def _evaluate_line_connectivity(self, game_state: GameState) -> float:
-        """
-        Evaluate connectivity of markers for potential lines.
-        Rewards markers that are close to each other in line-forming
-        directions.
+        """Evaluate connectivity of markers and gap potential.
+
+        Weights used:
+        - WEIGHT_CONNECTED_NEIGHBOR: Adjacent marker pairs in line directions
+        - WEIGHT_GAP_POTENTIAL: Markers at distance 2 with empty gap between
+
+        Note: WEIGHT_CONNECTED_NEIGHBOR is redundant with WEIGHT_TWO_IN_ROW in
+        _evaluate_line_potential - both count the same adjacent marker pairs.
+        See module docstring "Known Weight Redundancies" for details.
+
+        Important: The original "connectivity = harder to capture" rationale
+        is incorrect. RingRift has no Go-style capture mechanics. Markers
+        cannot be surrounded/captured - only flipped by passing stacks.
 
         Optimized to use FastGeometry pre-computed offset tables.
         """
@@ -1747,14 +1806,14 @@ class HeuristicAI(BaseAI):
                     continue
 
                 valid_moves_from_here += 1
- 
+
             # Reward stacks with more freedom
             score += valid_moves_from_here
- 
+
             # Penalty for completely blocked stacks (dead weight)
             if valid_moves_from_here == 0:
                 score -= self.WEIGHT_BLOCKED_STACK_PENALTY
- 
+
         return score * self.WEIGHT_STACK_MOBILITY
 
     def _evaluate_forced_elimination_risk(
@@ -1868,7 +1927,7 @@ class HeuristicAI(BaseAI):
         leader_gap = max(0.0, opp_top1 - opp_top2)
 
         return -leader_gap * self.WEIGHT_MULTI_LEADER_THREAT
- 
+
     def _get_adjacent_positions(
         self,
         position: Position,

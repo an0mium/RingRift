@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { Position, PlayerChoice, PlayerChoiceResponseFor } from '../../shared/types/game';
 import { positionToString, positionsEqual } from '../../shared/types/game';
 import { useSandbox } from '../contexts/SandboxContext';
@@ -22,7 +22,7 @@ export function useSandboxInteractions({
 }: UseSandboxInteractionsOptions) {
   const {
     sandboxEngine,
-    isConfigured,
+    isConfigured: _isConfigured,
     sandboxPendingChoice,
     setSandboxPendingChoice,
     sandboxCaptureChoice,
@@ -30,7 +30,7 @@ export function useSandboxInteractions({
     setSandboxCaptureTargets,
     setSandboxLastProgressAt,
     setSandboxStallWarning,
-    sandboxStateVersion,
+    sandboxStateVersion: _sandboxStateVersion,
     setSandboxStateVersion,
   } = useSandbox();
 
@@ -171,88 +171,143 @@ export function useSandboxInteractions({
     }
 
     const engine = sandboxEngine;
-    if (engine) {
-      const stateBefore = engine.getGameState();
-      const current = stateBefore.players.find((p) => p.playerNumber === stateBefore.currentPlayer);
+    if (!engine) {
+      return;
+    }
 
-      // If it is currently an AI player's turn in the sandbox engine, ignore
-      // human clicks and ensure the AI turn loop is running instead of placing
-      // rings for the AI seat.
-      if (stateBefore.gameStatus === 'active' && current && current.type === 'ai') {
-        maybeRunSandboxAiIfNeeded();
-        return;
-      }
+    const stateBefore = engine.getGameState();
+    const current = stateBefore.players.find((p) => p.playerNumber === stateBefore.currentPlayer);
 
-      // Ring-placement phase: a single click attempts a 1-ring placement
-      // via the engine. On success, we immediately highlight the legal
-      // movement targets for the newly placed/updated stack, and the
-      // human must then move that stack; the AI will respond only after
-      // the movement step completes.
-      if (stateBefore.currentPhase === 'ring_placement') {
-        void (async () => {
-          const placed = await engine.tryPlaceRings(pos, 1);
-          if (!placed) {
-            return;
-          }
+    // If it is currently an AI player's turn in the sandbox engine, ignore
+    // human clicks and ensure the AI turn loop is running instead of placing
+    // rings for the AI seat.
+    if (stateBefore.gameStatus === 'active' && current && current.type === 'ai') {
+      maybeRunSandboxAiIfNeeded();
+      return;
+    }
 
-          setSelected(pos);
-          const targets = engine.getValidLandingPositionsForCurrentPlayer(pos);
-          setValidTargets(targets);
-          setSandboxTurn((t) => t + 1);
-        })();
-        return;
-      }
+    const phaseBefore = stateBefore.currentPhase;
 
-      // Movement phase: mirror backend UX – first click selects a stack
-      // and highlights its legal landing positions; second click on a
-      // highlighted cell executes the move.
-      if (!selected) {
-        // Selection click: record selected cell and highlight valid targets.
+    // Ring-placement phase: a single click attempts a 1-ring placement
+    // via the engine. On success, we immediately highlight the legal
+    // movement targets for the newly placed/updated stack, and the
+    // human must then move that stack; the AI will respond only after
+    // the movement step completes.
+    if (phaseBefore === 'ring_placement') {
+      void (async () => {
+        const placed = await engine.tryPlaceRings(pos, 1);
+        if (!placed) {
+          return;
+        }
+
         setSelected(pos);
         const targets = engine.getValidLandingPositionsForCurrentPlayer(pos);
         setValidTargets(targets);
-        // Inform the engine about the selection so its internal
-        // movement state (_selectedStackKey) matches the UI.
-        engine.handleHumanCellClick(pos);
-        return;
-      }
-
-      // Clicking the same cell clears selection.
-      if (positionsEqual(selected, pos)) {
-        setSelected(undefined);
-        setValidTargets([]);
-        // Let the engine clear its internal selection as well.
-        engine.clearSelection();
-        return;
-      }
-
-      // If this click is on a highlighted target, treat it as executing
-      // the move and then let the AI respond.
-      const isTarget = validTargets.some((t) => positionsEqual(t, pos));
-      if (isTarget) {
-        // Clear selection/highlights immediately so movement overlays do not
-        // persist while the orchestrator processes post-move consequences
-        // (lines, territory, and any ring_elimination decisions).
-        setSelected(undefined);
-        setValidTargets([]);
-        void (async () => {
-          await engine.handleHumanCellClick(pos);
-          setSandboxTurn((t) => t + 1);
-          setSandboxStateVersion((v) => v + 1);
-          // After a successful human move (which may trigger line/territory
-          // processing and advance the turn), immediately check whether it is
-          // now an AI player's turn and, if so, start the AI loop.
-          maybeRunSandboxAiIfNeeded();
-        })();
-        return;
-      }
-
-      // Otherwise, ignore clicks on non-highlighted cells while a stack
-      // is selected so that invalid landings cannot be executed. Users
-      // can either click the selected stack again to clear selection, or
-      // select a different stack by first clearing and then re-clicking.
+        setSandboxTurn((t) => t + 1);
+      })();
       return;
     }
+
+    // Precompute whether this click is on a currently-highlighted target.
+    const isTarget = validTargets.some((t) => positionsEqual(t, pos));
+
+    // Chain-capture phase: only allow clicks on canonical continuation
+    // landings exposed by the orchestrator via getValidMoves().
+    if (phaseBefore === 'chain_capture') {
+      if (!isTarget) {
+        // Ignore clicks outside the continuation landings while the chain
+        // capture decision is pending.
+        return;
+      }
+
+      // Clear overlays while the continuation segment is processed; if the
+      // chain persists, highlights will be recomputed from canonical moves.
+      setSelected(undefined);
+      setValidTargets([]);
+
+      void (async () => {
+        await engine.handleHumanCellClick(pos);
+
+        const after = engine.getGameState();
+        if (after.gameStatus === 'active' && after.currentPhase === 'chain_capture') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing internal engine method
+          const ctx = (engine as any).getChainCaptureContextForCurrentPlayer?.() ?? null;
+          if (ctx) {
+            setSelected(ctx.from);
+            setValidTargets(ctx.landings);
+          }
+        }
+
+        setSandboxTurn((t) => t + 1);
+        setSandboxStateVersion((v) => v + 1);
+        // After a successful human move (which may trigger line/territory
+        // processing and advance the turn), immediately check whether it is
+        // now an AI player's turn and, if so, start the AI loop.
+        maybeRunSandboxAiIfNeeded();
+      })();
+
+      return;
+    }
+
+    // Movement phase: mirror backend UX – first click selects a stack
+    // and highlights its legal landing positions; second click on a
+    // highlighted cell executes the move.
+    if (!selected) {
+      // Selection click: record selected cell and highlight valid targets.
+      setSelected(pos);
+      const targets = engine.getValidLandingPositionsForCurrentPlayer(pos);
+      setValidTargets(targets);
+      // Inform the engine about the selection so its internal
+      // movement state (_selectedStackKey) matches the UI.
+      engine.handleHumanCellClick(pos);
+      return;
+    }
+
+    // Clicking the same cell clears selection.
+    if (positionsEqual(selected, pos)) {
+      setSelected(undefined);
+      setValidTargets([]);
+      // Let the engine clear its internal selection as well.
+      engine.clearSelection();
+      return;
+    }
+
+    // If this click is on a highlighted target, treat it as executing
+    // the move and then let the AI respond.
+    if (isTarget) {
+      // Clear selection/highlights immediately so movement overlays do not
+      // persist while the orchestrator processes post-move consequences
+      // (lines, territory, and any ring_elimination decisions).
+      setSelected(undefined);
+      setValidTargets([]);
+      void (async () => {
+        await engine.handleHumanCellClick(pos);
+
+        const after = engine.getGameState();
+        if (after.gameStatus === 'active' && after.currentPhase === 'chain_capture') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing internal engine method
+          const ctx = (engine as any).getChainCaptureContextForCurrentPlayer?.() ?? null;
+          if (ctx) {
+            setSelected(ctx.from);
+            setValidTargets(ctx.landings);
+          }
+        }
+
+        setSandboxTurn((t) => t + 1);
+        setSandboxStateVersion((v) => v + 1);
+        // After a successful human move (which may trigger line/territory
+        // processing and advance the turn), immediately check whether it is
+        // now an AI player's turn and, if so, start the AI loop.
+        maybeRunSandboxAiIfNeeded();
+      })();
+      return;
+    }
+
+    // Otherwise, ignore clicks on non-highlighted cells while a stack
+    // is selected so that invalid landings cannot be executed. Users
+    // can either click the selected stack again to clear selection, or
+    // select a different stack by first clearing and then re-clicking.
+    return;
   };
 
   /**

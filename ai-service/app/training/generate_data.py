@@ -156,36 +156,36 @@ def calculate_outcome(state, player_number, depth):
         base_val = -1.0
     else:
         return 0.0
-        
+
     # Bonuses
     territory_count = 0
     for p_id in state.board.collapsed_spaces.values():
         if p_id == player_number:
             territory_count += 1
-    
+
     eliminated_count = state.board.eliminated_rings.get(str(player_number), 0)
-    
+
     marker_count = 0
     for m in state.board.markers.values():
         if m.player == player_number:
             marker_count += 1
-            
+
     # Normalize bonuses
     bonus = (
         (territory_count * 0.001) +
         (eliminated_count * 0.001) +
         (marker_count * 0.0001)
     )
-    
+
     if base_val > 0:
         val = base_val + bonus
     else:
         val = base_val + bonus
-        
+
     # Discount
     gamma = 0.99
     discounted_val = val * (gamma ** depth)
-    
+
     if base_val > 0:
         return max(0.001, min(1.0, discounted_val))
     elif base_val < 0:
@@ -548,7 +548,7 @@ def generate_dataset(
             if ai.neural_net:
                 # Collect Tree Learning data (search log)
                 search_data = ai.get_search_data()
-                
+
                 # Process search data (features, value)
                 # We don't have policy for these intermediate nodes, so we use zero policy
                 # Or we can skip policy training for these samples
@@ -563,7 +563,7 @@ def generate_dataset(
                     # even though it's slightly incorrect for deep nodes (history should shift).
                     # But since Descent doesn't simulate opponent moves in history during search (it's just state),
                     # the history remains "what happened before search started".
-                    
+
                     # Construct stacked features using current game history
                     hist_list = state_history[::-1]
                     while len(hist_list) < history_length:
@@ -571,21 +571,21 @@ def generate_dataset(
                     hist_list = hist_list[:history_length]
                     stack_list = [feat] + hist_list
                     stacked_features = np.concatenate(stack_list, axis=0)
-                    
+
                     # Globals need to be re-calculated for the search node state?
                     # The search log only stored features.
                     # We should probably store globals too in DescentAI.
                     # For now, let's use the root globals as approximation or skip globals update.
                     # Actually, let's just use the root globals.
                     _, root_globals = ai.neural_net._extract_features(state)
-                    
+
                     # Policy is unknown/irrelevant for these value-only samples
                     # We can use a zero vector or a uniform vector.
                     # Policy is unknown/irrelevant for these value-only samples
                     # Use empty sparse arrays
                     p_indices = np.array([], dtype=np.int32)
                     p_values = np.array([], dtype=np.float32)
-                    
+
                     # Augment and add immediately
                     augmented_samples = augment_data(
                         stacked_features,
@@ -595,7 +595,7 @@ def generate_dataset(
                         ai.neural_net,
                         state.board.type,
                     )
-                    
+
                     for f, g, pi, pv in augmented_samples:
                         new_features.append(f)
                         new_globals.append(g)
@@ -625,14 +625,14 @@ def generate_dataset(
                 state_key = ai._get_state_key(state)
                 p_indices = []
                 p_values = []
-                
+
                 entry = ai.transposition_table.get(state_key)
                 if entry is not None:
                     if len(entry) == 3:
                         _, children_values, _ = entry
                     else:
                         _, children_values = entry
-                        
+
                     if children_values:
                         # Extract values and compute soft targets
                         # children_values: {move_key: (move, val, prob)}
@@ -641,7 +641,7 @@ def generate_dataset(
                             m = data[0]
                             v = data[1]
                             moves_data.append((m, v))
-                            
+
                         # Sort by value (descending for current player)
                         # Since we want probability distribution, we want higher prob for better moves
                         # If current_player == ai.player_number, higher value is better
@@ -651,16 +651,16 @@ def generate_dataset(
                         # if state.current_player == self.player_number: best_val = max(...)
                         # else: best_val = min(...)
                         # So values are relative to self.player_number.
-                        
+
                         # We need to normalize values to be "goodness for current player"
                         is_maximizing = (current_player == ai.player_number)
-                        
+
                         # Sort moves by "goodness"
                         if is_maximizing:
                             moves_data.sort(key=lambda x: x[1], reverse=True)
                         else:
                             moves_data.sort(key=lambda x: x[1])
-                            
+
                         # Rank-based distribution (Cohen-Solal)
                         # p(rank) ~ 1 / (rank + k)
                         # rank 0 is best
@@ -668,11 +668,11 @@ def generate_dataset(
                         probs = []
                         for rank in range(len(moves_data)):
                             probs.append(1.0 / (rank + k_rank))
-                            
+
                         # Normalize
                         probs = np.array(probs)
                         probs = probs / probs.sum()
-                        
+
                         # Encode
                         # Encode
                         for i, (m, _) in enumerate(moves_data):
@@ -741,8 +741,11 @@ def generate_dataset(
                     initial_state=initial_state,
                     final_state=state,
                     moves=moves_for_db,
-                    engine_mode="descent",
-                    seed=game_seed,
+                    metadata={
+                        "engine_mode": "descent",
+                        "seed": game_seed,
+                        "source": "training_data_generation",
+                    },
                 )
                 games_recorded += 1
             except Exception as e:
@@ -750,16 +753,16 @@ def generate_dataset(
 
         # Assign rewards
         total_moves = len(game_history)
-        
+
         for i, step in enumerate(game_history):
             moves_remaining = total_moves - i
-            
+
             # Calculate outcome using detailed logic
             # We need to pass the final state to calculate bonuses
             # But we need to view it from the perspective of step['player']
-            
+
             outcome = calculate_outcome(state, step['player'], moves_remaining)
-            
+
             # Augment data for training; board_type is fixed per dataset.
             augmented_samples = augment_data(
                 step["features"],
@@ -769,7 +772,7 @@ def generate_dataset(
                 ai_p1.neural_net,
                 board_type,
             )
-            
+
             for feat, glob, pi, pv in augmented_samples:
                 new_features.append(feat)
                 new_globals.append(glob)
@@ -793,9 +796,9 @@ def generate_dataset(
         output_path = os.path.join(os.path.dirname(__file__), output_file)
     else:
         output_path = output_file
-        
+
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+
     # Convert new data to numpy arrays (object array for sparse policies)
     new_features = np.array(new_features, dtype=np.float32)
     new_globals = np.array(new_globals, dtype=np.float32)
@@ -803,7 +806,7 @@ def generate_dataset(
     # Sparse policies stored as object arrays of numpy arrays
     new_policy_indices = np.array(new_policy_indices, dtype=object)
     new_policy_values = np.array(new_policy_values, dtype=object)
-    
+
     print(f"Generated {len(new_values)} new samples")
 
     # Load existing data if available
@@ -815,7 +818,7 @@ def generate_dataset(
                     existing_features = data['features']
                     existing_globals = data['globals']
                     existing_values = data['values']
-                    
+
                     # Handle migration from dense to sparse
                     if 'policy_indices' in data:
                         existing_policy_indices = data['policy_indices']
@@ -833,9 +836,9 @@ def generate_dataset(
                             existing_policy_values.append(values.astype(np.float32))
                         existing_policy_indices = np.array(existing_policy_indices, dtype=object)
                         existing_policy_values = np.array(existing_policy_values, dtype=object)
-                    
+
                     print(f"Loaded {len(existing_values)} existing samples")
-                    
+
                     # Concatenate
                     new_features = np.concatenate(
                         [existing_features, new_features]
@@ -854,7 +857,7 @@ def generate_dataset(
                     )
         except Exception as e:
             print(f"Could not load existing data (starting fresh): {e}")
-            
+
     # Limit buffer size (Experience Replay Buffer)
     MAX_BUFFER_SIZE = 50000
     if len(new_values) > MAX_BUFFER_SIZE:
@@ -867,7 +870,7 @@ def generate_dataset(
         new_values = new_values[-MAX_BUFFER_SIZE:]
         new_policy_indices = new_policy_indices[-MAX_BUFFER_SIZE:]
         new_policy_values = new_policy_values[-MAX_BUFFER_SIZE:]
-        
+
     # Save as compressed npz
     np.savez_compressed(
         output_path,

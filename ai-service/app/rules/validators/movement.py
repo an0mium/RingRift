@@ -71,7 +71,7 @@ class MovementValidator(Validator):
         if landing_stack:
             # Cannot land on existing stack in simple movement
             return False
-        
+
         if landing_marker:
             if landing_marker.player != move.player:
                 # Cannot land on opponent's marker in simple movement

@@ -683,7 +683,24 @@ export function applySimpleMovement(
     }
   }
 
-  // 4. Update timestamps
+  // 4. Account for any new collapsed territory created by marker effects.
+  const finalCollapsedCount = newState.board.collapsedSpaces.size;
+  const collapsedDelta = finalCollapsedCount - initialCollapsedCount;
+
+  if (collapsedDelta > 0) {
+    const updatedPlayers = newState.players.map((p) =>
+      p.playerNumber === params.player
+        ? {
+            ...p,
+            territorySpaces: (p.territorySpaces ?? 0) + collapsedDelta,
+          }
+        : p
+    );
+
+    newState.players = updatedPlayers;
+  }
+
+  // 5. Update timestamps
   newState.lastMoveAt = new Date();
 
   return {

@@ -145,9 +145,9 @@ def play_validation_games(
     """
     from app.ai.heuristic_ai import HeuristicAI
     from app.models import AIConfig, GameState
-    from app.rules import RulesEngine
+    from app.rules.factory import get_rules_engine
 
-    rules = RulesEngine()
+    rules = get_rules_engine()
 
     candidate_wins = 0
     draws = 0

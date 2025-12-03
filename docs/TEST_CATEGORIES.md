@@ -184,12 +184,12 @@ RINGRIFT_ENABLE_SANDBOX_AI_SIM=1 npm run test:ai-sandbox:quiet
 #### AI Stall Diagnostics
 
 ```bash
-RINGRIFT_ENABLE_SANDBOX_AI_STALL_REPRO=1 npm test -- ClientSandboxEngine.aiStall.seed1
+RINGRIFT_ENABLE_SANDBOX_AI_STALL_REPRO=1 npm test -- archive/tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts
 ```
 
 **Files:**
 
-- `tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts`
+- `archive/tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts` (archived, diagnostic-only stub at `tests/unit/ClientSandboxEngine.aiStall.seed1.test.ts`)
 
 #### Legacy RuleEngine / GameEngine Diagnostics
 

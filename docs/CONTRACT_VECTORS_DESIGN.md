@@ -407,6 +407,18 @@ Each uses the board-size-appropriate `requiredLength` and geometry, but the expe
 | ------------------------------------------- | ---------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `territory_line.decision_auto_exit.square8` | `territory_processing` | `square8`  | State where `currentPhase = "territory_processing"` for player P, but there are **no** legal Territory decisions: no processable regions and no valid `eliminate_rings_from_stack` decisions. A final no-op or synthetic decision (for harness purposes) is applied to trigger phase exit. | `status = "complete"`, resulting state has `gameStatus = "active"` but `currentPhase` advanced out of `territory_processing` (to the next appropriate phase or player), and the new `currentPlayer` has at least one legal action, satisfying `INV-PHASE-CONSISTENCY` and `INV-ACTIVE-NO-MOVES`. |
 
+Traceability for Family C (territory + line endgame):
+
+- **Rules / scenarios matrix:** the `territory_line.*` contract vectors (overlong line + mini-region,
+  single-point swing, decision auto-exit) are referenced under the T3 territory axis in
+  `RULES_SCENARIO_MATRIX.md` as the combined territory+line endgame contracts, alongside the square/hex
+  region-then-elim multi-step sequences.
+- **Python parity:** `docs/PYTHON_PARITY_REQUIREMENTS.md` §8.5.3 names the same IDs as the canonical
+  TS↔Python contract surface for territory+line interactions; Python exercises them via the
+  `territory_line_endgame.vectors.json` bundle in
+  `ai-service/tests/contracts/test_contract_vectors.py` and the scenario parity suite
+  `ai-service/tests/parity/test_line_and_territory_scenario_parity.py`.
+
 ---
 
 ### 5.4 Family D – Hex-Specific Edge and Corner Cases

@@ -1,4 +1,6 @@
 import { WebSocketServer } from '../../src/server/websocket/server';
+import { getMetricsService } from '../../src/server/services/MetricsService';
+import { withTimeControl } from '../helpers/TimeController';
 
 type AuthenticatedTestSocket = any;
 
@@ -25,6 +27,23 @@ jest.mock('../../src/server/game/GameSessionManager', () => {
       // For tests, run the operation immediately without a distributed lock.
       withGameLock: async (_gameId: string, operation: () => Promise<unknown>) => operation(),
     })),
+  };
+});
+
+// Mock MetricsService to observe reconnection metrics without touching the
+// real Prometheus registry. This keeps the tests focused on behaviour rather
+// than prom-client internals.
+jest.mock('../../src/server/services/MetricsService', () => {
+  const metrics = {
+    incWebSocketConnections: jest.fn(),
+    decWebSocketConnections: jest.fn(),
+    recordWebsocketReconnection: jest.fn(),
+    recordMoveRejected: jest.fn(),
+  };
+
+  return {
+    __esModule: true,
+    getMetricsService: () => metrics,
   };
 });
 
@@ -205,6 +224,13 @@ describe('WebSocketServer PlayerConnectionState diagnostics', () => {
     // Critically, reconnecting within the window must NOT trigger any
     // abandonment semantics or persistence side-effects.
     expect(mockSession.handleAbandonmentForDisconnectedPlayer).not.toHaveBeenCalled();
+
+    // Successful reconnection within the window must be reflected in the
+    // reconnection metrics as a `result="success"` increment. This is part
+    // of the connection lifecycle observability described in P18.3-1
+    // (§2.4 / §4.3).
+    const metrics = getMetricsService() as any;
+    expect(metrics.recordWebsocketReconnection).toHaveBeenCalledWith('success');
   });
 
   it('marks player as disconnected_expired when reconnection window expires', async () => {
@@ -232,6 +258,93 @@ describe('WebSocketServer PlayerConnectionState diagnostics', () => {
     // Ensure stale choices would be cleared via interaction handler
     const interactionHandler = mockSession.getInteractionHandler();
     expect(interactionHandler.cancelAllChoicesForPlayer).toHaveBeenCalledWith(playerNumber);
+  });
+
+  it('drives reconnection timeout via timers and applies abandonment semantics', async () => {
+    await withTimeControl(async (tc) => {
+      const httpServerStub: any = {};
+      wsServer = new WebSocketServer(httpServerStub as any);
+
+      // Minimal rated 1v1 state so abandonment can award a win.
+      const ratedState: any = {
+        id: gameId,
+        players: [
+          {
+            id: userId,
+            username: 'P1',
+            type: 'human',
+            playerNumber,
+          },
+          {
+            id: 'user-2',
+            username: 'P2',
+            type: 'human',
+            playerNumber: 2,
+          },
+        ],
+        spectators: [],
+        currentPhase: 'ring_placement',
+        currentPlayer: playerNumber,
+        gameStatus: 'active',
+        isRated: true,
+      };
+
+      mockSession.getGameState.mockReturnValue(ratedState);
+
+      // Join marks the player as connected and seeds connection state.
+      await (wsServer as any).handleJoinGame(socket, gameId);
+
+      const beforeDisconnect = wsServer.getPlayerConnectionStateSnapshotForTesting(gameId, userId);
+      expect(beforeDisconnect).toBeDefined();
+      expect(beforeDisconnect!.kind).toBe('connected');
+
+      // Seed connection state for the opponent so that when the window
+      // expires, anyOpponentStillAlive resolves to true and a rated win
+      // can be awarded.
+      const opponentId = 'user-2';
+      const now = Date.now();
+      (wsServer as any).playerConnectionStates.set(`${gameId}:${opponentId}`, {
+        kind: 'connected',
+        gameId,
+        userId: opponentId,
+        playerNumber: 2,
+        connectedAt: now,
+        lastSeenAt: now,
+      });
+
+      // Simulate disconnect; this schedules a reconnection timeout.
+      (wsServer as any).handleDisconnect(socket);
+
+      const pending = wsServer.getPlayerConnectionStateSnapshotForTesting(gameId, userId);
+      expect(pending).toBeDefined();
+      expect(pending!.kind).toBe('disconnected_pending_reconnect');
+
+      // Advance virtual time past the 30s reconnection window so the
+      // internal timeout fires and handleReconnectionTimeout is invoked.
+      await tc.advanceTime(30_000);
+
+      const expired = wsServer.getPlayerConnectionStateSnapshotForTesting(gameId, userId);
+      expect(expired).toBeDefined();
+      expect(expired!.kind).toBe('disconnected_expired');
+
+      const interactionHandler = mockSession.getInteractionHandler();
+      expect(interactionHandler.cancelAllChoicesForPlayer).toHaveBeenCalledWith(playerNumber);
+
+      // Because the game is rated and another human remains "alive" in
+      // playerConnectionStates, abandonment should be applied with
+      // awardWinToOpponent=true.
+      expect(mockSession.handleAbandonmentForDisconnectedPlayer).toHaveBeenCalledWith(
+        playerNumber,
+        true
+      );
+
+      // When the reconnection window expires via the scheduled timer, the
+      // WebSocket server must record a `result="timeout"` reconnection
+      // metric so operators can distinguish clean reconnects from
+      // abandonment timeouts.
+      const metrics = getMetricsService() as any;
+      expect(metrics.recordWebsocketReconnection).toHaveBeenCalledWith('timeout');
+    });
   });
 
   it('does not start reconnection window for spectators and clears diagnostics entry on disconnect', async () => {

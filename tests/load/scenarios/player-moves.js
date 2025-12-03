@@ -13,9 +13,9 @@
  */
 
 import http from 'k6/http';
-import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import { loginAndGetToken } from '../auth/helpers.js';
 
 // Custom metrics aligned with STRATEGIC_ROADMAP metrics
 const moveSubmissionLatency = new Trend('move_submission_latency_ms');
@@ -68,163 +68,180 @@ export const options = {
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:3001';
-const WS_URL = __ENV.WS_URL || 'ws://localhost:3001';
 const API_PREFIX = '/api';
+
+// HTTP move submission is currently **not** part of the production API
+// surface; moves are carried exclusively over WebSockets (see
+// src/server/websocket/server.ts and shared websocket types). This flag
+// guards the legacy HTTP move path so that the scenario can still be
+// compiled and iterated on without generating guaranteed 404s. When an
+// HTTP move endpoint is introduced, this flag can be flipped and the
+// payload adjusted to match the new contract.
+const MOVE_HTTP_ENDPOINT_ENABLED = false;
 
 // Game state per VU
 let myGameId = null;
-let myToken = null;
-let myPlayerId = null;
 
 export function setup() {
   console.log('Starting player move submission load test');
   console.log('Focus: Move processing latency and turn throughput');
-  
+
   const healthCheck = http.get(`${BASE_URL}/health`);
   check(healthCheck, {
-    'health check successful': (r) => r.status === 200
+    'health check successful': (r) => r.status === 200,
   });
-  
-  return { baseUrl: BASE_URL, wsUrl: WS_URL };
+
+  // Use the shared auth helper so this scenario matches the same
+  // /api/auth/login contract as game-creation and concurrent-games.
+  const { token, userId } = loginAndGetToken(BASE_URL, {
+    apiPrefix: API_PREFIX,
+    tags: { name: 'auth-login-setup' },
+  });
+
+  return { baseUrl: BASE_URL, token, userId };
 }
 
 export default function(data) {
   const baseUrl = data.baseUrl;
-  
-  // Step 1: Setup - Create game and authenticate (once per VU)
+  const token = data.token;
+
+  // Step 1: Setup - Create game once per VU using the canonical create-game payload
   if (!myGameId) {
-    const userId = `move-test-user-${__VU}`;
-    const password = 'MoveTest123!';
-    
-    // Register and login
-    http.post(`${baseUrl}${API_PREFIX}/auth/register`, JSON.stringify({
-      username: userId,
-      email: `${userId}@movetest.local`,
-      password: password
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-    sleep(0.3);
-    
-    const loginRes = http.post(`${baseUrl}${API_PREFIX}/auth/login`, JSON.stringify({
-      username: userId,
-      password: password
-    }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    
-    if (loginRes.status !== 200) {
-      console.error(`VU ${__VU}: Login failed`);
-      return;
-    }
-    
-    myToken = JSON.parse(loginRes.body).token;
-    
-    sleep(0.5);
-    
-    // Create a game for move testing
-    const createRes = http.post(`${baseUrl}${API_PREFIX}/games`, JSON.stringify({
-      name: `Move Test Game ${__VU}`,
+    const aiCount = 1; // 1 AI opponent for automated gameplay
+
+    const createPayload = {
       boardType: 'square8', // Smaller board for faster games
-      playerCount: 2,
+      maxPlayers: 2,
       isPrivate: false,
-      aiPlayers: 1 // 1 AI opponent for automated gameplay
-    }), {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${myToken}`
+      timeControl: {
+        type: 'rapid',
+        initialTime: 600,
+        increment: 0,
+      },
+      // AI games must be unrated per backend contract
+      isRated: false,
+      aiOpponents: {
+        count: aiCount,
+        difficulty: Array(aiCount).fill(5),
+        mode: 'service',
+        aiType: 'heuristic',
+      },
+    };
+
+    const createRes = http.post(
+      `${baseUrl}${API_PREFIX}/games`,
+      JSON.stringify(createPayload),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
       }
-    });
-    
-    if (createRes.status === 201) {
-      const gameData = JSON.parse(createRes.body);
-      myGameId = gameData.id;
-      
-      // Find our player ID
-      if (gameData.players && gameData.players.length > 0) {
-        myPlayerId = gameData.players[0].id;
-      }
-      
+    );
+
+    let createdGameId = null;
+    try {
+      const body = JSON.parse(createRes.body);
+      const game = body && body.data && body.data.game ? body.data.game : null;
+      createdGameId = game ? game.id : null;
+    } catch {
+      createdGameId = null;
+    }
+
+    if (createRes.status === 201 && createdGameId) {
+      myGameId = createdGameId;
       console.log(`VU ${__VU}: Created game ${myGameId}`);
     } else {
-      console.error(`VU ${__VU}: Game creation failed - ${createRes.status}`);
+      console.error(
+        `VU ${__VU}: Game creation failed - status=${createRes.status} body=${createRes.body}`
+      );
       return;
     }
   }
-  
-  // Step 2: Submit moves through the game
-  if (myGameId && myToken) {
+
+  // Step 2: Poll game state and (optionally) submit HTTP "moves"
+  if (myGameId && token) {
     // Get current game state
     const stateRes = http.get(`${baseUrl}${API_PREFIX}/games/${myGameId}`, {
-      headers: { 'Authorization': `Bearer ${myToken}` }
+      headers: { Authorization: `Bearer ${token}` },
     });
-    
+
     if (stateRes.status !== 200) {
       moveProcessingErrors.add(1);
       sleep(2);
       return;
     }
     
-    const gameState = JSON.parse(stateRes.body);
-    
+    let game = null;
+    try {
+      const body = JSON.parse(stateRes.body);
+      game = body && body.data && body.data.game ? body.data.game : null;
+    } catch {
+      game = null;
+    }
+
+    if (!game) {
+      moveProcessingErrors.add(1);
+      sleep(2);
+      return;
+    }
+
     // Check if game is still active
-    if (gameState.status !== 'active' && gameState.status !== 'waiting') {
-      console.log(`VU ${__VU}: Game ${myGameId} ended with status ${gameState.status}`);
+    if (game.status !== 'active' && game.status !== 'waiting') {
+      console.log(`VU ${__VU}: Game ${myGameId} ended with status ${game.status}`);
       // Reset to create a new game next iteration
       myGameId = null;
       sleep(5);
       return;
     }
     
-    // Simulate move submission via HTTP endpoint
-    // Note: Actual implementation may use WebSocket. Adjust based on API design.
-    const movePayload = {
-      gameId: myGameId,
-      playerId: myPlayerId,
-      action: generateRandomMove(gameState) // Helper function for valid moves
-    };
-    
-    const moveStart = Date.now();
-    const moveRes = http.post(`${baseUrl}${API_PREFIX}/games/${myGameId}/moves`, 
-      JSON.stringify(movePayload), 
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${myToken}`
-        },
-        tags: { name: 'submit-move' }
-      }
-    );
-    const moveLatency = Date.now() - moveStart;
-    
-    // Track metrics
-    moveSubmissionLatency.add(moveLatency);
-    
-    const moveSuccess = check(moveRes, {
-      'move accepted': (r) => r.status === 200 || r.status === 201,
-      'move processed': (r) => {
-        try {
-          const body = JSON.parse(r.body);
-          return body.success || body.gameState;
-        } catch {
-          return false;
+    if (MOVE_HTTP_ENDPOINT_ENABLED) {
+      // Simulate move submission via a hypothetical HTTP endpoint. At the
+      // time of PASS23, moves are carried exclusively over WebSockets, so
+      // this path is kept disabled by default to avoid exercising a
+      // non-existent contract. When an HTTP move endpoint is added, this
+      // block can be updated to match its payload/response shape.
+      const movePayload = {
+        gameId: myGameId,
+        // Placeholder action payload; real implementation should generate
+        // a valid MovePayload compatible with the backend rules engine.
+        action: generateRandomMove(game),
+      };
+
+      const moveStart = Date.now();
+      const moveRes = http.post(
+        `${baseUrl}${API_PREFIX}/games/${myGameId}/moves`,
+        JSON.stringify(movePayload),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          tags: { name: 'submit-move' },
         }
+      );
+      const moveLatency = Date.now() - moveStart;
+
+      // Track metrics
+      moveSubmissionLatency.add(moveLatency);
+
+      const moveSuccess = check(moveRes, {
+        'move accepted': (r) => r.status === 200 || r.status === 201,
+      });
+
+      moveSubmissionSuccess.add(moveSuccess);
+
+      if (moveSuccess) {
+        turnProcessingLatency.add(moveLatency);
+      } else {
+        moveProcessingErrors.add(1);
       }
-    });
-    
-    moveSubmissionSuccess.add(moveSuccess);
-    
-    if (moveSuccess) {
-      turnProcessingLatency.add(moveLatency);
-    } else {
-      moveProcessingErrors.add(1);
-    }
-    
-    // Track stalled moves (>2s per STRATEGIC_ROADMAP stall definition)
-    if (moveLatency > 2000) {
-      stalledMoves.add(1);
-      console.warn(`VU ${__VU}: Stalled move detected - ${moveLatency}ms`);
+
+      // Track stalled moves (>2s per STRATEGIC_ROADMAP stall definition)
+      if (moveLatency > 2000) {
+        stalledMoves.add(1);
+        console.warn(`VU ${__VU}: Stalled move detected - ${moveLatency}ms`);
+      }
     }
   }
   

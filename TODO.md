@@ -19,7 +19,10 @@ the ultimate source of canonical truth is the rules documentation:
 applicable, [`ringrift_compact_rules.md`](ringrift_compact_rules.md)).
 When there is any ambiguity, parity mismatch, or question about an engine or
 sandbox implementation, tests and code should be treated as converging toward
-those documents, not the other way around.
+those documents, not the other way around. For **where** rules semantics are
+allowed to live (shared engine vs. host adapters vs. UI/transport), defer to
+the **Rules Entry Surfaces / SSoT checklist** in
+[`docs/RULES_ENGINE_SURFACE_AUDIT.md`](docs/RULES_ENGINE_SURFACE_AUDIT.md#0-rules-entry-surfaces-ssot-checklist).
 
 Priorities:
 
@@ -73,6 +76,29 @@ This phase consolidated the rules engine architecture across 4 sub-phases:
 ---
 
 ## Phase 2 – Robustness & Testing (IN PROGRESS, P0)
+
+> **Current Focus (Dec 2025):** Phase‑2 work is now centered on
+> **engine/host lifecycle robustness** rather than core rules semantics:
+>
+> - **P0 – WebSocket lifecycle & reconnection window hardening** – Tighten
+>   `docs/CANONICAL_ENGINE_API.md` WebSocket sections and add explicit
+>   coverage rows in `RULES_SCENARIO_MATRIX.md` for reconnection windows,
+>   lobby subscription/unsubscription, rematch flows, and spectator joins;
+>   keep `GameReconnection.test.ts`, `LobbyRealtime.test.ts`, and
+>   Playwright reconnection E2E suites green as the canonical coverage set.
+> - **P0 – Host parity for advanced phases** – Finish treating backend
+>   `GameEngine` / `RuleEngine`, `ClientSandboxEngine`, and
+>   `ai-service/app/game_engine.py` as thin adapters over the shared
+>   orchestrator/aggregates for `chain_capture`, `line_processing`,
+>   `territory_processing`, and explicit self‑elimination. Any remaining
+>   host‑level rules logic should either call shared helpers or be marked
+>   diagnostic/legacy only.
+> - **P0 – TS↔Python territory & forced‑elimination parity finish‑up** –
+>   Use contract vectors and targeted territory/forced‑elimination tests to
+>   close the remaining gaps between TS and Python (region detection,
+>   eligibility filters, elimination ordering, host‑level forced
+>   elimination). Contract vectors remain the SSoT for cross‑language
+>   behaviour.
 
 ### P0.1 – Rules/FAQ Scenario Matrix
 
@@ -992,3 +1018,36 @@ Spec: [`ai-service/docs/GAME_RECORD_SPEC.md`](ai-service/docs/GAME_RECORD_SPEC.m
   - [ ] Move statistics aggregation
   - [ ] Critical position tagging
   - [ ] Export to portable notation format
+
+### Track 11 – Unified Self-Play Game Recording (NEW)
+
+> **Goal:** Record ALL self-play games to SQLite for replay, training data, and CMA-ES pools.
+>
+> **Plan:** See `.claude/plans/memoized-cuddling-abelson.md` for full implementation details.
+
+- [ ] **Phase 1 – CMA-ES Recording (HIGH)**:
+  - [ ] Add default-enabled game recording to `run_cmaes_optimization.py`
+  - [ ] Use per-run DB at `{output_dir}/games.db`
+  - [ ] Add `--no-record` flag to disable
+  - [ ] Record rich metadata (source, generation, candidate, board_type, num_players)
+
+- [ ] **Phase 2 – State Pool Export**:
+  - [ ] Create `scripts/export_state_pool.py` utility
+  - [ ] Sample mid-game states at configurable intervals
+  - [ ] Export to JSONL format for CMA-ES eval pools
+  - [ ] Create `scripts/merge_game_dbs.py` for hybrid storage
+
+- [ ] **Phase 3 – Iterative Pipeline Integration**:
+  - [ ] Update `run_iterative_cmaes.py` to pass recording config
+  - [ ] Per-iteration DB + optional export to shared DB
+
+- [ ] **Phase 4 – Environment Control**:
+  - [ ] Add `RINGRIFT_RECORD_SELFPLAY_GAMES` env var
+  - [ ] Add `RINGRIFT_SELFPLAY_DB_PATH` env var
+
+- [ ] **Phase 5 – Sandbox UI Integration (HIGH)**:
+  - [ ] Create `src/server/routes/selfplay.ts` API endpoints
+  - [ ] Create `src/server/services/SelfPlayGameService.ts`
+  - [ ] Create `src/client/components/SelfPlayBrowser.tsx` game browser
+  - [ ] Create `src/client/components/ReplayControls.tsx` playback controls
+  - [ ] Add "Self-Play Games" tab to scenario selector

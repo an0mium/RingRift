@@ -260,7 +260,7 @@ def algebraic_to_move(
     """
     parts = notation.strip().split()
     if not parts:
-        raise ValueError(f"Empty notation string")
+        raise ValueError("Empty notation string")
 
     code = parts[0]
     move_type = CODE_TO_MOVE_TYPE.get(code)

@@ -626,6 +626,43 @@ describe('Decision Phase Timeout Integration', () => {
     expect((session as any).decisionTimeoutWarningHandle).toBeNull();
   });
 
+  it('clears decision-phase timeout timers when terminate is called', () => {
+    const state: any = {
+      gameStatus: 'active',
+      currentPlayer: 1,
+      currentPhase: 'line_processing',
+      players: [{ playerNumber: 1, type: 'human', id: 'p1' }],
+      board: {
+        stacks: new Map(),
+        markers: new Map(),
+        collapsedSpaces: new Map(),
+        territories: new Map(),
+        formedLines: [],
+      },
+      moveHistory: [],
+    };
+
+    const processLineMove = { id: 'line-1', type: 'process_line' as const, player: 1 };
+
+    (session as any).gameEngine = {
+      getGameState: jest.fn(() => state),
+      getValidMoves: jest.fn(() => [processLineMove]),
+    };
+
+    // Schedule timeout as if the session had entered a decision phase.
+    (session as any).scheduleDecisionPhaseTimeout(state);
+    expect((session as any).decisionTimeoutDeadlineMs).not.toBeNull();
+    expect((session as any).decisionTimeoutHandle).not.toBeNull();
+    expect((session as any).decisionTimeoutWarningHandle).not.toBeNull();
+
+    // Terminating the session should cooperatively clear any active timers.
+    session.terminate('session_cleanup');
+
+    expect((session as any).decisionTimeoutDeadlineMs).toBeNull();
+    expect((session as any).decisionTimeoutHandle).toBeNull();
+    expect((session as any).decisionTimeoutWarningHandle).toBeNull();
+  });
+
   it('should not schedule timeout for AI players', () => {
     const state: any = {
       gameStatus: 'active',

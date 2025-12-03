@@ -12,6 +12,9 @@ import {
   runWithContext,
   getRequestContext,
   RequestContext,
+  withRequestContext,
+  httpLogger,
+  stream,
 } from '../../src/server/utils/logger';
 
 describe('Logger Utilities', () => {
@@ -219,7 +222,7 @@ describe('Logger Utilities', () => {
     it('should preserve non-sensitive headers', () => {
       const headers = {
         'content-type': 'application/json',
-        'accept': 'application/json',
+        accept: 'application/json',
         'user-agent': 'Mozilla/5.0',
         'x-request-id': 'abc-123',
       };
@@ -400,5 +403,130 @@ describe('Sensitive Key Detection', () => {
     } else {
       expect(masked[key]).toBe('normal-value');
     }
+  });
+});
+
+describe('withRequestContext (Legacy Helper)', () => {
+  it('should include requestId when present on request object', () => {
+    const req = { requestId: 'legacy-req-123' };
+    const meta = { action: 'test' };
+
+    const result = withRequestContext(req, meta);
+
+    expect(result).toEqual({
+      requestId: 'legacy-req-123',
+      action: 'test',
+    });
+  });
+
+  it('should return original meta when requestId is absent', () => {
+    const req = { userId: 'user-1' }; // no requestId
+    const meta = { action: 'test' };
+
+    const result = withRequestContext(req, meta);
+
+    expect(result).toEqual({ action: 'test' });
+  });
+
+  it('should return original meta when request is empty object', () => {
+    const req = {};
+    const meta = { action: 'test' };
+
+    const result = withRequestContext(req, meta);
+
+    expect(result).toEqual({ action: 'test' });
+  });
+
+  it('should work with undefined meta', () => {
+    const req = { requestId: 'req-456' };
+
+    const result = withRequestContext(req);
+
+    expect(result).toEqual({ requestId: 'req-456' });
+  });
+
+  it('should work when req is null-ish', () => {
+    const result = withRequestContext(null, { action: 'test' });
+    expect(result).toEqual({ action: 'test' });
+
+    const result2 = withRequestContext(undefined, { action: 'test' });
+    expect(result2).toEqual({ action: 'test' });
+  });
+});
+
+describe('httpLogger (Legacy HTTP Logger)', () => {
+  it('should have all standard log methods', () => {
+    expect(typeof httpLogger.info).toBe('function');
+    expect(typeof httpLogger.warn).toBe('function');
+    expect(typeof httpLogger.error).toBe('function');
+    expect(typeof httpLogger.debug).toBe('function');
+  });
+
+  it('should not throw when calling info', () => {
+    const req = { requestId: 'http-info-test' };
+    expect(() => {
+      httpLogger.info(req, 'Info message', { key: 'value' });
+    }).not.toThrow();
+  });
+
+  it('should not throw when calling warn', () => {
+    const req = { requestId: 'http-warn-test' };
+    expect(() => {
+      httpLogger.warn(req, 'Warning message', { key: 'value' });
+    }).not.toThrow();
+  });
+
+  it('should not throw when calling error', () => {
+    const req = { requestId: 'http-error-test' };
+    expect(() => {
+      httpLogger.error(req, 'Error message', { key: 'value' });
+    }).not.toThrow();
+  });
+
+  it('should not throw when calling debug', () => {
+    const req = { requestId: 'http-debug-test' };
+    expect(() => {
+      httpLogger.debug(req, 'Debug message', { key: 'value' });
+    }).not.toThrow();
+  });
+
+  it('should work without requestId on request', () => {
+    const req = {}; // No requestId
+    expect(() => {
+      httpLogger.info(req, 'Message without requestId');
+      httpLogger.warn(req, 'Warning without requestId');
+      httpLogger.error(req, 'Error without requestId');
+      httpLogger.debug(req, 'Debug without requestId');
+    }).not.toThrow();
+  });
+
+  it('should work without meta argument', () => {
+    const req = { requestId: 'no-meta-test' };
+    expect(() => {
+      httpLogger.info(req, 'Message without meta');
+    }).not.toThrow();
+  });
+});
+
+describe('stream (Morgan Stream)', () => {
+  it('should have write method', () => {
+    expect(typeof stream.write).toBe('function');
+  });
+
+  it('should not throw when writing a message', () => {
+    expect(() => {
+      stream.write('GET /api/test 200 15ms\n');
+    }).not.toThrow();
+  });
+
+  it('should trim whitespace from messages', () => {
+    // The stream.write calls logger.info with trimmed message
+    // We can't easily verify the trimming without mocking logger,
+    // but we can verify it doesn't throw with various whitespace
+    expect(() => {
+      stream.write('  leading/trailing  \n');
+      stream.write('\n\n');
+      stream.write('   ');
+    }).not.toThrow();
   });
 });

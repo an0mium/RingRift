@@ -10,12 +10,11 @@ This module provides faster region detection by:
 from __future__ import annotations
 
 import numpy as np
-from typing import Dict, List, Set, Tuple, Optional, TYPE_CHECKING
+from typing import Dict, List, Set, Optional, TYPE_CHECKING
 from dataclasses import dataclass, field
-from enum import Enum
 
 if TYPE_CHECKING:
-    from ..models import BoardState, Position, Territory, BoardType
+    from ..models import BoardState, Territory
 
 
 class BoardGeometryCache:
@@ -172,7 +171,7 @@ def find_disconnected_regions_fast(
     Returns:
         List of disconnected Territory objects
     """
-    from ..models import Territory, Position
+    from ..models import Territory
 
     # Get geometry cache
     board_type_str = board.type.value if hasattr(board.type, 'value') else str(board.type)

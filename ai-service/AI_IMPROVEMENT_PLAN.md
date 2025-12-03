@@ -168,6 +168,24 @@ The `HexNeuralNet` class exists with proper architecture, but:
 - Self-play training in [`train_loop.py`](app/training/train_loop.py) defaults to square boards
 - Hex-specific action encoder [`ActionEncoderHex`](app/ai/neural_net.py:1161) is implemented but unused in training
 
+#### 1.3.6 Self-Play Game Recording (NEW)
+
+**Status:** 🔄 **IN PROGRESS** (Track 11 in TODO.md)
+
+**Current State:** CMA-ES optimization generates thousands of games per run (~3000-15000+) but does NOT record them to GameReplayDB. Only weights, checkpoints, and metadata are saved.
+
+**Impact:** Lost opportunity for:
+
+- Neural network training data (state/move pairs)
+- Evaluation pool generation (mid-game snapshots)
+- Sandbox replay and analysis
+
+**Proposed Solution:** See [Unified Self-Play Game Recording Plan](/.claude/plans/memoized-cuddling-abelson.md):
+
+1. Add default-enabled game recording to CMA-ES scripts (`--no-record` to disable)
+2. Create `export_state_pool.py` utility to extract mid-game states for evaluation pools
+3. Store games in per-run SQLite DBs with rich metadata (source, generation, candidate_id)
+
 ---
 
 ## 2. Top 5 Improvement Priorities

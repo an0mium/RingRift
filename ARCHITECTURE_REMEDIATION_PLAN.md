@@ -226,6 +226,9 @@ This tier simplifies configuration management by consolidating multiple config e
 - [x] Test strategy document defines clear layer responsibilities (`tests/TEST_LAYERS.md`)
 - [ ] Redundant tests removed or consolidated (≥20% reduction target)
 - [ ] CI includes test timing check
+- [ ] WebSocket/session lifecycle, reconnection windows, and rematch flows are
+      covered by a small, named set of integration/E2E suites (see
+      `RULES_SCENARIO_MATRIX.md` §7).
 
 ### Verification Steps
 

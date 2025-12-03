@@ -1,0 +1,64 @@
+{
+  "label": "line-territory-hexagonal",
+  "boardType": "hexagonal",
+  "currentPlayer": 1,
+  "currentPhase": "line_processing",
+  "gameStatus": "active",
+  "totalRingsInPlay": 3,
+  "totalRingsEliminated": 0,
+  "players": [
+    {
+      "playerNumber": 1,
+      "type": "human",
+      "ringsInHand": 34,
+      "eliminatedRings": 0,
+      "territorySpaces": 0
+    },
+    {
+      "playerNumber": 2,
+      "type": "human",
+      "ringsInHand": 35,
+      "eliminatedRings": 0,
+      "territorySpaces": 0
+    }
+  ],
+  "stacks": [
+    {
+      "key": "5,5,-10",
+      "controllingPlayer": 2,
+      "stackHeight": 1,
+      "capHeight": 1,
+      "rings": [2]
+    },
+    {
+      "key": "7,7,-14",
+      "controllingPlayer": 1,
+      "stackHeight": 2,
+      "capHeight": 2,
+      "rings": [1, 1]
+    }
+  ],
+  "markers": [
+    {
+      "key": "0,0",
+      "player": 1
+    },
+    {
+      "key": "1,0",
+      "player": 1
+    },
+    {
+      "key": "2,0",
+      "player": 1
+    },
+    {
+      "key": "3,0",
+      "player": 1
+    },
+    {
+      "key": "4,0",
+      "player": 1
+    }
+  ],
+  "collapsedSpaces": []
+}

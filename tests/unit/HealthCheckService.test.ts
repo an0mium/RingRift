@@ -480,6 +480,86 @@ describe('HealthCheckService', () => {
   });
 
   // ==========================================================================
+  // AI Service URL Configuration Tests
+  // ==========================================================================
+
+  describe('AI service URL configuration', () => {
+    it('returns degraded when AI service URL is not configured', async () => {
+      // Temporarily override the config mock to return empty URL
+      const originalAiServiceUrl = jest.requireMock('../../src/server/config').config.aiService.url;
+      jest.requireMock('../../src/server/config').config.aiService.url = '';
+
+      mockGetDatabaseClient.mockReturnValue({});
+      mockCheckDatabaseHealth.mockResolvedValue(true);
+      mockGetRedisClient.mockReturnValue({
+        ping: jest.fn().mockResolvedValue('PONG'),
+      });
+
+      const result = await getReadinessStatus({ timeoutMs: 1000 });
+
+      expect(result.status).toBe('degraded');
+      expect(result.checks?.aiService?.status).toBe('degraded');
+      expect(result.checks?.aiService?.error).toBe('AI service URL not configured');
+      expect(mockFetch).not.toHaveBeenCalled();
+
+      // Restore original config
+      jest.requireMock('../../src/server/config').config.aiService.url = originalAiServiceUrl;
+    });
+  });
+
+  // ==========================================================================
+  // Logging Coverage Tests
+  // ==========================================================================
+
+  describe('logging behavior', () => {
+    it('logs warning when status is unhealthy', async () => {
+      const { logger } = require('../../src/server/utils/logger');
+
+      mockGetDatabaseClient.mockReturnValue({});
+      mockCheckDatabaseHealth.mockResolvedValue(false); // Database unhealthy
+      mockGetRedisClient.mockReturnValue({
+        ping: jest.fn().mockResolvedValue('PONG'),
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+      });
+
+      const result = await getReadinessStatus({ timeoutMs: 1000 });
+
+      expect(result.status).toBe('unhealthy');
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Readiness check failed',
+        expect.objectContaining({
+          event: 'health_check_unhealthy',
+        })
+      );
+    });
+
+    it('logs debug when status is degraded', async () => {
+      const { logger } = require('../../src/server/utils/logger');
+
+      mockGetDatabaseClient.mockReturnValue({});
+      mockCheckDatabaseHealth.mockResolvedValue(true);
+      mockGetRedisClient.mockReturnValue(null); // Redis not connected = degraded
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+      });
+
+      const result = await getReadinessStatus({ timeoutMs: 1000 });
+
+      expect(result.status).toBe('degraded');
+      expect(logger.debug).toHaveBeenCalledWith(
+        'Readiness check degraded',
+        expect.objectContaining({
+          event: 'health_check_degraded',
+        })
+      );
+    });
+  });
+
+  // ==========================================================================
   // ServiceStatusManager Integration Tests
   // ==========================================================================
 
@@ -537,6 +617,36 @@ describe('HealthCheckService', () => {
 
       // Should still complete successfully
       expect(result.status).toBe('healthy');
+    });
+
+    it('propagates unhealthy database status into ServiceStatusManager', async () => {
+      // Simulate a hard database outage (no client initialised). Redis and AI
+      // remain healthy so that database is the only failing dependency.
+      mockGetDatabaseClient.mockReturnValue(null);
+      mockGetRedisClient.mockReturnValue({
+        ping: jest.fn().mockResolvedValue('PONG'),
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+      });
+
+      const result = await getReadinessStatus({ timeoutMs: 1000 });
+
+      expect(result.status).toBe('unhealthy');
+      expect(result.checks?.database?.status).toBe('unhealthy');
+      expect(result.checks?.database?.error).toBe('Database client not initialized');
+
+      // ServiceStatusManager should be updated with an unhealthy database
+      // status and a concrete latency value, which will in turn drive the
+      // ringrift_service_status{service="database"} gauge to 0 via the
+      // MetricsService bridge in src/server/index.ts.
+      expect(mockUpdateServiceStatus).toHaveBeenCalledWith(
+        'database',
+        'unhealthy',
+        'Database client not initialized',
+        undefined
+      );
     });
   });
 

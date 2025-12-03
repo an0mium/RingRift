@@ -43,4 +43,46 @@ describe('EvaluationPanel', () => {
     // Advantage for the leading player should be rendered with sign.
     expect(screen.getByText(/\+3\.2/)).toBeInTheDocument();
   });
+
+  it('skips players that have no evaluation entry in perPlayer', () => {
+    const snapshot: PositionEvaluationPayload['data'] = {
+      ...baseSnapshot,
+      perPlayer: {
+        // Missing / undefined entry for player 1 should be ignored.
+        1: undefined as any,
+        2: { totalEval: -1.0, territoryEval: -0.5, ringEval: -0.5 },
+      },
+    };
+
+    const players = [
+      { id: 'p1', username: 'Alice', playerNumber: 1 } as any,
+      { id: 'p2', username: 'Bob', playerNumber: 2 } as any,
+    ];
+
+    render(<EvaluationPanel evaluationHistory={[snapshot]} players={players} />);
+
+    // Only the player with an evaluation entry should appear.
+    expect(screen.queryByText('Alice')).toBeNull();
+    expect(screen.getByText('Bob')).toBeInTheDocument();
+  });
+
+  it('falls back to generic player labels and default color for unknown player numbers', () => {
+    const snapshot: PositionEvaluationPayload['data'] = {
+      ...baseSnapshot,
+      perPlayer: {
+        5: { totalEval: 1.0, territoryEval: 0.5, ringEval: 0.5 },
+      } as any,
+    };
+
+    // No matching Player entries; labels and colors should fall back.
+    const { container } = render(<EvaluationPanel evaluationHistory={[snapshot]} players={[]} />);
+
+    // Name should default to P5
+    expect(screen.getByText('P5')).toBeInTheDocument();
+
+    // The color dot should use the default bg-slate-300 class from the fallback colors.
+    const dots = container.querySelectorAll('span.inline-block.w-2.h-2.rounded-full');
+    expect(dots.length).toBeGreaterThan(0);
+    expect(dots[0].className).toContain('bg-slate-300');
+  });
 });

@@ -1,0 +1,161 @@
+{
+  "state": {
+    "gameId": "square-multi-region-line-then-territory-snapshot",
+    "board": {
+      "type": "square8",
+      "size": 8,
+      "stacks": {
+        "0,0": {
+          "position": {
+            "x": 0,
+            "y": 0
+          },
+          "rings": [1, 1],
+          "stackHeight": 2,
+          "capHeight": 2,
+          "controllingPlayer": 1
+        },
+        "7,7": {
+          "position": {
+            "x": 7,
+            "y": 7
+          },
+          "rings": [1, 1],
+          "stackHeight": 2,
+          "capHeight": 2,
+          "controllingPlayer": 1
+        }
+      },
+      "markers": {
+        "4,3": {
+          "position": {
+            "x": 4,
+            "y": 3
+          },
+          "player": 1,
+          "type": "regular"
+        }
+      },
+      "collapsedSpaces": {
+        "0,3": 1,
+        "1,3": 1,
+        "2,3": 1,
+        "3,3": 1,
+        "5,5": 1,
+        "5,6": 1,
+        "1,1": 1,
+        "1,2": 1
+      },
+      "eliminatedRings": {
+        "1": 4,
+        "2": 0
+      },
+      "formedLines": []
+    },
+    "players": [
+      {
+        "playerNumber": 1,
+        "ringsInHand": 18,
+        "eliminatedRings": 4,
+        "territorySpaces": 8,
+        "isActive": true
+      },
+      {
+        "playerNumber": 2,
+        "ringsInHand": 18,
+        "eliminatedRings": 0,
+        "territorySpaces": 0,
+        "isActive": true
+      }
+    ],
+    "currentPlayer": 2,
+    "currentPhase": "ring_placement",
+    "turnNumber": 1,
+    "moveHistory": [],
+    "gameStatus": "active",
+    "victoryThreshold": 19,
+    "territoryVictoryThreshold": 33,
+    "totalRingsEliminated": 4
+  },
+  "snapshot": {
+    "label": "line-territory-multi-region-square8",
+    "boardType": "square8",
+    "currentPlayer": 2,
+    "currentPhase": "ring_placement",
+    "gameStatus": "active",
+    "totalRingsInPlay": 0,
+    "totalRingsEliminated": 4,
+    "players": [
+      {
+        "playerNumber": 1,
+        "type": "human",
+        "ringsInHand": 18,
+        "eliminatedRings": 4,
+        "territorySpaces": 8
+      },
+      {
+        "playerNumber": 2,
+        "type": "human",
+        "ringsInHand": 18,
+        "eliminatedRings": 0,
+        "territorySpaces": 0
+      }
+    ],
+    "stacks": [
+      {
+        "key": "0,0",
+        "controllingPlayer": 1,
+        "stackHeight": 2,
+        "capHeight": 2,
+        "rings": [1, 1]
+      },
+      {
+        "key": "7,7",
+        "controllingPlayer": 1,
+        "stackHeight": 2,
+        "capHeight": 2,
+        "rings": [1, 1]
+      }
+    ],
+    "markers": [
+      {
+        "key": "4,3",
+        "player": 1
+      }
+    ],
+    "collapsedSpaces": [
+      {
+        "key": "0,3",
+        "player": 1
+      },
+      {
+        "key": "1,1",
+        "player": 1
+      },
+      {
+        "key": "1,2",
+        "player": 1
+      },
+      {
+        "key": "1,3",
+        "player": 1
+      },
+      {
+        "key": "2,3",
+        "player": 1
+      },
+      {
+        "key": "3,3",
+        "player": 1
+      },
+      {
+        "key": "5,5",
+        "player": 1
+      },
+      {
+        "key": "5,6",
+        "player": 1
+      }
+    ]
+  }
+}

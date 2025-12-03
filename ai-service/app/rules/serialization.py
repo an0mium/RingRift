@@ -286,7 +286,6 @@ def deserialize_move(data: Dict[str, Any]) -> Optional[Move]:
         "id": data.get("id", "test-move"),
         "type": move_type,
         "player": data.get("player", 1),
-        "to": to_pos,
         "timestamp": timestamp,
         "thinkTime": data.get("thinkTime", 0),
         "moveNumber": data.get("moveNumber", 1),
@@ -295,6 +294,9 @@ def deserialize_move(data: Dict[str, Any]) -> Optional[Move]:
         "placedOnStack": data.get("placedOnStack"),
     }
 
+    # Some move types (e.g., forced_elimination, swap_sides) don't have a 'to' position
+    if to_pos is not None:
+        move_kwargs["to"] = to_pos
     if from_pos is not None:
         move_kwargs["from"] = from_pos
 

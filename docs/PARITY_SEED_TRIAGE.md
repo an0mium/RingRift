@@ -36,6 +36,27 @@ This document tracks all known **Backend↔Sandbox semantic trace parity diverge
 | **2**    | 17   | square8    | Open   | Move 16          | Critical |
 | **3**    | 14   | square8    | Open   | Move ~31         | High     |
 
+> **Note on plateau snapshots (seed‑1 / seed‑18)**
+>
+> Historical plateau snapshots used by the Python ai‑service parity harnesses
+> are exported by archived Jest utilities under:
+>
+> - `archive/tests/unit/ExportSeed1Snapshot.test.ts`
+> - `archive/tests/unit/ExportSeed18Snapshot.test.ts`
+>
+> These suites are **not** part of normal CI; they are opt‑in diagnostics for
+> regenerating:
+>
+> - `ai-service/tests/parity/square8_2p_seed1_plateau.snapshot.json`
+> - `ai-service/tests/parity/square8_2p_seed18_plateau.snapshot.json`
+>
+> To (re)export a plateau snapshot locally, run for example:
+>
+> ```bash
+> RINGRIFT_EXPORT_PARITY_SNAPSHOTS=1 \
+> npx jest archive/tests/unit/ExportSeed1Snapshot.test.ts --runInBand
+> ```
+
 ### 1.3 Impact Assessment
 
 - **Debugging blockers**: Trace-based debugging is unreliable because sandbox traces may not replay correctly on backend

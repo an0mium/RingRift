@@ -1,8 +1,11 @@
 """Random AI implementation for RingRift.
 
-This agent selects uniformly random legal moves using the per‑instance RNG.
-It is primarily intended for testing, baselines, and very low difficulties.
+This agent selects uniformly random legal moves using the per‑instance RNG on
+the :class:`BaseAI`. It is primarily intended for testing, baselines, and
+very low difficulties, rather than competitive play.
 """
+
+from __future__ import annotations
 
 from typing import Optional, Dict
 
@@ -24,18 +27,19 @@ class RandomAI(BaseAI):
         """
         # Get all valid moves using the canonical rules engine
         valid_moves = self.rules_engine.get_valid_moves(
-            game_state, self.player_number
+            game_state,
+            self.player_number,
         )
-        
+
         if not valid_moves:
             return None
-        
+
         # Select random move using the per-instance RNG.
         selected = self.get_random_element(valid_moves)
-        
+
         self.move_count += 1
         return selected
-    
+
     def evaluate_position(self, game_state: GameState) -> float:
         """Return a small random evaluation for ``game_state``.
 
@@ -49,22 +53,24 @@ class RandomAI(BaseAI):
         Returns:
             A small random float in ``[-0.1, 0.1]``.
         """
+        _ = game_state  # unused in this implementation
         return self.rng.uniform(-0.1, 0.1)
-    
+
     def get_evaluation_breakdown(
-        self, game_state: GameState
+        self,
+        game_state: GameState,
     ) -> Dict[str, float]:
-        """
-        Get evaluation breakdown for random AI
-        
+        """Return a simple breakdown for :meth:`evaluate_position`.
+
         Args:
-            game_state: Current game state
-            
+            game_state: Current game state (unused).
+
         Returns:
-            Dictionary with random evaluation
+            A mapping containing a neutral ``\"total\"`` score and a single
+            ``\"random_variance\"`` component drawn from the per‑instance RNG.
         """
+        _ = game_state  # unused in this implementation
         return {
             "total": 0.0,
-            "random_variance": self.rng.uniform(-0.1, 0.1)
+            "random_variance": self.rng.uniform(-0.1, 0.1),
         }
-    

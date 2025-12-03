@@ -361,6 +361,30 @@ This section describes how to respond when migrations or DB incidents go wrong. 
 6. **Post-incident review**
    - Capture a timeline of events, root cause, and follow-up actions (for example, improved backup cadence, additional access controls, safer migration patterns).
 
+### 3.4 Monitoring and health signals
+
+During a DB incident (or when validating recovery), operators should treat the following as the primary truth sources for database availability:
+
+- HTTP readiness probe:
+  - Endpoint: `GET /ready` (and `/readyz`) exposed by the Node backend.
+  - Behaviour (implementation-aligned with `src/server/services/HealthCheckService.ts` and `tests/unit/server.health-and-routes.test.ts:1`):
+    - If the database client is unavailable or `checkDatabaseHealth()` fails/times out, `getReadinessStatus()` returns `status: "unhealthy"` with a failing `database` check and `/ready` responds with HTTP `503`.
+    - Non‑critical dependency failures (Redis, AI service) produce `status: "degraded"` but still return HTTP `200` as long as the database remains healthy.
+  - This is the primary HTTP surface for Kubernetes or other orchestrators to gate traffic on DB health.
+- Prometheus service-status metric:
+  - Metric: `ringrift_service_status{service="database"}` (gauge), emitted by `MetricsService.updateServiceStatus()` via `ServiceStatusManager` (`src/server/services/ServiceStatusManager.ts:1`, `src/server/services/MetricsService.ts:332`).
+  - Semantics:
+    - `1` → database is reported `healthy` by the last readiness run.
+    - `0` → database is `unhealthy` (client missing, health check failed, or hard error), and alerts such as `DatabaseDown` in `monitoring/prometheus/alerts.yml` are expected to fire.
+  - Wiring is validated in:
+    - `tests/unit/HealthCheckService.test.ts:1` (database‑down and ServiceStatusManager integration cases),
+    - `tests/unit/MetricsService.test.ts:200` (metric definition and label/value mapping).
+
+When responding to or closing out a DB incident, always confirm that:
+
+- `/ready` has returned to `status: "healthy"` (or at least `"degraded"` with a healthy `database` check), and
+- `ringrift_service_status{service="database"}` has returned to `1` and stayed at `1` for at least one alert evaluation window.
+
 ---
 
 ## 4. Quick Reference

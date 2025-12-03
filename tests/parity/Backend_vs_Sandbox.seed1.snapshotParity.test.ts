@@ -6,3 +6,7 @@
  * The actual diagnostic harness now lives under archive/tests/** and is not
  * part of normal Jest runs.
  */
+
+test.skip('Backend_vs_Sandbox.seed1.snapshotParity has been archived; see archive/tests/parity/Backend_vs_Sandbox.seed1.snapshotParity.test.ts', () => {
+  // Stub test to keep this file visible to Jest without participating in parity gating.
+});

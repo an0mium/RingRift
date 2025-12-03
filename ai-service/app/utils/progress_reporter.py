@@ -25,7 +25,6 @@ Usage
 
 from __future__ import annotations
 
-import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -124,7 +123,7 @@ class ProgressReporter:
         if self.context_label:
             parts.append(f"[{self.context_label}]")
 
-        parts.append(f"PROGRESS:")
+        parts.append("PROGRESS:")
         parts.append(f"{completed}/{total} {self.unit_name} ({pct:.1f}%)")
         parts.append(f"| elapsed: {_format_duration(elapsed)}")
         parts.append(f"| rate: {rate:.2f} {self.unit_name}/sec")
@@ -153,7 +152,7 @@ class ProgressReporter:
         if self.context_label:
             parts.append(f"[{self.context_label}]")
 
-        parts.append(f"COMPLETED:")
+        parts.append("COMPLETED:")
         parts.append(f"{completed} {self.unit_name}")
         parts.append(f"| total time: {_format_duration(elapsed)}")
         parts.append(f"| avg rate: {rate:.2f} {self.unit_name}/sec")
@@ -258,7 +257,7 @@ class SoakProgressReporter:
         if self.context_label:
             parts.append(f"[{self.context_label}]")
 
-        parts.append(f"PROGRESS:")
+        parts.append("PROGRESS:")
         parts.append(f"{games}/{total} games ({pct:.1f}%)")
         parts.append(f"| elapsed: {_format_duration(elapsed)}")
         parts.append(f"| ETA: {_format_duration(eta_sec)}")
@@ -291,7 +290,7 @@ class SoakProgressReporter:
         if self.context_label:
             parts.append(f"[{self.context_label}]")
 
-        parts.append(f"COMPLETED:")
+        parts.append("COMPLETED:")
         parts.append(f"{games} games")
         parts.append(f"| total time: {_format_duration(elapsed)}")
         parts.append(f"| total moves: {self._total_moves}")
@@ -423,7 +422,7 @@ class OptimizationProgressReporter:
         parts: List[str] = []
 
         parts.append(f"[Gen {self._current_generation}]")
-        parts.append(f"PROGRESS:")
+        parts.append("PROGRESS:")
         parts.append(
             f"candidate {current_candidate_idx}/{self.candidates_per_generation} "
             f"({gen_pct:.0f}%)"
@@ -472,7 +471,7 @@ class OptimizationProgressReporter:
 
         parts: List[str] = []
 
-        parts.append(f"OPTIMIZATION COMPLETED:")
+        parts.append("OPTIMIZATION COMPLETED:")
         parts.append(f"{self._current_generation} generations")
         parts.append(f"| {self._candidates_evaluated} candidates evaluated")
         parts.append(f"| total time: {_format_duration(elapsed)}")

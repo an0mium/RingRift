@@ -291,6 +291,24 @@ describe('AIServiceClient - Outage Scenarios', () => {
       });
     });
 
+    it('should treat 500 with FastAPI-style detail as AI_SERVICE_ERROR with server_error aiErrorType', async () => {
+      const error = new Error('Request failed with status code 500');
+      (error as any).response = {
+        status: 500,
+        data: { detail: 'boom' },
+      };
+      // Simulate interceptor classification attaching aiErrorType based on status.
+      (error as any).aiErrorType = 'server_error';
+
+      mockPost.mockRejectedValue(error);
+
+      await expect(client.getAIMove(mockGameState, 1, 5)).rejects.toMatchObject({
+        code: 'AI_SERVICE_ERROR',
+        statusCode: 502,
+        aiErrorType: 'server_error',
+      });
+    });
+
     it('should categorize server errors (500) correctly', async () => {
       const error = new Error('Internal Server Error');
       (error as any).response = { status: 500 };

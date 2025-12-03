@@ -8,7 +8,7 @@
 
 > **PASS20-21 Update (2025-12-01):** This document has been updated to reflect PASS18/19/20/21 completed work:
 >
-> - **PASS18 (33 tasks):** Host parity, RNG alignment, decision lifecycle, orchestrator Phase 4 rollout, extended contract vectors (49 cases)
+> - **PASS18 (33 tasks):** Host parity, RNG alignment, decision lifecycle, orchestrator Phase 4 rollout, extended contract vectors (54 cases)
 > - **PASS19 (12 tasks):** E2E test infrastructure, game fixtures, type safety improvements, test rewrites
 > - **PASS20 (25 tasks):** Phase 3 orchestrator migration complete, ~1,176 lines legacy code removed, TEST_CATEGORIES.md documentation
 > - **PASS21 (Observability Infrastructure):** 3 Grafana dashboards created, k6 load testing framework implemented, monitoring stack by default
@@ -43,7 +43,7 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
 - **Architecture Remediation Complete:** The 4-phase architecture remediation (November 2025) consolidated the rules engine:
   - Canonical turn orchestrator in `src/shared/engine/orchestration/`
   - Backend adapter (`TurnEngineAdapter.ts`) and sandbox adapter (`SandboxOrchestratorAdapter.ts`)
-  - Contract testing framework with 100% Python parity on **49 test vectors** (extended from 12 in P18.5-\*)
+  - Contract testing framework with 100% Python parity on **54 test vectors** (extended from 12 in P18.5-\*)
   - **Orchestrator at Phase 4 (100% rollout):** All environments (dev, staging, CI, production-ready) configured with `ORCHESTRATOR_ADAPTER_ENABLED=true` and `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`. Soak tests show zero invariant violations across all board types (square8, square19, hexagonal).
 
 - **PASS18 Complete (33 tasks, 2025-12):**
@@ -51,7 +51,7 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
   - **P18.2-\*: RNG Determinism** – AI RNG seed handling aligned across TS and Python
   - **P18.3-\*: Decision Lifecycle** – Timeout semantics and decision phase alignment
   - **P18.4-\*: Orchestrator Rollout** – Phase 4 complete in all environments
-  - **P18.5-\*: Extended Vectors** – 49 contract vectors (placement, movement, capture/chain_capture, forced_elimination, territory/territory_line endgames, hex edge cases, meta moves including swap_sides and multi-phase turns), swap_sides parity verified
+  - **P18.5-\*: Extended Vectors** – 54 contract vectors (placement, movement, capture/chain_capture, forced_elimination, territory/territory_line endgames, hex edge cases, meta moves including swap_sides and multi-phase turns), swap_sides parity verified
   - **P18.18: Test Triage** – Obsolete tests removed, RulesMatrix partially re-enabled
 
 - **PASS19 Complete (12 tasks, 2025-11-30):**
@@ -229,7 +229,7 @@ A reasonable label for the current state is: **stable beta with consolidated arc
 - **Orchestrator migration COMPLETE (Phase 3):** The canonical orchestrator is complete and legacy code paths removed:
   - Backend and sandbox hosts via `TurnEngineAdapter` / `SandboxOrchestratorAdapter`.
   - CI gates (`orchestrator-parity`, short/long orchestrator soaks).
-  - S-invariant regression suites and contract vectors (49/49 passing).
+  - S-invariant regression suites and contract vectors (54/54 passing).
   - HTTP/load diagnostics via `scripts/orchestrator-load-smoke.ts` (see `npm run load:orchestrator:smoke`).
 
   **Phase 3 Complete (2025-12-01):** Orchestrator migration through Phase 3 is COMPLETE:
@@ -257,7 +257,7 @@ A reasonable label for the current state is: **stable beta with consolidated arc
 ### P0 – Engine Parity & Rules Coverage
 
 - **Backend ↔ Sandbox trace parity:** Major divergences DIV-001 (capture enumeration) and DIV-002 (territory processing) have been **RESOLVED** through unified shared engine helpers. Remaining semantic gaps (DIV-003 through DIV-007) are open but lower priority. DIV-008 (late-game phase/player tracking) is deferred as within tolerance.
-- **Cross-language parity:** Contract tests now ensure 100% parity between TypeScript and Python engines on **43 test vectors** (extended from 12 in P18.5-\*). The extended vectors cover:
+- **Cross-language parity:** Contract tests now ensure 100% parity between TypeScript and Python engines on **54 test vectors** (extended from 12 in P18.5-\*). The extended vectors cover:
   - Chain captures with multi-segment sequences
   - Forced elimination scenarios
   - Territory/line interaction endgames
@@ -297,7 +297,7 @@ This section summarizes the risk status as of PASS20 completion (2025-12-01).
 | Risk                                 | Resolution                                                    | Evidence                                  |
 | ------------------------------------ | ------------------------------------------------------------- | ----------------------------------------- |
 | TS↔Python phase naming divergence    | Unified phase state machine in orchestrator                   | P18.1-\* host parity work                 |
-| Capture chain ordering inconsistency | Shared `captureChainHelpers.ts` enforces deterministic order  | 49 contract vectors (0 mismatches)        |
+| Capture chain ordering inconsistency | Shared `captureChainHelpers.ts` enforces deterministic order  | 54 contract vectors (0 mismatches)        |
 | RNG determinism drift                | Seed handling aligned per P18.2-\*                            | AI RNG paths documented, tested           |
 | Decision lifecycle timing gaps       | Timeout semantics aligned per P18.3-\*                        | `docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md` |
 | swap_sides (Pie Rule) parity         | Verified across TS backend, TS sandbox, and Python            | P18.5-4 report (5/5 TS, 2/2 Python tests) |
@@ -310,7 +310,7 @@ This section summarizes the risk status as of PASS20 completion (2025-12-01).
 | Risk                                | Mitigation                                                    | Residual Concern                 |
 | ----------------------------------- | ------------------------------------------------------------- | -------------------------------- |
 | Orchestrator architecture stability | Phase 3 complete, ~1,118 lines legacy removed                 | Phase 4 (Tier 2) deferred        |
-| Contract vector coverage gaps       | Extended to 49 vectors (core, chains, elimination, territory) | May need additional edge cases   |
+| Contract vector coverage gaps       | Extended to 54 vectors (core, chains, elimination, territory) | May need additional edge cases   |
 | Test suite health                   | PASS20 fixes complete, TEST_CATEGORIES.md added               | ~170 skipped tests (intentional) |
 
 ### 🔴 Active Risks
@@ -325,7 +325,7 @@ This section summarizes the risk status as of PASS20 completion (2025-12-01).
 
 ### 📊 Risk Summary
 
-- **Parity Risk:** LOW – 49 contract vectors with 0 mismatches, swap_sides verified
+- **Parity Risk:** LOW – 54 contract vectors with 0 mismatches, swap_sides verified
 - **Orchestrator Risk:** LOW – Phase 3 complete, ~1,118 lines legacy code removed, all environments at 100%
 - **Test Suite Risk:** LOW – CI-gated tests green (2,987 passed), diagnostic tests documented; E2E coverage for victory, resignation, abandonment, and timeout now in place
 - **Frontend UX Risk:** MEDIUM – Known P0/P1 gaps pending UX polish work
@@ -374,7 +374,7 @@ Key remaining work for production deployment:
 
 - **TypeScript tests (CI-gated):** 2,987 passing, 0 failing, ~130 skipped
 - **Python tests:** 836 tests passing
-- **Contract tests:** 49 test vectors with 100% cross-language parity (0 mismatches)
+- **Contract tests:** 54 test vectors with 100% cross-language parity (0 mismatches)
 - **Overall coverage:** ~69% lines (improved from 65.55%)
   - GameContext.tsx: 89.52% coverage (was 0%)
   - SandboxContext.tsx: 84.21% coverage (was 0%)
@@ -394,7 +394,7 @@ Key remaining work for production deployment:
 - **Scenario tests:** ✅ Passing (FAQ Q1-Q24 suites, RulesMatrix scenarios)
 - **Unit tests:** ✅ Comprehensive coverage of core mechanics
 - **Parity tests:** ✅ Passing (capture enumeration and territory integration now stable)
-- **Contract tests:** ✅ 100% pass rate on 43 vectors across TypeScript and Python (extended in P18.5-\*)
+- **Contract tests:** ✅ 100% pass rate on 54 vectors across TypeScript and Python (extended in P18.5-\*)
 - **Decision phase tests:** ✅ Timeout guards verified via `GameSession.decisionPhaseTimeout.test.ts`
 - **Adapter tests:** ✅ 46 tests for orchestrator adapters
 - **Component tests:** ✅ 209 tests (160 core + 49 ChoiceDialog)

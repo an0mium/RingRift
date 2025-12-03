@@ -873,6 +873,25 @@ This architecture ensures that **`Move` remains the single canonical description
 - Enforce timeouts and defaults.
 - Log and replay decisions in terms of stable `Move.id`s across backend, sandbox, and Python parity harnesses.
 
+**Client cancellation and sandbox interactions**
+
+- WebSocket-backed hosts (backend Game pages) treat connection loss and
+  reconnection within the documented window as transport concerns; the
+  `SocketGameConnection` implementation and higher-level hooks (e.g.
+  `GameContext`) own:
+  - connection status tracking (connected / reconnecting / disconnected),
+  - reconnection attempts within a finite window, and
+  - cooperative cancellation of in-flight async work using the shared
+    `CancellationToken` / `runWithTimeout` utilities where appropriate.
+- Sandbox hosts (`SandboxGameHost` + `useSandboxInteractions`) do **not**
+  establish WebSocket connections. All interactions are local to
+  `ClientSandboxEngine` and:
+  - respect the current `GameState.gameStatus` (ignoring clicks once
+    the game is no longer active),
+  - clear or ignore input while local AI turns are running, and
+  - do not participate in backend reconnection windows or WebSocket
+    cancellation logic.
+
 #### 3.9.3 Operational metrics & invariants (orchestrator-facing)
 
 While this document focuses on **function-level** API, the orchestrator
@@ -1287,7 +1306,8 @@ Adapters (Server GameEngine, Client Sandbox, Python AI Service) must handle:
 > the WebSocket transport for backend‑hosted games. The concrete event names and
 > payloads are defined in `src/shared/types/websocket.ts` and validated by
 > `src/shared/validation/websocketSchemas.ts`; this section documents their
-> **intended lifecycle** at a high level.
+> **intended lifecycle** at a high level and names the core Jest/Playwright
+> suites that are expected to keep these semantics covered.
 
 ### 6.1 Core Game Loop Events
 
@@ -1324,7 +1344,7 @@ The backend maintains a **bounded reconnection window** for players via
     - The WebSocket server emits `player_disconnected` to the remaining participants.
     - A reconnection window is started for that `(gameId, userId)` pair; the default window is `RECONNECTION_TIMEOUT_MS = 30_000` ms.
     - `playerConnectionStates` is updated to `disconnected_pending_reconnect` for that player.
-  - Spectators do **not** receive a reconnection window; their disconnect simply clears any diagnostics entry.
+  - Spectators do **not** receive a reconnection window; their disconnect simply clears any diagnostics entry. They may reconnect at any time via `join_game` as long as the underlying session and auth token remain valid.
 
 - **Reconnect handling**
   - If the same user reconnects (via a fresh `join_game` and authenticated socket) before the window expires:
@@ -1338,12 +1358,21 @@ The backend maintains a **bounded reconnection window** for players via
       - Marks the connection state as `disconnected_expired`.
       - Cancels all pending choices for that player via `GameSession.getInteractionHandler().cancelAllChoicesForPlayer`.
       - Optionally triggers abandonment handling (e.g. awarding a rated win to the remaining human opponent) via `GameSession.handleAbandonmentForDisconnectedPlayer`.
-    - A `decision_phase_timed_out` + subsequent `game_state` diff reflect the updated game status on the client side.
+    - Subsequent `game_state` updates (for example via normal game‑update broadcasts or HTTP polling) reflect the updated game status on the client side; reconnection expiry does **not** emit its own `decision_phase_timed_out` event.
 
 Client adapters such as `GameContext` track these events via:
 
 - `onConnectionStatusChange` → user‑visible connection status (`connecting`, `connected`, `reconnecting`).
 - `onDecisionPhaseTimeoutWarning` / `onDecisionPhaseTimedOut` → HUD banners and logs.
+
+**Canonical coverage:** Reconnection window semantics are exercised end‑to‑end by:
+
+- `tests/integration/GameReconnection.test.ts` (backend WebSocket host)
+- `tests/e2e/reconnection.simulation.test.ts` (Playwright network partition + reconnect)
+
+These suites should be treated as **required green** when changing
+`PlayerConnectionState`, reconnection timers, or the associated WebSocket
+payloads.
 
 ### 6.3 Lobby Events
 
@@ -1395,6 +1424,17 @@ On the client side, `GameContext` exposes:
 - `rematchGameId: string | null` – used by `BackendGameHost` to redirect the user into the newly created game after an accepted rematch.
 
 Rematch logic is intentionally implemented **on top of** the canonical GameState/Move lifecycle: follow‑up games are regular games with freshly initialized `GameState` instances and do not alter the rules engine surface.
+
+**Canonical coverage:** Lobby and rematch flows are covered by:
+
+- `tests/integration/LobbyRealtime.test.ts` (Socket.IO lobby room events)
+- `tests/integration/FullGameFlow.test.ts` and selected E2E suites that exercise
+  post‑game rematch UX.
+
+Any behavioural change to lobby subscription, spectator join/leave, or rematch
+event ordering must keep these suites green and, when applicable, update the
+payload schemas in `src/shared/types/websocket.ts` /
+`src/shared/validation/websocketSchemas.ts`.
 
 ## 6. API Stability Guarantees
 

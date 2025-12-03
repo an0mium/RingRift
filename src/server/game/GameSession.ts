@@ -63,6 +63,7 @@ import {
   AIRequestCancelReason,
 } from '../../shared/stateMachines/aiRequest';
 import { runWithTimeout } from '../../shared/utils/timeout';
+import { createCancellationSource, type CancellationToken } from '../../shared/utils/cancellation';
 import { getAIServiceClient } from '../services/AIServiceClient';
 
 /**
@@ -144,6 +145,11 @@ export class GameSession {
 
   // AbortController for canceling in-flight AI requests
   private aiAbortController: AbortController | null = null;
+
+  // Session-scoped cancellation source used to cooperatively cancel
+  // long-lived async operations such as AI requests when the session
+  // is terminated.
+  private readonly sessionCancellationSource = createCancellationSource();
 
   // Aggregated diagnostics
   private diagnosticsSnapshot: SessionAIDiagnostics = {
@@ -298,7 +304,7 @@ export class GameSession {
       getTargetForPlayer,
       30_000
     );
-    const aiHandler = new AIInteractionHandler();
+    const aiHandler = new AIInteractionHandler(this.sessionCancellationSource.token);
     const delegatingHandler = new DelegatingInteractionHandler(
       this.wsHandler,
       aiHandler,
@@ -1096,7 +1102,10 @@ export class GameSession {
           const aiMove = await this.getAIMoveWithTimeout(
             currentPlayerNumber,
             state,
-            this.aiRequestTimeoutMs
+            this.aiRequestTimeoutMs,
+            {
+              token: this.sessionCancellationSource.token,
+            }
           );
 
           // Check if request was canceled during execution
@@ -1213,11 +1222,22 @@ export class GameSession {
   private async getAIMoveWithTimeout(
     playerNumber: number,
     state: GameState,
-    timeoutMs: number
+    timeoutMs: number,
+    options?: { token?: CancellationToken }
   ): Promise<Move | null> {
-    const result = await runWithTimeout(() => globalAIEngine.getAIMove(playerNumber, state), {
-      timeoutMs,
-    });
+    const result = await runWithTimeout(
+      () =>
+        globalAIEngine.getAIMove(
+          playerNumber,
+          state,
+          undefined,
+          options?.token ? { token: options.token } : undefined
+        ),
+      {
+        timeoutMs,
+        ...(options?.token && { token: options.token }),
+      }
+    );
 
     if (result.kind === 'ok') {
       return result.value ?? null;
@@ -1432,8 +1452,16 @@ export class GameSession {
    * Terminate the session and cancel any pending operations
    */
   terminate(reason: AIRequestCancelReason = 'session_cleanup'): void {
+    // Cooperatively cancel any session-scoped async work (e.g. AI turns)
+    // before updating local state machines and timers.
+    this.sessionCancellationSource.cancel(reason);
+
     // Cancel any in-flight AI request
     this.cancelInFlightAIRequest(reason);
+
+    // Clear any active decision-phase timeout timers so that no further
+    // auto-resolution or warning events fire after session termination.
+    this.resetDecisionPhaseTimeout();
 
     // Update session status to reflect termination
     const state = this.getGameState();

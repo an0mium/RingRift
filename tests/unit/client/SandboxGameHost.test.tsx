@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type {
   BoardState,
@@ -44,6 +44,7 @@ jest.mock('../../../src/client/services/ReplayService', () => ({
 }));
 
 let mockSandboxValue: any;
+let replayPanelProps: any | null = null;
 
 // Choice + AI helpers wired via useSandboxInteractions mock
 const mockMaybeRunSandboxAiIfNeeded = jest.fn();
@@ -56,7 +57,13 @@ jest.mock('../../../src/client/contexts/SandboxContext', () => ({
 
 jest.mock('../../../src/client/components/ReplayPanel/ReplayPanel', () => ({
   __esModule: true,
-  ReplayPanel: () => null,
+  // Capture props so tests can drive ReplayPanel callbacks (state change,
+  // replay mode toggles, and fork-from-position) without rendering the full
+  // panel UI.
+  ReplayPanel: (props: any) => {
+    replayPanelProps = props;
+    return null;
+  },
 }));
 
 jest.mock('../../../src/client/hooks/useSandboxInteractions', () => ({
@@ -236,6 +243,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
     mockMaybeRunSandboxAiIfNeeded.mockReset();
     mockChoiceResolve.mockReset();
     mockStoreGame.mockClear();
+    replayPanelProps = null;
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -345,6 +353,40 @@ describe('SandboxGameHost (React host behaviour)', () => {
     // the number of valid targets exposed by the interactions hook.
     expect(panel).toHaveTextContent('(0, 0)');
     expect(panel).toHaveTextContent('Targets: 1');
+  });
+
+  it('shows the chain-capture continuation chip when chain_capture has legal continuation segments', () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'chain_capture',
+      gameStatus: 'active',
+    });
+
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+      // Minimal getValidMoves implementation that exposes a single
+      // continue_capture_segment move from the current player so the
+      // host can detect an active chain-capture continuation step.
+      getValidMoves: jest.fn(() => [
+        {
+          id: 'm1',
+          type: 'continue_capture_segment',
+          player: sandboxState.currentPlayer,
+        } as Move,
+      ]),
+    };
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+    });
+
+    render(<SandboxGameHost />);
+
+    // The primary subtitle chip under the board should switch from the
+    // default board subtitle to an explicit "Continue Chain Capture"
+    // prompt when isChainCaptureContinuationStep is true.
+    expect(screen.getByText('Continue Chain Capture')).toBeInTheDocument();
   });
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -705,5 +747,316 @@ describe('SandboxGameHost (React host behaviour)', () => {
     });
 
     (global as any).fetch = originalFetch;
+  });
+
+  it('passes AI opponent count and swap-rule options to backend sandbox creation request', async () => {
+    (gameApi.createGame as jest.Mock).mockResolvedValue({ id: 'backend-456' });
+
+    // Configure the sandbox so that Player 2 is an AI seat. This exercises the
+    // branch where the host includes aiOpponents in the CreateGameRequest
+    // payload while still using the same LocalConfig/Context wiring as the
+    // real UI.
+    mockSandboxValue = createMockSandboxContext({
+      config: createLocalConfig({
+        playerTypes: ['human', 'ai', 'ai', 'ai'] as LocalPlayerType[],
+      }),
+    });
+
+    render(<SandboxGameHost />);
+
+    const launchButton = screen.getByRole('button', { name: /Launch Game/i });
+    fireEvent.click(launchButton);
+
+    await waitFor(() => {
+      expect(gameApi.createGame).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = (gameApi.createGame as jest.Mock).mock.calls[0][0];
+
+    // With 2 players and exactly one AI seat, the host should request one AI
+    // opponent via the service-backed AI with heuristic profile, and enable the
+    // pie rule for 2-player sandbox games.
+    expect(payload.aiOpponents).toEqual({
+      count: 1,
+      difficulty: [5],
+      mode: 'service',
+      aiType: 'heuristic',
+    });
+    expect(payload.rulesOptions).toEqual({ swapRuleEnabled: true });
+  });
+
+  it('invokes resetSandboxEngine and clears sandbox host flags when Change Setup is clicked', () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'movement',
+      gameStatus: 'active',
+    });
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+    };
+
+    const resetSandboxEngine = jest.fn();
+    const setBackendSandboxError = jest.fn();
+    const setSandboxPendingChoice = jest.fn();
+    const setSandboxStallWarning = jest.fn();
+    const setSandboxLastProgressAt = jest.fn();
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+      resetSandboxEngine,
+      setBackendSandboxError,
+      setSandboxPendingChoice,
+      setSandboxStallWarning,
+      setSandboxLastProgressAt,
+    });
+
+    render(<SandboxGameHost />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Change Setup/i }));
+
+    expect(resetSandboxEngine).toHaveBeenCalledTimes(1);
+    expect(setBackendSandboxError).toHaveBeenCalledWith(null);
+    expect(setSandboxPendingChoice).toHaveBeenCalledWith(null);
+    expect(setSandboxStallWarning).toHaveBeenCalledWith(null);
+    expect(setSandboxLastProgressAt).toHaveBeenCalledWith(null);
+  });
+
+  it('toggles board controls overlay with "?" and Escape keyboard shortcuts during an active sandbox game', () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'movement',
+      gameStatus: 'active',
+    });
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+    };
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+    });
+
+    render(<SandboxGameHost />);
+
+    // Overlay hidden initially
+    expect(screen.queryByTestId('board-controls-overlay')).toBeNull();
+
+    // Press "?" to open overlay
+    fireEvent.keyDown(window, { key: '?' });
+    expect(screen.getByTestId('board-controls-overlay')).toBeInTheDocument();
+
+    // Press Escape to close overlay
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('board-controls-overlay')).toBeNull();
+  });
+
+  it('enters and exits replay mode via ReplayPanel callbacks, making the board read-only while active', () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'movement',
+      gameStatus: 'active',
+    });
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+    };
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+    });
+
+    render(<SandboxGameHost />);
+
+    expect(replayPanelProps).not.toBeNull();
+
+    const replayState: GameState = {
+      ...sandboxState,
+    };
+
+    // Enter replay mode with a non-null state
+    act(() => {
+      replayPanelProps.onStateChange(replayState);
+      replayPanelProps.onReplayModeChange(true);
+    });
+
+    expect(screen.getByText(/Viewing replay - board is read-only/i)).toBeInTheDocument();
+
+    // While in replay mode, BoardView should ignore clicks (no new selection
+    // coordinates appear in the touch controls panel).
+    const sourceCell = getSquareCell(0, 0);
+    fireEvent.click(sourceCell);
+
+    const panel = screen.getByTestId('sandbox-touch-controls');
+    expect(panel).toHaveTextContent('Selection');
+    expect(panel).not.toHaveTextContent('(0, 0)');
+
+    // Exit replay mode; board becomes interactive again.
+    act(() => {
+      replayPanelProps.onReplayModeChange(false);
+      replayPanelProps.onStateChange(null);
+    });
+
+    fireEvent.click(sourceCell);
+    expect(panel).toHaveTextContent('(0, 0)');
+  });
+
+  it('uses the replay state board type when in replay mode', () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'movement',
+      gameStatus: 'active',
+    });
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+    };
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+    });
+
+    render(<SandboxGameHost />);
+
+    expect(replayPanelProps).not.toBeNull();
+
+    const replayBoard: BoardState = {
+      stacks: new Map(),
+      markers: new Map(),
+      collapsedSpaces: new Map(),
+      territories: new Map(),
+      formedLines: [],
+      eliminatedRings: {},
+      size: 3,
+      type: 'hexagonal',
+    };
+
+    const replayState: GameState = {
+      ...sandboxState,
+      boardType: 'hexagonal',
+      board: replayBoard,
+    };
+
+    act(() => {
+      replayPanelProps.onStateChange(replayState);
+      replayPanelProps.onReplayModeChange(true);
+    });
+
+    expect(screen.getByLabelText('Hexagonal game board')).toBeInTheDocument();
+  });
+
+  it('forks a new sandbox game from a replay position and exits replay mode', () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'movement',
+      gameStatus: 'active',
+    });
+    const baseEngine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+    };
+
+    const initLocalSandboxEngine = jest.fn();
+    const fakeEngine = {
+      getGameState: jest.fn(() => sandboxState),
+      initFromSerializedState: jest.fn(),
+    };
+    initLocalSandboxEngine.mockReturnValue(fakeEngine);
+
+    const setConfig = jest.fn();
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: baseEngine,
+      initLocalSandboxEngine,
+      setConfig,
+    });
+
+    render(<SandboxGameHost />);
+
+    expect(replayPanelProps).not.toBeNull();
+
+    const replayBoard: BoardState = {
+      stacks: new Map(),
+      markers: new Map(),
+      collapsedSpaces: new Map(),
+      territories: new Map(),
+      formedLines: [],
+      eliminatedRings: {},
+      size: 8,
+      type: 'square8',
+    };
+
+    const replayState: GameState = {
+      ...sandboxState,
+      boardType: 'square8',
+      board: replayBoard,
+      players: createPlayers(),
+    };
+
+    act(() => {
+      replayPanelProps.onStateChange(replayState);
+      replayPanelProps.onReplayModeChange(true);
+    });
+
+    expect(screen.getByText(/Viewing replay - board is read-only/i)).toBeInTheDocument();
+
+    act(() => {
+      replayPanelProps.onForkFromPosition(replayState);
+    });
+
+    expect(initLocalSandboxEngine).toHaveBeenCalledTimes(1);
+    expect(initLocalSandboxEngine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boardType: 'square8',
+        numPlayers: replayState.players.length,
+        playerTypes: ['human', 'ai'],
+      })
+    );
+
+    // After forking, host should leave replay mode.
+    expect(screen.queryByText(/Viewing replay - board is read-only/i)).not.toBeInTheDocument();
+  });
+
+  it('handles autosave failures from ReplayService.storeGame without breaking sandbox UI', async () => {
+    const players = createPlayers();
+    const completedState = createSandboxGameState({
+      players,
+      currentPhase: 'movement',
+      gameStatus: 'completed',
+    });
+
+    const engine = {
+      getGameState: jest.fn(() => completedState),
+      getVictoryResult: jest.fn(
+        () =>
+          ({
+            winner: 1,
+            reason: 'ring_elimination',
+            finalScore: {
+              ringsEliminated: {},
+              territorySpaces: {},
+              ringsRemaining: {},
+            },
+          }) as GameResult
+      ),
+    };
+
+    // Force storeGame to report a non-fatal failure so the host transitions
+    // into an "error" save status while keeping the sandbox UI usable.
+    mockStoreGame.mockResolvedValue({ success: false, totalMoves: 10 });
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+    });
+
+    render(<SandboxGameHost />);
+
+    await waitFor(() => {
+      expect(mockStoreGame).toHaveBeenCalled();
+      expect(screen.getByText('Error')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Return to Lobby')).toBeInTheDocument();
   });
 });

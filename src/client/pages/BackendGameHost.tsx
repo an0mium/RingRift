@@ -579,7 +579,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   useEffect(() => {
     if (!routeGameId) return;
 
-    const handleGameError = (data: any) => {
+    const handleGameError = (data: { data?: { message?: string; technical?: string } }) => {
       if (data && data.data) {
         setFatalGameError({
           message: data.data.message || 'An error occurred during the game.',

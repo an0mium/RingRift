@@ -1,28 +1,24 @@
 /**
- * Request Context Middleware Unit Tests
- *
- * Tests the request context middleware including:
- * - Request ID generation and propagation
- * - X-Request-Id header handling
- * - AsyncLocalStorage context establishment
+ * RequestContext middleware branch coverage tests
+ * Tests for src/server/middleware/requestContext.ts
  */
 
-// Mock the logger module
-const mockRunWithContext = jest.fn((context, callback) => callback());
+import { Request, Response, NextFunction } from 'express';
+
+// Mock crypto module
+jest.mock('crypto', () => ({
+  randomUUID: jest.fn(() => 'generated-uuid-1234'),
+}));
+
+// Mock logger utils
+const mockRunWithContext = jest.fn((_context, callback) => callback());
 const mockGetRequestContext = jest.fn();
 
 jest.mock('../../../src/server/utils/logger', () => ({
-  runWithContext: mockRunWithContext,
-  getRequestContext: mockGetRequestContext,
-  logger: {
-    info: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  },
+  runWithContext: (context: unknown, callback: () => void) => mockRunWithContext(context, callback),
+  getRequestContext: () => mockGetRequestContext(),
 }));
 
-import { Request, Response, NextFunction } from 'express';
 import {
   requestContext,
   updateContextWithUser,
@@ -38,9 +34,9 @@ describe('requestContext middleware', () => {
     jest.clearAllMocks();
 
     mockReq = {
-      header: jest.fn(),
       method: 'GET',
-      path: '/api/test',
+      path: '/api/games',
+      header: jest.fn(),
     };
 
     mockRes = {
@@ -51,135 +47,190 @@ describe('requestContext middleware', () => {
     mockNext = jest.fn();
   });
 
-  describe('request ID handling', () => {
-    it('generates UUID when no X-Request-Id header present', () => {
-      (mockReq.header as jest.Mock).mockReturnValue('');
+  describe('requestContext', () => {
+    describe('request ID extraction', () => {
+      it('uses X-Request-Id header (lowercase) when present', () => {
+        (mockReq.header as jest.Mock).mockImplementation((name: string) => {
+          if (name === 'x-request-id') return 'client-request-id-123';
+          return '';
+        });
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
 
-      expect(mockReq.requestId).toBeDefined();
-      expect(mockReq.requestId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      );
-    });
-
-    it('uses X-Request-Id header when provided (lowercase)', () => {
-      (mockReq.header as jest.Mock).mockImplementation((name: string) => {
-        if (name === 'x-request-id') return 'custom-request-id-123';
-        return '';
+        expect(mockReq.requestId).toBe('client-request-id-123');
+        expect(mockRes.locals!.requestId).toBe('client-request-id-123');
+        expect(mockRes.setHeader).toHaveBeenCalledWith('X-Request-Id', 'client-request-id-123');
       });
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+      it('uses X-Request-Id header (capitalized) when present', () => {
+        (mockReq.header as jest.Mock).mockImplementation((name: string) => {
+          if (name === 'x-request-id') return '';
+          if (name === 'X-Request-Id') return 'capitalized-request-id';
+          return '';
+        });
 
-      expect(mockReq.requestId).toBe('custom-request-id-123');
-    });
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
 
-    it('uses X-Request-Id header when provided (uppercase)', () => {
-      (mockReq.header as jest.Mock).mockImplementation((name: string) => {
-        if (name === 'X-Request-Id') return 'uppercase-request-id-456';
-        if (name === 'x-request-id') return '';
-        return '';
+        expect(mockReq.requestId).toBe('capitalized-request-id');
+        expect(mockRes.locals!.requestId).toBe('capitalized-request-id');
       });
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+      it('generates UUID when X-Request-Id header is absent', () => {
+        (mockReq.header as jest.Mock).mockReturnValue('');
 
-      expect(mockReq.requestId).toBe('uppercase-request-id-456');
-    });
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
 
-    it('trims whitespace from header value', () => {
-      (mockReq.header as jest.Mock).mockImplementation((name: string) => {
-        if (name === 'x-request-id') return '  trimmed-id  ';
-        return '';
+        expect(mockReq.requestId).toBe('generated-uuid-1234');
+        expect(mockRes.locals!.requestId).toBe('generated-uuid-1234');
+        expect(mockRes.setHeader).toHaveBeenCalledWith('X-Request-Id', 'generated-uuid-1234');
       });
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+      it('generates UUID when X-Request-Id header is undefined', () => {
+        (mockReq.header as jest.Mock).mockReturnValue(undefined);
 
-      expect(mockReq.requestId).toBe('trimmed-id');
-    });
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
 
-    it('generates UUID when header is whitespace only', () => {
-      (mockReq.header as jest.Mock).mockImplementation((name: string) => {
-        if (name === 'x-request-id') return '   ';
-        return '';
+        expect(mockReq.requestId).toBe('generated-uuid-1234');
       });
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+      it('trims whitespace from X-Request-Id header', () => {
+        (mockReq.header as jest.Mock).mockImplementation((name: string) => {
+          if (name === 'x-request-id') return '  trimmed-id  ';
+          return '';
+        });
 
-      expect(mockReq.requestId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      );
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+
+        expect(mockReq.requestId).toBe('trimmed-id');
+      });
+
+      it('generates UUID when X-Request-Id header is only whitespace', () => {
+        (mockReq.header as jest.Mock).mockImplementation((name: string) => {
+          if (name === 'x-request-id') return '   ';
+          return '';
+        });
+
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+
+        // After trim, length is 0, so UUID is generated
+        expect(mockReq.requestId).toBe('generated-uuid-1234');
+      });
+    });
+
+    describe('response header', () => {
+      it('sets X-Request-Id response header for downstream clients', () => {
+        (mockReq.header as jest.Mock).mockReturnValue('');
+
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+
+        expect(mockRes.setHeader).toHaveBeenCalledWith('X-Request-Id', 'generated-uuid-1234');
+      });
+
+      it('echoes client-provided request ID back in response', () => {
+        (mockReq.header as jest.Mock).mockImplementation((name: string) => {
+          if (name === 'x-request-id') return 'echo-this-id';
+          return '';
+        });
+
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+
+        expect(mockRes.setHeader).toHaveBeenCalledWith('X-Request-Id', 'echo-this-id');
+      });
+    });
+
+    describe('AsyncLocalStorage context', () => {
+      it('runs next() within AsyncLocalStorage context', () => {
+        (mockReq.header as jest.Mock).mockReturnValue('');
+
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+
+        expect(mockRunWithContext).toHaveBeenCalledWith(
+          expect.objectContaining({
+            requestId: 'generated-uuid-1234',
+            method: 'GET',
+            path: '/api/games',
+            startTime: expect.any(Number),
+          }),
+          expect.any(Function)
+        );
+        expect(mockNext).toHaveBeenCalled();
+      });
+
+      it('includes request method and path in context', () => {
+        const postReq: Partial<RequestWithId> = {
+          method: 'POST',
+          path: '/api/auth/login',
+          header: jest.fn().mockReturnValue(''),
+        };
+
+        requestContext(postReq as RequestWithId, mockRes as Response, mockNext);
+
+        expect(mockRunWithContext).toHaveBeenCalledWith(
+          expect.objectContaining({
+            method: 'POST',
+            path: '/api/auth/login',
+          }),
+          expect.any(Function)
+        );
+      });
+
+      it('includes startTime timestamp in context', () => {
+        (mockReq.header as jest.Mock).mockReturnValue('');
+        const beforeTime = Date.now();
+
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+
+        const afterTime = Date.now();
+        const contextArg = mockRunWithContext.mock.calls[0][0];
+        expect(contextArg.startTime).toBeGreaterThanOrEqual(beforeTime);
+        expect(contextArg.startTime).toBeLessThanOrEqual(afterTime);
+      });
+    });
+
+    describe('middleware chain', () => {
+      it('calls next() to continue middleware chain', () => {
+        (mockReq.header as jest.Mock).mockReturnValue('');
+
+        requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+
+        expect(mockNext).toHaveBeenCalledTimes(1);
+      });
     });
   });
 
-  describe('response header propagation', () => {
-    it('sets X-Request-Id response header', () => {
-      (mockReq.header as jest.Mock).mockReturnValue('my-request-id');
+  describe('updateContextWithUser', () => {
+    it('updates context with userId when context exists', () => {
+      const mockContext: {
+        requestId: string;
+        method: string;
+        path: string;
+        startTime: number;
+        userId?: string;
+      } = {
+        requestId: 'test-id',
+        method: 'GET',
+        path: '/',
+        startTime: Date.now(),
+      };
+      mockGetRequestContext.mockReturnValue(mockContext);
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
+      updateContextWithUser('user-123');
 
-      expect(mockRes.setHeader).toHaveBeenCalledWith('X-Request-Id', 'my-request-id');
+      expect(mockContext.userId).toBe('user-123');
     });
 
-    it('attaches requestId to res.locals', () => {
-      (mockReq.header as jest.Mock).mockReturnValue('local-id');
+    it('does nothing when context is undefined', () => {
+      mockGetRequestContext.mockReturnValue(undefined);
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
-
-      expect(mockRes.locals!.requestId).toBe('local-id');
-    });
-  });
-
-  describe('AsyncLocalStorage context', () => {
-    it('calls runWithContext with correct context', () => {
-      (mockReq.header as jest.Mock).mockReturnValue('context-test-id');
-
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
-
-      expect(mockRunWithContext).toHaveBeenCalledTimes(1);
-      expect(mockRunWithContext).toHaveBeenCalledWith(
-        expect.objectContaining({
-          requestId: 'context-test-id',
-          method: 'GET',
-          path: '/api/test',
-          startTime: expect.any(Number),
-        }),
-        expect.any(Function)
-      );
+      // Should not throw
+      expect(() => updateContextWithUser('user-123')).not.toThrow();
     });
 
-    it('calls next() within the context', () => {
-      (mockReq.header as jest.Mock).mockReturnValue('');
+    it('does nothing when context is null', () => {
+      mockGetRequestContext.mockReturnValue(null);
 
-      requestContext(mockReq as RequestWithId, mockRes as Response, mockNext);
-
-      expect(mockNext).toHaveBeenCalledTimes(1);
+      // Should not throw
+      expect(() => updateContextWithUser('user-123')).not.toThrow();
     });
-  });
-});
-
-describe('updateContextWithUser', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('updates context with userId when context exists', () => {
-    const mockContext = {
-      requestId: 'test-123',
-      method: 'GET',
-      path: '/api',
-      startTime: Date.now(),
-    };
-    mockGetRequestContext.mockReturnValue(mockContext);
-
-    updateContextWithUser('user-456');
-
-    expect(mockContext).toHaveProperty('userId', 'user-456');
-  });
-
-  it('does nothing when context is null', () => {
-    mockGetRequestContext.mockReturnValue(null);
-
-    // Should not throw
-    expect(() => updateContextWithUser('user-789')).not.toThrow();
   });
 });

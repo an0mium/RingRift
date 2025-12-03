@@ -68,13 +68,13 @@ def seed_all_legacy(seed: int = 42) -> None:
 class EarlyStopping:
     """
     Early stopping to terminate training when validation loss stops improving.
-    
+
     Args:
         patience: Number of epochs to wait before stopping after
             last improvement
         min_delta: Minimum change in validation loss to qualify as improvement
     """
-    
+
     def __init__(self, patience: int = 10, min_delta: float = 0.0001):
         self.patience = patience
         self.min_delta = min_delta
@@ -82,15 +82,15 @@ class EarlyStopping:
         self.best_loss = float('inf')
         self.best_state: Optional[Dict[str, Any]] = None
         self.should_stop = False
-    
+
     def __call__(self, val_loss: float, model: nn.Module) -> bool:
         """
         Check if training should stop based on validation loss.
-        
+
         Args:
             val_loss: Current validation loss
             model: Model to save state from if this is best so far
-            
+
         Returns:
             True if training should stop, False otherwise
         """
@@ -103,7 +103,7 @@ class EarlyStopping:
             if self.counter >= self.patience:
                 self.should_stop = True
         return self.should_stop
-    
+
     def restore_best_weights(self, model: nn.Module) -> None:
         """Restore the best weights to the model."""
         if self.best_state is not None:
@@ -317,29 +317,29 @@ def get_warmup_scheduler(
 ) -> Optional[Any]:
     """
     Create a learning rate scheduler with optional warmup.
-    
+
     This is the legacy warmup scheduler that uses LambdaLR for simple
     scheduling. For advanced cosine annealing, use create_lr_scheduler()
     instead.
-    
+
     Args:
         optimizer: The optimizer to schedule
         warmup_epochs: Number of epochs for linear warmup (0 to disable)
         total_epochs: Total number of training epochs
         scheduler_type: Type of scheduler after warmup
             ('none', 'step', 'cosine')
-        
+
     Returns:
         LR scheduler or None if no scheduling requested
     """
     if warmup_epochs == 0 and scheduler_type == 'none':
         return None
-    
+
     def lr_lambda(epoch: int) -> float:
         # Linear warmup phase
         if epoch < warmup_epochs:
             return float(epoch + 1) / float(max(1, warmup_epochs))
-        
+
         # Post-warmup phase
         if scheduler_type == 'none':
             return 1.0
@@ -354,7 +354,7 @@ def get_warmup_scheduler(
             return 0.5 * (1.0 + np.cos(np.pi * progress))
         else:
             return 1.0
-    
+
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
@@ -369,10 +369,10 @@ def create_lr_scheduler(
 ) -> Optional[torch.optim.lr_scheduler.LRScheduler]:
     """
     Create a learning rate scheduler with PyTorch's native implementations.
-    
+
     Supports cosine annealing with optional warmup using SequentialLR to chain
     a linear warmup scheduler with the main scheduler.
-    
+
     Args:
         optimizer: The optimizer to schedule
         scheduler_type: Type of scheduler:
@@ -388,7 +388,7 @@ def create_lr_scheduler(
             (initial restart period)
         lr_t_mult: T_mult parameter for CosineAnnealingWarmRestarts
             (period multiplier)
-        
+
     Returns:
         LR scheduler or None if scheduler_type is 'none' and warmup_epochs is 0
     """
@@ -397,7 +397,7 @@ def create_lr_scheduler(
         return get_warmup_scheduler(
             optimizer, warmup_epochs, total_epochs, scheduler_type
         )
-    
+
     # Create the main scheduler based on type
     if scheduler_type == 'cosine':
         # Calculate T_max: epochs for cosine annealing (after warmup)
@@ -412,11 +412,11 @@ def create_lr_scheduler(
     else:
         logger.warning(f"Unknown scheduler type: {scheduler_type}, using none")
         return None
-    
+
     # If no warmup, return the main scheduler directly
     if warmup_epochs == 0:
         return main_scheduler
-    
+
     # Create warmup scheduler using LinearLR
     # LinearLR scales the learning rate from start_factor to end_factor
     warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
@@ -425,14 +425,14 @@ def create_lr_scheduler(
         end_factor=1.0,  # End at full lr
         total_iters=warmup_epochs,
     )
-    
+
     # Chain warmup and main scheduler using SequentialLR
     combined_scheduler = torch.optim.lr_scheduler.SequentialLR(
         optimizer,
         schedulers=[warmup_scheduler, main_scheduler],
         milestones=[warmup_epochs],
     )
-    
+
     return combined_scheduler
 
 
@@ -449,11 +449,11 @@ class RingRiftDataset(Dataset):
       - use separate datasets per board type/size, or
       - introduce a higher-level sampler/collate_fn that groups samples by
         geometry before feeding them to the network.
-    
+
     Note: Terminal states (samples with empty policy arrays) are automatically
     filtered out during loading to prevent NaN losses when using KLDivLoss.
     Empty policy targets would otherwise cause the loss to become undefined.
-    
+
     Args:
         data_path: Path to the .npz training data file
         board_type: Board geometry type (for augmentation)
@@ -470,12 +470,12 @@ class RingRiftDataset(Dataset):
         self.board_type = board_type
         self.augment_hex = augment_hex and board_type == BoardType.HEXAGONAL
         self.hex_transform: Optional[HexSymmetryTransform] = None
-        
+
         # Initialize hex transform if augmentation enabled
         if self.augment_hex:
             self.hex_transform = HexSymmetryTransform(board_size=21)
             logger.info("Hex symmetry augmentation enabled (D6 group)")
-        
+
         self.length = 0
         # Memory-mapped file object (np.lib.npyio.NpzFile) or in-memory dict
         self.data = None
@@ -501,7 +501,7 @@ class RingRiftDataset(Dataset):
 
                 if 'features' in self.data:
                     total_samples = len(self.data['values'])
-                    
+
                     # Filter out samples with empty policies (terminal states)
                     # These would cause NaN when computing KLDivLoss
                     policy_indices_arr = self.data['policy_indices']
@@ -509,7 +509,7 @@ class RingRiftDataset(Dataset):
                         i for i in range(total_samples)
                         if len(policy_indices_arr[i]) > 0
                     ]
-                    
+
                     filtered_count = total_samples - len(self.valid_indices)
                     if filtered_count > 0:
                         logger.info(
@@ -517,9 +517,9 @@ class RingRiftDataset(Dataset):
                             f"with empty policies out of {total_samples} "
                             f"total samples"
                         )
-                    
+
                     self.length = len(self.valid_indices)
-                    
+
                     if self.length == 0:
                         logger.warning(
                             f"All {total_samples} samples in {data_path} "
@@ -625,19 +625,19 @@ class RingRiftDataset(Dataset):
         # object array fits in memory or is handled by OS paging.
         policy_indices = self.data['policy_indices'][actual_idx]
         policy_values = self.data['policy_values'][actual_idx]
-        
+
         # Apply hex symmetry augmentation on-the-fly if enabled
         # This expands effective dataset size by 12x without extra memory
         if self.augment_hex and self.hex_transform is not None:
             # Pick a random transformation from the D6 group (0-11)
             transform_id = random.randint(0, 11)
-            
+
             if transform_id != 0:  # 0 is identity, skip for efficiency
                 # Transform the feature tensor
                 features = self.hex_transform.transform_board(
                     features, transform_id
                 )
-                
+
                 # Transform sparse policy
                 indices_arr = np.asarray(policy_indices, dtype=np.int32)
                 values_arr = np.asarray(policy_values, dtype=np.float32)
@@ -646,18 +646,18 @@ class RingRiftDataset(Dataset):
                         indices_arr, values_arr, transform_id
                     )
                 )
-            
+
         # Reconstruct dense policy vector on-the-fly
         # Since we filter for non-empty policies, this should always have data
         policy_vector = torch.zeros(55000, dtype=torch.float32)
-        
+
         if len(policy_indices) > 0:
             # Convert to proper numpy arrays with correct dtype
             # The object array may contain arrays that need explicit casting
             indices_arr = np.asarray(policy_indices, dtype=np.int64)
             values_arr = np.asarray(policy_values, dtype=np.float32)
             policy_vector[indices_arr] = torch.from_numpy(values_arr)
-            
+
         return (
             torch.from_numpy(features),
             torch.from_numpy(globals_vec),
@@ -723,10 +723,10 @@ def train_model(
         # Setup distributed process group
         setup_distributed(local_rank)
         world_size = get_world_size()
-        
+
         # Seed with rank offset for different random state per process
         seed_everything(config.seed, rank_offset=True)
-        
+
         # Scale learning rate if requested
         if scale_lr:
             config.learning_rate = scale_learning_rate(
@@ -855,12 +855,12 @@ def train_model(
         lr_t0=lr_t0,
         lr_t_mult=lr_t_mult,
     )
-    
+
     # ReduceLROnPlateau as fallback if no scheduler configured
     plateau_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode='min', factor=0.5, patience=2
     ) if epoch_scheduler is None else None
-    
+
     # Early stopping
     early_stopper: Optional[EarlyStopping] = None
     if early_stopping_patience > 0:
@@ -868,10 +868,10 @@ def train_model(
             patience=early_stopping_patience,
             min_delta=0.0001,
         )
-    
+
     # Track starting epoch for resume
     start_epoch = 0
-    
+
     # Resume from checkpoint if specified
     if resume_path is not None and os.path.exists(resume_path):
         # For DDP, load into the underlying model
@@ -890,10 +890,10 @@ def train_model(
         start_epoch += 1  # Start from next epoch
         if not distributed or is_main_process():
             logger.info(f"Resuming training from epoch {start_epoch}")
-    
+
     # Ensure checkpoint directory exists
     os.makedirs(checkpoint_dir, exist_ok=True)
-    
+
     # Mixed precision scaler
     # Note: GradScaler is primarily for CUDA.
     # For MPS, mixed precision support is evolving.
@@ -1292,7 +1292,7 @@ def train_model(
                 epoch_scheduler.step()
             elif plateau_scheduler is not None:
                 plateau_scheduler.step(avg_val_loss)
-            
+
             # Always log current learning rate
             if not distributed or is_main_process():
                 current_lr = optimizer.param_groups[0]['lr']
@@ -1442,7 +1442,7 @@ def train_model(
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse command line arguments.
-    
+
     Args:
         args: Optional list of argument strings. If None, uses sys.argv.
               Useful for testing.
@@ -1450,7 +1450,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description='Train RingRift Neural Network AI'
     )
-    
+
     # Data and model paths
     parser.add_argument(
         '--data-path', type=str, default=None,
@@ -1460,7 +1460,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         '--save-path', type=str, default=None,
         help='Path to save best model weights'
     )
-    
+
     # Training configuration
     parser.add_argument(
         '--epochs', type=int, default=None,
@@ -1478,13 +1478,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         '--seed', type=int, default=None,
         help='Random seed for reproducibility'
     )
-    
+
     # Early stopping
     parser.add_argument(
         '--early-stopping-patience', type=int, default=10,
         help='Early stopping patience (0 to disable)'
     )
-    
+
     # Checkpointing
     parser.add_argument(
         '--checkpoint-dir', type=str, default='checkpoints',
@@ -1494,7 +1494,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         '--checkpoint-interval', type=int, default=5,
         help='Save checkpoint every N epochs'
     )
-    
+
     # Learning rate scheduling
     parser.add_argument(
         '--warmup-epochs', type=int, default=0,
@@ -1517,20 +1517,20 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         '--lr-t-mult', type=int, default=2,
         help='T_mult for CosineAnnealingWarmRestarts (period multiplier)'
     )
-    
+
     # Resume training
     parser.add_argument(
         '--resume', type=str, default=None,
         help='Path to checkpoint to resume from'
     )
-    
+
     # Board type
     parser.add_argument(
         '--board-type', type=str, default=None,
         choices=['square8', 'square19', 'hexagonal'],
         help='Board type for training'
     )
-    
+
     # Hex symmetry augmentation
     parser.add_argument(
         '--augment-hex-symmetry', action='store_true',
@@ -1567,10 +1567,10 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
 def main():
     """Main entry point for training."""
     args = parse_args()
-    
+
     # Create config
     config = TrainConfig()
-    
+
     # Override config from CLI args
     if args.epochs is not None:
         config.epochs_per_iter = args.epochs
@@ -1587,7 +1587,7 @@ def main():
             'hexagonal': BoardType.HEXAGONAL,
         }
         config.board_type = board_type_map[args.board_type]
-    
+
     # Determine paths
     data_path = args.data_path or os.path.join(config.data_dir, "dataset.npz")
     save_path = args.save_path or os.path.join(

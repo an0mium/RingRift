@@ -71,6 +71,17 @@ import {
 import { flagEnabled, debugLog } from '../../shared/utils/envFlags';
 
 /**
+ * Backend `GameEngine` host over the shared rules engine.
+ *
+ * This class is responsible for orchestration, persistence, and
+ * interaction/wiring only; **it must not introduce new rules semantics**.
+ * All move legality, phase transitions, capture/territory/line/victory
+ * semantics should flow through the shared engine helpers/aggregates under
+ * `src/shared/engine/**` as documented in
+ * `docs/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
+ */
+
+/**
  * Internal state for enforcing mandatory chain captures during the capture phase.
  *
  * This is intentionally kept out of the wire-level GameState so we can evolve

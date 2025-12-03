@@ -191,6 +191,12 @@ Status legend:
 - **Supporting / tests**
   - Territory region tests in [`tests/unit/territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts).
   - Scenario tests such as [`tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts`](tests/scenarios/RulesMatrix.Territory.MiniRegion.test.ts) and FAQ_Q15/Q23 territory examples.
+  - v2 contract vectors for compact Q23-style mini-regions under `tests/fixtures/contract-vectors/v2/territory.vectors.json`, including single-step forced-elimination and two-step sequences:
+    - Square8: `territory.forced_elimination.simple_square8`, `territory.square_region_then_elim.step1_region`, `territory.square_region_then_elim.step2_elim`.
+    - Hexagonal: `territory.forced_elimination.simple_hexagonal`, `territory.hex_region_then_elim.step1_region`, `territory.hex_region_then_elim.step2_elim`.
+  - TS↔Python parity for these vectors via `tests/contracts/contractVectorRunner.test.ts` and `ai-service/tests/contracts/test_contract_vectors.py`, plus backend↔sandbox parity in `tests/unit/TerritoryDecisions.SquareRegionThenElim.GameEngine_vs_Sandbox.test.ts` and `tests/unit/TerritoryDecisions.HexRegionThenElim.GameEngine_vs_Sandbox.test.ts` (skipped when the orchestrator adapter is enabled).
+  - Region-order (Q20) two-region scenario `Rules_12_3_region_order_choice_two_regions_square8` is captured as a multi-step v2 sequence tagged `sequence:square_territory.two_regions_then_elim` (vectors `territory.square_two_regions_then_elim.step1_regionB`, `territory.square_two_regions_then_elim.step2_regionA`, `territory.square_two_regions_then_elim.step3_elim` in `tests/fixtures/contract-vectors/v2/territory.vectors.json`), treated as the TS↔Python SSOT for this scenario via the same contract runners, and mirrored at the host level by `tests/unit/TerritoryDecisions.GameEngine_vs_Sandbox.test.ts` and `tests/unit/TerritoryDecisions.SquareTwoRegionThenElim.GameEngine_vs_Sandbox.test.ts` (diagnostic parity suites skipped under the orchestrator adapter by default).
+  - Hexagonal multi-region Q20/Q23-style behaviour is likewise captured as a multi-step v2 sequence tagged `sequence:hex_territory.two_regions_then_elim` (vectors `territory.hex_two_regions_then_elim.step1_regionB`, `territory.hex_two_regions_then_elim.step2_regionA`, `territory.hex_two_regions_then_elim.step3_elim` in `tests/fixtures/contract-vectors/v2/territory.vectors.json`), forming part of the TS↔Python SSOT for advanced hex territory flows via the shared contract runners, and mirrored at the host level by `tests/unit/TerritoryDecisions.HexTwoRegionThenElim.GameEngine_vs_Sandbox.test.ts` (diagnostic parity suite, skipped under the orchestrator adapter by default).
 
 **R050–R052 BoardState/GameState fields and invariants (HC)**
 
@@ -458,6 +464,48 @@ Status legend:
 - **Supporting / tests**
   - Invariant tests and parity comparisons across TS and Python backends.
   - Tests that assert `S` monotonicity and hash equality across move application.
+
+**Territory contract index (TS↔Python SSOT sequences)**
+
+- **Primary implementation**
+  - v2 contract vectors under `tests/fixtures/contract-vectors/v2/territory.vectors.json` and related bundles, grouped by `sequence:*_territory.*` tags and exercised by the shared contract runner (`tests/contracts/contractVectorRunner.test.ts`) plus the Python contract tests (`ai-service/tests/contracts/test_contract_vectors.py`).
+- **Supporting / tests**
+  - Combined index documented in `RULES_SCENARIO_MATRIX.md` under “Territory contract index”, currently including:
+    - `sequence:square_territory.region_then_elim` → `territory.square_region_then_elim.step1_region`, `territory.square_region_then_elim.step2_elim` with host parity in `tests/unit/TerritoryDecisions.SquareRegionThenElim.GameEngine_vs_Sandbox.test.ts`.
+    - `sequence:hex_territory.region_then_elim` → `territory.hex_region_then_elim.step1_region`, `territory.hex_region_then_elim.step2_elim` with host parity in `tests/unit/TerritoryDecisions.HexRegionThenElim.GameEngine_vs_Sandbox.test.ts`.
+    - `sequence:square_territory.two_regions_then_elim` → `territory.square_two_regions_then_elim.step1_regionB`, `territory.square_two_regions_then_elim.step2_regionA`, `territory.square_two_regions_then_elim.step3_elim` with host parity in `tests/unit/TerritoryDecisions.GameEngine_vs_Sandbox.test.ts` and `tests/unit/TerritoryDecisions.SquareTwoRegionThenElim.GameEngine_vs_Sandbox.test.ts`.
+    - `sequence:square19_territory.two_regions_then_elim` → `territory.square19_two_regions_then_elim.step1_regionB`, `territory.square19_two_regions_then_elim.step2_regionA`, `territory.square19_two_regions_then_elim.step3_elim` with host parity in `tests/unit/TerritoryDecisions.Square19TwoRegionThenElim.GameEngine_vs_Sandbox.test.ts`.
+    - `sequence:hex_territory.two_regions_then_elim` → `territory.hex_two_regions_then_elim.step1_regionB`, `territory.hex_two_regions_then_elim.step2_regionA`, `territory.hex_two_regions_then_elim.step3_elim` with host parity in `tests/unit/TerritoryDecisions.HexTwoRegionThenElim.GameEngine_vs_Sandbox.test.ts`.
+- **Notes**
+  - These sequences collectively act as the SSOT for advanced territory and self-elimination flows (single-region and multi-region) across square8, square19, and hex; any new high-leverage territory scenarios should either extend this table or add new sequences in the same style, with matching backend↔sandbox parity tests.
+  - For mixed line+territory flows (Q7/Q20 overlength line followed by a single-cell region) on all three board families, the corresponding SSOT multi-phase turn vectors are:
+    - `sequence:turn.line_then_territory.square8`
+    - `sequence:turn.line_then_territory.square19`
+    - `sequence:turn.line_then_territory.hex`
+      These live in `tests/fixtures/contract-vectors/v2/multi_phase_turn.vectors.json` and are tied to orchestrator-backed multi-phase tests plus Python line+territory parity/snapshot suites (see `RULES_SCENARIO_MATRIX.md` row `combined_line_then_territory_full_sequence`).
+
+**Multi-region territory & mixed line+territory index (TS↔Python SSOT sequences)**
+
+- **Primary implementation**
+  - Mixed multi-region line+territory turn sequences are expressed as v2 multi-phase vectors tagged:
+    - `sequence:turn.line_then_territory.multi_region.square8`
+    - `sequence:turn.line_then_territory.multi_region.square19`
+    - `sequence:turn.line_then_territory.multi_region.hex`
+  - These vectors live in `tests/fixtures/contract-vectors/v2/multi_phase_turn.vectors.json` under ids such as:
+    - `multi_phase.line_then_multi_region_territory.square8.step1_line/step2_regionB/step3_regionA`,
+    - `multi_phase.line_then_multi_region_territory.square19.*`,
+    - `multi_phase.line_then_multi_region_territory.hex.*`,
+      and are marked with `skip` so the generic multi-step runner treats them as metadata rather than executable sequences.
+- **Supporting / tests**
+  - Backend ↔ sandbox host parity for these mixed multi-region flows is enforced by:
+    - `tests/parity/Backend_vs_Sandbox.CaptureAndTerritoryParity.test.ts`:
+      - `combined line + multi-region territory parity (line then two regions, square8)`,
+      - `combined line + multi-region territory parity (line then two regions, square19)`,
+      - `combined line + multi-region territory parity (line then two regions, hexagonal)`.
+  - Python parity hooks:
+    - `ai-service/tests/parity/test_line_and_territory_scenario_parity.py::test_turn_line_then_territory_sequence_metadata` asserts that the above sequence ids exist and are tagged correctly in `multi_phase_turn.vectors.json`.
+- **Notes**
+  - Together, these mixed multi-region sequences and parity tests form the SSOT for Q20/Q23-style “line then multi-region territory” behaviour across square8, square19, and hex. New multi-region mixed scenarios should extend this index and add corresponding host parity + metadata tests rather than introducing ad-hoc test-only flows.
 
 **Unmapped / partially mapped rules in this cluster**
 

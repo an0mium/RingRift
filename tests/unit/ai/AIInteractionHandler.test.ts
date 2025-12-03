@@ -11,6 +11,7 @@ import {
 } from '../../../src/shared/types/game';
 import { globalAIEngine } from '../../../src/server/game/ai/AIEngine';
 import { logger } from '../../../src/server/utils/logger';
+import { createCancellationSource } from '../../../src/shared/utils/cancellation';
 
 /**
  * Unit tests for AIInteractionHandler
@@ -116,6 +117,19 @@ describe('AIInteractionHandler', () => {
     expect(selected).toBe('option_2_min_collapse_no_elimination');
   });
 
+  it('falls back to first option when option 2 is not available for line_reward_option', async () => {
+    const choice: LineRewardChoice = {
+      ...baseChoice,
+      type: 'line_reward_option',
+      options: ['option_1_collapse_all_and_eliminate'],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as LineRewardChoice['options'][number];
+
+    expect(selected).toBe('option_1_collapse_all_and_eliminate');
+  });
+
   it('chooses stack with smallest capHeight for ring_elimination choices', async () => {
     const choice: RingEliminationChoice = {
       ...baseChoice,
@@ -151,6 +165,167 @@ describe('AIInteractionHandler', () => {
     expect(selected.stackPosition).toEqual({ x: 1, y: 1 });
   });
 
+  it('exercises totalHeight tie-breaking when later option has smaller totalHeight with same capHeight', async () => {
+    const choice: RingEliminationChoice = {
+      ...baseChoice,
+      type: 'ring_elimination',
+      options: [
+        {
+          moveId: 'm-a',
+          stackPosition: { x: 0, y: 0 },
+          capHeight: 2,
+          totalHeight: 10, // First option becomes best
+        },
+        {
+          moveId: 'm-b',
+          stackPosition: { x: 1, y: 1 },
+          capHeight: 2, // Same capHeight
+          totalHeight: 5, // Smaller totalHeight - should become new best (line 319)
+        },
+      ],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as RingEliminationChoice['options'][number];
+
+    expect(selected.capHeight).toBe(2);
+    expect(selected.totalHeight).toBe(5);
+    expect(selected.stackPosition).toEqual({ x: 1, y: 1 });
+  });
+
+  it('threads a canceled session token into globalAIEngine.getRingEliminationChoice for ring_elimination', async () => {
+    const choice: RingEliminationChoice = {
+      ...baseChoice,
+      type: 'ring_elimination',
+      options: [
+        {
+          moveId: 'm-a',
+          stackPosition: { x: 0, y: 0 },
+          capHeight: 3,
+          totalHeight: 5,
+        },
+        {
+          moveId: 'm-b',
+          stackPosition: { x: 1, y: 1 },
+          capHeight: 1,
+          totalHeight: 4,
+        },
+      ],
+    };
+
+    const parentSource = createCancellationSource();
+    parentSource.cancel('session_cleanup');
+
+    const handlerWithToken = new AIInteractionHandler(parentSource.token);
+
+    const mockEngine = globalAIEngine as unknown as {
+      getRingEliminationChoice: jest.Mock;
+    };
+
+    mockEngine.getRingEliminationChoice.mockResolvedValue(choice.options[1]);
+
+    const response = await handlerWithToken.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as RingEliminationChoice['options'][number];
+
+    expect(mockEngine.getRingEliminationChoice).toHaveBeenCalledTimes(1);
+    const callArgs = mockEngine.getRingEliminationChoice.mock.calls[0];
+    const requestOptions = callArgs[3];
+
+    expect(requestOptions).toBeDefined();
+    expect(requestOptions.token).toBeDefined();
+    expect(requestOptions.token.isCanceled).toBe(true);
+
+    expect(selected).toEqual(choice.options[1]);
+  });
+
+  it('threads a canceled session token into globalAIEngine.getLineOrderChoice for line_order', async () => {
+    const positionsA: Position[] = [
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+      { x: 2, y: 2 },
+    ];
+    const positionsB: Position[] = [
+      { x: 3, y: 3 },
+      { x: 4, y: 4 },
+    ];
+
+    const choice: LineOrderChoice = {
+      ...baseChoice,
+      type: 'line_order',
+      options: [
+        { moveId: 'm-short', lineId: 'short', markerPositions: positionsB },
+        { moveId: 'm-long', lineId: 'long', markerPositions: positionsA },
+      ],
+    };
+
+    const parentSource = createCancellationSource();
+    parentSource.cancel('session_cleanup');
+
+    const handlerWithToken = new AIInteractionHandler(parentSource.token);
+
+    const mockEngine = globalAIEngine as unknown as {
+      getLineOrderChoice: jest.Mock;
+    };
+
+    mockEngine.getLineOrderChoice.mockResolvedValue(choice.options[0]);
+
+    const response = await handlerWithToken.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as LineOrderChoice['options'][number];
+
+    expect(mockEngine.getLineOrderChoice).toHaveBeenCalledTimes(1);
+    const callArgs = mockEngine.getLineOrderChoice.mock.calls[0];
+    const requestOptions = callArgs[3];
+
+    expect(requestOptions).toBeDefined();
+    expect(requestOptions.token).toBeDefined();
+    expect(requestOptions.token.isCanceled).toBe(true);
+
+    expect(selected.lineId).toBe('short');
+  });
+
+  it('threads a canceled session token into globalAIEngine.getCaptureDirectionChoice for capture_direction', async () => {
+    const choice: CaptureDirectionChoice = {
+      ...baseChoice,
+      type: 'capture_direction',
+      options: [
+        {
+          targetPosition: { x: 3, y: 3 },
+          landingPosition: { x: 5, y: 5 },
+          capturedCapHeight: 2,
+        },
+        {
+          targetPosition: { x: 4, y: 4 },
+          landingPosition: { x: 6, y: 6 },
+          capturedCapHeight: 3,
+        },
+      ],
+    };
+
+    const parentSource = createCancellationSource();
+    parentSource.cancel('session_cleanup');
+
+    const handlerWithToken = new AIInteractionHandler(parentSource.token);
+
+    const mockEngine = globalAIEngine as unknown as {
+      getCaptureDirectionChoice: jest.Mock;
+    };
+
+    mockEngine.getCaptureDirectionChoice.mockResolvedValue(choice.options[0]);
+
+    const response = await handlerWithToken.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as CaptureDirectionChoice['options'][number];
+
+    expect(mockEngine.getCaptureDirectionChoice).toHaveBeenCalledTimes(1);
+    const callArgs = mockEngine.getCaptureDirectionChoice.mock.calls[0];
+    const requestOptions = callArgs[3];
+
+    expect(requestOptions).toBeDefined();
+    expect(requestOptions.token).toBeDefined();
+    expect(requestOptions.token.isCanceled).toBe(true);
+
+    expect(selected).toBe(choice.options[0]);
+  });
+
   it('chooses largest region for region_order choices', async () => {
     const choice: RegionOrderChoice = {
       ...baseChoice,
@@ -178,6 +353,55 @@ describe('AIInteractionHandler', () => {
     expect(selected.size).toBe(7);
   });
 
+  it('threads a canceled session token into globalAIEngine.getRegionOrderChoice for region_order', async () => {
+    const choice: RegionOrderChoice = {
+      ...baseChoice,
+      type: 'region_order',
+      options: [
+        {
+          moveId: 'm-small',
+          regionId: 'small',
+          size: 3,
+          representativePosition: { x: 0, y: 0 },
+        },
+        {
+          moveId: 'm-large',
+          regionId: 'large',
+          size: 7,
+          representativePosition: { x: 5, y: 5 },
+        },
+      ],
+    };
+
+    const parentSource = createCancellationSource();
+    // Cancel before the AI-backed choice is requested to simulate a
+    // terminated session.
+    parentSource.cancel('session_cleanup');
+
+    const handlerWithToken = new AIInteractionHandler(parentSource.token);
+
+    const mockEngine = globalAIEngine as unknown as {
+      getRegionOrderChoice: jest.Mock;
+    };
+
+    mockEngine.getRegionOrderChoice.mockResolvedValue(choice.options[1]);
+
+    const response = await handlerWithToken.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as RegionOrderChoice['options'][number];
+
+    expect(mockEngine.getRegionOrderChoice).toHaveBeenCalledTimes(1);
+    const callArgs = mockEngine.getRegionOrderChoice.mock.calls[0];
+    const requestOptions = callArgs[3];
+
+    expect(requestOptions).toBeDefined();
+    expect(requestOptions.token).toBeDefined();
+    expect(requestOptions.token.isCanceled).toBe(true);
+
+    // Despite the canceled token, a valid option returned by the service
+    // should still be honoured by the handler.
+    expect(selected.regionId).toBe('large');
+  });
+
   it('prefers higher capturedCapHeight for capture_direction choices, tie-breaking by distance to centre', async () => {
     const choice: CaptureDirectionChoice = {
       ...baseChoice,
@@ -201,6 +425,111 @@ describe('AIInteractionHandler', () => {
 
     expect(selected.capturedCapHeight).toBe(3);
     expect(selected.targetPosition).toEqual({ x: 4, y: 4 });
+  });
+
+  it('returns the only option for capture_direction with single option', async () => {
+    const choice: CaptureDirectionChoice = {
+      ...baseChoice,
+      type: 'capture_direction',
+      options: [
+        {
+          targetPosition: { x: 3, y: 3 },
+          landingPosition: { x: 5, y: 5 },
+          capturedCapHeight: 2,
+        },
+      ],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as CaptureDirectionChoice['options'][number];
+
+    expect(selected.capturedCapHeight).toBe(2);
+  });
+
+  it('tie-breaks capture_direction by distance when capturedCapHeight is equal', async () => {
+    // The centre is estimated as the first option's landing position (5,5),
+    // so the second option with a landing closer to (5,5) will be preferred
+    const choice: CaptureDirectionChoice = {
+      ...baseChoice,
+      type: 'capture_direction',
+      options: [
+        {
+          targetPosition: { x: 3, y: 3 },
+          landingPosition: { x: 5, y: 5 }, // This becomes the "centre" - distance 0
+          capturedCapHeight: 3,
+        },
+        {
+          targetPosition: { x: 4, y: 4 },
+          landingPosition: { x: 4, y: 4 }, // Distance from (5,5) = 2
+          capturedCapHeight: 3,
+        },
+      ],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as CaptureDirectionChoice['options'][number];
+
+    expect(selected.capturedCapHeight).toBe(3);
+    // First option has distance 0 from centre, second has distance 2, so first wins
+    expect(selected.targetPosition).toEqual({ x: 3, y: 3 });
+  });
+
+  it('exercises distance tie-breaking when third option is closer than second with same capHeight', async () => {
+    // The centre is estimated as the first option's landing position (5,5).
+    // Option 2 becomes best (higher capHeight), then option 3 has same capHeight
+    // but closer landing position, so it should become the new best.
+    const choice: CaptureDirectionChoice = {
+      ...baseChoice,
+      type: 'capture_direction',
+      options: [
+        {
+          targetPosition: { x: 1, y: 1 },
+          landingPosition: { x: 5, y: 5 }, // Centre is (5,5)
+          capturedCapHeight: 2,
+        },
+        {
+          targetPosition: { x: 2, y: 2 },
+          landingPosition: { x: 10, y: 10 }, // Distance from (5,5) = 10
+          capturedCapHeight: 3,
+        },
+        {
+          targetPosition: { x: 3, y: 3 },
+          landingPosition: { x: 6, y: 5 }, // Distance from (5,5) = 1
+          capturedCapHeight: 3,
+        },
+      ],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as CaptureDirectionChoice['options'][number];
+
+    expect(selected.capturedCapHeight).toBe(3);
+    // Third option should win because it has same capHeight as second but closer to centre
+    expect(selected.targetPosition).toEqual({ x: 3, y: 3 });
+  });
+
+  it('handles positions with z coordinate for capture_direction', async () => {
+    const choice: CaptureDirectionChoice = {
+      ...baseChoice,
+      type: 'capture_direction',
+      options: [
+        {
+          targetPosition: { x: 3, y: 3, z: 1 } as Position,
+          landingPosition: { x: 5, y: 5, z: 1 } as Position,
+          capturedCapHeight: 2,
+        },
+        {
+          targetPosition: { x: 4, y: 4, z: 0 } as Position,
+          landingPosition: { x: 6, y: 6, z: 0 } as Position,
+          capturedCapHeight: 3,
+        },
+      ],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as CaptureDirectionChoice['options'][number];
+
+    expect(selected.capturedCapHeight).toBe(3);
   });
 
   it('uses AI service line_reward_option when it returns a valid option', async () => {
@@ -290,7 +619,8 @@ describe('AIInteractionHandler', () => {
     expect(mockEngine.getLineOrderChoice).toHaveBeenCalledWith(
       choice.playerNumber,
       null,
-      choice.options
+      choice.options,
+      undefined
     );
     expect(selected.lineId).toBe('short');
   });
@@ -368,7 +698,8 @@ describe('AIInteractionHandler', () => {
     expect(mockEngine.getCaptureDirectionChoice).toHaveBeenCalledWith(
       choice.playerNumber,
       null,
-      choice.options
+      choice.options,
+      undefined
     );
     expect(selected).toBe(choice.options[0]);
   });
@@ -431,5 +762,304 @@ describe('AIInteractionHandler', () => {
         playerNumber: baseChoice.playerNumber,
       })
     );
+  });
+
+  describe('AI service error fallback', () => {
+    it('falls back to local heuristic when AI service throws for line_order', async () => {
+      const positionsA: Position[] = [
+        { x: 0, y: 0 },
+        { x: 1, y: 1 },
+        { x: 2, y: 2 },
+      ];
+      const positionsB: Position[] = [
+        { x: 3, y: 3 },
+        { x: 4, y: 4 },
+      ];
+
+      const choice: LineOrderChoice = {
+        ...baseChoice,
+        type: 'line_order',
+        options: [
+          { moveId: 'm-short', lineId: 'short', markerPositions: positionsB },
+          { moveId: 'm-long', lineId: 'long', markerPositions: positionsA },
+        ],
+      };
+
+      const mockEngine = globalAIEngine as unknown as {
+        getLineOrderChoice: jest.Mock;
+      };
+
+      mockEngine.getLineOrderChoice.mockRejectedValue(new Error('Service unavailable'));
+
+      const response = await handler.requestChoice(choice as PlayerChoice);
+      const selected = response.selectedOption as LineOrderChoice['options'][number];
+
+      // Should fall back to local heuristic (prefer longer line)
+      expect(selected.lineId).toBe('long');
+      expect(logger.warn).toHaveBeenCalledWith(
+        'AI service unavailable for line_order; falling back to local heuristic',
+        expect.objectContaining({
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+        })
+      );
+    });
+
+    it('falls back to local heuristic when AI service throws for line_reward_option', async () => {
+      const choice: LineRewardChoice = {
+        ...baseChoice,
+        type: 'line_reward_option',
+        options: ['option_1_collapse_all_and_eliminate', 'option_2_min_collapse_no_elimination'],
+      };
+
+      const mockEngine = globalAIEngine as unknown as {
+        getLineRewardChoice: jest.Mock;
+      };
+
+      mockEngine.getLineRewardChoice.mockRejectedValue(new Error('Service unavailable'));
+
+      const response = await handler.requestChoice(choice as PlayerChoice);
+      const selected = response.selectedOption as LineRewardChoice['options'][number];
+
+      // Should fall back to local heuristic (prefer option 2)
+      expect(selected).toBe('option_2_min_collapse_no_elimination');
+      expect(logger.warn).toHaveBeenCalledWith(
+        'AI service unavailable for line_reward_option; falling back to local heuristic',
+        expect.objectContaining({
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+        })
+      );
+    });
+
+    it('falls back to local heuristic when AI service throws for ring_elimination', async () => {
+      const choice: RingEliminationChoice = {
+        ...baseChoice,
+        type: 'ring_elimination',
+        options: [
+          {
+            moveId: 'm-a',
+            stackPosition: { x: 0, y: 0 },
+            capHeight: 3,
+            totalHeight: 5,
+          },
+          {
+            moveId: 'm-b',
+            stackPosition: { x: 1, y: 1 },
+            capHeight: 1,
+            totalHeight: 4,
+          },
+        ],
+      };
+
+      const mockEngine = globalAIEngine as unknown as {
+        getRingEliminationChoice: jest.Mock;
+      };
+
+      mockEngine.getRingEliminationChoice.mockRejectedValue(new Error('Service unavailable'));
+
+      const response = await handler.requestChoice(choice as PlayerChoice);
+      const selected = response.selectedOption as RingEliminationChoice['options'][number];
+
+      // Should fall back to local heuristic (prefer smallest capHeight)
+      expect(selected.capHeight).toBe(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'AI service unavailable for ring_elimination; falling back to local heuristic',
+        expect.objectContaining({
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+        })
+      );
+    });
+
+    it('falls back to local heuristic when AI service throws for region_order', async () => {
+      const choice: RegionOrderChoice = {
+        ...baseChoice,
+        type: 'region_order',
+        options: [
+          {
+            moveId: 'm-small',
+            regionId: 'small',
+            size: 3,
+            representativePosition: { x: 0, y: 0 },
+          },
+          {
+            moveId: 'm-large',
+            regionId: 'large',
+            size: 7,
+            representativePosition: { x: 5, y: 5 },
+          },
+        ],
+      };
+
+      const mockEngine = globalAIEngine as unknown as {
+        getRegionOrderChoice: jest.Mock;
+      };
+
+      mockEngine.getRegionOrderChoice.mockRejectedValue(new Error('Service unavailable'));
+
+      const response = await handler.requestChoice(choice as PlayerChoice);
+      const selected = response.selectedOption as RegionOrderChoice['options'][number];
+
+      // Should fall back to local heuristic (prefer largest region)
+      expect(selected.regionId).toBe('large');
+      expect(logger.warn).toHaveBeenCalledWith(
+        'AI service unavailable for region_order; falling back to local heuristic',
+        expect.objectContaining({
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+        })
+      );
+    });
+
+    it('falls back to local heuristic when AI service throws for capture_direction', async () => {
+      const choice: CaptureDirectionChoice = {
+        ...baseChoice,
+        type: 'capture_direction',
+        options: [
+          {
+            targetPosition: { x: 3, y: 3 },
+            landingPosition: { x: 5, y: 5 },
+            capturedCapHeight: 2,
+          },
+          {
+            targetPosition: { x: 4, y: 4 },
+            landingPosition: { x: 6, y: 6 },
+            capturedCapHeight: 3,
+          },
+        ],
+      };
+
+      const mockEngine = globalAIEngine as unknown as {
+        getCaptureDirectionChoice: jest.Mock;
+      };
+
+      mockEngine.getCaptureDirectionChoice.mockRejectedValue(new Error('Service unavailable'));
+
+      const response = await handler.requestChoice(choice as PlayerChoice);
+      const selected = response.selectedOption as CaptureDirectionChoice['options'][number];
+
+      // Should fall back to local heuristic (prefer higher capHeight)
+      expect(selected.capturedCapHeight).toBe(3);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'AI service unavailable for capture_direction; falling back to local heuristic',
+        expect.objectContaining({
+          gameId: choice.gameId,
+          playerNumber: choice.playerNumber,
+          choiceId: choice.id,
+        })
+      );
+    });
+  });
+
+  describe('empty options error handling', () => {
+    it('throws and logs error for line_order with empty options', async () => {
+      const choice: LineOrderChoice = {
+        ...baseChoice,
+        type: 'line_order',
+        options: [],
+      };
+
+      await expect(handler.requestChoice(choice as PlayerChoice)).rejects.toThrow(
+        'PlayerChoice[line_order] must have at least one option'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'AIInteractionHandler received line_order choice with no options',
+        expect.objectContaining({
+          choiceId: choice.id,
+          choiceType: choice.type,
+          playerNumber: choice.playerNumber,
+        })
+      );
+    });
+
+    it('throws and logs error for line_reward_option with empty options', async () => {
+      const choice: LineRewardChoice = {
+        ...baseChoice,
+        type: 'line_reward_option',
+        options: [],
+      };
+
+      await expect(handler.requestChoice(choice as PlayerChoice)).rejects.toThrow(
+        'PlayerChoice[line_reward_option] must have at least one option'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'AIInteractionHandler received line_reward_option choice with no options',
+        expect.objectContaining({
+          choiceId: choice.id,
+          choiceType: choice.type,
+          playerNumber: choice.playerNumber,
+        })
+      );
+    });
+
+    it('throws and logs error for ring_elimination with empty options', async () => {
+      const choice: RingEliminationChoice = {
+        ...baseChoice,
+        type: 'ring_elimination',
+        options: [],
+      };
+
+      await expect(handler.requestChoice(choice as PlayerChoice)).rejects.toThrow(
+        'PlayerChoice[ring_elimination] must have at least one option'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'AIInteractionHandler received ring_elimination choice with no options',
+        expect.objectContaining({
+          choiceId: choice.id,
+          choiceType: choice.type,
+          playerNumber: choice.playerNumber,
+        })
+      );
+    });
+
+    it('throws and logs error for region_order with empty options', async () => {
+      const choice: RegionOrderChoice = {
+        ...baseChoice,
+        type: 'region_order',
+        options: [],
+      };
+
+      await expect(handler.requestChoice(choice as PlayerChoice)).rejects.toThrow(
+        'PlayerChoice[region_order] must have at least one option'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'AIInteractionHandler received region_order choice with no options',
+        expect.objectContaining({
+          choiceId: choice.id,
+          choiceType: choice.type,
+          playerNumber: choice.playerNumber,
+        })
+      );
+    });
+
+    it('throws and logs error for capture_direction with empty options', async () => {
+      const choice: CaptureDirectionChoice = {
+        ...baseChoice,
+        type: 'capture_direction',
+        options: [],
+      };
+
+      await expect(handler.requestChoice(choice as PlayerChoice)).rejects.toThrow(
+        'PlayerChoice[capture_direction] must have at least one option'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'AIInteractionHandler received capture_direction choice with no options',
+        expect.objectContaining({
+          choiceId: choice.id,
+          choiceType: choice.type,
+          playerNumber: choice.playerNumber,
+        })
+      );
+    });
   });
 });

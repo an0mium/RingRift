@@ -11,7 +11,6 @@ import type {
   RingStack,
   LineInfo,
   RegionOrderChoice,
-  GameHistoryEntry,
   Territory,
   MarkerPathHelpers,
   LocalAIRng,
@@ -105,6 +104,10 @@ import {
  * - Forced elimination when a player is fully blocked with no rings in hand.
  * - Territory disconnection chain reactions and victory checks (ring
  *   elimination + territory control) per the compact rules.
+ *
+ * It is an orchestration/UX host over the shared engine and must not
+ * introduce new rules semantics. For allowed rules surfaces, see
+ * `docs/RULES_ENGINE_SURFACE_AUDIT.md` (§0 Rules Entry Surfaces).
  */
 
 export type SandboxPlayerKind = PlayerType; // 'human' | 'ai'
@@ -931,6 +934,44 @@ export class ClientSandboxEngine {
   }
 
   /**
+   * Helper for chain-capture UX: derive the current chain origin position and
+   * the set of legal continuation landing positions for the current player,
+   * based on canonical continue_capture_segment moves from the orchestrator.
+   *
+   * Returns null when the game is not in chain_capture phase or when no
+   * continuation moves exist.
+   */
+  public getChainCaptureContextForCurrentPlayer(): { from: Position; landings: Position[] } | null {
+    const state = this.getGameState();
+    if (state.gameStatus !== 'active' || state.currentPhase !== 'chain_capture') {
+      return null;
+    }
+
+    const moves = this.getValidMoves(state.currentPlayer).filter(
+      (m) => m.type === 'continue_capture_segment'
+    );
+
+    if (moves.length === 0) {
+      return null;
+    }
+
+    const from = moves[0].from as Position;
+    const landings: Position[] = [];
+    const seen = new Set<string>();
+
+    for (const move of moves) {
+      const to = move.to as Position | undefined;
+      if (!to) continue;
+      const key = positionToString(to);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      landings.push(to);
+    }
+
+    return { from, landings };
+  }
+
+  /**
    * Clear any internal movement selection state. This is used by the sandbox
    * UI when it wants to discard a previous selection and treat the next click
    * as a fresh source-selection, keeping BoardView highlights and engine
@@ -955,7 +996,9 @@ export class ClientSandboxEngine {
       return;
     }
 
-    if (this.gameState.currentPhase === 'ring_placement') {
+    const phase = this.gameState.currentPhase;
+
+    if (phase === 'ring_placement') {
       const beforeState = this.getGameState();
       const playerNumber = beforeState.currentPlayer;
 
@@ -991,7 +1034,7 @@ export class ClientSandboxEngine {
       }
 
       this.appendHistoryEntry(beforeState, move);
-    } else if (this.gameState.currentPhase === 'movement') {
+    } else if (phase === 'movement') {
       // Human-driven movement click. Record canonical history via the
       // movement engine hooks without interfering with canonical replays.
       this._movementInvocationContext = 'human';
@@ -1000,6 +1043,8 @@ export class ClientSandboxEngine {
       } finally {
         this._movementInvocationContext = null;
       }
+    } else if (phase === 'chain_capture') {
+      await this.handleChainCaptureClick(pos);
     }
   }
 
@@ -1812,11 +1857,32 @@ export class ClientSandboxEngine {
     board: BoardState = this.gameState.board
   ): void {
     const key = positionToString(position);
+    const wasCollapsed = board.collapsedSpaces.has(key);
+
     // When a marker collapses to territory, the cell becomes
     // exclusive territory: no stacks or markers may remain.
     board.markers.delete(key);
     board.stacks.delete(key);
     board.collapsedSpaces.set(key, playerNumber);
+
+    // Mirror shared-engine semantics: any newly-collapsed space created
+    // via movement or capture should increment the owning player's
+    // territorySpaces exactly once.
+    if (!wasCollapsed) {
+      const updatedPlayers = this.gameState.players.map((p) =>
+        p.playerNumber === playerNumber
+          ? {
+              ...p,
+              territorySpaces: (p.territorySpaces ?? 0) + 1,
+            }
+          : p
+      );
+
+      this.gameState = {
+        ...this.gameState,
+        players: updatedPlayers,
+      };
+    }
   }
 
   /**
@@ -1951,6 +2017,44 @@ export class ClientSandboxEngine {
     });
 
     return selected ?? captureOptions[0];
+  }
+
+  /**
+   * Handle a human click during the chain_capture phase by mapping the clicked
+   * landing position onto a canonical continue_capture_segment Move from the
+   * orchestrator adapter and applying it via applyCanonicalMove.
+   */
+  private async handleChainCaptureClick(position: Position): Promise<void> {
+    const state = this.getGameState();
+
+    if (state.gameStatus !== 'active' || state.currentPhase !== 'chain_capture') {
+      return;
+    }
+
+    const adapter = this.getOrchestratorAdapter();
+    const allMoves = adapter.getValidMoves();
+    if (!allMoves || allMoves.length === 0) {
+      return;
+    }
+
+    const currentPlayer = state.currentPlayer;
+    const targetKey = positionToString(position);
+
+    const matching = allMoves.filter((m) => {
+      if (m.player !== currentPlayer) return false;
+      if (m.type !== 'continue_capture_segment') return false;
+      if (!m.to) return false;
+      return positionToString(m.to as Position) === targetKey;
+    });
+
+    if (matching.length === 0) {
+      // Click was not on a valid continuation landing; ignore.
+      return;
+    }
+
+    const chosen = matching[0];
+
+    await this.applyCanonicalMove(chosen);
   }
 
   private async handleMovementClick(position: Position): Promise<void> {
@@ -2733,8 +2837,10 @@ export class ClientSandboxEngine {
       // Track collapsed marker positions for sandbox-only visual cues. When
       // the shared helper reports explicit collapsedMarkers, prefer those;
       // otherwise fall back to the original line geometry when available.
-      if (outcome.collapsedMarkers && outcome.collapsedMarkers.length > 0) {
-        for (const pos of outcome.collapsedMarkers) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing optional property from shared helper
+      const outcomeAny = outcome as any;
+      if (outcomeAny.collapsedMarkers && outcomeAny.collapsedMarkers.length > 0) {
+        for (const pos of outcomeAny.collapsedMarkers as Position[]) {
           recentLineKeys.add(positionToString(pos));
         }
       } else if (line && line.positions && line.positions.length > 0) {

@@ -673,5 +673,616 @@ describe('GamePersistenceService', () => {
       expect(result.board.markers).toBeInstanceOf(Map);
       expect(result.board.collapsedSpaces).toBeInstanceOf(Map);
     });
+
+    it('should handle state with non-array board properties', () => {
+      const serialized = JSON.stringify({
+        id: 'game-123',
+        board: {
+          stacks: {},
+          markers: {},
+          collapsedSpaces: {},
+          territories: {},
+        },
+      });
+
+      const result = GamePersistenceService.deserializeGameState(serialized);
+
+      // Should pass through non-array values unchanged
+      expect(result.board.stacks).not.toBeInstanceOf(Map);
+    });
+
+    it('should handle state without board property', () => {
+      const serialized = JSON.stringify({
+        id: 'game-123',
+        turnNumber: 5,
+      });
+
+      const result = GamePersistenceService.deserializeGameState(serialized);
+
+      expect(result.id).toBe('game-123');
+      expect(result.turnNumber).toBe(5);
+    });
+  });
+
+  describe('createGame error handling', () => {
+    it('should log error and rethrow on database error', async () => {
+      const dbError = new Error('Database constraint violation');
+      mockPrisma.game.create.mockRejectedValue(dbError);
+
+      await expect(
+        GamePersistenceService.createGame({
+          boardType: 'square8',
+          maxPlayers: 2,
+          timeControl: { type: 'rapid', initialTime: 600000, increment: 0 },
+          isRated: true,
+        })
+      ).rejects.toThrow('Database constraint violation');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to create game in database',
+        expect.objectContaining({
+          error: 'Database constraint violation',
+        })
+      );
+    });
+  });
+
+  describe('loadGame error handling', () => {
+    it('should log error and rethrow on database error', async () => {
+      const dbError = new Error('Connection timeout');
+      mockPrisma.game.findUnique.mockRejectedValue(dbError);
+
+      await expect(GamePersistenceService.loadGame('game-123')).rejects.toThrow(
+        'Connection timeout'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to load game from database',
+        expect.objectContaining({
+          gameId: 'game-123',
+          error: 'Connection timeout',
+        })
+      );
+    });
+  });
+
+  describe('deserializeMove optional fields', () => {
+    it('should deserialize moveData with buildAmount and placedOnStack', async () => {
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { to: { x: 3, y: 3 } },
+          moveType: 'build_stack',
+          moveData: {
+            id: 'm1',
+            type: 'build_stack',
+            player: 1,
+            to: { x: 3, y: 3 },
+            buildAmount: 3,
+            placedOnStack: true,
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].buildAmount).toBe(3);
+      expect(result[0].placedOnStack).toBe(true);
+    });
+
+    it('should deserialize moveData with placementCount and stackMoved', async () => {
+      const mockStack = { position: { x: 1, y: 1 }, rings: [1, 1], controllingPlayer: 1 };
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { to: { x: 3, y: 3 } },
+          moveType: 'place_ring',
+          moveData: {
+            id: 'm1',
+            type: 'place_ring',
+            player: 1,
+            to: { x: 3, y: 3 },
+            placementCount: 2,
+            stackMoved: mockStack,
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result[0].placementCount).toBe(2);
+      expect(result[0].stackMoved).toEqual(mockStack);
+    });
+
+    it('should deserialize moveData with distance fields', async () => {
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { from: { x: 1, y: 1 }, to: { x: 3, y: 3 } },
+          moveType: 'move_stack',
+          moveData: {
+            id: 'm1',
+            type: 'move_stack',
+            player: 1,
+            from: { x: 1, y: 1 },
+            to: { x: 3, y: 3 },
+            minimumDistance: 2,
+            actualDistance: 4,
+            markerLeft: { x: 1, y: 1 },
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result[0].minimumDistance).toBe(2);
+      expect(result[0].actualDistance).toBe(4);
+      expect(result[0].markerLeft).toEqual({ x: 1, y: 1 });
+    });
+
+    it('should deserialize moveData with capture fields', async () => {
+      const capturedStack = { position: { x: 2, y: 2 }, rings: [2], controllingPlayer: 2 };
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { from: { x: 1, y: 1 }, to: { x: 3, y: 3 } },
+          moveType: 'overtaking_capture',
+          moveData: {
+            id: 'm1',
+            type: 'overtaking_capture',
+            player: 1,
+            from: { x: 1, y: 1 },
+            to: { x: 3, y: 3 },
+            captureType: 'overtaking',
+            captureTarget: { x: 2, y: 2 },
+            capturedStacks: [capturedStack],
+            captureChain: [{ x: 2, y: 2 }],
+            overtakenRings: [2, 2],
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result[0].captureType).toBe('overtaking');
+      expect(result[0].captureTarget).toEqual({ x: 2, y: 2 });
+      expect(result[0].capturedStacks).toEqual([capturedStack]);
+      expect(result[0].captureChain).toEqual([{ x: 2, y: 2 }]);
+      expect(result[0].overtakenRings).toEqual([2, 2]);
+    });
+
+    it('should deserialize moveData with line and territory fields', async () => {
+      const mockLine = {
+        positions: [
+          { x: 0, y: 0 },
+          { x: 1, y: 1 },
+        ],
+        player: 1,
+      };
+      const mockTerritory = { positions: [{ x: 2, y: 2 }], owner: 1 };
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { to: { x: 3, y: 3 } },
+          moveType: 'process_line',
+          moveData: {
+            id: 'm1',
+            type: 'process_line',
+            player: 1,
+            to: { x: 3, y: 3 },
+            formedLines: [mockLine],
+            collapsedMarkers: [{ x: 1, y: 1 }],
+            claimedTerritory: [mockTerritory],
+            disconnectedRegions: [mockTerritory],
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result[0].formedLines).toEqual([mockLine]);
+      expect(result[0].collapsedMarkers).toEqual([{ x: 1, y: 1 }]);
+      expect(result[0].claimedTerritory).toEqual([mockTerritory]);
+      expect(result[0].disconnectedRegions).toEqual([mockTerritory]);
+    });
+
+    it('should deserialize moveData with elimination fields', async () => {
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { to: { x: 3, y: 3 } },
+          moveType: 'eliminate_rings_from_stack',
+          moveData: {
+            id: 'm1',
+            type: 'eliminate_rings_from_stack',
+            player: 1,
+            to: { x: 3, y: 3 },
+            eliminatedRings: [{ player: 2, count: 3 }],
+            eliminationFromStack: {
+              position: { x: 3, y: 3 },
+              capHeight: 3,
+              totalHeight: 5,
+            },
+          },
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result[0].eliminatedRings).toEqual([{ player: 2, count: 3 }]);
+      expect(result[0].eliminationFromStack).toEqual({
+        position: { x: 3, y: 3 },
+        capHeight: 3,
+        totalHeight: 5,
+      });
+    });
+  });
+
+  describe('gameExists error handling', () => {
+    it('should return false when database query throws', async () => {
+      mockPrisma.game.findUnique.mockRejectedValue(new Error('DB error'));
+
+      const result = await GamePersistenceService.gameExists('game-123');
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('serializeMove decisionAutoResolved', () => {
+    it('should include decisionAutoResolved in serialized move when present', async () => {
+      const moveWithAutoResolved = {
+        id: 'm1',
+        type: 'process_territory_region' as const,
+        player: 1,
+        to: { x: 3, y: 3 },
+        timestamp: new Date(),
+        thinkTime: 100,
+        moveNumber: 1,
+        decisionAutoResolved: { reason: 'single_option', timestamp: Date.now() },
+      };
+
+      mockPrisma.move.create.mockResolvedValue({ id: 'm1' });
+
+      const saveMoveData: SaveMoveData = {
+        gameId: 'game-123',
+        playerId: 'player-1',
+        moveNumber: 1,
+        move: moveWithAutoResolved as any,
+      };
+
+      await GamePersistenceService.saveMove(saveMoveData);
+
+      const createCall = mockPrisma.move.create.mock.calls[0][0];
+      expect(createCall.data.moveData).toHaveProperty('decisionAutoResolved');
+    });
+  });
+
+  describe('getGameHistory error handling', () => {
+    it('should throw when database unavailable', async () => {
+      (getDatabaseClient as jest.Mock).mockReturnValue(null);
+
+      await expect(GamePersistenceService.getGameHistory('game-123')).rejects.toThrow(
+        'Database not available'
+      );
+    });
+
+    it('should log error and rethrow on database error', async () => {
+      const dbError = new Error('Query failed');
+      mockPrisma.move.findMany.mockRejectedValue(dbError);
+
+      await expect(GamePersistenceService.getGameHistory('game-123')).rejects.toThrow(
+        'Query failed'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get game history',
+        expect.objectContaining({
+          gameId: 'game-123',
+          error: 'Query failed',
+        })
+      );
+    });
+
+    it('should use fallback deserialization when moveData is missing', async () => {
+      // Move without moveData - triggers fallback path
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { to: { x: 3, y: 3 } },
+          moveType: 'place_ring',
+          moveData: null,
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result).toHaveLength(1);
+      expect(result[0].type).toBe('place_ring');
+      expect(result[0].to).toEqual({ x: 3, y: 3 });
+      expect(result[0].player).toBe(0); // Default when not in moveData
+    });
+
+    it('should include from position in fallback deserialization', async () => {
+      mockPrisma.move.findMany.mockResolvedValue([
+        {
+          id: 'm1',
+          gameId: 'game-123',
+          playerId: 'p1',
+          moveNumber: 1,
+          position: { from: { x: 2, y: 2 }, to: { x: 3, y: 3 } },
+          moveType: 'move_ring',
+          moveData: null,
+          timestamp: new Date(),
+        },
+      ]);
+
+      const result = await GamePersistenceService.getGameHistory('game-123');
+
+      expect(result[0].from).toEqual({ x: 2, y: 2 });
+    });
+  });
+
+  describe('finishGame error handling', () => {
+    it('should throw when database unavailable', async () => {
+      (getDatabaseClient as jest.Mock).mockReturnValue(null);
+
+      await expect(GamePersistenceService.finishGame('game-123', 'winner-id')).rejects.toThrow(
+        'Database not available'
+      );
+    });
+
+    it('should throw when game not found', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue(null);
+
+      await expect(GamePersistenceService.finishGame('game-123', 'winner-id')).rejects.toThrow(
+        'Game not found: game-123'
+      );
+    });
+
+    it('should log error and rethrow on database error during update', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({ gameState: '{}' });
+      mockPrisma.game.update.mockRejectedValue(new Error('Update failed'));
+
+      await expect(GamePersistenceService.finishGame('game-123', 'winner-id')).rejects.toThrow(
+        'Update failed'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to finish game',
+        expect.objectContaining({
+          gameId: 'game-123',
+          error: 'Update failed',
+        })
+      );
+    });
+
+    it('should log but not fail when RatingService.processGameResult throws', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({
+        player1Id: 'p1',
+        player2Id: 'p2',
+        player3Id: null,
+        player4Id: null,
+        isRated: true,
+        gameState: '{}',
+      });
+      mockPrisma.game.update.mockResolvedValue({ id: 'game-123' });
+
+      const processSpy = RatingService.processGameResult as jest.Mock;
+      processSpy.mockRejectedValue(new Error('Rating calculation failed'));
+
+      const result = await GamePersistenceService.finishGame('game-123', 'p1');
+
+      expect(result).toEqual({}); // Should succeed despite rating error
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to update ratings after game completion',
+        expect.objectContaining({
+          gameId: 'game-123',
+          error: 'Rating calculation failed',
+        })
+      );
+    });
+
+    it('should process ratings for 3-4 player games', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({
+        player1Id: 'p1',
+        player2Id: 'p2',
+        player3Id: 'p3',
+        player4Id: 'p4',
+        isRated: true,
+        gameState: '{}',
+      });
+      mockPrisma.game.update.mockResolvedValue({ id: 'game-123' });
+
+      const processSpy = RatingService.processGameResult as jest.Mock;
+      processSpy.mockResolvedValue([]);
+
+      await GamePersistenceService.finishGame('game-123', 'p1');
+
+      expect(processSpy).toHaveBeenCalledWith(
+        'game-123',
+        'p1',
+        expect.arrayContaining(['p1', 'p2', 'p3', 'p4'])
+      );
+    });
+
+    it('should skip rating update when fewer than 2 players', async () => {
+      mockPrisma.game.findUnique.mockResolvedValue({
+        player1Id: 'p1',
+        player2Id: null,
+        player3Id: null,
+        player4Id: null,
+        isRated: true,
+        gameState: '{}',
+      });
+      mockPrisma.game.update.mockResolvedValue({ id: 'game-123' });
+
+      const processSpy = RatingService.processGameResult as jest.Mock;
+
+      await GamePersistenceService.finishGame('game-123', 'p1');
+
+      expect(processSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateGameStatus error handling', () => {
+    it('should throw when database unavailable', async () => {
+      (getDatabaseClient as jest.Mock).mockReturnValue(null);
+
+      await expect(GamePersistenceService.updateGameStatus('game-123', 'active')).rejects.toThrow(
+        'Database not available'
+      );
+    });
+
+    it('should log error and rethrow on database error', async () => {
+      mockPrisma.game.update.mockRejectedValue(new Error('Update failed'));
+
+      await expect(GamePersistenceService.updateGameStatus('game-123', 'active')).rejects.toThrow(
+        'Update failed'
+      );
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to update game status',
+        expect.objectContaining({
+          gameId: 'game-123',
+          status: 'active',
+          error: 'Update failed',
+        })
+      );
+    });
+  });
+
+  describe('updateGameState', () => {
+    it('should silently return when database unavailable', async () => {
+      (getDatabaseClient as jest.Mock).mockReturnValue(null);
+
+      // Should not throw
+      await expect(
+        GamePersistenceService.updateGameState('game-123', {} as GameState)
+      ).resolves.toBeUndefined();
+    });
+
+    it('should log error but not throw on database error', async () => {
+      const mockState = {
+        board: {
+          stacks: new Map(),
+          markers: new Map(),
+          collapsedSpaces: new Map(),
+          territories: new Map(),
+        },
+      } as unknown as GameState;
+
+      mockPrisma.game.update.mockRejectedValue(new Error('Update failed'));
+
+      // Should not throw
+      await GamePersistenceService.updateGameState('game-123', mockState);
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to update game state',
+        expect.objectContaining({
+          gameId: 'game-123',
+          error: 'Update failed',
+        })
+      );
+    });
+  });
+
+  describe('getUserGames error handling', () => {
+    it('should throw when database unavailable', async () => {
+      (getDatabaseClient as jest.Mock).mockReturnValue(null);
+
+      await expect(GamePersistenceService.getUserGames('user-123')).rejects.toThrow(
+        'Database not available'
+      );
+    });
+
+    it('should log error and rethrow on database error', async () => {
+      mockPrisma.game.findMany.mockRejectedValue(new Error('Query failed'));
+
+      await expect(GamePersistenceService.getUserGames('user-123')).rejects.toThrow('Query failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get user games',
+        expect.objectContaining({
+          userId: 'user-123',
+          error: 'Query failed',
+        })
+      );
+    });
+  });
+
+  describe('getActiveGames error handling', () => {
+    it('should throw when database unavailable', async () => {
+      (getDatabaseClient as jest.Mock).mockReturnValue(null);
+
+      await expect(GamePersistenceService.getActiveGames()).rejects.toThrow(
+        'Database not available'
+      );
+    });
+
+    it('should log error and rethrow on database error', async () => {
+      mockPrisma.game.findMany.mockRejectedValue(new Error('Query failed'));
+
+      await expect(GamePersistenceService.getActiveGames()).rejects.toThrow('Query failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to get active games',
+        expect.objectContaining({
+          error: 'Query failed',
+        })
+      );
+    });
+  });
+
+  describe('deleteGame error handling', () => {
+    it('should throw when database unavailable', async () => {
+      (getDatabaseClient as jest.Mock).mockReturnValue(null);
+
+      await expect(GamePersistenceService.deleteGame('game-123')).rejects.toThrow(
+        'Database not available'
+      );
+    });
+
+    it('should log error and rethrow on database error', async () => {
+      mockPrisma.game.delete.mockRejectedValue(new Error('Delete failed'));
+
+      await expect(GamePersistenceService.deleteGame('game-123')).rejects.toThrow('Delete failed');
+
+      expect(logger.error).toHaveBeenCalledWith(
+        'Failed to delete game',
+        expect.objectContaining({
+          gameId: 'game-123',
+          error: 'Delete failed',
+        })
+      );
+    });
   });
 });

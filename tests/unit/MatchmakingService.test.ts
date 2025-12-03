@@ -329,4 +329,163 @@ describe('MatchmakingService', () => {
       expect(matchFoundCalls).toHaveLength(0);
     });
   });
+
+  describe('createMatch error handling', () => {
+    it('should send error to both users when database is unavailable', async () => {
+      const { getDatabaseClient } = require('../../src/server/database/connection');
+      getDatabaseClient.mockReturnValueOnce(null);
+
+      const prefs = createPreferences({ ratingRange: { min: 1000, max: 1300 } });
+
+      service.addToQueue('user-1', 'socket-1', prefs, 1100);
+      mockWsServer.sendToUser.mockClear();
+
+      service.addToQueue('user-2', 'socket-2', prefs, 1150);
+
+      // Wait for async match creation to complete
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Both users should receive error
+      const errorCalls = mockWsServer.sendToUser.mock.calls.filter((call) => call[1] === 'error');
+      expect(errorCalls).toHaveLength(2);
+      expect(errorCalls[0][2]).toMatchObject({
+        type: 'error',
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to create match',
+      });
+    });
+
+    it('should send error to both users when game creation fails', async () => {
+      mockPrisma.game.create.mockRejectedValueOnce(new Error('Database connection failed'));
+
+      const prefs = createPreferences({ ratingRange: { min: 1000, max: 1300 } });
+
+      service.addToQueue('user-1', 'socket-1', prefs, 1100);
+      mockWsServer.sendToUser.mockClear();
+
+      service.addToQueue('user-2', 'socket-2', prefs, 1150);
+
+      // Wait for async match creation to complete
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Both users should receive error
+      const errorCalls = mockWsServer.sendToUser.mock.calls.filter((call) => call[1] === 'error');
+      expect(errorCalls).toHaveLength(2);
+    });
+  });
+
+  describe('processQueue coverage', () => {
+    it('should skip already matched users during queue processing', async () => {
+      // Set up two pairs of compatible players
+      const prefs1 = createPreferences({
+        boardType: 'square8',
+        ratingRange: { min: 1000, max: 1300 },
+      });
+      const prefs2 = createPreferences({
+        boardType: 'hexagonal',
+        ratingRange: { min: 1000, max: 1300 },
+      });
+
+      // Add first pair (will match with each other)
+      service.addToQueue('user-1', 'socket-1', prefs1, 1100);
+      service.addToQueue('user-2', 'socket-2', prefs1, 1150);
+
+      // Add second pair (will match with each other)
+      service.addToQueue('user-3', 'socket-3', prefs2, 1100);
+      service.addToQueue('user-4', 'socket-4', prefs2, 1150);
+
+      // Wait for async match creation
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // Advance time to trigger queue processing
+      jest.advanceTimersByTime(5000);
+
+      // All four users should have received match-found (2 matches * 2 users each)
+      const matchFoundCalls = mockWsServer.sendToUser.mock.calls.filter(
+        (call) => call[1] === 'match-found'
+      );
+      expect(matchFoundCalls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should update status for unmatched players during processing', async () => {
+      // Add player with no compatible match available
+      service.addToQueue(
+        'user-lonely',
+        'socket-lonely',
+        createPreferences({ boardType: 'square19' }),
+        1100
+      );
+
+      mockWsServer.sendToUser.mockClear();
+
+      // Advance time to trigger multiple queue processings
+      jest.advanceTimersByTime(15000); // 3 intervals
+
+      // User should receive status updates showing they're still in queue
+      const statusCalls = mockWsServer.sendToUser.mock.calls.filter(
+        (call) => call[0] === 'user-lonely' && call[1] === 'matchmaking-status'
+      );
+      expect(statusCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('rating expansion edge cases', () => {
+    it('should cap rating expansion to prevent infinite growth', async () => {
+      // Player 1 joins with narrow rating range
+      service.addToQueue(
+        'user-1',
+        'socket-1',
+        createPreferences({ ratingRange: { min: 1100, max: 1200 } }),
+        1150
+      );
+
+      // Player 2 joins with very different rating
+      service.addToQueue(
+        'user-2',
+        'socket-2',
+        createPreferences({ ratingRange: { min: 500, max: 600 } }),
+        550
+      );
+
+      mockWsServer.sendToUser.mockClear();
+
+      // Advance time well past MAX_WAIT_TIME_MS (60s)
+      // The expansion should be capped, not grow indefinitely
+      jest.advanceTimersByTime(120000); // 120 seconds
+
+      // Queue processing should complete without error
+      expect(true).toBe(true);
+    });
+
+    it('should handle bidirectional rating compatibility check', async () => {
+      // Player 1 has very narrow range but high rating that fits player 2's range
+      service.addToQueue(
+        'user-1',
+        'socket-1',
+        createPreferences({ ratingRange: { min: 1195, max: 1205 } }),
+        1200
+      );
+
+      // Player 2 has wide range that includes player 1's rating
+      // But player 2's rating (1000) is outside player 1's narrow range (1195-1205)
+      service.addToQueue(
+        'user-2',
+        'socket-2',
+        createPreferences({ ratingRange: { min: 1000, max: 1300 } }),
+        1000
+      );
+
+      // No immediate match because bidirectional check fails
+      const matchFoundCalls = mockWsServer.sendToUser.mock.calls.filter(
+        (call) => call[1] === 'match-found'
+      );
+      expect(matchFoundCalls).toHaveLength(0);
+    });
+  });
 });

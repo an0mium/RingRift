@@ -277,7 +277,7 @@ def reduce_tensor(
     """
     if not is_distributed():
         return tensor
-    
+
     op_map = {
         "sum": dist.ReduceOp.SUM,
         "product": dist.ReduceOp.PRODUCT,
@@ -301,7 +301,7 @@ def all_gather_object(obj: object) -> list:
     """
     if not is_distributed():
         return [obj]
-    
+
     world_size = get_world_size()
     output = [None] * world_size
     dist.all_gather_object(output, obj)
@@ -321,7 +321,7 @@ def broadcast_object(obj: object, src: int = 0) -> object:
     """
     if not is_distributed():
         return obj
-    
+
     object_list = [obj]
     dist.broadcast_object_list(object_list, src=src)
     return object_list[0]
@@ -422,7 +422,7 @@ class DistributedMetrics:
             loss = compute_loss(batch)
             metrics.add("loss", loss.item())
             metrics.add("accuracy", compute_accuracy(batch))
-        
+
         # After epoch, get averaged metrics across all processes
         avg_metrics = metrics.reduce_and_reset()
         if is_main_process():
@@ -470,11 +470,11 @@ class DistributedMetrics:
                 # Create tensors for sum and count
                 sum_tensor = torch.tensor(self._sums[name], device=device)
                 count_tensor = torch.tensor(self._counts[name], device=device)
-                
+
                 # Reduce across all processes
                 reduce_tensor(sum_tensor)
                 reduce_tensor(count_tensor)
-                
+
                 # Compute average
                 total_count = count_tensor.item()
                 if total_count > 0:

@@ -7,7 +7,10 @@
  * - Error handling for various failure modes
  * - Message queuing and state recovery
  *
- * Related spec: docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md (§2.4 Connection sub-states)
+ * Related spec: docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md
+ * - §2.4 Connection sub-states and reconnect windows
+ * - §3.1 Decision / AI request lifecycle
+ * - §3.4 Frontend connection + decision UX under reconnect
  *
  * @jest-environment jsdom
  */

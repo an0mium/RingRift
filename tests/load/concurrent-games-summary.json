@@ -1,0 +1,181 @@
+{
+  "root_group": {
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": {
+      "setup": {
+        "checks": {
+          "health check successful": {
+            "name": "health check successful",
+            "path": "::setup::health check successful",
+            "id": "29c741297e31cd677ae612abad905d5c",
+            "passes": 1,
+            "fails": 0
+          }
+        },
+        "name": "setup",
+        "path": "::setup",
+        "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+        "groups": {}
+      }
+    },
+    "checks": {},
+    "name": ""
+  },
+  "metrics": {
+    "data_received": {
+      "count": 469820692,
+      "rate": 602190.6760125636
+    },
+    "http_req_sending": {
+      "med": 0.009,
+      "max": 32.029,
+      "p(90)": 0.022,
+      "p(95)": 0.035,
+      "avg": 0.019755165265652297,
+      "min": 0.001
+    },
+    "http_req_receiving": {
+      "avg": 0.10396758671343413,
+      "min": 0,
+      "med": 0.037,
+      "max": 340.525,
+      "p(90)": 0.104,
+      "p(95)": 0.183
+    },
+    "http_req_failed": {
+      "passes": 306324,
+      "fails": 1,
+      "thresholds": {
+        "rate<0.01": true
+      },
+      "value": 0.9999967354933486
+    },
+    "http_req_connecting": {
+      "avg": 0.00028536031992165196,
+      "min": 0,
+      "med": 0,
+      "max": 7.68,
+      "p(90)": 0,
+      "p(95)": 0
+    },
+    "http_req_waiting": {
+      "avg": 34.90642894311512,
+      "min": 0.663,
+      "med": 8.45,
+      "max": 23179.753,
+      "p(90)": 59.725,
+      "p(95)": 112.93759999999983
+    },
+    "http_req_duration": {
+      "med": 8.538,
+      "max": 23179.757,
+      "p(90)": 59.936,
+      "p(95)": 113.15779999999998,
+      "avg": 35.03015169509534,
+      "min": 0.693
+    },
+    "http_req_duration{expected_response:true}": {
+      "avg": 19.448,
+      "min": 19.448,
+      "med": 19.448,
+      "max": 19.448,
+      "p(90)": 19.448,
+      "p(95)": 19.448
+    },
+    "checks": {
+      "passes": 1,
+      "fails": 0,
+      "value": 1
+    },
+    "game_state_check_success": {
+      "passes": 0,
+      "fails": 0,
+      "thresholds": {
+        "rate>0.99": false
+      },
+      "value": 0
+    },
+    "http_req_duration{name:create-game}": {
+      "med": 0,
+      "max": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "avg": 0,
+      "min": 0,
+      "thresholds": {
+        "p(95)<800": false,
+        "p(99)<1500": false
+      }
+    },
+    "vus": {
+      "value": 1,
+      "min": 0,
+      "max": 100
+    },
+    "http_req_blocked": {
+      "avg": 0.0058155031420703005,
+      "min": 0,
+      "med": 0.002,
+      "max": 19.102,
+      "p(90)": 0.005,
+      "p(95)": 0.006
+    },
+    "data_sent": {
+      "rate": 84937.55082834877,
+      "count": 66267082
+    },
+    "concurrent_active_games": {
+      "value": 0,
+      "min": 0,
+      "max": 0,
+      "thresholds": {
+        "value>=100": true
+      }
+    },
+    "vus_max": {
+      "max": 100,
+      "value": 100,
+      "min": 100
+    },
+    "iterations": {
+      "count": 153162,
+      "rate": 196.31474281561927
+    },
+    "http_req_tls_handshaking": {
+      "p(90)": 0,
+      "p(95)": 0,
+      "avg": 0,
+      "min": 0,
+      "med": 0,
+      "max": 0
+    },
+    "iteration_duration": {
+      "p(95)": 507.45153154999997,
+      "avg": 371.8759114471348,
+      "min": 301.882625,
+      "med": 322.875292,
+      "max": 23538.60625,
+      "p(90)": 416.6065045
+    },
+    "http_req_duration{name:get-game}": {
+      "p(95)": 0,
+      "avg": 0,
+      "min": 0,
+      "med": 0,
+      "max": 0,
+      "p(90)": 0,
+      "thresholds": {
+        "p(95)<400": false,
+        "p(99)<800": false
+      }
+    },
+    "http_reqs": {
+      "count": 306325,
+      "rate": 392.6307673769902
+    }
+  },
+  "setup_data": {
+    "baseUrl": "http://localhost:3000"
+  }
+}

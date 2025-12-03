@@ -1,7 +1,7 @@
 {
   "version": "v2",
   "generated": "2025-12-01T11:30:00.000Z",
-  "count": 2,
+  "count": 11,
   "categories": ["turn", "multi_phase"],
   "description": "Test vectors for multi-phase turn scenarios - P19B.2-3. Tests the complete turn lifecycle where a single action triggers placement → capture → line → territory phases.",
   "vectors": [
@@ -150,8 +150,10 @@
         "capture",
         "chain_capture",
         "line_processing",
-        "territory_processing"
+        "territory_processing",
+        "sequence:turn.line_then_territory.square8"
       ],
+      "skip": "Handled by orchestrator multi-phase tests; excluded from generic multi-step sequence runner.",
       "source": "manual",
       "createdAt": "2025-12-01T11:30:00.000Z",
       "ruleReferences": ["§4", "§10", "§11", "§12", "§15.2"],
@@ -279,6 +281,1141 @@
           "currentPhase": "ring_placement",
           "gameStatus": "active",
           "sInvariantDelta": 4
+        }
+      }
+    },
+    {
+      "id": "multi_phase.full_sequence_with_territory_square19",
+      "version": "v2",
+      "category": "turn",
+      "description": "Full multi-phase turn on square19 mirroring the square8 line → territory flow: placement → movement → capture → chain_capture → line_processing → territory_processing, with an overlength line that disconnects a corner region.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "full_sequence",
+        "placement",
+        "capture",
+        "chain_capture",
+        "line_processing",
+        "territory_processing",
+        "sequence:turn.line_then_territory.square19"
+      ],
+      "skip": "Handled by orchestrator multi-phase tests and Python parity; excluded from generic multi-step sequence runner.",
+      "source": "manual",
+      "createdAt": "2025-12-01T11:30:00.000Z",
+      "ruleReferences": ["§4", "§10", "§11", "§12", "§15.2"],
+      "input": {
+        "state": {
+          "gameId": "test-multi-phase-002-square19",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {
+              "1,1": {
+                "position": { "x": 1, "y": 1 },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              },
+              "2,1": {
+                "position": { "x": 2, "y": 1 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "4,1": {
+                "position": { "x": 4, "y": 1 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "0,0": {
+                "position": { "x": 0, "y": 0 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,1": { "position": { "x": 0, "y": 1 }, "player": 1, "type": "regular" },
+              "5,1": { "position": { "x": 5, "y": 1 }, "player": 1, "type": "regular" },
+              "6,1": { "position": { "x": 6, "y": 1 }, "player": 1, "type": "regular" },
+              "7,1": { "position": { "x": 7, "y": 1 }, "player": 1, "type": "regular" },
+              "1,0": { "position": { "x": 1, "y": 0 }, "player": 2, "type": "regular" }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 }
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "movement",
+          "turnNumber": 6,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181
+        },
+        "initialMove": {
+          "id": "move-multi-phase-full-start-square19",
+          "type": "overtaking_capture",
+          "player": 1,
+          "from": { "x": 1, "y": 1 },
+          "captureTarget": { "x": 2, "y": 1 },
+          "to": { "x": 3, "y": 1 },
+          "timestamp": "2025-12-01T11:30:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 6
+        },
+        "expectedPhaseSequence": [
+          "movement",
+          "chain_capture",
+          "line_processing",
+          "territory_processing"
+        ],
+        "phaseTransitions": [
+          {
+            "phaseAfter": "chain_capture",
+            "description": "After first capture at (2,1), chain capture opportunity detected at (4,1) on square19",
+            "stackPosition": { "x": 3, "y": 1 },
+            "stackHeight": 2,
+            "availableChainTarget": { "x": 4, "y": 1 }
+          },
+          {
+            "phaseAfter": "line_processing",
+            "description": "Chain capture lands at (5,1), completing an overlength line for Player 1 on row 1 of the 19×19 board.",
+            "expectedLandingPosition": { "x": 5, "y": 1 }
+          },
+          {
+            "phaseAfter": "territory_processing",
+            "description": "Line processing may disconnect the corner region at (0,0) which becomes territory on square19."
+          }
+        ],
+        "territoryExpectation": {
+          "potentiallyDisconnectedRegion": [{ "x": 0, "y": 0 }],
+          "cause": "Line completion at row 1 may disconnect corner"
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "sInvariantDelta": 4
+        }
+      }
+    },
+    {
+      "id": "multi_phase.full_sequence_with_territory_hex",
+      "version": "v2",
+      "category": "turn",
+      "description": "Full multi-phase turn on a hexagonal board mirroring the square8 line → territory flow, expressed in axial hex coordinates.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "full_sequence",
+        "placement",
+        "capture",
+        "chain_capture",
+        "line_processing",
+        "territory_processing",
+        "sequence:turn.line_then_territory.hex"
+      ],
+      "skip": "Handled by orchestrator multi-phase tests and Python parity; excluded from generic multi-step sequence runner.",
+      "source": "manual",
+      "createdAt": "2025-12-01T11:30:00.000Z",
+      "ruleReferences": ["§4", "§10", "§11", "§12", "§15.2"],
+      "input": {
+        "state": {
+          "gameId": "test-multi-phase-002-hex",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {
+              "1,1,-2": {
+                "position": { "x": 1, "y": 1, "z": -2 },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              },
+              "2,1,-3": {
+                "position": { "x": 2, "y": 1, "z": -3 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "4,1,-5": {
+                "position": { "x": 4, "y": 1, "z": -5 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "0,0,0": {
+                "position": { "x": 0, "y": 0, "z": 0 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "7,7,-14": {
+                "position": { "x": 7, "y": 7, "z": -14 },
+                "rings": [1],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,1,-1": {
+                "position": { "x": 0, "y": 1, "z": -1 },
+                "player": 1,
+                "type": "regular"
+              },
+              "5,1,-6": {
+                "position": { "x": 5, "y": 1, "z": -6 },
+                "player": 1,
+                "type": "regular"
+              },
+              "6,1,-7": {
+                "position": { "x": 6, "y": 1, "z": -7 },
+                "player": 1,
+                "type": "regular"
+              },
+              "7,1,-8": {
+                "position": { "x": 7, "y": 1, "z": -8 },
+                "player": 1,
+                "type": "regular"
+              },
+              "1,0,-1": {
+                "position": { "x": 1, "y": 0, "z": -1 },
+                "player": 2,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 }
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "movement",
+          "turnNumber": 6,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166
+        },
+        "initialMove": {
+          "id": "move-multi-phase-full-start-hex",
+          "type": "overtaking_capture",
+          "player": 1,
+          "from": { "x": 1, "y": 1, "z": -2 },
+          "captureTarget": { "x": 2, "y": 1, "z": -3 },
+          "to": { "x": 3, "y": 1, "z": -4 },
+          "timestamp": "2025-12-01T11:30:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 6
+        },
+        "expectedPhaseSequence": [
+          "movement",
+          "chain_capture",
+          "line_processing",
+          "territory_processing"
+        ],
+        "phaseTransitions": [
+          {
+            "phaseAfter": "chain_capture",
+            "description": "After first capture at (2,1,-3), chain capture opportunity detected at (4,1,-5) on the hex board.",
+            "stackPosition": { "x": 3, "y": 1, "z": -4 },
+            "stackHeight": 2,
+            "availableChainTarget": { "x": 4, "y": 1, "z": -5 }
+          },
+          {
+            "phaseAfter": "line_processing",
+            "description": "Chain capture lands at (5,1,-6), completing an overlength line for Player 1 in axial hex coordinates.",
+            "expectedLandingPosition": { "x": 5, "y": 1, "z": -6 }
+          },
+          {
+            "phaseAfter": "territory_processing",
+            "description": "Line processing may disconnect the corner-adjacent region at (0,0,0) which becomes territory on the hex board."
+          }
+        ],
+        "territoryExpectation": {
+          "potentiallyDisconnectedRegion": [{ "x": 0, "y": 0, "z": 0 }],
+          "cause": "Line completion along the axial row may disconnect corner-adjacent region"
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "currentPlayer": 2,
+          "currentPhase": "ring_placement",
+          "gameStatus": "active",
+          "sInvariantDelta": 4
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.square8.step1_line",
+      "version": "v2",
+      "category": "turn",
+      "description": "Step 1 of a mixed line + multi-region territory turn on square8: Player 1 resolves an overlength horizontal line via choose_line_reward (minimum-collapse Option 2) while two disconnected regions already exist.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "line_processing",
+        "territory_processing",
+        "multi_region",
+        "square8",
+        "sequence:turn.line_then_territory.multi_region.square8"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:00.000Z",
+      "ruleReferences": ["§11", "§12", "FAQ Q7", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-square-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "1,1": {
+                "position": { "x": 1, "y": 1 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "1,2": {
+                "position": { "x": 1, "y": 2 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,5": {
+                "position": { "x": 5, "y": 5 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,6": {
+                "position": { "x": 5, "y": 6 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "0,0": {
+                "position": { "x": 0, "y": 0 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              },
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,3": {
+                "position": { "x": 0, "y": 3 },
+                "player": 1,
+                "type": "regular"
+              },
+              "1,3": {
+                "position": { "x": 1, "y": 3 },
+                "player": 1,
+                "type": "regular"
+              },
+              "2,3": {
+                "position": { "x": 2, "y": 3 },
+                "player": 1,
+                "type": "regular"
+              },
+              "3,3": {
+                "position": { "x": 3, "y": 3 },
+                "player": 1,
+                "type": "regular"
+              }
+            },
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "square-multi-region-line",
+          "type": "choose_line_reward",
+          "player": 1,
+          "formedLines": [
+            {
+              "positions": [
+                { "x": 0, "y": 3 },
+                { "x": 1, "y": 3 },
+                { "x": 2, "y": 3 },
+                { "x": 3, "y": 3 }
+              ],
+              "player": 1,
+              "length": 4,
+              "direction": { "x": 1, "y": 0 }
+            }
+          ],
+          "collapsedMarkers": [
+            { "x": 0, "y": 3 },
+            { "x": 1, "y": 3 },
+            { "x": 2, "y": 3 }
+          ],
+          "timestamp": "2025-12-03T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.square8.step2_regionB",
+      "version": "v2",
+      "category": "turn",
+      "description": "Step 2 of the mixed line + multi-region territory turn on square8: Player 1 processes Region B via process_territory_region.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "territory_processing",
+        "multi_region",
+        "square8",
+        "sequence:turn.line_then_territory.multi_region.square8"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:01.000Z",
+      "ruleReferences": ["§12", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-square-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "1,1": {
+                "position": { "x": 1, "y": 1 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "1,2": {
+                "position": { "x": 1, "y": 2 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,5": {
+                "position": { "x": 5, "y": 5 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "5,6": {
+                "position": { "x": 5, "y": 6 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "0,0": {
+                "position": { "x": 0, "y": 0 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              },
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "square-multi-region-regionB",
+          "type": "process_territory_region",
+          "player": 1,
+          "disconnectedRegions": [
+            {
+              "spaces": [
+                { "x": 5, "y": 5 },
+                { "x": 5, "y": 6 }
+              ],
+              "controllingPlayer": 1,
+              "isDisconnected": true
+            }
+          ],
+          "to": { "x": 5, "y": 5 },
+          "timestamp": "2025-12-03T00:00:01.000Z",
+          "thinkTime": 0,
+          "moveNumber": 2
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.square8.step3_regionA",
+      "version": "v2",
+      "category": "turn",
+      "description": "Step 3 of the mixed line + multi-region territory turn on square8: Player 1 processes Region A via process_territory_region.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "territory_processing",
+        "multi_region",
+        "square8",
+        "sequence:turn.line_then_territory.multi_region.square8"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:02.000Z",
+      "ruleReferences": ["§12", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-square-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "1,1": {
+                "position": { "x": 1, "y": 1 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "1,2": {
+                "position": { "x": 1, "y": 2 },
+                "rings": [2],
+                "stackHeight": 1,
+                "capHeight": 1,
+                "controllingPlayer": 2
+              },
+              "0,0": {
+                "position": { "x": 0, "y": 0 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              },
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 19,
+          "territoryVictoryThreshold": 33,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "square-multi-region-regionA",
+          "type": "process_territory_region",
+          "player": 1,
+          "disconnectedRegions": [
+            {
+              "spaces": [
+                { "x": 1, "y": 1 },
+                { "x": 1, "y": 2 }
+              ],
+              "controllingPlayer": 1,
+              "isDisconnected": true
+            }
+          ],
+          "to": { "x": 1, "y": 1 },
+          "timestamp": "2025-12-03T00:00:02.000Z",
+          "thinkTime": 0,
+          "moveNumber": 3
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.square19.step1_line",
+      "version": "v2",
+      "category": "turn",
+      "description": "Mixed line + multi-region territory sequence (square19) – step 1: overlength horizontal line for Player 1 via choose_line_reward (minimum-collapse Option 2) with two disconnected regions present.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "line_processing",
+        "territory_processing",
+        "multi_region",
+        "square19",
+        "sequence:turn.line_then_territory.multi_region.square19"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:00.000Z",
+      "ruleReferences": ["§11", "§12", "FAQ Q7", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-square19-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "square19-multi-region-line",
+          "type": "choose_line_reward",
+          "player": 1,
+          "formedLines": [],
+          "collapsedMarkers": [],
+          "timestamp": "2025-12-03T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.square19.step2_regionB",
+      "version": "v2",
+      "category": "turn",
+      "description": "Mixed line + multi-region territory sequence (square19) – step 2: Player 1 processes Region B via process_territory_region.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "territory_processing",
+        "multi_region",
+        "square19",
+        "sequence:turn.line_then_territory.multi_region.square19"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:01.000Z",
+      "ruleReferences": ["§12", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-square19-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "square19-multi-region-regionB",
+          "type": "process_territory_region",
+          "player": 1,
+          "disconnectedRegions": [],
+          "to": { "x": 11, "y": 11 },
+          "timestamp": "2025-12-03T00:00:01.000Z",
+          "thinkTime": 0,
+          "moveNumber": 2
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.square19.step3_regionA",
+      "version": "v2",
+      "category": "turn",
+      "description": "Mixed line + multi-region territory sequence (square19) – step 3: Player 1 processes Region A via process_territory_region.",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "territory_processing",
+        "multi_region",
+        "square19",
+        "sequence:turn.line_then_territory.multi_region.square19"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:02.000Z",
+      "ruleReferences": ["§12", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-square19-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "square19",
+            "size": 19,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 181,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "square19-multi-region-regionA",
+          "type": "process_territory_region",
+          "player": 1,
+          "disconnectedRegions": [],
+          "to": { "x": 5, "y": 5 },
+          "timestamp": "2025-12-03T00:00:02.000Z",
+          "thinkTime": 0,
+          "moveNumber": 3
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.hex.step1_line",
+      "version": "v2",
+      "category": "turn",
+      "description": "Mixed line + multi-region territory sequence (hexagonal) – step 1: line reward followed by multi-region territory context (metadata only, validated via host parity).",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "line_processing",
+        "territory_processing",
+        "multi_region",
+        "hexagonal",
+        "sequence:turn.line_then_territory.multi_region.hex"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:00.000Z",
+      "ruleReferences": ["§11", "§12", "FAQ Q7", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-hex-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "hex-multi-region-line",
+          "type": "choose_line_reward",
+          "player": 1,
+          "formedLines": [],
+          "collapsedMarkers": [],
+          "timestamp": "2025-12-03T00:00:00.000Z",
+          "thinkTime": 0,
+          "moveNumber": 1
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.hex.step2_regionB",
+      "version": "v2",
+      "category": "turn",
+      "description": "Mixed line + multi-region territory sequence (hexagonal) – step 2: Player 1 processes Region B via process_territory_region (metadata only).",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "territory_processing",
+        "multi_region",
+        "hexagonal",
+        "sequence:turn.line_then_territory.multi_region.hex"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:01.000Z",
+      "ruleReferences": ["§12", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-hex-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "hex-multi-region-regionB",
+          "type": "process_territory_region",
+          "player": 1,
+          "disconnectedRegions": [],
+          "to": { "x": 3, "y": -3, "z": 0 },
+          "timestamp": "2025-12-03T00:00:01.000Z",
+          "thinkTime": 0,
+          "moveNumber": 2
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
+        }
+      }
+    },
+    {
+      "id": "multi_phase.line_then_multi_region_territory.hex.step3_regionA",
+      "version": "v2",
+      "category": "turn",
+      "description": "Mixed line + multi-region territory sequence (hexagonal) – step 3: Player 1 processes Region A via process_territory_region (metadata only).",
+      "tags": [
+        "multi_phase",
+        "turn",
+        "territory_processing",
+        "multi_region",
+        "hexagonal",
+        "sequence:turn.line_then_territory.multi_region.hex"
+      ],
+      "source": "derived_from_helpers",
+      "skip": "Mixed line + multi-region territory sequence is validated via dedicated backend↔sandbox parity tests rather than the generic multi-step runner.",
+      "createdAt": "2025-12-03T00:00:02.000Z",
+      "ruleReferences": ["§12", "FAQ Q20", "FAQ Q23"],
+      "input": {
+        "state": {
+          "gameId": "contract-hex-multi-region-line-then-territory-seq",
+          "board": {
+            "type": "hexagonal",
+            "size": 11,
+            "stacks": {},
+            "markers": {},
+            "collapsedSpaces": {},
+            "eliminatedRings": { "1": 0, "2": 0 },
+            "formedLines": []
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 36,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "territory_processing",
+          "turnNumber": 1,
+          "moveHistory": [],
+          "gameStatus": "active",
+          "victoryThreshold": 37,
+          "territoryVictoryThreshold": 166,
+          "totalRingsEliminated": 0
+        },
+        "move": {
+          "id": "hex-multi-region-regionA",
+          "type": "process_territory_region",
+          "player": 1,
+          "disconnectedRegions": [],
+          "to": { "x": 0, "y": 0, "z": 0 },
+          "timestamp": "2025-12-03T00:00:02.000Z",
+          "thinkTime": 0,
+          "moveNumber": 3
+        }
+      },
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
         }
       }
     }

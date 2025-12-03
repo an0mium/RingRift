@@ -5,13 +5,11 @@ These functions are compiled to native machine code for significant speedups
 in the most performance-critical evaluation loops.
 """
 
-from typing import Optional, Tuple
+from typing import Tuple
 import numpy as np
 
 try:
     from numba import njit, prange
-    from numba.typed import Dict as NumbaDict
-    from numba.core import types
 
     NUMBA_AVAILABLE = True
 except ImportError:

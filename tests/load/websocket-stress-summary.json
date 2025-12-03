@@ -1,0 +1,116 @@
+{
+  "metrics": {
+    "vus": {
+      "value": 3,
+      "min": 0,
+      "max": 500
+    },
+    "vus_max": {
+      "value": 500,
+      "min": 500,
+      "max": 500
+    },
+    "ws_sessions": {
+      "count": 64865,
+      "rate": 71.9339092999516
+    },
+    "ws_connecting": {
+      "p(90)": 1004.2175334,
+      "p(95)": 1004.7684916000001,
+      "avg": 1002.8202863694274,
+      "min": 999.425833,
+      "med": 1002.742792,
+      "max": 1037.093958
+    },
+    "ws_session_duration": {
+      "p(95)": 1004.7888416,
+      "avg": 1002.8363165155469,
+      "min": 999.434458,
+      "med": 1002.758833,
+      "max": 1037.102208,
+      "p(90)": 1004.2376082
+    },
+    "checks": {
+      "passes": 0,
+      "fails": 64865,
+      "value": 0
+    },
+    "websocket_connection_errors": {
+      "count": 64865,
+      "rate": 71.9339092999516,
+      "thresholds": {
+        "count<50": true
+      }
+    },
+    "websocket_message_latency_ms": {
+      "avg": 0,
+      "min": 0,
+      "med": 0,
+      "max": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "thresholds": {
+        "p(95)<200": false,
+        "p(99)<500": false
+      }
+    },
+    "iteration_duration": {
+      "p(90)": 5705.862133600001,
+      "p(95)": 5854.6754418,
+      "avg": 4502.17865275278,
+      "min": 3001.4445,
+      "med": 4500.5365,
+      "max": 6007.729208
+    },
+    "iterations": {
+      "count": 64865,
+      "rate": 71.9339092999516
+    },
+    "websocket_connection_duration_ms": {
+      "p(95)": 0,
+      "avg": 0,
+      "min": 0,
+      "med": 0,
+      "max": 0,
+      "p(90)": 0,
+      "thresholds": {
+        "p(50)>300000": true
+      }
+    },
+    "data_received": {
+      "count": 0,
+      "rate": 0
+    },
+    "websocket_connection_success_rate": {
+      "passes": 0,
+      "fails": 0,
+      "thresholds": {
+        "rate>0.99": false
+      },
+      "value": 0
+    },
+    "data_sent": {
+      "rate": 15206.510149096654,
+      "count": 13712174
+    }
+  },
+  "setup_data": {
+    "baseUrl": "http://localhost:3000",
+    "wsUrl": "ws://localhost:3000"
+  },
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": {},
+    "checks": {
+      "WebSocket connected": {
+        "name": "WebSocket connected",
+        "path": "::WebSocket connected",
+        "id": "3224ab6204f13fde193cdaa3d1d1c30e",
+        "passes": 0,
+        "fails": 64865
+      }
+    }
+  }
+}

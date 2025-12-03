@@ -9,6 +9,7 @@ import { MoveHistory } from '../components/MoveHistory';
 import { SandboxTouchControlsPanel } from '../components/SandboxTouchControlsPanel';
 import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
 import { ScenarioPickerModal } from '../components/ScenarioPickerModal';
+import { SelfPlayBrowser } from '../components/SelfPlayBrowser';
 import { EvaluationPanel } from '../components/EvaluationPanel';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
 import { SaveStateDialog } from '../components/SaveStateDialog';
@@ -36,6 +37,8 @@ import {
 } from '../adapters/gameViewModels';
 import { gameApi } from '../services/api';
 import { getReplayService } from '../services/ReplayService';
+import { storeGameLocally, getPendingCount } from '../services/LocalGameStorage';
+import { GameSyncService, type SyncState } from '../services/GameSyncService';
 import type { SandboxInteractionHandler } from '../sandbox/ClientSandboxEngine';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { serializeGameState } from '../../shared/engine/contracts/serialization';
@@ -257,16 +260,19 @@ export const SandboxGameHost: React.FC = () => {
   // Help / controls overlay for the active sandbox host
   const [showBoardControls, setShowBoardControls] = useState(false);
 
-  // Scenario picker and save state dialogs
+  // Scenario picker, self-play browser, and save state dialogs
   const [showScenarioPicker, setShowScenarioPicker] = useState(false);
+  const [showSelfPlayBrowser, setShowSelfPlayBrowser] = useState(false);
   const [showSaveStateDialog, setShowSaveStateDialog] = useState(false);
   const [lastLoadedScenario, setLastLoadedScenario] = useState<LoadableScenario | null>(null);
 
   // Game storage state - auto-save completed games to replay database
   const [autoSaveGames, setAutoSaveGames] = useState(true);
-  const [gameSaveStatus, setGameSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>(
-    'idle'
-  );
+  const [gameSaveStatus, setGameSaveStatus] = useState<
+    'idle' | 'saving' | 'saved' | 'saved-local' | 'error'
+  >('idle');
+  const [pendingLocalGames, setPendingLocalGames] = useState(0);
+  const [syncState, setSyncState] = useState<SyncState | null>(null);
   const initialGameStateRef = useRef<GameState | null>(null);
   const gameSavedRef = useRef(false);
 
@@ -305,6 +311,7 @@ export const SandboxGameHost: React.FC = () => {
     }
 
     const positions =
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- duck-typing for optional engine method
       typeof (sandboxEngine as any).consumeRecentLineHighlights === 'function'
         ? sandboxEngine.consumeRecentLineHighlights()
         : [];
@@ -412,8 +419,9 @@ export const SandboxGameHost: React.FC = () => {
 
         // AI players: pick a random option without involving the UI.
         if (playerKind === 'ai') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- generic choice type narrowing
           const options = (choice as any).options as TChoice['options'];
-          const optionsArray = (options as any[]) ?? [];
+          const optionsArray = (options as unknown[]) ?? [];
           if (optionsArray.length === 0) {
             throw new Error('SandboxInteractionHandler: no options available for AI choice');
           }
@@ -431,9 +439,10 @@ export const SandboxGameHost: React.FC = () => {
 
         // Human players
         if (choice.type === 'capture_direction') {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- capture_direction type narrowing
           const anyChoice = choice as any;
-          const options = (anyChoice.options ?? []) as any[];
-          const targets: Position[] = options.map((opt) => opt.landingPosition as Position);
+          const options = (anyChoice.options ?? []) as Array<{ landingPosition: Position }>;
+          const targets: Position[] = options.map((opt) => opt.landingPosition);
           setSandboxCaptureChoice(choice);
           setSandboxCaptureTargets(targets);
         } else {
@@ -670,6 +679,7 @@ export const SandboxGameHost: React.FC = () => {
         return;
       }
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing debug global
       const anyWindow = window as any;
       const trace = anyWindow.__RINGRIFT_SANDBOX_TRACE__ ?? [];
       const payload = JSON.stringify(trace, null, 2);
@@ -748,6 +758,21 @@ export const SandboxGameHost: React.FC = () => {
   // it mirrors the backend HUD directive.
   const isRingEliminationChoice =
     (sandboxCaptureChoice ?? sandboxPendingChoice)?.type === 'ring_elimination';
+
+  // When in chain_capture with available continuation segments, surface an
+  // attention-style chip prompting the user to continue the chain. This mirrors
+  // backend HUD semantics for mandatory chain continuation.
+  const isChainCaptureContinuationStep = !!(
+    sandboxGameState &&
+    sandboxGameState.currentPhase === 'chain_capture' &&
+    sandboxEngine &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- duck-typing for optional engine method
+    typeof (sandboxEngine as any).getValidMoves === 'function' &&
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing internal engine method
+    (sandboxEngine as any)
+      .getValidMoves(sandboxGameState.currentPlayer)
+      .some((m: { type: string }) => m.type === 'continue_capture_segment')
+  );
 
   const sandboxPlayersList =
     sandboxGameState?.players ??
@@ -1058,6 +1083,19 @@ export const SandboxGameHost: React.FC = () => {
     }
   }, [sandboxEngine]);
 
+  // Start game sync service and subscribe to state updates
+  useEffect(() => {
+    GameSyncService.start();
+    const unsubscribe = GameSyncService.subscribe((state) => {
+      setSyncState(state);
+      setPendingLocalGames(state.pendingCount);
+    });
+    return () => {
+      unsubscribe();
+      GameSyncService.stop();
+    };
+  }, []);
+
   // Auto-save completed games to replay database when victory is detected
   useEffect(() => {
     if (!autoSaveGames || !sandboxVictoryResult || gameSavedRef.current) {
@@ -1073,6 +1111,15 @@ export const SandboxGameHost: React.FC = () => {
         return;
       }
 
+      const metadata = {
+        source: 'sandbox',
+        boardType: finalState.board.type,
+        numPlayers: finalState.players.length,
+        playerTypes: config.playerTypes.slice(0, config.numPlayers),
+        victoryReason: sandboxVictoryResult.reason,
+        winnerPlayerNumber: sandboxVictoryResult.winner,
+      };
+
       try {
         setGameSaveStatus('saving');
         const replayService = getReplayService();
@@ -1080,14 +1127,7 @@ export const SandboxGameHost: React.FC = () => {
           initialState,
           finalState,
           moves: finalState.moveHistory as unknown as Record<string, unknown>[],
-          metadata: {
-            source: 'sandbox',
-            boardType: finalState.board.type,
-            numPlayers: finalState.players.length,
-            playerTypes: config.playerTypes.slice(0, config.numPlayers),
-            victoryReason: sandboxVictoryResult.reason,
-            winnerPlayerNumber: sandboxVictoryResult.winner,
-          },
+          metadata,
         });
 
         if (result.success) {
@@ -1095,13 +1135,38 @@ export const SandboxGameHost: React.FC = () => {
           setGameSaveStatus('saved');
           toast.success(`Game saved (${result.totalMoves} moves)`);
         } else {
-          setGameSaveStatus('error');
-          toast.error('Failed to save game');
+          // Server rejected - try local fallback
+          throw new Error('Server rejected game storage');
         }
       } catch (error) {
-        console.error('[SandboxGameHost] Failed to save completed game:', error);
-        setGameSaveStatus('error');
-        // Don't show error toast for network failures - user can retry manually
+        console.warn('[SandboxGameHost] Server save failed, trying local storage:', error);
+
+        // Fallback to IndexedDB local storage
+        try {
+          const localResult = await storeGameLocally(
+            initialState,
+            finalState,
+            finalState.moveHistory as unknown[],
+            metadata
+          );
+
+          if (localResult.success) {
+            gameSavedRef.current = true;
+            setGameSaveStatus('saved-local');
+            const newCount = await getPendingCount();
+            setPendingLocalGames(newCount);
+            toast.success('Game saved locally (will sync when server available)', {
+              icon: '💾',
+            });
+          } else {
+            setGameSaveStatus('error');
+            toast.error('Failed to save game');
+          }
+        } catch (localError) {
+          console.error('[SandboxGameHost] Local storage also failed:', localError);
+          setGameSaveStatus('error');
+          toast.error('Failed to save game (storage unavailable)');
+        }
       }
     };
 
@@ -1167,6 +1232,27 @@ export const SandboxGameHost: React.FC = () => {
               className="px-4 py-2 rounded-xl border border-slate-600 bg-slate-900/60 text-slate-200 hover:border-emerald-400 hover:text-emerald-200 transition text-sm font-medium"
             >
               Browse Scenarios
+            </button>
+          </section>
+
+          {/* Self-Play Games section */}
+          <section className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-slate-400">AI Training</p>
+                <h2 className="text-lg font-semibold text-white">Browse self-play games</h2>
+              </div>
+            </div>
+            <p className="text-sm text-slate-400 mb-3">
+              Load and replay games recorded during CMA-ES training, self-play soaks, and other AI
+              training activities.
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowSelfPlayBrowser(true)}
+              className="px-4 py-2 rounded-xl border border-slate-600 bg-slate-900/60 text-slate-200 hover:border-sky-400 hover:text-sky-200 transition text-sm font-medium"
+            >
+              Browse Self-Play Games
             </button>
           </section>
 
@@ -1334,6 +1420,12 @@ export const SandboxGameHost: React.FC = () => {
           isOpen={showScenarioPicker}
           onClose={() => setShowScenarioPicker(false)}
           onSelectScenario={handleLoadScenario}
+        />
+
+        <SelfPlayBrowser
+          isOpen={showSelfPlayBrowser}
+          onClose={() => setShowSelfPlayBrowser(false)}
+          onSelectGame={handleLoadScenario}
         />
       </div>
     );
@@ -1561,17 +1653,23 @@ export const SandboxGameHost: React.FC = () => {
 
                 <section className="mt-1 p-3 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 text-xs text-slate-200">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={
-                        isRingEliminationChoice
-                          ? 'px-2 py-1 rounded-full bg-amber-500 text-slate-950 font-semibold border border-amber-300 shadow-sm shadow-amber-500/40'
-                          : 'px-2 py-1 rounded-full bg-slate-800/80 border border-slate-600'
+                    {(() => {
+                      let primarySubtitleText = boardDisplaySubtitle;
+                      let primarySubtitleClass =
+                        'px-2 py-1 rounded-full bg-slate-800/80 border border-slate-600';
+
+                      if (isRingEliminationChoice) {
+                        primarySubtitleText = 'Select stack cap to eliminate';
+                        primarySubtitleClass =
+                          'px-2 py-1 rounded-full bg-amber-500 text-slate-950 font-semibold border border-amber-300 shadow-sm shadow-amber-500/40';
+                      } else if (isChainCaptureContinuationStep) {
+                        primarySubtitleText = 'Continue Chain Capture';
+                        primarySubtitleClass =
+                          'px-2 py-1 rounded-full bg-amber-500 text-slate-950 font-semibold border border-amber-300 shadow-sm shadow-amber-500/40';
                       }
-                    >
-                      {isRingEliminationChoice
-                        ? 'Select stack cap to eliminate'
-                        : boardDisplaySubtitle}
-                    </span>
+
+                      return <span className={primarySubtitleClass}>{primarySubtitleText}</span>;
+                    })()}
                     <span className="px-2 py-1 rounded-full bg-slate-800/80 border border-slate-600">
                       Players: {config.numPlayers} ({humanSeatCount} human, {aiSeatCount} AI)
                     </span>
@@ -1693,6 +1791,92 @@ export const SandboxGameHost: React.FC = () => {
 
             <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60">
               <GameEventLog viewModel={sandboxEventLogViewModel} />
+            </div>
+
+            {/* Recording Status Panel */}
+            <div className="p-3 border border-slate-700 rounded-2xl bg-slate-900/60">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Recording:</span>
+                  {gameSaveStatus === 'idle' && autoSaveGames && (
+                    <span className="flex items-center gap-1 text-xs text-slate-400">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      Ready
+                    </span>
+                  )}
+                  {gameSaveStatus === 'idle' && !autoSaveGames && (
+                    <span className="text-xs text-slate-500">Disabled</span>
+                  )}
+                  {gameSaveStatus === 'saving' && (
+                    <span className="flex items-center gap-1 text-xs text-amber-400">
+                      <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                      Saving...
+                    </span>
+                  )}
+                  {gameSaveStatus === 'saved' && (
+                    <span className="flex items-center gap-1 text-xs text-emerald-400">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                      Saved to server
+                    </span>
+                  )}
+                  {gameSaveStatus === 'saved-local' && (
+                    <span className="flex items-center gap-1 text-xs text-amber-300">
+                      <span className="w-2 h-2 rounded-full bg-amber-300" />
+                      Saved locally
+                    </span>
+                  )}
+                  {gameSaveStatus === 'error' && (
+                    <span className="flex items-center gap-1 text-xs text-red-400">
+                      <span className="w-2 h-2 rounded-full bg-red-400" />
+                      Failed
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAutoSaveGames(!autoSaveGames)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition ${
+                    autoSaveGames
+                      ? 'bg-emerald-900/40 text-emerald-300 border border-emerald-700'
+                      : 'bg-slate-800 text-slate-400 border border-slate-600'
+                  }`}
+                  title={autoSaveGames ? 'Click to disable recording' : 'Click to enable recording'}
+                >
+                  {autoSaveGames ? 'ON' : 'OFF'}
+                </button>
+              </div>
+              {pendingLocalGames > 0 && (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    {syncState?.status === 'syncing' ? (
+                      <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                    ) : syncState?.status === 'offline' ? (
+                      <span className="w-2 h-2 rounded-full bg-slate-500" />
+                    ) : syncState?.status === 'error' ? (
+                      <span className="w-2 h-2 rounded-full bg-red-400" />
+                    ) : (
+                      <span className="w-2 h-2 rounded-full bg-amber-400" />
+                    )}
+                    <span className="text-[10px] text-amber-400">
+                      {pendingLocalGames} game{pendingLocalGames !== 1 ? 's' : ''}{' '}
+                      {syncState?.status === 'syncing'
+                        ? 'syncing...'
+                        : syncState?.status === 'offline'
+                          ? '(offline)'
+                          : 'pending'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => GameSyncService.triggerSync()}
+                    disabled={syncState?.status === 'syncing' || syncState?.status === 'offline'}
+                    className="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-900/40 text-blue-300 border border-blue-700 hover:bg-blue-800/40 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    title="Sync pending games to server"
+                  >
+                    Sync
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">

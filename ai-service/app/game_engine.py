@@ -5,6 +5,12 @@ rules sufficient for AI search, evaluation, and TS↔Python contract tests.
 It mirrors the shared TypeScript engine semantics where required for
 parity, but should be treated as a *host adapter* rather than an
 independent rules SSoT.
+
+For which modules are allowed to encode rules semantics vs. which must
+act as adapters over the shared engine, see the “Rules Entry Surfaces /
+SSoT checklist” in ``docs/RULES_ENGINE_SURFACE_AUDIT.md``. When in
+doubt, the TS shared engine and rules documentation win and this module
+should be updated to match them.
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ class GameEngine:
     It is *not* a separate rules SSoT; when in doubt the TS engine and
     rules documentation win and this module should be updated to match.
     """
-    
+
     # Cache for valid moves: key = f"{state_hash}:{player_number}"
     _move_cache: dict[str, List[Move]] = {}
     _cache_hits: int = 0
@@ -72,16 +78,16 @@ class GameEngine:
         # Only generate moves if it's the player's turn
         if game_state.current_player != player_number:
             return []
-            
+
         # Check cache
         state_hash = BoardManager.hash_game_state(game_state)
         cache_key = f"{state_hash}:{player_number}"
-        
+
         if cache_key in GameEngine._move_cache:
             GameEngine._cache_hits += 1
             _debug(f"DEBUG: Cache hit for {cache_key}\n")
             return GameEngine._move_cache[cache_key]
-        
+
         GameEngine._cache_misses += 1
 
         phase = game_state.current_phase
@@ -453,7 +459,7 @@ class GameEngine:
         # Note: game_state.players might not be up to date with
         # board.eliminated_rings. We should sync them or check
         # board.eliminated_rings directly
-        
+
         for p_id_str, count in game_state.board.eliminated_rings.items():
             if count >= game_state.victory_threshold:
                 game_state.game_status = GameStatus.FINISHED
@@ -466,7 +472,7 @@ class GameEngine:
             if p_id not in territory_counts:
                 territory_counts[p_id] = 0
             territory_counts[p_id] += 1
-             
+
         for p_id, count in territory_counts.items():
             if count >= game_state.territory_victory_threshold:
                 game_state.game_status = GameStatus.FINISHED
@@ -597,7 +603,7 @@ class GameEngine:
 
             game_state.winner = sorted_players[0].player_number
             return
-        
+
         # 4. No legal moves for ANY player (Global Stalemate with stacks)
         # This is computationally expensive to check every move.
         # However, the rules say: "In any situation where no player has any
@@ -616,7 +622,7 @@ class GameEngine:
         # If you have no stack and no placement (no rings), you are
         # eliminated/inactive.
         # If ALL players are eliminated/inactive, then game ends.
-        
+
         active_players = 0
         for p in game_state.players:
             # Check if player can potentially move
@@ -734,13 +740,36 @@ class GameEngine:
             )
             if not remaining_lines:
                 GameEngine._advance_to_territory_processing(game_state)
- 
+
         elif last_move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
-            # Explicit ELIMINATE_RINGS_FROM_STACK decisions are phase-preserving
-            # in the orchestrator-aligned semantics; they do not rotate the
-            # turn. Any terminal status is detected by _check_victory.
-            pass
- 
+            # After ELIMINATE_RINGS_FROM_STACK, check if the game will end:
+            # - Terminal: no stacks left AND no player has rings in hand
+            #   → stay on current player, set phase to territory_processing
+            # - Non-terminal: rotate to next player, set phase to ring_placement
+            no_stacks_left = not game_state.board.stacks
+            any_rings_in_hand = any(
+                p.rings_in_hand > 0 for p in game_state.players
+            )
+
+            if no_stacks_left and not any_rings_in_hand:
+                # Terminal case: game will end, preserve current player
+                # and set phase to territory_processing (game over state)
+                game_state.current_phase = GamePhase.TERRITORY_PROCESSING
+                game_state.must_move_from_stack_key = None
+            else:
+                # Non-terminal case: rotate to next player
+                players = game_state.players
+                if players:
+                    current_index = 0
+                    for i, p in enumerate(players):
+                        if p.player_number == game_state.current_player:
+                            current_index = i
+                            break
+                    next_index = (current_index + 1) % len(players)
+                    game_state.current_player = players[next_index].player_number
+                    game_state.current_phase = GamePhase.RING_PLACEMENT
+                    game_state.must_move_from_stack_key = None
+
         elif last_move.type == MoveType.PROCESS_TERRITORY_REGION:
             # After processing a disconnected territory region via an explicit
             # PROCESS_TERRITORY_REGION decision, rotate to the next seat and
@@ -758,7 +787,7 @@ class GameEngine:
                 game_state.current_player = players[next_index].player_number
                 game_state.current_phase = GamePhase.RING_PLACEMENT
                 game_state.must_move_from_stack_key = None
- 
+
         elif last_move.type in (
             MoveType.TERRITORY_CLAIM,
             MoveType.CHOOSE_TERRITORY_OPTION,
@@ -1253,7 +1282,7 @@ class GameEngine:
                 new_marker = marker.model_copy()
                 new_marker.player = player_number
                 board.markers[pos_key] = new_marker
-                
+
                 # Add new marker hash
                 if game_state.zobrist_hash is not None:
                     game_state.zobrist_hash ^= zobrist.get_marker_hash(
@@ -1324,7 +1353,7 @@ class GameEngine:
                     stack.stack_height,
                     tuple(stack.rings)
                 )
-            
+
             _debug(
                 f"DEBUG: _apply_place_ring created stack at {pos_key}: "
                 f"player={stack.controlling_player}, "
@@ -1352,23 +1381,23 @@ class GameEngine:
             return False
         if not BoardManager.is_valid_position(landing_pos, board.type, board.size):
             return False
- 
+
         attacker = BoardManager.get_stack(from_pos, board)
         if not attacker or attacker.controlling_player != player:
             return False
- 
+
         target_stack = BoardManager.get_stack(target_pos, board)
         if not target_stack:
             return False
- 
+
         # Cap height constraint: attacker.cap_height >= target.cap_height
         if attacker.cap_height < target_stack.cap_height:
             return False
- 
+
         dx = target_pos.x - from_pos.x
         dy = target_pos.y - from_pos.y
         dz = (target_pos.z or 0) - (from_pos.z or 0)
- 
+
         if board_type == BoardType.HEXAGONAL:
             coord_changes = sum(1 for d in (dx, dy, dz) if d != 0)
             if coord_changes != 2:
@@ -1378,7 +1407,7 @@ class GameEngine:
                 return False
             if dx != 0 and dy != 0 and abs(dx) != abs(dy):
                 return False
- 
+
         # Path from attacker to target must be clear of stacks/collapsed.
         path_to_target = GameEngine._get_path_positions(from_pos, target_pos)[1:-1]
         for pos in path_to_target:
@@ -1388,27 +1417,27 @@ class GameEngine:
                 return False
             if BoardManager.get_stack(pos, board):
                 return False
- 
+
         # Landing must be beyond target in the same direction from `from_pos`.
         dx2 = landing_pos.x - from_pos.x
         dy2 = landing_pos.y - from_pos.y
         dz2 = (landing_pos.z or 0) - (from_pos.z or 0)
- 
+
         def _sign(v: int) -> int:
             return 0 if v == 0 else (1 if v > 0 else -1)
- 
+
         if dx != 0 and _sign(dx) != _sign(dx2):
             return False
         if dy != 0 and _sign(dy) != _sign(dy2):
             return False
         if dz != 0 and _sign(dz) != _sign(dz2):
             return False
- 
+
         dist_to_target = abs(dx) + abs(dy) + abs(dz)
         dist_to_landing = abs(dx2) + abs(dy2) + abs(dz2)
         if dist_to_landing <= dist_to_target:
             return False
- 
+
         # Total distance must be at least stack height.
         segment_distance = GameEngine._calculate_distance(
             board_type,
@@ -1417,7 +1446,7 @@ class GameEngine:
         )
         if segment_distance < attacker.stack_height:
             return False
- 
+
         # Path from target to landing must also be clear.
         path_from_target = GameEngine._get_path_positions(
             target_pos,
@@ -1430,13 +1459,13 @@ class GameEngine:
                 return False
             if BoardManager.get_stack(pos, board):
                 return False
- 
+
         if BoardManager.is_collapsed_space(landing_pos, board):
             return False
         landing_stack = BoardManager.get_stack(landing_pos, board)
         if landing_stack:
             return False
- 
+
         # Landing marker, if any, must belong to attacker.
         landing_marker = board.markers.get(landing_pos.to_key())
         if (
@@ -1444,9 +1473,9 @@ class GameEngine:
             and landing_marker.player != attacker.controlling_player
         ):
             return False
- 
+
         return True
- 
+
     @staticmethod
     def _has_any_legal_move_or_capture_from_on_board(
         board_type: BoardType,
@@ -1457,7 +1486,7 @@ class GameEngine:
         """
         Python analogue of hasAnyLegalMoveOrCaptureFromOnBoard used for
         placement no-dead-placement checks.
- 
+
         This is now a direct port of the TS helper:
         - Non-capture moves along movement directions with distance
           >= stackHeight, up to stackHeight + 5.
@@ -1467,16 +1496,16 @@ class GameEngine:
         stack = BoardManager.get_stack(from_pos, board)
         if not stack or stack.controlling_player != player_number:
             return False
- 
+
         directions = BoardManager._get_all_directions(board_type)
         max_non_capture = stack.stack_height + 5
         max_capture_landing = stack.stack_height + 5
- 
+
         # === Non-capture movement ===
         for direction in directions:
             for distance in range(stack.stack_height, max_non_capture + 1):
                 target = BoardManager._add_direction(from_pos, direction, distance)
- 
+
                 if not BoardManager.is_valid_position(
                     target,
                     board.type,
@@ -1485,7 +1514,7 @@ class GameEngine:
                     break
                 if BoardManager.is_collapsed_space(target, board):
                     break
- 
+
                 # Path blocking identical to movement rules.
                 if not GameEngine._is_path_clear_for_movement(
                     board,
@@ -1513,12 +1542,12 @@ class GameEngine:
                         f"to {target} dist {distance}\n"
                     )
                     return True
- 
+
         # === Capture reachability ===
         for direction in directions:
             step = 1
             target_pos: Optional[Position] = None
- 
+
             # Find first stack along this ray that could be a capture target.
             while True:
                 pos = BoardManager._add_direction(from_pos, direction, step)
@@ -1530,7 +1559,7 @@ class GameEngine:
                     break
                 if BoardManager.is_collapsed_space(pos, board):
                     break
- 
+
                 stack_at_pos = BoardManager.get_stack(pos, board)
                 if stack_at_pos and stack_at_pos.stack_height > 0:
                     # Can overtake own or opponent stacks as long as capHeight
@@ -1539,10 +1568,10 @@ class GameEngine:
                         target_pos = pos
                     break
                 step += 1
- 
+
             if not target_pos:
                 continue
- 
+
             # From the target, search for valid landing positions beyond it.
             landing_step = 1
             while landing_step <= max_capture_landing:
@@ -1562,7 +1591,7 @@ class GameEngine:
                 landing_stack = BoardManager.get_stack(landing, board)
                 if landing_stack and landing_stack.stack_height > 0:
                     break
- 
+
                 if GameEngine._validate_capture_segment_on_board_for_reachability(
                     board_type,
                     from_pos,
@@ -1578,9 +1607,9 @@ class GameEngine:
                     return True
 
                 landing_step += 1
- 
+
         return False
- 
+
     @staticmethod
     def _has_any_movement_or_capture_after_hypothetical_placement(
         game_state: GameState,
@@ -1605,7 +1634,7 @@ class GameEngine:
         stack = BoardManager.get_stack(from_pos, hyp_board)
         if not stack or stack.controlling_player != player_number:
             return False
- 
+
         # Build a lightweight temporary GameState that mirrors the
         # post-placement MOVEMENT phase from the placing player's
         # perspective. We copy the incoming state to preserve players,
@@ -1616,7 +1645,7 @@ class GameEngine:
         temp_state.current_phase = GamePhase.MOVEMENT
         temp_state.must_move_from_stack_key = from_pos.to_key()
         temp_state.chain_capture_state = None
- 
+
         # Seed move_history with a synthetic placement move so that
         # _get_capture_moves identifies the attacker at from_pos (it
         # looks at the last move's .to when no chain_capture_state is
@@ -1632,7 +1661,7 @@ class GameEngine:
             moveNumber=len(game_state.move_history) + 1,
         )
         temp_state.move_history = list(game_state.move_history) + [synthetic_move]
- 
+
         # Use limit=1 for early-return optimization - we only need to know
         # if at least one valid move exists, not enumerate all of them.
         movement_moves = GameEngine._get_movement_moves(
@@ -1666,7 +1695,7 @@ class GameEngine:
     ) -> List[Move]:
         """
         Enumerate legal SKIP_PLACEMENT moves.
- 
+
         Mirrors TS RuleEngine.validateSkipPlacement semantics:
         - Only during RING_PLACEMENT phase.
         - Player must have rings in hand and at least one stack.
@@ -1675,7 +1704,7 @@ class GameEngine:
         """
         if game_state.current_phase != GamePhase.RING_PLACEMENT:
             return []
- 
+
         player = next(
             (
                 p
@@ -1686,12 +1715,12 @@ class GameEngine:
         )
         if not player or player.rings_in_hand <= 0:
             return []
- 
+
         board = game_state.board
         player_stacks = BoardManager.get_player_stacks(board, player_number)
         if not player_stacks:
             return []
- 
+
         # Check if at least one controlled stack has a legal move or capture.
         has_any_action = False
         for stack in player_stacks:
@@ -1703,10 +1732,10 @@ class GameEngine:
             ):
                 has_any_action = True
                 break
- 
+
         if not has_any_action:
             return []
- 
+
         # Use an arbitrary stack position as a harmless sentinel for `to`.
         sentinel_pos = player_stacks[0].position
         return [
@@ -1720,7 +1749,7 @@ class GameEngine:
                 moveNumber=len(game_state.move_history) + 1,
             )  # type: ignore[arg-type]
         ]
- 
+
     @staticmethod
     def _get_ring_placement_moves(
         game_state: GameState,
@@ -2580,7 +2609,7 @@ class GameEngine:
                         break
 
                     distance += 1
-        
+
         return moves
 
     @staticmethod
@@ -2761,7 +2790,7 @@ class GameEngine:
             new_marker = landing_marker.model_copy()
             new_marker.player = move.player
             board.markers[to_key] = new_marker
-            
+
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_marker_hash(
                     to_key, new_marker.player
@@ -3030,7 +3059,7 @@ class GameEngine:
                 new_marker = landing_marker.model_copy()
                 new_marker.player = move.player
                 board.markers[landing_key] = new_marker
-                
+
                 if game_state.zobrist_hash is not None:
                     game_state.zobrist_hash ^= zobrist.get_marker_hash(
                         landing_key, new_marker.player
@@ -3176,9 +3205,9 @@ class GameEngine:
     def _apply_territory_claim(game_state: GameState, move: Move):
         """
         Apply a territory claim move (TS-orchestrator-aligned territory processing).
-    
+
         Mirrors TS territoryProcessing.processOneDisconnectedRegion:
-    
+
         1) Identify the disconnected region associated with this move, using
            the explicit `move.disconnectedRegions` metadata when present and
            falling back to BoardManager.find_disconnected_regions when
@@ -3189,7 +3218,7 @@ class GameEngine:
            the moving player's colour.
         4) Update the moving player's territory_spaces by the total number
            of newly collapsed spaces (region + border markers).
-    
+
         NOTE: Mandatory self-elimination is modelled as a separate
         ELIMINATE_RINGS_FROM_STACK / FORCED_ELIMINATION move in the
         orchestrator-aligned contract vectors and is therefore NOT applied
@@ -3197,11 +3226,11 @@ class GameEngine:
         """
         board = game_state.board
         player = move.player
-    
+
         # 1. Identify target region, preferring explicit decision geometry.
         target_region = None
         move_key = move.to.to_key()
-    
+
         # 1a. Prefer explicit disconnectedRegions geometry carried on the Move.
         explicit_regions = list(getattr(move, "disconnected_regions", None) or [])
         if explicit_regions:
@@ -3212,7 +3241,7 @@ class GameEngine:
             if target_region is None:
                 # Fall back to the first supplied region if no space matched `to`.
                 target_region = explicit_regions[0]
-    
+
             _debug(
                 "DEBUG: _apply_territory_claim using explicit disconnected "
                 f"region at {move_key} with {len(target_region.spaces)} spaces "
@@ -3227,30 +3256,30 @@ class GameEngine:
                 if region.spaces and region.spaces[0].to_key() == move_key:
                     target_region = region
                     break
-    
+
             if target_region:
                 _debug(
                     "DEBUG: _apply_territory_claim using discovered "
                     f"disconnected region at {move_key} with "
                     f"{len(target_region.spaces)} spaces for P{player}\n"
                 )
-    
+
         if not target_region:
             _debug(
                 "DEBUG: _apply_territory_claim found no matching disconnected "
                 f"region for move at {move_key} by P{player}\n"
             )
             return
-    
+
         # 1c. Compute region key set for later checks (e.g., outside stacks)
         #     and gather border markers.
         region_keys = {p.to_key() for p in target_region.spaces}
-    
+
         border_markers = BoardManager.get_border_marker_positions(
             target_region.spaces,
             board,
         )
-    
+
         # 2. Eliminate all rings within the region, crediting them to the
         #    moving player. We repeatedly call _eliminate_top_ring_at until
         #    no stack remains at each space.
@@ -3264,7 +3293,7 @@ class GameEngine:
                     pos,
                     credited_player=player,
                 )
-    
+
         # 3. Collapse all spaces in the region to the moving player's colour.
         zobrist = ZobristHash()
         for pos in target_region.spaces:
@@ -3280,7 +3309,7 @@ class GameEngine:
             BoardManager.set_collapsed_space(pos, player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
-    
+
         # 4. Collapse all border markers to the moving player's colour.
         for pos in border_markers:
             key = pos.to_key()
@@ -3293,7 +3322,7 @@ class GameEngine:
             BoardManager.set_collapsed_space(pos, player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
-    
+
         # 5. Update territory_spaces for the moving player.
         spaces_gained = len(target_region.spaces) + len(border_markers)
         if spaces_gained > 0:
@@ -3301,7 +3330,7 @@ class GameEngine:
                 if ps.player_number == player:
                     ps.territory_spaces += spaces_gained
                     break
-    
+
     @staticmethod
     def _generate_all_positions(
         board_type: BoardType, size: int
@@ -3404,13 +3433,13 @@ class GameEngine:
         for dx, dy, dz in directions:
             curr_x, curr_y = pos.x, pos.y
             curr_z = pos.z if pos.z is not None else 0
-            
+
             # Raycast in this direction
             while True:
                 curr_x += dx
                 curr_y += dy
                 curr_z += dz
-                
+
                 # Check bounds
                 if board_type in [BoardType.SQUARE8, BoardType.SQUARE19]:
                     if not (0 <= curr_x < limit and 0 <= curr_y < limit):
@@ -3420,11 +3449,11 @@ class GameEngine:
                             abs(curr_y) <= radius and
                             abs(curr_z) <= radius):
                         break
-                
+
                 curr_pos_key = f"{curr_x},{curr_y}"
                 if board_type == BoardType.HEXAGONAL:
                     curr_pos_key += f",{curr_z}"
-                
+
                 # Check for stack
                 if curr_pos_key in board.stacks:
                     visible_stacks.append(board.stacks[curr_pos_key])
@@ -3434,7 +3463,7 @@ class GameEngine:
                 # RingRift? Actually they might, but for stack interactions
                 # usually we care about stacks. Assuming markers don't block
                 # stack visibility for now, or if they do, add check here.)
-                
+
         return visible_stacks
 
     @staticmethod
