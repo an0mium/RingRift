@@ -343,6 +343,25 @@ class OptimizationProgressReporter:
             flush=True,
         )
 
+    def update_candidates_evaluated(self, completed: int) -> None:
+        """Update the count of evaluated candidates (for distributed mode).
+
+        In distributed mode, candidates are evaluated in parallel on remote
+        workers, so we track progress by count rather than per-candidate.
+
+        Parameters
+        ----------
+        completed : int
+            Total number of candidates completed so far in this generation.
+        """
+        self._candidates_evaluated = completed
+        now = time.time()
+        elapsed_since_report = now - self._last_report_time
+
+        if elapsed_since_report >= self.report_interval_sec:
+            self._emit_report(completed)
+            self._last_report_time = now
+
     def record_candidate(
         self,
         candidate_idx: int,
