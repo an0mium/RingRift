@@ -10,7 +10,7 @@
 >
 > _A fractured arena where shifting rings of influence determine power — where moves create fault lines, actions destabilize the geometry, and mastery comes from navigating both space and its ultimate collapse._
 >
-> \*An invitation to seek threads of dangerous precision through nets of control, to weave, weave through, and render unwoven. Each choice spawning new dangers and new pathways.
+> _An invitation to seek threads of dangerous precision through nets of control, to weave, weave through, and render unwoven. Each choice spawning new dangers and new pathways._
 
 > _A field of contest unexpectedly alive, that shifts and threatens to fracture in critical moments, where order meets instability, when cycles meet rupture, where subtle choices cause seismic consequences._
 >
@@ -2244,12 +2244,10 @@ _Note: The general rules for line formation and collapse, including the graduate
 1. Ring Elimination Victory: Once you have more than 50% of total rings as Eliminated rings, you win immediately
 2. Last Player Standing: If you satisfy the Last Player Standing condition from Section 13.3 (one full round in which only you ever have any legal real action and you are still the only player with a real action when the round returns to you), then you win by Last Player Standing.
 3. Stalemate: If no moves are possible for any players, compare, in order:
-
-
-    - Most collapsed spaces (indicating territorial control) first
-    - Most Eliminated rings (including rings eliminated during gameplay **and** any rings remaining in hand at the point of stalemate) if still tied
-    - Most remaining markers (board presence) if still tied
-    - Last person to complete a valid turn action, if still tied
+   - Most collapsed spaces (indicating territorial control) first
+   - Most Eliminated rings (including rings eliminated during gameplay **and** any rings remaining in hand at the point of stalemate) if still tied
+   - Most remaining markers (board presence) if still tied
+   - Last person to complete a valid turn action, if still tied
 
 • Important Notes: - Victory conditions are checked only after all post-movement processing - Ring Elimination victory takes precedence over other conditions - Rings in hand that cannot be placed count as Eliminated rings in stalemate situations - A player with rings in hand but no board presence is still active if legal placements exist
 

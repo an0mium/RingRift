@@ -332,7 +332,9 @@ The project is approaching production readiness but has key gaps that need addre
   - HUD: Turn vs Move tooltip in Game Progress panel clarifying turn cycles vs individual moves.
   - HUD: Phase indicator tooltip summarising the current phase description plus role-specific guidance (spectator vs active player).
   - HUD: VictoryConditionsPanel tooltips for Elimination, Territory, and Last Player Standing, aligned with rules docs and victory logic.
-- [ ] Redesign HUD visual hierarchy for clarity (existing HUD is functional, minor polish deferred)
+- [x] Redesign HUD visual hierarchy for clarity (Dec 4, 2025)
+  - Adapter-based GameHUD: primary HUD band (phase, whose turn, time-pressure chip, victory tooltips) now lives at the top of the sidebar in BackendGameHost, visually colocated with the board so first-time players see core state without scrolling.
+  - SandboxGameHost: retains its local header card and HUD band directly above the board; both backend and sandbox hosts now follow the same general pattern of "board on the left, HUD band and supporting panels on the right" for desktop, stacking vertically on small screens via existing responsive classes.
 
 ### 8.2 Game Flow Polish
 

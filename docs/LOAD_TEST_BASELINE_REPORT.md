@@ -1,5 +1,72 @@
 # RingRift Load Test Baseline Report
 
+## PASS24.3 – HTTP Move Harness k6 Player-Moves Scenario (2025-12-04)
+
+**Environment:**
+
+- Node backend: local dev server (`npm run dev:server`)
+- Topology: `RINGRIFT_APP_TOPOLOGY=single` (default dev)
+- Flags: `ENABLE_HTTP_MOVE_HARNESS=true` (backend), `MOVE_HTTP_ENDPOINT_ENABLED=true` (k6)
+- k6 version: 1.4.2 (`npx k6 v1.4.2`)
+
+**Scenario configuration:**
+
+- Script: [player-moves.js](tests/load/scenarios/player-moves.js:1)
+- Mode: HTTP move harness mode (real moves via `POST /api/games/:gameId/moves`)
+- Options: `realistic_gameplay` ramping-vus scenario as defined in the script:
+  - 0 → 20 VUs over 1m
+  - 20 → 40 VUs over 3m
+  - 40 VUs steady for 5m
+  - 40 → 0 VUs over 1m
+- Base URL: `http://localhost:3000`
+
+**Observed behaviour and limitations:**
+
+- Run started successfully:
+  - Health check `GET /health` returned 200.
+  - Auth login via `POST /api/auth/login` succeeded.
+  - Multiple games created via `POST /api/games` with low latency (≈4–15 ms per backend logs).
+  - HTTP move harness exercised with real moves:
+    - `POST /api/games/:gameId/moves` returned 200 with orchestrator adapter enabled.
+    - AI seats configured from profile and GameSession initialized per game.
+- After ~30–40s at rising concurrency, `/api/games` hit the adaptive `apiAuthenticated` rate limiter:
+  - Sustained 429 `RATE_LIMIT_EXCEEDED` responses with `retryAfter≈276s`.
+  - Backend logs show thousands of 429s against `POST /api/games` from the single k6 user.
+- Shortly after heavy rate limiting, k6 began logging `dial tcp 127.0.0.1:3000: connect: connection refused` for `POST /api/games`.
+  - The k6 process exited with **code 1** before emitting its normal summary/threshold block.
+  - Due to the combination of large log volume and premature termination, **no k6 summary metrics were captured** for this run via the current tooling.
+
+**Key metrics (from this run):**
+
+- `moves_attempted_total`: **unknown** (instrumented via k6 custom counter but summary unavailable).
+- `move_submission_latency_ms`: **unknown** (no aggregate; spot backend logs for early moves show ≈7–15 ms end-to-end).
+- `turn_processing_latency_ms`: **unknown** (proxied from submission latency in the script).
+- `move_submission_success_rate`: **unknown**, but clearly degraded once 429s and connection refusals began.
+- `stalled_moves_total`: **unknown**; no evidence of stalls before rate limiting, but unable to compute final count.
+
+**Threshold status vs script thresholds and SLOs ([STRATEGIC_ROADMAP.md](STRATEGIC_ROADMAP.md:324) §2.2):**
+
+- Thresholds were not evaluated by k6 because the run aborted before summary:
+  - `move_submission_latency_ms` p95/p99: **inconclusive** (no summary).
+  - `turn_processing_latency_ms` p95/p99: **inconclusive**.
+  - `move_submission_success_rate` (>0.95 threshold): **inconclusive**, but likely violated during the period of repeated 429s and connection failures.
+  - `stalled_moves_total` (<10) and `moves_attempted_total` (>0): **inconclusive** numerically, though we know moves were attempted and some succeeded.
+- From an SLO perspective, the environment **does not meet** the intended HTTP-harness expectations at the full `player-moves` load pattern on this local dev setup:
+  - Prolonged 429s on `POST /api/games` violate the effective availability/error-budget assumptions for core gameplay surfaces.
+  - Later `connect: connection refused` errors indicate backend unavailability from the k6 perspective, even though the dev server process remained running in the current terminal session.
+
+**Conclusion for PASS24.3 HTTP move harness on local dev:**
+
+- The HTTP move harness endpoint and k6 scenario wiring are **functionally validated**:
+  - Real games are created, polled, and advanced via `POST /api/games/:gameId/moves`.
+  - The move payload generator [generateRandomMove()](tests/load/scenarios/player-moves.js:389) matches the backend MoveSchema used by the HTTP harness.
+- This specific run **cannot be used as a quantitative latency/reliability baseline** because k6 did not produce a summary and the system spent much of the run in a rate-limited/unavailable state.
+- For a proper PASS24.3 baseline:
+  - Re-run `player-moves` against a staging-like environment with higher capacity and tuned rate limits, or
+  - Temporarily relax local `apiAuthenticated` rate limits for `/api/games` during harness validation.
+
+---
+
 **Date:** December 3, 2025
 **Environment:** Local Docker (development)
 **k6 Version:** 1.4.2

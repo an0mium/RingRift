@@ -173,6 +173,10 @@ export class WebSocketServer {
         credentials: true,
       },
       transports: ['websocket', 'polling'],
+      // Align Socket.IO ping timeout with the configured reconnection window
+      // so clients that lose connectivity are detected within the same
+      // timeframe used by our server-side reconnection grace period.
+      pingTimeout: config.server.wsReconnectionTimeoutMs,
     });
 
     this.sessionManager = new GameSessionManager(this.io, this.userSockets);

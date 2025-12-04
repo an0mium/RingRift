@@ -2553,37 +2553,13 @@ class GameEngine:
                     dest_marker = board.markers.get(to_key)
 
                     if dest_stack is None or dest_stack.stack_height == 0:
-                        # Empty cell or marker-only cell
-                        if (dest_marker is None or
-                                dest_marker.player == player_number):
-                            _debug(
-                                f"DEBUG: _get_movement_moves found move from "
-                                f"{from_pos} to {to_pos} dist {distance}\n"
-                            )
-                            moves.append(
-                                Move(
-                                    id="simulated",
-                                    type=MoveType.MOVE_STACK,
-                                    player=player_number,
-                                    from_pos=from_pos,  # type: ignore[arg-type]
-                                    to=to_pos,
-                                    timestamp=game_state.last_move_at,
-                                    thinkTime=0,
-                                    moveNumber=len(game_state.move_history) + 1,
-                                )  # type: ignore
-                            )
-                            if limit is not None and len(moves) >= limit:
-                                return moves
-                        else:
-                            _debug(
-                                f"DEBUG: _get_movement_moves rejected {to_pos} "
-                                f"due to marker {dest_marker}\n"
-                            )
-                    else:
-                        # Landing on any stack (friendly or opponent) is a
-                        # legal merge move.
+                        # Empty cell or marker-only cell.
+                        # Per RR-CANON-R091/R092: Can land on ANY marker (own
+                        # or opponent). The marker is removed and a ring from
+                        # the cap is eliminated. Movement to empty cells is
+                        # always valid.
                         _debug(
-                            f"DEBUG: _get_movement_moves found merge from "
+                            f"DEBUG: _get_movement_moves found move from "
                             f"{from_pos} to {to_pos} dist {distance}\n"
                         )
                         moves.append(
@@ -2593,14 +2569,22 @@ class GameEngine:
                                 player=player_number,
                                 from_pos=from_pos,  # type: ignore[arg-type]
                                 to=to_pos,
-                                    timestamp=game_state.last_move_at,
-                                    thinkTime=0,
-                                    moveNumber=len(game_state.move_history) + 1,
+                                timestamp=game_state.last_move_at,
+                                thinkTime=0,
+                                moveNumber=len(game_state.move_history) + 1,
                             )  # type: ignore
                         )
                         if limit is not None and len(moves) >= limit:
                             return moves
+                    else:
+                        # Destination has a stack - movement cannot land on
+                        # stacks. Captures (overtaking_capture) handle landing
+                        # on opponent stacks and are enumerated separately.
                         # Cannot move further along this ray past a stack.
+                        _debug(
+                            f"DEBUG: _get_movement_moves blocked by stack at "
+                            f"{to_pos}\n"
+                        )
                         break
 
                     distance += 1

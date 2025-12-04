@@ -1779,8 +1779,12 @@ export const BoardView: React.FC<BoardViewProps> = ({
         // Invalid move shake animation: apply when this cell is the target of an invalid move attempt
         const isShaking = shakingCellKey === key;
 
+        const shouldPulseCaptureTargetHex =
+          decisionHighlight === 'primary' && isCaptureDirectionDecisionContext;
         const shouldPulseEliminationTargetHex =
           decisionHighlight === 'primary' && isRingEliminationDecisionContext;
+        const shouldPulseTerritoryRegionHex =
+          decisionHighlight === 'primary' && isTerritoryRegionDecisionContext;
 
         const cellClasses = [
           'relative w-8 h-8 md:w-9 md:h-9 mx-0 flex items-center justify-center text-[11px] md:text-xs rounded-full border',
@@ -1788,7 +1792,9 @@ export const BoardView: React.FC<BoardViewProps> = ({
           territoryClasses,
           decisionHighlightClass,
           isMoveDestination ? 'move-destination-pulse' : '',
+          shouldPulseCaptureTargetHex ? 'decision-pulse-capture' : '',
           shouldPulseEliminationTargetHex ? 'decision-pulse-elimination' : '',
+          shouldPulseTerritoryRegionHex ? 'decision-pulse-territory' : '',
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting with subtle pulse animation
           effectiveIsValid

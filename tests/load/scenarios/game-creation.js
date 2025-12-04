@@ -11,46 +11,67 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
+import thresholdsConfig from '../config/thresholds.json';
+import { loginAndGetToken } from '../auth/helpers.js';
+
+// Classification metrics shared across scenarios
+export const contractFailures = new Counter('contract_failures_total');
+export const idLifecycleMismatches = new Counter('id_lifecycle_mismatches_total');
+export const capacityFailures = new Counter('capacity_failures_total');
 
 // Custom metrics
 const gameCreationErrors = new Counter('game_creation_errors');
 const gameCreationSuccess = new Rate('game_creation_success_rate');
 const gameCreationLatency = new Trend('game_creation_latency_ms');
 
- // Auth state: use a shared pre-seeded load-test user for all VUs
- const userEmail = 'loadtest_user_1@loadtest.local';
- const userPassword = 'TestPassword123!';
+// Threshold configuration derived from thresholds.json
+const THRESHOLD_ENV = __ENV.THRESHOLD_ENV || 'staging';
+const perfEnv =
+  thresholdsConfig.environments[THRESHOLD_ENV] || thresholdsConfig.environments.staging;
+const loadTestEnv =
+  thresholdsConfig.load_tests[THRESHOLD_ENV] || thresholdsConfig.load_tests.staging;
+const gameCreationHttp = perfEnv.http_api.game_creation;
 
-// Test configuration aligned with production staging SLOs
+// Test configuration aligned with thresholds.json SLOs
 export const options = {
   stages: [
-    { duration: '30s', target: 10 },   // Warm up: ramp to 10 users
-    { duration: '1m', target: 50 },    // Load: ramp to 50 users
-    { duration: '2m', target: 50 },    // Sustain: hold at 50 users
-    { duration: '30s', target: 0 }     // Ramp down
+    { duration: '30s', target: 10 }, // Warm up: ramp to 10 users
+    { duration: '1m', target: 50 }, // Load: ramp to 50 users
+    { duration: '2m', target: 50 }, // Sustain: hold at 50 users
+    { duration: '30s', target: 0 }, // Ramp down
   ],
-  
+
   thresholds: {
-    // HTTP request duration - staging SLOs from STRATEGIC_ROADMAP.md §2.1
-    'http_req_duration': [
-      'p(95)<800',   // Staging: p95 ≤ 800ms for POST /api/games
-      'p(99)<1500'   // Staging: p99 ≤ 1500ms
+    // HTTP request duration - env-specific SLOs from thresholds.json
+    http_req_duration: [
+      `p(95)<${gameCreationHttp.latency_p95_ms}`,
+      `p(99)<${gameCreationHttp.latency_p99_ms}`,
     ],
-    
-    // Error rate - staging SLO < 1.0%
-    'http_req_failed': ['rate<0.01'],
-    
+
+    // Error rate - use environment-specific 5xx error budget
+    http_req_failed: [`rate<${gameCreationHttp.error_rate_5xx_percent / 100}`],
+
     // Custom metrics
-    'game_creation_success_rate': ['rate>0.99'],
-    'game_creation_latency_ms': ['p(95)<800', 'p(99)<1500']
+    game_creation_success_rate: ['rate>0.99'],
+    game_creation_latency_ms: [
+      `p(95)<${gameCreationHttp.latency_p95_ms}`,
+      `p(99)<${gameCreationHttp.latency_p99_ms}`,
+    ],
+
+    // Contract/id-lifecycle/capacity classification
+    contract_failures_total: [`count<=${loadTestEnv.contract_failures_total.max}`],
+    id_lifecycle_mismatches_total: [
+      `count<=${loadTestEnv.id_lifecycle_mismatches_total.max}`,
+    ],
+    capacity_failures_total: [`rate<${loadTestEnv.capacity_failures_total.rate}`],
   },
-  
+
   // Test metadata
   tags: {
     scenario: 'game-creation',
     test_type: 'load',
-    environment: 'staging'
-  }
+    environment: THRESHOLD_ENV,
+  },
 };
 
 // Test configuration
@@ -71,6 +92,64 @@ function parseCreateGameResponse(res) {
 }
 
 /**
+ * Classify failures for POST /api/games when the request payload is expected
+ * to be valid according to the CreateGameRequest contract.
+ */
+function classifyCreateGameFailure(res, parsed) {
+  if (!res || res.status === 0 || res.error) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  if (res.status === 400 || res.status === 401 || res.status === 403) {
+    contractFailures.add(1);
+    return;
+  }
+
+  if (res.status === 429 || res.status >= 500) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  // 2xx but missing/malformed body or game object.
+  if (res.status >= 200 && res.status < 300 && (!parsed.body || !parsed.game || !parsed.game.id)) {
+    contractFailures.add(1);
+  }
+}
+
+/**
+ * Classify failures for GET /api/games/:gameId immediately after creation.
+ * A 404 here almost always indicates an ID lifecycle mismatch, since the
+ * harness just created the game and has not yet hit any poll budget.
+ */
+function classifyImmediateGetGameFailure(res, gameId) {
+  if (!res || res.status === 0 || res.error) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  if (res.status === 400 || res.status === 401 || res.status === 403) {
+    contractFailures.add(1);
+    return;
+  }
+
+  if (res.status === 404) {
+    idLifecycleMismatches.add(1);
+    return;
+  }
+
+  if (res.status === 429 || res.status >= 500) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  // 2xx but missing or mismatched ID.
+  if (res.status >= 200 && res.status < 300) {
+    contractFailures.add(1);
+  }
+}
+
+/**
  * Setup function - runs once before the test and returns shared auth state
  */
 export function setup() {
@@ -80,41 +159,18 @@ export function setup() {
   // Health check
   const healthCheck = http.get(`${BASE_URL}/health`);
   check(healthCheck, {
-    'health check successful': (r) => r.status === 200
+    'health check successful': (r) => r.status === 200,
   });
 
-  // Login once as a pre-seeded load-test user and share the token with all VUs
-  const loginRes = http.post(
-    `${BASE_URL}${API_PREFIX}/auth/login`,
-    JSON.stringify({
-      email: userEmail,
-      password: userPassword,
-    }),
-    {
-      headers: { 'Content-Type': 'application/json' },
-      tags: { name: 'auth-login-setup' },
-    }
-  );
-
-  const loginOk = check(loginRes, {
-    'setup login successful': (r) => r.status === 200,
-    'setup access token present': (r) => {
-      try {
-        const body = JSON.parse(r.body);
-        return body && body.data && typeof body.data.accessToken === 'string';
-      } catch {
-        return false;
-      }
+  // Login once as a pre-seeded load-test user and share the token with all VUs.
+  const { token } = loginAndGetToken(BASE_URL, {
+    apiPrefix: API_PREFIX,
+    tags: { name: 'auth-login-setup' },
+    metrics: {
+      contractFailures,
+      capacityFailures,
     },
   });
-
-  if (!loginOk) {
-    // Fail fast: without a valid token, the scenario cannot proceed meaningfully
-    throw new Error(`Setup login failed: status=${loginRes.status} body=${loginRes.body}`);
-  }
-
-  const parsed = JSON.parse(loginRes.body);
-  const token = parsed.data.accessToken;
 
   return { baseUrl: BASE_URL, token };
 }
@@ -170,6 +226,12 @@ export default function(data) {
         parsedCreate.game.boardType === boardType &&
         parsedCreate.game.maxPlayers === maxPlayers
       ),
+    'ai games are unrated when present': () => {
+      if (!parsedCreate.game || !parsedCreate.game.aiOpponents) return true;
+      const count = parsedCreate.game.aiOpponents.count || 0;
+      if (count <= 0) return true;
+      return parsedCreate.game.isRated === false;
+    },
   });
 
   // Track metrics
@@ -178,7 +240,10 @@ export default function(data) {
 
   if (!gameCreated) {
     gameCreationErrors.add(1);
-    console.error(`Game creation failed for VU ${__VU}: ${createGameRes.status} - ${createGameRes.body}`);
+    classifyCreateGameFailure(createGameRes, parsedCreate);
+    console.error(
+      `Game creation failed for VU ${__VU}: ${createGameRes.status} - ${createGameRes.body}`
+    );
     return;
   }
 
@@ -206,6 +271,8 @@ export default function(data) {
   });
 
   if (!gameStateOk) {
+    classifyImmediateGetGameFailure(getGameRes, gameId);
+
     const bodySnippet =
       typeof getGameRes.body === 'string' && getGameRes.body.length > 200
         ? `${getGameRes.body.substring(0, 200)}...`

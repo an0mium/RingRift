@@ -232,6 +232,123 @@ describe('BoardView', () => {
       expect(highlightedCell).toHaveClass('decision-highlight-primary');
       expect(highlightedCell).toHaveAttribute('data-decision-highlight', 'primary');
     });
+
+    it('applies elimination decision pulses on square boards', () => {
+      const board = createBoardWithStacks([{ pos: { x: 3, y: 3 }, rings: [1, 1, 1] }]);
+
+      const baseVM: BoardViewModel = {
+        boardType: 'square8',
+        size: 8,
+        cells: [],
+        rows: [],
+        decisionHighlights: {
+          choiceKind: 'ring_elimination',
+          highlights: [{ positionKey: '3,3', intensity: 'primary' }],
+        },
+      };
+
+      const { container } = render(
+        <BoardView boardType="square8" board={board} viewModel={baseVM} />
+      );
+
+      const cell = container.querySelector('button[data-x="3"][data-y="3"]');
+      expect(cell).toHaveClass('decision-pulse-elimination');
+
+      // Stack within the cell should also receive the stack-level pulse.
+      const stackPulse = cell?.querySelector('.decision-elimination-stack-pulse');
+      expect(stackPulse).toBeInTheDocument();
+    });
+
+    it('applies capture and territory decision pulses on square boards', () => {
+      const board = createEmptyBoardState('square8');
+
+      const captureVM: BoardViewModel = {
+        boardType: 'square8',
+        size: 8,
+        cells: [],
+        rows: [],
+        decisionHighlights: {
+          choiceKind: 'capture_direction',
+          highlights: [{ positionKey: '2,2', intensity: 'primary' }],
+        },
+      };
+
+      const territoryVM: BoardViewModel = {
+        boardType: 'square8',
+        size: 8,
+        cells: [],
+        rows: [],
+        decisionHighlights: {
+          choiceKind: 'territory_region_order',
+          highlights: [{ positionKey: '4,4', intensity: 'primary' }],
+        },
+      };
+
+      const { container: captureContainer } = render(
+        <BoardView boardType="square8" board={board} viewModel={captureVM} />
+      );
+      const captureCell = captureContainer.querySelector('button[data-x="2"][data-y="2"]');
+      expect(captureCell).toHaveClass('decision-pulse-capture');
+
+      const { container: territoryContainer } = render(
+        <BoardView boardType="square8" board={board} viewModel={territoryVM} />
+      );
+      const territoryCell = territoryContainer.querySelector('button[data-x="4"][data-y="4"]');
+      expect(territoryCell).toHaveClass('decision-pulse-territory');
+    });
+
+    it('applies elimination and territory decision pulses on hex boards', () => {
+      const board = createEmptyBoardState('hexagonal');
+      board.type = 'hexagonal';
+      board.size = 3;
+      // Add a stack at the origin so elimination pulses can apply to a real stack.
+      const stackKey = '0,0,0';
+      board.stacks.set(stackKey, {
+        position: { x: 0, y: 0, z: 0 } as Position,
+        rings: [1, 1],
+        stackHeight: 2,
+        capHeight: 2,
+        controllingPlayer: 1,
+      } as RingStack);
+
+      const elimVM: BoardViewModel = {
+        boardType: 'hexagonal',
+        size: 3,
+        cells: [],
+        decisionHighlights: {
+          choiceKind: 'ring_elimination',
+          highlights: [{ positionKey: '0,0,0', intensity: 'primary' }],
+        },
+      };
+
+      const territoryVM: BoardViewModel = {
+        boardType: 'hexagonal',
+        size: 3,
+        cells: [],
+        decisionHighlights: {
+          choiceKind: 'territory_region_order',
+          highlights: [{ positionKey: '0,0,0', intensity: 'primary' }],
+        },
+      };
+
+      const { container: elimContainer } = render(
+        <BoardView boardType="hexagonal" board={board} viewModel={elimVM} />
+      );
+      const elimCell = elimContainer.querySelector(
+        'button[data-x="0"][data-y="0"][data-z="0"]'
+      ) as HTMLElement;
+      expect(elimCell).toHaveClass('decision-pulse-elimination');
+      const elimStackPulse = elimCell.querySelector('.decision-elimination-stack-pulse');
+      expect(elimStackPulse).toBeInTheDocument();
+
+      const { container: territoryContainer } = render(
+        <BoardView boardType="hexagonal" board={board} viewModel={territoryVM} />
+      );
+      const territoryCell = territoryContainer.querySelector(
+        'button[data-x="0"][data-y="0"][data-z="0"]'
+      ) as HTMLElement;
+      expect(territoryCell).toHaveClass('decision-pulse-territory');
+    });
   });
 
   describe('stacks rendering', () => {

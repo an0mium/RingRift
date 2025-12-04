@@ -1226,6 +1226,15 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         </section>
 
         <aside className="w-full md:w-72 space-y-3 text-sm text-slate-100">
+          {/* Primary HUD band – placed at the top of the sidebar so phase/turn/time
+              are always visible alongside the board on desktop and near the top
+              of the HUD stack on small screens. */}
+          <GameHUD
+            viewModel={hudViewModel}
+            timeControl={gameState.timeControl}
+            onShowBoardControls={() => setShowBoardControls(true)}
+          />
+
           {isPlayer && (
             <ChoiceDialog
               choice={pendingChoice}
@@ -1265,12 +1274,6 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
               <div className="mt-3 text-xs text-amber-300">{boardInteractionMessage}</div>
             )}
           </div>
-
-          <GameHUD
-            viewModel={hudViewModel}
-            timeControl={gameState.timeControl}
-            onShowBoardControls={() => setShowBoardControls(true)}
-          />
 
           {/* Move History - compact notation display */}
           <MoveHistory

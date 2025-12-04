@@ -223,5 +223,38 @@
       "nodejs_eventloop_lag_seconds"
     ],
     "dashboard_panels": ["Game Performance", "AI Service Health", "Infrastructure Metrics"]
+  },
+
+  "load_tests": {
+    "staging": {
+      "contract_failures_total": {
+        "max": 0
+      },
+      "id_lifecycle_mismatches_total": {
+        "max": 0
+      },
+      "capacity_failures_total": {
+        "rate": 0.01
+      },
+      "websocket": {
+        "protocol_errors_max": 0,
+        "connection_errors_max": 50
+      }
+    },
+    "production": {
+      "contract_failures_total": {
+        "max": 0
+      },
+      "id_lifecycle_mismatches_total": {
+        "max": 0
+      },
+      "capacity_failures_total": {
+        "rate": 0.005
+      },
+      "websocket": {
+        "protocol_errors_max": 0,
+        "connection_errors_max": 10
+      }
+    }
   }
 }
