@@ -1,7 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { gameApi, GameHistoryResponse, GameHistoryMove } from '../services/api';
+import {
+  gameApi,
+  GameHistoryResponse,
+  GameHistoryMove,
+  GameDetailsResponse,
+} from '../services/api';
 import { Badge } from './ui/Badge';
 import { formatVictoryReason } from '../adapters/gameViewModels';
+import { BoardView } from './BoardView';
+import { MoveHistory } from './MoveHistory';
+import { HistoryPlaybackPanel } from './HistoryPlaybackPanel';
+import { reconstructStateAtMove } from '../../shared/engine/replayHelpers';
+import type {
+  GameRecord,
+  MoveRecord,
+  GameOutcome,
+  FinalScore,
+  PlayerRecordInfo,
+} from '../../shared/types/gameRecord';
+import type {
+  GameState,
+  Move,
+  Position,
+  BoardType,
+  LineInfo,
+  Territory,
+} from '../../shared/types/game';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -73,6 +97,257 @@ function getPositionDescription(moveData: Record<string, unknown>): string {
   }
 
   return parts.join(' → ');
+}
+
+/**
+ * Narrow unknown to Position
+ */
+function isPosition(value: unknown): value is Position {
+  if (!value || typeof value !== 'object') return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj.x === 'number' && typeof obj.y === 'number';
+}
+
+/**
+ * Normalise raw boardType string from the backend into a shared BoardType.
+ * Falls back to 'square8' for unknown values.
+ */
+function toBoardType(raw: string): BoardType {
+  if (raw === 'square8' || raw === 'square19' || raw === 'hexagonal') {
+    return raw;
+  }
+  return 'square8';
+}
+
+/**
+ * Map a GameHistoryResponse.result into a GameOutcome for GameRecord.
+ * Defaults to 'abandonment' for unknown or missing reasons so that
+ * downstream tooling always sees a valid outcome.
+ */
+function toGameOutcome(result: GameHistoryResponse['result'] | undefined): GameOutcome {
+  if (!result) {
+    return 'abandonment';
+  }
+
+  const reason = result.reason as string;
+  const allowed: GameOutcome[] = [
+    'ring_elimination',
+    'territory_control',
+    'last_player_standing',
+    'timeout',
+    'resignation',
+    'draw',
+    'abandonment',
+  ];
+
+  if ((allowed as string[]).includes(reason)) {
+    return reason as GameOutcome;
+  }
+
+  return 'abandonment';
+}
+
+/**
+ * Build a minimal but valid FinalScore structure with zeroed fields for all
+ * players. Backend history does not currently expose full score breakdown,
+ * but replayHelpers only need structural correctness here.
+ */
+function createEmptyFinalScore(numPlayers: number): FinalScore {
+  const ringsEliminated: FinalScore['ringsEliminated'] = {};
+  const territorySpaces: FinalScore['territorySpaces'] = {};
+  const ringsRemaining: FinalScore['ringsRemaining'] = {};
+
+  for (let p = 1; p <= numPlayers; p += 1) {
+    ringsEliminated[p] = 0;
+    territorySpaces[p] = 0;
+    ringsRemaining[p] = 0;
+  }
+
+  return { ringsEliminated, territorySpaces, ringsRemaining };
+}
+
+/**
+ * Adapt a backend GameHistoryResponse + GameDetailsResponse pair into:
+ * - A minimal GameRecord suitable for replayHelpers.reconstructStateAtMove.
+ * - A parallel Move[] array for feeding MoveHistory.
+ *
+ * This keeps the mapping logic in one place and avoids leaking GameRecord
+ * details throughout the UI.
+ */
+function adaptHistoryToGameRecord(
+  history: GameHistoryResponse,
+  details: GameDetailsResponse
+): { record: GameRecord; movesForDisplay: Move[] } {
+  const boardType = toBoardType(details.boardType);
+  const historyMoves = history.moves ?? [];
+
+  // Map backend player IDs to seat indices for robust playerNumber mapping.
+  const playerIdToSeat = new Map<string, number>();
+  details.players.forEach((p, index) => {
+    if (p && p.id) {
+      playerIdToSeat.set(p.id, index + 1);
+    }
+  });
+
+  // Infer number of players from details first, then from history payload.
+  const distinctSeatsFromHistory = new Set<number>();
+  historyMoves.forEach((entry) => {
+    const raw = entry.moveData ?? {};
+    const seat =
+      typeof (raw as any).player === 'number' ? ((raw as any).player as number) : undefined;
+    if (seat) distinctSeatsFromHistory.add(seat);
+  });
+
+  const numPlayers =
+    details.players.length > 0 ? details.players.length : distinctSeatsFromHistory.size || 2;
+
+  // Build PlayerRecordInfo array from game details, stubbing unknown seats.
+  const players: PlayerRecordInfo[] = [];
+  for (let i = 0; i < numPlayers; i += 1) {
+    const seatIndex = i;
+    const p = details.players[seatIndex];
+    players.push({
+      playerNumber: i + 1,
+      username: p?.username ?? `Player ${i + 1}`,
+      playerType: 'human',
+      ...(typeof p?.rating === 'number' ? { ratingBefore: p.rating } : {}),
+    });
+  }
+
+  // Helper to choose a player seat for a history entry.
+  const inferPlayerSeat = (entry: GameHistoryMove): number => {
+    const raw = entry.moveData ?? {};
+    const seatFromMove =
+      typeof (raw as any).player === 'number' ? ((raw as any).player as number) : undefined;
+    if (seatFromMove && seatFromMove >= 1 && seatFromMove <= numPlayers) {
+      return seatFromMove;
+    }
+    const seatFromId = playerIdToSeat.get(entry.playerId);
+    if (seatFromId && seatFromId >= 1 && seatFromId <= numPlayers) {
+      return seatFromId;
+    }
+    return 1;
+  };
+
+  const moveRecords: MoveRecord[] = [];
+  const movesForDisplay: Move[] = [];
+
+  historyMoves.forEach((entry) => {
+    const raw = entry.moveData ?? {};
+    const type = ((raw as any).type ?? entry.moveType) as MoveRecord['type'];
+
+    const from = isPosition((raw as any).from) ? ((raw as any).from as Position) : undefined;
+    const to = isPosition((raw as any).to) ? ((raw as any).to as Position) : undefined;
+    const captureTarget = isPosition((raw as any).captureTarget)
+      ? ((raw as any).captureTarget as Position)
+      : undefined;
+
+    const placementCount =
+      typeof (raw as any).placementCount === 'number'
+        ? ((raw as any).placementCount as number)
+        : undefined;
+    const placedOnStack =
+      typeof (raw as any).placedOnStack === 'boolean'
+        ? ((raw as any).placedOnStack as boolean)
+        : undefined;
+
+    const formedLines =
+      Array.isArray((raw as any).formedLines) && (raw as any).formedLines.length > 0
+        ? ((raw as any).formedLines as LineInfo[])
+        : undefined;
+    const collapsedMarkers =
+      Array.isArray((raw as any).collapsedMarkers) && (raw as any).collapsedMarkers.length > 0
+        ? ((raw as any).collapsedMarkers as Position[])
+        : undefined;
+    const disconnectedRegions =
+      Array.isArray((raw as any).disconnectedRegions) && (raw as any).disconnectedRegions.length > 0
+        ? ((raw as any).disconnectedRegions as Territory[])
+        : undefined;
+    const eliminatedRings =
+      Array.isArray((raw as any).eliminatedRings) && (raw as any).eliminatedRings.length > 0
+        ? ((raw as any).eliminatedRings as { player: number; count: number }[])
+        : undefined;
+
+    const thinkTimeCandidate = (raw as any).thinkTimeMs ?? (raw as any).thinkTime;
+    const thinkTimeMs =
+      typeof thinkTimeCandidate === 'number' && Number.isFinite(thinkTimeCandidate)
+        ? (thinkTimeCandidate as number)
+        : 0;
+
+    const player = inferPlayerSeat(entry);
+
+    const recordMove: MoveRecord = {
+      moveNumber: entry.moveNumber,
+      player,
+      type,
+      thinkTimeMs,
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+      ...(captureTarget ? { captureTarget } : {}),
+      ...(placementCount !== undefined ? { placementCount } : {}),
+      ...(placedOnStack !== undefined ? { placedOnStack } : {}),
+      ...(formedLines ? { formedLines } : {}),
+      ...(collapsedMarkers ? { collapsedMarkers } : {}),
+      ...(disconnectedRegions ? { disconnectedRegions } : {}),
+      ...(eliminatedRings ? { eliminatedRings } : {}),
+    };
+
+    moveRecords.push(recordMove);
+
+    const uiMove: Move = {
+      id: `history-${history.gameId}-${entry.moveNumber}`,
+      type,
+      player,
+      ...(from ? { from } : {}),
+      to: to ?? from ?? { x: 0, y: 0 },
+      ...(captureTarget ? { captureTarget } : {}),
+      ...(formedLines ? { formedLines } : {}),
+      ...(collapsedMarkers ? { collapsedMarkers } : {}),
+      ...(disconnectedRegions ? { disconnectedRegions } : {}),
+      ...(eliminatedRings ? { eliminatedRings } : {}),
+      timestamp: new Date(entry.timestamp),
+      thinkTime: thinkTimeMs,
+      moveNumber: entry.moveNumber,
+    };
+
+    movesForDisplay.push(uiMove);
+  });
+
+  const firstHistoryTs = historyMoves[0]?.timestamp;
+  const lastHistoryTs = historyMoves[historyMoves.length - 1]?.timestamp ?? firstHistoryTs;
+
+  const startedAt = details.startedAt ?? firstHistoryTs ?? new Date().toISOString();
+  const endedAt = details.endedAt ?? lastHistoryTs ?? startedAt;
+
+  const totalDurationMs = Math.max(0, new Date(endedAt).getTime() - new Date(startedAt).getTime());
+
+  const outcome = toGameOutcome(history.result);
+  const finalScore = createEmptyFinalScore(numPlayers);
+
+  const record: GameRecord = {
+    id: history.gameId,
+    boardType,
+    numPlayers,
+    isRated: details.isRated,
+    players,
+    winner: typeof history.result?.winner === 'number' ? history.result.winner : undefined,
+    outcome,
+    finalScore,
+    startedAt,
+    endedAt,
+    totalMoves: history.totalMoves,
+    totalDurationMs,
+    moves: moveRecords,
+    metadata: {
+      recordVersion: '1.0.0-client-replay',
+      createdAt: endedAt,
+      source: 'online_game',
+      sourceId: history.gameId,
+      tags: ['client_replay', 'backend_history'],
+    },
+  };
+
+  return { record, movesForDisplay };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -199,6 +474,16 @@ export function GameHistoryPanel({
   const [error, setError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
 
+  // Backend replay state (single-game, backend-history based).
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [replayRecord, setReplayRecord] = useState<GameRecord | null>(null);
+  const [replayMoves, setReplayMoves] = useState<Move[]>([]);
+  const [replayGameState, setReplayGameState] = useState<GameState | null>(null);
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
+  const [isViewingHistory, setIsViewingHistory] = useState(false);
+
   // Fetch history when panel is expanded or gameId changes
   useEffect(() => {
     if (collapsed || !gameId) return;
@@ -233,6 +518,98 @@ export function GameHistoryPanel({
       cancelled = true;
     };
   }, [gameId, collapsed, onError, reloadVersion]);
+
+  // Recompute reconstructed GameState when replay record or index changes.
+  useEffect(() => {
+    if (!replayRecord || !replayOpen) {
+      setReplayGameState(null);
+      return;
+    }
+
+    const effectiveIndex = isViewingHistory ? currentMoveIndex : replayRecord.moves.length;
+
+    try {
+      const next = reconstructStateAtMove(replayRecord, effectiveIndex);
+      setReplayGameState(next);
+      setReplayError(null);
+    } catch (err) {
+      // Log for devs while surfacing a compact message in the UI.
+
+      console.error('Failed to reconstruct replay state from backend history', err);
+      setReplayGameState(null);
+      setReplayError('Failed to reconstruct game state for replay.');
+    }
+  }, [replayRecord, replayOpen, currentMoveIndex, isViewingHistory]);
+
+  const handleToggleReplay = async () => {
+    if (!history || history.moves.length === 0) {
+      return;
+    }
+
+    // Simple toggle when already initialized
+    if (replayOpen) {
+      setReplayOpen(false);
+      return;
+    }
+
+    // If we already have a record, just reopen.
+    if (replayRecord) {
+      setReplayOpen(true);
+      return;
+    }
+
+    setReplayLoading(true);
+    setReplayError(null);
+
+    try {
+      const details = await gameApi.getGameDetails(gameId);
+      const { record, movesForDisplay } = adaptHistoryToGameRecord(history, details);
+      setReplayRecord(record);
+      setReplayMoves(movesForDisplay);
+      setCurrentMoveIndex(record.moves.length);
+      setIsViewingHistory(false);
+      setReplayOpen(true);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to load replay metadata for this game';
+      setReplayError(message);
+      onError?.(err instanceof Error ? err : new Error(message));
+    } finally {
+      setReplayLoading(false);
+    }
+  };
+
+  const handleMoveIndexChange = (index: number) => {
+    if (!replayRecord) return;
+    const clamped = Math.max(0, Math.min(index, replayRecord.moves.length));
+    setCurrentMoveIndex(clamped);
+  };
+
+  const handleEnterHistoryView = () => {
+    if (!replayRecord) return;
+    setIsViewingHistory(true);
+  };
+
+  const handleExitHistoryView = () => {
+    if (!replayRecord) return;
+    setIsViewingHistory(false);
+    setCurrentMoveIndex(replayRecord.moves.length);
+  };
+
+  const handleMoveClick = (index: number) => {
+    if (!replayRecord) return;
+    setIsViewingHistory(true);
+    setCurrentMoveIndex(index + 1);
+  };
+
+  const hasReplaySnapshots = !!replayRecord && !!replayGameState;
+
+  const activeMoveIndex =
+    isViewingHistory && currentMoveIndex > 0 && replayRecord
+      ? currentMoveIndex - 1
+      : replayRecord
+        ? replayRecord.moves.length - 1
+        : undefined;
 
   return (
     <div
@@ -272,6 +649,78 @@ export function GameHistoryPanel({
               )}
             </div>
           )}
+
+          {/* Backend replay entry point for finished games */}
+          {history && history.result && history.moves.length > 0 && !loading && !error && (
+            <div className="px-4 py-3 border-b border-slate-700/50 bg-slate-900/50 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-slate-200">Replay this game</span>
+                <button
+                  type="button"
+                  className="px-2 py-1 text-[11px] rounded bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={handleToggleReplay}
+                  disabled={replayLoading}
+                  data-testid="open-replay-button"
+                >
+                  {replayOpen ? 'Hide replay' : 'Replay'}
+                </button>
+              </div>
+
+              {replayOpen && (
+                <div className="mt-2 space-y-3" data-testid="backend-replay-panel">
+                  {replayLoading && (
+                    <div className="text-[11px] text-slate-400">Preparing replay…</div>
+                  )}
+
+                  {replayError && !replayLoading && (
+                    <div className="text-[11px] text-red-400">
+                      Replay unavailable: {replayError}
+                    </div>
+                  )}
+
+                  {!replayLoading && !replayError && replayRecord && (
+                    <>
+                      <HistoryPlaybackPanel
+                        totalMoves={replayRecord.moves.length}
+                        currentMoveIndex={currentMoveIndex}
+                        isViewingHistory={isViewingHistory}
+                        onMoveIndexChange={handleMoveIndexChange}
+                        onExitHistoryView={handleExitHistoryView}
+                        onEnterHistoryView={handleEnterHistoryView}
+                        visible={true}
+                        hasSnapshots={hasReplaySnapshots}
+                      />
+
+                      {replayGameState && (
+                        <div className="flex flex-col md:flex-row gap-3">
+                          <div className="flex-1 min-w-0 border-t border-slate-800 pt-3 md:border-t-0 md:border-r md:pr-3">
+                            <BoardView
+                              boardType={replayGameState.boardType}
+                              board={replayGameState.board}
+                              showCoordinateLabels={replayGameState.boardType === 'square8'}
+                              showMovementGrid={false}
+                              showLineOverlays={false}
+                              showTerritoryRegionOverlays={false}
+                            />
+                          </div>
+                          <div className="w-full md:w-56">
+                            <MoveHistory
+                              moves={replayMoves}
+                              boardType={replayRecord.boardType}
+                              currentMoveIndex={activeMoveIndex}
+                              onMoveClick={handleMoveClick}
+                              maxHeight="max-h-48"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Loading state */}
           {loading && (
             <div className="px-4 py-8 text-center">

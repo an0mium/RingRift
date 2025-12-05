@@ -84,15 +84,24 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from app.main import _create_ai_instance, _get_difficulty_profile
-from app.models import AIConfig, AIType, BoardType, GameState, GameStatus, MoveType
-from app.training.env import RingRiftEnv, TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD
-from app.training.cloud_storage import (
+from app.main import _create_ai_instance, _get_difficulty_profile  # noqa: E402
+from app.models import (  # noqa: E402
+    AIConfig,
+    AIType,
+    BoardType,
+    GameState,
+    GameStatus,
+)
+from app.training.env import (  # noqa: E402
+    TrainingEnvConfig,
+    make_env,
+    TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
+)
+from app.training.cloud_storage import (  # noqa: E402
     TrainingSample,
-    StorageBackend,
     get_storage,
 )
-from app.game_engine import GameEngine
+from app.game_engine import GameEngine  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -142,7 +151,10 @@ class GracefulShutdown:
         signal.signal(signal.SIGINT, self._handle_signal)
 
     def _handle_signal(self, signum, frame):
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        logger.info(
+            "Received signal %s, initiating graceful shutdown...",
+            signum,
+        )
         self.should_stop = True
 
 
@@ -275,7 +287,7 @@ def extract_training_samples(
 def run_single_game(
     config: WorkerConfig,
     game_index: int,
-    env: RingRiftEnv,
+    env: Any,
 ) -> Tuple[Optional[GameState], List[GameState], List[Any], Dict[str, Any]]:
     """Run a single self-play game.
 
@@ -374,7 +386,9 @@ def save_checkpoint(
 
 def load_checkpoint(config: WorkerConfig) -> Optional[Dict[str, Any]]:
     """Load checkpoint if it exists."""
-    if not config.checkpoint_path or not os.path.exists(config.checkpoint_path):
+    if not config.checkpoint_path or not os.path.exists(
+        config.checkpoint_path
+    ):
         return None
 
     try:
@@ -401,13 +415,14 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
         compress=True,
     )
 
-    # Initialize environment
-    env = RingRiftEnv(
+    # Initialize environment via canonical factory
+    env_config = TrainingEnvConfig(
         board_type=config.board_type,
-        max_moves=config.max_moves,
-        reward_on="terminal",
         num_players=config.num_players,
+        max_moves=config.max_moves,
+        reward_mode="terminal",
     )
+    env = make_env(env_config)
 
     # Load checkpoint if resuming
     checkpoint = load_checkpoint(config)
@@ -488,10 +503,18 @@ def run_worker(config: WorkerConfig) -> WorkerStats:
             and games_completed % config.checkpoint_interval == 0
         ):
             storage.flush()
-            save_checkpoint(config, games_completed, samples_generated, wins_by_player)
+            save_checkpoint(
+                config,
+                games_completed,
+                samples_generated,
+                wins_by_player,
+            )
 
         # Garbage collection
-        if config.gc_interval > 0 and games_completed % config.gc_interval == 0:
+        if (
+            config.gc_interval > 0
+            and games_completed % config.gc_interval == 0
+        ):
             GameEngine.clear_cache()
             gc.collect()
 

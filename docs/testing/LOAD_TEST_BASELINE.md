@@ -75,6 +75,112 @@
 
 **Note:** Full 15-minute test completed successfully (exit_code=0). All Socket.IO v4 / Engine.IO v4 handshakes completed. Connections maintained for full duration, validating the 5-minute persistence threshold. WebSocket message latency of 2-3ms is exceptional for real-time gaming.
 
+## Scenario ↔ SLO ↔ Metrics Mapping
+
+This run exercised the canonical P‑01 load scenarios defined in [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:257) and the v1.0 performance SLOs in [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:150). For each k6 scenario we explicitly map:
+
+- Which SLO families it is intended to validate.
+- Which k6 metrics/thresholds act as the **authoritative pass/fail signals** for load runs (via [`tests/load/config/thresholds.json`](../tests/load/config/thresholds.json:1)).
+- Which Prometheus metrics, alerts, and Grafana panels observe the same SLOs under steady‑state traffic.
+
+### Scenario 1: Game Creation (`game-creation.js`)
+
+- **Primary SLOs**
+  - HTTP API latency and 5xx rate for:
+    - `POST /api/auth/login`, `POST /api/games`, `GET /api/games/:gameId` (see [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:292) §2.1 and [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:152) §4.1).
+  - Core gameplay availability/error budget for these endpoints (STRATEGIC_ROADMAP §2.4 “Availability and error budgets”).
+
+- **k6 signals (per-run, authoritative)**
+  - `http_req_duration{name:auth-login-setup}` – p95/p99 thresholds from `environments.*.http_api.auth_login`.
+  - `http_req_duration{name:create-game}` – p95/p99 thresholds from `http_api.game_creation`.
+  - `http_req_duration{name:get-game}` – p95/p99 thresholds from `http_api.game_state_fetch`.
+  - `http_req_failed` and `http_req_failed{name:...}` – 5xx error‑rate budgets from the same `error_rate_5xx_percent` fields.
+  - Custom metrics:
+    - `game_creation_latency_ms` – latency distribution for create‑game requests.
+    - `game_creation_success_rate` – end‑to‑end scenario success.
+  - Classification counters with budgets from `load_tests.*`:
+    - `contract_failures_total` – 4xx/contract mismatches.
+    - `id_lifecycle_mismatches_total` – create vs immediate GET lifecycle.
+    - `capacity_failures_total` – timeouts, 429, and 5xx capacity issues.
+
+- **Prometheus / alerts / dashboards**
+  - Metrics: `http_request_duration_seconds_bucket`, `http_requests_total`.
+  - Alerts ([`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1)):
+    - `HighP95Latency`, `HighP99Latency`, `HighMedianLatency`.
+    - `HighErrorRate`, `ElevatedErrorRate`, `NoHTTPTraffic`.
+  - Dashboards:
+    - **System Health** (`system-health.json`) – “HTTP Request Rate”, “HTTP Latency”.
+    - **Game Performance** (`game-performance.json`) – “Active Games” when `/api/games` is exercised under load.
+
+### Scenario 2: Concurrent Games (`concurrent-games.js`)
+
+- **Primary SLOs**
+  - HTTP latency and error‑rate SLOs for game creation and state fetch at ≈100 concurrent games (P‑01 target scale; STRATEGIC_ROADMAP §§2.1, 2.4, 3.2).
+  - Concurrency / saturation posture for active games and players (availability/error‑budget framing in STRATEGIC_ROADMAP §2.4).
+
+- **k6 signals**
+  - `http_req_duration{name:create-game}` / `http_req_duration{name:get-game}` – p95/p99 thresholds from `http_api.game_creation` and `http_api.game_state_fetch`.
+  - `http_req_failed` – aggregate 5xx ratio budget across those endpoints.
+  - `concurrent_active_games` – `max>=EXPECTED_MIN_CONCURRENT_GAMES`, derived from the scenario profile and `scale_targets.max_concurrent_games`.
+  - `game_state_check_success` – `rate>0.99` for read‑path correctness under load.
+  - Classification counters and thresholds identical to Scenario 1.
+
+- **Prometheus / alerts / dashboards**
+  - Metrics: `ringrift_games_active`, `ringrift_websocket_connections`.
+  - Alerts:
+    - HTTP latency/error alerts as above.
+    - `HighWebSocketConnections` for saturation at or above configured connection targets.
+  - Dashboards:
+    - **Game Performance** – “Active Games”, “Game Creation Rate”.
+    - **System Health** – “WebSocket Connections”.
+
+### Scenario 3: Player Moves (`player-moves.js`)
+
+- **Primary SLOs**
+  - WebSocket gameplay SLOs for human move submission and stall rate (STRATEGIC_ROADMAP §2.2 “WebSocket gameplay SLOs”).
+  - AI turn latency and fallback SLOs when AI seats are present (STRATEGIC_ROADMAP §2.3 “AI turn SLOs”).
+
+- **k6 signals**
+  - `move_submission_latency_ms` – end‑to‑end move latency p95/p99 thresholds from `websocket_gameplay.move_submission.end_to_end_latency_*`.
+  - `turn_processing_latency_ms` – server‑side processing p95/p99 from `websocket_gameplay.move_submission.server_processing_*`.
+  - `stalled_moves_total` – `rate<stall_rate_percent/100` where `stall_threshold_ms` encodes the 2s stall definition.
+  - `move_submission_success_rate` (`rate>0.95`) and `moves_attempted_total` (must be >0 when the HTTP move harness is enabled).
+  - Shared classification counters for create‑game, state fetch, and move submission.
+
+- **Prometheus / alerts / dashboards**
+  - Gameplay latency metric: `ringrift_game_move_latency_seconds_bucket`.
+  - AI latency/fallbacks: `ringrift_ai_request_duration_seconds_bucket`, `ringrift_ai_requests_total`, `ringrift_ai_fallback_total`.
+  - Alerts:
+    - `HighGameMoveLatency` for move latency SLOs.
+    - `AIRequestHighLatency`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, `AIErrorsIncreasing` for AI SLOs.
+  - Dashboards:
+    - **Game Performance** – “Turn Processing Time”, “AI Request Latency”, “AI Request Outcomes & Fallbacks”.
+
+### Scenario 4: WebSocket Stress (`websocket-stress.js`)
+
+- **Primary SLOs**
+  - WebSocket connection stability SLOs (connection success rate, handshake success, sustained connections) from STRATEGIC_ROADMAP §§2.2–2.4.
+  - Transport‑level error budgets for protocol errors and connection failures during high‑fan‑out spectator/connectivity tests.
+
+- **k6 signals**
+  - `websocket_connection_success_rate` – `rate` threshold from `websocket_gameplay.connection_stability.connection_success_rate_percent`.
+  - `websocket_handshake_success_rate` – Socket.IO handshake success fraction (>98%).
+  - `websocket_message_latency_ms` – message RTT p95/p99 (2xx‑style transport latency).
+  - `websocket_connection_duration_ms` – p50 duration >5 minutes to validate long‑lived connections.
+  - `websocket_connections_active` – peak concurrent connections vs `max_concurrent_connections`.
+  - Error metrics and shared classification counters:
+    - `websocket_connection_errors`, `websocket_protocol_errors`.
+    - `contract_failures_total`, `capacity_failures_total`, `id_lifecycle_mismatches_total`.
+
+- **Prometheus / alerts / dashboards**
+  - Metrics: `ringrift_websocket_connections`, `ringrift_websocket_reconnection_total{result=...}`, `ringrift_game_session_abnormal_termination_total{reason=...}`.
+  - Alerts (to be implemented in `alerts.yml` as part of the Wave 7 wiring work):
+    - `WebSocketReconnectionTimeouts` for reconnection‑timeout SLOs.
+    - `AbnormalGameSessionTerminationSpike` and `GameSessionStatusSkew` for lifecycle correctness under reconnect churn.
+  - Dashboards:
+    - **System Health** – “WebSocket Connections”.
+    - **Game Performance** – “WebSocket Reconnection Attempts”.
+
 ## Resource Utilization
 
 ### Backend (Node.js)

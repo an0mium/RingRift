@@ -102,7 +102,7 @@ class TestFreshDatabaseCreation:
 
         # Verify schema version
         stats = db.get_stats()
-        assert stats["schema_version"] == 4  # Updated from 2 for v4 schema
+        assert stats["schema_version"] == SCHEMA_VERSION
 
     def test_creates_schema_metadata_table(self, tmp_path: Path):
         """Fresh database should have schema_metadata table."""
@@ -132,6 +132,8 @@ class TestFreshDatabaseCreation:
         assert "time_control_type" in column_names
         assert "initial_time_ms" in column_names
         assert "time_increment_ms" in column_names
+        # v5: metadata_json column for full recording metadata
+        assert "metadata_json" in column_names
 
     def test_v2_columns_exist_in_game_moves_table(self, tmp_path: Path):
         """game_moves table should have v2 columns."""
@@ -285,9 +287,9 @@ class TestV1ToV2Migration:
         # Open with GameReplayDB (should trigger migration)
         db = GameReplayDB(str(db_path))
 
-        # Verify schema version is now at latest (v4)
+        # Verify schema version is now at latest
         stats = db.get_stats()
-        assert stats["schema_version"] == 4  # Migrates through v2, v3 to v4
+        assert stats["schema_version"] == SCHEMA_VERSION
 
     def test_preserves_existing_data_after_migration(self, tmp_path: Path):
         """Migration should preserve existing game data."""
@@ -322,6 +324,21 @@ class TestV1ToV2Migration:
         assert "engine_eval" in move_column_names
 
         conn.close()
+
+    def test_adds_metadata_json_column_on_migration(self, tmp_path: Path):
+        """Migration to latest schema should add metadata_json to games."""
+        db_path = tmp_path / "v1_metadata.db"
+        self.create_v1_database(str(db_path))
+
+        # Opening should migrate all the way up
+        GameReplayDB(str(db_path))
+
+        conn = sqlite3.connect(str(db_path))
+        columns = conn.execute("PRAGMA table_info(games)").fetchall()
+        column_names = [c[1] for c in columns]
+        conn.close()
+
+        assert "metadata_json" in column_names
 
     def test_existing_moves_have_null_v2_fields(self, tmp_path: Path):
         """Existing moves should have NULL for new v2 fields."""
@@ -454,7 +471,7 @@ class TestMigrationIdempotence:
         db2 = GameReplayDB(str(db_path))
         stats2 = db2.get_stats()
 
-        assert stats1["schema_version"] == stats2["schema_version"] == 4  # Updated from 2 for v4 schema
+        assert stats1["schema_version"] == stats2["schema_version"] == SCHEMA_VERSION
 
     def test_handles_partial_migration_gracefully(self, tmp_path: Path):
         """Should handle case where some columns already exist."""
@@ -502,7 +519,7 @@ class TestMigrationIdempotence:
         # Should handle gracefully
         db = GameReplayDB(str(db_path))
         stats = db.get_stats()
-        assert stats["schema_version"] == 4  # Migrates to latest version
+        assert stats["schema_version"] == SCHEMA_VERSION  # Migrates to latest version
 
 
 if __name__ == "__main__":

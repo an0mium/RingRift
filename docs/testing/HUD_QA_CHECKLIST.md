@@ -13,6 +13,7 @@ Use this after any HUD change that touches:
 - Turn vs Move / Game Progress display.
 - Victory conditions panel.
 - Spectator vs active‑player HUD behaviour.
+- Decision‑phase banners, chips, or board highlight semantics (capture, elimination, territory).
 
 ---
 
@@ -138,6 +139,20 @@ Goal: Exercise the **modern HUD path** (via `HUDViewModel` and `PhaseViewModel`)
   - [ ] Moves increment per action.
   - [ ] Turns increment per full player cycle.
 
+### 3.5 Decision highlights + territory skip (sandbox)
+
+- [ ] Trigger a **ring elimination** decision in the sandbox (e.g. forced cap elimination) and verify:
+  - [ ] The elimination stack cell shows a **pulsing amber halo** (inner highlight) rather than a generic cyan glow.
+  - [ ] The stack itself visibly **pulses** (breathing effect) while the decision is pending.
+- [ ] Trigger a **capture_direction** (“continue chain capture”) decision and verify:
+  - [ ] The **landing cells** for the next capture segment have a **stronger green pulsing highlight** than normal legal moves.
+  - [ ] The **target stacks** are still visible but use a **secondary (softer) cyan highlight**.
+- [ ] Trigger a **territory region_order** decision in sandbox territory processing and verify:
+  - [ ] All spaces in the chosen disconnected region have a **pulsing green territory highlight** (stronger than generic valid‑move tint).
+  - [ ] The HUD shows a territory chip similar to\
+         `Territory claimed – choose region to process or skip`.
+  - [ ] A subtle **“Skip available”** badge appears next to the chip when a `skip_territory_processing` option exists.
+
 ---
 
 ## 4. Small‑Window / Layout Sanity Checks
@@ -169,3 +184,90 @@ After running this checklist for a new HUD change:
 - [ ] If all checks pass, note the date and commit hash in `CURRENT_STATE_ASSESSMENT.md` or your release notes so you have a historical point where HUD UX was validated.
 
 This file is intentionally **manual and high‑level**. It should evolve as new HUD features land (e.g. time‑pressure cues, onboarding coachmarks) so that each new UX slice also carries a clear QA ritual.
+
+---
+
+## 6. Backend vs Sandbox HUD Equivalence Pass
+
+Goal: Confirm that both **BackendGameHost** (real online games) and **SandboxGameHost** (local sandbox) render semantically equivalent HUD content for the same underlying game state.
+
+Both hosts use the shared `toHUDViewModel` adapter, so phase labels, decision copy, countdown severity, and status chips should match. Only connection/heartbeat semantics and spectator flags are intentionally different.
+
+### 6.1 Automated Test Coverage
+
+Before running manual checks, verify automated tests pass:
+
+```bash
+npm test -- --testPathPattern="HUD.backend-vs-sandbox.equivalence" --no-coverage
+```
+
+**Expected:** All 11 tests pass, covering:
+
+- Line reward decision equivalence
+- Movement phase equivalence (no decision)
+- Chain capture / capture_direction decision equivalence
+- Territory processing / region_order decision equivalence
+- Ring elimination decision equivalence
+- Spectator-oriented copy equivalence
+- Time-pressure chip severity equivalence
+- Intentional differences documentation
+
+### 6.2 Manual Equivalence Spot‑Checks
+
+For each scenario below, compare the HUD content **visually** between a backend game and a sandbox game in the exact same phase + decision state.
+
+#### Ring Placement Phase
+
+- [ ] Start a **backend game** (2P vs AI or 2P PvP) and pause at ring placement.
+- [ ] Start a **sandbox game** (same player count/board type) and pause at ring placement.
+- [ ] Confirm:
+  - [ ] Phase label matches (`"Ring Placement"`).
+  - [ ] Phase description and action hint are identical.
+  - [ ] No spurious decision banners appear.
+
+#### Movement Phase
+
+- [ ] Advance both games to movement phase.
+- [ ] Confirm phase label, description, and hints match.
+
+#### Line Processing / Line Reward Decision
+
+- [ ] Trigger a line formation in both games (if feasible via scenario selection).
+- [ ] Confirm:
+  - [ ] Phase shows celebratory `"Line Formation"` styling.
+  - [ ] Decision banner copy matches (player name, short label).
+  - [ ] Countdown severity matches at the same `timeRemainingMs`.
+
+#### Territory Processing / Region Order Decision
+
+- [ ] Trigger a territory decision in both games (more advanced; may require curated scenario).
+- [ ] Confirm:
+  - [ ] Status chip text and tone match.
+  - [ ] `canSkip` badge appears when a skip option exists.
+
+#### Chain Capture / Capture Direction Decision
+
+- [ ] Trigger a multi‑target capture direction choice (curated scenario recommended).
+- [ ] Confirm decision copy and countdown styling match.
+
+### 6.3 Intentional Differences
+
+**Do NOT flag the following as bugs** — they are intentional architectural differences:
+
+| Behavior              | Backend                                                          | Sandbox              | Reason                                  |
+| --------------------- | ---------------------------------------------------------------- | -------------------- | --------------------------------------- |
+| `connectionStatus`    | Real WebSocket state (`connecting`, `connected`, `disconnected`) | Always `'connected'` | Sandbox has no network layer            |
+| `lastHeartbeatAt`     | Timestamp tracked by `useGameConnection`                         | Always `null`        | No heartbeats without WebSocket         |
+| `isConnectionStale`   | True if heartbeat age > 8s                                       | Always `false`       | No staleness without heartbeat tracking |
+| `isSpectator`         | True for non‑player observers                                    | Always `false`       | Sandbox has no spectator concept        |
+| Disconnection banners | Displayed when opponent disconnect detected                      | Never displayed      | Sandbox is local‑only                   |
+
+### 6.4 Capturing Findings
+
+After completing this pass:
+
+- [ ] Record any **copy mismatches** that should be identical but diverge.
+- [ ] If a test failure is found, add a test case to `tests/unit/HUD.backend-vs-sandbox.equivalence.test.tsx`.
+- [ ] If all checks pass, note the date and commit hash.
+
+---

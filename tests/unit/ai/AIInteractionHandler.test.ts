@@ -353,6 +353,61 @@ describe('AIInteractionHandler', () => {
     expect(selected.size).toBe(7);
   });
 
+  it('still prefers the largest concrete region when a skip option is present', async () => {
+    const choice: RegionOrderChoice = {
+      ...baseChoice,
+      type: 'region_order',
+      options: [
+        {
+          moveId: 'm-region',
+          regionId: 'region-1',
+          size: 4,
+          representativePosition: { x: 1, y: 1 },
+        },
+        {
+          moveId: 'm-skip',
+          regionId: 'skip',
+          size: 0,
+          representativePosition: { x: 0, y: 0 },
+        },
+      ],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as RegionOrderChoice['options'][number];
+
+    expect(selected.regionId).toBe('region-1');
+    expect(selected.size).toBe(4);
+  });
+
+  it('falls back to a skip-like option when no concrete regions are available', async () => {
+    const choice: RegionOrderChoice = {
+      ...baseChoice,
+      type: 'region_order',
+      options: [
+        {
+          moveId: 'm-skip-1',
+          regionId: 'skip',
+          size: 0,
+          representativePosition: { x: 0, y: 0 },
+        },
+        {
+          moveId: 'm-skip-2',
+          regionId: 'meta',
+          size: 0,
+          representativePosition: { x: 1, y: 1 },
+        },
+      ],
+    };
+
+    const response = await handler.requestChoice(choice as PlayerChoice);
+    const selected = response.selectedOption as RegionOrderChoice['options'][number];
+
+    expect(selected.moveId).toBe('m-skip-1');
+    expect(['skip', 'meta']).toContain(selected.regionId);
+    expect(selected.size).toBe(0);
+  });
+
   it('threads a canceled session token into globalAIEngine.getRegionOrderChoice for region_order', async () => {
     const choice: RegionOrderChoice = {
       ...baseChoice,

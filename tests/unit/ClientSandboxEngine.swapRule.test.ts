@@ -130,4 +130,73 @@ describe('ClientSandboxEngine swap rule (pie rule)', () => {
 
     expect(engine.canCurrentPlayerSwapSides()).toBe(false);
   });
+
+  test('applyCanonicalMoveForReplay supports swap_sides and records it in history', async () => {
+    const engine = createEngine(2);
+    const engineAny = engine as any;
+
+    // Start from a fresh sandbox state and manually construct a situation
+    // where swap_sides should be available for Player 2. This mirrors the
+    // gating conditions in shouldOfferSwapSides while keeping the board
+    // geometry simple.
+    const state: GameState = engine.getGameState();
+
+    const p1IdBefore = state.players.find((p) => p.playerNumber === 1)!.id;
+    const p2IdBefore = state.players.find((p) => p.playerNumber === 2)!.id;
+
+    // Simulate a minimal "P1 first turn" history.
+    const placeMove: Move = {
+      id: 'place-1',
+      type: 'place_ring',
+      player: 1,
+      to: { x: 3, y: 3 },
+      placementCount: 1,
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1,
+    };
+    const moveMove: Move = {
+      id: 'move-1',
+      type: 'move_stack',
+      player: 1,
+      from: { x: 3, y: 3 },
+      to: { x: 3, y: 4 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 2,
+    };
+
+    state.moveHistory = [placeMove, moveMove];
+    state.currentPlayer = 2;
+    state.currentPhase = 'ring_placement';
+
+    engineAny.gameState = state;
+
+    // Sanity-check that meta-move gating sees swap_sides as available.
+    expect(engine.canCurrentPlayerSwapSides()).toBe(true);
+
+    const swapMove: Move = {
+      id: 'swap_sides-3',
+      type: 'swap_sides',
+      player: 2,
+      to: { x: 0, y: 0 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 3,
+    } as Move;
+
+    await engine.applyCanonicalMoveForReplay(swapMove);
+
+    const after = engine.getGameState();
+    const lastMove = after.moveHistory[after.moveHistory.length - 1];
+
+    expect(lastMove.type).toBe('swap_sides');
+    expect(lastMove.player).toBe(2);
+
+    // The canonical swap_sides move should be accepted by the orchestrator
+    // and recorded in history, and it should change which logical player
+    // is to move next (P1's and P2's turn identities are swapped).
+    expect(after.currentPlayer).toBe(1);
+    expect(after.currentPlayer).not.toBe(state.currentPlayer);
+  });
 });

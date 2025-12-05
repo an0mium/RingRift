@@ -20,6 +20,7 @@ This document describes all alerting rules configured for RingRift, their thresh
   - [Orchestrator Rollout Alerts](#orchestrator-rollout-alerts)
   - [Rules Parity Alerts](#rules-parity-alerts)
   - [Service Response Time Alerts](#service-response-time-alerts)
+- [Load Test SLO Mapping](#load-test-slo-mapping)
 - [Threshold Rationale Summary](#threshold-rationale-summary)
 - [Dashboards & Observability Checklist](#dashboards--observability-checklist)
 - [Escalation Procedures](#escalation-procedures)
@@ -561,7 +562,7 @@ These alerts track rate limiting activity.
 ### Orchestrator Rollout Alerts
 
 These alerts track orchestrator-specific health, rollout posture, and invariants. They are the on-call surface for the orchestrator SLOs defined in
-[`ORCHESTRATOR_ROLLOUT_PLAN.md`](./ORCHESTRATOR_ROLLOUT_PLAN.md#6-orchestrator-specific-slos).
+[`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](./architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#6-orchestrator-specific-slos).
 
 #### OrchestratorCircuitBreakerOpen
 
@@ -666,7 +667,7 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 ### Connection & Session Lifecycle Alerts
 
 These alerts connect the decision/reconnection lifecycle SSoT in
-[`docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md`](./P18.3-1_DECISION_LIFECYCLE_SPEC.md)
+[`docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md`](./archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
 to concrete Prometheus signals for WebSocket reconnection, session state, and abnormal termination.
 
 #### WebSocketReconnectionTimeouts
@@ -792,7 +793,7 @@ Underlying metrics:
 - **Unified counter:** `ringrift_rules_parity_mismatches_total{mismatch_type, suite}`
   - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`}
   - `suite` identifies the parity context (for example `runtime_shadow`, `runtime_python_mode`, or future contract-vector suites such as `contract_vectors_v2` corresponding to `PARITY-TS-PY-*` IDs in
-    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](./INVARIANTS_AND_PARITY_FRAMEWORK.md).
+    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](./rules/INVARIANTS_AND_PARITY_FRAMEWORK.md).
 - **Legacy counters (still exported for dashboards):**
   - `ringrift_rules_parity_valid_mismatch_total`
   - `ringrift_rules_parity_hash_mismatch_total`
@@ -858,6 +859,23 @@ increase(ringrift_rules_parity_mismatches_total{mismatch_type="game_status"}[1h]
 
 ---
 
+#### Replay / DB Parity (future extension)
+
+Once the TS↔Python replay harness (`ai-service/scripts/check_ts_python_replay_parity.py`)
+is exporting metrics for semantic divergences on recorded games, we expect to
+extend the unified counter above with a dedicated mismatch type, for example:
+
+- `ringrift_rules_parity_mismatches_total{mismatch_type="replay_semantic",suite="selfplay_replay"}`
+
+At that point a companion alert such as `RulesReplayReplayMismatch` can be
+added to `monitoring/prometheus/alerts.yml` with a **very low threshold** (for
+example `increase(...[6h]) > 0` in staging and CI) so that any new replay/DB
+parity regression is caught quickly without paging production on historical
+data cleanup. Until those metrics are wired, this remains a documented design
+hook rather than an active alert.
+
+---
+
 ### Service Response Time Alerts
 
 These alerts track database and cache response times.
@@ -904,30 +922,164 @@ These alerts track database and cache response times.
 
 ---
 
+## Load Test SLO Mapping
+
+This section ties the **P‑01 load test scenarios** and **k6 metrics** to the
+SLOs defined in [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:257) and
+[`PROJECT_GOALS.md`](../PROJECT_GOALS.md:150), and to the Prometheus alerts and
+Grafana dashboards that monitor the same behaviours under steady‑state
+traffic.
+
+For detailed baseline numbers from the most recent local/staging runs, see
+[`docs/LOAD_TEST_BASELINE.md`](./LOAD_TEST_BASELINE.md:1). That document is the
+working record of “healthy ranges” observed under load; this section records
+how those ranges are enforced and visualised.
+
+### HTTP API SLOs (auth, game creation, game state)
+
+- **Primary SLOs**
+  - `POST /api/auth/login`, `POST /api/games`,
+    `GET /api/games/:gameId` latency and 5xx rate per environment
+    (see [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:296) §2.1).
+- **Validated by k6 scenarios**
+  - `tests/load/scenarios/game-creation.js`
+  - `tests/load/scenarios/concurrent-games.js`
+- **k6 metrics / thresholds**
+  - `http_req_duration{name:auth-login-setup}` –
+    p95/p99 from `environments.*.http_api.auth_login`.
+  - `http_req_duration{name:create-game}` –
+    p95/p99 from `http_api.game_creation`.
+  - `http_req_duration{name:get-game}` –
+    p95/p99 from `http_api.game_state_fetch`.
+  - `http_req_failed` – 5xx error‑rate budget derived from the same
+    `error_rate_5xx_percent` fields.
+  - Classification counters shared across scenarios:
+    - `contract_failures_total`
+    - `id_lifecycle_mismatches_total`
+    - `capacity_failures_total`
+- **Prometheus alerts**
+  - [`HighP95Latency`](../monitoring/prometheus/alerts.yml:172),
+    [`HighP99Latency`](../monitoring/prometheus/alerts.yml:142),
+    [`HighMedianLatency`](../monitoring/prometheus/alerts.yml:187)
+    for HTTP latency.
+  - [`HighErrorRate`](../monitoring/prometheus/alerts.yml:81),
+    [`ElevatedErrorRate`](../monitoring/prometheus/alerts.yml:101),
+    [`NoHTTPTraffic`](../monitoring/prometheus/alerts.yml:121)
+    for availability/error budget.
+- **Dashboards**
+  - **System Health** (`system-health.json`) –
+    “HTTP Request Rate”, “HTTP Latency”.
+  - **Game Performance** (`game-performance.json`) –
+    “Active Games”, “Game Creation Rate”.
+
+### WebSocket gameplay SLOs (move latency, connection stability)
+
+- **Primary SLOs**
+  - Human move submission and stall rates, and WebSocket move
+    end‑to‑end latency (see [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:335)
+    §2.2).
+  - WebSocket connection success, handshake success, and 5‑minute
+    connection stability under spectator/reconnect patterns
+    (P‑01 Scenarios P3/P4).
+- **Validated by k6 scenarios**
+  - `tests/load/scenarios/player-moves.js`
+  - `tests/load/scenarios/websocket-stress.js`
+- **k6 metrics / thresholds**
+  - `move_submission_latency_ms` –
+    p95/p99 from `websocket_gameplay.move_submission.end_to_end_latency_*`.
+  - `turn_processing_latency_ms` and alias
+    `game_move_latency_ms` –
+    p95/p99 from `websocket_gameplay.move_submission.server_processing_*`.
+  - `stalled_moves_total` –
+    `rate < stall_rate_percent / 100` with `stall_threshold_ms = 2000`
+    (2s stall definition).
+  - `websocket_connection_success_rate` –
+    success‑rate target from `websocket_gameplay.connection_stability`.
+  - `websocket_handshake_success_rate` – Socket.IO handshake success
+    (constant threshold today, may be moved into `thresholds.json` later).
+  - `websocket_message_latency_ms` –
+    transport RTT p95/p99 (200/500ms) for diagnostic ping/pong.
+  - `websocket_connection_duration_ms` –
+    p50 > 5 minutes for sustained connections.
+  - Classification counters as above.
+- **Prometheus alerts**
+  - [`HighGameMoveLatency`](../monitoring/prometheus/alerts.yml:202) –
+    breach of move‑latency SLOs via `ringrift_game_move_latency_seconds_bucket`.
+  - `WebSocketReconnectionTimeouts`,
+    `AbnormalGameSessionTerminationSpike`,
+    and `GameSessionStatusSkew` (added under the
+    `connection-lifecycle` rules group) for reconnection/abandonment
+    semantics and stalled sessions.
+  - [`HighWebSocketConnections`](../monitoring/prometheus/alerts.yml:334) for
+    saturation of `ringrift_websocket_connections`.
+- **Dashboards**
+  - **Game Performance** (`game-performance.json`) –
+    “Turn Processing Time”, “WebSocket Reconnection Attempts”,
+    “Abnormal Game Terminations by Reason”.
+  - **System Health** (`system-health.json`) –
+    “WebSocket Connections”.
+
+### AI turn SLOs (service and end‑to‑end turn latency)
+
+- **Primary SLOs**
+  - AI request latency and fallback/error rates at the AI service boundary
+    (see [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:353) §2.3).
+  - End‑to‑end AI turn latency from “AI turn starts” to authoritative
+    move broadcast.
+- **Validated by k6 scenarios**
+  - Primarily `tests/load/scenarios/player-moves.js` (AI‑vs‑AI and
+    human‑vs‑AI games), with AI latency/error SLOs observed via
+    Prometheus rather than k6‑native metrics.
+- **k6 metrics / thresholds**
+  - Indirect: successful move throughput and stall rates as above.
+  - Classification and HTTP error metrics surface AI failures that
+    manifest as timeouts or 5xx responses.
+- **Prometheus alerts**
+  - [`AIRequestHighLatency`](../monitoring/prometheus/alerts.yml:413)
+    via `ringrift_ai_request_duration_seconds_bucket`.
+  - [`AIFallbackRateHigh`](../monitoring/prometheus/alerts.yml:373) and
+    [`AIFallbackRateCritical`](../monitoring/prometheus/alerts.yml:393)
+    via `ringrift_ai_fallback_total` and `ringrift_ai_requests_total`.
+  - [`AIErrorsIncreasing`](../monitoring/prometheus/alerts.yml:428) for
+    AI error outcomes.
+- **Dashboards**
+  - **Game Performance** (`game-performance.json`) –
+    “AI Request Latency”, “AI Request Outcomes & Fallbacks”.
+
+When updating SLO numbers or adding new scenarios:
+
+1. Treat [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:257) and
+   [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:150) as the canonical SLO sources.
+2. Update [`tests/load/config/thresholds.json`](../tests/load/config/thresholds.json:1)
+   and the individual k6 scenario thresholds to match.
+3. Ensure the corresponding Prometheus alerts and Grafana panels continue to
+   observe the same metrics and label sets, avoiding forks in metric naming.
+4. Record new baseline ranges in [`docs/LOAD_TEST_BASELINE.md`](./LOAD_TEST_BASELINE.md:1).
+
 ## Threshold Rationale Summary
 
-| Metric            | Warning | Critical | Rationale                           |
-| ----------------- | ------- | -------- | ----------------------------------- |
-| Error Rate (5xx)  | 1%      | 5%       | Industry standard SLO thresholds    |
-| P99 Latency       | 2s      | 5s       | Game responsiveness expectations    |
-| P95 Latency       | 1s      | -        | Most users affected at this level   |
-| P50 Latency       | 500ms   | -        | Median reflects overall health      |
-| Memory Usage      | 1.5GB   | 2GB      | 75%/100% of typical container limit |
-| Event Loop Lag    | 100ms   | 500ms    | Node.js responsiveness thresholds   |
-| AI Fallback Rate  | 30%     | 50%      | Quality degradation indicator       |
-| Degradation Level | >0      | ≥2       | Feature availability stages         |
-| Database Down     | -       | 1m       | Critical dependency                 |
-| Redis Down        | -       | 1m       | Critical for rate limiting          |
-| AI Service Down   | 2m      | -        | Has graceful fallback               |
-| Active Handles    | 10K     | -        | Resource leak indicator             |
-| Database Response | 500ms   | -        | Query performance threshold         |
-| Redis Response    | 100ms   | -        | Cache latency threshold             |
+| Metric            | Warning | Critical | Rationale                                                                           |
+| ----------------- | ------- | -------- | ----------------------------------------------------------------------------------- |
+| Error Rate (5xx)  | 1%      | 5%       | Industry standard SLO thresholds; baselines in LOAD_TEST_BASELINE.md are ≈0% errors |
+| P99 Latency       | 2s      | 5s       | Game responsiveness expectations; baseline HTTP/game p99 ≈20ms → 100x+ headroom     |
+| P95 Latency       | 1s      | -        | Most users affected at this level; baseline p95 ≈10–20ms → ~50x headroom            |
+| P50 Latency       | 500ms   | -        | Median reflects overall health; baseline medians ≈10ms → 50x headroom               |
+| Memory Usage      | 1.5GB   | 2GB      | 75%/100% of typical container limit                                                 |
+| Event Loop Lag    | 100ms   | 500ms    | Node.js responsiveness thresholds                                                   |
+| AI Fallback Rate  | 30%     | 50%      | Quality degradation indicator                                                       |
+| Degradation Level | >0      | ≥2       | Feature availability stages                                                         |
+| Database Down     | -       | 1m       | Critical dependency                                                                 |
+| Redis Down        | -       | 1m       | Critical for rate limiting                                                          |
+| AI Service Down   | 2m      | -        | Has graceful fallback                                                               |
+| Active Handles    | 10K     | -        | Resource leak indicator                                                             |
+| Database Response | 500ms   | -        | Query performance threshold                                                         |
+| Redis Response    | 100ms   | -        | Cache latency threshold                                                             |
 
 ---
 
 ## Dashboards & Observability Checklist
 
-This section describes the **minimum recommended dashboards** to keep rules/orchestrator, AI, and infra health observable in staging and production. It complements the alert rules in this document and the orchestrator rollout SLOs in [`ORCHESTRATOR_ROLLOUT_PLAN.md`](./ORCHESTRATOR_ROLLOUT_PLAN.md).
+This section describes the **minimum recommended dashboards** to keep rules/orchestrator, AI, and infra health observable in staging and production. It complements the alert rules in this document and the orchestrator rollout SLOs in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](./architecture/ORCHESTRATOR_ROLLOUT_PLAN.md).
 
 ### Rules / Orchestrator Dashboard
 
@@ -936,7 +1088,7 @@ Every environment that is on, or preparing for, orchestrator‑first rollout sho
 - **Error and invariants**
   - `ringrift_orchestrator_error_rate{environment=...}`
   - `ringrift_orchestrator_invariant_violations_total{environment=...}` (where present, sliced by `type` and `invariant_id` matching `INV-*` IDs from
-    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](./INVARIANTS_AND_PARITY_FRAMEWORK.md)).
+    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](./rules/INVARIANTS_AND_PARITY_FRAMEWORK.md)).
   - (For AI/self‑play environments) `ringrift_python_invariant_violations_total{invariant_id=...,type=...}` for Python strict‑invariant soaks (`INV-*` IDs).
   - `OrchestratorErrorRateWarning`, `OrchestratorInvariantViolations*`, and `PythonInvariantViolations` alert state.
 - **Rollout posture**
@@ -1079,4 +1231,4 @@ After deployment, establish baselines for:
 
 - [Operations Database Guide](./OPERATIONS_DB.md)
 - [Security Threat Model](./SECURITY_THREAT_MODEL.md)
-- [Incident Response](./INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md)
+- [Incident Response](./incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md)

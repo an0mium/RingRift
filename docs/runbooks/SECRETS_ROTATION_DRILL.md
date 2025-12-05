@@ -1,14 +1,15 @@
 # Secrets Rotation Drill Runbook
 
 > **Doc Status (2025-11-30): Active Runbook**  
-> **Role:** Step-by-step practice drill for rotating critical RingRift secrets (JWT signing keys and database credentials) in a **non‑production** environment and verifying application health.  
->  
-> **SSoT alignment:** This runbook is a derived operational procedure over:  
-> - `docs/SECRETS_MANAGEMENT.md` – canonical secrets inventory and rotation guidance  
-> - `docs/ENVIRONMENT_VARIABLES.md` – authoritative list of env vars and types  
-> - `docs/OPERATIONS_DB.md` – database operations and migration workflow  
-> - `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` and `docs/SECURITY_THREAT_MODEL.md` – supply‑chain and security posture  
->  
+> **Role:** Step-by-step practice drill for rotating critical RingRift secrets (JWT signing keys and database credentials) in a **non‑production** environment and verifying application health.
+>
+> **SSoT alignment:** This runbook is a derived operational procedure over:
+>
+> - `docs/SECRETS_MANAGEMENT.md` – canonical secrets inventory and rotation guidance
+> - `docs/ENVIRONMENT_VARIABLES.md` – authoritative list of env vars and types
+> - `docs/OPERATIONS_DB.md` – database operations and migration workflow
+> - `docs/SUPPLY_CHAIN_AND_CI_SECURITY.md` and `docs/SECURITY_THREAT_MODEL.md` – supply‑chain and security posture
+>
 > **Precedence:** Env schema/validation (`src/server/config/env.ts`, `src/server/config/unified.ts`), secrets validation (`src/server/utils/secretsValidation.ts`), and deployment manifests (Docker/Kubernetes) are authoritative. If this runbook conflicts with them, **code + configs win** and this document must be updated.
 
 ---
@@ -41,6 +42,33 @@ Before starting, skim:
 
 - `docs/SECRETS_MANAGEMENT.md` – especially “Secret Rotation Procedures”.
 - `docs/OPERATIONS_DB.md` – database expectations and backup patterns.
+- `docs/DATA_LIFECYCLE_AND_PRIVACY.md` – backup and retention principles (see §3.5).
+
+Recommended **pre‑drill validation commands** (from the project root):
+
+```bash
+# Check docker-compose, .env.example, and env schema consistency
+npm run validate:deployment
+
+# (Optional but recommended) Validate monitoring configs and docs/SSoT alignment
+npm run validate:monitoring      # wrapper for ./scripts/validate-monitoring-configs.sh
+npm run ssot-check               # runs docs/config/CI SSoT checks including secrets-doc-ssot
+```
+
+### 2.1 PASS framing (staging drill overview)
+
+- **Purpose:** Prove that JWT and database secrets for staging can be rotated safely, with clear rollback and without surprising outages.
+- **Preconditions:** Backups exist and are tested; monitoring is active; the staging stack passes `npm run validate:deployment` (and ideally `npm run validate:monitoring` and `npm run ssot-check`).
+- **Actions (high-level):**
+  1. Plan the rotation and generate new secret values.
+  2. Apply secrets to the staging secret store and restart the app.
+  3. Run automated validation (`npm run validate:deployment`, `./scripts/test-auth.sh`) plus health checks and basic gameplay flows.
+  4. Monitor alerts/dashboards during and after rotation; roll back if needed.
+- **Signals & KPIs:**
+  - `/health` and `/ready` return 200 after rotation.
+  - `./scripts/test-auth.sh` completes successfully (register, login, forgot-password).
+  - No sustained increase in auth/database error rates or latency in Grafana dashboards.
+  - Relevant Prometheus alerts (for example database down, auth error spike, latency SLOs) remain green.
 
 ---
 
@@ -94,27 +122,60 @@ kubectl rollout restart deployment/ringrift-api
 
 ### 3.4 Verify behaviour
 
-1. Confirm startup and config validation:
+Run the following verification sequence against the **staging** stack (from the project root unless otherwise noted):
+
+1. **Config + deployment validation**
+
+   ```bash
+   npm run validate:deployment
+   ```
+
+   This re-runs the deployment config validator against your current env/compose files to catch obvious misconfigurations.
+
+2. **Health and readiness**
 
    ```bash
    curl -s http://localhost:3000/health | jq
    curl -s http://localhost:3000/ready | jq
    ```
 
-2. Attempt to use an **existing** session/cookie:
-   - Expect it to be rejected (forced logout or auth failure).
+   Adjust the host/port if your staging stack is exposed differently.
 
-3. Log in again and create a fresh session:
-   - Confirm new login works.
-   - Create a game and play a few moves.
+3. **Auth smoke test (automated)**
 
-4. Check logs for repeated auth/crypto errors:
+   From the project root (with staging reachable at `http://localhost:3000` or an equivalent forwarded port):
 
    ```bash
-   docker compose logs -f app | grep -i "jwt" | tail -n 50
+   ./scripts/test-auth.sh
    ```
 
-If health checks pass, new logins work, and no repeated JWT errors are present, the JWT rotation drill is considered successful for staging.
+   This script exercises:
+   - `/api/auth/register`
+   - `/api/auth/login`
+   - `/api/auth/forgot-password`
+
+   and will exit non‑zero if any step fails. If your staging base URL is different, either port‑forward to `localhost:3000` or adapt the script/commands accordingly.
+
+4. **Session invalidation + manual gameplay check**
+   - Attempt to use an **existing** session/cookie in a browser:
+     - Expect it to be rejected (forced logout or auth failure).
+   - Log in again and create a fresh session:
+     - Confirm new login works.
+     - Create a game and play a few moves.
+
+5. **Logs and monitoring**
+   - Tail app logs for repeated JWT/crypto errors:
+
+     ```bash
+     docker compose logs -f app | grep -i "jwt" | tail -n 50
+     ```
+
+   - Watch Grafana dashboards (for example `system-health`, `game-performance`, `rules-correctness`) for:
+     - Spikes in 5xx error rates.
+     - Auth error bursts.
+     - Latency regressions around the rotation window.
+
+If the automated validation, health checks, auth smoke, and monitoring all look healthy, the JWT rotation drill is considered successful for staging.
 
 ---
 
@@ -161,13 +222,21 @@ Update the staging secrets store (for example `.env.staging`, Docker/Kubernetes 
 Restart the app as in §3.3, then:
 
 ```bash
+npm run validate:deployment
+
 curl -s http://localhost:3000/health | jq
 curl -s http://localhost:3000/ready | jq
 ```
 
-Exercise basic flows:
+Re-run the auth smoke test and basic flows:
 
-- Register/login a test user.
+```bash
+./scripts/test-auth.sh
+```
+
+Exercise basic gameplay:
+
+- Register/login a test user (or reuse the auth script's created user).
 - Create a game, join, and play several moves.
 
 Check app logs for database errors:
@@ -176,7 +245,9 @@ Check app logs for database errors:
 docker compose logs -f app | grep -i "database" | tail -n 50
 ```
 
-If health checks and game flows work normally, the app is successfully using the new DB credentials.
+Also watch the same Grafana dashboards used in §3.4 for error/latency regressions during the credential switch.
+
+If health checks, automated validation, and game flows work normally, the app is successfully using the new DB credentials.
 
 ### 4.4 Retire the old DB user (optional, after validation)
 
@@ -220,4 +291,3 @@ For production environments:
 - Ensure database user changes are compatible with your migration/deployment workflows in `docs/OPERATIONS_DB.md` and `docs/runbooks/DATABASE_MIGRATION.md`.
 
 The same core principle applies as with backups: rotations should be **practised and boring** in staging before they are attempted in production.
-

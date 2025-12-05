@@ -589,7 +589,9 @@ export default function LobbyPage() {
   };
 
   const handleSpectate = (gameId: string) => {
-    navigate(`/game/${gameId}`);
+    // Spectate via the dedicated read-only spectator route so that backend
+    // games treat this viewer as a spectator rather than a participant.
+    navigate(`/spectate/${gameId}`);
   };
 
   const handleCancelGame = async (gameId: string) => {

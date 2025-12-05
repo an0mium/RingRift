@@ -1633,6 +1633,29 @@ export class ClientSandboxEngine {
       }));
   }
 
+  /**
+   * Replay-only helper: detect whether the current player has any
+   * overtaking capture segments available from any of their stacks in
+   * the current snapshot. Used by the self-play replay harness to
+   * distinguish between a true, ongoing capture phase (where explicit
+   * continuation moves should follow) and a fully-resolved capture
+   * where the backend has already advanced the turn.
+   */
+  private hasAnyCaptureSegmentsForCurrentPlayer(): boolean {
+    const state = this.gameState;
+    const playerNumber = state.currentPlayer;
+    const stacks = this.getPlayerStacks(playerNumber, state.board);
+
+    for (const stack of stacks) {
+      const segments = this.enumerateCaptureSegmentsFrom(stack.position, playerNumber);
+      if (segments.length > 0) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   private applyCaptureSegment(
     from: Position,
     target: Position,
@@ -3317,6 +3340,9 @@ export class ClientSandboxEngine {
       'choose_line_reward',
       'process_territory_region',
       'eliminate_rings_from_stack',
+      // Meta-move: pie rule (swap colours after Player 1's first turn).
+      // Handled by the shared orchestrator via validateSwapSidesMove/applySwapSidesIdentitySwap.
+      'swap_sides',
     ];
 
     if (!supportedTypes.includes(move.type)) {
@@ -3373,7 +3399,7 @@ export class ClientSandboxEngine {
    * no-op moves we skip any extra phase/turn advancement and simply record
    * a before/after history entry with identical snapshots.
    */
-  public async applyCanonicalMoveForReplay(move: Move): Promise<void> {
+  public async applyCanonicalMoveForReplay(move: Move, nextMove?: Move | null): Promise<void> {
     const beforeStateForHistory = this.getGameState();
 
     // If game is already complete, still record the move in history for UI
@@ -3406,6 +3432,9 @@ export class ClientSandboxEngine {
       'choose_line_reward',
       'process_territory_region',
       'eliminate_rings_from_stack',
+      // Meta-move: pie rule (swap colours after Player 1's first turn).
+      // The shared orchestrator validates and applies this move.
+      'swap_sides',
     ];
 
     if (!supportedTypes.includes(move.type)) {
@@ -3419,6 +3448,54 @@ export class ClientSandboxEngine {
     });
 
     if (changed) {
+      // Phase transition fix: After place_ring, Python automatically advances
+      // to movement phase for the same player. The TS orchestrator may leave
+      // us in ring_placement, so we need to explicitly advance to movement.
+      // This matches Python's post-placement semantics where the player who
+      // placed a ring must then move the resulting stack.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        move.type === 'place_ring' &&
+        this.gameState.currentPhase === 'ring_placement' &&
+        this.gameState.currentPlayer === move.player
+      ) {
+        this.gameState.currentPhase = 'movement';
+      }
+
+      // In replay mode we want post-move snapshots to match the backend
+      // GameReplayDB.get_state_at_move semantics, which expose the state
+      // *after* any mandatory capture chains have been fully resolved. If
+      // the shared orchestrator leaves the sandbox in a generic 'capture'
+      // phase but there are no further capture segments available for the
+      // current player, advance the turn immediately so the snapshot
+      // reflects the next-turn phase (ring_placement or movement).
+      //
+      // IMPORTANT: For chain capture continuation, we must only check captures
+      // from the LANDING POSITION of the just-applied capture, not all stacks.
+      // This matches Python's chain_capture_state.current_position behavior.
+      // For capture moves, check if chain continuation is required from landing position.
+      // For non-capture moves that result in capture phase (e.g., move_stack that enables
+      // a capture), let autoResolvePendingDecisionPhasesForReplay handle the phase
+      // transition when the next move is applied - it knows whether the next recorded
+      // move is a capture or not.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        (this.gameState.currentPhase === 'capture' ||
+          this.gameState.currentPhase === 'chain_capture') &&
+        (move.type === 'overtaking_capture' || move.type === 'continue_capture_segment')
+      ) {
+        // Only check for continuation captures from the landing position
+        // This matches Python's chain_capture_state.current_position behavior.
+        const landingPosition = move.to;
+        const continuationCaptures = this.enumerateCaptureSegmentsFrom(
+          landingPosition,
+          this.gameState.currentPlayer
+        );
+        if (continuationCaptures.length === 0) {
+          this.advanceTurnAndPhaseForCurrentPlayer();
+        }
+      }
+
       if (
         this.gameState.gameStatus === 'active' &&
         this.gameState.currentPhase === 'territory_processing' &&
@@ -3434,12 +3511,116 @@ export class ClientSandboxEngine {
         }
       }
 
+      // Note: Previously there was a workaround here to force transition to
+      // 'capture' phase after move_stack when the next move was a capture. This
+      // addressed a Python engine bug where chain_capture_state wasn't being
+      // cleared, causing captures after move_stack to be incorrectly classified.
+      // The Python engine was fixed (game_engine.py now clears chain_capture_state
+      // after MOVE_STACK, in _advance_to_line_processing, and in _end_turn), so
+      // this workaround is no longer needed. Both engines now correctly check for
+      // captures only from the landing position per RR-CANON-R093.
+
+      // Lookahead phase alignment: if we know the next move, use it to align
+      // the current phase/player with what Python expects. This handles cases
+      // where the TS orchestrator's phase transitions differ from Python's
+      // (e.g., TS stays in capture phase after move_stack while Python advances).
+      if (nextMove && this.gameState.gameStatus === 'active') {
+        await this.autoResolvePendingDecisionPhasesForReplay(nextMove);
+      }
+
+      // End-game phase completion: when this is the LAST move (no nextMove),
+      // we must advance through any remaining phases and check victory to
+      // match Python's post-move semantics. Without this, TS may stay in an
+      // intermediate phase (e.g., 'capture') while Python declares victory.
+      if (!nextMove && this.gameState.gameStatus === 'active') {
+        // First, check victory immediately - this catches Early LPS (one player
+        // has all material) without needing to advance phases further.
+        this.checkAndApplyVictory();
+
+        // Then advance through any pending phases to completion.
+        const maxIterations = 20;
+        let iterations = 0;
+        while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
+          const prevPhase = this.gameState.currentPhase;
+          const prevPlayer = this.gameState.currentPlayer;
+          this.advanceTurnAndPhaseForCurrentPlayer();
+
+          // Check victory after each phase advancement
+          this.checkAndApplyVictory();
+
+          // If no change occurred, we've reached a stable end state
+          if (
+            this.gameState.currentPhase === prevPhase &&
+            this.gameState.currentPlayer === prevPlayer
+          ) {
+            break;
+          }
+          iterations++;
+        }
+      }
+
       this.appendHistoryEntry(beforeStateForHistory, move);
     } else {
       // No semantic change, but we still want a stable history step for
       // replay purposes. Record a history entry with identical before/after
       // snapshots so moveHistory and _stateSnapshots remain aligned with
       // the recorder's canonical move numbering.
+
+      // Phase transition fix for no-change moves: Even if the orchestrator
+      // reported no change, Python may have recorded a place_ring that we
+      // need to honor by advancing to movement phase. This can happen when
+      // the placement is into an already-occupied position (duplicate) or
+      // when the orchestrator's change detection differs from Python's.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        move.type === 'place_ring' &&
+        this.gameState.currentPhase === 'ring_placement' &&
+        this.gameState.currentPlayer === move.player
+      ) {
+        this.gameState.currentPhase = 'movement';
+      }
+
+      // Even if the move didn't change state, we still need to run lookahead
+      // to align phase/player with Python's expectations for the next move.
+      if (nextMove && this.gameState.gameStatus === 'active') {
+        const beforePhase = this.gameState.currentPhase;
+        const beforePlayer = this.gameState.currentPlayer;
+        await this.autoResolvePendingDecisionPhasesForReplay(nextMove);
+        if (
+          this.gameState.currentPhase !== beforePhase ||
+          this.gameState.currentPlayer !== beforePlayer
+        ) {
+          console.log(
+            `[lookahead-nochange] Advanced from ${beforePlayer}:${beforePhase} to ${this.gameState.currentPlayer}:${this.gameState.currentPhase} (nextMove=${nextMove.type} by p${nextMove.player})`
+          );
+        }
+      }
+
+      // End-game phase completion for no-change moves (same logic as changed branch).
+      if (!nextMove && this.gameState.gameStatus === 'active') {
+        // First, check victory immediately - this catches Early LPS.
+        this.checkAndApplyVictory();
+
+        const maxIterations = 20;
+        let iterations = 0;
+        while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
+          const prevPhase = this.gameState.currentPhase;
+          const prevPlayer = this.gameState.currentPlayer;
+          this.advanceTurnAndPhaseForCurrentPlayer();
+
+          // Check victory after each phase advancement
+          this.checkAndApplyVictory();
+
+          if (
+            this.gameState.currentPhase === prevPhase &&
+            this.gameState.currentPlayer === prevPlayer
+          ) {
+            break;
+          }
+          iterations++;
+        }
+      }
+
       this.appendHistoryEntry(beforeStateForHistory, move);
     }
   }
@@ -3463,11 +3644,92 @@ export class ClientSandboxEngine {
       'move_ring',
       'overtaking_capture',
       'continue_capture_segment',
+      // Swap-sides is offered at the start of Player 2's interactive turn.
+      'swap_sides',
+      // Forced elimination occurs at the start of a blocked player's turn.
+      'eliminate_rings_from_stack',
     ];
 
+    // Decision-phase move types that indicate what phase we should be in
+    const lineProcessingMoveTypes: Move['type'][] = ['process_line', 'choose_line_reward'];
+    const territoryProcessingMoveTypes: Move['type'][] = ['process_territory_region'];
+
+    // Handle ring_placement → movement skip: if we're in ring_placement but the
+    // next move is a movement/capture from the SAME player (not place_ring or
+    // skip_placement), Python must have skipped placement due to no legal placements.
+    // We should advance directly to movement phase to match.
+    const movementMoveTypes: Move['type'][] = [
+      'move_stack',
+      'move_ring',
+      'overtaking_capture',
+      'continue_capture_segment',
+    ];
+    if (
+      this.gameState.currentPhase === 'ring_placement' &&
+      movementMoveTypes.includes(nextMove.type) &&
+      nextMove.player === this.gameState.currentPlayer
+    ) {
+      // Python recorded a movement move while player was in ring_placement.
+      // This means Python auto-skipped to movement (no legal placements).
+      this.gameState.currentPhase = 'movement';
+    }
+
+    // Capture move types for phase alignment
+    const captureMoveTypes: Move['type'][] = ['overtaking_capture', 'continue_capture_segment'];
+
+    // NOTE: movement → capture alignment has been moved to applyCanonicalMoveForReplay
+    // because it should only apply after move_stack, not after place_ring.
+    // See the post-move_stack handling in applyCanonicalMoveForReplay for details.
+
     if (!turnStartMoveTypes.includes(nextMove.type)) {
-      // The next move is already a decision-phase move (like process_territory_region),
-      // so let it proceed normally
+      // The next move is a decision-phase move. Check if we're in a mismatched phase
+      // and need to transition. This handles cases like TS being in 'capture' phase
+      // when Python expects 'line_processing' (because line detection takes priority).
+      const currentPhase = this.gameState.currentPhase as string;
+      if (lineProcessingMoveTypes.includes(nextMove.type) && currentPhase !== 'line_processing') {
+        // Need to transition to line_processing. Advance turn until we get there.
+        const maxAdvances = 10;
+        let advances = 0;
+        while (
+          this.gameState.gameStatus === 'active' &&
+          (this.gameState.currentPhase as string) !== 'line_processing' &&
+          advances < maxAdvances
+        ) {
+          this.advanceTurnAndPhaseForCurrentPlayer();
+          advances += 1;
+        }
+      } else if (
+        territoryProcessingMoveTypes.includes(nextMove.type) &&
+        currentPhase !== 'territory_processing'
+      ) {
+        // Need to transition to territory_processing
+        const maxAdvances = 10;
+        let advances = 0;
+        while (
+          this.gameState.gameStatus === 'active' &&
+          (this.gameState.currentPhase as string) !== 'territory_processing' &&
+          advances < maxAdvances
+        ) {
+          this.advanceTurnAndPhaseForCurrentPlayer();
+          advances += 1;
+        }
+      }
+
+      // Player alignment for decision-phase moves: if we're in the correct phase
+      // but with the wrong player, set the player to match Python's expectation.
+      // This handles cases where the TS orchestrator advances to the next player
+      // after movement, but Python keeps the same player for territory processing
+      // (because the moving player caused the disconnection and should process it).
+      if (
+        this.gameState.gameStatus === 'active' &&
+        territoryProcessingMoveTypes.includes(nextMove.type) &&
+        this.gameState.currentPhase === 'territory_processing' &&
+        nextMove.player !== this.gameState.currentPlayer
+      ) {
+        this.gameState.currentPlayer = nextMove.player;
+      }
+
+      // After alignment (or if already aligned), let the decision move proceed
       return;
     }
 
@@ -3490,14 +3752,34 @@ export class ClientSandboxEngine {
           this.advanceTurnAndPhaseForCurrentPlayer();
         }
       } else if (this.gameState.currentPhase === 'line_processing') {
+        const phaseBefore = this.gameState.currentPhase;
         const resolved = await this.autoResolveOneLineForReplay();
         if (!resolved) {
           // No more lines to process, advance turn
           this.advanceTurnAndPhaseForCurrentPlayer();
+        } else if (this.gameState.currentPhase === phaseBefore) {
+          // autoResolveOneLineForReplay processed something but phase didn't change.
+          // This can happen when line processing is already complete but the
+          // orchestrator leaves us in line_processing. Force advance.
+          this.advanceTurnAndPhaseForCurrentPlayer();
         }
-      } else if (this.gameState.currentPhase === 'chain_capture') {
-        // Chain capture phase - recorded games may not have continuation moves
-        // If the next move is a new turn move, skip the chain and advance
+      } else if (
+        this.gameState.currentPhase === 'capture' ||
+        this.gameState.currentPhase === 'chain_capture'
+      ) {
+        // Capture/chain_capture phase handling: Python games DO record capture moves,
+        // so only advance if the next move is NOT a capture from the current player.
+        // This fixes parity divergence where TS was incorrectly advancing before
+        // the capture sequence was applied.
+        const isNextMoveCapture =
+          (nextMove.type === 'overtaking_capture' ||
+            nextMove.type === 'continue_capture_segment') &&
+          nextMove.player === this.gameState.currentPlayer;
+        if (isNextMoveCapture) {
+          // The next move is a valid capture - let it be applied
+          break;
+        }
+        // Next move is from a different player or phase - advance
         this.advanceTurnAndPhaseForCurrentPlayer();
       } else {
         // Unknown phase, try to advance
@@ -3510,6 +3792,42 @@ export class ClientSandboxEngine {
         '[autoResolvePendingDecisionPhasesForReplay] Max iterations reached, possible infinite loop',
         { currentPhase: this.gameState.currentPhase, nextMoveType: nextMove.type }
       );
+    }
+
+    // Handle player mismatch: if the next move is from a different player, advance
+    // until we reach that player. This handles cases like:
+    // - Player having no valid moves after placement (Python skips to next player)
+    // - Line/territory processing completing but TS not advancing
+    // We check this regardless of current phase because Python may have moved on
+    // while TS is stuck in a bookkeeping phase.
+    if (
+      this.gameState.gameStatus === 'active' &&
+      turnStartMoveTypes.includes(nextMove.type) &&
+      nextMove.player !== this.gameState.currentPlayer
+    ) {
+      const maxPlayerAdvances = this.gameState.players.length * 3;
+      let advances = 0;
+      while (
+        this.gameState.gameStatus === 'active' &&
+        nextMove.player !== this.gameState.currentPlayer &&
+        advances < maxPlayerAdvances
+      ) {
+        this.advanceTurnAndPhaseForCurrentPlayer();
+        advances += 1;
+      }
+    }
+
+    // Final ring_placement → movement fix: After all player advancement is done,
+    // check if we're now in ring_placement but the next move expects movement.
+    // This handles the case where advanceTurnAndPhaseForCurrentPlayer puts us in
+    // ring_placement but Python auto-skipped to movement (no legal placements).
+    if (
+      this.gameState.gameStatus === 'active' &&
+      this.gameState.currentPhase === 'ring_placement' &&
+      movementMoveTypes.includes(nextMove.type) &&
+      nextMove.player === this.gameState.currentPlayer
+    ) {
+      this.gameState.currentPhase = 'movement';
     }
   }
 

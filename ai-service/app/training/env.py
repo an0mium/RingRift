@@ -1,8 +1,12 @@
 import logging
-from typing import Optional, Tuple, List, Dict, Any
+from dataclasses import dataclass
+from typing import Optional, Tuple, List, Dict, Any, Literal
+
 from app.models import GameState, Move, BoardType, GameStatus
 from app.game_engine import GameEngine
+from app.rules.default_engine import DefaultRulesEngine
 from app.training.seed_utils import seed_all
+from app.training.tournament import infer_victory_reason
 
 logger = logging.getLogger(__name__)
 
@@ -164,13 +168,178 @@ def get_two_player_training_kwargs(
     return cfg
 
 
-class RingRiftEnv:
-    """RL-style environment wrapper for RingRift.
+@dataclass
+class TrainingEnvConfig:
+    """Configuration for the canonical RingRift training environment.
 
-    Provides a minimal `reset()`, `step()`, and `legal_moves()` interface
-    for self-play style loops. The underlying Python GameEngine and
-    GameState models are already N-player aware; the `num_players`
-    parameter exposes that capability to training code (2–4 players).
+    This dataclass captures the knobs that must be kept stable across
+    training, evaluation, and tournament tooling. It is intentionally
+    small and versioned via code rather than ad-hoc keyword arguments.
+
+    Attributes
+    ----------
+    board_type:
+        Logical board geometry. The calibration environment uses
+        ``BoardType.SQUARE8``.
+    num_players:
+        Number of active players (2–4). The calibration environment
+        uses 2-player games.
+    max_moves:
+        Hard upper bound on episode length. When ``None`` a sensible
+        default is chosen for the given board/player combination
+        (see :func:`get_theoretical_max_moves`). Hitting this limit
+        is treated as a host-level cutoff and surfaced as the
+        ``"max_moves"`` victory_reason in ``info``.
+    reward_mode:
+        Reward shaping mode used by :meth:`RingRiftEnv.step`:
+
+        * ``"terminal"`` – +1 / −1 / 0 only at terminal states.
+        * ``"shaped"`` – delegates to ``calculate_outcome`` from
+          :mod:`app.training.generate_data` at terminal states.
+
+        Non-terminal steps always return reward 0.0.
+    seed:
+        Optional default RNG seed. If set, :meth:`RingRiftEnv.reset`
+        will seed all supported RNGs via :func:`seed_all` whenever it
+        is called without an explicit ``seed`` argument.
+    use_default_rules_engine:
+        When True (default) the environment applies moves via
+        :class:`app.rules.default_engine.DefaultRulesEngine`, which
+        in turn delegates to :class:`app.game_engine.GameEngine` while
+        running optional shadow contracts. When False, the environment
+        falls back to calling :func:`GameEngine.apply_move` directly.
+    """
+
+    board_type: BoardType = BoardType.SQUARE8
+    num_players: int = 2
+    max_moves: Optional[int] = None
+    reward_mode: Literal["terminal", "shaped"] = "terminal"
+    seed: Optional[int] = None
+    use_default_rules_engine: bool = True
+
+
+def make_env(config: Optional[TrainingEnvConfig] = None) -> "RingRiftEnv":
+    """Construct the canonical RingRift training environment.
+
+    This helper centralises how environments are created so that all
+    callers (self-play generators, evaluation scripts, tournaments,
+    and future RL loops) share a single, well-documented interface.
+
+    Callers should prefer this factory over instantiating
+    :class:`RingRiftEnv` directly.
+
+    Parameters
+    ----------
+    config:
+        :class:`TrainingEnvConfig` specifying board geometry,
+        player count, reward mode, and move budget. When ``None``
+        the calibration configuration for 2-player square8 is used.
+
+    Returns
+    -------
+    RingRiftEnv
+        A freshly constructed environment instance.
+    """
+    if config is None:
+        config = TrainingEnvConfig()
+
+    # Derive a concrete max_moves bound.
+    if config.max_moves is not None:
+        max_moves = config.max_moves
+    else:
+        # Use the historical training default for the calibration
+        # environment and otherwise fall back to the theoretical
+        # limit for the given board / player count.
+        if (
+            config.board_type == BoardType.SQUARE8
+            and config.num_players == 2
+        ):
+            max_moves = 200
+        else:
+            max_moves = get_theoretical_max_moves(
+                config.board_type,
+                config.num_players,
+            )
+
+    return RingRiftEnv(
+        board_type=config.board_type,
+        max_moves=max_moves,
+        reward_on=config.reward_mode,
+        num_players=config.num_players,
+        default_seed=config.seed,
+        use_default_rules_engine=config.use_default_rules_engine,
+    )
+
+
+class RingRiftEnv:
+    """Canonical training environment for RingRift AI (gym-like API).
+
+    This environment wraps the Python rules engine and exposes a small,
+    stable surface suitable for training loops, evaluation harnesses,
+    and tournament tooling.
+
+    Core semantics
+    --------------
+
+    * **Observation**
+        The observation returned from :meth:`reset` and
+        :meth:`step` is a :class:`GameState` instance mirroring the
+        shared TypeScript ``GameState`` type (see ``app.models``).
+
+        Callers are expected to convert this to tensors using the
+        existing encoders in :mod:`app.training.encoding` and
+        :mod:`app.training.heuristic_features` rather than inventing
+        new representations.
+
+    * **Action**
+        :meth:`step` accepts a fully-specified :class:`Move` object.
+        When integrating with neural-network policies, actions should
+        be encoded/decoded using the existing policy-head encoders
+        (for example :meth:`NeuralNetAI.encode_move` and the helpers
+        in :mod:`app.training.encoding`). The environment itself does
+        not define a new integer action space.
+
+    * **Reward**
+        By default (``reward_on='terminal'``) the reward is:
+
+        * +1.0 for a win for the player who just moved,
+        * −1.0 for a loss for that player,
+        * 0.0 for a draw/structural stalemate/max-moves cutoff.
+
+        Rewards are only emitted when ``done`` is ``True``; all
+        intermediate steps return 0.0. When ``reward_on='shaped'``,
+        the terminal reward is delegated to
+        :func:`app.training.generate_data.calculate_outcome`.
+
+    * **Termination and info**
+        ``done`` is ``True`` when either the underlying GameState
+        becomes non-ACTIVE (the rules engine has finished the game)
+        or the environment's ``max_moves`` budget is reached.
+
+        When ``done`` is ``True`` the ``info`` mapping contains at
+        least:
+
+        * ``'winner'`` – winning player number or ``None``.
+        * ``'victory_reason'`` – canonical result string, one of:
+
+          ``'ring_elimination'``, ``'territory_control'``,
+          ``'last_player_standing'``, ``'structural_stalemate'``,
+          ``'max_moves'``, or ``'unknown'``.
+
+        * ``'rings_eliminated'`` – mapping from causing player
+          number to the number of rings they have eliminated.
+        * ``'territory_spaces'`` – mapping from player number to
+          their ``territory_spaces`` counter.
+        * ``'moves_played'`` – total number of moves in the episode.
+
+        The ``info`` dict always contains ``'move_count'`` with the
+        current move index; additional keys may be added in future
+        but existing keys are kept stable.
+
+    See also
+    --------
+    ``docs/ai/AI_DIFFICULTY_SPEC.md`` for calibration and difficulty
+    ladder details.
     """
 
     def __init__(
@@ -179,34 +348,54 @@ class RingRiftEnv:
         max_moves: int = 200,
         reward_on: str = "terminal",  # "terminal" or "shaped"
         num_players: int = 2,
+        *,
+        default_seed: Optional[int] = None,
+        use_default_rules_engine: bool = True,
     ):
         self.board_type = board_type
         self.max_moves = max_moves
         self.reward_on = reward_on
         self.num_players = num_players
+        self._default_seed = default_seed
         self._state: Optional[GameState] = None
         self._move_count: int = 0
 
+        self._use_default_rules_engine = use_default_rules_engine
+        self._rules_engine: Optional[DefaultRulesEngine] = None
+        if use_default_rules_engine:
+            # Shadow-contract / mutator-first behaviour is controlled by
+            # environment flags (see DefaultRulesEngine); we do not override
+            # those here.
+            self._rules_engine = DefaultRulesEngine()
+
     def reset(self, seed: Optional[int] = None) -> GameState:
-        """Create a fresh GameState for self-play.
+        """Reset the environment and return the initial observation.
 
-        When `num_players` > 2, the initial state will contain that many
-        AI-controlled players with per-player ring caps and victory
-        thresholds aligned with the shared TypeScript initial-state
-        helpers.
+        Parameters
+        ----------
+        seed:
+            Optional RNG seed. When ``None`` and a ``default_seed`` was
+            supplied at construction time, that default is used. The
+            seed is threaded through :func:`seed_all`, which initialises
+            Python ``random``, NumPy, and torch RNGs in a consistent way
+            for training/evaluation runs.
 
-        If `seed` is provided, it is threaded into Python RNGs used by
-        any stochastic components (future variants); the core game rules
-        remain deterministic.
+        Returns
+        -------
+        GameState
+            Fresh initial state for the configured board and player
+            count.
         """
+        if seed is None:
+            seed = self._default_seed
         if seed is not None:
             # Use the central training seeding utility so that Python
             # random, NumPy, and torch (including CUDA/cuDNN flags) are
             # all initialised consistently for this environment.
             seed_all(seed)
 
-        # Reuse a shared helper from generate_data
-        # Avoid circular import by importing inside method
+        # Reuse a shared helper from generate_data.
+        # Avoid circular import by importing inside method.
         from app.training.generate_data import create_initial_state
 
         self._state = create_initial_state(
@@ -218,57 +407,129 @@ class RingRiftEnv:
 
     @property
     def state(self) -> GameState:
+        """Return the current GameState.
+
+        This property is mainly provided for convenience in tests and
+        diagnostic tooling; training loops should treat the object
+        returned from :meth:`reset` / :meth:`step` as the canonical
+        observation.
+        """
         assert self._state is not None, "Call reset() before using env"
         return self._state
 
     def legal_moves(self) -> List[Move]:
-        """
-        Return legal moves for the current player, using the same logic
-        as AIs: GameEngine.get_valid_moves.
+        """Return legal moves for the current player.
 
-        This includes forced elimination moves as first-class actions when
-        the player has stacks but no placement/movement/capture available
-        (per RR-CANON-R072/R100/R205).
+        This is a thin wrapper around the canonical Python rules engine:
+
+        * When ``use_default_rules_engine`` is True, this method
+          delegates to :class:`DefaultRulesEngine.get_valid_moves`,
+          which in turn uses :class:`GameEngine` under the hood.
+        * Otherwise it calls :func:`GameEngine.get_valid_moves`
+          directly.
+
+        The returned list contains fully-specified :class:`Move`
+        instances and matches the behaviour of the TypeScript shared
+        engine for the same state.
         """
+        if self._rules_engine is not None:
+            return self._rules_engine.get_valid_moves(
+                self.state,
+                self.state.current_player,
+            )
         return GameEngine.get_valid_moves(
-            self.state, self.state.current_player
+            self.state,
+            self.state.current_player,
         )
+
+    def _infer_canonical_victory_reason(
+        self,
+        terminated_by_budget_only: bool,
+    ) -> str:
+        """Map engine-level termination state to a canonical result string.
+
+        This helper keeps the mapping between Python/TS result enums
+        and the canonical categories used by training and evaluation.
+        """
+        if (
+            terminated_by_budget_only
+            and self._state is not None
+            and self._state.game_status == GameStatus.ACTIVE
+        ):
+            return "max_moves"
+
+        if self._state is None:
+            return "unknown"
+
+        engine_reason = infer_victory_reason(self._state)
+        mapping = {
+            "elimination": "ring_elimination",
+            "territory": "territory_control",
+            "last_player_standing": "last_player_standing",
+            "structural": "structural_stalemate",
+            "unknown": "unknown",
+        }
+        return mapping.get(engine_reason, engine_reason)
 
     def step(
         self, move: Move
     ) -> Tuple[GameState, float, bool, Dict[str, Any]]:
-        """
-        Apply a move, returning (new_state, reward, done, info).
+        """Apply a move and advance the environment.
 
-        - new_state: updated GameState from GameEngine.apply_move.
-        - reward: from the perspective of the player who just moved,
-          according to reward_on:
-            * "terminal": +1/-1/0 only at terminal states, 0 otherwise.
-            * "shaped": use calculate_outcome-style shaping at terminal.
-        - done: True when game_status != ACTIVE or max_moves reached.
-        - info: may include raw winner, reason, and move_count.
+        Parameters
+        ----------
+        move:
+            A legal :class:`Move` for the current player. Legality is
+            not re-validated here; callers are expected to pass moves
+            drawn from :meth:`legal_moves` or validated by the rules
+            engine.
+
+        Returns
+        -------
+        observation:
+            The updated :class:`GameState`.
+        reward:
+            Scalar reward from the perspective of ``move.player``
+            according to the configured ``reward_on`` mode.
+        done:
+            ``True`` if the episode has terminated either because the
+            rules engine finished the game or because ``max_moves`` was
+            reached.
+        info:
+            A dictionary with episode metadata; see class docstring for
+            the stable fields.
         """
-        self._state = GameEngine.apply_move(self.state, move)
+        # Apply move via the canonical Python rules engine.
+        if self._rules_engine is not None:
+            self._state = self._rules_engine.apply_move(self.state, move)
+        else:
+            self._state = GameEngine.apply_move(self.state, move)
+
         self._move_count += 1
 
-        done = (
-            self._state.game_status != GameStatus.ACTIVE
-            or self._move_count >= self.max_moves
-        )
+        terminated_by_rules = self._state.game_status != GameStatus.ACTIVE
+        terminated_by_budget = self._move_count >= self.max_moves
+        done = terminated_by_rules or terminated_by_budget
 
         reward = 0.0
-        info: Dict[str, Any] = {"winner": self._state.winner}
+        info: Dict[str, Any] = {
+            "winner": self._state.winner,
+            "move_count": self._move_count,
+        }
 
-        # Log warning/error for games that hit max_moves without a winner
-        if done and self._move_count >= self.max_moves and self._state.winner is None:
-            theoretical_max = get_theoretical_max_moves(self.board_type, self.num_players)
+        # Log warning/error for games that hit max_moves without a winner.
+        if terminated_by_budget and not terminated_by_rules:
+            theoretical_max = get_theoretical_max_moves(
+                self.board_type,
+                self.num_players,
+            )
             if self._move_count >= theoretical_max:
-                # This is anomalous - game exceeded theoretical maximum
+                # Game exceeded the theoretical maximum number of moves.
                 logger.error(
-                    "GAME_NON_TERMINATION_ERROR: Game exceeded theoretical maximum moves "
-                    "without reaching a definite conclusion. "
-                    "board_type=%s, num_players=%d, move_count=%d, "
-                    "max_moves=%d, theoretical_max=%d, game_status=%s, winner=%s",
+                    "GAME_NON_TERMINATION_ERROR: exceeded theoretical "
+                    "maximum moves without a conclusion. board_type=%s, "
+                    "num_players=%d, move_count=%d, max_moves=%d, "
+                    "theoretical_max=%d, game_status=%s, winner=%s",
                     self.board_type.value,
                     self.num_players,
                     self._move_count,
@@ -278,11 +539,12 @@ class RingRiftEnv:
                     self._state.winner,
                 )
             else:
-                # Hit configured max_moves but not theoretical max - still concerning
+                # Hit configured max_moves but not theoretical maximum.
                 logger.warning(
-                    "GAME_MAX_MOVES_CUTOFF: Game hit max_moves limit without a winner. "
+                    "GAME_MAX_MOVES_CUTOFF: hit max_moves without a winner. "
                     "board_type=%s, num_players=%d, move_count=%d, "
-                    "max_moves=%d, theoretical_max=%d, game_status=%s, winner=%s",
+                    "max_moves=%d, theoretical_max=%d, game_status=%s, "
+                    "winner=%s",
                     self.board_type.value,
                     self.num_players,
                     self._move_count,
@@ -294,9 +556,10 @@ class RingRiftEnv:
             info["termination_anomaly"] = True
             info["theoretical_max_moves"] = theoretical_max
 
+        # Terminal rewards.
         if done:
             if self.reward_on == "terminal":
-                # Perspective: player who just moved is move.player
+                # Perspective: player who just moved is move.player.
                 perspective = move.player
                 if self._state.winner is None:
                     reward = 0.0
@@ -305,13 +568,47 @@ class RingRiftEnv:
                 else:
                     reward = -1.0
             else:
-                # Reuse calculate_outcome-like shaping
+                # Reuse calculate_outcome-like shaping.
                 from app.training.generate_data import calculate_outcome
+
                 reward = calculate_outcome(
                     self._state,
                     player_number=move.player,
-                    depth=self._move_count
+                    depth=self._move_count,
                 )
 
-        info["move_count"] = self._move_count
+            # Canonical victory_reason and per-player stats.
+            victory_reason = self._infer_canonical_victory_reason(
+                terminated_by_budget_only=terminated_by_budget
+                and not terminated_by_rules,
+            )
+            info["victory_reason"] = victory_reason
+            # Raw engine-level category for debugging / compatibility.
+            info["engine_victory_reason"] = infer_victory_reason(self._state)
+
+            # Rings eliminated are keyed by causing player id as strings
+            # in GameState; expose a simpler int-keyed mapping.
+            rings_eliminated: Dict[int, int] = {}
+            for pid_str, count in self._state.board.eliminated_rings.items():
+                try:
+                    pid = int(pid_str)
+                except (TypeError, ValueError):
+                    continue
+                rings_eliminated[pid] = count
+            info["rings_eliminated"] = rings_eliminated
+
+            # Territory spaces per player from the Player models.
+            territory_spaces: Dict[int, int] = {}
+            for player in self._state.players:
+                territory_spaces[player.player_number] = (
+                    player.territory_spaces
+                )
+            info["territory_spaces"] = territory_spaces
+
+            info["moves_played"] = self._move_count
+        else:
+            # For non-terminal steps expose the next state's legal moves so
+            # callers do not need to re-query the engine.
+            info["legal_moves"] = self.legal_moves()
+
         return self._state, reward, done, info

@@ -702,7 +702,11 @@ class TestGameReplayDBMigration(unittest.TestCase):
             version_row = check_conn.execute(
                 "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
             ).fetchone()
-            self.assertEqual(version_row["value"], "4", "Schema version should be 4 after migration")
+            self.assertEqual(
+                version_row["value"],
+                "5",
+                "Schema version should be 5 after migration",
+            )
 
             # Check that v2 columns were added to games table
             columns = check_conn.execute("PRAGMA table_info(games)").fetchall()
@@ -729,12 +733,16 @@ class TestGameReplayDBMigration(unittest.TestCase):
         # Create fresh database
         db = GameReplayDB(fresh_db_path)
 
-        # Verify it has v2 schema
+        # Verify it has latest schema
         with db._get_conn() as conn:
             version_row = conn.execute(
                 "SELECT value FROM schema_metadata WHERE key = 'schema_version'"
             ).fetchone()
-            self.assertEqual(version_row["value"], "4", "Fresh DB should have schema version 4")
+            self.assertEqual(
+                version_row["value"],
+                "5",
+                "Fresh DB should have schema version 5",
+            )
 
     def test_already_v2_database_no_migration(self):
         """Opening an already v2 database should not run migration again."""

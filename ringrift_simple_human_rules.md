@@ -107,8 +107,8 @@ phases in this fixed order:
 
 1. **Ring Placement** (optional in most cases).
 2. **Movement** (required if any legal move/capture exists).
-3. **Capture / Chain Capture** (if a capture starts, you must continue
-   while legal segments exist).
+3. **Capture / Chain Capture** (optional to start from landing position only;
+   if a capture starts, you must continue while legal segments exist).
 4. **Line Processing** (resolve completed lines).
 5. **Territory Processing** (resolve disconnected regions).
 6. **Victory / Termination Check**.

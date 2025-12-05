@@ -331,6 +331,9 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
    * - Prefer processing the largest disconnected region first, on the
    *   assumption that larger regions represent more impactful swings in
    *   territory and ring elimination.
+   * - When a canonical skip option is present (regionId === 'skip' or
+   *   size <= 0) and no concrete regions remain, fall back to that
+   *   skip option so the AI can explicitly decline further processing.
    * - When available, delegate to the Python AI service via
    *   globalAIEngine.getRegionOrderChoice, falling back to this local
    *   heuristic on error or missing configuration.
@@ -401,9 +404,23 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
       }
     }
 
-    let best = choice.options[0];
+    // Partition options into concrete regions vs skip/meta options. In both
+    // backend and sandbox flows, skip_territory_processing is represented as
+    // a RegionOrderChoice option with regionId === 'skip' and size <= 0.
+    const regionOptions = choice.options.filter((opt) => opt.regionId !== 'skip' && opt.size > 0);
+    const skipOptions = choice.options.filter((opt) => opt.regionId === 'skip' || opt.size <= 0);
 
-    for (const opt of choice.options) {
+    // If for some reason only skip-like options are present (no concrete
+    // regions), prefer skipping further processing rather than throwing.
+    if (regionOptions.length === 0 && skipOptions.length > 0) {
+      return skipOptions[0];
+    }
+
+    const candidates = regionOptions.length > 0 ? regionOptions : choice.options;
+
+    let best = candidates[0];
+
+    for (const opt of candidates) {
       if (opt.size > best.size) {
         best = opt;
       }

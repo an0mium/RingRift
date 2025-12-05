@@ -1537,9 +1537,9 @@ A complete turn in RingRift consists of the following phases, which must be exec
     - Leave a marker of your color on the starting space
     - Travel at least stack-height distance in a straight line
 
-3.  **Overtaking Capture Phase** (Optional to start, then mandatory chain capture)
-    - You may choose to initiate an Overtaking capture from your landing position
-    - Once started, chain Overtaking (capturing) is mandatory until no more legal Overtaking captures exist
+3.  **Overtaking Capture Phase** (Optional to start from landing position only, then mandatory chain capture)
+    - You may choose to initiate an Overtaking capture **only from the stack that just moved, at its landing position** — captures from other stacks you control are not available until those stacks are moved on a subsequent turn
+    - Once started, chain Overtaking (capturing) is mandatory until no more legal Overtaking captures exist from the current chain position
     - Each Overtaking capture adds the top ring from the target stack to the bottom of your stack
 
 4.  **Post-Movement Processing**
@@ -1965,7 +1965,7 @@ Note that by definition, any stack you control must have at least one ring of yo
 
 1. (Optional) Place a ring - if you have rings in hand
 2. Move a ring/stack (mandatory) - either the newly placed ring or a stack you control
-3. (Optional) Begin Overtaking capture → chain captures (mandatory once started)
+3. (Optional) Begin Overtaking capture from the landing position only → chain captures (mandatory once started)
 4. Check for lines of required length (**3+ for 8×8 in 3–4p games**, **4+ for 8×8 in 2p games**, **4+ for 19×19/Hex**) → collapse → eliminate one ring or cap per line (with graduated rewards for longer lines).
 5. Check for disconnected regions → collapse → eliminate one ring or cap per region.
 6. Victory check: >50% rings eliminated, >50% territory control, or last player standing.
@@ -2013,7 +2013,7 @@ Turn Flow Summary:
 
 1.  (Optional) Place a Ring if you have any in hand.
 2.  Move that ring (or any ring/stack you control if you skipped placing).
-3.  (Optional) Begin Overtaking if a capture is possible.
+3.  (Optional) Begin Overtaking from the landing position if a capture is possible from there.
 4.  Chain Overtaking until no more captures.
 5.  Check Lines of **3** (orthogonal or diagonal). Collapse them, Eliminate one ring or cap of one controlled ring stack for each (with graduated reward for 4+).
 6.  Check Territory (using Von Neumann neighborhood). Collapse disconnected regions, Eliminate one ring or cap of one controlled ring stack for each.

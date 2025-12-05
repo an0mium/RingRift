@@ -19,12 +19,19 @@ export interface ScenarioPickerModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectScenario: (scenario: LoadableScenario) => void;
+  /**
+   * When true, surfaces advanced scenario-management affordances
+   * (import/export/delete, RulesMatrix tags, etc.). Defaults to
+   * false so the default sandbox UX remains player-first.
+   */
+  developerToolsEnabled?: boolean;
 }
 
 export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
   isOpen,
   onClose,
   onSelectScenario,
+  developerToolsEnabled = false,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('curated');
   const [scenarios, setScenarios] = useState<{
@@ -150,6 +157,15 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
     searchQuery,
   });
 
+  const onboardingScenarios =
+    activeTab === 'curated'
+      ? filteredScenarios.filter((scenario) => (scenario as any).onboarding)
+      : [];
+  const nonOnboardingScenarios =
+    activeTab === 'curated'
+      ? filteredScenarios.filter((scenario) => !(scenario as any).onboarding)
+      : filteredScenarios;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
@@ -225,7 +241,7 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
               </option>
             ))}
           </select>
-          {activeTab === 'custom' && (
+          {activeTab === 'custom' && developerToolsEnabled && (
             <>
               <button
                 onClick={handleImportClick}
@@ -268,19 +284,57 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
                   : 'No scenarios match your filters.'}
             </div>
           ) : (
-            <div className="grid gap-3">
-              {filteredScenarios.map((scenario) => (
-                <ScenarioCard
-                  key={scenario.id}
-                  scenario={scenario}
-                  onSelect={() => {
-                    onSelectScenario(scenario);
-                    onClose();
-                  }}
-                  onDelete={activeTab === 'custom' ? () => handleDelete(scenario.id) : undefined}
-                  onExport={activeTab === 'custom' ? () => handleExport(scenario) : undefined}
-                />
-              ))}
+            <div className="space-y-4">
+              {activeTab === 'curated' && onboardingScenarios.length > 0 && (
+                <section className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-emerald-400">Onboarding</p>
+                      <p className="text-xs text-slate-400">
+                        Recommended rules and FAQ scenarios for first-time players.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3">
+                    {onboardingScenarios.map((scenario) => (
+                      <ScenarioCard
+                        key={scenario.id}
+                        scenario={scenario}
+                        onSelect={() => {
+                          onSelectScenario(scenario);
+                          onClose();
+                        }}
+                        developerToolsEnabled={developerToolsEnabled}
+                        showRulesSnippet={!!(scenario as any).rulesSnippet}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              <div className="grid gap-3">
+                {nonOnboardingScenarios.map((scenario) => (
+                  <ScenarioCard
+                    key={scenario.id}
+                    scenario={scenario}
+                    onSelect={() => {
+                      onSelectScenario(scenario);
+                      onClose();
+                    }}
+                    onDelete={
+                      activeTab === 'custom' && developerToolsEnabled
+                        ? () => handleDelete(scenario.id)
+                        : undefined
+                    }
+                    onExport={
+                      activeTab === 'custom' && developerToolsEnabled
+                        ? () => handleExport(scenario)
+                        : undefined
+                    }
+                    developerToolsEnabled={developerToolsEnabled}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -294,17 +348,37 @@ interface ScenarioCardProps {
   onSelect: () => void;
   onDelete?: (() => void) | undefined;
   onExport?: (() => void) | undefined;
+  developerToolsEnabled?: boolean;
+  /** When true, renders the scenario.rulesSnippet callout if present. */
+  showRulesSnippet?: boolean;
 }
 
-const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onSelect, onDelete, onExport }) => {
-  const rulesTags = scenario.tags.filter((tag) => tag.startsWith('Rules_'));
-  const otherTags = scenario.tags.filter((tag) => !tag.startsWith('Rules_'));
+const ScenarioCard: React.FC<ScenarioCardProps> = ({
+  scenario,
+  onSelect,
+  onDelete,
+  onExport,
+  developerToolsEnabled = false,
+  showRulesSnippet = false,
+}) => {
+  const rulesTags = developerToolsEnabled
+    ? scenario.tags.filter((tag) => tag.startsWith('Rules_'))
+    : [];
+  const otherTags = developerToolsEnabled
+    ? scenario.tags.filter((tag) => !tag.startsWith('Rules_'))
+    : [];
 
   return (
     <div className="p-3 rounded-xl border border-slate-700 bg-slate-800/50 flex justify-between items-start gap-3 hover:border-slate-600 transition-colors">
       <div className="flex-1 min-w-0">
         <h3 className="font-medium text-white truncate">{scenario.name}</h3>
         <p className="text-sm text-slate-400 line-clamp-2 mt-1">{scenario.description}</p>
+        {showRulesSnippet && (scenario as any).rulesSnippet && (
+          <div className="mt-2 px-3 py-2 rounded-lg bg-emerald-900/40 border border-emerald-700/60 text-[11px] text-emerald-100">
+            <span className="font-semibold">Rules context:</span>{' '}
+            <span>{(scenario as any).rulesSnippet}</span>
+          </div>
+        )}
         <div className="flex flex-wrap gap-1 mt-2">
           <span className="px-2 py-0.5 text-xs rounded-full bg-slate-700 text-slate-300">
             {CATEGORY_LABELS[scenario.category] || scenario.category}
@@ -328,14 +402,14 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({ scenario, onSelect, onDelet
               {DIFFICULTY_LABELS[scenario.difficulty]}
             </span>
           )}
-          {rulesTags.length > 0 && (
+          {developerToolsEnabled && rulesTags.length > 0 && (
             <span className="px-2 py-0.5 text-[10px] rounded-full bg-emerald-900/60 text-emerald-300">
               {rulesTags.length === 1
                 ? `RulesMatrix: ${rulesTags[0]}`
                 : `RulesMatrix: ${rulesTags.join(', ')}`}
             </span>
           )}
-          {otherTags.length > 0 && (
+          {developerToolsEnabled && otherTags.length > 0 && (
             <span className="px-2 py-0.5 text-[10px] rounded-full bg-slate-700 text-slate-300">
               Tags: {otherTags.join(', ')}
             </span>

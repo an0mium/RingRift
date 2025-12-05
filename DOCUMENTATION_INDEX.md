@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-03
+> **Last Updated:** 2025-12-04
 > **Organization:** Core docs in root (~16 files), detailed docs in `/docs/` subdirectories
 
 This index catalogs all project documentation organized by topic and location.
@@ -50,9 +50,11 @@ Engine and system architecture documentation.
 
 | Document                                                                                                 | Purpose                          |
 | -------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| [API_REFERENCE.md](docs/architecture/API_REFERENCE.md)                                                   | REST API documentation           |
 | [CANONICAL_ENGINE_API.md](docs/architecture/CANONICAL_ENGINE_API.md)                                     | Public engine API specification  |
 | [DOMAIN_AGGREGATE_DESIGN.md](docs/architecture/DOMAIN_AGGREGATE_DESIGN.md)                               | Domain model and aggregates      |
 | [MODULE_RESPONSIBILITIES.md](docs/architecture/MODULE_RESPONSIBILITIES.md)                               | Module catalog                   |
+| [PLAYER_MOVE_TRANSPORT_DECISION.md](docs/architecture/PLAYER_MOVE_TRANSPORT_DECISION.md)                 | WebSocket vs HTTP move transport |
 | [STATE_MACHINES.md](docs/architecture/STATE_MACHINES.md)                                                 | Session/AI/choice state machines |
 | [TOPOLOGY_MODES.md](docs/architecture/TOPOLOGY_MODES.md)                                                 | Board topology design            |
 | [ORCHESTRATOR_ROLLOUT_PLAN.md](docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md)                           | Orchestrator migration plan      |
@@ -91,14 +93,20 @@ AI service and training documentation.
 
 ### /docs/testing/
 
-Test infrastructure and categories.
+Test infrastructure and QA documentation.
 
-| Document                                                                                                                  | Purpose                      |
-| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| [TEST_CATEGORIES.md](docs/testing/TEST_CATEGORIES.md)                                                                     | CI vs diagnostic test types  |
-| [TEST_INFRASTRUCTURE.md](docs/testing/TEST_INFRASTRUCTURE.md)                                                             | Test framework setup         |
-| [STRICT_INVARIANT_SOAKS.md](docs/testing/STRICT_INVARIANT_SOAKS.md)                                                       | Long-running invariant tests |
-| [E2E_AUTH_AND_GAME_FLOW_TEST_STABILIZATION_SUMMARY.md](docs/testing/E2E_AUTH_AND_GAME_FLOW_TEST_STABILIZATION_SUMMARY.md) | E2E test stabilization       |
+| Document                                                                                                                  | Purpose                        |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| [TEST_CATEGORIES.md](docs/testing/TEST_CATEGORIES.md)                                                                     | CI vs diagnostic test types    |
+| [TEST_INFRASTRUCTURE.md](docs/testing/TEST_INFRASTRUCTURE.md)                                                             | Test framework setup           |
+| [STRICT_INVARIANT_SOAKS.md](docs/testing/STRICT_INVARIANT_SOAKS.md)                                                       | Long-running invariant tests   |
+| [E2E_AUTH_AND_GAME_FLOW_TEST_STABILIZATION_SUMMARY.md](docs/testing/E2E_AUTH_AND_GAME_FLOW_TEST_STABILIZATION_SUMMARY.md) | E2E test stabilization         |
+| [GO_NO_GO_CHECKLIST.md](docs/testing/GO_NO_GO_CHECKLIST.md)                                                               | Production readiness checklist |
+| [LOAD_TEST_BASELINE.md](docs/testing/LOAD_TEST_BASELINE.md)                                                               | Load test baseline targets     |
+| [LOAD_TEST_BASELINE_REPORT.md](docs/testing/LOAD_TEST_BASELINE_REPORT.md)                                                 | Load test results report       |
+| [LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md](docs/testing/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md)                                 | WebSocket load testing design  |
+| [HUD_QA_CHECKLIST.md](docs/testing/HUD_QA_CHECKLIST.md)                                                                   | UI/UX manual QA checklist      |
+| [GOLDEN_REPLAYS.md](docs/testing/GOLDEN_REPLAYS.md)                                                                       | Golden replay test system      |
 
 ### /docs/runbooks/
 
@@ -124,23 +132,46 @@ Incident response and post-mortems.
 | [POST_MORTEM_TEMPLATE.md](docs/incidents/POST_MORTEM_TEMPLATE.md)                                   | Post-mortem template         |
 | [INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md](docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md) | Historical incident          |
 
-### /docs/ (Root Reference Docs)
+### /docs/operations/
 
-Operational reference documentation.
+Operational configuration and infrastructure documentation.
 
-| Document                                                                                                                  | Purpose                                                                                                                                                                                                                |
-| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [API_REFERENCE.md](docs/API_REFERENCE.md)                                                                                 | REST API documentation                                                                                                                                                                                                 |
-| [ALERTING_THRESHOLDS.md](docs/ALERTING_THRESHOLDS.md)                                                                     | Monitoring alert thresholds                                                                                                                                                                                            |
-| [DEPLOYMENT_REQUIREMENTS.md](docs/DEPLOYMENT_REQUIREMENTS.md)                                                             | Production requirements                                                                                                                                                                                                |
-| [ENVIRONMENT_VARIABLES.md](docs/ENVIRONMENT_VARIABLES.md)                                                                 | Environment configuration                                                                                                                                                                                              |
-| [OPERATIONS_DB.md](docs/OPERATIONS_DB.md)                                                                                 | Database operations                                                                                                                                                                                                    |
-| [DATA_LIFECYCLE_AND_PRIVACY.md](docs/DATA_LIFECYCLE_AND_PRIVACY.md)                                                       | Data handling policies                                                                                                                                                                                                 |
-| [SECRETS_MANAGEMENT.md](docs/SECRETS_MANAGEMENT.md)                                                                       | Secrets and credentials                                                                                                                                                                                                |
-| [SECURITY_THREAT_MODEL.md](docs/SECURITY_THREAT_MODEL.md)                                                                 | Security analysis                                                                                                                                                                                                      |
-| [SUPPLY_CHAIN_AND_CI_SECURITY.md](docs/SUPPLY_CHAIN_AND_CI_SECURITY.md)                                                   | CI/CD security                                                                                                                                                                                                         |
-| [GAME_COMPARISON_ANALYSIS.md](docs/GAME_COMPARISON_ANALYSIS.md)                                                           | Game comparison studies                                                                                                                                                                                                |
-| [archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md](docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md) | GameReplayDB ↔ /sandbox replay integration (includes HOWTO for pointing `GAME_REPLAY_DB_PATH` at self‑play DBs; see also the ReplayPanel banner shown when a requested game is not found in the configured replay DB). |
+| Document                                                             | Purpose                     |
+| -------------------------------------------------------------------- | --------------------------- |
+| [ALERTING_THRESHOLDS.md](docs/operations/ALERTING_THRESHOLDS.md)     | Monitoring alert thresholds |
+| [ENVIRONMENT_VARIABLES.md](docs/operations/ENVIRONMENT_VARIABLES.md) | Environment configuration   |
+| [OPERATIONS_DB.md](docs/operations/OPERATIONS_DB.md)                 | Database operations         |
+| [SECRETS_MANAGEMENT.md](docs/operations/SECRETS_MANAGEMENT.md)       | Secrets and credentials     |
+
+### /docs/security/
+
+Security documentation and threat modeling.
+
+| Document                                                                         | Purpose            |
+| -------------------------------------------------------------------------------- | ------------------ |
+| [DATA_LIFECYCLE_AND_PRIVACY.md](docs/security/DATA_LIFECYCLE_AND_PRIVACY.md)     | Data handling/GDPR |
+| [SECURITY_THREAT_MODEL.md](docs/security/SECURITY_THREAT_MODEL.md)               | Security analysis  |
+| [SUPPLY_CHAIN_AND_CI_SECURITY.md](docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md) | CI/CD security     |
+
+### /docs/planning/
+
+Active planning and roadmap documents.
+
+| Document                                                                                       | Purpose                 |
+| ---------------------------------------------------------------------------------------------- | ----------------------- |
+| [DEPLOYMENT_REQUIREMENTS.md](docs/planning/DEPLOYMENT_REQUIREMENTS.md)                         | Production requirements |
+| [ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md](docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md) | Parity research roadmap |
+| [WAVE_PLAN_2025_12.md](docs/planning/WAVE_PLAN_2025_12.md)                                     | December 2025 wave plan |
+
+### /docs/ (Reference Docs)
+
+Reference documentation kept at docs/ root.
+
+| Document                                                                                                                  | Purpose                                    |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| [GAME_COMPARISON_ANALYSIS.md](docs/GAME_COMPARISON_ANALYSIS.md)                                                           | Game comparison studies                    |
+| [UX_RULES_COPY_SPEC.md](docs/UX_RULES_COPY_SPEC.md)                                                                       | UX copy for rules display                  |
+| [archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md](docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md) | GameReplayDB ↔ /sandbox replay integration |
 
 ### /docs/supplementary/
 
@@ -154,17 +185,6 @@ Extended analysis and edge case documentation.
 | [RULES_DOCS_UX_AUDIT.md](docs/supplementary/RULES_DOCS_UX_AUDIT.md)                   | Documentation UX review        |
 | [AI_IMPROVEMENT_BACKLOG.md](docs/supplementary/AI_IMPROVEMENT_BACKLOG.md)             | AI improvement ideas           |
 
-### /docs/drafts/
-
-Work-in-progress and design documents.
-
-| Document                                                                                   | Purpose              |
-| ------------------------------------------------------------------------------------------ | -------------------- |
-| [LEGACY_CODE_ELIMINATION_PLAN.md](docs/drafts/LEGACY_CODE_ELIMINATION_PLAN.md)             | Legacy removal plan  |
-| [ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md](docs/drafts/ORCHESTRATOR_ROLLOUT_FEATURE_FLAGS.md) | Feature flag design  |
-| [PHASE3_ADAPTER_MIGRATION_REPORT.md](docs/drafts/PHASE3_ADAPTER_MIGRATION_REPORT.md)       | Migration report     |
-| [RULES_ENGINE_CONSOLIDATION_DESIGN.md](docs/drafts/RULES_ENGINE_CONSOLIDATION_DESIGN.md)   | Consolidation design |
-
 ---
 
 ## /docs/archive/
@@ -176,7 +196,7 @@ Historical documents preserved for reference. These documents record completed w
 Development pass assessment reports (Pass 8-22, P18 detailed reports).
 
 - PASS8_ASSESSMENT_REPORT.md through PASS22_ASSESSMENT_REPORT.md
-- P18._\__.md detailed pass 18 documents
+- P18.\_\_\_.md detailed pass 18 documents
 
 ### /docs/archive/plans/
 
@@ -189,14 +209,29 @@ Completed planning documents and remediation reports.
 - LEGACY_CODE_DEPRECATION_REPORT.md
 - And other completed planning documents
 
+### Replay, Parity, and DB Health Tooling
+
+Key docs and tools for TS↔Python parity, replay analysis, and replay DB health.
+
+| Artifact                                                                                                     | Purpose                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| [docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md](docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md) | Week 1–3 engine/tooling/parity research: parity surfaces, GameReplayDB schema v5, DB health, and replay tooling. |
+| [ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md](ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md)                 | GameReplayDB schema and API, including `metadata_json` and recording helpers.                                    |
+| [docs/testing/TEST_CATEGORIES.md](docs/testing/TEST_CATEGORIES.md)                                           | Test suite categories, including parity and replay-related suites.                                               |
+| `ai-service/scripts/check_ts_python_replay_parity.py`                                                        | TS↔Python replay parity checker for recorded games (CLI; see `--help` for usage).                                |
+| `ai-service/scripts/cleanup_useless_replay_dbs.py`                                                           | Replay DB health/cleanup script; emits JSON health summaries with `--summary-json`.                              |
+| `ai-service/tests/parity/test_differential_replay.py`                                                        | Differential replay tests, including optional golden-game strict parity via env configuration.                   |
+
 ---
 
 ## AI Service Documentation
 
-| Document                                                                               | Purpose                     |
-| -------------------------------------------------------------------------------------- | --------------------------- |
-| [ai-service/README.md](ai-service/README.md)                                           | AI service overview         |
-| [ai-service/docs/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/NEURAL_AI_ARCHITECTURE.md) | Neural network architecture |
+| Document                                                                               | Purpose                                                                               |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| [ai-service/README.md](ai-service/README.md)                                           | AI service overview                                                                   |
+| [ai-service/docs/NEURAL_AI_ARCHITECTURE.md](ai-service/docs/NEURAL_AI_ARCHITECTURE.md) | Neural network architecture                                                           |
+| [docs/ai/AI_TRAINING_AND_DATASETS.md](docs/ai/AI_TRAINING_AND_DATASETS.md)             | Training datasets, including canonical `GameRecord` JSONL exports (Dec 2025 updates). |
+| [ai-service/docs/GAME_RECORD_SPEC.md](ai-service/docs/GAME_RECORD_SPEC.md)             | GameRecord schema; Phase 1–2 implemented as of Dec 2025 (storage + DB integration).   |
 
 ---
 
@@ -215,4 +250,4 @@ Completed planning documents and remediation reports.
 - **New developers:** README → QUICKSTART → CONTRIBUTING
 - **Rules/Game designers:** ringrift\_\*.md → RULES_CANONICAL_SPEC
 - **AI/ML engineers:** AI_ARCHITECTURE → docs/ai/
-- **Operators:** docs/runbooks/ → docs/ALERTING_THRESHOLDS
+- **Operators:** docs/runbooks/ → docs/operations/ALERTING_THRESHOLDS

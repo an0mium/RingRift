@@ -1,13 +1,13 @@
 # RingRift Strategic Roadmap
 
-> **Doc Status (2025-11-30): Active (roadmap & SLOs)**
+> **Doc Status (2025-12-04): Active (roadmap & SLOs)**
 >
 > - Canonical phased roadmap and performance/scale SLO reference.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 > - Relationship to goals: For the canonical statement of RingRift’s product/technical goals, v1.0 success criteria, and scope boundaries, see [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1). This roadmap operationalises those goals into phases, milestones, and SLOs and should be read as the **“how we plan to get there”** companion to [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1).
 
 **Version:** 3.3
-**Last Updated:** November 30, 2025
+**Last Updated:** December 4, 2025
 **Status:** Engine/Rules Beta (Orchestrator at 100% in CI, tests stabilized)
 **Philosophy:** Robustness, Parity, and Scale
 
@@ -23,7 +23,7 @@
 - ✅ Extensive TypeScript and Python test suites validating rules, hosts, AI integration, and E2E flows (for up-to-date test counts and coverage metrics, see [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1))
 
 **Goal:** Production-Ready Multiplayer Game
-**Timeline:** See [`PASS18C_ASSESSMENT_REPORT.md`](docs/PASS18C_ASSESSMENT_REPORT.md) for concrete blockers and remediation plan
+**Timeline:** See [`PASS18C_ASSESSMENT_REPORT.md`](docs/archive/assessments/PASS18C_ASSESSMENT_REPORT.md) for concrete blockers and remediation plan
 **Strategy:** Complete host integration parity → Enable orchestrator in production → Polish UX → Expand Multiplayer Features
 
 > Note on rules authority: when there is any question about what the correct

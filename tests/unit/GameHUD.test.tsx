@@ -99,7 +99,7 @@ describe('GameHUD', () => {
     // appear multiple times. We only assert that at least one is present.
     expect(screen.getAllByText('In Hand').length).toBeGreaterThan(0);
     expect(screen.getAllByText('On Board').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Captured').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Rings Eliminated').length).toBeGreaterThan(0);
   });
 
   it('should show timer when time controls active', () => {
@@ -283,8 +283,8 @@ describe('GameHUD', () => {
 
     const helper = screen.getByTestId('victory-conditions-help');
     expect(helper).toBeInTheDocument();
-    expect(screen.getByText(/Elimination – eliminate/)).toBeInTheDocument();
-    expect(screen.getByText(/Territory – control/)).toBeInTheDocument();
+    expect(screen.getByText(/Ring Elimination – win by eliminating/)).toBeInTheDocument();
+    expect(screen.getByText(/Territory Control – win by controlling/)).toBeInTheDocument();
     expect(screen.getByText(/Last Player Standing/)).toBeInTheDocument();
   });
 
@@ -301,14 +301,16 @@ describe('GameHUD', () => {
     // Elimination tooltip
     fireEvent.mouseEnter(eliminationTrigger);
     let tooltip = screen.getByRole('tooltip');
-    expect(tooltip).toHaveTextContent('Capture more than half of all rings in the game.');
+    expect(tooltip).toHaveTextContent(
+      /You win Ring Elimination when the rings you have eliminated exceed 50% of all rings in the game/
+    );
     fireEvent.mouseLeave(eliminationTrigger);
     expect(screen.queryByRole('tooltip')).toBeNull();
 
     // Territory tooltip
     fireEvent.mouseEnter(territoryTrigger);
     tooltip = screen.getByRole('tooltip');
-    expect(tooltip).toHaveTextContent('Claim territory regions so that you control');
+    expect(tooltip).toHaveTextContent('Territory spaces are collapsed cells you permanently own.');
     fireEvent.mouseLeave(territoryTrigger);
     expect(screen.queryByRole('tooltip')).toBeNull();
 
@@ -338,9 +340,9 @@ describe('GameHUD', () => {
 
       render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
 
-      const banner = screen.getByRole('status');
+      // Query the specific spectator status element by its accessible name (multiple elements now have role="status" after ARIA updates)
+      const banner = screen.getByRole('status', { name: /Spectator Mode/i });
       expect(banner).toBeInTheDocument();
-      expect(banner).toHaveTextContent('Spectator Mode');
       expect(banner).toHaveAttribute('aria-live', 'polite');
       expect(screen.getByText('You are watching this game')).toBeInTheDocument();
       expect(screen.getByText('1 viewer total')).toBeInTheDocument();

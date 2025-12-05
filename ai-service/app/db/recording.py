@@ -33,6 +33,30 @@ from app.models import GameState, Move
 DEFAULT_SELFPLAY_DB_PATH = "data/games/selfplay.db"
 
 
+def _augment_metadata_with_env(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Return a copy of metadata enriched with environment-provided tags.
+
+    This centralises common recording metadata such as engine/service
+    versions so that all callers (self-play soaks, training harnesses,
+    optimisation scripts) benefit without having to thread these fields
+    manually at every call site.
+    """
+    base: Dict[str, Any] = dict(metadata or {})
+
+    env_to_key = [
+        ("RINGRIFT_RULES_ENGINE_VERSION", "rules_engine_version"),
+        ("RINGRIFT_TS_ENGINE_VERSION", "ts_engine_version"),
+        ("RINGRIFT_AI_SERVICE_VERSION", "ai_service_version"),
+    ]
+
+    for env_var, meta_key in env_to_key:
+        value = os.environ.get(env_var)
+        if value and meta_key not in base:
+            base[meta_key] = value
+
+    return base
+
+
 def is_recording_enabled() -> bool:
     """Check if game recording is enabled via environment variable.
 
@@ -104,11 +128,40 @@ class GameRecorder:
             self._writer.abort()
         return False  # Don't suppress exceptions
 
-    def add_move(self, move: Move) -> None:
-        """Add a move to the game record."""
+    def add_move(
+        self,
+        move: Move,
+        state_after: Optional["GameState"] = None,
+        state_before: Optional["GameState"] = None,
+        available_moves: Optional[List[Move]] = None,
+        available_moves_count: Optional[int] = None,
+        engine_eval: Optional[float] = None,
+        engine_depth: Optional[int] = None,
+    ) -> None:
+        """Add a move to the game record.
+
+        Args:
+            move: The move that was played
+            state_after: Optional state after the move (enables history entry storage
+                         with phase transitions and state hashes for parity debugging)
+            state_before: Optional state before the move (uses tracked previous state
+                          if not provided)
+            available_moves: Optional list of valid moves at state_before (for parity debugging)
+            available_moves_count: Optional count of valid moves (lightweight alternative)
+            engine_eval: Optional evaluation score from AI engine
+            engine_depth: Optional search depth from AI engine
+        """
         if self._writer is None:
             raise RuntimeError("GameRecorder not entered as context manager")
-        self._writer.add_move(move)
+        self._writer.add_move(
+            move,
+            state_after=state_after,
+            state_before=state_before,
+            available_moves=available_moves,
+            available_moves_count=available_moves_count,
+            engine_eval=engine_eval,
+            engine_depth=engine_depth,
+        )
 
     def finalize(
         self,
@@ -118,7 +171,8 @@ class GameRecorder:
         """Finalize the game recording with the final state and metadata."""
         if self._writer is None:
             raise RuntimeError("GameRecorder not entered as context manager")
-        self._writer.finalize(final_state, metadata)
+        enriched_metadata = _augment_metadata_with_env(metadata)
+        self._writer.finalize(final_state, enriched_metadata)
         self._finalized = True
 
 
@@ -156,12 +210,14 @@ def record_completed_game(
     if getattr(initial_for_recording, "move_history", None):
         initial_for_recording.move_history = []
 
+    enriched_metadata = _augment_metadata_with_env(metadata)
+
     db.store_game(
         game_id=gid,
         initial_state=initial_for_recording,
         final_state=final_state,
         moves=moves,
-        metadata=metadata,
+        metadata=enriched_metadata,
     )
     return gid
 

@@ -10,7 +10,9 @@ import type {
   PlayerViewModel,
   PlayerRingStatsViewModel,
   HUDDecisionPhaseViewModel,
+  HUDWeirdStateViewModel,
 } from '../adapters/gameViewModels';
+import { TeachingOverlay, useTeachingOverlay, type TeachingTopic } from './TeachingOverlay';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Props Types
@@ -65,9 +67,25 @@ function DecisionPhaseBanner({ vm }: { vm: HUDDecisionPhaseViewModel }) {
   const pillRingClass = isServerCapped ? 'ring-1 ring-amber-300/80' : '';
   const pillLabel = isServerCapped ? 'Server deadline' : 'Time';
 
+  // Build comprehensive aria-label for the decision phase banner
+  const bannerAriaLabelParts = [`Decision phase: ${label}`];
+  if (description) {
+    bannerAriaLabelParts.push(description);
+  }
+  if (countdownLabel) {
+    bannerAriaLabelParts.push(`Time remaining: ${countdownLabel}`);
+    if (severity === 'critical') {
+      bannerAriaLabelParts.push('Time is running out!');
+    }
+  }
+  const bannerAriaLabel = bannerAriaLabelParts.join('. ');
+
   return (
     <div
       className="mt-3 px-4 py-2 bg-indigo-900/60 border border-indigo-400/70 rounded-lg text-[11px] sm:text-xs flex items-center justify-between gap-3"
+      role="status"
+      aria-live={severity === 'critical' ? 'assertive' : 'polite'}
+      aria-label={bannerAriaLabel}
       data-testid="decision-phase-banner"
     >
       <div className="flex-1 min-w-0">
@@ -252,8 +270,23 @@ function PhaseIndicator({
   }
   const tooltipContent = tooltipLines.join('\n');
 
+  // Build comprehensive aria-label for the phase indicator
+  const phaseAriaLabel = [
+    `Current phase: ${phase.label}`,
+    phase.description,
+    contextualHint ? `Action: ${contextualHint}` : undefined,
+  ]
+    .filter(Boolean)
+    .join('. ');
+
   return (
-    <div className={`${phase.colorClass} text-white px-4 py-3 rounded-lg shadow-lg`}>
+    <div
+      className={`${phase.colorClass} text-white px-4 py-3 rounded-lg shadow-lg`}
+      role="status"
+      aria-live="polite"
+      aria-label={phaseAriaLabel}
+      data-testid="phase-indicator"
+    >
       <div className="flex items-center gap-3">
         {phase.icon && <span className="text-2xl flex-shrink-0">{phase.icon}</span>}
         <div className="flex-1 min-w-0">
@@ -280,6 +313,70 @@ function PhaseIndicator({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * High-level banner for unusual rules states such as Active-No-Moves,
+ * Forced Elimination, or structural stalemate. This is driven entirely
+ * by HUDWeirdStateViewModel and does not affect rules semantics.
+ */
+function WeirdStateBanner({
+  weirdState,
+  onShowHelp,
+}: {
+  weirdState: HUDWeirdStateViewModel;
+  onShowHelp?: () => void;
+}) {
+  const toneClasses =
+    weirdState.tone === 'critical'
+      ? 'border-red-400/80 bg-red-950/70 text-red-50'
+      : weirdState.tone === 'warning'
+        ? 'border-amber-400/80 bg-amber-950/70 text-amber-50'
+        : 'border-sky-400/80 bg-sky-950/70 text-sky-50';
+
+  const badgeLabel =
+    weirdState.type === 'forced-elimination'
+      ? 'Forced Elimination'
+      : weirdState.type === 'structural-stalemate'
+        ? 'Structural stalemate'
+        : weirdState.type.startsWith('active-no-moves')
+          ? 'No Legal Moves'
+          : 'Rules notice';
+
+  const icon = weirdState.tone === 'critical' ? '⚠️' : weirdState.tone === 'warning' ? '⚠️' : 'ℹ️';
+
+  return (
+    <div
+      className={`mb-3 px-4 py-3 rounded-lg border text-xs sm:text-[13px] flex items-start gap-3 ${toneClasses}`}
+      role="status"
+      aria-live="polite"
+      data-testid="hud-weird-state-banner"
+    >
+      <div className="mt-0.5 text-lg" aria-hidden="true">
+        {icon}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-[11px] uppercase tracking-wide font-semibold opacity-80">
+            {badgeLabel}
+          </span>
+        </div>
+        <div className="font-semibold text-sm leading-snug">{weirdState.title}</div>
+        <div className="mt-1 text-[11px] leading-snug opacity-90">{weirdState.body}</div>
+      </div>
+      {onShowHelp && (
+        <button
+          type="button"
+          onClick={onShowHelp}
+          className="ml-1 mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border border-current/60 text-[11px] font-semibold"
+          aria-label="Learn more about this situation"
+          data-testid="hud-weird-state-help"
+        >
+          ?
+        </button>
+      )}
     </div>
   );
 }
@@ -417,7 +514,7 @@ function RingStats({ player, gameState }: RingStatsProps) {
       </div>
       <div className="text-center">
         <div className="font-bold text-red-600">{ringStats.eliminated}</div>
-        <div className="text-gray-500">Captured</div>
+        <div className="text-gray-500">Rings Eliminated</div>
       </div>
     </div>
   );
@@ -562,7 +659,7 @@ function RingStatsFromVM({ stats }: { stats: PlayerRingStatsViewModel }) {
       </div>
       <div className="text-center">
         <div className="font-bold text-red-400">{stats.eliminated}</div>
-        <div className="text-slate-400">Captured</div>
+        <div className="text-slate-400">Rings Eliminated</div>
       </div>
     </div>
   );
@@ -578,13 +675,35 @@ function PlayerCardFromVM({
   player: PlayerViewModel;
   timeControl?: TimeControl | undefined;
 }) {
+  // Build comprehensive aria-label for the player card
+  const playerStatusParts: string[] = [player.username];
+  if (player.isUserPlayer) {
+    playerStatusParts.push('(you)');
+  }
+  if (player.aiInfo.isAI) {
+    playerStatusParts.push(`AI ${player.aiInfo.difficultyLabel}`);
+  }
+  if (player.isCurrentPlayer) {
+    playerStatusParts.push('- current turn');
+  }
+  playerStatusParts.push(`- ${player.ringStats.inHand} rings in hand`);
+  playerStatusParts.push(`${player.ringStats.onBoard} on board`);
+  playerStatusParts.push(`${player.ringStats.eliminated} eliminated`);
+  if (player.territorySpaces > 0) {
+    playerStatusParts.push(`${player.territorySpaces} territory spaces`);
+  }
+
+  const playerAriaLabel = playerStatusParts.join(' ');
+
   return (
-    <div
+    <article
       className={`
       p-3 rounded-lg border-2 transition-all bg-slate-800/60
       ${player.isCurrentPlayer ? 'border-blue-500' : 'border-slate-700'}
       ${player.isUserPlayer ? 'ring-2 ring-green-400' : ''}
     `}
+      aria-label={playerAriaLabel}
+      data-testid={`player-card-${player.id}`}
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
@@ -624,7 +743,7 @@ function PlayerCardFromVM({
           {player.territorySpaces !== 1 ? 's' : ''}
         </div>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -679,6 +798,44 @@ function PlayerTimerFromVM({
       {clockLabel}
     </div>
   );
+}
+
+/**
+ * Format a compact time control summary for display in the HUD.
+ * Examples: "Rapid • 5+0", "Blitz • 3+2".
+ */
+function formatTimeControlSummary(timeControl?: TimeControl | undefined): string | null {
+  if (!timeControl) return null;
+
+  const { initialTime, increment } = timeControl;
+
+  if (typeof initialTime !== 'number' || initialTime <= 0) {
+    return null;
+  }
+
+  const minutes = Math.round(initialTime / 60);
+  const incrementSeconds = typeof increment === 'number' && increment >= 0 ? increment : 0;
+
+  // TimeControl.type is typically a friendly enum, but we treat it as optional
+  // so the HUD does not depend on any particular backend schema.
+  const rawType = (timeControl as { type?: string }).type;
+  let typeLabel: string;
+  switch (rawType) {
+    case 'blitz':
+      typeLabel = 'Blitz';
+      break;
+    case 'rapid':
+      typeLabel = 'Rapid';
+      break;
+    case 'classical':
+      typeLabel = 'Classical';
+      break;
+    default:
+      typeLabel = 'Time';
+      break;
+  }
+
+  return `${typeLabel} • ${minutes}+${incrementSeconds}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -802,8 +959,9 @@ export function GameHUD(props: GameHUDProps) {
 }
 
 /**
- * Standalone Victory conditions panel - can be rendered outside the HUD
- */
+  /**
+   * Standalone Victory conditions panel - can be rendered outside the HUD
+   */
 export function VictoryConditionsPanel({ className = '' }: { className?: string }) {
   return (
     <div
@@ -817,10 +975,10 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
           <span className="mt-0.5">•</span>
           <div className="flex-1">
             <div className="flex items-center gap-1">
-              <span>Elimination – eliminate {'>'}50% of all rings.</span>
+              <span>Ring Elimination – win by eliminating {'>'}50% of all rings in play.</span>
               <Tooltip
                 content={
-                  'Capture more than half of all rings in the game.\nAs soon as your captured-rings total exceeds 50% of the total ring supply, you win by Ring Elimination.'
+                  'You win Ring Elimination when the rings you have eliminated exceed 50% of all rings in the game.\nOnly eliminated rings count – captured rings you carry in stacks remain in play.\nEliminations can come from movement onto markers, line rewards, territory processing, or forced elimination.'
                 }
               >
                 <span
@@ -839,10 +997,12 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
           <span className="mt-0.5">•</span>
           <div className="flex-1">
             <div className="flex items-center gap-1">
-              <span>Territory – control {'>'}50% of all board spaces.</span>
+              <span>
+                Territory Control – win by controlling {'>'}50% of all board spaces as territory.
+              </span>
               <Tooltip
                 content={
-                  'Claim territory regions so that you control more than half of all board spaces.\nTerritory wins are checked during territory processing once your secured regions pass the 50% threshold.'
+                  'Territory spaces are collapsed cells you permanently own.\nIf your territory spaces exceed 50% of all board spaces during territory processing, you win immediately.\nClaiming a region usually requires eliminating rings from a stack you control outside that region.'
                 }
               >
                 <span
@@ -887,6 +1047,68 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
 }
 
 /**
+ * Compact per-player score summary highlighting rings captured and territory.
+ * Uses the shared PlayerViewModel so backend and sandbox hosts share the same
+ * representation.
+ */
+function CompactScoreSummary({ players }: { players: PlayerViewModel[] }) {
+  if (!players || players.length === 0) return null;
+
+  // Build aria-label summarizing all player scores
+  const scoreSummaryParts = players.map((player) => {
+    const name = player.isUserPlayer ? 'You' : player.username;
+    return `${name}: ${player.ringStats.eliminated} rings eliminated, ${player.territorySpaces} territory`;
+  });
+  const scoreSummaryAriaLabel = `Score summary. ${scoreSummaryParts.join('. ')}`;
+
+  return (
+    <div
+      className="mt-3 px-3 py-2 bg-slate-900/70 border border-slate-700 rounded-lg text-[11px] text-slate-200"
+      role="region"
+      aria-label={scoreSummaryAriaLabel}
+      data-testid="hud-score-summary"
+    >
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+        Score summary
+      </div>
+      <div className="grid grid-cols-1 gap-1.5">
+        {players.map((player) => (
+          <div key={player.id} className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span
+                className={`inline-block w-2 h-2 rounded-full ${player.colorClass}`}
+                aria-hidden="true"
+              />
+              <span className="truncate">
+                <span className="font-semibold text-slate-100">
+                  {player.isUserPlayer ? 'You' : player.username}
+                </span>
+                {player.isCurrentPlayer && (
+                  <span className="ml-1 rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-blue-100">
+                    Turn
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-[10px] text-slate-300">
+              <span className="flex items-center gap-1">
+                <span className="text-red-300">Rings Eliminated</span>
+                <span className="font-mono text-red-200">
+                  {player.ringStats.eliminated}/{player.ringStats.total}
+                </span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="text-emerald-300">Territory</span>
+                <span className="font-mono text-emerald-200">{player.territorySpaces}</span>
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+/**
  * View model-based HUD implementation
  */
 function GameHUDFromViewModel({
@@ -915,7 +1137,10 @@ function GameHUDFromViewModel({
     spectatorCount,
     subPhaseDetail,
     decisionPhase,
+    weirdState,
   } = viewModel;
+
+  const timeControlSummary = formatTimeControlSummary(timeControl);
 
   // Derive isMyTurn: true if the current user is both the active player and it's their turn
   const isMyTurn = players.some((p) => p.isUserPlayer && p.isCurrentPlayer);
@@ -945,6 +1170,35 @@ function GameHUDFromViewModel({
     decisionPhase && decisionPhase.showCountdown && decisionPhase.timeRemainingMs !== null
       ? getCountdownSeverity(decisionPhase.timeRemainingMs)
       : null;
+
+  const { currentTopic, isOpen, showTopic, hideTopic } = useTeachingOverlay();
+
+  const handleWeirdStateHelp = React.useCallback(() => {
+    if (!weirdState) return;
+
+    let topic: TeachingTopic | null = null;
+
+    switch (weirdState.type) {
+      case 'active-no-moves-movement':
+      case 'active-no-moves-line':
+      case 'active-no-moves-territory':
+        topic = 'active_no_moves';
+        break;
+      case 'forced-elimination':
+        topic = 'forced_elimination';
+        break;
+      case 'structural-stalemate':
+        topic = 'victory_stalemate';
+        break;
+      default:
+        topic = null;
+        break;
+    }
+
+    if (topic) {
+      showTopic(topic);
+    }
+  }, [weirdState, showTopic]);
 
   function formatMsAsClock(ms: number): string {
     const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -987,6 +1241,7 @@ function GameHUDFromViewModel({
           className="mb-3 px-3 py-2 rounded-lg bg-purple-900/30 border border-purple-500/40 flex items-center justify-between"
           role="status"
           aria-live="polite"
+          aria-label="Spectator Mode - You are watching this game"
         >
           <div className="flex items-center gap-2 text-purple-100">
             <svg
@@ -1062,7 +1317,23 @@ function GameHUDFromViewModel({
         </div>
       </div>
 
-      {/* Phase Indicator */}
+      {/* Time control summary (when clocks are enabled) */}
+      {timeControlSummary && (
+        <div className="flex items-center justify-between text-[11px] text-slate-300 mb-2">
+          <span className="text-slate-400">
+            Clock:{' '}
+            <span className="font-mono text-slate-100" data-testid="hud-time-control-summary">
+              {timeControlSummary}
+            </span>
+          </span>
+        </div>
+      )}
+      {!timeControlSummary && isLocalSandboxOnly && (
+        <div className="text-[11px] text-slate-500 mb-2">Clock: No clock (local sandbox)</div>
+      )}
+
+      {/* Phase Indicator & weird-state banner */}
+      {weirdState && <WeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />}
       <PhaseIndicator phase={phase} isMyTurn={isMyTurn} isSpectator={isSpectator} />
       <SubPhaseDetails detail={subPhaseDetail} />
 
@@ -1148,6 +1419,9 @@ function GameHUDFromViewModel({
         </div>
       </div>
 
+      {/* Score summary */}
+      <CompactScoreSummary players={players} />
+
       {/* Instruction Banner */}
       {instruction && (
         <div className="mt-3 px-4 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-center">
@@ -1167,6 +1441,16 @@ function GameHUDFromViewModel({
           <PlayerCardFromVM key={player.id} player={player} timeControl={timeControl} />
         ))}
       </div>
+
+      {/* Contextual rules help for weird states and other mechanics */}
+      {currentTopic && (
+        <TeachingOverlay
+          topic={currentTopic}
+          isOpen={isOpen}
+          onClose={hideTopic}
+          position="bottom-right"
+        />
+      )}
     </div>
   );
 }

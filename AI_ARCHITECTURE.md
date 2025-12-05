@@ -1,19 +1,20 @@
 # RingRift AI Architecture & Strategy
 
-**Last Updated:** November 23, 2025
+**Last Updated:** December 4, 2025
 **Scope:** AI Service, Algorithms, Training Pipeline, and Integration
 
 > **SSoT alignment:** This document is a derived view over the following canonical sources:
 >
 > - **Rules semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md` / `ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers, mutators, aggregates, orchestrator, and v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`). This shared TS engine is the **rules semantics SSoT** for RingRift.
-> - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md`, `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts` for the Move/orchestrator/WebSocket lifecycle that AI integrates with.
+> - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md`, `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts` for the Move/orchestrator/WebSocket lifecycle that AI integrates with.
 > - **AI/Training SSoT:** Executable Python AI service code under `ai-service/app/**` and its tests under `ai-service/tests/**`, plus CI workflows (`.github/workflows/ci.yml`) that build and validate the AI service.
 >   - Offline optimisation & evaluation harnesses: `ai-service/scripts/run_cmaes_optimization.py`, `ai-service/scripts/run_genetic_heuristic_search.py`, and their associated tests (`ai-service/tests/test_heuristic_training_evaluation.py`, `ai-service/tests/test_multi_start_evaluation.py`) are treated as **sanity/diagnostic tooling** over the shared rules SSoT rather than independent sources of semantics.
 > - **Precedence:** If this document ever conflicts with those specs, engines, types, or workflows, **code + tests win**, and this doc must be updated to match them.
 >
-> **Doc Status (2025-11-26): Active (with historical appendix)**
+> **Doc Status (2025-12-04): Active (with historical appendix)**
 >
 > - Canonical reference for the **current AI architecture and integration**: Python AI service, TS AI boundary, RNG/determinism, neural nets, training pipeline, and resilience/fallback behaviour.
+> - As of Dec 2025, end‑to‑end GameRecord flow is implemented: online games populate canonical GameRecords via `GameRecordRepository`, and both Python self‑play (`generate_data.py --game-records-jsonl`) and Node (`scripts/export-game-records-jsonl.ts`) can export training‑ready `GameRecord` JSONL datasets.
 > - References several historical deep-dive/assessment docs (under `archive/` and `deprecated/`); those are explicitly called out as historical snapshots and should be read as background only.
 > - For the canonical rules engine and Move lifecycle, defer to `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, and `docs/CANONICAL_ENGINE_API.md` (Move + orchestrator + hosts), which this document assumes as its rules SSoT.
 >
@@ -46,9 +47,10 @@ When something looks “AI-broken” in production, ask **which layer is likely 
     - Run shared rules suites and contract vectors:
       - TS: `tests/unit/*.shared.test.ts`, `tests/contracts/contractVectorRunner.test.ts`.
       - Python: `ai-service/tests/contracts/test_contract_vectors.py`.
-    - Inspect orchestrator adapters and flags:
-      `ORCHESTRATOR_ADAPTER_ENABLED`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE`,
-      `ORCHESTRATOR_SHADOW_MODE_ENABLED`, `RINGRIFT_RULES_MODE`.
+    - Inspect orchestrator adapters and flags (now mostly fixed in production):
+      `ORCHESTRATOR_ADAPTER_ENABLED`, `ORCHESTRATOR_SHADOW_MODE_ENABLED`,
+      `RINGRIFT_RULES_MODE` (see `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` and
+      `docs/ENVIRONMENT_VARIABLES.md` for current rollout semantics).
   - Playbook:
     - If the shared engine or orchestrator looks wrong, follow
       `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` (Safe rollback checklist).
@@ -113,7 +115,7 @@ The AI system operates as a dedicated microservice (`ai-service`) built with Pyt
 
 ### Rules, shared engine, and training topology
 
-> For the **authoritative Move / PendingDecision / PlayerChoice / WebSocket lifecycle**, see [`docs/CANONICAL_ENGINE_API.md` §3.9–3.10](docs/CANONICAL_ENGINE_API.md). This section is an AI- and training-centric view over that same orchestrator-centred flow.
+> For the **authoritative Move / PendingDecision / PlayerChoice / WebSocket lifecycle**, see [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9–3.10](docs/architecture/CANONICAL_ENGINE_API.md). This section is an AI- and training-centric view over that same orchestrator-centred flow.
 
 At runtime there are three tightly coupled layers that share the **same rules semantics** but serve different roles:
 
@@ -172,61 +174,61 @@ At runtime there are three tightly coupled layers that share the **same rules se
 -     - The same `GameState` / `Move` model surface (mirroring TS [`GameState`](src/shared/types/game.ts)).
 -     - The same Territory stack, now guarded by TS↔Python parity tests (see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md) and Python parity suites under `ai-service/tests/parity/` and [`test_territory_forced_elimination_divergence.py`](ai-service/tests/test_territory_forced_elimination_divergence.py)).
 -
-- For a deeper, rules-focused mapping between TS and Python (including how parity fixtures and mutator contracts are enforced), see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md). For detailed CLI usage and dataset schemas for training, see [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md). For the forced-elimination / TerritoryMutator divergence and its guard rails, see [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
+- For a deeper, rules-focused mapping between TS and Python (including how parity fixtures and mutator contracts are enforced), see [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md). For detailed CLI usage and dataset schemas for training, see [`docs/ai/AI_TRAINING_AND_DATASETS.md`](docs/ai/AI_TRAINING_AND_DATASETS.md). For the forced-elimination / TerritoryMutator divergence and its guard rails, see [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
 
 Async decision/cancellation semantics at the WebSocket boundary are exercised and guarded on the TS side by `tests/unit/WebSocketServer.sessionTermination.test.ts`, which couples `WebSocketServer.terminateUserSessions`, `GameSession.terminate`, and AI-backed decision flows (including `region_order` and `line_reward_option`) to the shared cancellation model; once the Python parity suites are green, treat that Jest suite as the canonical async/cancellation harness for live AI decisions.
 
 - +### Pre-Training Preparation & Memory Budgeting
-- +This section provides a **RingRift-specific pre-training checklist** and explains how the **global memory budget** (16&nbsp;GB by default, configurable via `RINGRIFT_MAX_MEMORY_GB`) is propagated through training jobs, search components, and long-running soaks. It is intentionally high-level and defers detailed procedures to [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](docs/AI_TRAINING_PREPARATION_GUIDE.md), [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md), and the assessment in [`docs/AI_TRAINING_ASSESSMENT_FINAL.md`](docs/AI_TRAINING_ASSESSMENT_FINAL.md).
+- +This section provides a **RingRift-specific pre-training checklist** and explains how the **global memory budget** (16&nbsp;GB by default, configurable via `RINGRIFT_MAX_MEMORY_GB`) is propagated through training jobs, search components, and long-running soaks. It is intentionally high-level and defers detailed procedures to [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md), [`docs/ai/AI_TRAINING_AND_DATASETS.md`](docs/ai/AI_TRAINING_AND_DATASETS.md), and the assessment in [`docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md).
 - +#### High-level pre-training checklist
 - +- **Clarify objective & dataset source**
 - - Decide what you are training/tuning:
 - - **Neural network policy/value** using self-play NPZ datasets from [`generate_data.py`](ai-service/app/training/generate_data.py).
 - - **Heuristic scalar evaluators** using JSONL territory/combined-margin datasets from [`generate_territory_dataset.py`](ai-service/app/training/generate_territory_dataset.py).
 - - Ensure **leak-free splits by game**, not by individual positions:
-- - Use complete games as the unit of train/validation/test splitting (see recommendations in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §6.1](docs/AI_TRAINING_PREPARATION_GUIDE.md)).
+- - Use complete games as the unit of train/validation/test splitting (see recommendations in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §6.1](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)).
 - - Confirm coverage of critical regimes:
 - - Early/mid/late game, forced-elimination / LPS, and near‑victory situations.
-- - Draw scenarios from self-play plus rules/FAQ matrices and invariant suites (e.g. [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md), `tests/scenarios/RulesMatrix.*.test.ts`, and parity/invariant tests under `ai-service/tests/`).
+- - Draw scenarios from self-play plus rules/FAQ matrices and invariant suites (e.g. [`RULES_SCENARIO_MATRIX.md`](docs/rules/RULES_SCENARIO_MATRIX.md), `tests/scenarios/RulesMatrix.*.test.ts`, and parity/invariant tests under `ai-service/tests/`).
 - +- **Start from stable architectures & hyperparameters**
 - - **Heuristics:**
 - - Treat the Python weight profiles in [`heuristic_weights.py`](ai-service/app/ai/heuristic_weights.py) and the TS fallback personas in [`heuristicEvaluation.ts`](src/shared/engine/heuristicEvaluation.ts) as the canonical starting point for `HeuristicAI`.
 - - When adding new features, keep weights **sign-correct** (e.g. more eliminated opponent rings must not worsen our score) and of **conservative magnitude** relative to existing terms (see [`AI_ARCHITECTURE.md` §5.2–5.4](AI_ARCHITECTURE.md)).
 - - **Neural networks:**
-- - Start from the current CNNs (`RingRiftCNN` / `HexNeuralNet`) and baseline `TrainConfig` defaults in the training stack under `ai-service/app/training/**` (documented in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §2](docs/AI_TRAINING_PREPARATION_GUIDE.md)).
-- - Treat architecture changes (depth, width, additional heads) as **second‑order** optimizations after data quality, regularisation, and batch sizing have been tuned (see empirical findings in [`docs/AI_TRAINING_ASSESSMENT_FINAL.md` §6–7](docs/AI_TRAINING_ASSESSMENT_FINAL.md)).
+- - Start from the current CNNs (`RingRiftCNN` / `HexNeuralNet`) and baseline `TrainConfig` defaults in the training stack under `ai-service/app/training/**` (documented in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §2](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)).
+- - Treat architecture changes (depth, width, additional heads) as **second‑order** optimizations after data quality, regularisation, and batch sizing have been tuned (see empirical findings in [`docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md` §6–7](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md)).
 - +- **Configure and respect the global memory budget**
 - - Set a host‑level limit via:
 - - `RINGRIFT_MAX_MEMORY_GB` (env var; default `16.0`).
-- - [`MemoryConfig`](ai-service/app/utils/memory_config.py) (documented in [`docs/AI_TRAINING_ASSESSMENT_FINAL.md` §2](docs/AI_TRAINING_ASSESSMENT_FINAL.md) and [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §§3,13](docs/AI_TRAINING_PREPARATION_GUIDE.md)).
+- - [`MemoryConfig`](ai-service/app/utils/memory_config.py) (documented in [`docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md` §2](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md) and [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §§3,13](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)).
 - - Ensure this budget is threaded through:
 - - **Search data structures:** use [`BoundedTranspositionTable`](ai-service/app/ai/bounded_transposition_table.py) in `MinimaxAI` and `DescentAI` instead of unbounded dicts, to prevent OOMs during long searches and tournaments.
-- - **Training loops:** size batches and (where applicable) DataLoader workers in [`train.py`](ai-service/app/training/train.py) according to `max_memory_gb`, preferring memory‑mapped NPZ datasets for large runs as described in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §3](docs/AI_TRAINING_PREPARATION_GUIDE.md).
-- - **Self-play / soaks:** select difficulty bands and GC intervals in [`run_self_play_soak.py`](ai-service/scripts/run_self_play_soak.py) that keep memory usage within the configured limit (see [`docs/STRICT_INVARIANT_SOAKS.md` §2](docs/STRICT_INVARIANT_SOAKS.md)).
+- - **Training loops:** size batches and (where applicable) DataLoader workers in [`train.py`](ai-service/app/training/train.py) according to `max_memory_gb`, preferring memory‑mapped NPZ datasets for large runs as described in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §3](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md).
+- - - **Self-play / soaks:** select difficulty bands and GC intervals in [`run_self_play_soak.py`](ai-service/scripts/run_self_play_soak.py) that keep memory usage within the configured limit (see [`docs/testing/STRICT_INVARIANT_SOAKS.md` §2](docs/testing/STRICT_INVARIANT_SOAKS.md)).
 - - **Validate weight initialization and training stability**
-- - **NNs:** follow the Xavier/He initialization and validation helpers in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §4](docs/AI_TRAINING_PREPARATION_GUIDE.md):
+- - **NNs:** follow the Xavier/He initialization and validation helpers in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §4](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md):
 -     - Check initial weight statistics, policy entropy, and value distributions on a small real batch before running long epochs.
--     - Confirm no NaNs or explosive gradients (NaN/instability bugs in early pipelines are documented and fixed in [`docs/AI_TRAINING_ASSESSMENT_FINAL.md` §4](docs/AI_TRAINING_ASSESSMENT_FINAL.md)).
+- -     - Confirm no NaNs or explosive gradients (NaN/instability bugs in early pipelines are documented and fixed in [`docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md` §4](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md)).
 - - **Heuristics:** treat new or retuned features conservatively:
 -     - Use plateaus/ordering constraints from regression fixtures under `tests/fixtures/heuristic/v1/**` plus parity tests in `ai-service/tests/test_heuristic_parity.py` and `tests/unit/heuristicParity.shared.test.ts` to guard against sign/magnitude mistakes.
 - - **Define baselines, evaluation harness, and scenario battery**
 - - **Baselines:**
 -     - Random AI, canonical heuristic profiles, and the current NN are all available as `AIType`/difficulty presets (see difficulty ladder mapping earlier in this doc).
 - - **Evaluation harness:**
--     - Use [`evaluate_ai_models.py`](ai-service/scripts/evaluate_ai_models.py) for structured head‑to‑head matches and [`generate_statistical_report.py`](ai-service/scripts/generate_statistical_report.py) for CI‑style reports (Wilson CIs, p‑values, effect sizes), as summarized in [`docs/AI_TRAINING_ASSESSMENT_FINAL.md` §§6,10](docs/AI_TRAINING_ASSESSMENT_FINAL.md).
+- -     - Use [`evaluate_ai_models.py`](ai-service/scripts/evaluate_ai_models.py) for structured head‑to‑head matches and [`generate_statistical_report.py`](ai-service/scripts/generate_statistical_report.py) for CI‑style reports (Wilson CIs, p‑values, effect sizes), as summarized in [`docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md` §§6,10](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md).
 - - **Scenario batteries:**
 -     - Plan targeted tests over:
 -       - Rules matrix and FAQ scenarios (`RULES_SCENARIO_MATRIX.md`, `tests/scenarios/RulesMatrix.*.test.ts`).
--       - Invariant and strict‑no‑move soaks described in [`docs/STRICT_INVARIANT_SOAKS.md`](docs/STRICT_INVARIANT_SOAKS.md).
+- -       - Invariant and strict‑no‑move soaks described in [`docs/testing/STRICT_INVARIANT_SOAKS.md`](docs/testing/STRICT_INVARIANT_SOAKS.md).
 -     - Plug these into the same evaluation/reporting scripts so regressions show up in the same statistical pipeline.
 - - **Reproducibility and experiment management**
 - - Fix seeds for:
 -     - Self‑play generators (`--seed` flags in [`generate_data.py`](ai-service/app/training/generate_data.py) and [`generate_territory_dataset.py`](ai-service/app/training/generate_territory_dataset.py)).
--     - Training runs (`TrainConfig.seed` and seeding helpers in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §7.1](docs/AI_TRAINING_PREPARATION_GUIDE.md)).
+-     - Training runs (`TrainConfig.seed` and seeding helpers in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §7.1](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)).
 -     - Evaluation batteries (`--seed` options in [`evaluate_ai_models.py`](ai-service/scripts/evaluate_ai_models.py)).
 - - Record for each run:
 -     - Git commit hash and dirty state.
--     - Dataset manifest/version (see the manifest format in [`docs/AI_TRAINING_PREPARATION_GUIDE.md` §7.4](docs/AI_TRAINING_PREPARATION_GUIDE.md)).
+-     - Dataset manifest/version (see the manifest format in [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md` §7.4](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)).
 -     - `MemoryConfig` values and key hyperparameters.
 -     - Paths to checkpoints, evaluation JSONs, and generated statistical reports.
 - - **Documentation & ethical notes**
@@ -235,9 +237,9 @@ Async decision/cancellation semantics at the WebSocket boundary are exercised an
 -     - Behaviour should be reproducible enough to debug and reason about (see RNG determinism section later in this doc).
 - - Any reuse of this infrastructure outside game AI must additionally respect the data/privacy and security guidance in [`docs/DATA_LIFECYCLE_AND_PRIVACY.md`](docs/DATA_LIFECYCLE_AND_PRIVACY.md) and related security docs.
 - - For end‑to‑end, procedural guidance (including concrete CLI examples and more detailed checklists), see:
-- - [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](docs/AI_TRAINING_PREPARATION_GUIDE.md) for the full pre‑flight and infrastructure checklist.
-- - [`docs/AI_TRAINING_AND_DATASETS.md`](docs/AI_TRAINING_AND_DATASETS.md) for dataset schemas and generator usage.
-- - [`docs/AI_TRAINING_ASSESSMENT_FINAL.md`](docs/AI_TRAINING_ASSESSMENT_FINAL.md) for the implemented memory limits, bug fixes, and empirical results that motivated these guidelines.
+- - [`docs/ai/AI_TRAINING_PREPARATION_GUIDE.md`](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md) for the full pre‑flight and infrastructure checklist.
+- - [`docs/ai/AI_TRAINING_AND_DATASETS.md`](docs/ai/AI_TRAINING_AND_DATASETS.md) for dataset schemas and generator usage.
+- - [`docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md`](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md) for the implemented memory limits, bug fixes, and empirical results that motivated these guidelines.
 
 ### Difficulty-to-AI-Type Mapping
 
@@ -257,14 +259,14 @@ These two tables are kept in **lockstep** and are covered by unit tests on both 
 | ---------- | ----------- | ----------- | ------------------------------------------------ | ----------------------------------- |
 | 1          | Beginner    | RandomAI    | `aiType: RANDOM`, `randomness: 0.5`, `150 ms`    | `AIType.RANDOM`, `0.5`, `150 ms`    |
 | 2          | Easy        | HeuristicAI | `aiType: HEURISTIC`, `randomness: 0.3`, `200 ms` | `AIType.HEURISTIC`, `0.3`, `200 ms` |
-| 3          | Level 3     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.2`, `250 ms`   | `AIType.MINIMAX`, `0.2`, `250 ms`   |
-| 4          | Level 4     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.1`, `300 ms`   | `AIType.MINIMAX`, `0.1`, `300 ms`   |
-| 5          | Level 5     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.05`, `350 ms`  | `AIType.MINIMAX`, `0.05`, `350 ms`  |
-| 6          | Level 6     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.02`, `400 ms`  | `AIType.MINIMAX`, `0.02`, `400 ms`  |
-| 7          | Expert      | MCTSAI      | `aiType: MCTS`, `randomness: 0.0`, `500 ms`      | `AIType.MCTS`, `0.0`, `500 ms`      |
-| 8          | Expert+     | MCTSAI      | `aiType: MCTS`, `randomness: 0.0`, `600 ms`      | `AIType.MCTS`, `0.0`, `600 ms`      |
-| 9          | Master      | DescentAI   | `aiType: DESCENT`, `randomness: 0.0`, `700 ms`   | `AIType.DESCENT`, `0.0`, `700 ms`   |
-| 10         | Grandmaster | DescentAI   | `aiType: DESCENT`, `randomness: 0.0`, `800 ms`   | `AIType.DESCENT`, `0.0`, `800 ms`   |
+| 3          | Level 3     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.2`, `1250 ms`  | `AIType.MINIMAX`, `0.2`, `1250 ms`  |
+| 4          | Level 4     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.1`, `2100 ms`  | `AIType.MINIMAX`, `0.1`, `2100 ms`  |
+| 5          | Level 5     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.05`, `3500 ms` | `AIType.MINIMAX`, `0.05`, `3500 ms` |
+| 6          | Level 6     | MinimaxAI   | `aiType: MINIMAX`, `randomness: 0.02`, `4800 ms` | `AIType.MINIMAX`, `0.02`, `4800 ms` |
+| 7          | Expert      | MCTSAI      | `aiType: MCTS`, `randomness: 0.0`, `7000 ms`     | `AIType.MCTS`, `0.0`, `7000 ms`     |
+| 8          | Expert+     | MCTSAI      | `aiType: MCTS`, `randomness: 0.0`, `9600 ms`     | `AIType.MCTS`, `0.0`, `9600 ms`     |
+| 9          | Master      | DescentAI   | `aiType: DESCENT`, `randomness: 0.0`, `12600 ms` | `AIType.DESCENT`, `0.0`, `12600 ms` |
+| 10         | Grandmaster | DescentAI   | `aiType: DESCENT`, `randomness: 0.0`, `16000 ms` | `AIType.DESCENT`, `0.0`, `16000 ms` |
 
 Key properties:
 

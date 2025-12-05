@@ -1,8 +1,8 @@
 # RingRift Current State Assessment
 
-**Assessment Date:** 2025-12-01 (Post-PASS20-21)
+**Assessment Date:** 2025-12-04 (Post-PASS20-21)
 **Last CI Test Runs:** 2025-12-01 (TypeScript CI-gated suites: 2,987 passed, 0 failing; Python: 836 passing)
-**Last Full Jest Snapshot:** See `jest-results.json` and [`docs/PASS20_ASSESSMENT.md`](docs/PASS20_ASSESSMENT.md) for extended/diagnostic profile analysis
+**Last Full Jest Snapshot:** See `jest-results.json` and [`docs/archive/assessments/PASS20_ASSESSMENT.md`](docs/archive/assessments/PASS20_ASSESSMENT.md) for extended/diagnostic profile analysis
 **Assessor:** Code + Test Review + CI Analysis
 **Purpose:** Factual status of the codebase as it exists today
 
@@ -12,11 +12,11 @@
 > - **PASS19 (12 tasks):** E2E test infrastructure, game fixtures, type safety improvements, test rewrites
 > - **PASS20 (25 tasks):** Phase 3 orchestrator migration complete, ~1,176 lines legacy code removed, TEST_CATEGORIES.md documentation
 > - **PASS21 (Observability Infrastructure):** 3 Grafana dashboards created, k6 load testing framework implemented, monitoring stack by default
-> - **Orchestrator Migration:** ✅ Phase 3 COMPLETE – See [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md)
+> - **Orchestrator Migration:** ✅ Phase 3 COMPLETE – See [`docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md`](docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md)
 > - All CI-gated TypeScript tests passing (2,987 tests), Python tests stable (836 tests)
 > - Project health status: **GREEN**
 
-> **Doc Status (2025-12-01): Active**
+> **Doc Status (2025-12-04): Active**
 > Current high-level snapshot of implementation status across backend, client, shared engine, Python AI service, and tests. This document is **not** a rules or lifecycle SSoT; it reports factual status against the canonical semantics and lifecycle sources of truth.
 >
 > - **Rules semantics SSoT:** Shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts) plus contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`).
@@ -66,8 +66,8 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
   - **Legacy Code Removed:** ~1,176 lines (RuleEngine methods, feature flags, ClientSandboxEngine legacy, obsolete tests)
   - **Test Suite Stabilization** – 6 critical test issues fixed
   - **Victory Detection Bug** – Fixed victory condition edge case
-  - **Documentation** – [`docs/TEST_CATEGORIES.md`](docs/TEST_CATEGORIES.md), [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md)
-  - See full summary: [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md)
+  - **Documentation** – [`docs/TEST_CATEGORIES.md`](docs/TEST_CATEGORIES.md), [`docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md`](docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md)
+  - See full summary: [`docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md`](docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md)
 
 - **PASS21 Complete (Observability Infrastructure, 2025-12-01):**
   - **Observability:** 3 Grafana dashboards created (game-performance, rules-correctness, system-health)
@@ -76,7 +76,7 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
   - **Dashboards:** 22 panels across performance, correctness, and health metrics
   - **Test Coverage:** Context coverage dramatically improved (GameContext 89.52%, SandboxContext 84.21%)
   - **Observability Score:** Improved from 2.5/5 → 4.5/5
-  - See full assessment: [`docs/PASS21_ASSESSMENT_REPORT.md`](docs/PASS21_ASSESSMENT_REPORT.md)
+  - See full assessment: [`docs/archive/assessments/PASS21_ASSESSMENT_REPORT.md`](docs/archive/assessments/PASS21_ASSESSMENT_REPORT.md)
 
 - **Current Focus (Post-PASS21):** With observability infrastructure in place and load testing framework implemented, the primary focus is **Production Validation** (running load tests at scale, establishing baseline metrics) and **Frontend UX Polish** (scenario picker refinement, spectator UI improvements, keyboard navigation testing).
 
@@ -240,7 +240,7 @@ A reasonable label for the current state is: **stable beta with consolidated arc
   - [x] Enable orchestrator for 100% of traffic in all environments.
         **Completed:** `.env` files updated with `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100` across dev, staging, and CI.
   - [x] Remove legacy rules code paths in backend and sandbox hosts.
-        **Completed (P20.7-\*):** ~1,118 lines of legacy code removed. See [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md).
+        **Completed (P20.7-\*):** ~1,118 lines of legacy code removed. See [`docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md`](docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md).
   - [ ] Phase 4 (Tier 2 sandbox cleanup) deferred to post-MVP.
 
 - **Environment rollout posture & presets (repo-level):**
@@ -263,10 +263,20 @@ A reasonable label for the current state is: **stable beta with consolidated arc
   - Territory/line interaction endgames
   - Hexagonal board edge cases
   - swap_sides (Pie Rule) parity (verified per P18.5-4)
+- **Replay-level TS↔Python parity:** Differential replay harnesses compare Python `game_history_entries` against TS `selfplay-db-ts-replay.ts` output on recorded games:
+  - `ai-service/scripts/check_ts_python_replay_parity.py` – per-game summary with:
+    - Structure classification (`good`, `mid_snapshot`, `invalid`, `error`).
+    - First semantic divergence point (`diverged_at`) with per-dimension tags:
+      - `mismatch_kinds`: `["current_player"]`, `["current_phase"]`, `["game_status"]`, `["move_count"]`, or `["ts_missing_step"]`.
+      - `mismatch_context`: `"initial_state"`, `"post_move"`, or `"global"`.
+    - Aggregate `mismatch_counts_by_dimension` across all games.
+  - `tests/parity/test_differential_replay.py` – diagnostic and strict tests:
+    - Diagnostic run logs divergences for an existing `games.db` if present.
+    - A golden-game hook (`RINGRIFT_PARITY_GOLDEN_DB` and `RINGRIFT_PARITY_GOLDEN_GAME_ID`) enforces zero divergences for specific high-value games when configured in CI.
 - **Decision phase timeout guards:** Implemented for line, territory, and chain‑capture decision phases, with WebSocket events (`decision_phase_timeout_warning`, `decision_phase_timed_out`) and `DECISION_PHASE_TIMEOUT` error code wired into `GameSession` and validated by `GameSession.decisionPhaseTimeout.test.ts`.
 - **Invariant metrics and alerts:** Orchestrator invariant violations are exported via `ringrift_orchestrator_invariant_violations_total{type,invariant_id}` and drive the `OrchestratorInvariantViolations*` alerts; Python strict‑invariant soaks (including AI healthchecks) export `ringrift_python_invariant_violations_total{invariant_id,type}` and drive the `PythonInvariantViolations` alert, as documented in `INVARIANTS_AND_PARITY_FRAMEWORK.md` and `ORCHESTRATOR_ROLLOUT_PLAN.md`.
-- **Complex scenario coverage:** Core mechanics well-tested, but some complex composite scenarios (deeply nested capture + line + territory chains) rely on trace harnesses rather than focused scenario tests
-- **Chain capture edge cases:** 180-degree reversal and cyclic capture patterns supported but need additional test coverage for complete confidence
+- **Complex scenario coverage:** Core mechanics well-tested, but some complex composite scenarios (deeply nested capture + line + territory chains) rely on trace harnesses and TS-generated parity fixtures rather than only focused scenario tests.
+- **Chain capture edge cases:** 180-degree reversal and cyclic capture patterns are supported and exercised by dedicated tests (`test_chain_capture_parity.py`, `test_chain_capture_phase_fix.py`, and default-engine equivalence tests), but additional TS fixtures and replay-backed golden games may be added over time for complete confidence.
 
 ### P1 – Multiplayer UX Polish & E2E Coverage
 
@@ -432,7 +442,7 @@ Based on current state (post-PASS20, orchestrator Phase 3 complete, project heal
 5. **Phase 4 Tier 2 Cleanup** - Add SSOT banners to sandbox modules, archive diagnostic-only modules (post-MVP)
 6. **Expand Contract Vectors** - Add edge case vectors as discovered in production play
 
-See [`docs/PASS20_COMPLETION_SUMMARY.md`](docs/PASS20_COMPLETION_SUMMARY.md) for detailed PASS21 recommendations.
+See [`docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md`](docs/archive/assessments/PASS20_COMPLETION_SUMMARY.md) for detailed PASS21 recommendations.
 
 The project has reached a mature beta state with consolidated architecture. PASS18/19/20 have stabilized the test suite, fixed critical bugs, and documented test categories. The codebase is ready for production hardening and UX polish work.
 

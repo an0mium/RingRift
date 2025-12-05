@@ -253,10 +253,12 @@ export function advanceTurnAndPhase(
         );
 
         if (!hasStacks && currentPlayer.ringsInHand === 0) {
-          // Player has no stacks on the board and no rings in hand;
-          // they can never act again this game. Skip them and advance
-          // to the next player. Global terminality (e.g. all players
-          // out of material) is handled by host-level victory logic.
+          // Player currently has no material (no stacks, no rings in hand);
+          // skip them for this turn rotation. They may regain control of
+          // stacks through capture or territory mechanics and will be
+          // re-checked on subsequent turn rotations. Global terminality
+          // (e.g. all players out of material) is handled by host-level
+          // victory logic.
           const nextPlayerNumber = delegates.getNextPlayerNumber(workingState, currentPlayerNumber);
           // Debug: log skip for parity debugging
           debugLog(

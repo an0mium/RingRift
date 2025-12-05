@@ -1,5 +1,88 @@
 # RingRift Load Test Baseline Report
 
+## Wave 3.1 – Staging Baseline Attempt (2025-12-04)
+
+**Environment (intended):**
+
+- Topology: single-node staging stack via `docker compose -f docker-compose.yml -f docker-compose.staging.yml up --build` as described in [`QUICKSTART.md`](QUICKSTART.md:637).
+- Target base URL: `http://localhost:3000` (Node backend + built client, API + WebSocket on the `app` service).
+- Threshold environment: `THRESHOLD_ENV=staging`, mapping to the `staging` block in [`thresholds.json`](tests/load/config/thresholds.json:8).
+- SLO sources (unchanged): [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), and [`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md:10).
+
+**k6 execution status (Wave 3.1 attempt):**
+
+- Command executed:
+
+  ```bash
+  THRESHOLD_ENV=staging \
+  BASE_URL=http://localhost:3000 \
+  npx k6 run tests/load/scenarios/game-creation.js
+  ```
+
+- Script: [`game-creation.js`](tests/load/scenarios/game-creation.js:1)
+- During [`setup()`](tests/load/scenarios/game-creation.js:175), the scenario attempted:
+  - `GET /health` against `http://localhost:3000/health`
+  - `POST /api/auth/login` via [`loginAndGetToken()`](tests/load/auth/helpers.js:30)
+- Both requests failed with `dial tcp 127.0.0.1:3000: connect: connection refused`, indicating the staging backend was not reachable at the time of the run.
+- [`loginAndGetToken()`](tests/load/auth/helpers.js:65) threw, and k6 aborted during setup (no scenario iterations ran), but [`makeHandleSummary()`](tests/load/summary.js:168) still produced a compact JSON summary at [`results/load/game-creation.staging.summary.json`](results/load/game-creation.staging.summary.json:1).
+
+**Observed metrics vs SLOs – Game Creation (staging, backend unreachable):**
+
+Values below are from [`results/load/game-creation.staging.summary.json`](results/load/game-creation.staging.summary.json:1) and the `staging` thresholds in [`thresholds.json`](tests/load/config/thresholds.json:11):
+
+| Metric                                      | Observed (this run)        | Staging SLO / threshold                                          | Verdict       | Notes                                                                                          |
+| ------------------------------------------- | -------------------------- | ---------------------------------------------------------------- | ------------- | ---------------------------------------------------------------------------------------------- |
+| `http_req_duration` p95 / p99               | p95 = `0ms`, p99 = `null`  | p95 `<` 800ms, p99 `<` 1500ms for `create-game` HTTP in SLO docs | Inconclusive  | No successful HTTP samples were recorded; k6 reports zeroes because setup aborted immediately. |
+| `game_creation_latency_ms` p95 / p99        | p95 = `0ms`, p99 = `null`  | p95 `<` 800ms, p99 `<` 1500ms                                    | Inconclusive  | Same as above – no calls to `POST /api/games` completed.                                       |
+| HTTP error rate (`http_req_failed`)         | 100% (2/2 requests failed) | `< 1%` 5xx error budget in staging                               | Outside SLO\* | Failures were `status=0` network errors (connection refused), not 4xx/5xx responses.           |
+| `capacity_failures_total.count` / `.rate`   | count = 1, rate ≫ `0.01`   | `rate < 0.01` from `load_tests.staging.capacity_failures_total`  | Outside SLO\* | Classified as capacity because the service was unreachable; this reflects environment outage.  |
+| `contract_failures_total`, `id_lifecycle_*` | count = 0, rate = 0        | `count <= 0`                                                     | Within SLO    | No contract or ID-lifecycle issues were observed before the environment failure.               |
+
+\*These “Outside SLO” verdicts indicate an environment-level outage (no listening backend on `localhost:3000`), not intrinsic application performance under load. They should not be interpreted as a capacity limit for the RingRift backend.
+
+**Verdict for this Wave 3.1 attempt:**
+
+- This run **does not provide a usable latency or throughput baseline** for game creation on staging:
+  - No successful HTTP requests were recorded.
+  - All failures occurred during health check and login, before any load was applied.
+- The only strong signal is that, at the time of execution, the intended staging endpoint `http://localhost:3000` was not accepting connections from k6.
+- As a result, the Wave 3.1 “execute and capture baseline” goal for the four canonical scenarios remains **outstanding** and must be repeated once the staging stack is reliably reachable.
+
+**Healthy ranges & error budgets for this environment (current status):**
+
+- No new healthy latency or error-rate ranges can be established from this attempted run, since there was effectively **no traffic** beyond failing pre-flight checks.
+- Until a successful staging run is recorded:
+  - Continue to treat the local/Docker baseline in [`docs/LOAD_TEST_BASELINE.md`](docs/LOAD_TEST_BASELINE.md:18) as the reference for “healthy” behaviour.
+  - Use the SLO values and alert thresholds in [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), and [`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md:10) as the authoritative SSoTs.
+
+**Planned commands for a complete Wave 3.1 staging baseline (once environment is healthy):**
+
+These commands should be executed against a healthy staging stack on `http://localhost:3000` with `THRESHOLD_ENV=staging`, producing per-scenario summaries under `results/load/*.staging.summary.json` via [`tests/load/summary.js`](tests/load/summary.js:1):
+
+```bash
+# Game creation SLOs (HTTP API)
+THRESHOLD_ENV=staging \
+BASE_URL=http://localhost:3000 \
+npx k6 run tests/load/scenarios/game-creation.js
+
+# Concurrent games / saturation posture
+THRESHOLD_ENV=staging \
+BASE_URL=http://localhost:3000 \
+npx k6 run tests/load/scenarios/concurrent-games.js
+
+# Player moves – HTTP harness + AI-backed turns (when enabled)
+THRESHOLD_ENV=staging \
+BASE_URL=http://localhost:3000 \
+MOVE_HTTP_ENDPOINT_ENABLED=true \
+npx k6 run tests/load/scenarios/player-moves.js
+
+# WebSocket connection stability and message latency
+THRESHOLD_ENV=staging \
+BASE_URL=http://localhost:3000 \
+WS_URL=http://localhost:3000 \
+npx k6 run tests/load/scenarios/websocket-stress.js
+```
+
 ## PASS24.3 – HTTP Move Harness k6 Player-Moves Scenario (2025-12-04)
 
 **Environment:**
@@ -257,6 +340,41 @@ Based on baseline measurements, recommended alert thresholds:
 | game_creation_latency p95    | >400ms  | >800ms   |
 | websocket_connection_success | <98%    | <95%     |
 | http_req_failed rate         | >0.5%   | >1%      |
+
+These values represent an **aggressive, baseline-driven configuration** (≈10–25×
+above the p95/p99 latencies in `docs/LOAD_TEST_BASELINE.md`). The **canonical**
+Prometheus alert thresholds and severities are defined in
+`docs/ALERTING_THRESHOLDS.md` and `monitoring/prometheus/alerts.yml` and
+currently allow more headroom (for example `HighP95Latency` at 1s and
+`HighP99Latency` at 2s/5s). Use this table when considering future tightening of
+those alerts toward the baseline ranges.
+
+### Scenario ↔ Alerts Quick Reference
+
+For each P‑01 scenario, the following Prometheus alerts are expected to act as
+the primary “red/amber” signals if the behaviour regresses from the baselines
+captured above:
+
+- **P4 – Game Creation (`game-creation.js`)**
+  - HTTP latency and error-rate alerts:
+    `HighP95Latency`, `HighP99Latency`, `HighMedianLatency`,
+    `HighErrorRate`, `ElevatedErrorRate`, and `NoHTTPTraffic`.
+- **P2 – Concurrent Games (`concurrent-games.js`)**
+  - Same HTTP alerts as P4, plus `HighGameMoveLatency` for any elevated
+    `ringrift_game_move_latency_seconds` histograms during high fan‑out polling.
+- **P1 – Player Moves (`player-moves.js`)**
+  - `HighGameMoveLatency` for degraded move/turn processing.
+  - `WebSocketReconnectionTimeouts`, `AbnormalGameSessionTerminationSpike`, and
+    `GameSessionStatusSkew` for decision‑lifecycle problems under reconnect and
+    churn.
+  - `PythonInvariantViolations` for AI/self‑play invariant breaches surfaced by
+    long‑running AI‑vs‑AI or human‑vs‑AI runs.
+- **P3 – WebSocket Stress (`websocket-stress.js`)**
+  - Connection‑centric alerts: `NoWebSocketConnections`,
+    `HighWebSocketConnections`, and `WebSocketReconnectionTimeouts`.
+  - Session‑health alerts: `AbnormalGameSessionTerminationSpike` and
+    `GameSessionStatusSkew` if stress runs cause abnormal terminations or stuck
+    sessions.
 
 ---
 

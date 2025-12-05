@@ -35,12 +35,12 @@ export async function runCiAndConfigSsotCheck(): Promise<CheckResult> {
     const projectRoot = path.resolve(__dirname, '..', '..');
 
     const ciPath = path.join(projectRoot, '.github/workflows/ci.yml');
-    const nightlyCiPath = path.join(
-      projectRoot,
-      '.github/workflows/orchestrator-soak-nightly.yml'
-    );
+    const nightlyCiPath = path.join(projectRoot, '.github/workflows/orchestrator-soak-nightly.yml');
     const docPath = path.join(projectRoot, 'docs/SUPPLY_CHAIN_AND_CI_SECURITY.md');
-    const orchestratorPlanPath = path.join(projectRoot, 'docs/ORCHESTRATOR_ROLLOUT_PLAN.md');
+    const orchestratorPlanPath = path.join(
+      projectRoot,
+      'docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md'
+    );
     const orchestratorRunbookPath = path.join(
       projectRoot,
       'docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
@@ -162,7 +162,7 @@ export async function runCiAndConfigSsotCheck(): Promise<CheckResult> {
         const mentionedInRunbook = orchestratorRunbookContent.includes(cmd);
         if (!mentionedInPlan && !mentionedInRunbook) {
           problems.push(
-            `Neither docs/ORCHESTRATOR_ROLLOUT_PLAN.md nor docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md mention orchestrator gate command "${cmd}"`
+            `Neither docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md nor docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md mention orchestrator gate command "${cmd}"`
           );
         }
       }

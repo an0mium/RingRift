@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { BoardView } from '../components/BoardView';
 import { ChoiceDialog } from '../components/ChoiceDialog';
-import { VictoryModal } from '../components/VictoryModal';
+import { VictoryModal, type RematchStatus } from '../components/VictoryModal';
 import { GameHUD } from '../components/GameHUD';
+import { MobileGameHUD } from '../components/MobileGameHUD';
 import { GameEventLog } from '../components/GameEventLog';
 import { MoveHistory } from '../components/MoveHistory';
 import { GameHistoryPanel } from '../components/GameHistoryPanel';
@@ -32,6 +33,7 @@ import {
   deriveBoardDecisionHighlights,
 } from '../adapters/gameViewModels';
 import { useAuth } from '../contexts/AuthContext';
+import { useGame } from '../contexts/GameContext';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { useGameState } from '../hooks/useGameState';
 import { useGameConnection } from '../hooks/useGameConnection';
@@ -48,6 +50,7 @@ import {
   useInvalidMoveFeedback,
   analyzeInvalidMove as analyzeInvalid,
 } from '../hooks/useInvalidMoveFeedback';
+import { useIsMobile } from '../hooks/useIsMobile';
 import type { PlayerChoice } from '../../shared/types/game';
 import type {
   DecisionAutoResolvedMeta,
@@ -338,6 +341,14 @@ export interface BackendGameHostProps {
 export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeGameId }) => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const {
+    pendingRematchRequest,
+    requestRematch,
+    acceptRematch,
+    declineRematch,
+    rematchGameId,
+    rematchLastStatus,
+  } = useGame();
 
   // ConnectionShell: own connection lifecycle & status for the backend game
   const connection = useBackendConnectionShell(routeGameId);
@@ -363,6 +374,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
   // Invalid move feedback - shake animation and explanatory toasts
   const { shakingCellKey, triggerInvalidMove } = useInvalidMoveFeedback();
+
+  const isMobile = useIsMobile();
 
   // DecisionUI: pending choice state + countdown timer
   const {
@@ -614,6 +627,16 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     setIsVictoryModalDismissed(false);
   }, [routeGameId, victoryState]);
 
+  // When a rematch has been accepted and the server provides a new gameId,
+  // navigate to the fresh backend game route. The GameProvider connection
+  // shell will tear down the old WebSocket and establish a new one based
+  // on the updated :gameId route param.
+  useEffect(() => {
+    if (rematchGameId) {
+      navigate(`/game/${rematchGameId}`);
+    }
+  }, [rematchGameId, navigate]);
+
   // Auto-highlight valid placement targets during ring_placement
   useEffect(() => {
     if (!gameState) return;
@@ -695,6 +718,46 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     return allSame ? first : undefined;
   }, [validMoves, gameState]);
 
+  // Extract chain capture path for visualisation during chain_capture phase.
+  // The path includes the starting position and all landing positions visited
+  // in order, mirroring the sandbox host semantics so overlays remain
+  // consistent between backend and local games.
+  const chainCapturePath: Position[] | undefined = useMemo(() => {
+    if (!gameState || gameState.currentPhase !== 'chain_capture') {
+      return undefined;
+    }
+
+    const moveHistory = gameState.moveHistory;
+    if (!moveHistory || moveHistory.length === 0) {
+      return undefined;
+    }
+
+    const currentPlayerNumber = gameState.currentPlayer;
+    const path: Position[] = [];
+
+    for (let i = moveHistory.length - 1; i >= 0; i--) {
+      const move = moveHistory[i];
+      if (!move) continue;
+
+      if (
+        move.player !== currentPlayerNumber ||
+        (move.type !== 'overtaking_capture' && move.type !== 'continue_capture_segment')
+      ) {
+        break;
+      }
+
+      if (move.to) {
+        path.unshift(move.to);
+      }
+
+      if (move.type === 'overtaking_capture' && move.from) {
+        path.unshift(move.from);
+      }
+    }
+
+    return path.length >= 2 ? path : undefined;
+  }, [gameState]);
+
   // Backend board click handling
   const handleBackendCellClick = (pos: Position, board: BoardState) => {
     if (!gameState) return;
@@ -729,7 +792,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             isMyTurn,
             isConnected: isConnectionActive,
             selectedPosition: selected,
-            validMoves,
+            validMoves: validMoves ?? undefined,
             mustMoveFrom: backendMustMoveFrom,
           });
           triggerInvalidMove(pos, reason);
@@ -784,7 +847,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           isMyTurn,
           isConnected: isConnectionActive,
           selectedPosition: null,
-          validMoves,
+          validMoves: validMoves ?? undefined,
           mustMoveFrom: backendMustMoveFrom,
         });
         triggerInvalidMove(pos, reason);
@@ -841,7 +904,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         isMyTurn,
         isConnected: isConnectionActive,
         selectedPosition: selected ?? null,
-        validMoves,
+        validMoves: validMoves ?? undefined,
         mustMoveFrom: backendMustMoveFrom,
       });
       triggerInvalidMove(pos, reason);
@@ -1050,6 +1113,29 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     isDismissed: isVictoryModalDismissed,
   });
 
+  const rematchStatus: RematchStatus | undefined = useMemo(() => {
+    if (pendingRematchRequest) {
+      const isRequester = user?.id === pendingRematchRequest.requesterId;
+      return {
+        isPending: true,
+        requestId: pendingRematchRequest.id,
+        requesterUsername: pendingRematchRequest.requesterUsername,
+        isRequester,
+        expiresAt: pendingRematchRequest.expiresAt,
+        status: 'pending',
+      };
+    }
+
+    if (rematchLastStatus) {
+      return {
+        isPending: false,
+        status: rematchLastStatus,
+      };
+    }
+
+    return undefined;
+  }, [pendingRematchRequest, rematchLastStatus, user?.id]);
+
   const hudCurrentPlayer = hudViewModel.players.find((p) => p.isCurrentPlayer);
 
   const backendSelectedStackDetails = (() => {
@@ -1149,15 +1235,26 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             </span>
           )}
         </div>
-        <div className="flex items-center space-x-2 text-xs text-gray-400">
-          <span>Status: {gameState.gameStatus}</span>
-          <span>• Phase: {hudViewModel.phase.label}</span>
-          <span>
-            • Current player:{' '}
-            {hudCurrentPlayer
-              ? hudCurrentPlayer.username || `P${hudCurrentPlayer.playerNumber}`
-              : '—'}
-          </span>
+        <div className="flex items-center space-x-3 text-xs text-gray-400">
+          <div className="flex items-center space-x-2">
+            <span>Status: {gameState.gameStatus}</span>
+            <span>• Phase: {hudViewModel.phase.label}</span>
+            <span>
+              • Current player:{' '}
+              {hudCurrentPlayer
+                ? hudCurrentPlayer.username || `P${hudCurrentPlayer.playerNumber}`
+                : '—'}
+            </span>
+          </div>
+          {!isPlayer && (
+            <button
+              type="button"
+              onClick={() => navigate('/lobby')}
+              className="px-3 py-1 rounded bg-slate-800 border border-slate-600 text-[11px] text-slate-100 hover:bg-slate-700 hover:border-slate-400 transition-colors"
+            >
+              Back to lobby
+            </button>
+          )}
         </div>
       </header>
 
@@ -1168,43 +1265,17 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           setIsVictoryModalDismissed(true);
         }}
         onReturnToLobby={() => navigate('/lobby')}
-        onRematch={async () => {
-          // Create a new game with the same settings as the current one
-          if (!gameState) {
-            toast.error('Cannot create rematch: game state unavailable');
-            return;
-          }
-
-          try {
-            const newGame = await gameApi.createGame({
-              boardType: gameState.boardType,
-              maxPlayers: gameState.players.length,
-              isRated: false,
-              isPrivate: true,
-              timeControl: gameState.timeControl ?? {
-                type: 'rapid',
-                initialTime: 600,
-                increment: 0,
-              },
-              aiOpponents: (() => {
-                const aiPlayers = gameState.players.filter((p) => p.type === 'ai');
-                if (aiPlayers.length === 0) return undefined;
-                return {
-                  count: aiPlayers.length,
-                  difficulty: aiPlayers.map((p) => p.aiProfile?.difficulty ?? p.aiDifficulty ?? 5),
-                  mode: 'service' as const,
-                  aiType: 'heuristic' as const,
-                };
-              })(),
-              rulesOptions: gameState.rulesOptions,
-            });
-            toast.success('Rematch game created!');
-            navigate(`/game/${newGame.id}`);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to create rematch';
-            toast.error(message);
-          }
+        onRequestRematch={() => {
+          requestRematch();
         }}
+        onAcceptRematch={(requestId) => {
+          acceptRematch(requestId);
+        }}
+        onDeclineRematch={(requestId) => {
+          declineRematch(requestId);
+        }}
+        rematchStatus={rematchStatus}
+        currentUserId={user?.id}
       />
 
       <main className="flex flex-col md:flex-row md:space-x-8 space-y-4 md:space-y-0">
@@ -1221,19 +1292,28 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
             isSpectator={!isPlayer}
             pendingAnimation={pendingAnimation ?? undefined}
             onAnimationComplete={clearAnimation}
+            chainCapturePath={chainCapturePath}
             shakingCellKey={shakingCellKey}
           />
         </section>
 
         <aside className="w-full md:w-72 space-y-3 text-sm text-slate-100">
           {/* Primary HUD band – placed at the top of the sidebar so phase/turn/time
-              are always visible alongside the board on desktop and near the top
-              of the HUD stack on small screens. */}
-          <GameHUD
-            viewModel={hudViewModel}
-            timeControl={gameState.timeControl}
-            onShowBoardControls={() => setShowBoardControls(true)}
-          />
+              are always visible alongside the board. On mobile, render the
+              compact MobileGameHUD; on larger screens, use the full GameHUD. */}
+          {isMobile ? (
+            <MobileGameHUD
+              viewModel={hudViewModel}
+              timeControl={gameState.timeControl}
+              onShowBoardControls={() => setShowBoardControls(true)}
+            />
+          ) : (
+            <GameHUD
+              viewModel={hudViewModel}
+              timeControl={gameState.timeControl}
+              onShowBoardControls={() => setShowBoardControls(true)}
+            />
+          )}
 
           {isPlayer && (
             <ChoiceDialog

@@ -125,10 +125,56 @@ services:
 
 ## Secret Rotation Procedures
 
-For an operator-focused, step-by-step practice drill (staging/non-production),
-see also the runbook [`docs/runbooks/SECRETS_ROTATION_DRILL.md`](./runbooks/SECRETS_ROTATION_DRILL.md),
-which applies the patterns below to JWT and database credentials in a safe,
-rehearsable way.
+### Secrets Rotation Drill (staging)
+
+For an operator-focused, step-by-step practice drill in **staging** or another non-production environment, use the runbook [`docs/runbooks/SECRETS_ROTATION_DRILL.md`](./runbooks/SECRETS_ROTATION_DRILL.md). The drill applies the JWT and database patterns below in a **PASS-style** structure (Purpose, Preconditions, Actions, Signals) and is intended to be boring and repeatable.
+
+**Scope (initial drill):**
+
+- **Environment:** `NODE_ENV=production` staging stack using `docker-compose.yml` + `docker-compose.staging.yml` or an equivalent deployment topology.
+- **Secrets:**
+  - `JWT_SECRET` and `JWT_REFRESH_SECRET` (token signing keys).
+  - The credential component of `DATABASE_URL` (database user/password).
+- **Out of scope for the first drill, but covered by the patterns below:**
+  - `REDIS_PASSWORD`
+  - Any future third-party API keys or service credentials.
+
+**Preconditions:**
+
+- **Backups exist and are tested** for the target environment:
+  - See [`DATA_LIFECYCLE_AND_PRIVACY.md`](./DATA_LIFECYCLE_AND_PRIVACY.md) §3.5 (Backups and offline copies).
+  - See [`OPERATIONS_DB.md`](./OPERATIONS_DB.md) and the `DATABASE_BACKUP_AND_RESTORE_DRILL` runbook (`docs/runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md`) for concrete backup/restore procedures. That runbook is the **canonical operational drill** for validating database credential changes together with backup/restore flows in staging or other non‑production environments.
+- **Monitoring and alerts are active**:
+  - Prometheus + Alertmanager and Grafana dashboards from [`monitoring/`](../monitoring/).
+  - See [`DEPLOYMENT_REQUIREMENTS.md`](./DEPLOYMENT_REQUIREMENTS.md) “Monitoring Stack” and “Validation”.
+- **Config and manifests pass validation** for the staged configuration:
+  - From the project root, run `npm run validate:deployment` to execute [`scripts/validate-deployment-config.ts`](../scripts/validate-deployment-config.ts).
+  - Optionally run `./scripts/validate-monitoring-configs.sh` (from the project root) to validate Prometheus/Alertmanager configs before and after the drill.
+
+**High-level drill flow (staging):**
+
+1. **Plan**
+   - Identify the environment/cluster and exact secret set you will rotate.
+   - Generate new secret values using the commands in this document or [`.env.example`](../.env.example).
+   - Stage the new values in the secret store for **staging only** (for example `.env.staging`, Docker/Kubernetes secrets). Do not change production secrets as part of the drill.
+2. **Apply / Rotate**
+   - Update the secrets in the staging secret store.
+   - Restart or redeploy the app so the new values are picked up (for example `docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build` or `kubectl rollout restart deployment/ringrift-api`).
+3. **Seal / Verify**
+   - Run preflight checks:
+     - `npm run validate:deployment`
+     - Health and readiness probes: `GET /health`, `GET /ready`.
+   - Run targeted functional checks:
+     - `./scripts/test-auth.sh` (or an equivalent auth smoke test) against the staging base URL.
+     - Optional load/invariants smoke such as `npm run load:orchestrator:smoke` to exercise the orchestrator under light load.
+   - Watch monitoring during and after rotation:
+     - System/HTTP error-rate and latency panels in Grafana (`system-health`, `game-performance`, `rules-correctness` dashboards).
+     - Relevant alerts defined in `monitoring/prometheus/alerts.yml` (for example auth error rate or database connectivity alerts).
+4. **Steady-state / Rollback**
+   - If any step fails, roll back to the previous known-good secret values and restart the app.
+   - Capture findings (what broke, how it manifested, how you diagnosed it) in your internal ops/security log so the next drill is faster and safer.
+
+The subsections below describe the individual rotation mechanics (JWT, database, Redis). The drill runbook applies them in a concrete, repeatable sequence for staging.
 
 ### JWT Secret Rotation
 

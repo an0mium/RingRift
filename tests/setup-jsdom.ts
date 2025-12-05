@@ -26,22 +26,29 @@ if (typeof (globalThis as any).MessageChannel === 'undefined') {
   (globalThis as any).MessageChannel = NodeMessageChannel as unknown as typeof MessageChannel;
 }
 
-// Mock import.meta for Vite-specific code
-// This must be set on the global object before any modules are loaded
+// Mock Vite env for client code that relies on import.meta.env. In the real
+// bundle, vite.config.ts defines `globalThis.__VITE_ENV__ = import.meta.env`.
+// Here we provide a minimal test-friendly subset and also expose it via a
+// synthetic global.importMeta for any code that still references import.meta.
+const viteEnv = {
+  MODE: 'test',
+  DEV: false,
+  PROD: false,
+  SSR: false,
+  VITE_API_URL: 'http://localhost:3000',
+  VITE_WS_URL: 'http://localhost:3000',
+};
+
 Object.defineProperty(global, 'importMeta', {
   value: {
-    env: {
-      MODE: 'test',
-      DEV: false,
-      PROD: false,
-      SSR: false,
-      VITE_API_URL: 'http://localhost:3000',
-      VITE_WS_URL: 'http://localhost:3000',
-    },
+    env: viteEnv,
   },
   writable: true,
   configurable: true,
 });
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).__VITE_ENV__ = viteEnv;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // WebSocket Mock for Client-Side Tests

@@ -22,6 +22,14 @@ import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Gauge, Trend } from 'k6/metrics';
 import { loginAndGetToken } from '../auth/helpers.js';
+import { makeHandleSummary } from '../summary.js';
+
+const thresholdsConfig = JSON.parse(open('../config/thresholds.json'));
+
+// Classification metrics shared across load scenarios
+export const contractFailures = new Counter('contract_failures_total');
+export const idLifecycleMismatches = new Counter('id_lifecycle_mismatches_total');
+export const capacityFailures = new Counter('capacity_failures_total');
 
 // Custom metrics
 const wsConnections = new Gauge('websocket_connections_active');
@@ -33,7 +41,7 @@ const wsConnectionDuration = new Trend('websocket_connection_duration_ms');
 const wsHandshakeSuccess = new Rate('websocket_handshake_success_rate');
 const wsProtocolErrors = new Counter('websocket_protocol_errors');
 
-// Test configuration - stress test for connection limits
+ // Test configuration - stress test for connection limits
 export const options = {
   scenarios: {
     websocket_stress: {
@@ -52,19 +60,38 @@ export const options = {
   },
   
   thresholds: {
-    // Connection success rate - should remain high even at scale
-    'websocket_connection_success_rate': ['rate>0.95'],
+    // Connection success rate - should remain high even at scale. Use the
+    // environment-specific target from thresholds.json.
+    'websocket_connection_success_rate': [
+      `rate>${(
+        (thresholdsConfig.environments[__ENV.THRESHOLD_ENV || 'staging'] ||
+          thresholdsConfig.environments.staging
+        ).websocket_gameplay.connection_stability.connection_success_rate_percent / 100
+      ).toFixed(4)}`,
+    ],
     
-    // Handshake success rate (Socket.IO protocol level)
+    // Handshake success rate (Socket.IO protocol level). There is no explicit
+    // SLO for this in thresholds.json yet, so we keep the existing constant.
     'websocket_handshake_success_rate': ['rate>0.98'],
     
-    // Connection errors should be minimal
-    'websocket_connection_errors': ['count<50'], // <10% of peak connections
+    // Connection errors should be minimal; derive maximum counts from the
+    // load_tests.websocket subsection for the current environment.
+    'websocket_connection_errors': [
+      `count<=${(
+        thresholdsConfig.load_tests[__ENV.THRESHOLD_ENV || 'staging'] ||
+        thresholdsConfig.load_tests.staging
+      ).websocket.connection_errors_max}`,
+    ],
     
-    // Protocol errors (message parse failures) should be zero with correct framing
-    'websocket_protocol_errors': ['count<10'],
+    // Protocol errors (message parse failures) should be zero or extremely rare.
+    'websocket_protocol_errors': [
+      `count<=${(
+        thresholdsConfig.load_tests[__ENV.THRESHOLD_ENV || 'staging'] ||
+        thresholdsConfig.load_tests.staging
+      ).websocket.protocol_errors_max}`,
+    ],
     
-    // Message latency - real-time feel
+    // Message latency - real-time feel (kept as explicit transport SLOs).
     'websocket_message_latency_ms': [
       'p(95)<200',  // Most messages arrive quickly
       'p(99)<500'   // Even slow messages acceptable
@@ -72,12 +99,32 @@ export const options = {
     
     // Connection stability - should maintain for 5+ minutes per STRATEGIC_ROADMAP
     'websocket_connection_duration_ms': ['p(50)>300000'], // Median >5 minutes
+
+    // Classification counters.
+    contract_failures_total: [
+      `count<=${(
+        thresholdsConfig.load_tests[__ENV.THRESHOLD_ENV || 'staging'] ||
+        thresholdsConfig.load_tests.staging
+      ).contract_failures_total.max}`,
+    ],
+    id_lifecycle_mismatches_total: [
+      `count<=${(
+        thresholdsConfig.load_tests[__ENV.THRESHOLD_ENV || 'staging'] ||
+        thresholdsConfig.load_tests.staging
+      ).id_lifecycle_mismatches_total.max}`,
+    ],
+    capacity_failures_total: [
+      `rate<${(
+        thresholdsConfig.load_tests[__ENV.THRESHOLD_ENV || 'staging'] ||
+        thresholdsConfig.load_tests.staging
+      ).capacity_failures_total.rate}`,
+    ],
   },
   
   tags: {
     scenario: 'websocket-stress',
     test_type: 'stress',
-    environment: 'staging'
+    environment: __ENV.THRESHOLD_ENV || 'staging'
   }
 };
 
@@ -102,6 +149,15 @@ const TARGET_SESSION_DURATION_MS = Number(__ENV.TARGET_SESSION_DURATION_MS || 36
 
 // Interval between diagnostic ping events used for latency measurement.
 const DIAGNOSTIC_PING_INTERVAL_MS = Number(__ENV.DIAGNOSTIC_PING_INTERVAL_MS || 5000);
+
+// Threshold configuration derived from thresholds.json
+const THRESHOLD_ENV = __ENV.THRESHOLD_ENV || 'staging';
+const perfEnv =
+  thresholdsConfig.environments[THRESHOLD_ENV] || thresholdsConfig.environments.staging;
+const loadTestEnv =
+  thresholdsConfig.load_tests[THRESHOLD_ENV] || thresholdsConfig.load_tests.staging;
+const connectionStability = perfEnv.websocket_gameplay.connection_stability;
+const websocketLoad = loadTestEnv.websocket;
 
 /**
  * Engine.IO packet types (prefix character)
@@ -286,12 +342,22 @@ export function setup() {
     'health check successful': (r) => r.status === 200,
   });
 
+  if (healthCheck.status !== 200) {
+    // Treat failed health checks as capacity/infra issues rather than
+    // contract failures for this transport-focused scenario.
+    capacityFailures.add(1);
+  }
+
   // Use the shared auth helper so the WebSocket stress test reuses the
   // canonical /api/auth/login contract with { email, password } and
   // the same pre-seeded load-test user.
   const { token, userId } = loginAndGetToken(BASE_URL, {
     apiPrefix: API_PREFIX,
     tags: { name: 'auth-login-setup' },
+    metrics: {
+      contractFailures,
+      capacityFailures,
+    },
   });
 
   return { wsBase: WS_BASE, baseUrl: BASE_URL, token, userId };
@@ -341,6 +407,9 @@ export default function(data) {
       
       if (parsed.error) {
         wsProtocolErrors.add(1);
+        // Protocol framing issues are treated as contract-level failures
+        // between the harness and the WebSocket server.
+        contractFailures.add(1);
         console.warn(`VU ${__VU}: Protocol error - ${parsed.error}`);
         return;
       }
@@ -416,6 +485,11 @@ export default function(data) {
         ) {
           console.log(`VU ${__VU}: Received ${eventName}`);
         }
+
+        // Map structured WebSocket error payloads into classification counters.
+        if (eventName === 'error' && payload && typeof payload === 'object') {
+          classifyWebSocketErrorPayload(payload);
+        }
         return;
       }
       
@@ -448,6 +522,9 @@ export default function(data) {
     
     socket.on('error', (e) => {
       wsConnectionErrors.add(1);
+      // Transport-level errors are treated as capacity / infrastructure issues
+      // rather than contract failures.
+      capacityFailures.add(1);
       console.error(`VU ${__VU}: WebSocket error - ${e}`);
     });
     
@@ -525,11 +602,38 @@ export default function(data) {
   
   if (!res || res.status !== 101) {
     wsConnectionErrors.add(1);
+    capacityFailures.add(1);
     console.error(`VU ${__VU}: Failed to establish WebSocket connection - status ${res?.status}`);
   }
   
   // After WebSocket closes, brief pause before next iteration
   sleep(2 + Math.random() * 3);
+}
+
+function classifyWebSocketErrorPayload(payload) {
+  const code = payload && payload.code;
+  if (!code || typeof code !== 'string') {
+    return;
+  }
+
+  switch (code) {
+    case 'ACCESS_DENIED':
+    case 'INVALID_PAYLOAD':
+      // Misuse of the WebSocket/Socket.IO protocol or invalid auth token.
+      contractFailures.add(1);
+      break;
+    case 'RATE_LIMITED':
+    case 'INTERNAL_ERROR':
+      // Capacity or server-side failures.
+      capacityFailures.add(1);
+      break;
+    default:
+      // Other codes (GAME_NOT_FOUND, MOVE_REJECTED, CHOICE_REJECTED,
+      // DECISION_PHASE_TIMEOUT, etc.) are behavioural/game-level concerns and
+      // are better covered by dedicated game-session load tests rather than
+      // this pure transport scenario.
+      break;
+  }
 }
 
 export function teardown(data) {
@@ -545,3 +649,5 @@ export function teardown(data) {
   console.log('  - ringrift_websocket_connections gauge');
   console.log('  - High connection alert triggers (>1000 threshold)');
 }
+
+export const handleSummary = makeHandleSummary('websocket-stress');

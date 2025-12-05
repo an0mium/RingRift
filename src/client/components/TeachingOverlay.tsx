@@ -8,6 +8,8 @@ export type TeachingTopic =
   | 'chain_capture'
   | 'line_bonus'
   | 'territory'
+  | 'active_no_moves'
+  | 'forced_elimination'
   | 'victory_elimination'
   | 'victory_territory'
   | 'victory_stalemate';
@@ -37,11 +39,11 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     title: 'Stack Movement',
     icon: '→',
     description:
-      'Move a stack you control (your ring on top) exactly as many spaces as the stack height. Movement can be horizontal, vertical, or diagonal in a straight line.',
+      'Move a stack you control (your ring on top) in a straight line at least as many spaces as the stack’s height. You can go farther if the path has no stacks or territory spaces blocking you; markers are allowed and may eliminate your top ring when you land on them.',
     tips: [
-      'Taller stacks move further but are harder to control',
-      'Moving onto an opponent creates a capture opportunity',
-      'You cannot pass through other stacks',
+      'Taller stacks can threaten long moves and future captures',
+      'You cannot move through other stacks or territory spaces',
+      'Landing on a marker can eliminate the top ring of your stack',
     ],
     relatedPhases: ['movement'],
   },
@@ -49,23 +51,23 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     title: 'Capturing',
     icon: '×',
     description:
-      "When you land on an opponent's stack, you capture (eliminate) one ring from the bottom of their stack. Your ring stays on top.",
+      'To capture, jump over an adjacent opponent stack in a straight line and land on the empty or marker space just beyond it. You take the top ring from the jumped stack and add it to the bottom of your own stack – captured rings stay in play.',
     tips: [
-      'Capturing removes rings from the game permanently',
-      "Eliminate >50% of an opponent's rings to win",
-      'Each capture earns one elimination point',
+      'Captures move rings into your stacks; only later eliminations remove rings from the game',
+      'Your stack’s cap height must be at least as high as the stack you jump over',
+      'Capturing can build powerful stacks but also makes them tempting targets',
     ],
-    relatedPhases: ['capturing'],
+    relatedPhases: ['capture'],
   },
   chain_capture: {
     title: 'Chain Capture',
     icon: '⇉',
     description:
-      'After capturing, if your new stack position allows another valid capture, you may continue capturing. This creates a chain of captures in a single turn.',
+      'After an overtaking capture, if your new stack can capture again, you are in a chain capture. Starting the first capture is optional, but once the chain begins you must keep capturing while any capture exists, choosing which target to jump over each time.',
     tips: [
-      'Plan chain captures for maximum impact',
-      'Chain captures can eliminate multiple rings in one turn',
-      'The chain ends when no valid capture targets remain',
+      'Plan chain captures to traverse multiple enemy stacks in a single turn',
+      'You choose which capture to take when several are available, but you cannot stop early while any capture remains',
+      'The chain ends only when no legal capture segments remain',
     ],
     relatedPhases: ['chain_capture'],
   },
@@ -73,11 +75,11 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     title: 'Line Bonus',
     icon: '═',
     description:
-      'When you form a line of 3+ consecutive spaces containing your rings, you earn a bonus. Choose to either retrieve a ring to hand or claim territory.',
+      'When a straight line of your markers reaches the minimum scoring length for this board, it becomes a completed line. You collapse markers in that line into permanent Territory and, on many boards, pay a small ring-elimination cost from one of your stacks.',
     tips: [
-      'Horizontal, vertical, and diagonal lines all count',
-      'Retrieved rings can be placed again later',
-      'Territory lines mark those spaces as your controlled area',
+      'Lines are formed from markers, not rings – horizontal, vertical, and diagonal lines all count',
+      'Exact-length lines usually collapse fully into Territory and require an elimination cost',
+      'Overlength lines can trade safety for value: collapse a shorter segment with no elimination, or the full line with a ring cost',
     ],
     relatedPhases: ['line_processing'],
   },
@@ -93,15 +95,39 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     ],
     relatedPhases: ['territory_processing'],
   },
+  active_no_moves: {
+    title: 'When you have no legal moves',
+    icon: '⛔',
+    description:
+      'Sometimes it is your turn but there are no legal placements, movements, or captures available. This is an Active–No–Moves state: the rules engine will either trigger forced elimination of your stacks, or, if no eliminations are possible, treat you as structurally stuck for Last Player Standing and plateau detection.',
+    tips: [
+      'Active–No–Moves only looks at real moves: placements, movements, and captures. Forced elimination and automatic line/territory processing do not count as real moves for Last Player Standing.',
+      'If you still control stacks but have no placements or movements, the game applies forced elimination caps until a real move becomes available or your stacks are exhausted.',
+      'On some boards a full plateau can occur where no player has real moves or forced eliminations; in that case the game ends and the final score comes from territory and eliminated rings, not further play.',
+    ],
+    relatedPhases: ['movement', 'line_processing', 'territory_processing'],
+  },
+  forced_elimination: {
+    title: 'Forced Elimination (FE)',
+    icon: '💥',
+    description:
+      'Forced Elimination happens when you control stacks but have no legal placements, movements, or captures. Caps are removed from your stacks automatically until either a real move becomes available or your stacks are gone. These eliminations are mandatory and follow the rules, not player choice.',
+    tips: [
+      'Rings removed by forced elimination are permanently eliminated and count toward global Ring Elimination victory, just like eliminations from movement onto markers, line rewards, or territory processing.',
+      'Forced elimination does not count as a “real move” for Last Player Standing – it is an automatic clean‑up step the engine applies when you are blocked but still have material.',
+      'You cannot skip forced elimination when its conditions are met; the sequence and which caps are removed are fully determined by the rules.',
+    ],
+    relatedPhases: ['movement', 'territory_processing'],
+  },
   victory_elimination: {
     title: 'Victory: Elimination',
     icon: '💎',
     description:
-      "Win by capturing more than half of any single opponent's total rings. In a 2-player game with 24 rings each, capture 13+ rings to win.",
+      'Win by eliminating more than half of all rings in the game – not just one opponent’s set. Eliminated rings are permanently removed; captured rings you carry in stacks do not count toward this threshold.',
     tips: [
-      'Focus captures on one opponent for fastest victory',
-      'Track opponent ring counts throughout the game',
-      'Chain captures accelerate elimination victories',
+      'Track eliminated rings globally, across all players',
+      'Eliminations come from movement onto markers, line rewards, territory processing, and forced eliminations',
+      'A large line or territory resolution can suddenly push you over the elimination threshold',
     ],
   },
   victory_territory: {
@@ -282,18 +308,24 @@ export function useTeachingOverlay() {
  * Determine which teaching topic is relevant for a given move
  */
 export function getTeachingTopicForMove(move: Move): TeachingTopic | null {
-  switch (move.phase) {
-    case 'ring_placement':
+  switch (move.type) {
+    case 'place_ring':
+    case 'skip_placement':
       return 'ring_placement';
-    case 'movement':
+    case 'move_stack':
+    case 'move_ring':
+    case 'build_stack':
       return 'stack_movement';
-    case 'capturing':
+    case 'overtaking_capture':
       return 'capturing';
-    case 'chain_capture':
+    case 'continue_capture_segment':
       return 'chain_capture';
-    case 'line_processing':
+    case 'process_line':
+    case 'choose_line_reward':
       return 'line_bonus';
-    case 'territory_processing':
+    case 'process_territory_region':
+    case 'eliminate_rings_from_stack':
+    case 'skip_territory_processing':
       return 'territory';
     default:
       return null;

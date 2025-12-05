@@ -146,4 +146,118 @@ describe('ClientSandboxEngine – territory processing skip flow (orchestrator)'
     expect(afterSkip.currentPhase).not.toBe('territory_processing');
     expect(afterSkip.currentPlayer).not.toBe(before.currentPlayer);
   });
+
+  it('supports skipping further territory processing from a post-region state without changing the post-region board', async () => {
+    const { initialState, regionA, regionB } = createSquareTwoRegionTerritoryScenario(
+      'sandbox-orchestrator-territory-skip-after-region'
+    );
+
+    const baseState: GameState = initialState as GameState;
+    expect(baseState.currentPhase).toBe('territory_processing');
+    const currentPlayer = baseState.currentPlayer;
+
+    const config: SandboxConfig = {
+      boardType: baseState.board.type,
+      numPlayers: baseState.players.length,
+      playerKinds: baseState.players.map(() => 'human'),
+    };
+
+    const baseMoveNumber = baseState.moveHistory.length + 1;
+    const regionMoveA: Move = {
+      id: 'process-region-a',
+      type: 'process_territory_region',
+      player: currentPlayer,
+      to: regionA.spaces[0],
+      disconnectedRegions: [regionA],
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: baseMoveNumber,
+    } as Move;
+    const regionMoveB: Move = {
+      id: 'process-region-b',
+      type: 'process_territory_region',
+      player: currentPlayer,
+      to: regionB.spaces[0],
+      disconnectedRegions: [regionB],
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: baseMoveNumber + 1,
+    } as Move;
+
+    // 1) Apply one region-processing move using the shared TerritoryAggregate
+    // helper on a fresh copy of the fixture state to obtain a realistic
+    // post-region board.
+    const helperState: GameState = baseState as GameState;
+    const helperOutcome = TerritoryAggregate.applyProcessTerritoryRegionDecision(
+      helperState,
+      regionMoveA
+    );
+    const postRegionState: GameState = {
+      ...helperOutcome.nextState,
+      currentPhase: 'territory_processing',
+    };
+
+    for (const pos of regionA.spaces) {
+      const key = `${pos.x},${pos.y}`;
+      expect(postRegionState.board.collapsedSpaces.get(key)).toBe(currentPlayer);
+      expect(postRegionState.board.stacks.has(key)).toBe(false);
+    }
+
+    const beforeTerritorySpaces =
+      baseState.players.find((p) => p.playerNumber === currentPlayer)?.territorySpaces ?? 0;
+    const afterRegionTerritorySpaces =
+      postRegionState.players.find((p) => p.playerNumber === currentPlayer)?.territorySpaces ?? 0;
+    expect(afterRegionTerritorySpaces).toBeGreaterThanOrEqual(beforeTerritorySpaces);
+
+    // 2) Seed a sandbox engine with this post-region state and stub
+    // territory enumerators so that getValidMoves surfaces both another
+    // process_territory_region and a skip_territory_processing move.
+    jest
+      .spyOn(TerritoryAggregate, 'enumerateProcessTerritoryRegionMoves')
+      .mockImplementation(() => [regionMoveB]);
+
+    jest
+      .spyOn(TerritoryAggregate, 'enumerateTerritoryEliminationMoves')
+      .mockImplementation(() => []);
+
+    const engine = new ClientSandboxEngine({
+      config,
+      interactionHandler,
+      traceMode: false,
+    });
+
+    const engineAny: any = engine;
+    engineAny.gameState = postRegionState;
+    engineAny.orchestratorAdapter = null;
+
+    const before = engine.getGameState();
+    const stacksBefore = new Map(before.board.stacks);
+    const collapsedBefore = new Map(before.board.collapsedSpaces);
+    const eliminatedBefore = { ...before.board.eliminatedRings };
+
+    const movesAfterRegion: Move[] = engine.getValidMoves(currentPlayer);
+    const regionMovesAfter = movesAfterRegion.filter((m) => m.type === 'process_territory_region');
+    const skipMovesAfter = movesAfterRegion.filter((m) => m.type === 'skip_territory_processing');
+
+    expect(regionMovesAfter.length).toBeGreaterThan(0);
+    expect(skipMovesAfter.length).toBeGreaterThan(0);
+
+    const adapter = engineAny.getOrchestratorAdapter() as {
+      processMove: (move: Move) => Promise<{ success: boolean }>;
+    };
+
+    // 3) Apply skip_territory_processing and confirm the board is unchanged
+    // relative to the post-region state while phase/turn advance.
+    const skipMove = skipMovesAfter[0];
+    const skipResult = await adapter.processMove(skipMove);
+    expect(skipResult.success).toBe(true);
+
+    const afterSkip = engine.getGameState();
+
+    expect(afterSkip.board.stacks.size).toBe(stacksBefore.size);
+    expect(afterSkip.board.collapsedSpaces.size).toBe(collapsedBefore.size);
+    expect(afterSkip.board.eliminatedRings).toEqual(eliminatedBefore);
+    expect(afterSkip.currentPhase).not.toBe('territory_processing');
+    expect(afterSkip.currentPlayer).not.toBe(currentPlayer);
+  });
 });

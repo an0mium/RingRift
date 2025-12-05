@@ -36,6 +36,8 @@ interface SandboxContextValue {
   sandboxStateVersion: number;
   setSandboxStateVersion: React.Dispatch<React.SetStateAction<number>>;
   sandboxDiagnosticsEnabled: boolean;
+  developerToolsEnabled: boolean;
+  setDeveloperToolsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   /**
    * Create or replace the client-local sandbox engine using the provided
    * config + interaction handler. This owns the lifecycle of the engine
@@ -76,6 +78,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [sandboxLastProgressAt, setSandboxLastProgressAt] = useState<number | null>(null);
   const [sandboxStallWarning, setSandboxStallWarning] = useState<string | null>(null);
   const [sandboxStateVersion, setSandboxStateVersion] = useState(0);
+  const [developerToolsEnabled, setDeveloperToolsEnabled] = useState(false);
   const sandboxDiagnosticsEnabled = isSandboxAiStallDiagnosticsEnabled();
 
   const initLocalSandboxEngine = (options: {
@@ -188,14 +191,14 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       }
 
       const latestStall = [...trace].reverse().find((entry) => {
-        const entryRecord = entry as Record<string, unknown> | null | undefined;
+        const entryRecord = entry as unknown as Record<string, unknown> | null | undefined;
         return entryRecord && entryRecord.kind === 'stall';
       });
       if (!latestStall) {
         return;
       }
 
-      const stall = latestStall as Record<string, unknown>;
+      const stall = latestStall as unknown as Record<string, unknown>;
       const ts = typeof stall.timestamp === 'number' ? stall.timestamp : Date.now();
       if (ts <= lastSeenStallTimestamp) {
         return;
@@ -274,6 +277,8 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
     sandboxStateVersion,
     setSandboxStateVersion,
     sandboxDiagnosticsEnabled,
+    developerToolsEnabled,
+    setDeveloperToolsEnabled,
     initLocalSandboxEngine,
     getSandboxGameState,
     resetSandboxEngine,

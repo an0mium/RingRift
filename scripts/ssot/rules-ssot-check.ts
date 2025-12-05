@@ -54,7 +54,7 @@ function extractRuleIdsFromSpec(specContent: string): Set<string> {
   const ids = new Set<string>();
   const regex = /RR-CANON-(R\d{3})/g;
   let match: RegExpExecArray | null;
-  // eslint-disable-next-line no-cond-assign
+
   while ((match = regex.exec(specContent)) !== null) {
     ids.add(match[1]); // e.g. "R001"
   }
@@ -65,7 +65,7 @@ function extractRuleIdsFromMapping(mappingContent: string): Set<string> {
   const ids = new Set<string>();
   const regex = /R(\d{3})/g;
   let match: RegExpExecArray | null;
-  // eslint-disable-next-line no-cond-assign
+
   while ((match = regex.exec(mappingContent)) !== null) {
     ids.add(`R${match[1]}`);
   }
@@ -232,7 +232,9 @@ export async function runRulesSsotCheck(): Promise<CheckResult> {
   try {
     const projectRoot = path.resolve(__dirname, '..', '..');
     const specPath = path.join(projectRoot, 'RULES_CANONICAL_SPEC.md');
-    const mappingPath = path.join(projectRoot, 'RULES_IMPLEMENTATION_MAPPING.md');
+    // RULES_IMPLEMENTATION_MAPPING.md now lives under docs/rules/.
+    // Use the canonical location so we don't require a duplicate root-level file.
+    const mappingPath = path.join(projectRoot, 'docs/rules/RULES_IMPLEMENTATION_MAPPING.md');
 
     const specContent = readFileSafe(specPath);
     const mappingContent = readFileSafe(mappingPath);

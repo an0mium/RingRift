@@ -311,6 +311,75 @@ k6 run \
   - `ringrift_game_session_status_current{status}` – in‑memory sessions by derived status; watch for all sessions stuck outside `active_turn` / `active_decision_phase` (see `GameSessionStatusSkew`).
   - `ringrift_game_session_abnormal_termination_total{reason}` – abnormal endings (for example `disconnect_timeout`, `internal_error`, `session_cleanup`); spikes may indicate lifecycle/infra issues (`AbnormalGameSessionTerminationSpike`).
 
+### Scenario 5: WebSocket Gameplay (`websocket-gameplay.js`)
+
+**Purpose:** Exercise the canonical WebSocket gameplay path end to end:
+
+- Auth via `POST /api/auth/login` using the shared helper [`auth/helpers.js`](auth/helpers.js:1).
+- Game creation via `POST /api/games` (human vs AI) using the same payload shape as the frontend.
+- WebSocket connect to `/socket.io` using the Socket.IO v4 / Engine.IO v4 framing model.
+- `join_game` followed by repeated `player_move_by_id` events over WebSockets.
+- Tracks end-to-end move RTT, stalls, and success rates via:
+  - `ws_move_rtt_ms`
+  - `ws_moves_attempted_total`
+  - `ws_move_success_rate`
+  - `ws_move_stalled_total`
+  - `ws_connection_success_rate`
+  - `ws_handshake_success_rate`
+
+This scenario is implemented in [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) and follows the strategy described in [`LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md`](../../docs/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md:1) and the transport decision ADR [`PLAYER_MOVE_TRANSPORT_DECISION.md`](../../docs/PLAYER_MOVE_TRANSPORT_DECISION.md:1).
+
+**Usage Modes:**
+
+- **Smoke mode (dev/CI):**
+  - Enabled by default when `ENABLE_WS_GAMEPLAY_THROUGHPUT` is unset or false.
+  - Low VU count (1–2) and short duration.
+  - Each VU plays a small number of human-vs-AI games to completion.
+  - Intended as a quick sanity check that:
+    - The canonical WebSocket move path (auth → game creation → WebSocket connect → `join_game` → `player_move_by_id`) is healthy.
+    - [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) is emitting the expected custom metrics.
+
+- **Throughput mode (staging/perf):**
+  - Enabled when `ENABLE_WS_GAMEPLAY_THROUGHPUT=true` (or `1`, `yes`, `on`) in the environment.
+  - Higher VU counts (20–40) with a longer steady-state duration.
+  - Each VU plays multiple short games, generating many overlapping move streams.
+  - Intended for P‑01-style concurrency testing of WebSocket gameplay in staging or dedicated perf environments.
+
+**Environment Variables:**
+
+This scenario uses the same base variables as other WebSocket tests plus a few gameplay tunables:
+
+- `BASE_URL` – HTTP base URL for API calls (for example `http://localhost:3000` or `http://localhost:3001` depending on how you run dev / Docker).
+- `WS_URL` – WebSocket base URL used to derive the `/socket.io` endpoint. When omitted, [`websocket-gameplay.js`](scenarios/websocket-gameplay.js:1) derives this from `BASE_URL` by swapping `http` → `ws` and `https` → `wss` (for example `ws://localhost:3000`).
+- Optional tuning:
+  - `GAME_MAX_MOVES` – Maximum moves per game before the scenario retires it (default `40`).
+  - `GAME_MAX_LIFETIME_S` – Maximum lifetime of a single game in seconds before forced retirement (default `600`).
+  - `VU_MAX_GAMES` – Maximum games per VU before it idles (default `3` in smoke mode, higher in throughput mode).
+  - `ENABLE_WS_GAMEPLAY_THROUGHPUT` – When set to a truthy value (for example `true`, `1`, `yes`, `on`), enables the throughput scenario alongside the default smoke configuration.
+
+**Example Commands:**
+
+Smoke (local dev / CI, from the repository root):
+
+```bash
+BASE_URL=http://localhost:3000 \
+WS_URL=ws://localhost:3000 \
+npx k6 run tests/load/scenarios/websocket-gameplay.js
+```
+
+By default, only the smoke configuration is active; the throughput configuration remains disabled unless `ENABLE_WS_GAMEPLAY_THROUGHPUT` is set to a truthy value.
+
+Throughput (staging/perf):
+
+```bash
+BASE_URL=https://staging-api.ringrift.example \
+WS_URL=wss://staging-ws.ringrift.example \
+ENABLE_WS_GAMEPLAY_THROUGHPUT=true \
+npx k6 run tests/load/scenarios/websocket-gameplay.js
+```
+
+The concrete URLs and TLS configuration depend on your deployment topology (for example, whether WebSocket and HTTP traffic are served from the same origin). See [`DEPLOYMENT_REQUIREMENTS.md`](../../docs/DEPLOYMENT_REQUIREMENTS.md:1) and the topology notes in [`TOPOLOGY_MODES.md`](../../docs/architecture/TOPOLOGY_MODES.md:1) for environment-specific details.
+
 ## Configuration
 
 ### Environment Variables

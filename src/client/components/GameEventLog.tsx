@@ -1,6 +1,6 @@
 import React from 'react';
-import { GameHistoryEntry, GameResult, Position } from '../../shared/types/game';
-import type { EventLogViewModel, EventLogItemViewModel } from '../adapters/gameViewModels';
+import { GameHistoryEntry, GameResult } from '../../shared/types/game';
+import { toEventLogViewModel, type EventLogViewModel } from '../adapters/gameViewModels';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Props Types
@@ -50,161 +50,17 @@ function isViewModelProps(props: GameEventLogProps): props is GameEventLogViewMo
 
 const DEFAULT_MAX_ENTRIES = 40;
 
-function formatPosition(pos?: Position): string {
-  if (!pos) return '';
-  if (typeof pos.z === 'number') {
-    return `(${pos.x}, ${pos.y}, ${pos.z})`;
-  }
-  return `(${pos.x}, ${pos.y})`;
-}
-
-function describeHistoryEntry(entry: GameHistoryEntry): string {
-  const { action } = entry;
-  const moveLabel = `#${entry.moveNumber}`;
-  const playerLabel = `P${action.player}`;
-
-  switch (action.type) {
-    case 'swap_sides': {
-      const otherSeat = action.player === 1 ? 2 : 1;
-      return `${moveLabel} — ${playerLabel} invoked the pie rule and swapped colours with P${otherSeat}`;
-    }
-    case 'place_ring': {
-      const count = action.placementCount ?? 1;
-      return `${moveLabel} — ${playerLabel} placed ${count} ring${count === 1 ? '' : 's'} at ${formatPosition(action.to)}`;
-    }
-    case 'move_ring':
-    case 'move_stack': {
-      return `${moveLabel} — ${playerLabel} moved from ${formatPosition(action.from)} to ${formatPosition(action.to)}`;
-    }
-    case 'build_stack': {
-      return `${moveLabel} — ${playerLabel} built stack at ${formatPosition(action.to)} (Δ=${action.buildAmount ?? 1})`;
-    }
-    case 'overtaking_capture': {
-      const capturedCount = action.overtakenRings?.length ?? 0;
-      const captureSuffix = capturedCount > 0 ? ` x${capturedCount}` : '';
-      return `${moveLabel} — ${playerLabel} capture from ${formatPosition(action.from)} over ${formatPosition(action.captureTarget)} to ${formatPosition(action.to)}${captureSuffix}`;
-    }
-    case 'continue_capture_segment': {
-      const capturedCount = action.overtakenRings?.length ?? 0;
-      const captureSuffix = capturedCount > 0 ? ` x${capturedCount}` : '';
-      return `${moveLabel} — ${playerLabel} continued capture over ${formatPosition(action.captureTarget)} to ${formatPosition(action.to)}${captureSuffix}`;
-    }
-    case 'process_line':
-    case 'choose_line_reward': {
-      const lineCount = action.formedLines?.length ?? 0;
-      if (lineCount > 0) {
-        return `${moveLabel} — ${playerLabel} processed ${lineCount} line${lineCount === 1 ? '' : 's'}`;
-      }
-      return `${moveLabel} — Line processing by ${playerLabel}`;
-    }
-    case 'process_territory_region':
-    case 'eliminate_rings_from_stack': {
-      const regionCount =
-        action.claimedTerritory?.length ?? action.disconnectedRegions?.length ?? 0;
-      const eliminatedTotal = (action.eliminatedRings ?? []).reduce(
-        (sum, entry) => sum + entry.count,
-        0
-      );
-      const parts: string[] = [];
-      if (regionCount > 0) {
-        parts.push(`${regionCount} region${regionCount === 1 ? '' : 's'}`);
-      }
-      if (eliminatedTotal > 0) {
-        parts.push(`${eliminatedTotal} ring${eliminatedTotal === 1 ? '' : 's'} eliminated`);
-      }
-      const detail = parts.length > 0 ? ` (${parts.join(', ')})` : '';
-      return `${moveLabel} — Territory / elimination processing by ${playerLabel}${detail}`;
-    }
-    case 'skip_placement': {
-      return `${moveLabel} — ${playerLabel} skipped placement`;
-    }
-    default: {
-      // Fallback for legacy / experimental move types.
-      return `${moveLabel} — ${playerLabel} performed ${action.type}`;
-    }
-  }
-}
-
-function describeVictory(victory?: GameResult | null): string | null {
-  if (!victory) return null;
-
-  const formatReason = (reason: GameResult['reason']): string => {
-    switch (reason) {
-      case 'ring_elimination':
-        return 'Ring Elimination';
-      case 'territory_control':
-        return 'Territory Control';
-      case 'last_player_standing':
-        return 'Last Player Standing';
-      case 'timeout':
-        return 'Timeout';
-      case 'resignation':
-        return 'Resignation';
-      case 'abandonment':
-        return 'Abandonment';
-      case 'draw':
-        return 'Draw';
-      default:
-        return reason.replace(/_/g, ' ');
-    }
-  };
-
-  const reasonLabel = formatReason(victory.reason);
-
-  if (victory.winner === undefined) {
-    if (victory.reason === 'draw') {
-      return 'Game ended in a draw.';
-    }
-    return `Result: ${reasonLabel}`;
-  }
-
-  // Winner known: surface a concise "wins by" message so LPS is clearly visible.
-  return `Player P${victory.winner} wins by ${reasonLabel}`;
-}
-
 /**
- * Convert legacy props to view model for internal use
+ * Convert legacy props to view model for internal use.
+ * Delegates to the canonical toEventLogViewModel adapter so that both
+ * backend and sandbox hosts share identical event formatting.
  */
 function toLegacyViewModel(props: GameEventLogLegacyProps): EventLogViewModel {
-  const { history, systemEvents = [], victoryState, maxEntries = DEFAULT_MAX_ENTRIES } = props;
+  const { history, systemEvents = [], victoryState, maxEntries } = props;
 
-  const entries: EventLogItemViewModel[] = [];
-
-  // Victory entry first
-  const victoryMessage = describeVictory(victoryState);
-  if (victoryMessage) {
-    entries.push({
-      key: 'victory',
-      text: victoryMessage,
-      type: 'victory',
-    });
-  }
-
-  // Recent moves
-  const recentMoves = (history || []).slice(-maxEntries).reverse();
-  for (const entry of recentMoves) {
-    entries.push({
-      key: `move-${entry.moveNumber}`,
-      text: describeHistoryEntry(entry),
-      type: 'move',
-      moveNumber: entry.moveNumber,
-    });
-  }
-
-  // System events
-  for (let i = 0; i < systemEvents.length; i++) {
-    entries.push({
-      key: `system-${i}`,
-      text: systemEvents[i],
-      type: 'system',
-    });
-  }
-
-  return {
-    entries,
-    victoryMessage: victoryMessage ?? undefined,
-    hasContent: entries.length > 0,
-  };
+  return toEventLogViewModel(history, systemEvents, victoryState ?? null, {
+    maxEntries: maxEntries ?? DEFAULT_MAX_ENTRIES,
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

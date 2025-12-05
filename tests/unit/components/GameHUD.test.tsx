@@ -91,10 +91,10 @@ describe('GameHUD – legacy props', () => {
     // Spectator badge
     expect(screen.getByText(/Spectator/i)).toBeInTheDocument();
 
-    // Ring stats labels
+    // Ring stats labels (Captured was renamed to Rings Eliminated in ARIA update)
     expect(screen.getAllByText('In Hand').length).toBeGreaterThan(0);
     expect(screen.getAllByText('On Board').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Captured').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Rings Eliminated').length).toBeGreaterThan(0);
 
     // Territory stats: only first player has non-zero spaces
     // The text is split across elements (<span>2</span> territory spaces)
@@ -114,6 +114,8 @@ describe('GameHUD – view-model props', () => {
         description: 'Move a stack or capture opponent pieces',
         icon: '⚡',
         colorClass: 'bg-green-500',
+        actionHint: 'Select your stack, then click a destination to move',
+        spectatorHint: 'Player is choosing a move',
       },
       players: [
         {
@@ -195,7 +197,8 @@ describe('GameHUD – view-model props', () => {
 
     // Player cards: current player + AI badge + territory spaces
     expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('Bot')).toBeInTheDocument();
+    // Multiple Bot labels may appear (player card + score summary), so use a plural query.
+    expect(screen.getAllByText(/Bot/).length).toBeGreaterThan(0);
     // Territory spaces text is split across elements, verify at least one matches
     expect(
       screen.getAllByText(
@@ -293,5 +296,35 @@ describe('GameHUD – view-model props', () => {
     const skipHint = screen.getByTestId('hud-decision-skip-hint');
     expect(skipHint).toBeInTheDocument();
     expect(skipHint).toHaveTextContent(/Skip available/i);
+  });
+
+  it('renders time control summary and compact score summary from view model', () => {
+    const viewModel = createHUDViewModel();
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const clockSummary = screen.getByTestId('hud-time-control-summary');
+    expect(clockSummary).toBeInTheDocument();
+    expect(clockSummary).toHaveTextContent('Rapid • 10+0');
+
+    const scoreSummary = screen.getByTestId('hud-score-summary');
+    expect(scoreSummary).toBeInTheDocument();
+    expect(scoreSummary).toHaveTextContent(/Score summary/i);
+    // The summary should surface both rings and territory information for players.
+    expect(scoreSummary).toHaveTextContent(/Rings/i);
+    expect(scoreSummary).toHaveTextContent(/Territory/i);
+  });
+
+  it('shows sandbox no-clock label when flagged and no time control is provided', () => {
+    const viewModel = createHUDViewModel();
+
+    render(<GameHUD viewModel={viewModel} isLocalSandboxOnly={true} />);
+
+    expect(screen.getByText(/Clock: No clock \(local sandbox\)/i)).toBeInTheDocument();
   });
 });

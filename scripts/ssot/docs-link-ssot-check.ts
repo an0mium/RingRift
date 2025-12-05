@@ -47,13 +47,13 @@ function fileExistsSafe(filePath: string): boolean {
 const MARKDOWN_DOCS_TO_CHECK: string[] = [
   // AI & training
   'AI_ARCHITECTURE.md',
-  'docs/AI_TRAINING_AND_DATASETS.md',
-  'docs/AI_TRAINING_PREPARATION_GUIDE.md',
-  'docs/AI_TRAINING_ASSESSMENT_FINAL.md',
+  'docs/ai/AI_TRAINING_AND_DATASETS.md',
+  'docs/ai/AI_TRAINING_PREPARATION_GUIDE.md',
+  'docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md',
   // API & lifecycle
   'docs/API_REFERENCE.md',
-  'docs/STATE_MACHINES.md',
-  'docs/CANONICAL_ENGINE_API.md',
+  'docs/architecture/STATE_MACHINES.md',
+  'docs/architecture/CANONICAL_ENGINE_API.md',
   // Data & ops
   'docs/DATA_LIFECYCLE_AND_PRIVACY.md',
   'docs/ENVIRONMENT_VARIABLES.md',
@@ -84,7 +84,20 @@ function isProbablyFileLink(target: string): boolean {
   // Absolute paths like `/api/docs` are API paths, not file paths.
   if (target.startsWith('/')) return false;
 
-  // Everything else is treated as a candidate file‑relative link.
+  // Only treat markdown-like targets as file links. This deliberately ignores
+  // references to source trees (e.g. `../src/...`, `../ai-service/...`) and
+  // focuses on doc-to-doc link health.
+  const [withoutAnchor] = target.split('#', 1);
+  const base = path.basename(withoutAnchor);
+
+  // If there is no dot in the last path segment, treat it as a directory or
+  // non-file reference and skip it.
+  if (!base.includes('.')) return false;
+
+  const ext = path.extname(base);
+  if (ext && !['.md', '.markdown', '.mdx'].includes(ext)) return false;
+
+  // Everything else is treated as a candidate file‑relative markdown link.
   return true;
 }
 

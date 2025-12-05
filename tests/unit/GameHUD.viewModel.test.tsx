@@ -86,8 +86,9 @@ describe('GameHUD (view model path)', () => {
     expect(screen.getByText('Movement Phase')).toBeInTheDocument();
     expect(screen.getByText(/Connection: Connected/)).toBeInTheDocument();
     expect(screen.getByText('Select a stack to move.')).toBeInTheDocument();
-    expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
+    // Player names appear in both player cards and score summary, so use getAllByText
+    expect(screen.getAllByText('Alice').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Bob').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows spectator badge and victory conditions helper when spectating', () => {

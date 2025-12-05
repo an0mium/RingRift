@@ -73,13 +73,16 @@ jest.mock('../../src/server/services/ChatPersistenceService', () => ({
   }),
 }));
 
-// Mock rematch service
+// Mock rematch service with shared instance so tests can
+// configure behaviour and inspect calls.
+const mockRematchService = {
+  createRematchRequest: jest.fn(),
+  acceptRematch: jest.fn(),
+  declineRematch: jest.fn(),
+};
+
 jest.mock('../../src/server/services/RematchService', () => ({
-  getRematchService: () => ({
-    createRematchRequest: jest.fn(),
-    acceptRematch: jest.fn(),
-    declineRematch: jest.fn(),
-  }),
+  getRematchService: () => mockRematchService,
 }));
 
 // Mock metrics service
@@ -337,6 +340,56 @@ describe('WebSocket Server - Error Paths', () => {
         })
       );
     });
+
+    it('should emit INVALID_PAYLOAD error for malformed rematch_request payload', async () => {
+      if (connectionHandler) {
+        connectionHandler(socket);
+      }
+
+      const onCalls = socket.on.mock.calls;
+      const rematchHandler = onCalls.find(([event]: [string]) => event === 'rematch_request')?.[1];
+
+      if (!rematchHandler) {
+        throw new Error('rematch_request handler not registered');
+      }
+
+      // Call with invalid payload (missing gameId)
+      await rematchHandler({});
+
+      expect(socket.emit).toHaveBeenCalledWith(
+        'error',
+        expect.objectContaining({
+          type: 'error',
+          code: 'INVALID_PAYLOAD',
+          event: 'rematch_request',
+        })
+      );
+    });
+
+    it('should emit INVALID_PAYLOAD error for malformed rematch_respond payload', async () => {
+      if (connectionHandler) {
+        connectionHandler(socket);
+      }
+
+      const onCalls = socket.on.mock.calls;
+      const respondHandler = onCalls.find(([event]: [string]) => event === 'rematch_respond')?.[1];
+
+      if (!respondHandler) {
+        throw new Error('rematch_respond handler not registered');
+      }
+
+      // Call with invalid payload (missing requestId)
+      await respondHandler({});
+
+      expect(socket.emit).toHaveBeenCalledWith(
+        'error',
+        expect.objectContaining({
+          type: 'error',
+          code: 'INVALID_PAYLOAD',
+          event: 'rematch_respond',
+        })
+      );
+    });
   });
 
   describe('Authentication Error Handling', () => {
@@ -425,6 +478,66 @@ describe('WebSocket Server - Error Paths', () => {
           type: 'error',
           code: 'ACCESS_DENIED',
           message: 'Authentication failed',
+        })
+      );
+    });
+
+    it('should emit ACCESS_DENIED when unauthenticated user sends rematch_request', async () => {
+      const unauthSocket: AuthenticatedTestSocket = {
+        ...socket,
+        id: 'socket-unauth-rematch',
+        userId: undefined,
+      };
+
+      if (connectionHandler) {
+        connectionHandler(unauthSocket);
+      }
+
+      const onCalls = unauthSocket.on.mock.calls;
+      const rematchHandler = onCalls.find(([event]: [string]) => event === 'rematch_request')?.[1];
+
+      if (!rematchHandler) {
+        throw new Error('rematch_request handler not registered');
+      }
+
+      await rematchHandler({ gameId });
+
+      expect(unauthSocket.emit).toHaveBeenCalledWith(
+        'error',
+        expect.objectContaining({
+          type: 'error',
+          code: 'ACCESS_DENIED',
+          event: 'rematch_request',
+        })
+      );
+    });
+
+    it('should emit ACCESS_DENIED when unauthenticated user sends rematch_respond', async () => {
+      const unauthSocket: AuthenticatedTestSocket = {
+        ...socket,
+        id: 'socket-unauth-rematch-respond',
+        userId: undefined,
+      };
+
+      if (connectionHandler) {
+        connectionHandler(unauthSocket);
+      }
+
+      const onCalls = unauthSocket.on.mock.calls;
+      const respondHandler = onCalls.find(([event]: [string]) => event === 'rematch_respond')?.[1];
+
+      if (!respondHandler) {
+        throw new Error('rematch_respond handler not registered');
+      }
+
+      await respondHandler({ requestId: 'req-1', accept: true });
+
+      expect(unauthSocket.emit).toHaveBeenCalledWith(
+        'error',
+        expect.objectContaining({
+          type: 'error',
+          code: 'ACCESS_DENIED',
+          event: 'rematch_respond',
         })
       );
     });
@@ -838,6 +951,141 @@ describe('WebSocket Server - Error Paths', () => {
         expect.objectContaining({
           type: 'error',
           code: 'INTERNAL_ERROR',
+        })
+      );
+    });
+  });
+
+  describe('Rematch Events', () => {
+    it('should delegate rematch_request to RematchService and broadcast rematch_requested', async () => {
+      const expiresAt = new Date('2025-12-01T00:00:00.000Z');
+
+      mockRematchService.createRematchRequest.mockResolvedValue({
+        success: true,
+        request: {
+          id: 'req-1',
+          gameId,
+          requesterId: userId,
+          requesterUsername: 'Tester',
+          expiresAt,
+        },
+      });
+
+      if (connectionHandler) {
+        connectionHandler(socket);
+      }
+
+      const io = (wsServer as any).io;
+      const roomEmitter = { emit: jest.fn() };
+      io.to = jest.fn(() => roomEmitter);
+
+      const onCalls = socket.on.mock.calls;
+      const rematchHandler = onCalls.find(([event]: [string]) => event === 'rematch_request')?.[1];
+
+      if (!rematchHandler) {
+        throw new Error('rematch_request handler not registered');
+      }
+
+      await rematchHandler({ gameId });
+
+      expect(mockRematchService.createRematchRequest).toHaveBeenCalledWith(gameId, userId);
+      expect(io.to).toHaveBeenCalledWith(gameId);
+      expect(roomEmitter.emit).toHaveBeenCalledWith(
+        'rematch_requested',
+        expect.objectContaining({
+          id: 'req-1',
+          gameId,
+          requesterId: userId,
+          requesterUsername: 'Tester',
+          expiresAt: expiresAt.toISOString(),
+        })
+      );
+    });
+
+    it('should broadcast accepted rematch_response when accept=true', async () => {
+      mockRematchService.acceptRematch.mockImplementation(
+        async (
+          _requestId: string,
+          _userId: string,
+          _createGame: (gameId: string) => Promise<string>
+        ) => ({
+          success: true,
+          request: {
+            id: 'req-1',
+            gameId,
+          },
+          newGameId: 'new-game-id',
+        })
+      );
+
+      if (connectionHandler) {
+        connectionHandler(socket);
+      }
+
+      const io = (wsServer as any).io;
+      const roomEmitter = { emit: jest.fn() };
+      io.to = jest.fn(() => roomEmitter);
+
+      const onCalls = socket.on.mock.calls;
+      const respondHandler = onCalls.find(([event]: [string]) => event === 'rematch_respond')?.[1];
+
+      if (!respondHandler) {
+        throw new Error('rematch_respond handler not registered');
+      }
+
+      await respondHandler({ requestId: 'req-1', accept: true });
+
+      expect(mockRematchService.acceptRematch).toHaveBeenCalledWith(
+        'req-1',
+        userId,
+        expect.any(Function)
+      );
+      expect(io.to).toHaveBeenCalledWith(gameId);
+      expect(roomEmitter.emit).toHaveBeenCalledWith(
+        'rematch_response',
+        expect.objectContaining({
+          requestId: 'req-1',
+          gameId,
+          status: 'accepted',
+          newGameId: 'new-game-id',
+        })
+      );
+    });
+
+    it('should broadcast declined rematch_response when accept=false', async () => {
+      mockRematchService.declineRematch.mockResolvedValue({
+        success: true,
+        request: {
+          id: 'req-1',
+          gameId,
+        },
+      });
+
+      if (connectionHandler) {
+        connectionHandler(socket);
+      }
+
+      const io = (wsServer as any).io;
+      const roomEmitter = { emit: jest.fn() };
+      io.to = jest.fn(() => roomEmitter);
+
+      const onCalls = socket.on.mock.calls;
+      const respondHandler = onCalls.find(([event]: [string]) => event === 'rematch_respond')?.[1];
+
+      if (!respondHandler) {
+        throw new Error('rematch_respond handler not registered');
+      }
+
+      await respondHandler({ requestId: 'req-1', accept: false });
+
+      expect(mockRematchService.declineRematch).toHaveBeenCalledWith('req-1', userId);
+      expect(io.to).toHaveBeenCalledWith(gameId);
+      expect(roomEmitter.emit).toHaveBeenCalledWith(
+        'rematch_response',
+        expect.objectContaining({
+          requestId: 'req-1',
+          gameId,
+          status: 'declined',
         })
       );
     });

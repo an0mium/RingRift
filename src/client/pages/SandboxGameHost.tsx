@@ -41,6 +41,7 @@ import {
   deriveBoardDecisionHighlights,
 } from '../adapters/gameViewModels';
 import { GameHUD, VictoryConditionsPanel } from '../components/GameHUD';
+import { MobileGameHUD } from '../components/MobileGameHUD';
 import {
   ScreenReaderAnnouncer,
   useScreenReaderAnnouncement,
@@ -56,6 +57,7 @@ import type {
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { serializeGameState } from '../../shared/engine/contracts/serialization';
 import { buildTestFixtureFromGameState } from '../sandbox/statePersistence';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const BOARD_PRESETS: Array<{
   value: BoardType;
@@ -238,27 +240,28 @@ const PHASE_COPY: Record<
   movement: {
     label: 'Movement',
     summary:
-      'Pick a stack and move exactly as many spaces as the stack height, respecting blocking rules.',
+      'Pick a stack and move in a straight line at least as many spaces as its height; you may go farther if the path stays clear. Stacks and territory spaces block movement; markers do not but may eliminate your top ring when you land on them.',
   },
   // Support both 'capture' and 'chain_capture' phase keys for compatibility
   capture: {
-    label: 'Chain Capture',
+    label: 'Capture',
     summary:
-      'Continue capturing until no valid target remains (mandatory per chain capture rules).',
+      'Start an overtaking capture by jumping over an adjacent stack and landing on the empty or marker space just beyond. Starting a capture is optional; captured rings stay in play in your stack.',
   },
   chain_capture: {
     label: 'Chain Capture',
     summary:
-      'Continue capturing until no valid target remains (mandatory per chain capture rules).',
+      'You are in a capture chain: you must keep capturing while any capture is available, choosing which stack to jump over each time.',
   },
   line_processing: {
     label: 'Line Completion',
-    summary: 'Resolve completed lines and make decisions about ring collapses and rewards.',
+    summary:
+      'Resolve completed lines of markers and choose how to collapse them into Territory and apply any ring-elimination costs.',
   },
   territory_processing: {
     label: 'Territory Claim',
     summary:
-      'Evaluate disconnected regions, manage territory claims, and apply forced elimination where required.',
+      'Evaluate disconnected regions, claim Territory spaces, and apply any required ring eliminations (including self-elimination costs).',
   },
 };
 
@@ -299,6 +302,8 @@ export const SandboxGameHost: React.FC = () => {
     setSandboxStallWarning,
     sandboxStateVersion: _sandboxStateVersion,
     setSandboxStateVersion,
+    developerToolsEnabled,
+    setDeveloperToolsEnabled,
     initLocalSandboxEngine,
     resetSandboxEngine,
   } = useSandbox();
@@ -405,6 +410,8 @@ export const SandboxGameHost: React.FC = () => {
     setValidTargets,
     choiceResolverRef: sandboxChoiceResolverRef,
   });
+
+  const isMobile = useIsMobile();
 
   // Consume any recent line highlights from the sandbox engine whenever the
   // sandbox state version advances. Highlights are cleared automatically
@@ -1357,6 +1364,18 @@ export const SandboxGameHost: React.FC = () => {
   // geometry is always visible while the capture UI is open.
   const activePendingChoice: PlayerChoice | null = sandboxCaptureChoice ?? sandboxPendingChoice;
 
+  // For sandbox hosts, surface a simple decision countdown when the underlying
+  // PlayerChoice exposes a timeoutMs. This keeps HUD time-pressure semantics
+  // aligned with backend games without requiring server-side timeout warnings.
+  const sandboxDecisionTimeRemainingMs = React.useMemo(() => {
+    if (!activePendingChoice) return null;
+    const rawTimeout = (activePendingChoice as any).timeoutMs as number | undefined;
+    if (typeof rawTimeout !== 'number' || Number.isNaN(rawTimeout)) {
+      return null;
+    }
+    return rawTimeout >= 0 ? rawTimeout : 0;
+  }, [activePendingChoice]);
+
   const baseDecisionHighlights =
     sandboxGameState && activePendingChoice
       ? deriveBoardDecisionHighlights(sandboxGameState, activePendingChoice)
@@ -1461,7 +1480,7 @@ export const SandboxGameHost: React.FC = () => {
         currentUserId: user?.id,
         pendingChoice: activePendingChoice,
         choiceDeadline: null,
-        choiceTimeRemainingMs: null,
+        choiceTimeRemainingMs: sandboxDecisionTimeRemainingMs,
       })
     : null;
 
@@ -1659,13 +1678,24 @@ export const SandboxGameHost: React.FC = () => {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100">
         <div className="container mx-auto px-4 py-8 space-y-6">
-          <header>
-            <h1 className="text-3xl font-bold mb-1">Start a RingRift Game (Local Sandbox)</h1>
-            <p className="text-sm text-slate-400">
-              This mode runs entirely in the browser using a local board. To view or play a real
-              server-backed game, navigate to a URL with a game ID (e.g.
-              <code className="ml-1 text-xs text-slate-300">/game/:gameId</code>).
-            </p>
+          <header className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold mb-1">Start a RingRift Game (Local Sandbox)</h1>
+              <p className="text-sm text-slate-400">
+                This mode runs entirely in the browser using a local board. To view or play a real
+                server-backed game, navigate to a URL with a game ID (e.g.
+                <code className="ml-1 text-xs text-slate-300">/game/:gameId</code>).
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-slate-400 select-none">
+              <input
+                type="checkbox"
+                className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                checked={developerToolsEnabled}
+                onChange={(e) => setDeveloperToolsEnabled(e.target.checked)}
+              />
+              <span>Developer Tools</span>
+            </label>
           </header>
 
           {/* Quick-start presets */}
@@ -1766,26 +1796,28 @@ export const SandboxGameHost: React.FC = () => {
                 </button>
               </section>
 
-              {/* Self-Play Games section */}
-              <section className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-400">AI Training</p>
-                    <h2 className="text-lg font-semibold text-white">Browse self-play games</h2>
+              {/* Self-Play Games section (developer tools only) */}
+              {developerToolsEnabled && (
+                <section className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">AI Training</p>
+                      <h2 className="text-lg font-semibold text-white">Browse self-play games</h2>
+                    </div>
                   </div>
-                </div>
-                <p className="text-sm text-slate-400 mb-3">
-                  Load and replay games recorded during CMA-ES training, self-play soaks, and other
-                  AI training activities.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowSelfPlayBrowser(true)}
-                  className="px-4 py-2 rounded-xl border border-slate-600 bg-slate-900/60 text-slate-200 hover:border-sky-400 hover:text-sky-200 transition text-sm font-medium"
-                >
-                  Browse Self-Play Games
-                </button>
-              </section>
+                  <p className="text-sm text-slate-400 mb-3">
+                    Load and replay games recorded during CMA-ES training, self-play soaks, and
+                    other AI training activities.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowSelfPlayBrowser(true)}
+                    className="px-4 py-2 rounded-xl border border-slate-600 bg-slate-900/60 text-slate-200 hover:border-sky-400 hover:text-sky-200 transition text-sm font-medium"
+                  >
+                    Browse Self-Play Games
+                  </button>
+                </section>
+              )}
 
               <section className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
                 <div className="p-5 rounded-2xl bg-slate-800/70 border border-slate-700 space-y-6 text-slate-100 shadow-lg">
@@ -1949,18 +1981,20 @@ export const SandboxGameHost: React.FC = () => {
             </>
           )}
         </div>
-
         <ScenarioPickerModal
           isOpen={showScenarioPicker}
           onClose={() => setShowScenarioPicker(false)}
           onSelectScenario={handleLoadScenario}
+          developerToolsEnabled={developerToolsEnabled}
         />
 
-        <SelfPlayBrowser
-          isOpen={showSelfPlayBrowser}
-          onClose={() => setShowSelfPlayBrowser(false)}
-          onSelectGame={handleLoadScenario}
-        />
+        {developerToolsEnabled && (
+          <SelfPlayBrowser
+            isOpen={showSelfPlayBrowser}
+            onClose={() => setShowSelfPlayBrowser(false)}
+            onSelectGame={handleLoadScenario}
+          />
+        )}
 
         {/* First-time player onboarding modal */}
         <OnboardingModal
@@ -1983,13 +2017,15 @@ export const SandboxGameHost: React.FC = () => {
           <div className="p-3 rounded-xl border border-amber-500/70 bg-amber-900/40 text-amber-100 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <span>{sandboxStallWarning}</span>
             <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleCopySandboxTrace}
-                className="px-3 py-1 rounded-lg border border-amber-300 bg-amber-800/70 text-[11px] font-semibold hover:border-amber-100 hover:bg-amber-700/80"
-              >
-                Copy AI trace
-              </button>
+              {developerToolsEnabled && (
+                <button
+                  type="button"
+                  onClick={handleCopySandboxTrace}
+                  className="px-3 py-1 rounded-lg border border-amber-300 bg-amber-800/70 text-[11px] font-semibold hover:border-amber-100 hover:bg-amber-700/80"
+                >
+                  Copy AI trace
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setSandboxStallWarning(null)}
@@ -2099,62 +2135,75 @@ export const SandboxGameHost: React.FC = () => {
                       </p>
                       <h1 className="text-2xl font-bold text-white">Game – {boardDisplayLabel}</h1>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setShowSaveStateDialog(true)}
-                        className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-sky-400 hover:text-sky-200 transition"
-                      >
-                        Save State
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleCopySandboxFixture}
-                        className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
-                      >
-                        Copy Test Fixture
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowScenarioPicker(true)}
-                        className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-amber-400 hover:text-amber-200 transition"
-                      >
-                        Load Scenario
-                      </button>
-                      {lastLoadedScenario && (
+                    <div className="flex items-center gap-3">
+                      <label className="inline-flex items-center gap-2 text-[11px] text-slate-400 select-none">
+                        <input
+                          type="checkbox"
+                          className="rounded border-slate-600 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                          checked={developerToolsEnabled}
+                          onChange={(e) => setDeveloperToolsEnabled(e.target.checked)}
+                        />
+                        <span>Developer Tools</span>
+                      </label>
+                      <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={handleResetScenario}
+                          onClick={() => setShowSaveStateDialog(true)}
+                          className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-sky-400 hover:text-sky-200 transition"
+                        >
+                          Save State
+                        </button>
+                        {developerToolsEnabled && (
+                          <button
+                            type="button"
+                            onClick={handleCopySandboxFixture}
+                            className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
+                          >
+                            Copy Test Fixture
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowScenarioPicker(true)}
+                          className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-amber-400 hover:text-amber-200 transition"
+                        >
+                          Load Scenario
+                        </button>
+                        {lastLoadedScenario && (
+                          <button
+                            type="button"
+                            onClick={handleResetScenario}
+                            className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
+                          >
+                            Reset Scenario
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            resetSandboxEngine();
+                            setSelected(undefined);
+                            setValidTargets([]);
+                            setBackendSandboxError(null);
+                            setSandboxPendingChoice(null);
+                            setSandboxStallWarning(null);
+                            setSandboxLastProgressAt(null);
+                            setIsSandboxVictoryModalDismissed(false);
+                          }}
                           className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
                         >
-                          Reset Scenario
+                          Change Setup
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          resetSandboxEngine();
-                          setSelected(undefined);
-                          setValidTargets([]);
-                          setBackendSandboxError(null);
-                          setSandboxPendingChoice(null);
-                          setSandboxStallWarning(null);
-                          setSandboxLastProgressAt(null);
-                          setIsSandboxVictoryModalDismissed(false);
-                        }}
-                        className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
-                      >
-                        Change Setup
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Show board controls"
-                        data-testid="board-controls-button"
-                        onClick={() => setShowBoardControls(true)}
-                        className="h-8 w-8 rounded-full border border-slate-600 text-[11px] leading-none text-slate-200 hover:bg-slate-800/80"
-                      >
-                        ?
-                      </button>
+                        <button
+                          type="button"
+                          aria-label="Show board controls"
+                          data-testid="board-controls-button"
+                          onClick={() => setShowBoardControls(true)}
+                          className="h-8 w-8 rounded-full border border-slate-600 text-[11px] leading-none text-slate-200 hover:bg-slate-800/80"
+                        >
+                          ?
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2262,19 +2311,45 @@ export const SandboxGameHost: React.FC = () => {
               onReplayModeChange={setIsInReplayMode}
               onForkFromPosition={handleForkFromReplay}
               onAnimationChange={setReplayAnimation}
-              requestedGameId={requestedReplayGameId}
               defaultCollapsed={true}
             />
 
-            {/* Unified Game HUD - same component as backend games */}
-            {sandboxHudVM && (
-              <GameHUD
-                isLocalSandboxOnly={!user}
-                viewModel={sandboxHudVM}
-                onShowBoardControls={() => setShowBoardControls(true)}
-                hideVictoryConditions={true}
-              />
-            )}
+            {/* Unified Game HUD - full HUD on desktop, compact HUD on mobile */}
+            {sandboxHudVM &&
+              (isMobile ? (
+                <MobileGameHUD
+                  isLocalSandboxOnly={!user}
+                  viewModel={sandboxHudVM}
+                  onShowBoardControls={() => setShowBoardControls(true)}
+                />
+              ) : (
+                <GameHUD
+                  isLocalSandboxOnly={!user}
+                  viewModel={sandboxHudVM}
+                  onShowBoardControls={() => setShowBoardControls(true)}
+                  hideVictoryConditions={true}
+                />
+              ))}
+
+            {/* Onboarding scenario context for curated rules/FAQ scenarios */}
+            {lastLoadedScenario &&
+              lastLoadedScenario.onboarding &&
+              lastLoadedScenario.rulesSnippet && (
+                <div className="p-4 border border-emerald-700 rounded-2xl bg-emerald-950/60 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <h2 className="font-semibold text-sm text-emerald-100">
+                      Scenario: {lastLoadedScenario.name}
+                    </h2>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide bg-emerald-900/80 text-emerald-300 border border-emerald-600/80">
+                      Rules context
+                    </span>
+                  </div>
+                  {lastLoadedScenario.description && (
+                    <p className="text-xs text-emerald-100/90">{lastLoadedScenario.description}</p>
+                  )}
+                  <p className="text-xs text-emerald-50">{lastLoadedScenario.rulesSnippet}</p>
+                </div>
+              )}
 
             {sandboxEngine &&
               sandboxGameState &&
@@ -2444,28 +2519,30 @@ export const SandboxGameHost: React.FC = () => {
               )}
             </div>
 
-            <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="font-semibold">AI Evaluation (sandbox)</h2>
-                <button
-                  type="button"
-                  onClick={requestSandboxEvaluation}
-                  disabled={!sandboxEngine || !sandboxGameState || isSandboxAnalysisRunning}
-                  className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition"
-                >
-                  {isSandboxAnalysisRunning ? 'Evaluating…' : 'Request evaluation'}
-                </button>
+            {developerToolsEnabled && (
+              <div className="p-4 border border-slate-700 rounded-2xl bg-slate-900/60 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="font-semibold">AI Evaluation (sandbox)</h2>
+                  <button
+                    type="button"
+                    onClick={requestSandboxEvaluation}
+                    disabled={!sandboxEngine || !sandboxGameState || isSandboxAnalysisRunning}
+                    className="px-3 py-1 rounded-full border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed transition"
+                  >
+                    {isSandboxAnalysisRunning ? 'Evaluating…' : 'Request evaluation'}
+                  </button>
+                </div>
+                <EvaluationPanel
+                  evaluationHistory={sandboxEvaluationHistory}
+                  players={sandboxGameState?.players ?? []}
+                />
+                {sandboxEvaluationError && (
+                  <p className="text-xs text-amber-400" data-testid="sandbox-evaluation-error">
+                    {sandboxEvaluationError}
+                  </p>
+                )}
               </div>
-              <EvaluationPanel
-                evaluationHistory={sandboxEvaluationHistory}
-                players={sandboxGameState?.players ?? []}
-              />
-              {sandboxEvaluationError && (
-                <p className="text-xs text-amber-400" data-testid="sandbox-evaluation-error">
-                  {sandboxEvaluationError}
-                </p>
-              )}
-            </div>
+            )}
 
             <SandboxTouchControlsPanel
               selectedPosition={selected}
@@ -2493,9 +2570,13 @@ export const SandboxGameHost: React.FC = () => {
               showValidTargets={showValidTargetsOverlay}
               onToggleValidTargets={(next) => setShowValidTargetsOverlay(next)}
               showLineOverlays={showLineOverlays}
-              onToggleLineOverlays={(next) => setShowLineOverlays(next)}
+              onToggleLineOverlays={
+                developerToolsEnabled ? (next) => setShowLineOverlays(next) : undefined
+              }
               showTerritoryOverlays={showTerritoryOverlays}
-              onToggleTerritoryOverlays={(next) => setShowTerritoryOverlays(next)}
+              onToggleTerritoryOverlays={
+                developerToolsEnabled ? (next) => setShowTerritoryOverlays(next) : undefined
+              }
               phaseLabel={sandboxPhaseDetails.label}
               phaseHint={sandboxTouchPhaseHint}
               canSkipTerritoryProcessing={canSkipTerritoryProcessing}
@@ -2568,6 +2649,7 @@ export const SandboxGameHost: React.FC = () => {
           isOpen={showScenarioPicker}
           onClose={() => setShowScenarioPicker(false)}
           onSelectScenario={handleLoadScenario}
+          developerToolsEnabled={developerToolsEnabled}
         />
 
         <SaveStateDialog

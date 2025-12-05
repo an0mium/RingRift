@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGame } from '../contexts/GameContext';
+import { useAuth } from '../contexts/AuthContext';
 import type { Move, Position, PlayerChoice } from '../../shared/types/game';
 import { getChoiceViewModel } from '../adapters/choiceViewModels';
 import type { ChoiceViewModel } from '../adapters/choiceViewModels';
@@ -147,13 +148,35 @@ export function useGameActions() {
     pendingChoice,
     choiceDeadline,
   } = useGame();
+  const { user } = useAuth();
 
-  // Stable move submission with type narrowing
+  // Stable move submission with type narrowing. Spectators are never allowed to
+  // submit backend moves; this guard enforces read-only semantics even if
+  // callers bypass the exported capabilities flags.
   const submitMove = useCallback(
     (partialMove: PartialMove) => {
+      if (!gameId || !gameState) {
+        // Preserve defensive behaviour when no active game is connected.
+        // GameContext.submitMove will also warn, but we short-circuit here.
+        // This keeps the hook safe to call even during transient reconnects.
+
+        console.warn('submitMove called without active game');
+        return;
+      }
+
+      const isPlayer =
+        !!user &&
+        Array.isArray((gameState as any).players) &&
+        (gameState as any).players.some((p: any) => p.id === user.id || p.userId === user.id);
+
+      if (!isPlayer) {
+        console.warn('submitMove called by spectator – ignoring');
+        return;
+      }
+
       contextSubmitMove(partialMove);
     },
-    [contextSubmitMove]
+    [contextSubmitMove, gameId, gameState, user]
   );
 
   // Convenience method for placement
@@ -172,12 +195,28 @@ export function useGameActions() {
     [submitMove]
   );
 
-  // Choice response with proper typing
+  // Choice response with proper typing. Spectators must never be able to send
+  // decision responses; this guard mirrors the move-submission restrictions.
   const respondToChoice = useCallback(
     <T>(choice: PlayerChoice, selectedOption: T) => {
+      if (!gameId || !gameState) {
+        console.warn('respondToChoice called without active game');
+        return;
+      }
+
+      const isPlayer =
+        !!user &&
+        Array.isArray((gameState as any).players) &&
+        (gameState as any).players.some((p: any) => p.id === user.id || p.userId === user.id);
+
+      if (!isPlayer) {
+        console.warn('respondToChoice called by spectator – ignoring');
+        return;
+      }
+
       contextRespondToChoice(choice, selectedOption);
     },
-    [contextRespondToChoice]
+    [contextRespondToChoice, gameId, gameState, user]
   );
 
   // Chat message
@@ -218,12 +257,28 @@ export function useGameActions() {
       };
     }
 
+    // Spectators are always read-only: they can observe clocks, phases, and
+    // chat, but must never submit moves or decision responses.
+    const isPlayer =
+      !!user &&
+      Array.isArray((gameState as any).players) &&
+      (gameState as any).players.some((p: any) => p.id === user.id || p.userId === user.id);
+
+    if (!isPlayer) {
+      return {
+        canSubmitMove: false,
+        canRespondToChoice: false,
+        canSendChat: true,
+        disabledReason: 'Spectators cannot submit moves or decisions',
+      };
+    }
+
     return {
       canSubmitMove: true,
       canRespondToChoice: !!pendingChoice,
       canSendChat: true,
     };
-  }, [gameId, gameState, pendingChoice]);
+  }, [gameId, gameState, pendingChoice, user]);
 
   return {
     // Core actions

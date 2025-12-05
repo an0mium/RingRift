@@ -46,6 +46,7 @@ This document provides comprehensive documentation for all environment variables
 - [Python Training Flags](#python-training-flags)
 - [Debug Flags](#debug-flags)
 - [Deprecated Variables](#deprecated-variables)
+- [Parity & Replay Tooling](#parity--replay-tooling)
 
 ---
 
@@ -604,6 +605,18 @@ Enable health check endpoints.
 
 Prometheus metrics server port.
 
+### `WS_RECONNECTION_TIMEOUT_MS`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `number` |
+| Default  | `30000`  |
+| Required | No       |
+
+Maximum duration (in milliseconds) that a disconnected WebSocket client is allowed to reconnect to an active game before its pending choices are cleared and abandonment handling may apply. This controls the reconnection window described in the WebSocket lifecycle sections of [`docs/architecture/CANONICAL_ENGINE_API.md`](./architecture/CANONICAL_ENGINE_API.md).
+
+In production, this should typically remain at the default `30000` (30 seconds) unless coordinated changes are made to the documented lifecycle and associated tests. Shorter windows may be appropriate for load tests or CI harnesses; longer windows increase server-side resource retention and the risk of stale sessions.
+
 ### `ORCHESTRATOR_ADAPTER_ENABLED`
 
 | Property | Value                             |
@@ -628,8 +641,8 @@ The `useOrchestratorAdapter` property on [`GameEngine`](../src/server/game/GameE
 
 **Related Documentation:**
 
-- [`docs/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](./ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)
-- [`docs/PASS20_COMPLETION_SUMMARY.md`](./PASS20_COMPLETION_SUMMARY.md)
+- [`ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](./architecture/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)
+- [`PASS20_COMPLETION_SUMMARY.md`](./archive/assessments/PASS20_COMPLETION_SUMMARY.md)
 
 ### `ENABLE_ANALYSIS_MODE`
 
@@ -664,9 +677,9 @@ clients and must not be exposed as such.
 For full semantics, security constraints, and recommended environment
 defaults, see:
 
-- [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md:1)
+- [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md)
 - The "Internal / Test harness APIs" section of
-  [`API_REFERENCE.md`](./API_REFERENCE.md:1)
+  [`API_REFERENCE.md`](./API_REFERENCE.md)
 
 ### Orchestrator rollout controls
 
@@ -677,7 +690,7 @@ only in staging or by on-call operators following a runbook.
 For recommended combinations of `NODE_ENV`, `RINGRIFT_APP_TOPOLOGY`,
 `RINGRIFT_RULES_MODE`, and the orchestrator flags across CI, staging, and
 production phases, see the env/phase presets table in
-[`docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1](./ORCHESTRATOR_ROLLOUT_PLAN.md#811-environment-and-flag-presets-by-phase).
+[`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1](./architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#811-environment-and-flag-presets-by-phase).
 
 #### `ORCHESTRATOR_SHADOW_MODE_ENABLED`
 
@@ -1209,6 +1222,98 @@ These flags are for development and debugging only. **Do not enable in productio
 
 ---
 
+## Parity & Replay Tooling
+
+These variables are optional and primarily used for deep parity analysis,
+replay debugging, and golden-game regression checks. They do **not**
+affect core game semantics.
+
+### `RINGRIFT_RULES_ENGINE_VERSION`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | None     |
+| Required | No       |
+
+Optional label for the current shared rules engine / ruleset version.
+
+- When set, the AI service’s recording helpers attach this value as
+  `rules_engine_version` in `games.metadata_json` for all newly
+  recorded games (self-play soaks, training harnesses, CMA‑ES, etc.).
+- Intended usage:
+  - Tag recordings by rules rollout (e.g. `"2025-12-chain-capture-fix"`).
+  - Slice replay/parity analyses by engine version.
+
+### `RINGRIFT_TS_ENGINE_VERSION`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | None     |
+| Required | No       |
+
+Optional label for the TypeScript/shared engine build version that
+produced the recordings.
+
+- When set, recorded games include `ts_engine_version` in
+  `games.metadata_json`.
+- Useful for correlating TS replay/parity divergences with specific
+  backend/sandbox engine revisions.
+
+### `RINGRIFT_AI_SERVICE_VERSION`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | None     |
+| Required | No       |
+
+Optional label for the Python AI service build or deployment version.
+
+- When set, recorded games include `ai_service_version` in
+  `games.metadata_json`.
+- Intended for:
+  - Tracking self-play / training runs across AI-service releases.
+  - Post-hoc analysis of parity or invariant regressions.
+
+### `RINGRIFT_PARITY_GOLDEN_DB`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | None     |
+| Required | No       |
+
+Path to a **golden** `GameReplayDB` SQLite file used by the Python
+**differential replay** tests.
+
+- Consumed by `ai-service/tests/parity/test_differential_replay.py`.
+- When set together with `RINGRIFT_PARITY_GOLDEN_GAME_ID` and the DB
+  exists, the golden-game test:
+  - Replays the configured game via Python and TS,
+  - Fails if any divergences are detected.
+
+### `RINGRIFT_PARITY_GOLDEN_GAME_ID`
+
+| Property | Value    |
+| -------- | -------- |
+| Type     | `string` |
+| Default  | None     |
+| Required | No       |
+
+`game_id` within `RINGRIFT_PARITY_GOLDEN_DB` to treat as a golden
+replay/parity case.
+
+- Must correspond to a row in the `games` table of the DB configured via
+  `RINGRIFT_PARITY_GOLDEN_DB`.
+- Intended for:
+  - Locking in previously-debugged problem games (e.g. specific
+    chain-capture or pie-rule sequences) as permanent parity
+    regression tests.
+
+---
+
 ## Deprecated Variables
 
 These variables were removed during project evolution. They are listed here for historical reference.
@@ -1236,7 +1341,7 @@ Percentage of eligible sessions to route through the orchestrator. This variable
 **Related Changes:**
 
 - [`ORCHESTRATOR_ADAPTER_ENABLED`](#orchestrator_adapter_enabled) - Now hardcoded to `true`
-- See [`docs/PASS20_COMPLETION_SUMMARY.md`](./PASS20_COMPLETION_SUMMARY.md) for migration details
+- See [`PASS20_COMPLETION_SUMMARY.md`](./archive/assessments/PASS20_COMPLETION_SUMMARY.md) for migration details
 
 ---
 

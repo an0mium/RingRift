@@ -13,6 +13,7 @@ This directory contains operational runbooks for deploying, managing, and troubl
 | [DATABASE_MIGRATION.md](./DATABASE_MIGRATION.md)                               | Database schema changes                               | Prisma migration procedures                                                       |
 | [DATABASE_BACKUP_AND_RESTORE_DRILL.md](./DATABASE_BACKUP_AND_RESTORE_DRILL.md) | Backup/restore drill for Postgres                     | Periodic staging drills and pre-change rehearsals                                 |
 | [SECRETS_ROTATION_DRILL.md](./SECRETS_ROTATION_DRILL.md)                       | JWT and DB secrets rotation drill                     | Periodic security drills and pre-launch hardening                                 |
+| [AI_SERVICE_DEGRADATION_DRILL.md](./AI_SERVICE_DEGRADATION_DRILL.md)           | AI service degradation drill (staging)                | Staging drills for AI availability, fallbacks, dashboards, and alert validation   |
 | [ORCHESTRATOR_ROLLOUT_RUNBOOK.md](./ORCHESTRATOR_ROLLOUT_RUNBOOK.md)           | Orchestrator rollout, rollback, and incident handling | Changing orchestrator rollout phase or responding to orchestrator-specific alerts |
 
 ## Quick Reference
@@ -69,9 +70,9 @@ curl -s http://localhost:8001/health | jq
 - [OPERATIONS_DB.md](../OPERATIONS_DB.md) - Database operations guide
 - [SECRETS_MANAGEMENT.md](../SECRETS_MANAGEMENT.md) - Secrets handling procedures
 - [ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md) - Complete environment variable reference
-- [ORCHESTRATOR_ROLLOUT_PLAN.md](../ORCHESTRATOR_ROLLOUT_PLAN.md) - Orchestrator rollout phases, SLOs, and environment profiles
+- [ORCHESTRATOR_ROLLOUT_PLAN.md](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) - Orchestrator rollout phases, SLOs, and environment profiles
 - [tests/load/README.md](../../tests/load/README.md) - k6 load harness and scenario definitions
-- [PASS22_ASSESSMENT_REPORT.md](../PASS22_ASSESSMENT_REPORT.md) - Production polish and validation plan
+- [PASS22_ASSESSMENT_REPORT.md](../archive/assessments/PASS22_ASSESSMENT_REPORT.md) - Production polish and validation plan
 
 ## Emergency Contacts
 

@@ -302,6 +302,32 @@ describe('ChoiceDialog', () => {
 
       expect(mockOnSelectOption).toHaveBeenCalledWith(choice, choice.options[1]);
     });
+
+    it('renders a clear skip option label for territory processing', () => {
+      const choice: RegionOrderChoice = {
+        ...createRegionOrderChoice(),
+        options: [
+          ...createRegionOrderChoice().options,
+          {
+            regionId: 'skip',
+            size: 0,
+            // representativePosition is unused for skip but kept for type completeness
+            representativePosition: { x: 0, y: 0 },
+            moveId: 'move-skip',
+          },
+        ],
+      };
+
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      const skipButton = screen.getByText('Skip territory processing for this turn');
+      expect(skipButton).toBeInTheDocument();
+
+      fireEvent.click(skipButton);
+
+      const expectedSkipOption = choice.options[choice.options.length - 1];
+      expect(mockOnSelectOption).toHaveBeenCalledWith(choice, expectedSkipOption);
+    });
   });
 
   describe('CaptureDirectionChoice', () => {

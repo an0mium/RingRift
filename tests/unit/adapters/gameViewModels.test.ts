@@ -890,6 +890,58 @@ describe('toHUDViewModel - decisionPhase mapping', () => {
       tone: 'attention',
     });
   });
+
+  it('surfaces a skip hint for territory region_order decisions when skip_territory_processing is available', () => {
+    const player1 = createTestPlayer(1, { id: 'user-1', username: 'Alice' });
+    const player2 = createTestPlayer(2, { id: 'user-2', username: 'Bob' });
+
+    const gameState = createTestGameState({
+      players: [player1, player2],
+      currentPlayer: 1,
+      currentPhase: 'territory_processing',
+      gameStatus: 'active',
+    });
+
+    const choice: PlayerChoice = {
+      id: 'choice-region-skip',
+      type: 'region_order',
+      playerNumber: 1,
+      prompt: 'Choose region or skip',
+      options: [
+        {
+          regionId: 'region-1',
+          size: 4,
+          representativePosition: pos(1, 1),
+          moveId: 'process-region-1',
+        },
+        {
+          regionId: 'skip',
+          size: 0,
+          representativePosition: pos(0, 0),
+          // In real games this maps to a canonical skip_territory_processing
+          // Move via moveId; for HUD canSkip wiring we only care about the
+          // type guard in toHUDViewModel.
+          moveId: 'skip-territory-processing',
+        },
+      ] as any,
+    } as any;
+
+    const hud = toHUDViewModel(
+      gameState,
+      createDefaultHUDOptions({
+        currentUserId: 'user-1',
+        pendingChoice: choice,
+      } as Partial<ToHUDViewModelOptions>)
+    );
+
+    expect(hud.phase.phaseKey).toBe('territory_processing');
+    expect(hud.decisionPhase).toBeDefined();
+    expect(hud.decisionPhase?.statusChip).toEqual({
+      text: 'Territory claimed – choose region to process or skip',
+      tone: 'attention',
+    });
+    expect(hud.decisionPhase?.canSkip).toBe(true);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1005,6 +1057,23 @@ describe('toEventLogViewModel', () => {
       const result = toEventLogViewModel(history, [], null);
 
       expect(result.entries[0].text).toContain('skipped placement');
+    });
+
+    it('should format skip_territory_processing action with a clear territory decision tag', () => {
+      const history: GameHistoryEntry[] = [
+        {
+          ...createTestHistoryEntry(5, 1, 'skip_territory_processing'),
+          action: {
+            ...createTestHistoryEntry(5, 1, 'skip_territory_processing').action,
+            type: 'skip_territory_processing',
+          },
+        },
+      ];
+
+      const result = toEventLogViewModel(history, [], null);
+
+      expect(result.entries[0].text).toContain('[Territory region]');
+      expect(result.entries[0].text).toContain('skipped further territory processing this turn');
     });
 
     it('should format swap_sides action with a pie rule description', () => {

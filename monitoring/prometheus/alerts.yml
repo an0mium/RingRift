@@ -740,3 +740,76 @@ groups:
           description: '99th percentile Redis operation time exceeds 100ms.'
           runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/REDIS_PERFORMANCE.md'
           impact: 'Cache operations slow, affecting overall latency.'
+
+  # ===========================================================================
+  # CONNECTION & SESSION LIFECYCLE ALERTS
+  # ===========================================================================
+  - name: connection-lifecycle
+    interval: 30s
+    rules:
+      # -------------------------------------------------------------------------
+      # WebSocket reconnection timeouts (P18.3 decision/session lifecycle)
+      # -------------------------------------------------------------------------
+      - alert: WebSocketReconnectionTimeouts
+        expr: sum(rate(ringrift_websocket_reconnection_total{result="timeout"}[5m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: 'Elevated WebSocket reconnection timeouts'
+          description: |
+            Many players are failing to reconnect within the defined window. This corresponds to
+            the reconnection semantics in P18.3-1_DECISION_LIFECYCLE_SPEC and the
+            WebSocket reconnect behaviour exercised by the websocket-stress and player-moves
+            k6 scenarios. See docs/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts
+            for SLO context.
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/WEBSOCKET_ISSUES.md'
+          impact: 'Players may be losing games due to reconnection timeouts rather than gameplay outcomes.'
+
+      # -------------------------------------------------------------------------
+      # Abnormal game session termination spike
+      # -------------------------------------------------------------------------
+      - alert: AbnormalGameSessionTerminationSpike
+        expr: |
+          sum(
+            rate(
+              ringrift_game_session_abnormal_termination_total{
+                reason=~"disconnect_timeout|internal_error|session_cleanup"
+              }[10m]
+            )
+          ) > 0.02
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: 'Spike in abnormal game session terminations'
+          description: |
+            More games are ending via abnormal paths (disconnect timeouts, internal errors,
+            forced cleanup) rather than normal victory conditions. See
+            docs/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts and
+            docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md for lifecycle semantics.
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/GAME_HEALTH.md'
+          impact: 'Players may experience unexpected game terminations caused by infrastructure or lifecycle bugs.'
+
+      # -------------------------------------------------------------------------
+      # Game session status skew (no active turns/decision phases)
+      # -------------------------------------------------------------------------
+      - alert: GameSessionStatusSkew
+        expr: |
+          sum(ringrift_game_session_status_current{status=~"active_decision_phase|active_turn"}) == 0
+          and sum(ringrift_game_session_status_current) > 0
+        for: 15m
+        labels:
+          severity: info
+          team: backend
+        annotations:
+          summary: 'All in-memory sessions stuck in non-active states'
+          description: |
+            There are live game sessions but none in active_turn or active_decision_phase states.
+            This may indicate stuck timers, unresolved decision phases, or reconnection edge cases.
+            See docs/ALERTING_THRESHOLDS.md#connection--session-lifecycle-alerts and
+            docs/P18.3-1_DECISION_LIFECYCLE_SPEC.md for the canonical session state machine.
+          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/GAME_HEALTH.md'
+          impact: 'Games may be stalled in waiting/cleanup states even though players are connected.'

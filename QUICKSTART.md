@@ -44,6 +44,17 @@ Each player card shows:
 
 Top bar shows WebSocket connection state and whether you're spectating.
 
+### Mobile HUD
+
+On phones and small tablets, the HUD automatically switches to a compact layout:
+
+- A single-row phase bar shows the current phase, whose turn it is, and a subtle “Your turn” chip.
+- A compact decision timer pill appears only when a decision-phase countdown is active.
+- Player cards collapse into a tap-to-expand list with ring and territory stats.
+- The connection status and “? Help” button are kept in a small footer bar.
+
+To preview this in a desktop browser, open devtools, enable device emulation (e.g. an iPhone viewport), and refresh; the mobile HUD will replace the full desktop HUD when the viewport is below the `md` breakpoint (768px).
+
 This guide focuses on getting a **local development environment** running quickly (backend + frontend) and then wiring up the **Python AI Service** used for AI turns and some PlayerChoices.
 
 If you only want the AI Service, skip to **[AI Service Quick Start](#ai-service-quick-start)**.
@@ -250,6 +261,92 @@ important variables are:
 - `VITE_ERROR_REPORTING_ENABLED` – when set to `"true"`, enables client-side error reporting in the React SPA (recommended for staging/production).
 - `VITE_ERROR_REPORTING_ENDPOINT` – HTTP endpoint used by the SPA to POST error events (defaults to `/api/client-errors`).
 - `VITE_ERROR_REPORTING_MAX_EVENTS` – optional per-page-load cap on the number of error reports sent by the SPA (default `50`).
+
+### 1.8 Full stack dev walkthrough (backend + AI service + client)
+
+This is the fastest way to stand up everything needed for a **full UX walkthrough** of the lobby and sandbox using the same scripts and Docker services described above.
+
+It assumes:
+
+- Prerequisites from [§1.1](#11-prerequisites) are installed:
+  - Node.js 18+, npm 9+
+  - Docker + Docker Compose
+  - Python 3.11+ (for the AI service)
+- You have already created `.env` from `.env.example` (see [§1.3](#13-environment-configuration)).
+
+> This flow keeps the **Node backend and React client running locally** via `npm run dev`, while PostgreSQL, Redis, and the Python AI service run in Docker. It matches the topology described in [`docs/DEPLOYMENT_REQUIREMENTS.md`](docs/DEPLOYMENT_REQUIREMENTS.md:1) (`RINGRIFT_APP_TOPOLOGY=single`).
+
+**1. Start backing services (PostgreSQL, Redis, AI service)**
+
+From the project root:
+
+```bash
+# Start core services used by the backend and AI layer
+docker compose up -d postgres redis ai-service
+```
+
+This will:
+
+- Start PostgreSQL and Redis as described in [§1.4](#14-start-database--redis-docker).
+- Start the Python AI service on `http://localhost:8001` (exposed from the `ai-service` container).
+
+For this topology, ensure your local `.env` uses:
+
+```env
+AI_SERVICE_URL=http://localhost:8001
+RINGRIFT_APP_TOPOLOGY=single
+```
+
+> The `AI_SERVICE_URL=http://ai-service:8001` value in [`docker-compose.yml`](docker-compose.yml:1) is only used when running the `app` service inside Docker. When you run the backend via `npm run dev`, you should point to `http://localhost:8001` instead.
+
+**2. Apply database migrations and generate the Prisma client**
+
+In a separate terminal (still from the project root):
+
+```bash
+npm run db:migrate
+npm run db:generate
+```
+
+This syncs the local schema with the running PostgreSQL instance.
+
+**3. Start backend + frontend dev servers**
+
+Still from the host (not inside Docker):
+
+```bash
+npm run dev
+```
+
+This runs:
+
+- The Node/Express backend (API + WebSockets) on `http://localhost:3000`
+- The React/Vite client on `http://localhost:5173`
+
+**4. Perform a UX walkthrough**
+
+Once everything is running:
+
+- Visit `http://localhost:5173/lobby` to:
+  - Register/login
+  - Create backend games (including AI opponents)
+  - Join and spectate games
+- Visit `http://localhost:5173/sandbox` to:
+  - Use the **local sandbox** (`ClientSandboxEngine`) for rules exploration
+  - Try the **onboarding scenarios** and **Developer Tools** toggle:
+    - Onboarding tab + curated FAQ/rules scenarios by default
+    - AI diagnostics, self‑play imports, and export tools behind **Developer Tools**
+
+When you are finished, you can tear down the Docker services:
+
+```bash
+docker compose down
+```
+
+For details on tuning environment variables (`RINGRIFT_RULES_MODE`, `RINGRIFT_APP_TOPOLOGY`, AI service flags, etc.), refer to:
+
+- [`docs/ENVIRONMENT_VARIABLES.md`](docs/ENVIRONMENT_VARIABLES.md:1)
+- [`docs/DEPLOYMENT_REQUIREMENTS.md`](docs/DEPLOYMENT_REQUIREMENTS.md:1)
 
 ---
 

@@ -6,9 +6,11 @@
  * logic has a single source of truth.
  */
 export function getSocketBaseUrl(): string {
-  // Vite exposes env variables on import.meta.env
-  const env: Record<string, string | undefined> =
-    typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {};
+  // Vite exposes env variables on import.meta.env; in the bundled client this
+  // is wired to globalThis.__VITE_ENV__ via vite.config.ts `define`.
+  // Using the global avoids Jest parse issues with raw `import.meta` syntax.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const env: Record<string, string | undefined> = (globalThis as any).__VITE_ENV__ ?? {};
 
   const wsUrl = env.VITE_WS_URL as string | undefined;
   if (wsUrl) {

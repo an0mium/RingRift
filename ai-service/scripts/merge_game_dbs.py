@@ -1,0 +1,239 @@
+#!/usr/bin/env python
+"""Merge multiple GameReplayDB SQLite databases into a single destination DB.
+
+This utility is intended for consolidating per-run self-play / CMA-ES game
+databases into a single corpus while preserving rich recording metadata.
+
+Merging strategy
+----------------
+
+- For each source DB:
+  - Iterate over games via GameReplayDB.iterate_games(), which yields:
+    (game_meta, initial_state, moves).
+  - Reconstruct the final state using get_state_at_move(game_id, total_moves-1)
+    when possible; fall back to replaying moves if needed.
+  - Decode the existing metadata_json from the source games row (if present)
+    and ensure:
+      - metadata["source"] is set (falling back to the row's source column
+        or "merged" if absent).
+      - metadata["merged_from_db"] records the basename of the source DB.
+  - Store the game into the destination DB via dest_db.store_game(...),
+    recomputing history entries and snapshots using the current rules engine.
+
+- Game ID conflicts:
+  - By default (--on-conflict=skip), any game_id that already exists in the
+    destination DB is skipped.
+  - With --on-conflict=rename, conflicting game_ids are replaced with a new
+    UUID4 while keeping all other metadata and state identical.
+
+Usage examples
+--------------
+
+From the ``ai-service`` root::
+
+    # Merge several CMA-ES run DBs into a single corpus
+    python scripts/merge_game_dbs.py \\
+        --output data/games/cmaes_aggregate.db \\
+        --db logs/cmaes/runs/run1/games.db \\
+        --db logs/cmaes/runs/run2/games.db
+
+    # Merge with explicit conflict handling and a source label
+    python scripts/merge_game_dbs.py \\
+        --output data/games/combined.db \\
+        --db data/games/selfplay.square8.db \\
+        --db data/games/selfplay.square19.db \\
+        --on-conflict rename
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+import uuid
+from typing import Any, Dict, List
+
+# Allow imports from app/
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from app.db import GameReplayDB  # noqa: E402
+from app.models import GameState, Move  # noqa: E402
+
+
+def _load_final_state(
+    db: GameReplayDB,
+    game_id: str,
+    meta: Dict[str, Any],
+    initial_state: GameState,
+    moves: List[Move],
+) -> GameState:
+    """Best-effort reconstruction of the final state for a game."""
+    total_moves = meta.get("total_moves")
+
+    if isinstance(total_moves, int) and total_moves > 0:
+        try:
+            state = db.get_state_at_move(game_id, total_moves - 1)
+            if state is not None:
+                return state
+        except Exception:
+            # Fall back to replay below
+            pass
+
+    # Fallback: replay all moves from the initial state using the current engine
+    from app.game_engine import GameEngine  # noqa: E402
+
+    state = initial_state
+    for move in moves:
+        state = GameEngine.apply_move(state, move)
+    return state
+
+
+def _merge_single_db(
+    dest_db: GameReplayDB,
+    src_path: str,
+    on_conflict: str = "skip",
+) -> Dict[str, int]:
+    """Merge all games from a single source DB into the destination DB."""
+    src_db = GameReplayDB(src_path)
+    stats = {"total": 0, "merged": 0, "skipped_conflict": 0, "errors": 0}
+    src_label = os.path.basename(src_path)
+
+    for game_meta, initial_state, moves in src_db.iterate_games():
+        stats["total"] += 1
+        game_id = game_meta.get("game_id")
+        if not game_id:
+            stats["errors"] += 1
+            print(f"[merge_game_dbs] WARNING: Game without game_id in {src_path}, skipping")
+            continue
+
+        # Conflict handling
+        existing = dest_db.get_game_metadata(game_id)
+        if existing is not None:
+            if on_conflict == "skip":
+                stats["skipped_conflict"] += 1
+                continue
+            elif on_conflict == "rename":
+                new_game_id = str(uuid.uuid4())
+                print(
+                    f"[merge_game_dbs] INFO: Renaming conflicting game_id "
+                    f"{game_id} -> {new_game_id} from {src_label}"
+                )
+                game_id = new_game_id
+            else:
+                stats["errors"] += 1
+                print(
+                    f"[merge_game_dbs] ERROR: Unknown on_conflict policy {on_conflict!r}, "
+                    f"skipping game {game_id} from {src_label}"
+                )
+                continue
+
+        # Decode existing metadata_json if present
+        raw_meta_json = game_meta.get("metadata_json")
+        metadata: Dict[str, Any] = {}
+        if raw_meta_json:
+            try:
+                import json
+
+                metadata = json.loads(raw_meta_json)
+            except Exception:
+                metadata = {}
+
+        # Ensure source and provenance tagging
+        if "source" not in metadata:
+            metadata["source"] = game_meta.get("source") or "merged"
+        # Track origin DB for later analysis
+        if "merged_from_db" not in metadata:
+            metadata["merged_from_db"] = src_label
+
+        try:
+            final_state = _load_final_state(
+                src_db,
+                game_meta["game_id"],
+                game_meta,
+                initial_state,
+                moves,
+            )
+            dest_db.store_game(
+                game_id=game_id,
+                initial_state=initial_state,
+                final_state=final_state,
+                moves=moves,
+                metadata=metadata,
+                store_history_entries=True,
+                compress_states=False,
+            )
+            stats["merged"] += 1
+        except Exception as e:
+            stats["errors"] += 1
+            print(
+                f"[merge_game_dbs] ERROR: Failed to merge game {game_meta['game_id']} "
+                f"from {src_label}: {e}"
+            )
+
+    return stats
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Merge multiple GameReplayDB SQLite databases into one."
+    )
+    parser.add_argument(
+        "--db",
+        type=str,
+        action="append",
+        required=True,
+        help="Path to a source SQLite database file. Can be specified multiple times.",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        required=True,
+        help="Destination SQLite database path (created if it does not exist).",
+    )
+    parser.add_argument(
+        "--on-conflict",
+        type=str,
+        choices=["skip", "rename"],
+        default="skip",
+        help=(
+            "Policy when a game_id already exists in the destination DB: "
+            "'skip' (default) or 'rename' to assign a new UUID."
+        ),
+    )
+
+    args = parser.parse_args()
+
+    if not args.db:
+        print("[merge_game_dbs] ERROR: At least one --db source must be provided.")
+        sys.exit(1)
+
+    # Ensure output directory exists
+    out_dir = os.path.dirname(args.output)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    dest_db = GameReplayDB(args.output)
+
+    total_stats = {"total": 0, "merged": 0, "skipped_conflict": 0, "errors": 0}
+
+    print(f"[merge_game_dbs] Merging {len(args.db)} database(s) into {args.output}")
+    for src in args.db:
+        if not os.path.exists(src):
+            print(f"[merge_game_dbs] WARNING: Source DB not found: {src}, skipping")
+            continue
+
+        print(f"[merge_game_dbs] Processing source DB: {src}")
+        stats = _merge_single_db(dest_db, src, on_conflict=args.on_conflict)
+        for key in total_stats:
+            total_stats[key] += stats.get(key, 0)
+
+    print("\n[merge_game_dbs] Merge complete.")
+    print(f"  Total games seen:     {total_stats['total']}")
+    print(f"  Games merged:         {total_stats['merged']}")
+    print(f"  Conflicts skipped:    {total_stats['skipped_conflict']}")
+    print(f"  Errors during merge:  {total_stats['errors']}")
+
+
+if __name__ == "__main__":
+    main()
+

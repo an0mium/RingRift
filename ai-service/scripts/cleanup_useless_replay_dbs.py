@@ -30,9 +30,10 @@ Usage (from ai-service/):
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 from app.db.game_replay import GameReplayDB
 
@@ -99,22 +100,23 @@ def classify_game_structure(db: GameReplayDB, game_id: str) -> Tuple[str, str]:
     )
     return "mid_snapshot", reason
 
-  state0 = db.get_state_at_move(game_id, 0)
-  if state0 is None:
-    return "invalid", "get_state_at_move(0) returned None"
+  # NOTE: get_state_at_move(0) returns state AFTER move 0 is applied, not the
+  # initial state. Comparing initial vs post-move-0 will always show differences
+  # (phase/player/status change after the first move). This is expected and not
+  # a sign of corruption.
+  #
+  # A better consistency check: verify we can replay from initial and the game
+  # has at least one recorded move if it claims to have moves.
+  total_moves = db.get_game_metadata(game_id)
+  if total_moves is None:
+    return "invalid", "no game metadata found"
 
-  if (
-      initial.current_player != state0.current_player
-      or initial.current_phase != state0.current_phase
-      or initial.game_status != state0.game_status
-  ):
-    reason = (
-        "initial_state differs from state_at_move_0: "
-        f"initial_phase={initial.current_phase}, state0_phase={state0.current_phase}, "
-        f"initial_player={initial.current_player}, state0_player={state0.current_player}, "
-        f"initial_status={initial.game_status}, state0_status={state0.game_status}"
-    )
-    return "internal_inconsistent", reason
+  move_count = total_moves.get("total_moves", 0)
+  if move_count > 0:
+    # Verify we can fetch at least the first move
+    moves = db.get_moves(game_id, start=0, end=1)
+    if not moves:
+      return "internal_inconsistent", f"game claims {move_count} moves but get_moves(0,1) is empty"
 
   return "good", ""
 
@@ -134,6 +136,15 @@ def main() -> None:
       default=0,
       help="Optional cap on games inspected per DB (0 = all).",
   )
+  parser.add_argument(
+      "--summary-json",
+      type=str,
+      default=None,
+      help=(
+          "Optional path to write a JSON summary of DB health metrics "
+          "(per-DB structure counts and basic metadata distributions)."
+      ),
+  )
   args = parser.parse_args()
 
   db_paths = find_dbs()
@@ -142,6 +153,7 @@ def main() -> None:
     return
 
   useless_dbs: List[Path] = []
+  per_db_summaries: List[Dict[str, object]] = []
 
   for db_path in db_paths:
     try:
@@ -150,16 +162,51 @@ def main() -> None:
       print(f"[cleanup-useless-replay-dbs] Skipping {db_path}: failed to open ({exc})")
       continue
 
-    games = db.query_games(limit=1000000)
-    if not games:
+    games_all = db.query_games(limit=1000000)
+    if not games_all:
       print(f"[cleanup-useless-replay-dbs] {db_path} has 0 games -> marked useless")
       useless_dbs.append(db_path)
+      per_db_summaries.append(
+          {
+              "db_path": str(db_path),
+              "total_games": 0,
+              "games_inspected": 0,
+              "structure_counts": {},
+              "board_type_counts": {},
+              "num_players_counts": {},
+              "source_counts": {},
+              "termination_reason_counts": {},
+              "marked_useless": True,
+          }
+      )
       continue
 
-    limit = args.limit_games_per_db or len(games)
-    games = games[:limit]
+    # Aggregate basic metadata distributions over all games in this DB.
+    board_type_counts: Dict[str, int] = {}
+    num_players_counts: Dict[int, int] = {}
+    source_counts: Dict[str, int] = {}
+    termination_reason_counts: Dict[str, int] = {}
+
+    for meta in games_all:
+      bt = str(meta.get("board_type") or "")
+      board_type_counts[bt] = board_type_counts.get(bt, 0) + 1
+
+      np = int(meta.get("num_players") or 0)
+      num_players_counts[np] = num_players_counts.get(np, 0) + 1
+
+      src = str(meta.get("source") or "")
+      source_counts[src] = source_counts.get(src, 0) + 1
+
+      term = str(meta.get("termination_reason") or "")
+      termination_reason_counts[term] = termination_reason_counts.get(term, 0) + 1
+
+    # For structural classification we optionally cap the number of games
+    # inspected per DB for performance.
+    limit = args.limit_games_per_db or len(games_all)
+    games = games_all[:limit]
 
     has_good = False
+    structure_counts: Dict[str, int] = {}
     for meta in games:
       game_id = meta["game_id"]
       try:
@@ -169,6 +216,7 @@ def main() -> None:
             f"[cleanup-useless-replay-dbs] {db_path} game {game_id}: classification error ({exc})"
         )
         continue
+      structure_counts[structure] = structure_counts.get(structure, 0) + 1
       if structure == "good":
         has_good = True
         break
@@ -179,15 +227,46 @@ def main() -> None:
           f"in first {limit} inspected -> marked useless"
       )
       useless_dbs.append(db_path)
+      marked_useless = True
+    else:
+      marked_useless = False
+
+    per_db_summaries.append(
+        {
+            "db_path": str(db_path),
+            "total_games": len(games_all),
+            "games_inspected": len(games),
+            "structure_counts": structure_counts,
+            "board_type_counts": board_type_counts,
+            "num_players_counts": num_players_counts,
+            "source_counts": source_counts,
+            "termination_reason_counts": termination_reason_counts,
+            "marked_useless": marked_useless,
+        }
+    )
 
   if not useless_dbs:
     print("[cleanup-useless-replay-dbs] No useless DBs found.")
+    if args.summary_json:
+      summary = {
+          "total_databases": len(db_paths),
+          "databases": per_db_summaries,
+      }
+      with open(args.summary_json, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, sort_keys=True)
     return
 
   if not args.delete:
     print("[cleanup-useless-replay-dbs] Dry run; the following DBs would be deleted:")
     for p in useless_dbs:
       print(f"  - {p}")
+    if args.summary_json:
+      summary = {
+          "total_databases": len(db_paths),
+          "databases": per_db_summaries,
+      }
+      with open(args.summary_json, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, sort_keys=True)
     return
 
   for p in useless_dbs:
@@ -207,7 +286,14 @@ def main() -> None:
         except OSError as exc:
           print(f"[cleanup-useless-replay-dbs] Failed to delete sidecar {sidecar}: {exc}")
 
+  if args.summary_json:
+    summary = {
+        "total_databases": len(db_paths),
+        "databases": per_db_summaries,
+    }
+    with open(args.summary_json, "w", encoding="utf-8") as f:
+      json.dump(summary, f, indent=2, sort_keys=True)
+
 
 if __name__ == "__main__":
   main()
-

@@ -10,6 +10,7 @@ import argparse
 import os
 import random as py_random
 import time
+import uuid
 from datetime import datetime
 from typing import Optional, List, Tuple
 
@@ -22,7 +23,13 @@ from app.models import (
     GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl,
     Player, AIConfig
 )
-from app.training.env import RingRiftEnv, get_theoretical_max_moves
+from app.models.game_record import RecordSource
+from app.training.env import (
+    TrainingEnvConfig,
+    make_env,
+    get_theoretical_max_moves,
+)
+from app.training.game_record_export import build_training_game_record
 from app.training.hex_augmentation import (
     HexSymmetryTransform,
     augment_hex_sample,
@@ -424,6 +431,7 @@ def generate_dataset(
     batch_size: Optional[int] = None,
     replay_db: Optional[GameReplayDB] = None,
     num_players: int = 2,
+    game_records_jsonl: Optional[str] = None,
 ) -> None:
     """
     Generate self-play data using DescentAI and RingRiftEnv.
@@ -453,6 +461,10 @@ def generate_dataset(
         If provided, all games are recorded to this database.
     num_players:
         Number of players in each game (2, 3, or 4). Default: 2.
+    game_records_jsonl:
+        Optional path to a JSONL file. When provided, each completed
+        self-play game is also exported as a canonical GameRecord line
+        suitable for downstream training and analysis pipelines.
     """
     if seed is not None:
         import torch
@@ -491,12 +503,13 @@ def generate_dataset(
 
     print(f"Generating {num_games} {num_players}-player games on {board_type}...")
 
-    env = RingRiftEnv(
+    env_config = TrainingEnvConfig(
         board_type=board_type,
-        max_moves=max_moves,
-        reward_on="terminal",
         num_players=num_players,
+        max_moves=max_moves,
+        reward_mode="terminal",
     )
+    env = make_env(env_config)
 
     # Initialize progress reporter for time-based progress output (~10s intervals)
     progress_reporter = SoakProgressReporter(
@@ -506,6 +519,21 @@ def generate_dataset(
     )
 
     games_recorded = 0
+
+    # Optional JSONL export of per-game GameRecord entries.
+    jsonl_path: Optional[str] = None
+    jsonl_file = None
+    if game_records_jsonl:
+        if not os.path.isabs(game_records_jsonl):
+            jsonl_path = os.path.join(
+                os.path.dirname(__file__),
+                game_records_jsonl,
+            )
+        else:
+            jsonl_path = game_records_jsonl
+        os.makedirs(os.path.dirname(jsonl_path), exist_ok=True)
+        jsonl_file = open(jsonl_path, "a", encoding="utf-8")
+
     for game_idx in range(num_games):
         game_start_time = time.time()
         # Set seed for each game if provided, incrementing to ensure variety
@@ -712,7 +740,10 @@ def generate_dataset(
 
         # Log error/warning for games that hit max_moves without a winner
         if move_count >= max_moves and winner is None:
-            theoretical_max = get_theoretical_max_moves(board_type, 2)  # 2-player games
+            theoretical_max = get_theoretical_max_moves(
+                board_type,
+                num_players,
+            )
             import sys
             if move_count >= theoretical_max:
                 print(
@@ -734,9 +765,10 @@ def generate_dataset(
                 )
 
         # Record game to DB if replay_db is provided
+        recorded_game_id: Optional[str] = None
         if replay_db is not None:
             try:
-                record_completed_game(
+                recorded_game_id = record_completed_game(
                     db=replay_db,
                     initial_state=initial_state,
                     final_state=state,
@@ -787,8 +819,32 @@ def generate_dataset(
             duration_sec=game_duration,
         )
 
-    # Emit final progress summary
+        # Optional JSONL export of a canonical GameRecord for this game.
+        if jsonl_file is not None:
+            game_id = recorded_game_id or f"training-{board_type.value}-{game_idx}-{uuid.uuid4().hex[:8]}"
+            terminated_by_budget_only = (
+                move_count >= max_moves
+                and state.game_status == GameStatus.ACTIVE
+                and winner is None
+            )
+            record = build_training_game_record(
+                game_id=game_id,
+                initial_state=initial_state,
+                final_state=state,
+                moves=moves_for_db,
+                source=RecordSource.SELF_PLAY,
+                rng_seed=game_seed,
+                terminated_by_budget_only=terminated_by_budget_only,
+                created_at=None,
+                tags=["training_data_generation"],
+            )
+            jsonl_file.write(record.to_jsonl_line() + "\n")
+            jsonl_file.flush()
+
+    # Emit final progress summary and close JSONL (if any).
     progress_reporter.finish()
+    if jsonl_file is not None:
+        jsonl_file.close()
 
     # Save data with Experience Replay (Append mode)
     # Use provided output_file, ensuring directory exists
@@ -946,6 +1002,15 @@ def _parse_args() -> argparse.Namespace:
         default=2,
         help="Number of players in each game (default: 2).",
     )
+    parser.add_argument(
+        "--game-records-jsonl",
+        type=str,
+        default=None,
+        help=(
+            "Optional path to write one JSONL GameRecord per completed "
+            "self-play game (canonical schema for training pipelines)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -993,6 +1058,7 @@ def main() -> None:
         batch_size=args.batch_size,
         replay_db=replay_db,
         num_players=args.num_players,
+        game_records_jsonl=args.game_records_jsonl,
     )
 
 

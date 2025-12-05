@@ -77,6 +77,18 @@ model Game {
   // Final game state snapshot for completed games
   finalState Json?      // Complete GameState at game end for replay/analysis
 
+  // Game record metadata for training data pipelines
+  // Contains: source (online_game, self_play, cmaes_optimization, etc.),
+  //           tags[], generation, candidateId, recordVersion
+  recordMetadata Json?
+  
+  // Final score breakdown at game end
+  // Contains: ringsEliminated, territorySpaces, ringsRemaining per player
+  finalScore    Json?
+  
+  // Game outcome type
+  outcome       String?   // ring_elimination, territory_control, last_player_standing, etc.
+
   // Timestamps
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt

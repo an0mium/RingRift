@@ -232,6 +232,76 @@ describeWithLiveServer('Lobby Real-time Integration (requires live server)', () 
     });
   }, 10000);
 
+  it('should continue receiving lobby events after a disconnect and reconnect', (done) => {
+    const reconnectTimeout = setTimeout(() => {
+      if (socket && socket.connected) {
+        socket.disconnect();
+      }
+      done(new Error('Test timed out waiting for lobby:game_created after reconnect'));
+    }, CONNECTION_TIMEOUT * 2);
+
+    // First connection that will disconnect shortly after subscribing.
+    socket = io(WS_URL, {
+      auth: { token: TEST_TOKEN },
+      transports: ['websocket'],
+      timeout: CONNECTION_TIMEOUT,
+    });
+
+    socket.on('connect', () => {
+      socket.emit('lobby:subscribe');
+
+      // After initial subscription, simulate a disconnect and a fresh reconnect.
+      setTimeout(() => {
+        socket.disconnect();
+
+        const reconnectSocket = io(WS_URL, {
+          auth: { token: TEST_TOKEN },
+          transports: ['websocket'],
+          timeout: CONNECTION_TIMEOUT,
+        });
+
+        reconnectSocket.on('connect', () => {
+          reconnectSocket.emit('lobby:subscribe');
+
+          reconnectSocket.on('lobby:game_created', (game) => {
+            clearTimeout(reconnectTimeout);
+            expect(game).toHaveProperty('id');
+            expect(game).toHaveProperty('boardType');
+            reconnectSocket.disconnect();
+            done();
+          });
+
+          // Trigger a game creation after the reconnect has completed.
+          setTimeout(() => {
+            gameApi.createGame({
+              boardType: 'square8',
+              maxPlayers: 2,
+              isRated: false,
+              isPrivate: false,
+              timeControl: {
+                type: 'blitz',
+                initialTime: 300,
+                increment: 0,
+              },
+            });
+          }, 100);
+        });
+
+        reconnectSocket.on('connect_error', (err) => {
+          clearTimeout(reconnectTimeout);
+          reconnectSocket.disconnect();
+          done(new Error(`Reconnection failed: ${err.message}`));
+        });
+      }, 100);
+    });
+
+    socket.on('connect_error', (err) => {
+      clearTimeout(reconnectTimeout);
+      socket.disconnect();
+      done(new Error(`Initial connection failed: ${err.message}`));
+    });
+  }, 20000);
+
   it('should handle multiple concurrent subscribers', (done) => {
     const socket1 = io(WS_URL, {
       auth: { token: TEST_TOKEN },

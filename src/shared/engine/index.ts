@@ -303,7 +303,12 @@ export { calculateCapHeight, countRingsOnBoardForPlayer, countRingsInPlayForPlay
 export { applyMarkerEffectsAlongPathOnBoard } from './core';
 
 // State Hashing & Debugging
-export { hashGameState, summarizeBoard, computeProgressSnapshot } from './core';
+export {
+  hashGameState,
+  hashGameStateSHA256,
+  summarizeBoard,
+  computeProgressSnapshot,
+} from './core';
 
 // =============================================================================
 // LOCAL AI POLICY
@@ -586,6 +591,14 @@ export {
   createProgressFromBoardSummary,
   appendHistoryEntryToState,
 } from './historyHelpers';
+
+// =============================================================================
+// REPLAY HELPERS
+// =============================================================================
+// Location: replayHelpers.ts
+// Shared helpers for reconstructing GameState from canonical GameRecord data
+
+export { reconstructStateAtMove } from './replayHelpers';
 
 // =============================================================================
 // SWAP SIDES (PIE RULE) HELPERS

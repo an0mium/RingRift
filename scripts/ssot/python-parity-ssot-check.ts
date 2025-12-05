@@ -44,8 +44,8 @@ export async function runPythonParitySsotCheck(): Promise<CheckResult> {
     // Python runner
     expectFile('ai-service/tests/contracts/test_contract_vectors.py', projectRoot, problems);
 
-    // Parity requirements doc
-    expectFile('docs/PYTHON_PARITY_REQUIREMENTS.md', projectRoot, problems);
+    // Parity requirements doc now lives under docs/rules/.
+    expectFile('docs/rules/PYTHON_PARITY_REQUIREMENTS.md', projectRoot, problems);
 
     if (problems.length === 0) {
       return {

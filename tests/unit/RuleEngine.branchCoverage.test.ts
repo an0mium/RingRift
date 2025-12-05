@@ -17,6 +17,7 @@ import {
   createTestGameState as createBaseGameState,
   pos,
   addStack,
+  addMarker,
 } from '../utils/fixtures';
 
 // Helper to create a basic BoardManager
@@ -361,6 +362,33 @@ describe('RuleEngine - Branch Coverage', () => {
       const result = ruleEngine.validateMove(move, state);
       expect(typeof result).toBe('boolean');
     });
+
+    it('rejects process_line when formed line does not match any existing player line', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'line_processing';
+      state.currentPlayer = 1;
+
+      // Create a real horizontal line for player 1 so BoardManager detects at least one line.
+      addMarker(state.board, pos(0, 0), 1);
+      addMarker(state.board, pos(1, 0), 1);
+      addMarker(state.board, pos(2, 0), 1);
+      addMarker(state.board, pos(3, 0), 1);
+
+      // Provide a mismatched formedLines[0] that does not correspond to the real line.
+      const bogusLine = {
+        positions: [pos(7, 7)],
+        player: 1,
+      } as any;
+
+      const move: Move = {
+        type: 'process_line',
+        player: 1,
+        formedLines: [bogusLine],
+      } as any;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
   });
 
   // ==========================================================================
@@ -389,11 +417,79 @@ describe('RuleEngine - Branch Coverage', () => {
       const move: Move = {
         type: 'eliminate_rings_from_stack',
         player: 1,
-        from: pos(2, 2),
-        eliminationCount: 1,
+        to: pos(2, 2),
       };
       const result = ruleEngine.validateMove(move, state);
       expect(typeof result).toBe('boolean');
+    });
+
+    it('rejects elimination move when eliminatedRings count is non-positive', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.currentPlayer = 1;
+      addStack(state.board, pos(2, 2), 1, 3);
+
+      const move: Move = {
+        type: 'eliminate_rings_from_stack',
+        player: 1,
+        to: pos(2, 2),
+        eliminatedRings: [{ player: 1, count: 0 }],
+      } as any;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+
+    it('rejects elimination move when eliminatedRings count exceeds cap height', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.currentPlayer = 1;
+      // Height 3 stack → capHeight >= 1
+      addStack(state.board, pos(2, 2), 1, 3);
+
+      const move: Move = {
+        type: 'eliminate_rings_from_stack',
+        player: 1,
+        to: pos(2, 2),
+        eliminatedRings: [{ player: 1, count: 10 }],
+      } as any;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+
+    it('rejects process_territory_region when disconnectedRegions[0] does not match any existing region', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.currentPlayer = 1;
+
+      // Stub BoardManager.findDisconnectedRegions to return a single region
+      // that does not match the one we place on the Move.
+      const regionFromEngine = {
+        spaces: [pos(0, 0)],
+        controllingPlayer: 1,
+        isDisconnected: true,
+      } as any;
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jest
+        .spyOn(boardManager as any, 'findDisconnectedRegions')
+        .mockReturnValue([regionFromEngine]);
+
+      const mismatchedRegion = {
+        spaces: [pos(1, 1)],
+        controllingPlayer: 1,
+        isDisconnected: true,
+      } as any;
+
+      const move: Move = {
+        type: 'process_territory_region',
+        player: 1,
+        disconnectedRegions: [mismatchedRegion],
+      } as any;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
     });
   });
 

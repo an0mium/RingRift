@@ -16,6 +16,11 @@ import { SandboxGameHost } from '../../../src/client/pages/SandboxGameHost';
 import { gameApi } from '../../../src/client/services/api';
 import { serializeGameState } from '../../../src/shared/engine/contracts/serialization';
 
+jest.mock('../../../src/client/hooks/useIsMobile', () => ({
+  __esModule: true,
+  useIsMobile: jest.fn(() => false),
+}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
 // ─────────────────────────────────────────────────────────────────────────────
@@ -36,6 +41,21 @@ const mockGameSyncStart = jest.fn();
 const mockGameSyncStop = jest.fn();
 const mockGameSyncTriggerSync = jest.fn();
 let mockGameSyncSubscribeCallback: ((state: MockSyncState) => void) | null = null;
+
+// Capture the most recent BoardView props so tests can assert that
+// SandboxGameHost wires chainCapturePath and decision highlights as expected.
+let lastBoardViewProps: any = null;
+jest.mock('../../../src/client/components/BoardView', () => {
+  const actual = jest.requireActual('../../../src/client/components/BoardView');
+  return {
+    __esModule: true,
+    ...actual,
+    BoardView: jest.fn((props: any) => {
+      lastBoardViewProps = props;
+      return actual.BoardView(props);
+    }),
+  };
+});
 
 jest.mock('react-router-dom', () => ({
   // Reuse actual exports where possible, but override useNavigate
@@ -255,6 +275,13 @@ function createLocalConfig(overrides: Partial<LocalConfig> = {}): LocalConfig {
   return { ...base, ...overrides };
 }
 
+function setIsMobile(value: boolean) {
+  const mod = require('../../../src/client/hooks/useIsMobile') as {
+    useIsMobile: jest.Mock;
+  };
+  mod.useIsMobile.mockReturnValue(value);
+}
+
 function createMockSandboxContext(overrides: Partial<any> = {}): any {
   const config = createLocalConfig();
   return {
@@ -278,6 +305,10 @@ function createMockSandboxContext(overrides: Partial<any> = {}): any {
     sandboxStateVersion: 0,
     setSandboxStateVersion: jest.fn(),
     sandboxDiagnosticsEnabled: true,
+    developerToolsEnabled: false,
+    setDeveloperToolsEnabled: jest.fn(),
+    developerToolsEnabled: false,
+    setDeveloperToolsEnabled: jest.fn(),
     initLocalSandboxEngine: jest.fn(),
     getSandboxGameState: jest.fn(() => null),
     resetSandboxEngine: jest.fn(),
@@ -300,8 +331,19 @@ function getSquareCell(x: number, y: number): HTMLButtonElement {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('SandboxGameHost (React host behaviour)', () => {
+  // Silence expected console noise from sandbox fallback/error paths so
+  // test output remains focused on assertions.
+  const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+  afterAll(() => {
+    consoleErrorSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
+    lastBoardViewProps = null;
     mockSandboxValue = createMockSandboxContext();
     mockMaybeRunSandboxAiIfNeeded.mockReset();
     mockChoiceResolve.mockReset();
@@ -325,8 +367,10 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
     render(<SandboxGameHost />);
 
-    const launchButton = screen.getByRole('button', { name: /Launch Game/i });
-    fireEvent.click(launchButton);
+    // Use the primary quick-start preset ("Learn the Basics") to kick off
+    // backend sandbox creation, matching the main UX entry point.
+    const quickStartButton = screen.getByRole('button', { name: /Learn the Basics/i });
+    fireEvent.click(quickStartButton);
 
     await waitFor(() => {
       expect(gameApi.createGame).toHaveBeenCalledTimes(1);
@@ -369,8 +413,8 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
     render(<SandboxGameHost />);
 
-    const launchButton = screen.getByRole('button', { name: /Launch Game/i });
-    fireEvent.click(launchButton);
+    const quickStartButton = screen.getByRole('button', { name: /Learn the Basics/i });
+    fireEvent.click(quickStartButton);
 
     await waitFor(() => {
       expect(mockSandboxValue.initLocalSandboxEngine).toHaveBeenCalledTimes(1);
@@ -512,7 +556,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
     expect(setSandboxPendingChoice).toHaveBeenCalledWith(null);
   });
 
-  it('surfaces capture-direction targets in the touch controls panel', () => {
+  it('surfaces capture-direction targets in the touch controls panel and pulses landing cells', () => {
     const sandboxState = createSandboxGameState({
       currentPhase: 'capture',
       gameStatus: 'active',
@@ -556,6 +600,88 @@ describe('SandboxGameHost (React host behaviour)', () => {
     // All capture targets should be listed in the panel.
     expect(panel).toHaveTextContent('(0, 1)');
     expect(panel).toHaveTextContent('(1, 1)');
+
+    // Landing cell should be highlighted as a primary decision target with a
+    // pulsing capture overlay so the next chain-capture segment is obvious.
+    const landingCell = getSquareCell(0, 2);
+    expect(landingCell).toHaveAttribute('data-decision-highlight', 'primary');
+    expect(landingCell.className).toContain('decision-pulse-capture');
+  });
+
+  it('wires capture_direction choices during chain_capture into both BoardView decision highlights and chainCapturePath', () => {
+    // Build a sandbox GameState in the chain_capture phase with a short
+    // capture sequence in moveHistory so SandboxGameHost derives a concrete
+    // chainCapturePath while a capture_direction choice is pending.
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'chain_capture',
+      currentPlayer: 1,
+      gameStatus: 'active',
+    });
+
+    sandboxState.moveHistory = [
+      {
+        id: 'm1',
+        type: 'overtaking_capture',
+        player: 1,
+        from: { x: 0, y: 0 },
+        captureTarget: { x: 0, y: 1 },
+        to: { x: 0, y: 2 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      } as any,
+      {
+        id: 'm2',
+        type: 'continue_capture_segment',
+        player: 1,
+        from: { x: 0, y: 2 },
+        captureTarget: { x: 0, y: 3 },
+        to: { x: 0, y: 4 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 2,
+      } as any,
+    ];
+
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+    };
+
+    const captureChoice: PlayerChoice = {
+      id: 'cap-2',
+      playerNumber: 1,
+      type: 'capture_direction',
+      prompt: 'Continue capture?',
+      timeoutMs: undefined,
+      options: [
+        {
+          targetPosition: { x: 0, y: 3 },
+          landingPosition: { x: 0, y: 4 },
+          capturedCapHeight: 1,
+        },
+      ],
+    } as any;
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+      sandboxCaptureChoice: captureChoice,
+      sandboxCaptureTargets: [{ x: 0, y: 3 }],
+    });
+
+    render(<SandboxGameHost />);
+
+    // BoardView should receive a non-empty chainCapturePath derived from the
+    // chain-capture moves, while also seeing capture_direction decision
+    // highlights in its viewModel.
+    expect(lastBoardViewProps).not.toBeNull();
+    const { chainCapturePath, viewModel } = lastBoardViewProps;
+
+    expect(Array.isArray(chainCapturePath)).toBe(true);
+    expect(chainCapturePath.length).toBeGreaterThanOrEqual(2);
+
+    expect(viewModel?.decisionHighlights?.choiceKind).toBe('capture_direction');
   });
 
   it('applies decision-phase highlights to the sandbox BoardView when a pending choice is active', () => {
@@ -592,6 +718,10 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
     const highlightedCell = getSquareCell(0, 0);
     expect(highlightedCell).toHaveAttribute('data-decision-highlight', 'primary');
+    expect(highlightedCell.className).toContain('decision-pulse-elimination');
+
+    const stackPulse = highlightedCell.querySelector('.decision-elimination-stack-pulse');
+    expect(stackPulse).toBeInTheDocument();
   });
 
   it('surfaces territory region_order chip and highlights the full region in the sandbox BoardView and touch controls', () => {
@@ -659,10 +789,12 @@ describe('SandboxGameHost (React host behaviour)', () => {
     expect(touchControls).toHaveTextContent(decisionHintText);
 
     // All cells in the disconnected region should be highlighted as primary
-    // decision targets to make the territory geometry visible.
+    // decision targets with a pulsing green overlay so the territory geometry
+    // is clearly visible.
     for (const p of regionSpaces) {
       const cell = getSquareCell(p.x, p.y);
       expect(cell).toHaveAttribute('data-decision-highlight', 'primary');
+      expect(cell.className).toContain('decision-pulse-territory');
     }
   });
 
@@ -705,7 +837,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
         type: 'place_ring',
         player: 1,
         from: undefined,
-        to: { x: 0, y: 0, z: null },
+        to: { x: 0, y: 0 },
         placedOnStack: false,
         placementCount: 1,
         timestamp: now,
@@ -717,7 +849,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
         type: 'eliminate_rings_from_stack',
         player: 1,
         from: undefined,
-        to: { x: 0, y: 0, z: null },
+        to: { x: 0, y: 0 },
         timestamp: now,
         thinkTime: 0,
         moveNumber: 2,
@@ -809,6 +941,28 @@ describe('SandboxGameHost (React host behaviour)', () => {
     expect(board.querySelector('svg')).not.toBeNull();
   });
 
+  it('renders MobileGameHUD instead of GameHUD on mobile viewports', () => {
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'movement',
+      gameStatus: 'active',
+    });
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+    };
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+    });
+
+    setIsMobile(true);
+
+    const { container } = render(<SandboxGameHost />);
+
+    expect(container.querySelector('[data-testid="mobile-game-hud"]')).not.toBeNull();
+  });
+
   // ───────────────────────────────────────────────────────────────────────────
   // 5. Stall warning + AI trace diagnostics
   // ───────────────────────────────────────────────────────────────────────────
@@ -828,6 +982,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
     mockSandboxValue = createMockSandboxContext({
       isConfigured: true,
       sandboxEngine: engine,
+      developerToolsEnabled: true,
       sandboxStallWarning:
         'Potential AI stall detected: sandbox AI has not advanced the game state for several seconds while an AI player is to move.',
       setSandboxStallWarning,
@@ -938,6 +1093,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
     mockSandboxValue = createMockSandboxContext({
       isConfigured: true,
       sandboxEngine: engine,
+      developerToolsEnabled: true,
     });
 
     const mockResponseData = {
@@ -960,6 +1116,8 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
     render(<SandboxGameHost />);
 
+    // Developer tools are enabled via the mocked sandbox context so the
+    // AI evaluation panel is visible by default.
     const evalButton = screen.getByRole('button', { name: /Request evaluation/i });
     fireEvent.click(evalButton);
 
@@ -990,10 +1148,10 @@ describe('SandboxGameHost (React host behaviour)', () => {
       getVictoryResult: jest.fn(() => null as GameResult | null),
       getSerializedState: jest.fn(() => ({ dummy: 'state' }) as any),
     };
-
     mockSandboxValue = createMockSandboxContext({
       isConfigured: true,
       sandboxEngine: engine,
+      developerToolsEnabled: true,
     });
 
     const originalFetch = (global as any).fetch;
@@ -1006,6 +1164,8 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
     render(<SandboxGameHost />);
 
+    // Developer tools are enabled via the mocked sandbox context so the
+    // AI evaluation panel is visible by default.
     const evalButton = screen.getByRole('button', { name: /Request evaluation/i });
     fireEvent.click(evalButton);
 
@@ -1383,8 +1543,9 @@ describe('SandboxGameHost (React host behaviour)', () => {
     // Simulate a later successful sync that clears all pending games by
     // invoking the subscribed callback with a zero-pending state.
     if (mockGameSyncSubscribeCallback) {
+      const callback = mockGameSyncSubscribeCallback;
       act(() => {
-        mockGameSyncSubscribeCallback({
+        callback({
           status: 'idle',
           pendingCount: 0,
           lastSyncAttempt: new Date(),

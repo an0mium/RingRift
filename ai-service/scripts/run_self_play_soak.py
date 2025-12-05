@@ -77,7 +77,8 @@ from app.models import (  # type: ignore  # noqa: E402
     MoveType,
 )
 from app.training.env import (  # type: ignore  # noqa: E402
-    RingRiftEnv,
+    TrainingEnvConfig,
+    make_env,
     TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD,
     get_theoretical_max_moves,
 )
@@ -102,6 +103,11 @@ VIOLATION_TYPE_TO_INVARIANT_ID: Dict[str, str] = {
 }
 
 MAX_INVARIANT_VIOLATION_SAMPLES = 50
+
+# Last computed timing profile for the most recent soak run. This is
+# populated only when --profile-timing is enabled and is consumed by the
+# CLI entrypoint when attaching timing data to summary_json payloads.
+_LAST_TIMING_PROFILE: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -249,11 +255,18 @@ def _build_mixed_ai_pool(
         from app.ai.descent_ai import DescentAI  # type: ignore
 
         for pnum in player_numbers:
+            # For soak-style runs, default to heuristic-only Descent unless
+            # callers explicitly opt into neural-network evaluation via
+            # AIConfig.use_neural_net or environment flags. This keeps
+            # long self-play jobs from eagerly loading heavy CNN weights on
+            # developer machines while preserving backwards-compatible
+            # behaviour for other DescentAI callers.
             cfg = AIConfig(
                 difficulty=5,
                 think_time=0,
                 randomness=0.1,
                 rngSeed=(base_seed or 0) + pnum + game_index,
+                use_neural_net=False,
             )
             ai_by_player[pnum] = DescentAI(pnum, cfg)
         return ai_by_player
@@ -335,6 +348,7 @@ def run_self_play_soak(
     base_seed = args.seed
     difficulty_band = getattr(args, "difficulty_band", "canonical")
     gc_interval = getattr(args, "gc_interval", 0)
+    profile_timing = getattr(args, "profile_timing", False)
 
     # Optional state-pool configuration. getattr() is used so that existing
     # callers that construct an argparse.Namespace manually without these
@@ -397,6 +411,18 @@ def run_self_play_soak(
     square19_state_pool_sampled = 0
     hex_state_pool_sampled = 0
 
+    # Optional lightweight timing profile across the soak run. When
+    # profile_timing is False, the dict remains unused and no extra
+    # time measurements are taken in the inner loop.
+    timing_totals: Dict[str, float] = {
+        "env_reset": 0.0,
+        "ai_build": 0.0,
+        "move_select": 0.0,
+        "env_step": 0.0,
+        "db_record": 0.0,
+    }
+    total_moves_across_games = 0
+
     # Precompute per-board pool-enable flags so that the inner loop can
     # cheaply skip sampling logic when pools are disabled.
     square8_pool_enabled = bool(
@@ -423,12 +449,13 @@ def run_self_play_soak(
     replay_db = get_or_create_db(record_db_path) if record_db_path else None
     games_recorded = 0
 
-    env = RingRiftEnv(
+    env_config = TrainingEnvConfig(
         board_type=board_type,
-        max_moves=max_moves,
-        reward_on="terminal",
         num_players=num_players,
+        max_moves=max_moves,
+        reward_mode="terminal",
     )
+    env = make_env(env_config)
 
     records: List[GameRecord] = []
     invariant_violation_samples: List[Dict[str, Any]] = []
@@ -445,7 +472,11 @@ def run_self_play_soak(
             game_start_time = time.time()
             game_seed = None if base_seed is None else base_seed + game_idx
             try:
+                if profile_timing:
+                    t0 = time.time()
                 state: GameState = env.reset(seed=game_seed)
+                if profile_timing:
+                    timing_totals["env_reset"] += time.time() - t0
             except Exception as exc:  # pragma: no cover - defensive
                 rec = GameRecord(
                     index=game_idx,
@@ -466,6 +497,8 @@ def run_self_play_soak(
                 continue
 
             player_numbers = [p.player_number for p in state.players]
+            if profile_timing:
+                t_ai_start = time.time()
             ai_by_player = _build_mixed_ai_pool(
                 game_idx,
                 player_numbers,
@@ -474,6 +507,8 @@ def run_self_play_soak(
                 board_type,
                 difficulty_band=difficulty_band,
             )
+            if profile_timing:
+                timing_totals["ai_build"] += time.time() - t_ai_start
 
             move_count = 0
             termination_reason = "unknown"
@@ -516,8 +551,11 @@ def run_self_play_soak(
                 if ai is None:
                     termination_reason = "no_ai_for_current_player"
                     break
-
+                if profile_timing:
+                    t_sel_start = time.time()
                 move = ai.select_move(state)
+                if profile_timing:
+                    timing_totals["move_select"] += time.time() - t_sel_start
                 if not move:
                     termination_reason = "ai_returned_no_move"
                     break
@@ -526,7 +564,11 @@ def run_self_play_soak(
                     swap_sides_moves_for_game += 1
 
                 try:
+                    if profile_timing:
+                        t_step_start = time.time()
                     state, _reward, done, _info = env.step(move)
+                    if profile_timing:
+                        timing_totals["env_step"] += time.time() - t_step_start
                     last_move = move
                     # Collect move for game recording
                     if replay_db:
@@ -537,6 +579,8 @@ def run_self_play_soak(
                     break
 
                 move_count += 1
+                if profile_timing:
+                    total_moves_across_games += 1
 
                 # Progress invariants:
                 # INV-S-MONOTONIC / INV-ELIMINATION-MONOTONIC
@@ -803,6 +847,8 @@ def run_self_play_soak(
             # Record full game to database if enabled
             if replay_db and initial_state_for_recording is not None:
                 try:
+                    if profile_timing:
+                        t_db_start = time.time()
                     game_id = record_completed_game(
                         db=replay_db,
                         initial_state=initial_state_for_recording,
@@ -814,8 +860,18 @@ def run_self_play_soak(
                             "difficulty_band": difficulty_band,
                             "termination_reason": termination_reason,
                             "rng_seed": game_seed,
+                            # Golden-game and diagnostics hooks:
+                            # persist invariant violation counts and pie-rule
+                            # usage so downstream tooling can mine interesting
+                            # traces (for example, games that exercised the
+                            # swap rule or violated invariants).
+                            "invariant_violations_by_type": per_game_violations,
+                            "swap_sides_moves": swap_sides_moves_for_game,
+                            "used_pie_rule": swap_sides_moves_for_game > 0,
                         },
                     )
+                    if profile_timing:
+                        timing_totals["db_record"] += time.time() - t_db_start
                     games_recorded += 1
                 except Exception as exc:  # pragma: no cover - defensive
                     # DB recording must never break the soak loop
@@ -856,6 +912,77 @@ def run_self_play_soak(
             f"[record-db] Recorded {games_recorded}/{num_games} games "
             f"to {record_db_path}",
             flush=True,
+        )
+
+    if profile_timing and records:
+        total_games_run = len(records)
+        total_moves = total_moves_across_games
+
+        # Build a structured timing profile so callers (including the CLI
+        # entrypoint) can persist this alongside other soak summary data.
+        timing_profile: Dict[str, Any] = {
+            "total_games": total_games_run,
+            "total_moves": total_moves,
+            "env_reset": {
+                "total_sec": timing_totals["env_reset"],
+                "avg_per_game_sec": (
+                    timing_totals["env_reset"] / max(total_games_run, 1)
+                ),
+            },
+            "ai_build": {
+                "total_sec": timing_totals["ai_build"],
+                "avg_per_game_sec": (
+                    timing_totals["ai_build"] / max(total_games_run, 1)
+                ),
+            },
+            "db_record": {
+                "total_sec": timing_totals["db_record"],
+                "avg_per_game_sec": (
+                    timing_totals["db_record"] / max(total_games_run, 1)
+                ),
+            },
+        }
+
+        if total_moves > 0:
+            timing_profile["move_select"] = {
+                "total_sec": timing_totals["move_select"],
+                "avg_per_move_sec": (
+                    timing_totals["move_select"] / total_moves
+                ),
+            }
+            timing_profile["env_step"] = {
+                "total_sec": timing_totals["env_step"],
+                "avg_per_move_sec": (
+                    timing_totals["env_step"] / total_moves
+                ),
+            }
+
+        # Stash for consumption by the CLI entrypoint.
+        global _LAST_TIMING_PROFILE
+        _LAST_TIMING_PROFILE = timing_profile
+
+        # Also emit a human-readable summary for interactive runs.
+        print("[profile] Timing summary (seconds):")
+        print(
+            f"  env.reset:  total={timing_totals['env_reset']:.3f}, "
+            f"avg_per_game={timing_totals['env_reset'] / max(total_games_run, 1):.3f}"
+        )
+        print(
+            f"  AI build:   total={timing_totals['ai_build']:.3f}, "
+            f"avg_per_game={timing_totals['ai_build'] / max(total_games_run, 1):.3f}"
+        )
+        if total_moves > 0:
+            print(
+                f"  select_move: total={timing_totals['move_select']:.3f}, "
+                f"avg_per_move={timing_totals['move_select'] / total_moves:.6f}"
+            )
+            print(
+                f"  env.step:    total={timing_totals['env_step']:.3f}, "
+                f"avg_per_move={timing_totals['env_step'] / total_moves:.6f}"
+            )
+        print(
+            f"  DB record:  total={timing_totals['db_record']:.3f}, "
+            f"avg_per_game={timing_totals['db_record'] / max(total_games_run, 1):.3f}"
         )
 
     return records, invariant_violation_samples
@@ -1235,6 +1362,15 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--profile-timing",
+        action="store_true",
+        help=(
+            "If set, collect a lightweight timing profile for env.reset, AI "
+            "construction, move selection, env.step, and optional DB writes "
+            "across the soak run and print a summary at the end."
+        ),
+    )
+    parser.add_argument(
         "--fail-on-anomaly",
         action="store_true",
         help=(
@@ -1375,6 +1511,7 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
             "gc_interval": args.gc_interval,
             "strict_no_move_invariant": bool(STRICT_NO_MOVE_INVARIANT),
             "profile": profile,
+            "profile_timing": getattr(args, "profile_timing", False),
         }
 
         print("Self-play soak harness starting with config:")
@@ -1383,6 +1520,8 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
         records, invariant_samples = run_self_play_soak(args)
         summary = _summarise(records, invariant_samples)
         summary["config"] = config_summary
+        if getattr(args, "profile_timing", False) and _LAST_TIMING_PROFILE is not None:
+            summary["timing_profile"] = _LAST_TIMING_PROFILE
 
     elif profile == "ai-healthcheck":
         # Dedicated multi-board AI self-play health-check profile. This variant
@@ -1403,6 +1542,8 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
         )
 
         records, summary = run_ai_healthcheck_profile(args)
+        if getattr(args, "profile_timing", False) and _LAST_TIMING_PROFILE is not None:
+            summary.setdefault("timing_profile", _LAST_TIMING_PROFILE)
 
     else:
         config_summary = {
@@ -1418,6 +1559,7 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
             "gc_interval": args.gc_interval,
             "strict_no_move_invariant": bool(STRICT_NO_MOVE_INVARIANT),
             "profile": profile,
+            "profile_timing": getattr(args, "profile_timing", False),
         }
 
         print("Self-play soak harness starting with config:")
@@ -1426,6 +1568,8 @@ def main() -> None:  # pragma: no cover - CLI entrypoint
         records, invariant_samples = run_self_play_soak(args)
         summary = _summarise(records, invariant_samples)
         summary["config"] = config_summary
+        if getattr(args, "profile_timing", False) and _LAST_TIMING_PROFILE is not None:
+            summary["timing_profile"] = _LAST_TIMING_PROFILE
 
     heading = (
         "AI self-play healthcheck summary"

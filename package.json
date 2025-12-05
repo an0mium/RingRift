@@ -17,6 +17,8 @@
     "soak:orchestrator:deep": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/run-orchestrator-soak.ts --profile=local-deep --failOnViolation=true",
     "soak:orchestrator:nightly": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/run-orchestrator-soak.ts --profile=local-deep --outputPath=results/orchestrator_soak_nightly.json --failOnViolation",
     "load:orchestrator:smoke": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/orchestrator-load-smoke.ts",
+    "load:websocket:gameplay:smoke": "BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 npx k6 run tests/load/scenarios/websocket-gameplay.js",
+    "load:websocket:gameplay:throughput": "ENABLE_WS_GAMEPLAY_THROUGHPUT=true BASE_URL=http://localhost:3000 WS_URL=ws://localhost:3000 npx k6 run tests/load/scenarios/websocket-gameplay.js",
     "smoke:orchestrator:preflight": "npm run soak:orchestrator:smoke && npm run load:orchestrator:smoke && npm run test:e2e -- tests/e2e/metrics.e2e.spec.ts",
     "build": "npm run build:server && npm run build:client",
     "build:server": "tsc -p tsconfig.server.json",
@@ -80,7 +82,8 @@
     "validate:deployment": "npx ts-node scripts/validate-deployment-config.ts",
     "validate:monitoring": "scripts/validate-monitoring-configs.sh",
     "ssot-check": "npx ts-node scripts/ssot/ssot-check.ts",
-    "orchestrator:gating": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/run-orchestrator-gating.ts"
+    "orchestrator:gating": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/run-orchestrator-gating.ts",
+    "dev:doctor": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/dev_doctor.ts"
   },
   "keywords": [
     "game",

@@ -37,20 +37,41 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
 import { loginAndGetToken } from '../auth/helpers.js';
+import { makeHandleSummary } from '../summary.js';
+
+const thresholdsConfig = JSON.parse(open('../config/thresholds.json'));
+
+// Classification metrics shared across load scenarios
+export const contractFailures = new Counter('contract_failures_total');
+export const idLifecycleMismatches = new Counter('id_lifecycle_mismatches_total');
+export const capacityFailures = new Counter('capacity_failures_total');
 
  // Custom metrics aligned with STRATEGIC_ROADMAP metrics
  const moveSubmissionLatency = new Trend('move_submission_latency_ms');
  const moveSubmissionSuccess = new Rate('move_submission_success_rate');
  const moveProcessingErrors = new Counter('move_processing_errors');
  const turnProcessingLatency = new Trend('turn_processing_latency_ms');
- const stalledMoves = new Counter('stalled_moves_total'); // >2s threshold per STRATEGIC_ROADMAP
+ // Alias for Prometheus-facing game move latency naming; this keeps
+ // thresholds.json.alert_correlation aligned with the k6 metric name.
+ const gameMoveLatency = new Trend('game_move_latency_ms');
+ // Track stalled moves as a Rate so we can express thresholds as a fraction
+ // of total moves, aligned with stall_rate_percent in thresholds.json.
+ const stalledMoves = new Rate('stalled_moves_total');
  const movesAttemptedTotal = new Counter('moves_attempted_total');
 
-// Lifecycle tuning for how long a single gameId should be polled by this scenario.
-// MAX_POLLS_PER_GAME can be overridden via the GAME_MAX_POLLS env var without
-// changing the script.
-const TERMINAL_GAME_STATUSES = ['completed', 'abandoned', 'finished'];
-const MAX_POLLS_PER_GAME = Number(__ENV.GAME_MAX_POLLS || 60);
+ // Lifecycle tuning for how long a single gameId should be polled by this scenario.
+ // MAX_POLLS_PER_GAME can be overridden via the GAME_MAX_POLLS env var without
+ // changing the script.
+ const TERMINAL_GAME_STATUSES = ['completed', 'abandoned', 'finished'];
+ const MAX_POLLS_PER_GAME = Number(__ENV.GAME_MAX_POLLS || 60);
+
+ // Threshold configuration derived from thresholds.json
+ const THRESHOLD_ENV = __ENV.THRESHOLD_ENV || 'staging';
+ const perfEnv =
+   thresholdsConfig.environments[THRESHOLD_ENV] || thresholdsConfig.environments.staging;
+ const loadTestEnv =
+   thresholdsConfig.load_tests[THRESHOLD_ENV] || thresholdsConfig.load_tests.staging;
+ const moveSubmission = perfEnv.websocket_gameplay.move_submission;
 
  // Test configuration
  const moveHarnessEnabledForThresholds = (() => {
@@ -61,14 +82,18 @@ const MAX_POLLS_PER_GAME = Number(__ENV.GAME_MAX_POLLS || 60);
  const thresholds = {};
  
  if (moveHarnessEnabledForThresholds) {
-   // Move submission latency - staging SLOs from STRATEGIC_ROADMAP §2.2
+   // Move submission latency - staging SLOs from STRATEGIC_ROADMAP §2.2,
+   // aligned with websocket_gameplay.move_submission in thresholds.json.
    thresholds['move_submission_latency_ms'] = [
-     'p(95)<300', // Staging: 95% ≤ 300ms
-     'p(99)<600', // Staging: 99% ≤ 600ms
+     `p(95)<${moveSubmission.end_to_end_latency_p95_ms}`,
+     `p(99)<${moveSubmission.end_to_end_latency_p99_ms}`,
    ];
  
-   // Stall rate - moves taking >2s should be rare
-   thresholds['stalled_moves_total'] = ['count<10']; // ~0.5% for staging (assuming ~2000 moves)
+   // Stall rate - moves taking > stall_threshold_ms should be rare. We track
+   // this as a Rate so we can enforce the stall_rate_percent budget directly.
+   thresholds['stalled_moves_total'] = [
+     `rate<${moveSubmission.stall_rate_percent / 100}`,
+   ];
  
    // Success rate in harness mode; tolerate occasional failures while still
    // catching systemic transport/validation issues.
@@ -78,10 +103,19 @@ const MAX_POLLS_PER_GAME = Number(__ENV.GAME_MAX_POLLS || 60);
    // the harness by making at least one move attempt.
    thresholds['moves_attempted_total'] = ['count>0'];
  
-   // Turn processing (includes validation + state update)
+   // Turn processing (includes validation + state update), aligned with
+   // server_processing_* thresholds.
    thresholds['turn_processing_latency_ms'] = [
-     'p(95)<400',
-     'p(99)<800',
+     `p(95)<${moveSubmission.server_processing_p95_ms}`,
+     `p(99)<${moveSubmission.server_processing_p99_ms}`,
+   ];
+ 
+   // Alias threshold for game_move_latency_ms so that alert_correlation in
+   // thresholds.json can reliably map this Trend to the HighGameMoveLatency
+   // alert using the same server_processing_* SLOs.
+   thresholds['game_move_latency_ms'] = [
+     `p(95)<${moveSubmission.server_processing_p95_ms}`,
+     `p(99)<${moveSubmission.server_processing_p99_ms}`,
    ];
  }
  
@@ -105,12 +139,22 @@ const MAX_POLLS_PER_GAME = Number(__ENV.GAME_MAX_POLLS || 60);
      },
    },
  
-   thresholds,
+   thresholds: {
+     ...thresholds,
+     // Classification counters are always enforced for this scenario so that
+     // contract and capacity issues surface clearly regardless of whether the
+     // HTTP move harness is enabled.
+     contract_failures_total: [`count<=${loadTestEnv.contract_failures_total.max}`],
+     id_lifecycle_mismatches_total: [
+       `count<=${loadTestEnv.id_lifecycle_mismatches_total.max}`,
+     ],
+     capacity_failures_total: [`rate<${loadTestEnv.capacity_failures_total.rate}`],
+   },
  
    tags: {
      scenario: 'player-moves',
      test_type: 'load',
-     environment: 'staging',
+     environment: THRESHOLD_ENV,
    },
  };
 
@@ -155,14 +199,24 @@ export function setup() {
   const { token, userId } = loginAndGetToken(BASE_URL, {
     apiPrefix: API_PREFIX,
     tags: { name: 'auth-login-setup' },
+    metrics: {
+      contractFailures,
+      capacityFailures,
+    },
   });
 
   return { baseUrl: BASE_URL, token, userId };
 }
 
-export default function(data) {
+export default function (data) {
   const baseUrl = data.baseUrl;
   const token = data.token;
+
+  if (!token) {
+    capacityFailures.add(1);
+    sleep(1);
+    return;
+  }
 
   // Step 1: Setup - Create game once per VU using the canonical create-game payload
   if (!myGameId) {
@@ -203,7 +257,21 @@ export default function(data) {
       const body = JSON.parse(createRes.body);
       const game = body && body.data && body.data.game ? body.data.game : null;
       createdGameId = game ? game.id : null;
-    } catch {
+
+      if (game) {
+        // Ensure the create-game response matches the payload contract.
+        if (
+          game.boardType !== createPayload.boardType ||
+          game.maxPlayers !== createPayload.maxPlayers
+        ) {
+          contractFailures.add(1);
+        }
+
+        if (game.aiOpponents && game.aiOpponents.count > 0 && game.isRated !== false) {
+          contractFailures.add(1);
+        }
+      }
+    } catch (e) {
       createdGameId = null;
     }
 
@@ -212,6 +280,7 @@ export default function(data) {
       myGamePollCount = 0;
       console.log(`VU ${__VU}: Created game ${myGameId}`);
     } else {
+      classifyCreateGameFailure(createRes, createdGameId);
       console.error(
         `VU ${__VU}: Game creation failed - status=${createRes.status} body=${createRes.body}`
       );
@@ -219,164 +288,172 @@ export default function(data) {
     }
   }
 
-   // Step 2: Poll game state and (optionally) submit HTTP "moves"
-    if (myGameId && token) {
-      // Get current game state
-      const stateRes = http.get(`${baseUrl}${API_PREFIX}/games/${myGameId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-  
-      let game = null;
-      let retireGameId = false;
-  
-      if (stateRes.status === 200) {
-        try {
-          const body = JSON.parse(stateRes.body);
-          game = body && body.data && body.data.game ? body.data.game : null;
-        } catch {
-          game = null;
-        }
-  
-        if (!game) {
-          moveProcessingErrors.add(1);
-          console.error(
-            `VU ${__VU}: Failed to parse game state for ${myGameId} from 200 response: ${stateRes.body}`
-          );
-          retireGameId = true;
-        } else {
-          // Check if game is still active/pollable
-          const status = game.status;
-          const isTerminalStatus = TERMINAL_GAME_STATUSES.indexOf(status) !== -1;
-  
-          if (isTerminalStatus) {
-            console.log(`VU ${__VU}: Game ${myGameId} ended with status ${status}`);
-            retireGameId = true;
-          } else if (status !== 'active' && status !== 'waiting' && status !== 'paused') {
-            // Unknown non-terminal status; keep polling but log once for diagnostics.
-            console.warn(
-              `VU ${__VU}: Game ${myGameId} in unexpected non-terminal status ${status}; continuing to poll`
-            );
-          }
-  
-          myGamePollCount += 1;
-  
-          // Guardrail: even if a game remains in a non-terminal state, stop
-          // polling it after a bounded number of checks so we do not keep very
-          // old IDs hot forever.
-          if (!isTerminalStatus && myGamePollCount >= MAX_POLLS_PER_GAME) {
-            retireGameId = true;
-            console.log(
-              `VU ${__VU}: Retiring game ${myGameId} after ${myGamePollCount} polls (lifecycle budget reached)`
-            );
-          }
-        }
-      } else if (stateRes.status === 404) {
-        // The game ID came from POST /api/games but the row is no longer present.
-        // Treat as "expired/cleaned up" and retire this ID so we stop polling it.
+  // Step 2: Poll game state and (optionally) submit HTTP "moves"
+  if (myGameId && token) {
+    // Get current game state
+    const pollCountBefore = myGamePollCount;
+    const stateRes = http.get(`${baseUrl}${API_PREFIX}/games/${myGameId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    let game = null;
+    let retireGameId = false;
+
+    if (stateRes.status === 200) {
+      try {
+        const body = JSON.parse(stateRes.body);
+        game = body && body.data && body.data.game ? body.data.game : null;
+      } catch (e) {
+        game = null;
+      }
+
+      if (!game) {
         moveProcessingErrors.add(1);
-        retireGameId = true;
-        console.log(
-          `VU ${__VU}: Game ${myGameId} not found (404); treating as expired and stopping polling for this ID`
-        );
-      } else if (stateRes.status === 400) {
-        // 400 implies an invalid gameId format. Since IDs originate from
-        // POST /api/games, this indicates a scenario bug rather than expected
-        // backend behaviour.
-        moveProcessingErrors.add(1);
-        retireGameId = true;
+        contractFailures.add(1);
         console.error(
-          `VU ${__VU}: Received 400 for GET /api/games/${myGameId}; invalid ID format indicates a scenario bug`
+          `VU ${__VU}: Failed to parse game state for ${myGameId} from 200 response: ${stateRes.body}`
         );
-      } else if (stateRes.status === 429) {
-        // Rate limiting at high concurrency is expected; keep the ID and allow a
-        // later iteration to retry.
-        moveProcessingErrors.add(1);
-        console.warn(
-          `VU ${__VU}: Rate limited when fetching game ${myGameId} (429); backend capacity limit reached`
-        );
+        retireGameId = true;
+      } else {
+        // Check if game is still active/pollable
+        const status = game.status;
+        const isTerminalStatus = TERMINAL_GAME_STATUSES.indexOf(status) !== -1;
+
+        if (isTerminalStatus) {
+          console.log(`VU ${__VU}: Game ${myGameId} ended with status ${status}`);
+          retireGameId = true;
+        } else if (status !== 'active' && status !== 'waiting' && status !== 'paused') {
+          // Unknown non-terminal status; keep polling but log for diagnostics.
+          console.warn(
+            `VU ${__VU}: Game ${myGameId} in unexpected non-terminal status ${status}; continuing to poll`
+          );
+        }
+
+        myGamePollCount += 1;
+
+        // Guardrail: even if a game remains in a non-terminal state, stop
+        // polling it after a bounded number of checks so we do not keep very
+        // old IDs hot forever.
+        if (!isTerminalStatus && myGamePollCount >= MAX_POLLS_PER_GAME) {
+          retireGameId = true;
+          console.log(
+            `VU ${__VU}: Retiring game ${myGameId} after ${myGamePollCount} polls (lifecycle budget reached)`
+          );
+        }
+      }
+    } else if (stateRes.status === 404) {
+      // The game ID came from POST /api/games but the row is no longer present.
+      // Treat as "expired/cleaned up" and retire this ID so we stop polling it.
+      moveProcessingErrors.add(1);
+      retireGameId = true;
+      classifyGameStateFailure(stateRes, pollCountBefore);
+      console.log(
+        `VU ${__VU}: Game ${myGameId} not found (404); treating as expired and stopping polling for this ID`
+      );
+    } else if (stateRes.status === 400) {
+      // 400 implies an invalid gameId format. Since IDs originate from
+      // POST /api/games, this indicates a scenario bug rather than expected
+      // backend behaviour.
+      moveProcessingErrors.add(1);
+      retireGameId = true;
+      classifyGameStateFailure(stateRes, pollCountBefore);
+      console.error(
+        `VU ${__VU}: Received 400 for GET /api/games/${myGameId}; invalid ID format indicates a scenario bug`
+      );
+    } else if (stateRes.status === 429) {
+      // Rate limiting at high concurrency is expected; keep the ID and allow a
+      // later iteration to retry.
+      moveProcessingErrors.add(1);
+      classifyGameStateFailure(stateRes, pollCountBefore);
+      console.warn(
+        `VU ${__VU}: Rate limited when fetching game ${myGameId} (429); backend capacity limit reached`
+      );
+    } else {
+      moveProcessingErrors.add(1);
+      classifyGameStateFailure(stateRes, pollCountBefore);
+      console.error(
+        `VU ${__VU}: Unexpected status ${stateRes.status} when fetching game ${myGameId} - body=${stateRes.body}`
+      );
+    }
+
+    if (retireGameId) {
+      myGameId = null;
+      myGamePollCount = 0;
+      // Simulate a player briefly reviewing the final state before starting a new game.
+      sleep(5);
+      return;
+    }
+
+    if (!game) {
+      // We already counted an error and handled retirement above where relevant.
+      sleep(2);
+      return;
+    }
+
+    if (MOVE_HTTP_ENDPOINT_ENABLED) {
+      // Submit a real move via the internal HTTP move harness endpoint.
+      // The payload conforms to the shared MoveSchema used by both the
+      // harness and the WebSocket player_move path.
+      const movePayload = generateRandomMove(game);
+
+      const moveStart = Date.now();
+      movesAttemptedTotal.add(1);
+
+      const moveRes = http.post(
+        `${baseUrl}${API_PREFIX}/games/${myGameId}/moves`,
+        JSON.stringify(movePayload),
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          tags: { name: 'submit-move' },
+        }
+      );
+      const moveLatency = Date.now() - moveStart;
+
+      // Track metrics
+      moveSubmissionLatency.add(moveLatency);
+
+      const moveSuccess = check(moveRes, {
+        'move accepted': (r) => r.status >= 200 && r.status < 300,
+      });
+
+      moveSubmissionSuccess.add(moveSuccess);
+
+      if (moveSuccess) {
+        // For now we treat turn processing latency as approximately the
+        // HTTP move submission latency; a future refinement can measure
+        // move-to-visible-state-change latency via polling.
+        turnProcessingLatency.add(moveLatency);
+        gameMoveLatency.add(moveLatency);
       } else {
         moveProcessingErrors.add(1);
-        console.error(
-          `VU ${__VU}: Unexpected status ${stateRes.status} when fetching game ${myGameId} - body=${stateRes.body}`
-        );
-      }
-  
-      if (retireGameId) {
-        myGameId = null;
-        myGamePollCount = 0;
-        // Simulate a player briefly reviewing the final state before starting a new game.
-        sleep(5);
-        return;
-      }
-  
-      if (!game) {
-        // We already counted an error and handled retirement above where relevant.
-        sleep(2);
-        return;
-      }
-  
-      if (MOVE_HTTP_ENDPOINT_ENABLED) {
-        // Submit a real move via the internal HTTP move harness endpoint.
-        // The payload conforms to the shared MoveSchema used by both the
-        // harness and the WebSocket player_move path.
-        const movePayload = generateRandomMove(game);
+        classifyMoveFailure(moveRes);
 
-        const moveStart = Date.now();
-        movesAttemptedTotal.add(1);
-
-        const moveRes = http.post(
-          `${baseUrl}${API_PREFIX}/games/${myGameId}/moves`,
-          JSON.stringify(movePayload),
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            tags: { name: 'submit-move' },
-          }
-        );
-        const moveLatency = Date.now() - moveStart;
-
-        // Track metrics
-        moveSubmissionLatency.add(moveLatency);
-
-        const moveSuccess = check(moveRes, {
-          'move accepted': (r) => r.status >= 200 && r.status < 300,
-        });
-
-        moveSubmissionSuccess.add(moveSuccess);
-
-        if (moveSuccess) {
-          // For now we treat turn processing latency as approximately the
-          // HTTP move submission latency; a future refinement can measure
-          // move-to-visible-state-change latency via polling.
-          turnProcessingLatency.add(moveLatency);
-        } else {
-          moveProcessingErrors.add(1);
-
-          if (moveRes.status === 404) {
-            console.warn(
-              `VU ${__VU}: HTTP move harness returned 404 for game ${myGameId} - is ENABLE_HTTP_MOVE_HARNESS enabled on the backend?`
-            );
-          } else if (moveRes.status >= 500) {
-            console.error(
-              `VU ${__VU}: Server error submitting move for game ${myGameId} - status=${moveRes.status} body=${moveRes.body}`
-            );
-          } else if (moveRes.status >= 400) {
-            console.warn(
-              `VU ${__VU}: Move rejected for game ${myGameId} - status=${moveRes.status} body=${moveRes.body}`
-            );
-          }
+        if (moveRes.status === 404) {
+          console.warn(
+            `VU ${__VU}: HTTP move harness returned 404 for game ${myGameId} - is ENABLE_HTTP_MOVE_HARNESS enabled on the backend?`
+          );
+        } else if (moveRes.status >= 500) {
+          console.error(
+            `VU ${__VU}: Server error submitting move for game ${myGameId} - status=${moveRes.status} body=${moveRes.body}`
+          );
+        } else if (moveRes.status >= 400) {
+          console.warn(
+            `VU ${__VU}: Move rejected for game ${myGameId} - status=${moveRes.status} body=${moveRes.body}`
+          );
         }
+      }
 
-        // Track stalled moves (>2s per STRATEGIC_ROADMAP stall definition)
-        if (moveLatency > 2000) {
-          stalledMoves.add(1);
-          console.warn(`VU ${__VU}: Stalled move detected - ${moveLatency}ms`);
-        }
+      // Track stalled moves (>2s per STRATEGIC_ROADMAP stall definition)
+      if (moveLatency > moveSubmission.stall_threshold_ms) {
+        stalledMoves.add(1);
+        console.warn(`VU ${__VU}: Stalled move detected - ${moveLatency}ms`);
       }
     }
-  
+  }
+
   // Think time between moves - realistic gameplay pacing
   sleep(1 + Math.random() * 3); // 1-4 seconds between moves
 }
@@ -409,6 +486,86 @@ function generateRandomMove(gameState) {
   };
 }
 
+/**
+ * Classification helpers
+ */
+
+function classifyCreateGameFailure(res, createdGameId) {
+  if (!res || res.status === 0 || res.error) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  if (res.status === 400 || res.status === 401 || res.status === 403) {
+    contractFailures.add(1);
+    return;
+  }
+
+  if (res.status === 429 || res.status >= 500) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  if (res.status >= 200 && res.status < 300 && !createdGameId) {
+    contractFailures.add(1);
+  }
+}
+
+function classifyGameStateFailure(res, pollCountBefore) {
+  if (!res || res.status === 0 || res.error) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  const status = res.status;
+
+  if (status === 400 || status === 401 || status === 403) {
+    contractFailures.add(1);
+    return;
+  }
+
+  if (status === 404) {
+    // Treat early disappearance of IDs as a potential lifecycle mismatch,
+    // but allow later 404s to represent normal cleanup.
+    if (pollCountBefore < MAX_POLLS_PER_GAME / 4) {
+      idLifecycleMismatches.add(1);
+    }
+    return;
+  }
+
+  if (status === 429 || status >= 500) {
+    capacityFailures.add(1);
+  }
+}
+
+function classifyMoveFailure(res) {
+  if (!res || res.status === 0 || res.error) {
+    capacityFailures.add(1);
+    return;
+  }
+
+  const status = res.status;
+
+  if (status === 400 || status === 403) {
+    // Move payloads are generated by the harness to conform to MoveSchema,
+    // so 4xx responses here generally indicate a contract mismatch.
+    contractFailures.add(1);
+    return;
+  }
+
+  if (status === 404) {
+    // Typically indicates that the HTTP move harness is not enabled or that
+    // the game has been cleaned up unexpectedly. We treat this as a capacity /
+    // environment issue rather than a pure contract failure.
+    capacityFailures.add(1);
+    return;
+  }
+
+  if (status === 429 || status >= 500) {
+    capacityFailures.add(1);
+  }
+}
+
 export function teardown(data) {
   console.log('Player move submission test complete');
   console.log('Key metrics to review:');
@@ -417,3 +574,5 @@ export function teardown(data) {
   console.log('  - move_submission_success_rate (should stay >=0.95 in harness mode)');
   console.log('  - moves_attempted_total (should be >0 when MOVE_HTTP_ENDPOINT_ENABLED=true)');
 }
+
+export const handleSummary = makeHandleSummary('player-moves');

@@ -445,6 +445,104 @@ test.describe('Multiplayer Game E2E', () => {
         await expect(victoryHelpP2.locator('text=/territory/i')).toBeVisible();
       });
     });
+
+    test('Rematch flow: winner requests rematch and opponent accepts', async ({ browser }) => {
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup near-victory fixture game', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, 'near_victory_elimination');
+        });
+
+        await test.step('Player 1 makes winning move', async () => {
+          await setup!.player1.gamePage.makeMove(3, 3, 4, 3);
+        });
+
+        await test.step('Both players see victory modal', async () => {
+          const p1Victory = await waitForVictoryModal(setup!.player1, { timeout: 30_000 });
+          const p2Victory = await waitForVictoryModal(setup!.player2, { timeout: 30_000 });
+          expect(p1Victory || p2Victory).toBeTruthy();
+        });
+
+        await test.step('Player 1 requests rematch', async () => {
+          const originalGameId = setup!.gameId;
+          const currentIdP1 = setup!.player1.gamePage.getGameId();
+          const currentIdP2 = setup!.player2.gamePage.getGameId();
+
+          expect(currentIdP1).toBe(originalGameId);
+          expect(currentIdP2).toBe(originalGameId);
+
+          await setup!.player1.page.getByRole('button', { name: /Request Rematch/i }).click();
+        });
+
+        await test.step('Player 2 sees rematch offer and accepts', async () => {
+          await expect(setup!.player2.page.locator('text=/wants a rematch/i')).toBeVisible({
+            timeout: 15_000,
+          });
+
+          await setup!.player2.page.getByRole('button', { name: /Accept/i }).click();
+        });
+
+        await test.step('Both players join a fresh game session after rematch is accepted', async () => {
+          const originalGameId = setup!.gameId;
+
+          // Wait for both clients to stabilise on a new /game/:id route
+          await setup!.player1.page.waitForTimeout(3_000);
+          await setup!.player2.page.waitForTimeout(3_000);
+
+          await setup!.player1.gamePage.waitForReady(30_000);
+          await setup!.player2.gamePage.waitForReady(30_000);
+
+          const newGameIdP1 = setup!.player1.gamePage.getGameId();
+          const newGameIdP2 = setup!.player2.gamePage.getGameId();
+
+          expect(newGameIdP1).toBeTruthy();
+          expect(newGameIdP2).toBeTruthy();
+          expect(newGameIdP1).toBe(newGameIdP2);
+          expect(newGameIdP1).not.toBe(originalGameId);
+
+          // Basic sanity check that HUD and moves are reset for the new session
+          await expect(setup!.player1.gamePage.recentMovesSection).toBeVisible({
+            timeout: 15_000,
+          });
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
+
+    test('Return to lobby from victory modal navigates away from game without leaving stale session', async ({
+      browser,
+    }) => {
+      let setup: MultiplayerGameSetup | null = null;
+
+      try {
+        await test.step('Setup near-victory fixture game', async () => {
+          setup = await setupMultiplayerFixtureGame(browser, 'near_victory_elimination');
+        });
+
+        await test.step('Player 1 makes winning move and sees victory modal', async () => {
+          await setup!.player1.gamePage.makeMove(3, 3, 4, 3);
+          const sawVictory = await waitForVictoryModal(setup!.player1, { timeout: 30_000 });
+          expect(sawVictory).toBeTruthy();
+        });
+
+        await test.step('Player 1 returns to lobby', async () => {
+          await setup!.player1.page.getByRole('button', { name: /Return to Lobby/i }).click();
+          await setup!.player1.page.waitForURL('**/lobby', { timeout: 20_000 });
+
+          await expect(
+            setup!.player1.page.getByRole('heading', { name: /Game Lobby/i })
+          ).toBeVisible({ timeout: 10_000 });
+        });
+      } finally {
+        if (setup) {
+          await cleanupMultiplayerSetup(setup);
+        }
+      }
+    });
   });
 
   // ============================================================================
@@ -714,7 +812,7 @@ test.describe('Multiplayer Game E2E', () => {
         });
 
         await test.step('Verify winner rating > loser rating', async () => {
-          const readRating = async (player: typeof setup.player1): Promise<number> => {
+          const readRating = async (player: MultiplayerGameSetup['player1']): Promise<number> => {
             const homePage = new HomePage(player.page);
             await homePage.goto();
             await homePage.goToProfile();
@@ -939,7 +1037,7 @@ test.describe('Multiplayer Game E2E', () => {
       });
     });
 
-    test('Spectator can watch an ongoing game', async () => {
+    test('Spectator can watch an ongoing game with read-only HUD and leave back to lobby', async () => {
       let gameId: string = '';
 
       // Create a third context for spectator
@@ -956,14 +1054,29 @@ test.describe('Multiplayer Game E2E', () => {
           await joinGameById(player2Page, gameId);
         });
 
-        await test.step('Spectator navigates to game', async () => {
-          await spectatorPage.goto(`/game/${gameId}`);
-          await spectatorPage.waitForTimeout(3000);
+        await test.step('Spectator joins via spectator route', async () => {
+          await spectatorPage.goto(`/spectate/${gameId}`);
+          const spectatorGamePage = new GamePage(spectatorPage);
+          await spectatorGamePage.waitForReady(30_000);
         });
 
-        await test.step('Spectator can see the game board', async () => {
-          // Spectator should see the board (even if they can't interact)
+        await test.step('Spectator sees spectator HUD and read-only message', async () => {
+          // Spectator should see the board and explicit spectator indicators
           await expect(spectatorPage.getByTestId('board-view')).toBeVisible({ timeout: 20_000 });
+          await expect(spectatorPage.locator('text=/Spectator Mode/i')).toBeVisible({
+            timeout: 10_000,
+          });
+          await expect(
+            spectatorPage.locator('text=/Moves disabled while spectating\\./i')
+          ).toBeVisible({ timeout: 10_000 });
+        });
+
+        await test.step('Spectator can leave back to lobby without hanging game session', async () => {
+          await spectatorPage.getByRole('button', { name: /Back to lobby/i }).click();
+          await spectatorPage.waitForURL('**/lobby', { timeout: 15_000 });
+          await expect(spectatorPage.getByRole('heading', { name: /Game Lobby/i })).toBeVisible({
+            timeout: 10_000,
+          });
         });
       } finally {
         await spectatorContext.close();

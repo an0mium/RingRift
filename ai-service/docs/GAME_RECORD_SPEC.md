@@ -1,5 +1,8 @@
 # RingRift Game Record Specification
 
+> **Doc Status (2025-12-04): Active (Phase 1–2 implemented)**  
+> Core GameRecord types and JSONL format are implemented in both Python and TypeScript, and online games now populate canonical GameRecords via `GameRecordRepository` while self-play generators can emit `GameRecord` JSONL for training.
+
 ## Overview
 
 This document specifies the canonical format for storing complete RingRift games with full replay capability. The format supports:
@@ -485,23 +488,36 @@ interface GameReplayController {
 
 ### Phase 1: Core Storage
 
-- [ ] Define TypeScript/Python types for game records
-- [ ] Implement serialization/deserialization
-- [ ] Create JSONL export format
-- [ ] Add to self-play scripts
+- [x] Define TypeScript/Python types for game records
+  - Python: `ai-service/app/models/game_record.py`
+  - TypeScript: `src/shared/types/gameRecord.ts`
+- [x] Implement serialization/deserialization
+  - Python: `GameRecord.to_jsonl_line()` / `GameRecord.from_jsonl_line()`
+  - TypeScript: `gameRecordToJsonlLine()` / `jsonlLineToGameRecord()`
+- [x] Create JSONL export format
+  - Canonical per-game JSONL schema shared between TS and Python.
+- [x] Add to self-play scripts
+  - Python training generator: `ai-service/app/training/generate_data.py --game-records-jsonl` writes one `GameRecord` JSONL line per completed Descent self-play game.
+  - DB-backed export: `scripts/export-game-records-jsonl.ts` streams `GameRecord` JSONL from Postgres `Game` rows via `GameRecordRepository.exportAsJsonl()`.
 
 ### Phase 2: Database Integration
 
-- [ ] Create database schema
-- [ ] Implement GameRecordRepository
-- [ ] Add game storage to all game sources (self-play, online, sandbox)
+- [x] Create database schema
+  - Prisma `Game` model extended with `recordMetadata Json?`, `finalScore Json?`, and `outcome String?` fields (see `prisma/schema.prisma`).
+- [x] Implement GameRecordRepository
+  - `src/server/services/GameRecordRepository.ts` provides `saveGameRecord`, `getGameRecord`, `listGameRecords`, `exportAsJsonl`, `countGameRecords`, and `deleteOldRecords`.
+- [x] Add game storage to online game source
+  - `GameSession.finishGameWithResult()` now calls `gameRecordRepository.saveGameRecord(...)` so completed online games populate `finalState`, `finalScore`, `outcome`, and `recordMetadata`.
+- [ ] Add game storage to all game sources (self-play, sandbox)
+  - Python self-play / CMA-ES harnesses record into SQLite via `GameReplayDB` + `record_completed_game` but do not yet pipe directly into the Postgres-backed `Game` table.
 - [ ] Migration for existing games
+  - Existing rows are backfilled lazily: `GameRecordRepository` treats missing `recordMetadata` / `finalScore` as absent rather than eagerly migrating all historical games.
 
 ### Phase 3: Notation & Display
 
-- [ ] Implement algebraic notation generator
-- [ ] Implement notation parser
-- [ ] Add coordinate conversion utilities
+- [x] Implement algebraic notation generator
+- [x] Implement notation parser
+- [x] Add coordinate conversion utilities
 - [ ] Create move list display component
 
 ### Phase 4: Replay System

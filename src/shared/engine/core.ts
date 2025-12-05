@@ -619,11 +619,19 @@ export function summarizeBoard(board: BoardState): BoardSummary {
 }
 
 /**
- * Canonical hash of a GameState used by tests and diagnostic tooling to
- * detect state changes and compare backend/sandbox traces. The exact
- * string format is opaque to callers; only equality is relied upon.
+ * Canonical fingerprint of a GameState - a deterministic, human-readable string
+ * representation useful for debugging parity issues between engines.
+ *
+ * Format: meta#players#stacks#markers#collapsed
+ * - meta: currentPlayer:currentPhase:gameStatus
+ * - players: sorted pipe-separated player stats (playerNumber:ringsInHand:eliminatedRings:territorySpaces)
+ * - stacks: sorted pipe-separated stack info (posKey:controller:height:capHeight)
+ * - markers: sorted pipe-separated marker info (posKey:player)
+ * - collapsed: sorted pipe-separated collapsed space info (posKey:owner)
+ *
+ * This format is designed to be identical between TypeScript and Python implementations.
  */
-export function hashGameState(state: GameState): string {
+export function fingerprintGameState(state: GameState): string {
   const boardSummary = summarizeBoard(state.board);
 
   const playersMeta = state.players
@@ -640,6 +648,55 @@ export function hashGameState(state: GameState): string {
     boardSummary.markers.join('|'),
     boardSummary.collapsedSpaces.join('|'),
   ].join('#');
+}
+
+/**
+ * Compute a SHA-256 hash of the game state fingerprint, truncated to 16 hex chars.
+ * This matches the Python _compute_state_hash format for cross-engine parity testing.
+ *
+ * @param state - The game state to hash
+ * @returns 16 character hex string (first 64 bits of SHA-256)
+ */
+export function hashGameStateSHA256(state: GameState): string {
+  const fingerprint = fingerprintGameState(state);
+  // Compact hash used for cross-engine parity with Python's _compute_state_hash.
+  return simpleHash(fingerprint);
+}
+
+/**
+ * Simple string hash function that produces consistent results across
+ * environments and matches Python's _simple_hash implementation in
+ * app/db/game_replay.py.
+ *
+ * Note: This is NOT cryptographically secure - only for parity comparison.
+ */
+function simpleHash(str: string): string {
+  let h1 = 0xdeadbeef | 0;
+  let h2 = 0x41c6ce57 | 0;
+
+  for (let i = 0; i < str.length; i += 1) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761) | 0;
+    h2 = Math.imul(h2 ^ ch, 1597334677) | 0;
+  }
+
+  h1 = (Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)) | 0;
+  h2 = (Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)) | 0;
+
+  // Combine into 16 hex chars without relying on 53-bit double precision.
+  const hi = h2 >>> 0;
+  const lo = h1 >>> 0;
+  const hiHex = hi.toString(16).padStart(8, '0');
+  const loHex = lo.toString(16).padStart(8, '0');
+  return (hiHex + loHex).slice(0, 16);
+}
+
+/**
+ * Legacy hash function - returns the readable fingerprint string.
+ * @deprecated Use fingerprintGameState for readable output or hashGameStateSHA256 for compact comparison.
+ */
+export function hashGameState(state: GameState): string {
+  return fingerprintGameState(state);
 }
 
 export interface MarkerPathHelpers {

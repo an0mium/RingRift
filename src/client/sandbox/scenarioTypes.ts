@@ -51,6 +51,35 @@ export interface ScenarioMetadata {
   difficulty?: ScenarioDifficulty | undefined;
   /** Tags for search/filtering */
   tags: string[];
+  /**
+   * Optional flag indicating that this scenario is part of the
+   * player-facing onboarding set. Used to surface a small, curated
+   * subset of FAQ/rules-aligned scenarios in the sandbox UI by
+   * default, without exposing the full diagnostics catalog.
+   */
+  onboarding?: boolean;
+  /**
+   * Optional short rules snippet shown inline in player-facing
+   * overlays (ScenarioPicker, sandbox sidebar, onboarding helpers).
+   * This is a plain-text summary derived from ringrift_compact_rules
+   * and RULES_SCENARIO_MATRIX – no Markdown parsing at runtime.
+   */
+  rulesSnippet?: string;
+  /**
+   * Optional reference back to the canonical rules or matrix entry
+   * that this scenario is derived from, e.g.
+   * "ringrift_compact_rules#territory" or
+   * "RULES_SCENARIO_MATRIX#T3".
+   * This is metadata-only and never parsed at runtime.
+   */
+  rulesSnippetRef?: string;
+  /**
+   * Optional identifier for the associated RULES_SCENARIO_MATRIX
+   * row or contract vector id. Kept as metadata so developers can
+   * trace curated onboarding scenarios back to the underlying
+   * Jest suites and vectors.
+   */
+  matrixScenarioId?: string;
   /** Board type (square8, square19, hexagonal) */
   boardType: BoardType;
   /** Number of players in the scenario */

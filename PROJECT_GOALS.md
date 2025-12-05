@@ -1,6 +1,6 @@
 # RingRift Project Goals
 
-> **Doc Status (2025-11-27): Active (project direction SSoT)**
+> **Doc Status (2025-12-04): Active (project direction SSoT)**
 >
 > - Single authoritative source for product/technical goals and non-goals.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
@@ -163,14 +163,14 @@ From [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:144-149):
 
 ### 4.2 Test Coverage Requirements
 
-| Category                  | Requirement              | Current Status                                                                                |
-| ------------------------- | ------------------------ | --------------------------------------------------------------------------------------------- |
-| **TypeScript tests**      | All passing              | ✅ 2,987 tests passing, ~130 skipped (see `CURRENT_STATE_ASSESSMENT.md`)                      |
-| **Python tests**          | All passing              | ✅ 836 tests passing (see `CURRENT_STATE_ASSESSMENT.md`)                                      |
-| **Contract vectors**      | 100% parity              | ✅ 49/49 passing, 0 mismatches                                                                |
-| **Coverage target**       | 80% lines                | 🟡 ~69% lines (improved from 65.55%), key contexts now covered (89.52%/84.21%)                |
-| **Rules scenario matrix** | All FAQ examples covered | 🟡 Coverage in progress (~18-20/24 scenarios)                                                 |
-| **Integration tests**     | Core workflows passing   | ✅ AI resilience, reconnection (including reconnect → fresh `game_state`), sessions, contexts |
+| Category                  | Requirement              | Current Status                                                                                         |
+| ------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------ |
+| **TypeScript tests**      | All passing              | ✅ 2,987 tests passing, ~130 skipped (see `CURRENT_STATE_ASSESSMENT.md`)                               |
+| **Python tests**          | All passing              | ✅ 836 tests passing (see `CURRENT_STATE_ASSESSMENT.md`)                                               |
+| **Contract vectors**      | 100% parity              | ✅ 49/49 passing, 0 mismatches                                                                         |
+| **Coverage target**       | 80% lines                | 🟡 ~69% lines (improved from 65.55%), key contexts now covered (89.52%/84.21%)                         |
+| **Rules scenario matrix** | All FAQ examples covered | ✅ All Q1–Q24 FAQ scenarios mapped to concrete Jest suites (see `docs/rules/RULES_SCENARIO_MATRIX.md`) |
+| **Integration tests**     | Core workflows passing   | ✅ AI resilience, reconnection (including reconnect → fresh `game_state`), sessions, contexts          |
 
 > **Note:** Live test counts and coverage breakdowns are maintained in [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:236). This document is not the single source of truth for those numbers; it records only the high-level requirements.
 

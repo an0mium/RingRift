@@ -577,8 +577,8 @@ class HeuristicAI(BaseAI):
 
         This is a training/evaluation performance optimization that randomly
         samples a subset of moves when there are too many to evaluate
-        efficiently. The sampling is deterministic when the AI's RNG seed
-        is set, ensuring reproducibility.
+        efficiently. The sampling uses self.rng (inherited from BaseAI),
+        ensuring deterministic behavior when a seed is provided.
 
         Args:
             moves: Full list of valid moves
@@ -593,15 +593,9 @@ class HeuristicAI(BaseAI):
         if limit is None or limit <= 0 or len(moves) <= limit:
             return moves
 
-        # Use the AI's RNG for deterministic sampling when seeded
-        rng_seed = getattr(self.config, "rng_seed", None)
-        if rng_seed is not None:
-            # Use a seeded local RNG for deterministic sampling
-            local_rng = random.Random(rng_seed + self.move_count)
-            return local_rng.sample(moves, limit)
-        else:
-            # Fallback to standard random sampling (non-deterministic)
-            return random.sample(moves, limit)
+        # Use self.rng (seeded in BaseAI) for deterministic sampling.
+        # This ensures reproducibility when config.rng_seed is provided.
+        return self.rng.sample(moves, limit)
 
     def _should_use_parallel(
         self,

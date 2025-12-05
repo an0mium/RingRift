@@ -106,6 +106,8 @@ interface GameContextType {
   declineRematch: (requestId: string) => void;
   /** ID of the new game created from an accepted rematch, if any. */
   rematchGameId: string | null;
+  /** Last terminal status received for a rematch request, if any. */
+  rematchLastStatus: 'accepted' | 'declined' | 'expired' | null;
   /** Streaming AI evaluation history for the current game (analysis mode). */
   evaluationHistory: PositionEvaluationPayload['data'][];
 
@@ -193,6 +195,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     null
   );
   const [rematchGameId, setRematchGameId] = useState<string | null>(null);
+  const [rematchLastStatus, setRematchLastStatus] = useState<
+    'accepted' | 'declined' | 'expired' | null
+  >(null);
   const [evaluationHistory, setEvaluationHistory] = useState<PositionEvaluationPayload['data'][]>(
     []
   );
@@ -363,14 +368,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       onRematchRequested: (payload: RematchRequestPayload) => {
         setPendingRematchRequest(payload);
         setRematchGameId(null); // Clear any previous rematch game ID
+        setRematchLastStatus(null);
       },
       onRematchResponse: (payload: RematchResponsePayload) => {
         if (payload.status === 'accepted' && payload.newGameId) {
           setRematchGameId(payload.newGameId);
+          setRematchLastStatus('accepted');
           toast.success('Rematch accepted! Redirecting to new game...');
         } else if (payload.status === 'declined') {
+          setRematchLastStatus('declined');
           toast('Rematch declined', { icon: '❌' });
         } else if (payload.status === 'expired') {
+          setRematchLastStatus('expired');
           toast('Rematch request expired', { icon: '⏰' });
         }
         setPendingRematchRequest(null);
@@ -436,6 +445,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setDecisionPhaseTimeoutWarning(null);
     setPendingRematchRequest(null);
     setRematchGameId(null);
+    setRematchLastStatus(null);
     setEvaluationHistory([]);
     setDisconnectedOpponents([]);
   }, []);
@@ -589,6 +599,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     acceptRematch,
     declineRematch,
     rematchGameId,
+    rematchLastStatus,
     evaluationHistory,
     // Opponent connection state (Wave 2.2)
     disconnectedOpponents,

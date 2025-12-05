@@ -37,6 +37,7 @@ import { positionToString, positionsEqual } from '../../shared/types/game';
 import type { ConnectionStatus } from '../domain/GameAPI';
 import { getChoiceViewModel, getChoiceViewModelForType } from './choiceViewModels';
 import type { ChoiceKind } from './choiceViewModels';
+import { getWeirdStateBanner, type WeirdStateBanner } from '../utils/gameStateWeirdness';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HUD View Model
@@ -107,9 +108,21 @@ export interface PlayerViewModel {
 }
 
 /**
- /**
-  * Complete HUD view model
-  */
+ * UX-facing banner metadata for weird rules states (ANM / forced
+ * elimination / structural stalemate). Derived from getWeirdStateBanner(...)
+ * and used purely for HUD copy.
+ */
+export interface HUDWeirdStateViewModel {
+  type: WeirdStateBanner['type'];
+  title: string;
+  body: string;
+  /** Visual tone hint for the banner styling. */
+  tone: 'info' | 'warning' | 'critical';
+}
+
+/**
+ * Complete HUD view model
+ */
 export interface HUDDecisionPhaseViewModel {
   /** Whether a decision is currently active for any player. */
   isActive: boolean;
@@ -185,6 +198,12 @@ export interface HUDViewModel {
    * single source of truth for HUD decision copy.
    */
   decisionPhase?: HUDDecisionPhaseViewModel | undefined;
+  /**
+   * Optional high-level banner describing unusual rules states such as
+   * active-no-moves or forced elimination. When present, GameHUD renders
+   * a prominent explanation panel above the phase indicator.
+   */
+  weirdState?: HUDWeirdStateViewModel | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -764,14 +783,98 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       spectatorLabel,
       statusChip,
       // Expose a generic skip hint when the underlying pending choice is a
-      // region_order that includes an explicit skip_territory_processing move.
+      // region_order that includes an explicit "skip" option. In both backend
+      // and sandbox flows this is represented by a RegionOrderChoice option
+      // whose regionId is 'skip' or whose size is <= 0; the canonical
+      // skip_territory_processing Move is selected via moveId.
       canSkip:
         vm.kind === 'territory_region_order' &&
         Array.isArray((pendingChoice as any).options) &&
         (pendingChoice as any).options.some(
-          (opt: Move) => opt && opt.type === 'skip_territory_processing'
+          (opt: { regionId?: string; size?: number } | null | undefined) =>
+            !!opt && (opt.regionId === 'skip' || (typeof opt.size === 'number' && opt.size <= 0))
         ),
     };
+  }
+
+  // Weird-state banner: interpret ANM / forced-elimination states for HUD copy.
+  const weird = getWeirdStateBanner(gameState);
+  let weirdState: HUDWeirdStateViewModel | undefined;
+
+  const resolvePlayerLabel = (
+    playerNumber: number
+  ): {
+    label: string;
+    isUser: boolean;
+  } => {
+    const playerVm = players.find((p) => p.playerNumber === playerNumber);
+    if (!playerVm) {
+      return { label: `P${playerNumber}`, isUser: false };
+    }
+    return {
+      label: playerVm.isUserPlayer ? 'You' : playerVm.username,
+      isUser: playerVm.isUserPlayer,
+    };
+  };
+
+  switch (weird.type) {
+    case 'active-no-moves-movement': {
+      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+      weirdState = {
+        type: weird.type,
+        title: isUser ? 'You have no legal moves this turn' : `${label} has no legal moves`,
+        body: isUser
+          ? 'You have no legal placements, movements, or captures this turn. Forced elimination will now resolve automatically according to the rulebook.'
+          : `${label} has no legal placements, movements, or captures this turn. Forced elimination will now resolve automatically according to the rulebook.`,
+        tone: 'warning',
+      };
+      break;
+    }
+    case 'active-no-moves-line': {
+      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+      weirdState = {
+        type: weird.type,
+        title: isUser ? 'No legal line actions available' : `${label} has no line actions`,
+        body: 'No valid line actions are available. The game will auto-resolve this phase according to the rulebook.',
+        tone: 'info',
+      };
+      break;
+    }
+    case 'active-no-moves-territory': {
+      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+      weirdState = {
+        type: weird.type,
+        title: isUser
+          ? 'No legal territory actions available'
+          : `${label} has no territory actions`,
+        body: 'No valid territory or self-elimination actions are available. The game will auto-resolve this phase according to the rulebook.',
+        tone: 'info',
+      };
+      break;
+    }
+    case 'forced-elimination': {
+      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+      weirdState = {
+        type: weird.type,
+        title: 'Forced Elimination',
+        body: isUser
+          ? 'You control stacks but have no legal placements, movements, or captures. A cap will be removed from one of your stacks until a legal move becomes available, following the forced-elimination rules.'
+          : `${label} controls stacks but has no legal placements, movements, or captures. A cap will be removed from one of their stacks until a legal move becomes available, following the forced-elimination rules.`,
+        tone: 'warning',
+      };
+      break;
+    }
+    case 'structural-stalemate': {
+      weirdState = {
+        type: weird.type,
+        title: 'Structural stalemate',
+        body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends and the final score is computed from territory and eliminated rings.',
+        tone: 'critical',
+      };
+      break;
+    }
+    default:
+      break;
   }
 
   return {
@@ -787,6 +890,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     spectatorCount: gameState.spectators.length,
     subPhaseDetail,
     decisionPhase,
+    weirdState,
   };
 }
 
@@ -930,6 +1034,7 @@ function mapMoveTypeToChoiceType(actionType: Move['type']): PlayerChoiceType | u
     case 'choose_line_reward':
       return 'line_reward_option';
     case 'process_territory_region':
+    case 'skip_territory_processing':
       return 'region_order';
     case 'eliminate_rings_from_stack':
       return 'ring_elimination';
@@ -1007,6 +1112,10 @@ function describeHistoryEntry(entry: GameHistoryEntry): string {
     }
     case 'skip_placement': {
       return `${moveLabel} — ${playerLabel} skipped placement`;
+    }
+    case 'skip_territory_processing': {
+      const decisionTag = getDecisionTagForMove(action) ?? '';
+      return `${moveLabel} — ${decisionTag}${playerLabel} skipped further territory processing this turn`;
     }
     default: {
       return `${moveLabel} — ${playerLabel} performed ${action.type}`;
@@ -1419,7 +1528,7 @@ function getVictoryMessage(
     case 'ring_elimination':
       return {
         title: `🏆 ${winnerName} Wins!`,
-        description: 'Victory by capturing over 50% of the total rings',
+        description: 'Victory by eliminating more than half of all rings in play',
         titleColorClass,
       };
     case 'territory_control':

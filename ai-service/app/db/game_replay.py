@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 # - v2: Added time control fields and engine evaluation fields
 # - v3: Added game_history_entries table for GameTrace validation, state hash fields
 # - v4: Added state_before_json and state_after_json to game_history_entries for full state replay
-SCHEMA_VERSION = 4
+# - v5: Added metadata_json column to games to persist full recording metadata
+# - v6: Added available_moves_json and available_moves_count to game_history_entries for parity debugging
+SCHEMA_VERSION = 6
 
 # Default snapshot interval (every N moves)
 DEFAULT_SNAPSHOT_INTERVAL = 20
@@ -63,7 +65,9 @@ CREATE TABLE IF NOT EXISTS games (
     -- v2 additions: time control
     time_control_type TEXT DEFAULT 'none',
     initial_time_ms INTEGER,
-    time_increment_ms INTEGER
+    time_increment_ms INTEGER,
+    -- v5 additions: full recording metadata as JSON
+    metadata_json TEXT
 );
 
 -- Indexes on games
@@ -148,6 +152,7 @@ CREATE TABLE IF NOT EXISTS game_choices (
 -- v3: History entries for GameTrace-style storage with cross-validation
 -- Stores metadata for each move matching TypeScript GameHistoryEntry interface
 -- v4: Added state_before_json and state_after_json for full state replay
+-- v6: Added available_moves_json, available_moves_count, engine_eval, engine_depth
 CREATE TABLE IF NOT EXISTS game_history_entries (
     game_id TEXT NOT NULL,
     move_number INTEGER NOT NULL,
@@ -166,6 +171,11 @@ CREATE TABLE IF NOT EXISTS game_history_entries (
     state_before_json TEXT,
     state_after_json TEXT,
     compressed_states INTEGER DEFAULT 0,
+    -- v6 additions: available moves enumeration and engine diagnostics
+    available_moves_json TEXT,
+    available_moves_count INTEGER,
+    engine_eval REAL,
+    engine_depth INTEGER,
     PRIMARY KEY (game_id, move_number),
     FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
 );
@@ -210,11 +220,52 @@ def _deserialize_move(json_str: str) -> Move:
 def _compute_state_hash(state: GameState) -> str:
     """Compute a deterministic hash of game state for validation.
 
-    Uses SHA-256 of the canonical JSON representation.
+    Uses the canonical fingerprint format (matching TypeScript fingerprintGameState)
+    hashed with a simple non-cryptographic hash for consistent cross-engine comparison.
+
+    The fingerprint format is:
+      meta#players#stacks#markers#collapsed
+    where each component is sorted for determinism.
     """
-    import hashlib
-    json_str = _serialize_state(state)
-    return hashlib.sha256(json_str.encode("utf-8")).hexdigest()[:16]
+    from app.rules.core import hash_game_state
+
+    # Get the fingerprint (readable canonical format)
+    fingerprint = hash_game_state(state)
+
+    # Apply simple hash for compact storage (matches TS simpleHash)
+    return _simple_hash(fingerprint)
+
+
+def _simple_hash(s: str) -> str:
+    """Simple string hash matching TypeScript simpleHash for cross-engine parity.
+
+    Uses a modified FNV-1a-like hash. NOT cryptographically secure.
+    """
+    h1 = 0xDEADBEEF
+    h2 = 0x41C6CE57
+
+    for ch in s:
+        code = ord(ch)
+        # Python's integers are arbitrary precision, so we need to mask to 32 bits
+        h1 = ((h1 ^ code) * 2654435761) & 0xFFFFFFFF
+        h2 = ((h2 ^ code) * 1597334677) & 0xFFFFFFFF
+
+    h1 = (((h1 ^ (h1 >> 16)) * 2246822507) ^ ((h2 ^ (h2 >> 13)) * 3266489909)) & 0xFFFFFFFF
+    h2 = (((h2 ^ (h2 >> 16)) * 2246822507) ^ ((h1 ^ (h1 >> 13)) * 3266489909)) & 0xFFFFFFFF
+
+    # Combine into 16 hex chars
+    combined = (h2 << 32) | h1
+    return format(combined, '016x')[:16]
+
+
+def _fingerprint_state(state: GameState) -> str:
+    """Get the readable fingerprint of a game state.
+
+    This is useful for debugging when hashes don't match - you can compare
+    the fingerprints to see exactly which component differs.
+    """
+    from app.rules.core import hash_game_state
+    return hash_game_state(state)
 
 
 class GameWriter:
@@ -267,6 +318,10 @@ class GameWriter:
         move: Move,
         state_after: Optional[GameState] = None,
         state_before: Optional[GameState] = None,
+        available_moves: Optional[List[Move]] = None,
+        available_moves_count: Optional[int] = None,
+        engine_eval: Optional[float] = None,
+        engine_depth: Optional[int] = None,
     ) -> None:
         """Add a move to the game.
 
@@ -276,6 +331,10 @@ class GameWriter:
             state_before: Optional state before the move (for history entries)
                           If not provided but store_history_entries is True,
                           uses the tracked previous state.
+            available_moves: Optional list of valid moves at state_before (for parity debugging)
+            available_moves_count: Optional count of valid moves (lightweight alternative)
+            engine_eval: Optional evaluation score from AI engine
+            engine_depth: Optional search depth from AI engine
         """
         if self._finalized:
             raise RuntimeError("GameWriter has been finalized")
@@ -324,6 +383,10 @@ class GameWriter:
                     state_after=state_after,
                     state_hash_before=self._prev_state_hash,
                     state_hash_after=after_hash,
+                    available_moves=available_moves,
+                    available_moves_count=available_moves_count,
+                    engine_eval=engine_eval,
+                    engine_depth=engine_depth,
                 )
                 # Update tracked state for next move
                 self._prev_state = state_after
@@ -707,6 +770,57 @@ class GameReplayDB:
 
         self._set_schema_version(conn, 4)
         logger.info("Migration to v4 complete")
+
+    def _migrate_v4_to_v5(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v4 to v5.
+
+        Adds:
+        - metadata_json column to games to store full recording metadata as JSON.
+        """
+        logger.info("Migrating schema from v4 to v5")
+
+        try:
+            conn.execute("ALTER TABLE games ADD COLUMN metadata_json TEXT")
+        except sqlite3.OperationalError as e:
+            if "duplicate column name" not in str(e).lower():
+                raise
+            logger.debug("metadata_json column already exists")
+
+        self._set_schema_version(conn, 5)
+        logger.info("Migration to v5 complete")
+
+    def _migrate_v5_to_v6(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v5 to v6.
+
+        Adds:
+        - available_moves_json column to game_history_entries for storing enumerated
+          legal moves at each state (useful for cross-engine parity debugging)
+        - available_moves_count column for lightweight move counting without full
+          enumeration
+        - engine_eval, engine_depth columns to game_history_entries for storing
+          evaluation diagnostics alongside state snapshots
+        """
+        logger.info("Migrating schema from v5 to v6")
+
+        new_history_columns = [
+            ("available_moves_json", "TEXT"),
+            ("available_moves_count", "INTEGER"),
+            ("engine_eval", "REAL"),
+            ("engine_depth", "INTEGER"),
+        ]
+
+        for col_name, col_type in new_history_columns:
+            try:
+                conn.execute(
+                    f"ALTER TABLE game_history_entries ADD COLUMN {col_name} {col_type}"
+                )
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e).lower():
+                    raise
+                logger.debug(f"{col_name} column already exists")
+
+        self._set_schema_version(conn, 6)
+        logger.info("Migration to v6 complete")
 
     # =========================================================================
     # Write Operations
@@ -1102,6 +1216,10 @@ class GameReplayDB:
         - progress_before/progress_after: Player progress snapshots
         - state_hash_before/state_hash_after: State hashes for validation
         - state_before/state_after: Full GameState objects (if stored, v4+)
+        - available_moves: List of valid moves at state_before (if stored, v6+)
+        - available_moves_count: Count of valid moves (if stored, v6+)
+        - engine_eval: Engine evaluation score (if stored, v6+)
+        - engine_depth: Engine search depth (if stored, v6+)
 
         Returns None if no history entry exists for this move.
         """
@@ -1111,7 +1229,9 @@ class GameReplayDB:
                 SELECT move_number, player, phase_before, phase_after,
                        status_before, status_after, progress_before_json,
                        progress_after_json, state_hash_before, state_hash_after,
-                       state_before_json, state_after_json, compressed_states
+                       state_before_json, state_after_json, compressed_states,
+                       available_moves_json, available_moves_count,
+                       engine_eval, engine_depth
                 FROM game_history_entries
                 WHERE game_id = ? AND move_number = ?
                 """,
@@ -1134,6 +1254,10 @@ class GameReplayDB:
                 "state_hash_after": row["state_hash_after"],
                 "state_before": None,
                 "state_after": None,
+                "available_moves": None,
+                "available_moves_count": row["available_moves_count"],
+                "engine_eval": row["engine_eval"],
+                "engine_depth": row["engine_depth"],
             }
 
             # Deserialize full states if present (v4+ feature)
@@ -1151,12 +1275,21 @@ class GameReplayDB:
                     state_json = _decompress_json(base64.b64decode(state_json))
                 result["state_after"] = _deserialize_state(state_json)
 
+            # Deserialize available moves if present (v6+ feature)
+            if row["available_moves_json"]:
+                moves_data = json.loads(row["available_moves_json"])
+                result["available_moves"] = [
+                    _deserialize_move(m) if isinstance(m, str) else Move.model_validate(m)
+                    for m in moves_data
+                ]
+
             return result
 
     def get_all_history_entries(
         self,
         game_id: str,
         include_full_states: bool = True,
+        include_available_moves: bool = False,
     ) -> List[dict]:
         """Get all history entries for a game.
 
@@ -1164,6 +1297,8 @@ class GameReplayDB:
             game_id: Game identifier
             include_full_states: If True, deserialize and include full GameState
                                 objects (may be memory-intensive for large games)
+            include_available_moves: If True, deserialize and include available
+                                     moves lists (v6+ feature)
 
         Returns a list of history entry dictionaries, ordered by move number.
         """
@@ -1173,7 +1308,9 @@ class GameReplayDB:
                 SELECT move_number, player, phase_before, phase_after,
                        status_before, status_after, progress_before_json,
                        progress_after_json, state_hash_before, state_hash_after,
-                       state_before_json, state_after_json, compressed_states
+                       state_before_json, state_after_json, compressed_states,
+                       available_moves_json, available_moves_count,
+                       engine_eval, engine_depth
                 FROM game_history_entries
                 WHERE game_id = ?
                 ORDER BY move_number
@@ -1196,6 +1333,10 @@ class GameReplayDB:
                     "state_hash_after": row["state_hash_after"],
                     "state_before": None,
                     "state_after": None,
+                    "available_moves": None,
+                    "available_moves_count": row["available_moves_count"],
+                    "engine_eval": row["engine_eval"],
+                    "engine_depth": row["engine_depth"],
                 }
 
                 if include_full_states:
@@ -1212,6 +1353,13 @@ class GameReplayDB:
                             import base64
                             state_json = _decompress_json(base64.b64decode(state_json))
                         entry["state_after"] = _deserialize_state(state_json)
+
+                if include_available_moves and row["available_moves_json"]:
+                    moves_data = json.loads(row["available_moves_json"])
+                    entry["available_moves"] = [
+                        _deserialize_move(m) if isinstance(m, str) else Move.model_validate(m)
+                        for m in moves_data
+                    ]
 
                 results.append(entry)
 
@@ -1601,12 +1749,20 @@ class GameReplayDB:
         state_after: GameState,
         state_hash_before: Optional[str] = None,
         state_hash_after: Optional[str] = None,
+        available_moves: Optional[List[Move]] = None,
+        available_moves_count: Optional[int] = None,
+        engine_eval: Optional[float] = None,
+        engine_depth: Optional[int] = None,
     ) -> None:
         """Store a history entry for GameTrace-style recording."""
         with self._get_conn() as conn:
             self._store_history_entry_conn(
                 conn, game_id, move_number, move,
-                state_before, state_after, state_hash_before, state_hash_after
+                state_before, state_after, state_hash_before, state_hash_after,
+                available_moves=available_moves,
+                available_moves_count=available_moves_count,
+                engine_eval=engine_eval,
+                engine_depth=engine_depth,
             )
 
     def _store_history_entry_conn(
@@ -1621,6 +1777,10 @@ class GameReplayDB:
         state_hash_after: Optional[str] = None,
         store_full_states: bool = True,
         compress_states: bool = False,
+        available_moves: Optional[List[Move]] = None,
+        available_moves_count: Optional[int] = None,
+        engine_eval: Optional[float] = None,
+        engine_depth: Optional[int] = None,
     ) -> None:
         """Store a history entry (within existing transaction).
 
@@ -1635,6 +1795,10 @@ class GameReplayDB:
             state_hash_after: Optional pre-computed hash of state_after
             store_full_states: If True (default), store full state JSON before/after
             compress_states: If True, gzip compress state JSON (default: False)
+            available_moves: Optional list of valid moves at state_before (for parity debugging)
+            available_moves_count: Optional count of valid moves (lightweight alternative)
+            engine_eval: Optional evaluation score from AI engine
+            engine_depth: Optional search depth from AI engine
         """
         # Build progress snapshots
         progress_before = {
@@ -1678,14 +1842,22 @@ class GameReplayDB:
                 state_before_json = before_str
                 state_after_json = after_str
 
+        # Serialize available moves if provided
+        available_moves_json: Optional[str] = None
+        if available_moves is not None:
+            available_moves_json = json.dumps([
+                _serialize_move(m) for m in available_moves
+            ])
+
         conn.execute(
             """
             INSERT OR REPLACE INTO game_history_entries
             (game_id, move_number, player, phase_before, phase_after,
              status_before, status_after, progress_before_json, progress_after_json,
              state_hash_before, state_hash_after, state_before_json, state_after_json,
-             compressed_states)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             compressed_states, available_moves_json, available_moves_count,
+             engine_eval, engine_depth)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 game_id,
@@ -1702,6 +1874,10 @@ class GameReplayDB:
                 state_before_json,
                 state_after_json,
                 compressed_flag,
+                available_moves_json,
+                available_moves_count,
+                engine_eval,
+                engine_depth,
             ),
         )
 
@@ -1776,11 +1952,16 @@ class GameReplayDB:
         metadata: dict,
     ) -> None:
         """Finalize game metadata (within existing transaction)."""
+        metadata = metadata or {}
+
         # Calculate duration if timestamps available
         duration_ms = None
         if initial_state.created_at and final_state.last_move_at:
             duration = final_state.last_move_at - initial_state.created_at
             duration_ms = int(duration.total_seconds() * 1000)
+
+        # Serialize full metadata dict for long-term debugging/analytics.
+        metadata_json = json.dumps(metadata, sort_keys=True)
 
         # Determine termination reason
         termination_reason = metadata.get("termination_reason")
@@ -1811,7 +1992,8 @@ class GameReplayDB:
                     total_moves = ?,
                     total_turns = ?,
                     duration_ms = ?,
-                    source = ?
+                    source = ?,
+                    metadata_json = ?
                 WHERE game_id = ?
                 """,
                 (
@@ -1823,6 +2005,7 @@ class GameReplayDB:
                     total_turns,
                     duration_ms,
                     metadata.get("source", "unknown"),
+                    metadata_json,
                     game_id,
                 ),
             )
@@ -1833,8 +2016,8 @@ class GameReplayDB:
                 INSERT INTO games
                 (game_id, board_type, num_players, rng_seed, created_at, completed_at,
                  game_status, winner, termination_reason, total_moves, total_turns,
-                 duration_ms, source, schema_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 duration_ms, source, schema_version, metadata_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     game_id,
@@ -1851,6 +2034,7 @@ class GameReplayDB:
                     duration_ms,
                     metadata.get("source", "unknown"),
                     SCHEMA_VERSION,
+                    metadata_json,
                 ),
             )
 

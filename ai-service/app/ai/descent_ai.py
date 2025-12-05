@@ -14,6 +14,7 @@ for A/B testing and for backwards‑compatible behaviour.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional, List, Dict, Any, Tuple
 import time
 from enum import Enum
@@ -83,15 +84,44 @@ class DescentAI(BaseAI):
         memory_config: Optional[MemoryConfig] = None,
     ):
         super().__init__(player_number, config)
-        # Try to load neural net for evaluation
-        try:
-            self.neural_net = NeuralNetAI(player_number, config)
-        except Exception:
+
+        # Determine whether neural-network-backed evaluation should be used.
+        # Priority:
+        # - Explicit AIConfig.use_neural_net when provided.
+        # - RINGRIFT_DISABLE_NEURAL_NET env var can globally disable NN usage.
+        disable_nn_env = os.environ.get("RINGRIFT_DISABLE_NEURAL_NET", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        use_nn_config = getattr(config, "use_neural_net", None)
+        # Default to True (preserve existing behaviour) when unset.
+        self.use_neural_net: bool = bool(
+            (use_nn_config if use_nn_config is not None else True) and not disable_nn_env
+        )
+
+        # Try to load neural net for evaluation when enabled.
+        self.neural_net: Optional[NeuralNetAI]
+        self.hex_encoder: Optional[ActionEncoderHex]
+        self.hex_model: Optional[HexNeuralNet]
+
+        if self.use_neural_net:
+            try:
+                self.neural_net = NeuralNetAI(player_number, config)
+            except Exception:
+                # On any failure, degrade gracefully to heuristic-only search.
+                logger.warning(
+                    "DescentAI failed to initialize NeuralNetAI; "
+                    "falling back to heuristic-only search",
+                    exc_info=True,
+                )
+                self.neural_net = None
+                self.use_neural_net = False
+        else:
             self.neural_net = None
 
         # Optional hex-specific encoder and network (used for hex boards).
-        self.hex_encoder: Optional[ActionEncoderHex]
-        self.hex_model: Optional[HexNeuralNet]
         if self.neural_net is not None:
             try:
                 # in_channels and global_features must match _extract_features.

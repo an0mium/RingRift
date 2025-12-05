@@ -64,7 +64,7 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 
 ### Games (`/api/games`)
 
-> **Move transport:** Interactive move submission is performed over the WebSocket API, not via a general-purpose HTTP move endpoint. For the canonical transport decision (WebSocket vs HTTP, and the scope of any HTTP move harness), see [`PLAYER_MOVE_TRANSPORT_DECISION.md`](docs/PLAYER_MOVE_TRANSPORT_DECISION.md:1).
+> **Move transport:** Interactive move submission is performed over the WebSocket API, not via a general-purpose HTTP move endpoint. For the canonical transport decision (WebSocket vs HTTP, and the scope of any HTTP move harness), see [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md).
 
 | Method | Endpoint                             | Description                       | Auth Required |
 | ------ | ------------------------------------ | --------------------------------- | ------------- |
@@ -82,7 +82,7 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 > **Lifecycle / spectator invariant:** The game detail, history, and diagnostics
 > routes (`GET /games/:gameId`, `GET /games/:gameId/history`,
 > `GET /games/:gameId/diagnostics/session`) all share the same authorization
-> rule derived from the lifecycle SSoT (`docs/CANONICAL_ENGINE_API.md`): callers
+> rule derived from the lifecycle SSoT (`docs/architecture/CANONICAL_ENGINE_API.md`): callers
 > must either be **seated participants** in the game or, when
 > `allowSpectators=true`, permitted **spectators**. Violations surface as
 > standardized `RESOURCE_ACCESS_DENIED` / `GAME_NOT_FOUND` errors and are
@@ -98,7 +98,7 @@ The API uses **JWT Bearer tokens** for authentication. Most endpoints require au
 
 ### Internal / Test harness APIs
 
-> An internal HTTP move harness endpoint (`POST /api/games/:gameId/moves`) **may be enabled** in certain environments (for example, local, CI, dedicated loadtest, or tightly scoped staging) to support load testing and internal tools. It is a thin adapter over the same shared domain `applyMove` API used by WebSocket move handlers, is typically gated by feature flags such as `ENABLE_HTTP_MOVE_HARNESS`, and is **not** a general public HTTP move API for interactive clients. See [`PLAYER_MOVE_TRANSPORT_DECISION.md`](docs/PLAYER_MOVE_TRANSPORT_DECISION.md:1) for the canonical scope and constraints.
+> An internal HTTP move harness endpoint (`POST /api/games/:gameId/moves`) **may be enabled** in certain environments (for example, local, CI, dedicated loadtest, or tightly scoped staging) to support load testing and internal tools. It is a thin adapter over the same shared domain `applyMove` API used by WebSocket move handlers, is typically gated by the environment flag ENABLE_HTTP_MOVE_HARNESS (see [`ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md) for details), and is **not** a general public HTTP move API for interactive clients. See [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md) for the canonical scope and constraints.
 
 ---
 
@@ -496,9 +496,9 @@ Clients calling `DELETE /api/users/me` should therefore expect:
 
 Real-time game communication uses Socket.IO over WebSockets. Authentication is required via JWT token passed in the handshake.
 
-WebSocket is the canonical move transport for interactive clients; any HTTP move endpoint that submits moves is an internal/test harness over the same shared domain API, as documented in [`PLAYER_MOVE_TRANSPORT_DECISION.md`](docs/PLAYER_MOVE_TRANSPORT_DECISION.md:1).
+WebSocket is the canonical move transport for interactive clients; any HTTP move endpoint that submits moves is an internal/test harness over the same shared domain API, as documented in [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md).
 
-For the **authoritative Move / PendingDecision / PlayerChoice / WebSocket lifecycle** (including concrete type definitions and a worked example), see [`docs/CANONICAL_ENGINE_API.md` §3.9–3.10](./CANONICAL_ENGINE_API.md). This section focuses on transport-level events and error codes; it assumes that orchestrator-centric lifecycle as its rules SSoT.
+For the **authoritative Move / PendingDecision / PlayerChoice / WebSocket lifecycle** (including concrete type definitions and a worked example), see [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9–3.10](./architecture/CANONICAL_ENGINE_API.md). This section focuses on transport-level events and error codes; it assumes that orchestrator-centric lifecycle as its rules SSoT.
 
 ### Connection
 
@@ -595,7 +595,7 @@ These events are transport-only and do not mutate game state. They are primarily
 
 - [WebSocket Types](../src/shared/types/websocket.ts) - TypeScript type definitions
 - [Game Rules](../ringrift_complete_rules.md) - Complete game rulebook
-- [Environment Variables](./ENVIRONMENT_VARIABLES.md) - Server configuration
+- [Environment Variables](../operations/ENVIRONMENT_VARIABLES.md) - Server configuration
 - [OpenAPI Spec](../src/server/openapi/config.ts) - OpenAPI schema definitions
 
 ---

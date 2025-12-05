@@ -30,6 +30,15 @@ jest.mock('../../src/server/services/PythonRulesClient', () => ({
 }));
 
 const mockedGetDatabaseClient = getDatabaseClient as jest.MockedFunction<typeof getDatabaseClient>;
+let mockPrisma: {
+  game: {
+    findUnique: jest.Mock;
+    update: jest.Mock;
+  };
+  move: {
+    create: jest.Mock;
+  };
+};
 
 // Skip with orchestrator adapter - this test verifies GameSession state reconstruction
 // which behaves differently with the orchestrator adapter's unified processing.
@@ -141,7 +150,7 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
         ],
       };
 
-      const mockPrisma = {
+      mockPrisma = {
         game: {
           findUnique: jest.fn(async (args: any) => {
             if (args?.where?.id === gameId) {
@@ -214,6 +223,12 @@ const skipWithOrchestrator = process.env.ORCHESTRATOR_ADAPTER_ENABLED === 'true'
       expect(stateFromFirstSession.moveHistory.length).toBe(1);
       expect(stateFromSecondSession.moveHistory.length).toBe(1);
       expect(stateFromFirstSession.currentPlayer).toBe(stateFromSecondSession.currentPlayer);
+
+      // Reconnection-style initialization must be read-only with respect to
+      // historical moves and game status: it should not append moves or
+      // mutate the Game row when the game is already active.
+      expect(mockPrisma.move.create).not.toHaveBeenCalled();
+      expect(mockPrisma.game.update).not.toHaveBeenCalled();
 
       io.close();
       httpServer.close();

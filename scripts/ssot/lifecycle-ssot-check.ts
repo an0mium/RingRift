@@ -4,7 +4,7 @@
  *
  * Verifies that the core lifecycle-facing enums and discriminants in the
  * executable SSoT (src/shared/types/game.ts) are at least mentioned in the
- * canonical API doc (docs/CANONICAL_ENGINE_API.md).
+ * canonical API doc (`docs/architecture/CANONICAL_ENGINE_API.md`).
  *
  * Initial invariants:
  * - Every non-legacy MoveType literal in src/shared/types/game.ts must
@@ -42,7 +42,7 @@ function extractLiteralsFromUnion(source: string, anchor: string): Set<string> {
   const literals = new Set<string>();
   const regex = /'([^'\n]+)'/g;
   let match: RegExpExecArray | null;
-  // eslint-disable-next-line no-cond-assign
+
   while ((match = regex.exec(block)) !== null) {
     literals.add(match[1]);
   }
@@ -53,7 +53,8 @@ export async function runLifecycleSsotCheck(): Promise<CheckResult> {
   try {
     const projectRoot = path.resolve(__dirname, '..', '..');
     const typesPath = path.join(projectRoot, 'src/shared/types/game.ts');
-    const apiDocPath = path.join(projectRoot, 'docs/CANONICAL_ENGINE_API.md');
+    // CANONICAL_ENGINE_API.md now lives under docs/architecture/.
+    const apiDocPath = path.join(projectRoot, 'docs/architecture/CANONICAL_ENGINE_API.md');
 
     const typesContent = readFileSafe(typesPath);
     const apiDocContent = readFileSafe(apiDocPath);

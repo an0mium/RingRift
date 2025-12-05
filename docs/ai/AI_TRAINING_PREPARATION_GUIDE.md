@@ -4,7 +4,7 @@
 >
 > - Canonical pre-flight checklist for AI weight initialization, training infrastructure, and operational safeguards for the Python AI service under `ai-service/`.
 > - Assumes the **rules SSoT** is the shared TypeScript engine (helpers → aggregates → orchestrator → contracts) under `src/shared/engine/`, with v2 contract vectors under `tests/fixtures/contract-vectors/v2/`.
-> - For Move/decision/WebSocket lifecycle semantics and canonical types, defer to [`docs/CANONICAL_ENGINE_API.md`](./CANONICAL_ENGINE_API.md); for TS↔Python rules parity specifics, defer to [`docs/PYTHON_PARITY_REQUIREMENTS.md`](./PYTHON_PARITY_REQUIREMENTS.md) and [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md).
+> - For Move/decision/WebSocket lifecycle semantics and canonical types, defer to [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md); for TS↔Python rules parity specifics, defer to [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](../rules/PYTHON_PARITY_REQUIREMENTS.md) and [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md).
 >
 > **SSoT alignment:** This guide is a derived pre-flight and training-infrastructure checklist over:
 >
@@ -1778,7 +1778,7 @@ Before training AI, verify understanding of:
 - [ ] **Territory encirclement**: Marker elimination
 - [ ] **Victory conditions**: Elimination or points at move limit
 
-**Reference**: [`ringrift_complete_rules.md`](../ringrift_complete_rules.md)
+**Reference**: [`ringrift_complete_rules.md`](../../ringrift_complete_rules.md)
 
 ### 11.2 Board Representation Invariants
 

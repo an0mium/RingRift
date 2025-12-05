@@ -13,11 +13,31 @@ import type {
 } from '../../../src/shared/types/game';
 import { BackendGameHost } from '../../../src/client/pages/BackendGameHost';
 
+jest.mock('../../../src/client/hooks/useIsMobile', () => ({
+  __esModule: true,
+  useIsMobile: jest.fn(() => false),
+}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
 // ─────────────────────────────────────────────────────────────────────────────
 
 const mockNavigate = jest.fn();
+
+// Capture the most recent BoardView props so tests can assert that
+// BackendGameHost wires decision highlights and chainCapturePath as expected.
+let lastBoardViewProps: any = null;
+jest.mock('../../../src/client/components/BoardView', () => {
+  const actual = jest.requireActual('../../../src/client/components/BoardView');
+  return {
+    __esModule: true,
+    ...actual,
+    BoardView: jest.fn((props: any) => {
+      lastBoardViewProps = props;
+      return actual.BoardView(props);
+    }),
+  };
+});
 
 // Keep toast output from polluting test logs
 jest.mock('react-hot-toast', () => {
@@ -39,6 +59,26 @@ jest.mock('@/client/contexts/AuthContext', () => ({
   useAuth: () => ({
     user: { id: 'user-1', username: 'Alice' },
   }),
+}));
+
+// GameContext hook (useGame) is used by BackendGameHost for rematch wiring.
+// In these host tests we only need a minimal, no-op implementation so that
+// the component can render without being wrapped in a real GameProvider.
+jest.mock('@/client/contexts/GameContext', () => ({
+  useGame: () => ({
+    pendingRematchRequest: null,
+    requestRematch: jest.fn(),
+    acceptRematch: jest.fn(),
+    declineRematch: jest.fn(),
+    rematchGameId: null,
+    rematchLastStatus: null,
+  }),
+}));
+
+// Socket base URL helper uses import.meta.env in the browser build; provide a
+// stable value here so Jest does not need to evaluate import.meta in Node.
+jest.mock('@/client/utils/socketBaseUrl', () => ({
+  getSocketBaseUrl: jest.fn(() => 'http://localhost:3000'),
 }));
 
 // Dynamic state backing the hook mocks so tests can control host behaviour.
@@ -158,6 +198,19 @@ function createEmptySquareBoard(size = 8): BoardState {
   };
 }
 
+function createEmptyHexBoard(size = 3): BoardState {
+  return {
+    stacks: new Map(),
+    markers: new Map(),
+    collapsedSpaces: new Map(),
+    territories: new Map(),
+    formedLines: [],
+    eliminatedRings: {},
+    size,
+    type: 'hexagonal',
+  };
+}
+
 function createPlayers(): Player[] {
   return [
     {
@@ -221,6 +274,13 @@ function createGameState(phase: GamePhase = 'movement'): GameState {
   };
 }
 
+function setIsMobile(value: boolean) {
+  const mod = require('../../../src/client/hooks/useIsMobile') as {
+    useIsMobile: jest.Mock;
+  };
+  mod.useIsMobile.mockReturnValue(value);
+}
+
 function setBackendHostState(options: {
   phase?: GamePhase;
   validMoves?: Move[] | null;
@@ -255,6 +315,8 @@ describe('BackendGameHost (React host behaviour)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    setIsMobile(false);
+
     mockGameState = null;
     mockValidMoves = null;
     mockVictoryState = null;
@@ -282,6 +344,20 @@ describe('BackendGameHost (React host behaviour)', () => {
   // ───────────────────────────────────────────────────────────────────────────
   // 1. Happy-path move flow
   // ───────────────────────────────────────────────────────────────────────────
+
+  it('renders MobileGameHUD instead of GameHUD on mobile viewports', () => {
+    const gameState = createGameState('movement');
+    mockGameState = gameState;
+    mockPlayers = gameState.players;
+    mockCurrentPlayer = mockPlayers[0];
+
+    setIsMobile(true);
+
+    const { container } = render(<BackendGameHost gameId="game-123" />);
+
+    // MobileGameHUD root has data-testid="mobile-game-hud"
+    expect(container.querySelector('[data-testid="mobile-game-hud"]')).not.toBeNull();
+  });
 
   it('submits a backend move when clicking source then target with a matching valid move', () => {
     const source: Position = { x: 0, y: 0 };
@@ -884,9 +960,11 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     render(<BackendGameHost gameId="game-123" />);
 
-    // Landing cell should be highlighted as a primary decision target.
+    // Landing cell should be highlighted as a primary decision target with a
+    // stronger capture pulse so mandatory chain-capture segments stand out.
     const landingCell = getSquareCell(2, 2);
     expect(landingCell).toHaveAttribute('data-decision-highlight', 'primary');
+    expect(landingCell.className).toContain('decision-pulse-capture');
 
     // Capture target cell should be highlighted as a secondary decision target.
     const targetCell = getSquareCell(1, 1);
@@ -905,6 +983,67 @@ describe('BackendGameHost (React host behaviour)', () => {
       landingPosition: { x: 2, y: 2 },
       capturedCapHeight: 2,
     });
+  });
+
+  it('wires capture_direction choices during chain_capture into BoardView decision highlights and chainCapturePath', () => {
+    // Backend chain-capture decisions should surface both a concrete
+    // capture_direction highlight and a visual chainCapturePath so the
+    // traversed path is clear during mandatory continuations.
+    setBackendHostState({ phase: 'chain_capture', validMoves: [] });
+
+    if (!mockGameState) {
+      throw new Error('mockGameState was not initialised');
+    }
+
+    mockGameState.moveHistory = [
+      {
+        id: 'm1',
+        type: 'overtaking_capture',
+        player: 1,
+        from: { x: 0, y: 0 },
+        captureTarget: { x: 0, y: 1 },
+        to: { x: 0, y: 2 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      } as any,
+      {
+        id: 'm2',
+        type: 'continue_capture_segment',
+        player: 1,
+        from: { x: 0, y: 2 },
+        captureTarget: { x: 0, y: 3 },
+        to: { x: 0, y: 4 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 2,
+      } as any,
+    ];
+
+    mockPendingChoice = {
+      id: 'capdir-2',
+      playerNumber: 1,
+      type: 'capture_direction',
+      prompt: 'Select capture direction',
+      timeoutMs: undefined,
+      options: [
+        {
+          targetPosition: { x: 0, y: 3 },
+          landingPosition: { x: 0, y: 4 },
+          capturedCapHeight: 1,
+        },
+      ],
+    } as any;
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    expect(lastBoardViewProps).not.toBeNull();
+    const { chainCapturePath, viewModel } = lastBoardViewProps;
+
+    expect(Array.isArray(chainCapturePath)).toBe(true);
+    expect(chainCapturePath.length).toBeGreaterThanOrEqual(2);
+
+    expect(viewModel?.decisionHighlights?.choiceKind).toBe('capture_direction');
   });
 
   it('highlights ring_elimination (forced-elimination) stacks and routes choice responses', () => {
@@ -933,9 +1072,14 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     render(<BackendGameHost gameId="game-123" />);
 
-    // The elimination target stack should be highlighted on the board.
+    // The elimination target stack should be highlighted on the board with a
+    // pulsing amber halo and a stack-level pulse so the cap choice is clear.
     const highlightedCell = getSquareCell(0, 0);
     expect(highlightedCell).toHaveAttribute('data-decision-highlight', 'primary');
+    expect(highlightedCell.className).toContain('decision-pulse-elimination');
+
+    const stackPulse = highlightedCell.querySelector('.decision-elimination-stack-pulse');
+    expect(stackPulse).toBeInTheDocument();
 
     // ChoiceDialog should render a button for the elimination stack.
     const optionButton = screen.getByText(/Stack at \(0, 0\).*cap 2, total 3/);
@@ -952,6 +1096,201 @@ describe('BackendGameHost (React host behaviour)', () => {
       totalHeight: 3,
       moveId: 'eliminate-0-0',
     });
+  });
+
+  it('applies pulsing territory highlights for region_order decisions', () => {
+    // Backend territory decisions should highlight the full disconnected
+    // region with stronger green pulses so territory geometry is obvious.
+    const state = createGameState('territory_processing');
+    const board = state.board;
+
+    // Small disconnected region for Player 1.
+    const regionSpaces: Position[] = [
+      { x: 3, y: 3 },
+      { x: 3, y: 4 },
+      { x: 4, y: 3 },
+    ];
+
+    (board.territories as Map<string, any>).set('region-0', {
+      spaces: regionSpaces,
+      controllingPlayer: 1,
+      isDisconnected: true,
+    });
+
+    mockGameState = state;
+    mockPlayers = state.players;
+    mockCurrentPlayer = mockPlayers[0];
+    mockValidMoves = [];
+
+    mockPendingChoice = {
+      id: 'territory-choice-1',
+      playerNumber: 1,
+      type: 'region_order',
+      prompt: 'Choose which region to process',
+      timeoutMs: undefined,
+      options: [
+        {
+          regionId: '0',
+          size: regionSpaces.length,
+          representativePosition: regionSpaces[0],
+          moveId: 'process-region-0-3,3',
+        },
+      ],
+    } as any;
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    for (const p of regionSpaces) {
+      const cell = getSquareCell(p.x, p.y);
+      expect(cell).toHaveAttribute('data-decision-highlight', 'primary');
+      expect(cell.className).toContain('decision-pulse-territory');
+    }
+  });
+
+  it('surfaces skip territory-processing option in HUD and routes skip choice via ChoiceDialog', () => {
+    // Backend territory decisions that include a canonical skip_territory_processing
+    // move should surface a clear skip hint in the HUD and a dedicated skip
+    // option in the ChoiceDialog that routes back through respondToChoice.
+    const state = createGameState('territory_processing');
+    const board = state.board;
+
+    const regionSpaces: Position[] = [
+      { x: 3, y: 3 },
+      { x: 3, y: 4 },
+      { x: 4, y: 3 },
+    ];
+
+    (board.territories as Map<string, any>).set('region-0', {
+      spaces: regionSpaces,
+      controllingPlayer: 1,
+      isDisconnected: true,
+    });
+
+    mockGameState = state;
+    mockPlayers = state.players;
+    mockCurrentPlayer = mockPlayers[0];
+    mockValidMoves = [];
+
+    mockPendingChoice = {
+      id: 'territory-choice-skip',
+      playerNumber: 1,
+      type: 'region_order',
+      prompt: 'Choose which region to process or skip',
+      timeoutMs: undefined,
+      options: [
+        {
+          regionId: '0',
+          size: regionSpaces.length,
+          representativePosition: regionSpaces[0],
+          moveId: 'process-region-0',
+        },
+        {
+          regionId: 'skip',
+          size: 0,
+          representativePosition: { x: 0, y: 0 },
+          moveId: 'skip-territory-processing',
+        },
+      ],
+    } as any;
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    // HUD should surface an attention-toned status chip and a small skip hint badge.
+    const statusChip = screen.getByTestId('hud-decision-status-chip');
+    expect(statusChip).toHaveTextContent('Territory claimed – choose region to process or skip');
+
+    const skipHint = screen.getByTestId('hud-decision-skip-hint');
+    expect(skipHint).toBeInTheDocument();
+    expect(skipHint).toHaveTextContent('Skip available');
+
+    // ChoiceDialog should render a dedicated skip option label.
+    const skipButton = screen.getByText('Skip territory processing for this turn');
+    expect(skipButton).toBeInTheDocument();
+
+    // Selecting skip should route the underlying RegionOrderChoice option
+    // through the pending-choice responder so the server receives the
+    // canonical skip_territory_processing Move via moveId.
+    fireEvent.click(skipButton);
+
+    expect(mockRespondToChoice).toHaveBeenCalledTimes(1);
+    const selected = mockRespondToChoice.mock.calls[0][0];
+    expect(selected).toMatchObject({
+      regionId: 'skip',
+      size: 0,
+      moveId: 'skip-territory-processing',
+    });
+  });
+
+  it('applies hex-board elimination pulses for ring_elimination choices on data-z cells', () => {
+    // Build a hexagonal board state with a single stack at (0,0,0) so
+    // BackendGameHost + BoardView can render a real hex cell, and surface
+    // ring_elimination decision pulses on that data-z cell.
+    const board = createEmptyHexBoard(3);
+    const stackKey = '0,0,0';
+    (board.stacks as Map<string, any>).set(stackKey, {
+      position: { x: 0, y: 0, z: 0 },
+      rings: [1, 1],
+      stackHeight: 2,
+      capHeight: 2,
+      controllingPlayer: 1,
+    });
+
+    const players = createPlayers();
+
+    mockGameState = {
+      id: 'game-hex',
+      boardType: 'hexagonal',
+      board,
+      players,
+      currentPhase: 'movement',
+      currentPlayer: 1,
+      moveHistory: [],
+      history: [],
+      timeControl: { type: 'rapid', initialTime: 600, increment: 0 },
+      spectators: [],
+      gameStatus: 'active',
+      createdAt: new Date(),
+      lastMoveAt: new Date(),
+      isRated: false,
+      maxPlayers: players.length,
+      totalRingsInPlay: 0,
+      totalRingsEliminated: 0,
+      victoryThreshold: 10,
+      territoryVictoryThreshold: 32,
+    };
+
+    mockPlayers = players;
+    mockCurrentPlayer = players[0];
+    mockValidMoves = [];
+
+    mockPendingChoice = {
+      id: 'hex-elim-1',
+      playerNumber: 1,
+      type: 'ring_elimination',
+      prompt: 'Choose elimination stack',
+      timeoutMs: undefined,
+      options: [
+        {
+          stackPosition: { x: 0, y: 0, z: 0 },
+          capHeight: 2,
+          totalHeight: 2,
+          moveId: 'eliminate-0-0-0',
+        },
+      ],
+    } as any;
+
+    render(<BackendGameHost gameId="game-hex" />);
+
+    const boardEl = screen.getByTestId('board-view');
+    const hexCell = boardEl.querySelector(
+      'button[data-x="0"][data-y="0"][data-z="0"]'
+    ) as HTMLElement | null;
+
+    expect(hexCell).not.toBeNull();
+    expect(hexCell).toHaveClass('decision-pulse-elimination');
+
+    const stackPulse = hexCell!.querySelector('.decision-elimination-stack-pulse');
+    expect(stackPulse).toBeInTheDocument();
   });
 
   it('surfaces decision-phase timeout warnings when metadata is present', () => {

@@ -96,3 +96,35 @@ export {
   type OnboardingState,
   type UseFirstTimePlayerResult,
 } from './useFirstTimePlayer';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mobile Detection Hooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  // Individual detection hooks
+  useIsMobile,
+  useIsTouchDevice,
+  // Combined state hook
+  useMobileState,
+  // Types
+  type MobileState,
+} from './useIsMobile';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Keyboard Navigation Hooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  // Board-level keyboard navigation
+  useKeyboardNavigation,
+  // Global game shortcuts (R, M, ?, etc.)
+  useGlobalGameShortcuts,
+  // Player-color focus ring helpers
+  getPlayerFocusRingClass,
+  PLAYER_FOCUS_RING_CLASSES,
+  // Types
+  type KeyboardNavigationOptions,
+  type KeyboardNavigationState,
+  type GlobalGameShortcuts,
+} from './useKeyboardNavigation';

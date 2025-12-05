@@ -17,7 +17,8 @@ const BOARD_SHORTCUTS: ShortcutItem[] = [
   { keys: ['↑', '↓', '←', '→'], description: 'Navigate between board cells' },
   { keys: ['Enter', 'Space'], description: 'Select current cell' },
   { keys: ['Escape'], description: 'Cancel current action / Clear selection' },
-  { keys: ['?'], description: 'Show this help dialog' },
+  { keys: ['Home'], description: 'Jump to first cell (top-left)' },
+  { keys: ['End'], description: 'Jump to last cell (bottom-right)' },
 ];
 
 const DIALOG_SHORTCUTS: ShortcutItem[] = [
@@ -25,6 +26,15 @@ const DIALOG_SHORTCUTS: ShortcutItem[] = [
   { keys: ['Enter', 'Space'], description: 'Select focused option' },
   { keys: ['Tab'], description: 'Move focus between elements' },
   { keys: ['Escape'], description: 'Close dialog (if cancellable)' },
+];
+
+const GAME_SHORTCUTS: ShortcutItem[] = [
+  { keys: ['?'], description: 'Show this help dialog' },
+  { keys: ['R'], description: 'Resign from game' },
+  { keys: ['M'], description: 'Toggle sound/mute' },
+  { keys: ['F'], description: 'Toggle fullscreen' },
+  { keys: ['Ctrl', '+', 'Z'], description: 'Undo last move (sandbox only)' },
+  { keys: ['Ctrl', '+', 'Shift', '+', 'Z'], description: 'Redo move (sandbox only)' },
 ];
 
 const GENERAL_SHORTCUTS: ShortcutItem[] = [
@@ -171,6 +181,7 @@ export const KeyboardShortcutsHelp: React.FC<KeyboardShortcutsHelpProps> = ({
 
         <div className="space-y-5 max-h-[60vh] overflow-y-auto">
           <ShortcutSection title="Board Navigation" shortcuts={BOARD_SHORTCUTS} />
+          <ShortcutSection title="Game Actions" shortcuts={GAME_SHORTCUTS} />
           <ShortcutSection title="Dialog Navigation" shortcuts={DIALOG_SHORTCUTS} />
           <ShortcutSection title="General" shortcuts={GENERAL_SHORTCUTS} />
         </div>

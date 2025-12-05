@@ -80,8 +80,15 @@ class GameEngine:
             return []
 
         # Check cache
+        # Include board type/size in the cache key so that move surfaces are
+        # never reused across different board geometries (e.g. square8 vs
+        # square19 vs hexagonal), even when the lightweight hash of the empty
+        # board + players is identical. This avoids subtle cross-board-type
+        # bleed-through in tests and training while preserving the underlying
+        # hash_game_state semantics used for TS↔Python parity tooling.
         state_hash = BoardManager.hash_game_state(game_state)
-        cache_key = f"{state_hash}:{player_number}"
+        board = game_state.board
+        cache_key = f"{board.type.value}:{board.size}:{state_hash}:{player_number}"
 
         if cache_key in GameEngine._move_cache:
             GameEngine._cache_hits += 1
@@ -696,7 +703,13 @@ class GameEngine:
             game_state.current_phase = GamePhase.MOVEMENT
 
         elif last_move.type == MoveType.MOVE_STACK:
-            # After movement, check for captures
+            # After movement, check for captures from the landing position.
+            # Per RR-CANON-R093, post-movement captures are only available
+            # from the stack that just moved, at its landing position.
+            # Clear any stale chain_capture_state from previous turns to
+            # ensure the first capture is OVERTAKING_CAPTURE (initial), not
+            # CONTINUE_CAPTURE_SEGMENT (continuation).
+            game_state.chain_capture_state = None
             capture_moves = GameEngine._get_capture_moves(
                 game_state, current_player
             )
@@ -757,18 +770,10 @@ class GameEngine:
                 game_state.current_phase = GamePhase.TERRITORY_PROCESSING
                 game_state.must_move_from_stack_key = None
             else:
-                # Non-terminal case: rotate to next player
-                players = game_state.players
-                if players:
-                    current_index = 0
-                    for i, p in enumerate(players):
-                        if p.player_number == game_state.current_player:
-                            current_index = i
-                            break
-                    next_index = (current_index + 1) % len(players)
-                    game_state.current_player = players[next_index].player_number
-                    game_state.current_phase = GamePhase.RING_PLACEMENT
-                    game_state.must_move_from_stack_key = None
+                # Non-terminal case: rotate to next active player, skipping
+                # players who have no material (no stacks and no rings in hand).
+                # This mirrors TS turnLogic.advanceTurnAndPhase behaviour.
+                GameEngine._rotate_to_next_active_player(game_state)
 
         elif last_move.type == MoveType.PROCESS_TERRITORY_REGION:
             # After processing a disconnected territory region via an explicit
@@ -776,17 +781,10 @@ class GameEngine:
             # start them in the ring_placement phase without applying forced
             # elimination gating. This mirrors the TS orchestrator behaviour
             # exercised by the v2 territory_processing contract vectors.
-            players = game_state.players
-            if players:
-                current_index = 0
-                for i, p in enumerate(players):
-                    if p.player_number == game_state.current_player:
-                        current_index = i
-                        break
-                next_index = (current_index + 1) % len(players)
-                game_state.current_player = players[next_index].player_number
-                game_state.current_phase = GamePhase.RING_PLACEMENT
-                game_state.must_move_from_stack_key = None
+            # Note: We still need to skip players who are fully eliminated
+            # (no stacks and no rings in hand) even though we don't apply
+            # forced elimination for this transition.
+            GameEngine._rotate_to_next_active_player(game_state)
 
         elif last_move.type in (
             MoveType.TERRITORY_CLAIM,
@@ -798,6 +796,11 @@ class GameEngine:
 
     @staticmethod
     def _advance_to_line_processing(game_state: GameState):
+        # Clear chain_capture_state when leaving capture phase.
+        # This ensures the next capture opportunity (e.g., after a future
+        # MOVE_STACK) will be correctly classified as OVERTAKING_CAPTURE.
+        game_state.chain_capture_state = None
+
         line_moves = GameEngine._get_line_processing_moves(
             game_state, game_state.current_player
         )
@@ -841,6 +844,76 @@ class GameEngine:
             GameEngine._end_turn(game_state)
 
     @staticmethod
+    def _rotate_to_next_active_player(game_state: GameState) -> None:
+        """
+        Rotate to the next player who has material, skipping eliminated players.
+
+        This is a lighter-weight rotation than _end_turn: it does NOT apply
+        forced elimination or complex per-turn state updates. It simply finds
+        the next player in seat order who still has stacks or rings in hand,
+        and starts their turn in the appropriate phase.
+
+        Used after PROCESS_TERRITORY_REGION and ELIMINATE_RINGS_FROM_STACK
+        where forced elimination should not be triggered at the transition.
+
+        Mirrors TS turnLogic.advanceTurnAndPhase player-skipping behaviour.
+        """
+        players = game_state.players
+        if not players:
+            return
+
+        num_players = len(players)
+
+        # Find index of the current player in the players list
+        current_index = 0
+        for i, p in enumerate(players):
+            if p.player_number == game_state.current_player:
+                current_index = i
+                break
+
+        max_skips = num_players
+        skips = 0
+        idx = (current_index + 1) % num_players
+
+        while skips < max_skips:
+            candidate = players[idx]
+            stacks_for_candidate = BoardManager.get_player_stacks(
+                game_state.board,
+                candidate.player_number,
+            )
+            has_stacks = bool(stacks_for_candidate)
+            has_rings_in_hand = candidate.rings_in_hand > 0
+
+            if not has_stacks and not has_rings_in_hand:
+                # This player currently has no material (no stacks, no rings
+                # in hand); skip them for this turn rotation. They may regain
+                # control of stacks through capture or territory mechanics and
+                # will be re-checked on subsequent turn rotations.
+                skips += 1
+                idx = (idx + 1) % num_players
+                continue
+
+            # Found an active player
+            game_state.current_player = candidate.player_number
+            game_state.must_move_from_stack_key = None
+
+            # Starting phase: ring_placement if they have rings, else movement
+            if has_rings_in_hand:
+                game_state.current_phase = GamePhase.RING_PLACEMENT
+            else:
+                game_state.current_phase = GamePhase.MOVEMENT
+
+            GameEngine._update_lps_round_tracking_for_current_player(
+                game_state,
+            )
+            return
+
+        # All players exhausted; keep current_player and set phase to MOVEMENT
+        # to allow _check_victory to resolve the global stalemate.
+        game_state.current_phase = GamePhase.MOVEMENT
+        game_state.must_move_from_stack_key = None
+
+    @staticmethod
     def _end_turn(game_state: GameState):
         """
         End the current player's turn and advance to the next active player.
@@ -860,6 +933,10 @@ class GameEngine:
           unchanged and allow _check_victory to resolve global stalemate via
           tie-breakers.
         """
+        # Clear chain_capture_state at turn end. This ensures the next player's
+        # first capture (if any) will be correctly classified as OVERTAKING_CAPTURE.
+        game_state.chain_capture_state = None
+
         players = game_state.players
         if not players:
             return

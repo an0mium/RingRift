@@ -29,15 +29,18 @@ const DOCS_TO_CHECK: DocExpectation[] = [
     requiredSnippet: 'Rules/invariants semantics SSoT',
   },
   {
-    path: 'RULES_IMPLEMENTATION_MAPPING.md',
+    // Implementation mapping now lives under docs/rules/.
+    path: 'docs/rules/RULES_IMPLEMENTATION_MAPPING.md',
     requiredSnippet: 'Rules/invariants semantics SSoT',
   },
   {
-    path: 'docs/RULES_ENGINE_SURFACE_AUDIT.md',
+    // Rules surface audit now lives under docs/rules/.
+    path: 'docs/rules/RULES_ENGINE_SURFACE_AUDIT.md',
     requiredSnippet: 'Rules/invariants semantics SSoT',
   },
   {
-    path: 'docs/CANONICAL_ENGINE_API.md',
+    // Canonical engine API doc now lives under docs/architecture/.
+    path: 'docs/architecture/CANONICAL_ENGINE_API.md',
     requiredSnippet: 'Lifecycle/API SSoT',
   },
   {
@@ -49,19 +52,22 @@ const DOCS_TO_CHECK: DocExpectation[] = [
     requiredSnippet: 'rules semantics SSoT',
   },
   {
-    path: 'docs/PYTHON_PARITY_REQUIREMENTS.md',
+    // Python parity requirements now live under docs/rules/.
+    path: 'docs/rules/PYTHON_PARITY_REQUIREMENTS.md',
     requiredSnippet: 'Canonical TS rules surface',
   },
   {
-    path: 'ARCHITECTURE_ASSESSMENT.md',
+    // Architecture assessment/remediation plans now live under docs/archive/plans/.
+    path: 'docs/archive/plans/ARCHITECTURE_ASSESSMENT.md',
     requiredSnippet: 'SSoT alignment',
   },
   {
-    path: 'ARCHITECTURE_REMEDIATION_PLAN.md',
+    path: 'docs/archive/plans/ARCHITECTURE_REMEDIATION_PLAN.md',
     requiredSnippet: 'SSoT alignment',
   },
   {
-    path: 'docs/MODULE_RESPONSIBILITIES.md',
+    // Module responsibilities now live under docs/architecture/.
+    path: 'docs/architecture/MODULE_RESPONSIBILITIES.md',
     requiredSnippet: 'SSoT alignment',
   },
 ];

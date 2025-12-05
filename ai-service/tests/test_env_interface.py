@@ -8,7 +8,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
 from app.models import BoardType, GameStatus
 from app.game_engine import GameEngine
-from app.training.env import RingRiftEnv
+from app.training.env import RingRiftEnv, TrainingEnvConfig, make_env
 
 
 class TestRingRiftEnv(unittest.TestCase):
@@ -16,7 +16,8 @@ class TestRingRiftEnv(unittest.TestCase):
         """
         Verify that env.step() produces the same state as GameEngine.apply_move()
         """
-        env = RingRiftEnv(BoardType.SQUARE8)
+        config = TrainingEnvConfig(board_type=BoardType.SQUARE8)
+        env = make_env(config)
         state = env.reset()
 
         # Get a valid move
@@ -52,7 +53,11 @@ class TestRingRiftEnv(unittest.TestCase):
         """
         Verify terminal reward logic (+1/-1/0)
         """
-        env = RingRiftEnv(BoardType.SQUARE8, reward_on="terminal")
+        config = TrainingEnvConfig(
+            board_type=BoardType.SQUARE8,
+            reward_mode="terminal",
+        )
+        env = make_env(config)
         env.reset()
 
         # Force a terminal state
@@ -120,7 +125,8 @@ class TestRingRiftEnv(unittest.TestCase):
         """
         Verify env.legal_moves() matches GameEngine.get_valid_moves()
         """
-        env = RingRiftEnv(BoardType.SQUARE8)
+        config = TrainingEnvConfig(board_type=BoardType.SQUARE8)
+        env = make_env(config)
         state = env.reset()
 
         env_moves = env.legal_moves()
@@ -148,7 +154,11 @@ class TestRingRiftEnv(unittest.TestCase):
         total_spaces = 64
 
         for num_players in (3, 4):
-            env = RingRiftEnv(BoardType.SQUARE8, num_players=num_players)
+            config = TrainingEnvConfig(
+                board_type=BoardType.SQUARE8,
+                num_players=num_players,
+            )
+            env = make_env(config)
             state = env.reset()
 
             # Player list and max_players should reflect num_players.
@@ -178,7 +188,11 @@ class TestRingRiftEnv(unittest.TestCase):
         moves, the env can make progress without getting stuck.
         """
         for num_players in (3, 4):
-            env = RingRiftEnv(BoardType.SQUARE8, num_players=num_players)
+            config = TrainingEnvConfig(
+                board_type=BoardType.SQUARE8,
+                num_players=num_players,
+            )
+            env = make_env(config)
             state = env.reset()
 
             seen = set()
@@ -219,7 +233,11 @@ class TestRingRiftEnv(unittest.TestCase):
         # Ensure the disable flag is not set for this test.
         os.environ.pop("RINGRIFT_TRAINING_DISABLE_SWAP_RULE", None)
 
-        env = RingRiftEnv(BoardType.SQUARE8, num_players=2)
+        config = TrainingEnvConfig(
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+        )
+        env = make_env(config)
         state = env.reset()
 
         # rulesOptions should be present with swapRuleEnabled=True.
@@ -235,7 +253,11 @@ class TestRingRiftEnv(unittest.TestCase):
         os.environ["RINGRIFT_TRAINING_DISABLE_SWAP_RULE"] = "1"
 
         try:
-            env = RingRiftEnv(BoardType.SQUARE8, num_players=2)
+            config = TrainingEnvConfig(
+                board_type=BoardType.SQUARE8,
+                num_players=2,
+            )
+            env = make_env(config)
             state = env.reset()
 
             # When the disable flag is set, rulesOptions should either be

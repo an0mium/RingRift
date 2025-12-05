@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 import tempfile
 import uuid
@@ -189,6 +190,23 @@ class TestGameReplayDBBasic:
         retrieved_moves = db.get_moves(game_id)
         assert len(retrieved_moves) == 3
         assert retrieved_moves[0].move_number == 0
+
+        # Verify that full metadata is persisted as JSON for debugging.
+        conn = sqlite3.connect(str(db_path))
+        row = conn.execute(
+            "SELECT metadata_json FROM games WHERE game_id = ?",
+            (game_id,),
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        metadata_json = row[0]
+        assert metadata_json is not None
+        # The stored JSON should decode to a dict containing the source key.
+        import json
+
+        decoded = json.loads(metadata_json)
+        assert isinstance(decoded, dict)
+        assert decoded.get("source") == "test"
 
     def test_query_games(self, db_path):
         """Test querying games by filters."""

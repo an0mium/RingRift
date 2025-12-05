@@ -349,6 +349,31 @@ describe('BoardView', () => {
       ) as HTMLElement;
       expect(territoryCell).toHaveClass('decision-pulse-territory');
     });
+
+    it('applies capture decision pulses on hex boards', () => {
+      const board = createEmptyBoardState('hexagonal');
+      board.type = 'hexagonal';
+      board.size = 3;
+
+      const captureVM: BoardViewModel = {
+        boardType: 'hexagonal',
+        size: 3,
+        cells: [],
+        decisionHighlights: {
+          choiceKind: 'capture_direction',
+          highlights: [{ positionKey: '0,0,0', intensity: 'primary' }],
+        },
+      };
+
+      const { container } = render(
+        <BoardView boardType="hexagonal" board={board} viewModel={captureVM} />
+      );
+
+      const captureCell = container.querySelector(
+        'button[data-x="0"][data-y="0"][data-z="0"]'
+      ) as HTMLElement;
+      expect(captureCell).toHaveClass('decision-pulse-capture');
+    });
   });
 
   describe('stacks rendering', () => {

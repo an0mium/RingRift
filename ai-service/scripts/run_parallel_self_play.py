@@ -36,7 +36,7 @@ from app.ai.descent_ai import DescentAI  # noqa: E402
 from app.ai.heuristic_ai import HeuristicAI  # noqa: E402
 from app.ai.random_ai import RandomAI  # noqa: E402
 from app.models import AIConfig, GameStatus  # noqa: E402
-from app.training.env import RingRiftEnv  # noqa: E402
+from app.training.env import TrainingEnvConfig, make_env  # noqa: E402
 from app.utils.memory_config import MemoryConfig  # noqa: E402
 from app.utils.progress_reporter import ProgressReporter  # noqa: E402
 
@@ -143,7 +143,8 @@ def play_single_game(
         Tuple of (game_length, winner, termination_reason)
     """
     # Increase env limit to avoid early cutoff
-    env = RingRiftEnv(max_moves=500)
+    env_config = TrainingEnvConfig(max_moves=500)
+    env = make_env(env_config)
     state = env.reset(seed=seed)
 
     # Create AI instances for both players

@@ -52,8 +52,12 @@ Primary game metadata, one row per game.
 | `total_moves`        | INTEGER NOT NULL | Number of moves in the game                                          |
 | `total_turns`        | INTEGER NOT NULL | Number of full turn cycles                                           |
 | `duration_ms`        | INTEGER          | Total game duration in milliseconds                                  |
-| `source`             | TEXT             | 'self_play', 'human', 'tournament', 'training'                       |
+| `source`             | TEXT             | 'self_play', 'human', 'tournament', 'training', 'selfplay_soak', …   |
 | `schema_version`     | INTEGER NOT NULL | Schema version for forward compatibility                             |
+| `time_control_type`  | TEXT             | Time control mode ('none', 'standard', etc.)                         |
+| `initial_time_ms`    | INTEGER          | Initial clock time per player in milliseconds                        |
+| `time_increment_ms`  | INTEGER          | Increment added after each move in milliseconds                      |
+| `metadata_json`      | TEXT             | JSON-encoded recording metadata (engine_mode, rng_seed, versions, …) |
 
 **Indexes:**
 
@@ -153,6 +157,36 @@ Player choices during decision phases (line reward, ring elimination, etc.).
 | `ai_reasoning`         | TEXT             | Optional: AI reasoning for the choice                                                |
 
 **Primary Key:** (`game_id`, `move_number`, `choice_type`)
+
+---
+
+### Table: `game_history_entries`
+
+Structured per-move history entries used for validation, trace-style
+replay, and TS↔Python parity debugging.
+
+| Column                      | Type             | Description                                                              |
+| --------------------------- | ---------------- | ------------------------------------------------------------------------ |
+| `game_id`                   | TEXT NOT NULL    | FK to games.game_id                                                      |
+| `move_number`               | INTEGER NOT NULL | Move number this entry is AFTER                                          |
+| `player`                    | INTEGER NOT NULL | Player who made the move                                                 |
+| `phase_before`              | TEXT NOT NULL    | Phase before the move                                                    |
+| `phase_after`               | TEXT NOT NULL    | Phase after the move                                                     |
+| `status_before`             | TEXT NOT NULL    | Game status before the move                                              |
+| `status_after`              | TEXT NOT NULL    | Game status after the move                                               |
+| `progress_before_json`      | TEXT NOT NULL    | Per-player progress snapshot before (JSON)                               |
+| `progress_after_json`       | TEXT NOT NULL    | Per-player progress snapshot after (JSON)                                |
+| `state_hash_before`         | TEXT             | Optional state hash before the move                                      |
+| `state_hash_after`          | TEXT             | Optional state hash after the move                                       |
+| `board_summary_before_json` | TEXT             | Optional compact board summary before (JSON)                             |
+| `board_summary_after_json`  | TEXT             | Optional compact board summary after (JSON)                              |
+| `state_before_json`         | TEXT             | Full GameState JSON before the move (v4+)                                |
+| `state_after_json`          | TEXT             | Full GameState JSON after the move (v4+)                                 |
+| `compressed_states`         | INTEGER          | 0 = uncompressed JSON, 1 = base64+gzip-compressed JSON                   |
+| `available_moves_json`      | TEXT             | Optional JSON array of valid moves at `state_before` (v6+, parity debug) |
+| `available_moves_count`     | INTEGER          | Optional count of valid moves at `state_before` (v6+)                    |
+
+**Primary Key:** (`game_id`, `move_number`)
 
 ---
 
@@ -413,6 +447,122 @@ Games are only stored if they meet these criteria:
 2. A winner is determined (or valid stalemate with tiebreaker)
 3. Move history is non-empty and consistent
 4. Final state passes invariant checks (S is monotonic, no invalid termination)
+
+---
+
+## Coverage & Health Targets
+
+The schema above is only useful if the underlying databases have good,
+representative coverage and structurally sound games. This section documents
+the **“golden” baseline** we aim for in local development and CI, and the
+scripts that help maintain it.
+
+### Structural Coverage (RandomAI-only, fast)
+
+For basic structural validation (schema correctness, TS↔Python replay parity,
+invariant checks) we maintain a light-weight set of RandomAI games across all
+board/player combinations using `scripts/run_minimal_selfplay.py` and the
+matrix wrapper `scripts/run_minimal_selfplay_matrix.sh`.
+
+Target baseline (per DB path):
+
+| Board     | Players | Min finished games | Source             | DB path                               |
+| --------- | ------- | ------------------ | ------------------ | ------------------------------------- |
+| square8   | 2       | 20+                | `minimal_selfplay` | `data/games/selfplay_square8_2p.db`   |
+| square8   | 3       | 15+                | `minimal_selfplay` | `data/games/selfplay_square8_3p.db`   |
+| square8   | 4       | 10+                | `minimal_selfplay` | `data/games/selfplay_square8_4p.db`   |
+| square19  | 2       | 15+                | `minimal_selfplay` | `data/games/selfplay_square19_2p.db`  |
+| square19  | 3       | 10+                | `minimal_selfplay` | `data/games/selfplay_square19_3p.db`  |
+| square19  | 4       | 10+                | `minimal_selfplay` | `data/games/selfplay_square19_4p.db`  |
+| hexagonal | 2       | 15+                | `minimal_selfplay` | `data/games/selfplay_hexagonal_2p.db` |
+| hexagonal | 3       | 10+                | `minimal_selfplay` | `data/games/selfplay_hexagonal_3p.db` |
+| hexagonal | 4       | 10+                | `minimal_selfplay` | `data/games/selfplay_hexagonal_4p.db` |
+
+These numbers are deliberately modest so they can be regenerated quickly on a
+developer laptop while still providing coverage of:
+
+- all three board types (`square8`, `square19`, `hexagonal`), and
+- all supported player counts (2–4).
+
+To (re)generate this structural baseline in one shot:
+
+```bash
+cd ai-service
+chmod +x scripts/run_minimal_selfplay_matrix.sh  # once
+
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
+  scripts/run_minimal_selfplay_matrix.sh
+```
+
+This script calls `run_minimal_selfplay.py` for each `(board_type, num_players)`
+pair using `RandomAI` only, so it avoids neural-network/MPS issues and remains
+CPU‑friendly.
+
+### Training / Parity Coverage (mixed engine, CMA-ES)
+
+For training and deeper parity analysis we additionally want:
+
+1. **Mixed-engine self-play soaks** (2p, heuristic + neural ladder),
+2. **CMA-ES evaluation games** (2p, heuristic‑only, multi-start).
+
+We do not pin exact numbers here because they can vary by experiment, but a
+useful **golden baseline** is:
+
+| Board     | Profile        | Recommended finished games (2p) | Typical source                    |
+| --------- | -------------- | ------------------------------- | --------------------------------- |
+| square8   | self-play soak | ≥ 100                           | `selfplay_soak` / `python-strict` |
+| square19  | self-play soak | ≥ 50                            | `selfplay_soak`                   |
+| hexagonal | self-play soak | ≥ 40 (when NN/MPS is stable)    | `selfplay_soak`                   |
+| square8   | CMA-ES eval    | ≥ 100                           | `cmaes` / `cmaes_optimization`    |
+| square19  | CMA-ES eval    | ≥ 60                            | `cmaes` / `cmaes_optimization`    |
+| hexagonal | CMA-ES eval    | ≥ 40 (optional)                 | `cmaes` / `cmaes_optimization`    |
+
+Small helper scripts exist for “quick but representative” coverage:
+
+- `scripts/run_selfplay_matrix.sh` – mixed‑engine self-play soaks for
+  2–4 players on `square8`/`square19`, recording to
+  `data/games/selfplay_<board>_<players>p.db`.
+- `scripts/run_cmaes_matrix.sh` – short CMA‑ES runs on `square8`/`square19`
+  that record evaluation games to `logs/cmaes/runs/<run_id>/games.db`.
+
+These are not a replacement for the full training runs in `AI_TRAINING_PLAN.md`
+but provide a reproducible “good enough” replay corpus for:
+
+- TS↔Python parity harnesses,
+- regression tests on invariants, and
+- ad‑hoc offline analysis.
+
+### Health Checks (`db_health.*.json`)
+
+The `scripts/cleanup_useless_replay_dbs.py` tool inspects all configured
+`GameReplayDB` locations and produces a health summary JSON. This is the
+canonical way to verify that databases meet the structural expectations above.
+
+Example usage:
+
+```bash
+cd ai-service
+
+OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 PYTHONPATH=. \
+  python scripts/cleanup_useless_replay_dbs.py \
+    --summary-json db_health.current.json
+```
+
+The resulting `db_health.current.json` summarises, per DB:
+
+- `total_games`, `board_type_counts`, `num_players_counts`
+- `source_counts` (e.g. `minimal_selfplay`, `selfplay_soak`, `cmaes`)
+- `structure_counts` (`good`, `internal_inconsistent`, etc.)
+- `termination_reason_counts`
+
+Databases with **zero good games** or structurally inconsistent games are
+reported as “useless” and can be safely regenerated. When promoting a replay
+set to “golden”, we typically:
+
+1. Regenerate the RandomAI matrix (`run_minimal_selfplay_matrix.sh`),
+2. Run a small mixed/CMA‑ES matrix (`run_selfplay_matrix.sh`,
+   `run_cmaes_matrix.sh`) if needed,
+3. Capture a snapshot as `db_health.golden.json` under version control.
 
 ---
 

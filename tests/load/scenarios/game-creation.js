@@ -11,8 +11,10 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import thresholdsConfig from '../config/thresholds.json';
 import { loginAndGetToken } from '../auth/helpers.js';
+import { makeHandleSummary } from '../summary.js';
+
+const thresholdsConfig = JSON.parse(open('../config/thresholds.json'));
 
 // Classification metrics shared across scenarios
 export const contractFailures = new Counter('contract_failures_total');
@@ -30,7 +32,9 @@ const perfEnv =
   thresholdsConfig.environments[THRESHOLD_ENV] || thresholdsConfig.environments.staging;
 const loadTestEnv =
   thresholdsConfig.load_tests[THRESHOLD_ENV] || thresholdsConfig.load_tests.staging;
+const authLoginHttp = perfEnv.http_api.auth_login;
 const gameCreationHttp = perfEnv.http_api.game_creation;
+const gameStateFetchHttp = perfEnv.http_api.game_state_fetch;
 
 // Test configuration aligned with thresholds.json SLOs
 export const options = {
@@ -42,14 +46,30 @@ export const options = {
   ],
 
   thresholds: {
-    // HTTP request duration - env-specific SLOs from thresholds.json
-    http_req_duration: [
+    // HTTP request duration - env-specific SLOs from thresholds.json, per endpoint.
+    'http_req_duration{name:auth-login-setup}': [
+      `p(95)<${authLoginHttp.latency_p95_ms}`,
+      `p(99)<${authLoginHttp.latency_p99_ms}`,
+    ],
+    'http_req_duration{name:create-game}': [
       `p(95)<${gameCreationHttp.latency_p95_ms}`,
       `p(99)<${gameCreationHttp.latency_p99_ms}`,
     ],
+    'http_req_duration{name:get-game}': [
+      `p(95)<${gameStateFetchHttp.latency_p95_ms}`,
+      `p(99)<${gameStateFetchHttp.latency_p99_ms}`,
+    ],
 
-    // Error rate - use environment-specific 5xx error budget
-    http_req_failed: [`rate<${gameCreationHttp.error_rate_5xx_percent / 100}`],
+    // Error rate - use the strictest 5xx error budget across these key endpoints.
+    http_req_failed: [
+      `rate<${
+        Math.max(
+          authLoginHttp.error_rate_5xx_percent,
+          gameCreationHttp.error_rate_5xx_percent,
+          gameStateFetchHttp.error_rate_5xx_percent
+        ) / 100
+      }`,
+    ],
 
     // Custom metrics
     game_creation_success_rate: ['rate>0.99'],
@@ -293,3 +313,5 @@ export function teardown(data) {
   console.log('Game creation load test complete');
   console.log('Review metrics in Grafana or k6 summary output');
 }
+
+export const handleSummary = makeHandleSummary('game-creation');

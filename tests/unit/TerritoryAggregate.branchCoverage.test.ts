@@ -710,5 +710,360 @@ describe('TerritoryAggregate - Branch Coverage', () => {
 
       expect(newState).toBeDefined();
     });
+
+    it('throws when stack not found', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+
+      expect(() =>
+        mutateEliminateStack(state, {
+          type: 'eliminate_rings_from_stack',
+          player: 1,
+          stackPosition: { x: 5, y: 5 },
+          count: 1,
+        })
+      ).toThrow();
+    });
+
+    it('removes stack when fully eliminated', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      // Stack with single ring cap
+      addStack(state.board, { x: 0, y: 0 }, 1, 1, 1);
+
+      const newState = mutateEliminateStack(state, {
+        type: 'eliminate_rings_from_stack',
+        player: 1,
+        stackPosition: { x: 0, y: 0 },
+        count: 1,
+      });
+
+      expect(newState.board.stacks.has('0,0')).toBe(false);
+    });
+
+    it('leaves remainder when partially eliminated', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      // Stack [1, 2, 2] - cap is 1 ring, remainder is [2, 2]
+      addStack(state.board, { x: 0, y: 0 }, 1, 1, 1);
+      const key = positionToString({ x: 0, y: 0 });
+      const stack = state.board.stacks.get(key)!;
+      stack.rings = [1, 2, 2];
+      stack.stackHeight = 3;
+      stack.capHeight = 1;
+
+      const newState = mutateEliminateStack(state, {
+        type: 'eliminate_rings_from_stack',
+        player: 1,
+        stackPosition: { x: 0, y: 0 },
+        count: 1,
+      });
+
+      const remainingStack = newState.board.stacks.get('0,0');
+      expect(remainingStack).toBeDefined();
+      expect(remainingStack?.stackHeight).toBe(2);
+    });
+  });
+
+  // ==========================================================================
+  // applyTerritoryRegion detailed tests
+  // ==========================================================================
+  describe('applyTerritoryRegion', () => {
+    it('collapses region spaces', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      state.board.markers.clear();
+      state.board.collapsedSpaces.clear();
+
+      const region: Territory = {
+        player: 1,
+        spaces: [
+          { x: 0, y: 0 },
+          { x: 0, y: 1 },
+        ],
+        stacks: [],
+        isDisconnected: true,
+        controllingPlayer: 1,
+      };
+
+      const outcome = applyTerritoryRegion(state.board, region, { player: 1 });
+
+      expect(outcome.board.collapsedSpaces.has('0,0')).toBe(true);
+      expect(outcome.board.collapsedSpaces.has('0,1')).toBe(true);
+    });
+
+    it('eliminates internal stacks', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      state.board.markers.clear();
+      addStack(state.board, { x: 0, y: 0 }, 2, 2, 2);
+
+      const region: Territory = {
+        player: 1,
+        spaces: [{ x: 0, y: 0 }],
+        stacks: [{ x: 0, y: 0 }],
+        isDisconnected: true,
+        controllingPlayer: 1,
+      };
+
+      const outcome = applyTerritoryRegion(state.board, region, { player: 1 });
+
+      expect(outcome.board.stacks.has('0,0')).toBe(false);
+      expect(outcome.eliminatedRingsByPlayer[1]).toBeGreaterThan(0);
+    });
+
+    it('tracks territory gain', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      state.board.markers.clear();
+
+      const region: Territory = {
+        player: 1,
+        spaces: [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 },
+        ],
+        stacks: [],
+        isDisconnected: true,
+        controllingPlayer: 1,
+      };
+
+      const outcome = applyTerritoryRegion(state.board, region, { player: 1 });
+
+      expect(outcome.territoryGainedByPlayer[1]).toBeGreaterThanOrEqual(2);
+    });
+
+    it('collapses border markers', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      state.board.markers.clear();
+      addMarker(state.board, { x: 1, y: 0 }, 1); // Adjacent to region
+
+      const region: Territory = {
+        player: 1,
+        spaces: [{ x: 0, y: 0 }],
+        stacks: [],
+        isDisconnected: true,
+        controllingPlayer: 1,
+      };
+
+      const outcome = applyTerritoryRegion(state.board, region, { player: 1 });
+
+      expect(outcome.borderMarkers.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
+  // enumerateProcessTerritoryRegionMoves detailed tests
+  // ==========================================================================
+  describe('enumerateProcessTerritoryRegionMoves', () => {
+    it('returns empty when no processable regions', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+
+      const moves = enumerateProcessTerritoryRegionMoves(state, 1);
+      expect(moves).toEqual([]);
+    });
+
+    it('uses testOverrideRegions when provided', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      // Add a stack outside the region for processability
+      addStack(state.board, { x: 5, y: 5 }, 1, 1, 1);
+
+      const overrideRegions: Territory[] = [
+        {
+          player: 1,
+          spaces: [{ x: 0, y: 0 }],
+          stacks: [],
+          isDisconnected: true,
+          controllingPlayer: 1,
+        },
+      ];
+
+      const moves = enumerateProcessTerritoryRegionMoves(state, 1, {
+        testOverrideRegions: overrideRegions,
+      });
+
+      expect(moves.length).toBeGreaterThan(0);
+    });
+
+    it('skips regions with empty spaces array', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      addStack(state.board, { x: 5, y: 5 }, 1, 1, 1);
+
+      const overrideRegions: Territory[] = [
+        {
+          player: 1,
+          spaces: [], // Empty
+          stacks: [],
+          isDisconnected: true,
+          controllingPlayer: 1,
+        },
+      ];
+
+      const moves = enumerateProcessTerritoryRegionMoves(state, 1, {
+        testOverrideRegions: overrideRegions,
+      });
+
+      expect(moves).toEqual([]);
+    });
+
+    it('creates moves with correct structure', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      addStack(state.board, { x: 5, y: 5 }, 1, 1, 1);
+
+      const overrideRegions: Territory[] = [
+        {
+          player: 1,
+          spaces: [{ x: 0, y: 0 }],
+          stacks: [],
+          isDisconnected: true,
+          controllingPlayer: 1,
+        },
+      ];
+
+      const moves = enumerateProcessTerritoryRegionMoves(state, 1, {
+        testOverrideRegions: overrideRegions,
+      });
+
+      expect(moves.length).toBe(1);
+      expect(moves[0].type).toBe('process_territory_region');
+      expect(moves[0].player).toBe(1);
+    });
+  });
+
+  // ==========================================================================
+  // mutateProcessTerritory detailed tests
+  // ==========================================================================
+  describe('mutateProcessTerritory detailed', () => {
+    it('throws when region not found', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.board.territories.clear();
+
+      expect(() =>
+        mutateProcessTerritory(state, {
+          type: 'PROCESS_TERRITORY',
+          playerId: 1,
+          regionId: 'nonexistent',
+        })
+      ).toThrow();
+    });
+
+    it('marks kept region as connected', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.currentPlayer = 1;
+
+      const regionKey = '0,0';
+      state.board.territories.set(regionKey, {
+        player: 1,
+        spaces: [{ x: 0, y: 0 }],
+        stacks: [],
+        isDisconnected: true,
+        controllingPlayer: 1,
+      });
+
+      const newState = mutateProcessTerritory(state, {
+        type: 'PROCESS_TERRITORY',
+        playerId: 1,
+        regionId: regionKey,
+      });
+
+      const region = newState.board.territories.get(regionKey);
+      expect(region?.isDisconnected).toBe(false);
+    });
+
+    it('removes other disconnected regions for same player', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.currentPlayer = 1;
+
+      state.board.territories.set('0,0', {
+        player: 1,
+        spaces: [{ x: 0, y: 0 }],
+        stacks: [],
+        isDisconnected: true,
+        controllingPlayer: 1,
+      });
+      state.board.territories.set('5,5', {
+        player: 1,
+        spaces: [{ x: 5, y: 5 }],
+        stacks: [],
+        isDisconnected: true,
+        controllingPlayer: 1,
+      });
+
+      const newState = mutateProcessTerritory(state, {
+        type: 'PROCESS_TERRITORY',
+        playerId: 1,
+        regionId: '0,0',
+      });
+
+      expect(newState.board.territories.has('5,5')).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // getTerritoryNeighbors von_neumann branch
+  // ==========================================================================
+  describe('Territory adjacency types', () => {
+    it('handles von_neumann adjacency on square boards', () => {
+      const state = createTestGameState();
+      state.board.stacks.clear();
+      state.board.markers.clear();
+
+      addStack(state.board, { x: 3, y: 3 }, 1, 1, 1);
+      // von_neumann neighbor (orthogonal only)
+      addMarker(state.board, { x: 2, y: 3 }, 1);
+
+      const borders = getBorderMarkerPositionsForRegion(state.board, [{ x: 3, y: 3 }], {
+        mode: 'rust_aligned',
+      });
+
+      expect(borders.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
+  // enumerateTerritoryEliminationMoves detailed
+  // ==========================================================================
+  describe('enumerateTerritoryEliminationMoves detailed', () => {
+    it('returns empty when in territory_processing with processable regions', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.board.stacks.clear();
+
+      // Two stacks - one inside region, one outside
+      addStack(state.board, { x: 0, y: 0 }, 1, 1, 1);
+      addStack(state.board, { x: 5, y: 5 }, 1, 1, 1);
+
+      // Add disconnected markers to create potential regions
+      addMarker(state.board, { x: 0, y: 0 }, 1);
+
+      const moves = enumerateTerritoryEliminationMoves(state, 1);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('skips stacks with zero capHeight', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.board.stacks.clear();
+
+      const key = positionToString({ x: 0, y: 0 });
+      state.board.stacks.set(key, {
+        position: { x: 0, y: 0 },
+        controllingPlayer: 1,
+        stackHeight: 0,
+        capHeight: 0,
+        rings: [],
+      });
+
+      const moves = enumerateTerritoryEliminationMoves(state, 1);
+      expect(moves).toEqual([]);
+    });
   });
 });

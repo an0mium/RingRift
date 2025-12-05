@@ -7,7 +7,7 @@
 > **Doc Status (2025-11-27): Active (assessment / summary, non-canonical)**
 >
 > - This report is a derived assessment over the executable SSoTs for rules semantics and AI/training implementation.
-> - **Rules semantics SSoT:** Shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts) together with v2 contract vectors under `tests/fixtures/contract-vectors/v2/**` and the lifecycle/API SSoT in [`docs/CANONICAL_ENGINE_API.md`](./CANONICAL_ENGINE_API.md).
+> - **Rules semantics SSoT:** Shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts) together with v2 contract vectors under `tests/fixtures/contract-vectors/v2/**` and the lifecycle/API SSoT in [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md).
 > - **AI/training SSoT:** Python AI and training modules under `ai-service/app/ai/**` and `ai-service/app/training/**` plus their tests (for example `ai-service/tests/test_memory_config.py`, `ai-service/tests/test_bounded_transposition_table.py`, `ai-service/tests/test_hex_augmentation.py`, `ai-service/tests/test_hex_training.py`, `ai-service/tests/test_training_pipeline_e2e.py`).  
 >   If this assessment ever conflicts with those code/tests or the canonical rules/lifecycle docs they depend on, **code + tests + canonical rules/lifecycle docs win**, and this report must be updated to match.
 
@@ -113,7 +113,7 @@ Before starting any **large training run or heuristic tuning campaign**, complet
     - Treat architecture changes (depth/width, extra heads) as follow‑ups once data quality, regularisation, and batch sizing have been explored.
   - For **heuristics**:
     - Use the canonical `heuristic_v1_*` profiles from [`heuristic_weights.py`](../ai-service/app/ai/heuristic_weights.py) and their TS mirrors in [`heuristicEvaluation.ts`](../src/shared/engine/heuristicEvaluation.ts) as your starting point.
-    - When adding features or retuning weights, respect the sign/magnitude guidance in the heuristic training section of [`AI_ARCHITECTURE.md` §5.2–5.4](../AI_ARCHITECTURE.md) and the parity fixtures under `tests/fixtures/heuristic/v1/**`.
+    - When adding features or retuning weights, respect the sign/magnitude guidance in the heuristic training section of [`AI_ARCHITECTURE.md` §5.2–5.4](../../AI_ARCHITECTURE.md) and the parity fixtures under `tests/fixtures/heuristic/v1/**`.
 
 - **3. Configure and verify memory budget**
   - Set the global memory limit for the host:
@@ -144,7 +144,7 @@ Before starting any **large training run or heuristic tuning campaign**, complet
   - Scenario batteries:
     - Supplement raw win‑rates with targeted scenario checks, drawing on:
       - Rules/FAQ matrices and plateau tests (`RULES_SCENARIO_MATRIX.md`, `tests/scenarios/RulesMatrix.*.test.ts`, `ai-service/tests/parity/**`).
-      - Strict‑invariant soaks and failure mining described in [`docs/STRICT_INVARIANT_SOAKS.md`](./STRICT_INVARIANT_SOAKS.md).
+      - Strict‑invariant soaks and failure mining described in [`docs/testing/STRICT_INVARIANT_SOAKS.md`](../testing/STRICT_INVARIANT_SOAKS.md).
 
 - **6. Lock down reproducibility and experiment metadata**
   - Fix seeds wherever supported:
@@ -157,7 +157,7 @@ Before starting any **large training run or heuristic tuning campaign**, complet
     - Memory and training config (`MemoryConfig`, `TrainConfig`, key CLI flags).
     - Paths to checkpoints, evaluation logs, and generated statistical reports.
 
-For a more detailed, end‑to‑end pre‑flight checklist (including environment setup, augmentation, validation metrics, and troubleshooting), see [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](./AI_TRAINING_PREPARATION_GUIDE.md). For an architecture‑level summary of how memory budgets, training jobs, and search components fit together, refer to the “Pre‑Training Preparation & Memory Budgeting” section in [`AI_ARCHITECTURE.md`](../AI_ARCHITECTURE.md).
+For a more detailed, end‑to‑end pre‑flight checklist (including environment setup, augmentation, validation metrics, and troubleshooting), see [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](./AI_TRAINING_PREPARATION_GUIDE.md). For an architecture‑level summary of how memory budgets, training jobs, and search components fit together, refer to the “Pre‑Training Preparation & Memory Budgeting” section in [`AI_ARCHITECTURE.md`](../../AI_ARCHITECTURE.md).
 
 ---
 

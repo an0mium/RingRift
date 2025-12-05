@@ -10,6 +10,8 @@ import { globalAIEngine, AIDiagnostics } from './ai/AIEngine';
 import { getOrCreateAIUser } from '../services/AIUserService';
 import { PythonRulesClient } from '../services/PythonRulesClient';
 import { GamePersistenceService } from '../services/GamePersistenceService';
+import { gameRecordRepository } from '../services/GameRecordRepository';
+import { GameOutcome, FinalScore } from '@shared/types/gameRecord';
 import { getDatabaseClient } from '../database/connection';
 import { logger } from '../utils/logger';
 import { getMetricsService } from '../services/MetricsService';
@@ -679,6 +681,55 @@ export class GameSession {
     return 'normal';
   }
 
+  /**
+   * Map GameResult.reason to GameOutcome for record storage.
+   */
+  private mapGameResultToOutcome(gameResult: GameResult): GameOutcome {
+    const reason = gameResult.reason;
+    switch (reason) {
+      case 'ring_elimination':
+        return 'ring_elimination';
+      case 'territory_control':
+        return 'territory_control';
+      case 'last_player_standing':
+        return 'last_player_standing';
+      case 'resignation':
+        return 'resignation';
+      case 'timeout':
+        return 'timeout';
+      case 'abandonment':
+        return 'abandonment';
+      case 'draw':
+        return 'draw';
+      case 'game_completed':
+        // game_completed is a generic terminal reason; map to draw as fallback
+        return 'draw';
+      default:
+        return 'last_player_standing';
+    }
+  }
+
+  /**
+   * Compute FinalScore from the final GameState.
+   */
+  private computeFinalScore(state: GameState): FinalScore {
+    const ringsEliminated: Record<number, number> = {};
+    const territorySpaces: Record<number, number> = {};
+    const ringsRemaining: Record<number, number> = {};
+
+    for (const player of state.players) {
+      ringsEliminated[player.playerNumber] = player.eliminatedRings;
+      territorySpaces[player.playerNumber] = player.territorySpaces;
+      ringsRemaining[player.playerNumber] = player.ringsInHand;
+    }
+
+    return {
+      ringsEliminated,
+      territorySpaces,
+      ringsRemaining,
+    };
+  }
+
   public async handlePlayerMove(
     socket: AuthenticatedSocket,
     moveData: PlayerMoveData
@@ -916,6 +967,25 @@ export class GameSession {
     }
 
     await GamePersistenceService.finishGame(this.gameId, winnerId, state, gameResult);
+
+    // Best-effort persistence of a canonical GameRecord row for this
+    // completed game. This populates finalState/finalScore/outcome and
+    // recordMetadata so that GameRecordRepository and JSONL exporters
+    // have a stable schema to work with.
+    try {
+      const outcome = this.mapGameResultToOutcome(gameResult);
+      const finalScore = this.computeFinalScore(state);
+      await gameRecordRepository.saveGameRecord(this.gameId, state, outcome, finalScore, {
+        source: 'online_game',
+        tags: state.isRated ? ['rated'] : ['unrated'],
+      });
+    } catch (err) {
+      // Non-fatal: GameRecord storage failures should not affect game completion.
+      logger.warn('Failed to save canonical GameRecord', {
+        gameId: this.gameId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   private async broadcastUpdate(
@@ -1418,8 +1488,9 @@ export class GameSession {
   }
 
   /**
-   * Persist AI move to database using GamePersistenceService
-   */
+   /**
+    * Persist AI move to database using GamePersistenceService
+    */
   private async persistAIMove(
     playerNumber: number,
     _moveType: Move['type'] | undefined,
@@ -1441,23 +1512,10 @@ export class GameSession {
       }
 
       if (result.gameResult) {
-        const winnerPlayerNumber = result.gameResult.winner;
-        let winnerId: string | null = null;
-
-        if (winnerPlayerNumber !== undefined) {
-          const winnerPlayer = updatedState.players.find(
-            (p) => p.playerNumber === winnerPlayerNumber && p.type === 'human'
-          );
-          winnerId = winnerPlayer?.id ?? null;
-        }
-
-        // Use GamePersistenceService to finish the game with final state
-        await GamePersistenceService.finishGame(
-          this.gameId,
-          winnerId,
-          updatedState,
-          result.gameResult
-        );
+        // Reuse the shared completion helper so that AI-terminated games persist a
+        // canonical GameRecord row with finalState/finalScore/outcome and
+        // recordMetadata, matching the behaviour of player-driven terminations.
+        await this.finishGameWithResult(updatedState, result.gameResult);
       }
     } catch (err) {
       logger.error('Failed to persist AI move', {
@@ -1467,7 +1525,6 @@ export class GameSession {
       });
     }
   }
-
   /**
    * Cancel any in-flight AI request
    */

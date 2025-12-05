@@ -14,10 +14,31 @@ diagnostics in the multi-board, multi-start regime:
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, Dict
+from typing import Any, Dict, List, Optional, Tuple
+import argparse
+import json
 import os
+import random
+import time
+from datetime import datetime
+from pathlib import Path
+from statistics import mean, quantiles
 
-from app.models import GameState, BoardType  # type: ignore
+from app.ai.heuristic_ai import HeuristicAI  # type: ignore
+from app.game_engine import GameEngine  # type: ignore
+from app.models import (  # type: ignore
+    AIConfig,
+    BoardType,
+    GameState,
+    GameStatus,
+)
+from app.training.env import get_theoretical_max_moves
+from app.training.seed_utils import seed_all
+from app.training.tier_eval_config import (
+    HEURISTIC_TIER_SPECS,
+    HeuristicTierSpec,
+)
+from app.training.tournament import infer_victory_reason
 
 
 # Canonical mapping from (BoardType, pool_id) to JSONL pool paths.
@@ -131,3 +152,374 @@ def load_state_pool(
             states.append(state)
 
     return states
+
+
+# ---------------------------------------------------------------------------
+# Heuristic tiered evaluation on eval pools (square8-focused)
+# ---------------------------------------------------------------------------
+
+
+def _compute_margins(
+    final_state: GameState,
+    candidate_player: int,
+    opponent_player: int,
+) -> Dict[str, float]:
+    """Compute simple ring/territory margins for a 2-player game."""
+    # Rings eliminated (by causing player id string in eliminated_rings).
+    rings_eliminated = final_state.board.eliminated_rings
+    cand_rings = int(rings_eliminated.get(str(candidate_player), 0))
+    opp_rings = int(rings_eliminated.get(str(opponent_player), 0))
+    ring_margin = cand_rings - opp_rings
+
+    # Territory spaces from Player models.
+    cand_territory = 0
+    opp_territory = 0
+    for p in final_state.players:
+        if p.player_number == candidate_player:
+            cand_territory = int(p.territory_spaces)
+        elif p.player_number == opponent_player:
+            opp_territory = int(p.territory_spaces)
+    territory_margin = cand_territory - opp_territory
+
+    return {
+        "ring_margin": float(ring_margin),
+        "territory_margin": float(territory_margin),
+    }
+
+
+def run_heuristic_tier_eval(
+    tier_spec: HeuristicTierSpec,
+    rng_seed: int,
+    max_games: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Evaluate a heuristic profile against a baseline on an eval pool.
+
+    This runner:
+    - Loads a fixed pool of mid/late-game GameState snapshots via
+      ``load_state_pool``.
+    - For each game, samples a starting snapshot and plays a full 2-player
+      game using HeuristicAI for both sides (candidate vs baseline).
+    - Aggregates win/draw/loss counts, simple ring/territory margins, and
+      basic latency statistics for the candidate side.
+
+    The evaluation is square8-focused in this wave, but the implementation is
+    board-agnostic and honours the BoardType and num_players from the tier
+    specification.
+    """
+    if tier_spec.num_players != 2:
+        raise ValueError(
+            "Heuristic tier eval currently supports only 2-player tiers; "
+            f"got num_players={tier_spec.num_players!r} "
+            f"for tier {tier_spec.id!r}"
+        )
+
+    # Global seeding for reproducibility plus a dedicated RNG for sampling.
+    seed_all(rng_seed)
+    rng = random.Random(rng_seed)
+
+    # Load the eval pool for this tier.
+    states = load_state_pool(
+        board_type=tier_spec.board_type,
+        pool_id=tier_spec.eval_pool_id,
+        num_players=tier_spec.num_players,
+    )
+    if not states:
+        raise ValueError(
+            f"Empty eval pool for board_type={tier_spec.board_type!r}, "
+            f"pool_id={tier_spec.eval_pool_id!r}"
+        )
+
+    games_requested = tier_spec.num_games
+    if max_games is not None:
+        games_to_play = min(games_requested, max_games)
+    else:
+        games_to_play = games_requested
+
+    max_moves = get_theoretical_max_moves(
+        tier_spec.board_type,
+        tier_spec.num_players,
+    )
+
+    wins = 0
+    losses = 0
+    draws = 0
+    games_played = 0
+
+    ring_margins: List[float] = []
+    territory_margins: List[float] = []
+    candidate_latencies_ms: List[float] = []
+    victory_reasons: Dict[str, int] = {}
+    total_moves = 0
+
+    for game_index in range(games_to_play):
+        games_played += 1
+
+        # Alternate seats to reduce first-move bias.
+        candidate_seat = 1 if (game_index % 2 == 0) else 2
+        baseline_seat = 2 if candidate_seat == 1 else 1
+
+        # Sample a starting snapshot from the pool and deep-copy it so that
+        # per-game mutations do not affect subsequent games.
+        base_state = rng.choice(states)
+        game_state = base_state.model_copy(deep=True)
+
+        # Per-game RNG seed to decorrelate AIs across games while remaining
+        # reproducible under a fixed run seed.
+        game_seed = (rng_seed * 1_000_003 + game_index) & 0x7FFFFFFF
+
+        # Configure candidate and baseline heuristic AIs. Difficulty is kept
+        # fixed; strength differences are expressed via profile ids.
+        candidate_config = AIConfig(
+            difficulty=5,
+            randomness=0.0,
+            think_time=0,
+            rngSeed=game_seed,
+            heuristic_profile_id=tier_spec.candidate_profile_id,
+        )
+        baseline_config = AIConfig(
+            difficulty=5,
+            randomness=0.0,
+            think_time=0,
+            rngSeed=game_seed,
+            heuristic_profile_id=tier_spec.baseline_profile_id,
+        )
+
+        candidate_ai = HeuristicAI(candidate_seat, candidate_config)
+        baseline_ai = HeuristicAI(baseline_seat, baseline_config)
+
+        done = False
+        moves_played = 0
+        terminated_by_budget_only = False
+
+        while not done and moves_played < max_moves:
+            current_player = game_state.current_player
+            if current_player == candidate_seat:
+                current_ai = candidate_ai
+            else:
+                current_ai = baseline_ai
+
+            # Ensure the AI's perspective matches the current player.
+            current_ai.player_number = current_player
+
+            t0 = time.perf_counter()
+            move = current_ai.select_move(game_state)
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+
+            if current_player == candidate_seat:
+                candidate_latencies_ms.append(dt_ms)
+
+            if move is None:
+                # No legal move available: treat as an immediate loss for the
+                # side to move, mirroring the tournament harness semantics.
+                if current_player == candidate_seat:
+                    winner = baseline_seat
+                else:
+                    winner = candidate_seat
+
+                if winner == candidate_seat:
+                    wins += 1
+                else:
+                    losses += 1
+
+                # Use a synthetic victory reason to keep stats structured.
+                prev_no_moves = victory_reasons.get("no_moves", 0)
+                victory_reasons["no_moves"] = prev_no_moves + 1
+
+                # Margin from the current state.
+                margins = _compute_margins(
+                    game_state,
+                    candidate_seat,
+                    baseline_seat,
+                )
+                ring_margins.append(margins["ring_margin"])
+                territory_margins.append(margins["territory_margin"])
+                break
+
+            # Apply move via canonical GameEngine.
+            game_state = GameEngine.apply_move(game_state, move)
+            moves_played += 1
+
+            if game_state.game_status != GameStatus.ACTIVE:
+                done = True
+
+        if not done and moves_played >= max_moves:
+            # Max-move cutoff without a terminal engine state.
+            terminated_by_budget_only = True
+            done = True
+
+        total_moves += moves_played
+
+        # Determine winner and victory reason.
+        winner = game_state.winner
+        if terminated_by_budget_only and winner is None:
+            reason = "max_moves"
+        else:
+            reason = infer_victory_reason(game_state)
+        victory_reasons[reason] = victory_reasons.get(reason, 0) + 1
+
+        if winner == candidate_seat:
+            wins += 1
+        elif winner == baseline_seat:
+            losses += 1
+        else:
+            draws += 1
+
+        margins = _compute_margins(game_state, candidate_seat, baseline_seat)
+        ring_margins.append(margins["ring_margin"])
+        territory_margins.append(margins["territory_margin"])
+
+    avg_ring_margin: Optional[float] = None
+    avg_territory_margin: Optional[float] = None
+    if ring_margins:
+        avg_ring_margin = float(mean(ring_margins))
+    if territory_margins:
+        avg_territory_margin = float(mean(territory_margins))
+
+    mean_latency: Optional[float] = None
+    p95_latency: Optional[float] = None
+    if candidate_latencies_ms:
+        mean_latency = float(mean(candidate_latencies_ms))
+        # Use 95th percentile based on 20-quantiles (19/20 ≈ 0.95).
+        try:
+            p95_latency = float(quantiles(candidate_latencies_ms, n=20)[-1])
+        except Exception:
+            # Fallback to max when quantiles is unhappy with sample size.
+            p95_latency = float(max(candidate_latencies_ms))
+
+    result: Dict[str, Any] = {
+        "tier_id": tier_spec.id,
+        "tier_name": tier_spec.name,
+        "board_type": tier_spec.board_type.value,
+        "num_players": tier_spec.num_players,
+        "eval_pool_id": tier_spec.eval_pool_id,
+        "candidate_profile_id": tier_spec.candidate_profile_id,
+        "baseline_profile_id": tier_spec.baseline_profile_id,
+        "games_requested": games_requested,
+        "games_played": games_played,
+        "results": {
+            "wins": wins,
+            "losses": losses,
+            "draws": draws,
+        },
+        "margins": {
+            "ring_margin_mean": avg_ring_margin,
+            "territory_margin_mean": avg_territory_margin,
+        },
+        "latency_ms": {
+            "mean": mean_latency,
+            "p95": p95_latency,
+        },
+        "total_moves": total_moves,
+        "victory_reasons": dict(victory_reasons),
+    }
+    return result
+
+
+def run_all_heuristic_tiers(
+    tiers: List[HeuristicTierSpec],
+    rng_seed: int,
+    max_games: Optional[int] = None,
+    tier_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Run heuristic tier evaluation across a set of tiers.
+
+    Args:
+        tiers:
+            List of HeuristicTierSpec entries to evaluate.
+        rng_seed:
+            Base RNG seed for reproducible runs. Per-tier seeds are derived
+            from this value.
+        max_games:
+            Optional cap on games per tier. When provided, each tier's
+            ``num_games`` is capped to this value.
+        tier_ids:
+            Optional list of tier ``id`` strings to filter the evaluation set.
+    """
+    if tier_ids is not None:
+        wanted = {t_id.strip() for t_id in tier_ids if t_id.strip()}
+        tiers = [t for t in tiers if t.id in wanted]
+
+    if not tiers:
+        raise ValueError("No heuristic tiers selected for evaluation")
+
+    timestamp = datetime.utcnow()
+    ts_str = timestamp.strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"heuristic_tier_eval_{ts_str}"
+
+    tier_results: List[Dict[str, Any]] = []
+    for idx, spec in enumerate(tiers):
+        tier_seed = (rng_seed * 97_911 + idx * 1_000_003) & 0x7FFFFFFF
+        tier_res = run_heuristic_tier_eval(
+            tier_spec=spec,
+            rng_seed=tier_seed,
+            max_games=max_games,
+        )
+        tier_results.append(tier_res)
+
+    git_commit = os.getenv("GIT_COMMIT") or os.getenv("RINGRIFT_GIT_COMMIT")
+
+    report: Dict[str, Any] = {
+        "run_id": run_id,
+        "timestamp": timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "rng_seed": rng_seed,
+        "git_commit": git_commit,
+        "board_types": sorted({t.board_type.value for t in tiers}),
+        "tiers": tier_results,
+    }
+    return report
+
+
+def _parse_heuristic_cli_args() -> argparse.Namespace:
+    """Parse CLI arguments for heuristic tier evaluation on eval pools."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run heuristic tiered evaluation on eval pools "
+            "(square8-focused initial slice)."
+        ),
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=1,
+        help="Base RNG seed for reproducible evaluations (default: 1).",
+    )
+    parser.add_argument(
+        "--max-games",
+        type=int,
+        default=None,
+        help=(
+            "Optional cap on games per tier. "
+            "When unset, the per-tier num_games value is used."
+        ),
+    )
+    parser.add_argument(
+        "--tiers",
+        type=str,
+        default=None,
+        help=(
+            "Optional comma-separated list of heuristic tier ids to run. "
+            f"Available ids: {', '.join(t.id for t in HEURISTIC_TIER_SPECS)}"
+        ),
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entrypoint
+    args = _parse_heuristic_cli_args()
+    tier_filter: Optional[List[str]] = None
+    if args.tiers:
+        tier_filter = [t.strip() for t in args.tiers.split(",") if t.strip()]
+
+    report = run_all_heuristic_tiers(
+        tiers=HEURISTIC_TIER_SPECS,
+        rng_seed=args.seed,
+        max_games=args.max_games,
+        tier_ids=tier_filter,
+    )
+
+    out_dir = Path("results") / "ai_eval"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    out_path = out_dir / f"tier_eval_{ts}.json"
+    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(f"Wrote tier eval report to {out_path}")

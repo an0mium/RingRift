@@ -5,7 +5,7 @@
 > - Canonical list of current, code-verified issues and gaps.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** December 1, 2025
+**Last Updated:** December 4, 2025
 **Status:** Code-verified assessment based on actual implementation
 **Related Documents:** [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md) · [TODO.md](./TODO.md) · [STRATEGIC_ROADMAP.md](./STRATEGIC_ROADMAP.md) · [docs/PARITY_SEED_TRIAGE.md](./docs/PARITY_SEED_TRIAGE.md)
 
@@ -628,6 +628,38 @@ These issues have been addressed but are kept here for context:
   - **Non-terminal**: Rotate to next player, set phase to `ring_placement`
     This resolved 7 contract vector failures in the territory/forced_elimination
     test bundles, bringing v2 contract vectors to 54 passed, 0 failed, 24 skipped.
+- **TS↔Python Hash Parity Infrastructure (Dec 4, 2025)** –
+  Unified hash format between Python and TypeScript engines for cross-engine
+  parity testing:
+  - **Fingerprint format**: Canonical readable string
+    `meta#players#stacks#markers#collapsed` used by both engines
+  - **Hash function**: Cross-platform `simpleHash()` (FNV-1a based) producing
+    identical 16-char hex hashes in both TS (`src/shared/engine/core.ts`) and
+    Python (`ai-service/app/db/game_replay.py`)
+  - **New parity tests** in `ai-service/tests/parity/`:
+    - `test_hash_parity.py` – 7 tests for hash consistency and format
+    - `test_phase_transition_parity.py` – 3 tests for valid phase transitions
+      and state hash chain consistency
+    - `test_differential_replay.py` – Infrastructure for comparing Python and
+      TypeScript game replays (with golden game strict parity check)
+  - All 96 parity tests passing
+- **Rule Clarification: Post-Movement Capture Constraint (Dec 4, 2025)** –
+  Clarified in `RULES_CANONICAL_SPEC.md` (new rule RR-CANON-R093) and all rules
+  docs that optional capture after non-capture movement (`move_stack`/`move_ring`)
+  must be from the **moved stack's landing position only**, not from any stack
+  the player controls. This addresses a semantic divergence between TS (landing
+  position constraint) and Python (any stack) engines. The TS interpretation is
+  now canonical. Python engine update pending.
+- **Recording Format Enhancements Schema v6 (Dec 4, 2025)** –
+  Enhanced game history entries with available moves enumeration and engine
+  diagnostics to support deeper parity debugging:
+  - **Available moves enumeration**: `available_moves_json` stores all legal
+    moves at each state, enabling cross-engine move enumeration comparison
+  - **Lightweight move counting**: `available_moves_count` column for move
+    count without full enumeration overhead
+  - **Engine diagnostics**: `engine_eval` and `engine_depth` columns in
+    `game_history_entries` for storing AI evaluation alongside state snapshots
+  - All enhancements are backward-compatible with automatic migration
 
 For a more narrative description of what works today vs what remains, see
 [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md).

@@ -77,23 +77,26 @@ except ImportError:
         print()
     tqdm = tqdm_fallback
 
-from app.models import (
+from app.models import (  # noqa: E402
     AIConfig,
     BoardType,
     GameState,
     GameStatus,
 )
-from app.ai.base import BaseAI
-from app.ai.heuristic_ai import HeuristicAI
-from app.ai.heuristic_weights import (
+from app.ai.base import BaseAI  # noqa: E402
+from app.ai.heuristic_ai import HeuristicAI  # noqa: E402
+from app.ai.heuristic_weights import (  # noqa: E402
     BASE_V1_BALANCED_WEIGHTS,
     HEURISTIC_WEIGHT_PROFILES,
 )
-from app.ai.random_ai import RandomAI
-from app.ai.minimax_ai import MinimaxAI
-from app.ai.descent_ai import DescentAI
-from app.training.env import RingRiftEnv
-from app.utils.progress_reporter import ProgressReporter
+from app.ai.random_ai import RandomAI  # noqa: E402
+from app.ai.minimax_ai import MinimaxAI  # noqa: E402
+from app.ai.descent_ai import DescentAI  # noqa: E402
+from app.training.env import (  # noqa: E402
+    TrainingEnvConfig,
+    make_env,
+)
+from app.utils.progress_reporter import ProgressReporter  # noqa: E402
 
 
 # AI Type Constants
@@ -254,10 +257,12 @@ def create_ai(
         BaseAI instance
     """
     # Derive a unique per-AI seed for this game.
-    # Combine game_seed with player_num to ensure P1 and P2 have different streams.
+    # Combine game_seed with player_num so P1 and P2 use
+    # different RNG streams.
     ai_rng_seed: Optional[int] = None
     if game_seed is not None:
-        # Use a hash-like combination to get a unique seed per (game, player)
+        # Use a hash-like combination to get a unique seed
+        # per (game, player)
         ai_rng_seed = (game_seed * 104729 + player_num * 7919) & 0xFFFFFFFF
 
     # Base config with no thinking delay for faster evaluation
@@ -355,13 +360,15 @@ def create_ai(
             try:
                 import torch
                 from typing import Dict, Any
-                checkpoint: Dict[str, Any] = torch.load(
+                checkpoint_data: Dict[str, Any] = torch.load(
                     ckpt, map_location='cpu', weights_only=False
                 )
                 # Checkpoints contain model_state_dict - load into NN
-                if (ai.neural_net is not None
-                        and 'model_state_dict' in checkpoint):
-                    state_dict = checkpoint['model_state_dict']
+                if (
+                    ai.neural_net is not None
+                    and "model_state_dict" in checkpoint_data
+                ):
+                    state_dict = checkpoint_data["model_state_dict"]
                     ai.neural_net.model.load_state_dict(state_dict)
                     ai.neural_net.model.eval()
                     print(f"Loaded checkpoint: {ckpt}")
@@ -440,7 +447,7 @@ def determine_victory_type(game_state: GameState) -> Optional[str]:
 def play_single_game(
     ai_p1: BaseAI,
     ai_p2: BaseAI,
-    env: RingRiftEnv,
+    env: Any,
     max_moves: int = 200,
     p1_type: str = "",
     p2_type: str = "",
@@ -575,8 +582,14 @@ def run_evaluation(
         }
     )
 
-    # Create environment
-    env = RingRiftEnv(board_type=board_type, max_moves=max_moves_per_game)
+    # Create environment via canonical factory
+    env_config = TrainingEnvConfig(
+        board_type=board_type,
+        num_players=2,
+        max_moves=max_moves_per_game,
+        reward_mode="terminal",
+    )
+    env = make_env(env_config)
 
     # Set up random seed if provided
     if seed is not None:

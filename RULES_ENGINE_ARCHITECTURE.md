@@ -278,6 +278,73 @@ To ensure the Python engine behaves exactly like the TypeScript engine:
 - **Trace Parity:** TS-generated parity traces under `tests/fixtures/rules-parity/v1/**` together with the integration harness in [`src/server/game/test-python-rules-integration.ts`](src/server/game/test-python-rules-integration.ts:1) feed the Python parity suites.
 - **Fixture Parity:** `ai-service/tests/parity/test_rules_parity_fixtures.py` validates TS-generated fixtures against the Python engine.
 
+### 2.1 Multi-phase turn vectors and phase sequencing
+
+The canonical **multi-phase turn sequence** (movement / capture → chain_capture → line_processing → territory_processing) is encoded and exercised in three layers:
+
+- **Contract vectors (TS SSoT for phase sequences).**
+  - `tests/fixtures/contract-vectors/v2/multi_phase_turn.vectors.json` contains v2 test vectors such as:
+    - `multi_phase.placement_capture_line`
+    - `multi_phase.full_sequence_with_territory`
+  - Each vector specifies:
+    - An initial TS `GameState` snapshot.
+    - An initial `overtaking_capture` move.
+    - An `expectedPhaseSequence`, typically:
+      - `["movement", "chain_capture", "line_processing", "territory_processing"]`
+    - A set of `phaseTransitions` describing when chain capture becomes available, when a line is completed, and when Territory processing should begin.
+  - The `sequence:turn.line_then_territory.*` tags on these vectors
+    (for `square8`, `square19`, and `hexagonal`) are the canonical
+    identifiers for “line-then-Territory” turns referenced by RR‑CANON‑R208/R209.
+
+- **Snapshot parity tests (TS ↔ Python structure).**
+  - `ai-service/tests/parity/test_ts_seed_plateau_snapshot_parity.py`:
+    - Validates plateau snapshots (seeds 1 and 18) against Python models using TS-generated `ComparableSnapshot` JSON.
+  - `ai-service/tests/parity/test_line_and_territory_scenario_parity.py`:
+    - Encodes the Q7/Q20/Q22-style line+Territory scenario for all three board types.
+    - Contains:
+      - Per-board synthetic line+Territory fixtures:
+        - `LINE_TERRITORY_SNAPSHOT_BY_BOARD[...]` → `line_territory_scenario_*.snapshot.json`
+        - `MULTI_REGION_SNAPSHOT` → `line_territory_multi_region_square8.snapshot.json`
+      - Tests that:
+        - Rebuild a Python `GameState` equivalent to the TS snapshot.
+        - Exercise the combined `line_processing` → `territory_processing` flow via `GameEngine._get_line_processing_moves` and `GameEngine._get_territory_processing_moves`.
+        - Assert deep equality between TS and Python `ComparableSnapshot` shapes for line+Territory scenarios.
+
+- **As implemented (Dec 2025) – host adapters for multi-phase turns.**
+  - **Backend TS GameEngine (`src/server/game/GameEngine.ts`).**
+    - Multi-phase boundaries and decision surfaces are wired through:
+      - `makeMove` / `processMoveViaAdapter`:
+        - Detect chain-capture continuation via `getChainCaptureContinuationInfo` and set `currentPhase = 'chain_capture'`, maintaining an internal `chainCaptureState`.
+        - On chain exhaustion, clear `chainCaptureState` and transition into `line_processing` when lines exist (or apply RR‑CANON‑R204 when not).
+      - `getValidLineProcessingMoves(playerNumber)`:
+        - Thin adapter over `enumerateProcessLineMoves` and `enumerateChooseLineRewardMoves` to surface canonical `process_line` / `choose_line_reward` Moves for the current player.
+      - `getValidTerritoryProcessingMoves(playerNumber)`:
+        - Thin adapter over `enumerateProcessTerritoryRegionMoves` to surface canonical `process_territory_region` Moves, with elimination decisions delegated to shared helpers.
+      - `getValidMoves(playerNumber)`:
+        - Wraps the shared `RuleEngine.getValidMoves` and layers in:
+          - `chain_capture`-specific behaviour (restricted `continue_capture_segment` options).
+          - The swap-sides meta-move via `shouldOfferSwapSidesMetaMove`.
+          - The ACTIVE_NO_MOVES safeguard and resolver (`resolveBlockedStateForCurrentPlayerForTesting`) for rare blocked states.
+    - These methods must remain aligned with the shared TS orchestrator and the RR‑CANON‑R208/R209 phase ordering; the backend is not allowed to introduce divergent multi-phase semantics.
+
+  - **Python AI-service GameEngine (`ai-service/app/game_engine.py`).**
+    - Mirrors the same multi-phase sequence as a host adapter over Python models:
+      - `GameEngine.get_valid_moves(state, player_number)`:
+        - Dispatches to `_get_ring_placement_moves`, `_get_movement_moves`, `_get_capture_moves`, `_get_line_processing_moves`, `_get_territory_processing_moves`, and `_get_forced_elimination_moves` based on `current_phase`.
+        - Mirrors TS behaviour for:
+          - Optional placement with `skip_placement`.
+          - Movement / capture + chain-capture enumeration (`_apply_chain_capture` and `enumerate_capture_moves_py`).
+          - Line-processing and Territory-processing decision phases.
+      - `_get_line_processing_moves`:
+        - Adapts BoardManager line detection + TS-style line decision semantics into Python `Move` instances (`PROCESS_LINE`, `CHOOSE_LINE_REWARD`), matching `getValidLineProcessingMoves` in the TS backend.
+      - `_get_territory_processing_moves`:
+        - Mirrors TS Territory decision enumeration for `PROCESS_TERRITORY_REGION` and `ELIMINATE_RINGS_FROM_STACK`, using the same Q23 gating as the shared engine.
+      - `_update_phase` / `_advance_to_line_processing` / `_end_turn`:
+        - Implement the phase transitions described by RR‑CANON‑R208/R209:
+          - `movement` / `capture` → `chain_capture` (when continuation exists).
+          - `chain_capture` → `line_processing` → `territory_processing` (when applicable) → next `ring_placement` or victory.
+    - Python parity tests treat these helpers as **host wiring** and assert that they reproduce the TS contract vectors and snapshots exactly; they are not independent semantics SSoTs.
+
 ### DefaultRulesEngine ↔ GameEngine Equivalence Coverage
 
 To safely evolve `DefaultRulesEngine` toward a mutator-driven architecture, we

@@ -52,7 +52,7 @@ from typing import Any, Dict, List, Optional
 from app.ai.descent_ai import DescentAI
 from app.main import _create_ai_instance, _get_difficulty_profile
 from app.models import AIConfig, AIType, BoardType, GameState, GameStatus
-from app.training.env import RingRiftEnv
+from app.training.env import TrainingEnvConfig, make_env
 from app.utils.progress_reporter import SoakProgressReporter
 
 
@@ -151,12 +151,13 @@ def generate_territory_dataset(
 
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
-    env = RingRiftEnv(
+    env_config = TrainingEnvConfig(
         board_type=board_type,
-        max_moves=max_moves,
-        reward_on="terminal",
         num_players=num_players,
+        max_moves=max_moves,
+        reward_mode="terminal",
     )
+    env = make_env(env_config)
 
     # Base seed used to derive per-game RNG streams for environment and
     # AI configuration. When seed is None we still create a Random

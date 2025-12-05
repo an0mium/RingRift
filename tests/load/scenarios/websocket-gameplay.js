@@ -1,0 +1,726 @@
+/**
+ * RingRift Load Test: WebSocket Gameplay Scenario
+ *
+ * Canonical WebSocket gameplay harness for move RTT / stall metrics.
+ *
+ * Implements S1/S2 from LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md:
+ *  - Health check + auth
+ *  - Game creation (human vs AI)
+ *  - WebSocket connect + join_game
+ *  - player_move_by_id over Socket.IO
+ *  - game_state based RTT measurement
+ */
+
+import http from 'k6/http';
+import ws from 'k6/ws';
+import { check, sleep } from 'k6';
+import { Trend, Rate, Counter } from 'k6/metrics';
+import { loginAndGetToken } from '../auth/helpers.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Metrics
+// ─────────────────────────────────────────────────────────────────────────────
+
+const wsMoveRtt = new Trend('ws_move_rtt_ms');
+const wsMoveSuccess = new Rate('ws_move_success_rate');
+const wsMovesAttempted = new Counter('ws_moves_attempted_total');
+const wsMoveStalled = new Counter('ws_move_stalled_total');
+
+const wsConnectionSuccess = new Rate('ws_connection_success_rate');
+const wsHandshakeSuccess = new Rate('ws_handshake_success_rate');
+
+const wsErrorMoveRejected = new Counter('ws_error_move_rejected_total');
+const wsErrorAccessDenied = new Counter('ws_error_access_denied_total');
+const wsErrorInternalError = new Counter('ws_error_internal_error_total');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Environment configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:3001';
+const API_PREFIX = '/api';
+
+// WebSocket origin used for Socket.IO connections.
+// Defaults to BASE_URL with http(s) → ws(s) when WS_URL is not set.
+const WS_URL = (() => {
+  const explicit = __ENV.WS_URL;
+  if (explicit && explicit.length > 0) {
+    return explicit;
+  }
+  return BASE_URL.replace(/^http/, 'ws');
+})();
+
+// Scenario selection: smoke (default) vs throughput.
+const ENABLE_THROUGHPUT = (() => {
+  const raw = String(__ENV.ENABLE_WS_GAMEPLAY_THROUGHPUT || '').toLowerCase();
+  return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
+})();
+
+const MODE = ENABLE_THROUGHPUT ? 'throughput' : 'smoke';
+
+// Gameplay tuning (overrideable via env vars).
+const GAME_MAX_MOVES = Number(__ENV.GAME_MAX_MOVES || 40);
+const GAME_MAX_LIFETIME_S = Number(__ENV.GAME_MAX_LIFETIME_S || 600);
+const DEFAULT_VU_MAX_GAMES = MODE === 'throughput' ? 10 : 3;
+const VU_MAX_GAMES = Number(__ENV.VU_MAX_GAMES || DEFAULT_VU_MAX_GAMES);
+
+const TERMINAL_GAME_STATUSES = ['completed', 'abandoned', 'finished'];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// k6 options (scenarios + thresholds)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const smokeScenario = {
+  executor: 'ramping-vus',
+  startVUs: 0,
+  stages: [
+    { duration: '30s', target: 1 },
+    { duration: '2m', target: 2 },
+    { duration: '30s', target: 0 },
+  ],
+  gracefulRampDown: '30s',
+};
+
+// Throughput scenario is enabled only when ENABLE_WS_GAMEPLAY_THROUGHPUT is truthy.
+const throughputScenario = {
+  executor: 'ramping-vus',
+  startVUs: 0,
+  stages: [
+    // Staging/perf example shape (0 → 20 → 40 VUs, then sustain).
+    { duration: '5m', target: 20 },
+    { duration: '5m', target: 40 },
+    { duration: '10m', target: 40 },
+    { duration: '5m', target: 0 },
+  ],
+  gracefulRampDown: '1m',
+};
+
+const scenarios = {
+  websocket_gameplay_smoke: smokeScenario,
+};
+
+if (ENABLE_THROUGHPUT) {
+  // This scenario is intended for staging/perf P-01 runs.
+  scenarios.websocket_gameplay_throughput = throughputScenario;
+}
+
+export const options = {
+  scenarios,
+  thresholds: {
+    ws_move_rtt_ms: [
+      'p(95)<300',
+      'p(99)<600',
+    ],
+    ws_move_success_rate: ['rate>0.95'],
+    ws_move_stalled_total: ['count<10'],
+    ws_moves_attempted_total: ['count>0'],
+    ws_connection_success_rate: ['rate>0.99'],
+    ws_handshake_success_rate: ['rate>0.99'],
+  },
+  tags: {
+    scenario: 'websocket-gameplay',
+    test_type: 'load',
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Engine.IO / Socket.IO framing helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+const EIO_OPEN = '0';
+const EIO_CLOSE = '1';
+const EIO_PING = '2';
+const EIO_PONG = '3';
+const EIO_MESSAGE = '4';
+
+const SIO_CONNECT = '0';
+const SIO_DISCONNECT = '1';
+const SIO_EVENT = '2';
+const SIO_ACK = '3';
+
+/**
+ * Parse an Engine.IO / Socket.IO message from the WebSocket transport.
+ */
+function parseSocketIOMessage(raw) {
+  if (!raw || raw.length === 0) {
+    return { error: 'empty message' };
+  }
+
+  const eioType = raw[0];
+
+  if (eioType === EIO_OPEN) {
+    try {
+      const payload = raw.slice(1);
+      const data = payload ? JSON.parse(payload) : {};
+      return { eioType, data };
+    } catch (e) {
+      return { eioType, error: 'invalid open payload' };
+    }
+  }
+
+  if (eioType === EIO_CLOSE) {
+    return { eioType };
+  }
+
+  if (eioType === EIO_PING) {
+    return { eioType, data: raw.slice(1) || null };
+  }
+
+  if (eioType === EIO_PONG) {
+    return { eioType, data: raw.slice(1) || null };
+  }
+
+  if (eioType === EIO_MESSAGE) {
+    if (raw.length < 2) {
+      return { eioType, error: 'truncated message' };
+    }
+
+    const sioType = raw[1];
+    const payload = raw.slice(2);
+
+    if (sioType === SIO_CONNECT) {
+      try {
+        const data = payload ? JSON.parse(payload) : {};
+        return { eioType, sioType, data };
+      } catch (e) {
+        return { eioType, sioType, data: payload };
+      }
+    }
+
+    if (sioType === SIO_EVENT) {
+      try {
+        const arr = JSON.parse(payload);
+        const eventName = arr[0];
+        const eventData = arr.slice(1);
+        return { eioType, sioType, event: eventName, data: eventData };
+      } catch (e) {
+        return { eioType, sioType, error: 'invalid event payload' };
+      }
+    }
+
+    if (sioType === SIO_ACK) {
+      return { eioType, sioType, data: payload };
+    }
+
+    if (sioType === SIO_DISCONNECT) {
+      return { eioType, sioType };
+    }
+
+    return { eioType, sioType, data: payload };
+  }
+
+  return { error: 'unknown packet type: ' + eioType };
+}
+
+function buildSocketIOEvent(eventName, data) {
+  return EIO_MESSAGE + SIO_EVENT + JSON.stringify([eventName, data]);
+}
+
+function buildSocketIOConnect(auth) {
+  if (auth) {
+    return EIO_MESSAGE + SIO_CONNECT + JSON.stringify({ auth });
+  }
+  return EIO_MESSAGE + SIO_CONNECT;
+}
+
+function buildEnginePong(probe) {
+  return EIO_PONG + (probe || '');
+}
+
+function buildSocketIoEndpoint(wsBase, token, vu) {
+  let origin = wsBase || '';
+  if (origin.startsWith('http://') || origin.startsWith('https://')) {
+    origin = origin.replace(/^http/, 'ws');
+  }
+  origin = origin.replace(/\/$/, '');
+
+  const path = '/socket.io/';
+  const params = ['EIO=4', 'transport=websocket'];
+  if (typeof vu !== 'undefined') {
+    params.push('vu=' + String(vu));
+  }
+  if (token) {
+    params.push('token=' + encodeURIComponent(token));
+  }
+
+  const query = params.join('&');
+  return origin + path + '?' + query;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// setup()
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function setup() {
+  console.log('[websocket-gameplay] Starting WebSocket gameplay scenario');
+  console.log(`[websocket-gameplay] Mode: ${MODE}`);
+  console.log(`[websocket-gameplay] BASE_URL=${BASE_URL}, WS_URL=${WS_URL}`);
+  console.log('[websocket-gameplay] Moves submitted over WebSockets only');
+
+  const health = http.get(`${BASE_URL}/health`);
+  check(health, { 'health check successful': (r) => r.status === 200 });
+
+  const { token, userId } = loginAndGetToken(BASE_URL, {
+    apiPrefix: API_PREFIX,
+    tags: { name: 'auth-login-websocket-gameplay' },
+  });
+
+  return { baseUrl: BASE_URL, wsUrl: WS_URL, token, userId };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-VU state
+// ─────────────────────────────────────────────────────────────────────────────
+
+let myGameId = null;
+let myMovesInCurrentGame = 0;
+let myGameCreatedAt = 0;
+let gamesCompletedByVu = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main VU function
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function (data) {
+  const baseUrl = data.baseUrl;
+  const wsUrl = data.wsUrl;
+  const token = data.token;
+  const userId = data.userId;
+
+  if (gamesCompletedByVu >= VU_MAX_GAMES) {
+    // VU has finished its allotted games; idle with light think time.
+    sleep(3);
+    return;
+  }
+
+  // Step 1: Game creation (HTTP /api/games).
+  if (!myGameId) {
+    const createPayload = {
+      boardType: 'square8',
+      maxPlayers: 2,
+      isPrivate: false,
+      timeControl: { type: 'rapid', initialTime: 600, increment: 0 },
+      isRated: false,
+      aiOpponents: {
+        count: 1,
+        difficulty: [5],
+        mode: 'service',
+        aiType: 'heuristic',
+      },
+    };
+
+    const createRes = http.post(
+      `${baseUrl}${API_PREFIX}/games`,
+      JSON.stringify(createPayload),
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        tags: { name: 'create-game-websocket' },
+      }
+    );
+
+    let createdGameId = null;
+    try {
+      const body = JSON.parse(createRes.body);
+      const game = body && body.data && body.data.game ? body.data.game : null;
+      createdGameId = game ? game.id : null;
+    } catch (e) {
+      createdGameId = null;
+    }
+
+    if (createRes.status === 201 && createdGameId) {
+      myGameId = createdGameId;
+      myMovesInCurrentGame = 0;
+      myGameCreatedAt = Date.now();
+      console.log(`VU ${__VU}: Created AI game ${myGameId} for WebSocket gameplay`);
+    } else {
+      console.error(
+        `VU ${__VU}: Game creation failed - status=${createRes.status} body=${createRes.body}`
+      );
+      sleep(2);
+      return;
+    }
+  }
+
+  // Step 2: WebSocket connect and gameplay loop for current game.
+  const wsEndpoint = buildSocketIoEndpoint(wsUrl, token, __VU);
+
+  let connectionOpened = false;
+  let handshakeComplete = false;
+  let awaitingRttForMove = false;
+  let lastSentAt = 0;
+  let pendingMoveId = null;
+  let myPlayerNumberInGame = null;
+  let shouldRetireGame = false;
+
+  const connectionStart = Date.now();
+
+  const res = ws.connect(
+    wsEndpoint,
+    {
+      headers: {
+        'User-Agent': 'k6-websocket-gameplay',
+      },
+      tags: {
+        scenario: 'websocket-gameplay',
+        gameId: String(myGameId),
+      },
+    },
+    function (socket) {
+      socket.on('open', () => {
+        connectionOpened = true;
+        wsConnectionSuccess.add(1);
+        console.log(`VU ${__VU}: WebSocket transport connected for game ${myGameId}`);
+      });
+
+      socket.on('message', (message) => {
+        const parsed = parseSocketIOMessage(message);
+
+        if (parsed.error) {
+          console.warn(`VU ${__VU}: Socket.IO protocol error - ${parsed.error}`);
+          return;
+        }
+
+        if (parsed.eioType === EIO_OPEN) {
+          const connectMsg = buildSocketIOConnect({ token });
+          socket.send(connectMsg);
+          return;
+        }
+
+        if (parsed.eioType === EIO_PING) {
+          const pong = buildEnginePong(parsed.data);
+          socket.send(pong);
+          return;
+        }
+
+        if (parsed.eioType === EIO_CLOSE) {
+          return;
+        }
+
+        if (parsed.eioType === EIO_MESSAGE && parsed.sioType === SIO_CONNECT) {
+          handshakeComplete = true;
+          wsHandshakeSuccess.add(1);
+          console.log(`VU ${__VU}: Socket.IO handshake complete for game ${myGameId}`);
+
+          const joinPayload = { gameId: myGameId };
+          const joinMsg = buildSocketIOEvent('join_game', joinPayload);
+          socket.send(joinMsg);
+          return;
+        }
+
+        if (parsed.eioType === EIO_MESSAGE && parsed.sioType === SIO_EVENT) {
+          const eventName = parsed.event;
+          const eventArgs = parsed.data || [];
+          const payload = eventArgs[0];
+
+          if (eventName === 'game_state') {
+            const updated = handleGameStateMessage({
+              socket,
+              payload,
+              userId,
+              awaitingRttForMove,
+              lastSentAt,
+              pendingMoveId,
+              myPlayerNumberInGame,
+              currentMoveCount: myMovesInCurrentGame,
+            });
+            awaitingRttForMove = updated.awaitingRttForMove;
+            lastSentAt = updated.lastSentAt;
+            pendingMoveId = updated.pendingMoveId;
+            myPlayerNumberInGame = updated.myPlayerNumberInGame;
+            myMovesInCurrentGame = updated.currentMoveCount;
+            shouldRetireGame = updated.shouldRetireGame;
+            return;
+          }
+
+          if (eventName === 'game_over') {
+            handleGameOverMessage({ socket, payload });
+            shouldRetireGame = true;
+            if (!awaitingRttForMove) {
+              socket.close();
+            }
+            return;
+          }
+
+          if (eventName === 'error') {
+            const errorPayload = payload || {};
+            handleErrorMessage(errorPayload, {
+              clearAwaiting: () => {
+                if (awaitingRttForMove) {
+                  wsMoveSuccess.add(0);
+                }
+                awaitingRttForMove = false;
+                pendingMoveId = null;
+              },
+            });
+            return;
+          }
+
+          return;
+        }
+      });
+
+      socket.on('close', (code) => {
+        const durationMs = Date.now() - connectionStart;
+        console.log(
+          `VU ${__VU}: WebSocket closed for game ${myGameId} after ${durationMs}ms (code: ${code})`
+        );
+
+        if (connectionOpened && !handshakeComplete) {
+          wsHandshakeSuccess.add(0);
+        }
+      });
+
+      socket.on('error', (e) => {
+        console.error(`VU ${__VU}: WebSocket error for game ${myGameId} - ${e}`);
+      });
+
+      // Hard cap on connection lifetime for this game.
+      socket.setTimeout(() => {
+        if (awaitingRttForMove) {
+          // Consider this move failed for success-rate accounting.
+          wsMoveSuccess.add(0);
+          awaitingRttForMove = false;
+          pendingMoveId = null;
+        }
+        shouldRetireGame = true;
+        socket.close();
+      }, GAME_MAX_LIFETIME_S * 1000);
+
+      // Lightweight interval to allow retirement once caps or terminal states are reached.
+      socket.setInterval(() => {
+        if (shouldRetireGame && !awaitingRttForMove) {
+          socket.close();
+        }
+      }, 1000);
+    }
+  );
+
+  const ok = check(res, { 'WebSocket connected': (r) => r && r.status === 101 });
+
+  if (!ok || !connectionOpened) {
+    wsConnectionSuccess.add(0);
+    console.error(
+      `VU ${__VU}: Failed to establish WebSocket connection for game ${myGameId} - status ${
+        res && res.status
+      }`
+    );
+    // Keep the current myGameId and retry in the next iteration.
+    sleep(2);
+    return;
+  }
+
+  // If the game reached a terminal state or move/lifetime caps, retire it.
+  const lifetimeMs = Date.now() - myGameCreatedAt;
+  if (
+    lifetimeMs >= GAME_MAX_LIFETIME_S * 1000 ||
+    myMovesInCurrentGame >= GAME_MAX_MOVES ||
+    shouldRetireGame
+  ) {
+    console.log(
+      `VU ${__VU}: Retiring game ${myGameId} after ${myMovesInCurrentGame} moves and ${Math.round(
+        lifetimeMs / 1000
+      )}s`
+    );
+    myGameId = null;
+    myMovesInCurrentGame = 0;
+    myGameCreatedAt = 0;
+    gamesCompletedByVu += 1;
+    sleep(1 + Math.random() * 2);
+    return;
+  }
+
+  // Short think time between WebSocket iterations when keeping the same gameId.
+  sleep(1 + Math.random() * 2);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Message handlers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function handleGameStateMessage({
+  socket,
+  payload,
+  userId,
+  awaitingRttForMove,
+  lastSentAt,
+  pendingMoveId,
+  myPlayerNumberInGame,
+  currentMoveCount,
+}) {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      awaitingRttForMove,
+      lastSentAt,
+      pendingMoveId,
+      myPlayerNumberInGame,
+      currentMoveCount,
+      shouldRetireGame: false,
+    };
+  }
+
+  const message = payload;
+  const data = message.data || {};
+  const gameId = data.gameId;
+  const gameState = data.gameState;
+  const validMoves = data.validMoves || [];
+
+  if (!gameState || gameId !== myGameId) {
+    return {
+      awaitingRttForMove,
+      lastSentAt,
+      pendingMoveId,
+      myPlayerNumberInGame,
+      currentMoveCount,
+      shouldRetireGame: false,
+    };
+  }
+
+  let shouldRetireGame = false;
+  const status = gameState.gameStatus;
+  const isTerminal = TERMINAL_GAME_STATUSES.indexOf(status) !== -1;
+
+  // Determine this user's player number within the game.
+  if (myPlayerNumberInGame == null && Array.isArray(gameState.players)) {
+    const me = gameState.players.find((p) => p && p.id === userId);
+    if (me && typeof me.playerNumber === 'number') {
+      myPlayerNumberInGame = me.playerNumber;
+    }
+  }
+
+  // If we were waiting for a move RTT, check whether the latest move belongs to us.
+  if (awaitingRttForMove && Array.isArray(gameState.moveHistory) && gameState.moveHistory.length) {
+    const lastMove = gameState.moveHistory[gameState.moveHistory.length - 1];
+    const isOurMove =
+      lastMove &&
+      lastMove.player === myPlayerNumberInGame &&
+      (!pendingMoveId || lastMove.id === pendingMoveId);
+
+    if (isOurMove) {
+      const rtt = Date.now() - lastSentAt;
+      wsMoveRtt.add(rtt);
+      if (rtt > 2000) {
+        wsMoveStalled.add(1);
+      }
+      wsMoveSuccess.add(1);
+      awaitingRttForMove = false;
+      pendingMoveId = null;
+      lastSentAt = 0;
+    }
+  }
+
+  if (isTerminal) {
+    shouldRetireGame = true;
+    if (!awaitingRttForMove) {
+      socket.close();
+    }
+    return {
+      awaitingRttForMove,
+      lastSentAt,
+      pendingMoveId,
+      myPlayerNumberInGame,
+      currentMoveCount,
+      shouldRetireGame,
+    };
+  }
+
+  // If it's our turn and we're not currently timing a move, send a player_move_by_id.
+  if (
+    !awaitingRttForMove &&
+    myPlayerNumberInGame != null &&
+    gameState.currentPlayer === myPlayerNumberInGame &&
+    currentMoveCount < GAME_MAX_MOVES
+  ) {
+    const nextMove = chooseMoveFromValidMoves(validMoves, myPlayerNumberInGame);
+    if (nextMove) {
+      const movePayload = {
+        gameId: myGameId,
+        moveId: nextMove.id,
+      };
+      const msg = buildSocketIOEvent('player_move_by_id', movePayload);
+      socket.send(msg);
+      lastSentAt = Date.now();
+      awaitingRttForMove = true;
+      pendingMoveId = nextMove.id;
+      wsMovesAttempted.add(1);
+      currentMoveCount += 1;
+    }
+  }
+
+  // Retire the game once we've reached the move cap.
+  if (currentMoveCount >= GAME_MAX_MOVES && !awaitingRttForMove) {
+    shouldRetireGame = true;
+    socket.close();
+  }
+
+  return {
+    awaitingRttForMove,
+    lastSentAt,
+    pendingMoveId,
+    myPlayerNumberInGame,
+    currentMoveCount,
+    shouldRetireGame,
+  };
+}
+
+function handleGameOverMessage({ socket, payload }) {
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
+
+  const data = payload.data || {};
+  if (data.gameId !== myGameId) {
+    return;
+  }
+
+  const status = data.gameState && data.gameState.gameStatus;
+  console.log(
+    `VU ${__VU}: game_over received for ${myGameId} with status ${status}`
+  );
+  socket.close();
+}
+
+function handleErrorMessage(errorPayload, helpers) {
+  const code = errorPayload && errorPayload.code;
+
+  if (code === 'MOVE_REJECTED') {
+    wsErrorMoveRejected.add(1);
+    helpers.clearAwaiting();
+    return;
+  }
+
+  if (code === 'ACCESS_DENIED') {
+    wsErrorAccessDenied.add(1);
+    helpers.clearAwaiting();
+    return;
+  }
+
+  if (code === 'INTERNAL_ERROR') {
+    wsErrorInternalError.add(1);
+    helpers.clearAwaiting();
+    return;
+  }
+
+  // Other error codes are logged but not classified into dedicated counters.
+  console.warn(
+    `VU ${__VU}: Unclassified WebSocket error code ${code} - message=${
+      errorPayload && errorPayload.message
+    }`
+  );
+}
+
+function chooseMoveFromValidMoves(validMoves, myPlayerNumberInGame) {
+  if (!Array.isArray(validMoves) || validMoves.length === 0) {
+    return null;
+  }
+
+  const myMoves = validMoves.filter(
+    (m) => m && typeof m.player === 'number' && m.player === myPlayerNumberInGame
+  );
+
+  const pool = myMoves.length > 0 ? myMoves : validMoves;
+  const idx = Math.floor(Math.random() * pool.length);
+  return pool[idx] || null;
+}

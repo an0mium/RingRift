@@ -146,7 +146,7 @@ function validateOrchestratorConfiguration(projectRoot: string): string[] {
 
   // Required orchestrator configuration files
   const requiredFiles = [
-    'docs/ORCHESTRATOR_ROLLOUT_PLAN.md',
+    'docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md',
     'src/server/config/env.ts',
     'src/server/config/unified.ts',
   ];
@@ -158,7 +158,7 @@ function validateOrchestratorConfiguration(projectRoot: string): string[] {
   }
 
   // Verify rollout plan has key sections
-  const rolloutPlanPath = path.join(projectRoot, 'docs/ORCHESTRATOR_ROLLOUT_PLAN.md');
+  const rolloutPlanPath = path.join(projectRoot, 'docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md');
   if (fs.existsSync(rolloutPlanPath)) {
     const content = fs.readFileSync(rolloutPlanPath, 'utf8');
 

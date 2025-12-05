@@ -252,6 +252,76 @@ npm run test:all:quiet:log
 - Many failures here are **expected diagnostics** or known gaps, documented in `KNOWN_ISSUES.md` and `docs/PARITY_SEED_TRIAGE.md`.
 - They are not PR‑blocking but should be consulted when investigating full Jest runs.
 
+#### Replay Parity & DB Health (Python-side tooling)
+
+These tools and tests live in the Python AI service and operate on recorded games in `GameReplayDB` SQLite files. They are **not** part of the TS Jest CI profile but are high-ROI for rules/parity regression detection and data health.
+
+**Replay parity checker (TS↔Python)**
+
+```bash
+cd ai-service
+PYTHONPATH=. python scripts/check_ts_python_replay_parity.py \
+  > parity_summary.json
+
+# Compact, grep-friendly output:
+PYTHONPATH=. python scripts/check_ts_python_replay_parity.py \
+  --compact > parity_semantic.log
+```
+
+- Compares Python replay (via `GameReplayDB.get_state_at_move`) vs TS replay (`selfplay-db-ts-replay.ts`) for each game in discovered DBs.
+- Emits per-game `GameParityResult` entries including:
+  - Structural classification (`good`, `mid_snapshot`, `invalid`, `error`).
+  - First semantic divergence index (`diverged_at`).
+  - `mismatch_kinds` (e.g. `["current_phase"]`, `["game_status"]`, `["move_count"]`, `["ts_missing_step"]`).
+  - `mismatch_context` (`"initial_state"`, `"post_move"`, `"global"`).
+  - Aggregate `mismatch_counts_by_dimension` across all games.
+
+**Replay DB health/cleanup**
+
+```bash
+cd ai-service
+
+# Dry run with JSON health summary
+PYTHONPATH=. python scripts/cleanup_useless_replay_dbs.py \
+  --summary-json db_health.before_cleanup.json
+
+# Delete useless DBs and write post-cleanup summary
+PYTHONPATH=. python scripts/cleanup_useless_replay_dbs.py \
+  --delete --summary-json db_health.after_cleanup.json
+```
+
+- Classifies each DB and game set:
+  - Counts per structural class (`good`, `mid_snapshot`, `invalid`, `internal_inconsistent`).
+  - Per-DB distributions:
+    - `board_type`, `num_players`, `source`, `termination_reason`.
+  - Flags DBs with no games or only structurally bad games as “useless” (optional deletion).
+
+**Python parity & differential replay tests**
+
+```bash
+cd ai-service
+PYTHONPATH=. pytest tests/parity/test_differential_replay.py
+```
+
+- `tests/parity/test_differential_replay.py`:
+  - Extracts Python replay steps from `game_history_entries`.
+  - Runs TS replay via `selfplay-db-ts-replay.ts` when available.
+  - Compares phases, hashes, and move counts, reporting divergences.
+  - Supports an optional **golden-game** strict parity check driven by env:
+    - `RINGRIFT_PARITY_GOLDEN_DB` – path to a `GameReplayDB` file.
+    - `RINGRIFT_PARITY_GOLDEN_GAME_ID` – `game_id` within that DB.
+    - When both are set and the DB/game exist, the golden test fails if any divergences are found.
+    - To list available golden games under `ai-service/tests/fixtures/golden_games/`:
+      - `PYTHONPATH=. python scripts/list_golden_games.py`
+    - To promote specific `(db_path, game_id)` pairs into golden fixture DBs:
+      - `PYTHONPATH=. python scripts/extract_golden_games.py --db <source.db> --game-id <id1> --game-id <id2> --output tests/fixtures/golden_games/golden_subset.db`
+    - Typical workflow for env-driven golden checks:
+      1. Use soak or CMA-ES runs to generate DBs and run `cleanup_useless_replay_dbs.py` / `check_ts_python_replay_parity.py`.
+      2. Use `find_golden_candidates.py` to shortlist structurally sound, clean-invariant games.
+      3. Use `extract_golden_games.py` to copy chosen games into `tests/fixtures/golden_games/*.db`.
+      4. Point `RINGRIFT_PARITY_GOLDEN_DB` / `RINGRIFT_PARITY_GOLDEN_GAME_ID` at one of those games and run:
+         - `PYTHONPATH=. pytest tests/parity/test_differential_replay.py -m "not slow"`.
+
 ---
 
 ### 4. E2E Tests (Playwright)

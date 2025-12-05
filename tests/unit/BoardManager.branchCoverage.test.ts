@@ -27,6 +27,64 @@ describe('BoardManager Branch Coverage', () => {
     __testSetStrictModeOverride(undefined);
   });
 
+  describe('Board invariants strict mode', () => {
+    it('throws when stack exists on collapsed space in strict mode', () => {
+      const boardManager = new BoardManager('square8');
+      const board = boardManager.createBoard();
+
+      // Enable strict invariant mode for this test only.
+      __testSetStrictModeOverride(true);
+
+      const position = pos(2, 2);
+      const key = positionToString(position);
+
+      // Manually create an illegal state: stack and collapsed space on the same cell.
+      (board.stacks as any).set(key, {
+        position,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      });
+      (board.collapsedSpaces as any).set(key, 1);
+
+      // Call the private invariant checker via an any cast to ensure the
+      // strict branch and error path are exercised.
+      expect(() =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (boardManager as any).assertBoardInvariants(board, 'test-strict')
+      ).toThrow(/\[BoardManager] invariant violation/);
+    });
+
+    it('does not throw when strict mode is explicitly disabled', () => {
+      // This test verifies the non-strict code path where board invariant
+      // violations are logged but do not throw. This exercises the branch
+      // where isBoardInvariantsStrict() returns false.
+      __testSetStrictModeOverride(false);
+
+      const boardManager = new BoardManager('square8');
+      const board = boardManager.createBoard();
+
+      const position = pos(1, 1);
+      const key = positionToString(position);
+
+      (board.stacks as any).set(key, {
+        position,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      });
+      (board.collapsedSpaces as any).set(key, 1);
+
+      // Should NOT throw when strict mode is disabled
+      expect(() =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (boardManager as any).assertBoardInvariants(board, 'non-strict')
+      ).not.toThrow();
+    });
+  });
+
   describe('Board Invariant Repair Paths', () => {
     it('should repair stack+marker overlap when setting stack on marker', () => {
       const boardManager = new BoardManager('square8');
@@ -100,6 +158,31 @@ describe('BoardManager Branch Coverage', () => {
       boardManager.setCollapsedSpace(pos(6, 6), 2, board);
       expect(boardManager.getStack(pos(6, 6), board)).toBeUndefined();
       expect(boardManager.isCollapsedSpace(pos(6, 6), board)).toBe(true);
+    });
+
+    it('repairs illegal overlaps and tracks repair count', () => {
+      const boardManager = new BoardManager('square8');
+      const board = createTestBoard('square8');
+
+      expect(boardManager.getRepairCountForTesting()).toBe(0);
+
+      // stack+marker overlap, which should trigger stack_marker_overlap repair
+      const overlapPos = pos(2, 2);
+      addStack(board, overlapPos, 1, 1);
+      addMarker(board, overlapPos, 1);
+
+      // marker on collapsed space, which should trigger marker_on_collapsed_space repair
+      const collapsedPos = pos(3, 3);
+      addMarker(board, collapsedPos, 1);
+      addCollapsedSpace(board, collapsedPos, 1);
+
+      expect(() =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (boardManager as any).assertBoardInvariants(board, 'repair-paths')
+      ).not.toThrow();
+
+      // Both repairs should have been recorded.
+      expect(boardManager.getRepairCountForTesting()).toBe(2);
     });
   });
 
@@ -178,11 +261,18 @@ describe('BoardManager Branch Coverage', () => {
     });
 
     it('should return hexagonal neighbors for hex board', () => {
-      const boardManager = new BoardManager('hexagonal11');
+      const boardManager = new BoardManager('hexagonal');
       const neighbors = boardManager.getNeighbors({ x: 0, y: 0, z: 0 }, 'hexagonal');
 
       // Hex has 6 neighbors for center
       expect(neighbors).toHaveLength(6);
+    });
+
+    it('should return empty array for unknown adjacency type', () => {
+      const boardManager = new BoardManager('square8');
+      const neighbors = boardManager.getNeighbors(pos(3, 3), 'unknown' as any);
+
+      expect(neighbors).toEqual([]);
     });
   });
 
@@ -190,7 +280,7 @@ describe('BoardManager Branch Coverage', () => {
     let hexBoardManager: BoardManager;
 
     beforeEach(() => {
-      hexBoardManager = new BoardManager('hexagonal11');
+      hexBoardManager = new BoardManager('hexagonal');
     });
 
     it('should validate hexagonal positions correctly', () => {
@@ -344,7 +434,7 @@ describe('BoardManager Branch Coverage', () => {
     });
 
     it('should handle hexagonal adjacency in switch with z coordinate', () => {
-      const boardManager = new BoardManager('hexagonal11');
+      const boardManager = new BoardManager('hexagonal');
       const adjacent = boardManager.getAdjacentPositions({ x: 0, y: 0, z: 0 }, 'hexagonal');
 
       expect(adjacent).toHaveLength(6);
@@ -429,35 +519,21 @@ describe('BoardManager Branch Coverage', () => {
       }
     });
 
-    it('should get line directions for square board', () => {
-      const boardManager = new BoardManager('square8');
-      const directions = boardManager['getLineDirections']();
-
-      // Square board has 4 unique directions (considering symmetry)
-      expect(directions.length).toBe(4);
-    });
-
-    it('should get line directions for hexagonal board', () => {
-      const boardManager = new BoardManager('hexagonal11');
-      const directions = boardManager['getLineDirections']();
-
-      // Hex board has 3 unique directions (considering symmetry)
-      expect(directions.length).toBe(3);
-    });
-
     it('should call debugFindAllLines without error', () => {
       const boardManager = new BoardManager('square8');
       const board = createTestBoard('square8');
 
-      // Add some markers
-      addMarker(board, pos(0, 0), 1);
-      addMarker(board, pos(1, 1), 1);
+      // Add a full horizontal marker line so debugFindAllLines sees at least one line.
+      for (let x = 0; x < 4; x++) {
+        addMarker(board, pos(x, 0), 1);
+      }
 
       // Should not throw
       const result = boardManager.debugFindAllLines(board);
 
       expect(result).toBeDefined();
       expect(result.keys).toBeDefined();
+      expect(result.keys.length).toBeGreaterThan(0);
     });
   });
 
@@ -585,6 +661,18 @@ describe('BoardManager Branch Coverage', () => {
       expect(player2Stacks).toHaveLength(1);
       expect(player2Stacks[0].stackHeight).toBe(3);
     });
+
+    it('should remove stack from board', () => {
+      const boardManager = new BoardManager('square8');
+      const board = createTestBoard('square8');
+
+      addStack(board, pos(2, 2), 1, 2);
+      expect(boardManager.getStack(pos(2, 2), board)).toBeDefined();
+
+      boardManager.removeStack(pos(2, 2), board);
+
+      expect(boardManager.getStack(pos(2, 2), board)).toBeUndefined();
+    });
   });
 
   describe('Collapsed Space Operations', () => {
@@ -646,6 +734,26 @@ describe('BoardManager Branch Coverage', () => {
 
       expect(positions).toHaveLength(64);
     });
+
+    it('should get edge positions for square board', () => {
+      const boardManager = new BoardManager('square8');
+      const edgePositions = boardManager.getEdgePositions();
+
+      expect(edgePositions.length).toBeGreaterThan(0);
+      for (const p of edgePositions) {
+        expect(boardManager.isOnEdge(p)).toBe(true);
+      }
+    });
+
+    it('should get center positions for square board', () => {
+      const boardManager = new BoardManager('square8');
+      const centerPositions = boardManager.getCenterPositions();
+
+      expect(centerPositions.length).toBeGreaterThan(0);
+      for (const p of centerPositions) {
+        expect(boardManager.isInCenter(p)).toBe(true);
+      }
+    });
   });
 
   describe('Square 19x19 Board', () => {
@@ -690,6 +798,19 @@ describe('BoardManager Branch Coverage', () => {
       const result = boardManager.getMarker(pos(3, 3), board);
 
       expect(result).toBeUndefined();
+    });
+
+    it('should not place marker on collapsed space', () => {
+      const boardManager = new BoardManager('square8');
+      const board = createTestBoard('square8');
+
+      const position = pos(4, 4);
+      addCollapsedSpace(board, position, 1);
+
+      boardManager.setMarker(position, 2, board);
+
+      expect(boardManager.getMarker(position, board)).toBeUndefined();
+      expect(boardManager.isCollapsedSpace(position, board)).toBe(true);
     });
   });
 

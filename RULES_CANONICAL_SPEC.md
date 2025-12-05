@@ -196,7 +196,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - A full turn for `currentPlayer = P` consists of the following ordered phases:
     1. Optional/conditional **ring placement**.
     2. Mandatory **movement** if any legal movement or capture exists.
-    3. Optional start of **overtaking capture**, then mandatory chain continuation while legal.
+    3. Optional start of **overtaking capture from the moved stack's landing position only** (see RR-CANON-R093), then mandatory chain continuation while legal.
     4. **Line processing** (zero or more lines).
     5. **Territory disconnection processing** (zero or more regions).
     6. **Victory / termination check**.
@@ -310,6 +310,39 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - Because each forced elimination removes at least one ring from the acting player's cap and total rings are finite, any segment of play in which some player is repeatedly forced to eliminate caps must terminate in finitely many steps.
   - The ANM semantics in RR-CANON-R200–R203, together with the progress invariant in RR-CANON-R191, therefore justify the `INV-ACTIVE-NO-MOVES`, `INV-PHASE-CONSISTENCY`, and `INV-TERMINATION` invariants described in [`docs/INVARIANTS_AND_PARITY_FRAMEWORK.md`](docs/INVARIANTS_AND_PARITY_FRAMEWORK.md:119).
 
+- **[RR-CANON-R208] Multi-phase turn sequence for line→Territory turns.**
+  - For any turn in which an interactive action by the current player P (placement, movement, capture, or chain-capture segment) creates at least one new line owned by P and/or disconnects a Territory region they control, the canonical sequence of phases is:
+    1. **Interactive phase:** `ring_placement`, `movement`, or `capture` in which the triggering action occurs. A chain-capture may immediately follow per RR-CANON-R209.
+    2. **Chain capture (if any):** zero or more `chain_capture` segments while additional overtaking segments remain from the current chain origin (RR-CANON-R090–R103, RR-CANON-R209).
+    3. **Line processing:** a single `line_processing` phase in which P may apply `process_line` / `choose_line_reward` decisions for any eligible lines they own (RR-CANON-R120–R122).
+    4. **Territory processing:** upon exiting `line_processing`, if any disconnected regions for P satisfy the Q23 prerequisite (RR-CANON-R140–R145 and §7.3), a `territory_processing` phase is entered and Territory decisions are applied; otherwise, the engine skips directly to victory evaluation and turn rotation (RR-CANON-R170–R173).
+  - Within a single turn, no other interactive phase may interleave between `line_processing` and `territory_processing`, and the engine must not re-enter `movement` or `capture` before the line+Territory consequences of the triggering action have been fully resolved. RR-CANON-R204’s phase-exit rules must be applied so that ANM states are never left pending between these phases.
+  - References:
+    - TS contract vectors `tests/fixtures/contract-vectors/v2/multi_phase_turn.vectors.json` (e.g. `multi_phase.placement_capture_line`, `multi_phase.full_sequence_with_territory` tagged `sequence:turn.line_then_territory.*`).
+    - TS snapshot exporters and plateau/multi-region parity tests for combined line+Territory scenarios.
+    - Python parity suite `ai-service/tests/parity/test_line_and_territory_scenario_parity.py` (line+Territory scenario and TS snapshot parity).
+
+- **[RR-CANON-R209] Chain-capture phase boundaries.**
+  - The dedicated `chain_capture` phase is an **interactive** phase that may only occur between the triggering movement/capture and the subsequent decision phases of RR-CANON-R208:
+    - **Entry.**
+      - After a legal `overtaking_capture` or `continue_capture_segment` by P, if the canonical capture aggregate reports that further capture segments are available from the landing position (`mustContinue == true` under the shared helpers), the engine must:
+        - set `currentPhase` to `chain_capture`; and
+        - record a chain state whose origin and owner define which `continue_capture_segment` moves are legal.
+    - **During `chain_capture`.**
+      - The only legal interactive moves for P are `continue_capture_segment` moves whose `from` matches the current chain origin and whose geometry is validated by the capture segment rules (RR-CANON-R100–R103).
+      - It is illegal to accept any placement, non-capture movement, Territory decision, or line-processing decision for P while `currentPhase == chain_capture`.
+    - **Exit.**
+      - When the canonical capture aggregate reports that no further segments are available (`mustContinue == false`), the engine must immediately:
+        - clear the internal chain-capture state; and
+        - transition either:
+          - to `line_processing` (if any lines for P exist, per RR-CANON-R208 and RR-CANON-R120–R122); or
+          - directly to the next applicable phase per RR-CANON-R204 when no lines exist.
+      - It is illegal to leave the game in `gameStatus == ACTIVE` and `currentPhase == chain_capture` if P has no legal `continue_capture_segment` moves.
+  - References:
+    - Shared capture chain helpers and aggregates under `src/shared/engine/**`.
+    - TS turn-orchestrator multi-phase vectors (`multi_phase_turn.vectors.json`) with `chain_capture` in their `expectedPhaseSequence`.
+    - Python chain-capture handling in `ai-service/app/game_engine.py` and the multi-phase parity tests listed above.
+
 > **Cross-references (non-normative but recommended):**
 >
 > - Scenario-level ANM and forced-elimination behaviour, including concrete examples for RR-CANON-R200–R207, is catalogued in [`docs/ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
@@ -379,6 +412,17 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - If a marker was present (regardless of owner), immediately eliminate the top ring of the moving stack's cap and credit it to P.
   - P is **not required** to stop at the first legal landing after markers; any landing that satisfies RR-CANON-R091 is legal.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §3.2; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.2.1, 8.2, 8.3, 15.4 Q2.
+
+- **[RR-CANON-R093] Post-movement capture eligibility (landing position constraint).**
+  - After a non-capture movement (`move_stack` or `move_ring`) by P, the **optional capture opportunity** described in RR-CANON-R070 phase 3 is evaluated **only** from the stack that just moved, at its landing position.
+  - Specifically:
+    - Let `landing` be the cell where the moving stack landed after the non-capture movement.
+    - Enumerate all legal overtaking capture segments (per RR-CANON-R101) whose `from` equals `landing`.
+    - If at least one such capture segment exists, P may optionally begin an overtaking capture from `landing`; once started, chain continuation rules (RR-CANON-R103) apply.
+    - If no such capture segment exists from `landing`, the turn proceeds directly to line processing (RR-CANON-R070 phase 4).
+  - Importantly: captures from **other** stacks controlled by P (stacks that were not the subject of the movement) are **not** available as the optional post-movement capture; they may only be used on a subsequent turn when those stacks are moved.
+  - This constraint ensures that the "optional capture after movement" decision is tied to the stack that was moved, making the post-movement phase deterministic based on the landing position.
+  - References: TS `turnOrchestrator.ts` `processPostMovePhases` (capture detection from landing position); Python `game_engine.py` `_update_phase` (alignment required).
 
 ### 5.3 Overtaking capture
 

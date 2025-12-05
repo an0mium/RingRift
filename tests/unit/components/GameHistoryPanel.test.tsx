@@ -2,10 +2,15 @@ import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GameHistoryPanel } from '../../../src/client/components/GameHistoryPanel';
-import type { GameHistoryResponse, GameHistoryMove } from '../../../src/client/services/api';
+import type {
+  GameHistoryResponse,
+  GameHistoryMove,
+  GameDetailsResponse,
+} from '../../../src/client/services/api';
 
 // Mock the game API so we can control the history payload returned to the panel
 const mockGetGameHistory = jest.fn<Promise<GameHistoryResponse>, [string]>();
+const mockGetGameDetails = jest.fn<Promise<GameDetailsResponse>, [string]>();
 
 jest.mock('../../../src/client/services/api', () => {
   const actual = jest.requireActual('../../../src/client/services/api');
@@ -14,6 +19,7 @@ jest.mock('../../../src/client/services/api', () => {
     gameApi: {
       ...actual.gameApi,
       getGameHistory: (gameId: string) => mockGetGameHistory(gameId),
+      getGameDetails: (gameId: string) => mockGetGameDetails(gameId),
     },
   };
 });
@@ -35,6 +41,29 @@ describe('GameHistoryPanel', () => {
         to: { x: 3, y: 3 },
       },
       timestamp: new Date('2024-01-15T10:05:30Z').toISOString(),
+      ...overrides,
+    };
+  }
+
+  function createGameDetails(overrides: Partial<GameDetailsResponse> = {}): GameDetailsResponse {
+    const baseTimestamp = new Date('2024-01-15T10:00:00Z').toISOString();
+    return {
+      id: 'game-1',
+      status: 'completed',
+      boardType: 'square8',
+      maxPlayers: 2,
+      isRated: true,
+      allowSpectators: true,
+      players: [
+        { id: 'player-1', username: 'Player One', rating: 1500 },
+        { id: 'player-2', username: 'Player Two', rating: 1500 },
+      ],
+      winner: null,
+      createdAt: baseTimestamp,
+      updatedAt: baseTimestamp,
+      startedAt: baseTimestamp,
+      endedAt: baseTimestamp,
+      moveCount: 2,
       ...overrides,
     };
   }
@@ -318,6 +347,91 @@ describe('GameHistoryPanel', () => {
       // getPositionDescription builds a single string with both endpoints and
       // includes z when it is defined.
       expect(screen.getByText('from (0,0,0) → to (1,-1,0)')).toBeInTheDocument();
+    });
+  });
+
+  it('opens backend replay for a finished game and allows scrubbing through moves', async () => {
+    const move1 = createMove({
+      moveNumber: 1,
+      moveData: {
+        type: 'place_ring',
+        player: 1,
+        to: { x: 3, y: 3 },
+      },
+    });
+
+    const move2 = createMove({
+      moveNumber: 2,
+      playerId: 'player-2',
+      playerName: 'Player Two',
+      timestamp: new Date('2024-01-15T10:06:00Z').toISOString(),
+      moveData: {
+        type: 'move_ring',
+        player: 2,
+        from: { x: 3, y: 3 },
+        to: { x: 4, y: 3 },
+      },
+    });
+
+    const history: GameHistoryResponse = {
+      gameId: 'replay-game',
+      moves: [move1, move2],
+      totalMoves: 2,
+      result: {
+        // Cast to align with the narrowed GameResult reason type used in the API.
+        reason: 'resignation' as GameHistoryResponse['result'] extends { reason: infer R }
+          ? R
+          : never,
+        winner: 1,
+      },
+    };
+
+    const details = createGameDetails({
+      id: 'replay-game',
+      moveCount: 2,
+      winner: {
+        id: 'player-1',
+        username: 'Player One',
+      },
+    });
+
+    mockGetGameHistory.mockResolvedValueOnce(history);
+    mockGetGameDetails.mockResolvedValueOnce(details);
+
+    render(<GameHistoryPanel gameId="replay-game" />);
+
+    // Wait for history to load (textual list)
+    await waitFor(() => {
+      expect(screen.getByText('Player One')).toBeInTheDocument();
+    });
+
+    // Open the backend replay panel
+    const replayButton = await screen.findByTestId('open-replay-button');
+    fireEvent.click(replayButton);
+
+    // Ensure we fetched game details to construct the GameRecord adapter
+    await waitFor(() => {
+      expect(mockGetGameDetails).toHaveBeenCalledWith('replay-game');
+    });
+
+    // Backend replay panel and playback controls should be visible
+    expect(await screen.findByTestId('backend-replay-panel')).toBeInTheDocument();
+    expect(screen.getByText('History Playback')).toBeInTheDocument();
+
+    // Wait until replay snapshots have been reconstructed so the board + move
+    // list are rendered. This implies hasSnapshots === true and the scrubber
+    // is wired up.
+    await screen.findByTestId('move-history');
+
+    // Initial label should show that we are at the end of the game (move 2 / 2)
+    expect(screen.getByText('Move 2 / 2')).toBeInTheDocument();
+
+    // Scrub back to an earlier move and verify the indicator updates
+    const scrubber = screen.getByLabelText('Move scrubber') as HTMLInputElement;
+    fireEvent.change(scrubber, { target: { value: '1' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Move 1 / 2')).toBeInTheDocument();
     });
   });
 });

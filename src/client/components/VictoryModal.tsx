@@ -126,7 +126,7 @@ function FinalStatsTable({
           <tr className="bg-slate-700 text-slate-100">
             <th className="px-4 py-2 text-left">Player</th>
             <th className="px-4 py-2 text-center">Rings on Board</th>
-            <th className="px-4 py-2 text-center">Rings Captured</th>
+            <th className="px-4 py-2 text-center">Rings Eliminated</th>
             <th className="px-4 py-2 text-center">Territory</th>
             <th className="px-4 py-2 text-center">Moves</th>
           </tr>

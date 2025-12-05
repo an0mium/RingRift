@@ -16,7 +16,7 @@
 
 This document defines the narrow, stable public API boundary for the canonical RingRift rules engine located in [`src/shared/engine/`](../src/shared/engine/).
 
-> **Note (November 2025):** A new canonical **Turn Orchestrator** layer has been added in [`src/shared/engine/orchestration/`](../src/shared/engine/orchestration/README.md). This provides `processTurn()` and `processTurnAsync()` as single entry points for turn processing. See [Section 3.9](#39-orchestration-domain-new) for details.
+> **Note (November 2025):** A new canonical **Turn Orchestrator** layer has been added in [`src/shared/engine/orchestration/`](../../src/shared/engine/orchestration/README.md). This provides `processTurn()` and `processTurnAsync()` as single entry points for turn processing. See [Section 3.9](#39-orchestration-domain-new) for details.
 
 This API is designed to be:
 
@@ -135,10 +135,10 @@ GamePhase:
 
 MoveType:
   'place_ring' | 'move_ring' | 'build_stack' | 'move_stack' |
-  'overtaking_capture' | 'continue_capture_segment' |
+  'overtaking_capture' | 'continue_capture_segment' | 'skip_capture' |
   'swap_sides' |
   'process_line' | 'choose_line_reward' |
-  'process_territory_region' | 'eliminate_rings_from_stack' |
+  'process_territory_region' | 'skip_territory_processing' | 'eliminate_rings_from_stack' |
   'line_formation' | 'territory_claim' | 'skip_placement'
 ```
 
@@ -765,7 +765,7 @@ Beneath the orchestrator, the domain aggregates and helper modules under `src/sh
 - [`TerritoryAggregate`](../src/shared/engine/aggregates/TerritoryAggregate.ts) together with helpers such as [`territoryDetection.ts`](../src/shared/engine/territoryDetection.ts), [`territoryProcessing.ts`](../src/shared/engine/territoryProcessing.ts), and [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts) for Territory disconnection, Q23 self-elimination prerequisites, and explicit Territory decisions.
 - Victory helpers such as [`victoryLogic.ts`](../src/shared/engine/victoryLogic.ts) and [`VictoryAggregate`](../src/shared/engine/aggregates/VictoryAggregate.ts) for ring-elimination, Territory-control, and last-player-standing victory semantics.
 
-Hosts (backend and sandbox) must treat these aggregates and helpers as the **only authoritative implementation** of movement, capture, placement, line, Territory, and victory rules semantics. Production hosts must go through the orchestrator (`processTurn` / `processTurnAsync` together with `validateMove` / `getValidMoves` / `hasValidMoves`) via [`TurnEngineAdapter`](../src/server/game/turn/TurnEngineAdapter.ts) or [`SandboxOrchestratorAdapter`](../src/client/sandbox/SandboxOrchestratorAdapter.ts); direct calls into aggregates or helpers are reserved for tests, diagnostics, and tooling. For a design-level view of these aggregates see [`docs/DOMAIN_AGGREGATE_DESIGN.md`](../docs/DOMAIN_AGGREGATE_DESIGN.md), and for rule-ID → implementation mapping see [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md). For consolidation and rollout details, see [`docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md`](../docs/SHARED_ENGINE_CONSOLIDATION_PLAN.md) and [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](../docs/ORCHESTRATOR_ROLLOUT_PLAN.md).
+Hosts (backend and sandbox) must treat these aggregates and helpers as the **only authoritative implementation** of movement, capture, placement, line, Territory, and victory rules semantics. Production hosts must go through the orchestrator (`processTurn` / `processTurnAsync` together with `validateMove` / `getValidMoves` / `hasValidMoves`) via [`TurnEngineAdapter`](../src/server/game/turn/TurnEngineAdapter.ts) or [`SandboxOrchestratorAdapter`](../src/client/sandbox/SandboxOrchestratorAdapter.ts); direct calls into aggregates or helpers are reserved for tests, diagnostics, and tooling. For a design-level view of these aggregates see [`docs/architecture/DOMAIN_AGGREGATE_DESIGN.md`](./DOMAIN_AGGREGATE_DESIGN.md), and for rule-ID → implementation mapping see [`docs/rules/RULES_IMPLEMENTATION_MAPPING.md`](../rules/RULES_IMPLEMENTATION_MAPPING.md). For consolidation and rollout details, see [`docs/architecture/SHARED_ENGINE_CONSOLIDATION_PLAN.md`](./SHARED_ENGINE_CONSOLIDATION_PLAN.md) and [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](./ORCHESTRATOR_ROLLOUT_PLAN.md).
 
 ##### 3.9.0a High-level turn + decision flow (diagram)
 

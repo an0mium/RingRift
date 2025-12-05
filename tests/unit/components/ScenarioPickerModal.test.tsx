@@ -42,7 +42,11 @@ const createMockScenario = (
   playerCount: 2,
   tags: [],
   difficulty: 'beginner',
-  gameState: {} as any,
+  // Minimal metadata required by ScenarioMetadata/LoadableScenario
+  createdAt: '2025-01-01T00:00:00.000Z',
+  source: 'custom',
+  // Serialized game state payload (structure not relevant for these tests)
+  state: {} as any,
 });
 
 describe('ScenarioPickerModal', () => {
@@ -357,6 +361,7 @@ describe('ScenarioPickerModal', () => {
           isOpen={true}
           onClose={mockOnClose}
           onSelectScenario={mockOnSelectScenario}
+          developerToolsEnabled={true}
         />
       );
 
@@ -378,6 +383,7 @@ describe('ScenarioPickerModal', () => {
           isOpen={true}
           onClose={mockOnClose}
           onSelectScenario={mockOnSelectScenario}
+          developerToolsEnabled={true}
         />
       );
 
@@ -399,6 +405,7 @@ describe('ScenarioPickerModal', () => {
           isOpen={true}
           onClose={mockOnClose}
           onSelectScenario={mockOnSelectScenario}
+          developerToolsEnabled={true}
         />
       );
 
@@ -420,6 +427,7 @@ describe('ScenarioPickerModal', () => {
           isOpen={true}
           onClose={mockOnClose}
           onSelectScenario={mockOnSelectScenario}
+          developerToolsEnabled={true}
         />
       );
 
@@ -445,6 +453,7 @@ describe('ScenarioPickerModal', () => {
           isOpen={true}
           onClose={mockOnClose}
           onSelectScenario={mockOnSelectScenario}
+          developerToolsEnabled={true}
         />
       );
 

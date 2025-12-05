@@ -1,16 +1,18 @@
 # RingRift AI Training & Datasets
 
-> **Doc Status (2025-11-27): Active (with historical/aspirational content)**
+> **Doc Status (2025-12-04): Active (with historical/aspirational content)**
 >
 > **Role:** Canonical reference for current offline AI training and dataset-generation flows in the Python AI service (self-play generators, territory/combined-margin datasets, and heuristic-weight training). Describes how training jobs reuse the Python host over the shared TS rules engine and how datasets are structured and generated.
 >
 > **Not a semantics SSoT:** This document does not define core game rules or lifecycle semantics. Rules semantics are owned by the shared TypeScript rules engine under `src/shared/engine/**` plus contracts and vectors (see `RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`). Lifecycle semantics are owned by `docs/CANONICAL_ENGINE_API.md` together with shared types/schemas in `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`. The Python engine and training stack are **hosts** that must match the TS SSoT via the parity backbone.
 >
 > **Related docs:** `AI_ARCHITECTURE.md`, `docs/PYTHON_PARITY_REQUIREMENTS.md`, `docs/PARITY_SEED_TRIAGE.md`, `ai-service/README.md`, `docs/AI_TRAINING_PREPARATION_GUIDE.md`, `docs/STRICT_INVARIANT_SOAKS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`, and `DOCUMENTATION_INDEX.md`.
+>
+> **As of Dec 2025:** End‑to‑end GameRecord flows are implemented for both Python self-play (`generate_data.py --game-records-jsonl`) and online games (Postgres + `GameRecordRepository` + `scripts/export-game-records-jsonl.ts`), and self-play/CMA‑ES harnesses record games by default to `GameReplayDB` SQLite databases that can be mined via `export_state_pool.py`.
 
 **Scope:** Python AI service training pipelines, self-play generators, and territory/combined-margin datasets.
 
-This document is the canonical reference for the current **offline training and dataset generation** flows in the Python AI service. It complements the high-level overview in [`AI_ARCHITECTURE.md`](../AI_ARCHITECTURE.md) and the rules-engine mapping in [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md).
+This document is the canonical reference for the current **offline training and dataset generation** flows in the Python AI service. It complements the high-level overview in [`AI_ARCHITECTURE.md`](../../AI_ARCHITECTURE.md) and the rules-engine mapping in [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md).
 
 ---
 
@@ -25,11 +27,11 @@ All training entrypoints reuse the same Python rules stack as the live AI servic
 
 **Rules SSoT and parity safeguards:**
 
-- The **canonical rules semantics** live in the shared TypeScript engine under [`src/shared/engine/`](../src/shared/engine/) (helpers → aggregates → orchestrator) together with the v2 **contract vectors** under [`tests/fixtures/contract-vectors/v2/`](../tests/fixtures/contract-vectors/v2/). See [`docs/CANONICAL_ENGINE_API.md`](./CANONICAL_ENGINE_API.md) and [`docs/PYTHON_PARITY_REQUIREMENTS.md`](./PYTHON_PARITY_REQUIREMENTS.md) for details.
+- The **canonical rules semantics** live in the shared TypeScript engine under [`src/shared/engine/`](../src/shared/engine/) (helpers → aggregates → orchestrator) together with the v2 **contract vectors** under [`tests/fixtures/contract-vectors/v2/`](../tests/fixtures/contract-vectors/v2/). See [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md) and [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](../rules/PYTHON_PARITY_REQUIREMENTS.md) for details.
 - The Python engine and mutators above are treated as a **host/adapter implementation** that must match the TS SSoT; they are validated by:
-  - Contract-vector runners (`tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`).
-  - Parity/plateau/territory suites under `tests/unit/*Parity*` and `ai-service/tests/parity/`.
-  - Mutator shadow contracts and divergence guards described in [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md) and [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](./INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
+- - Contract-vector runners (`tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`).
+- - Parity/plateau/territory suites under `tests/unit/*Parity*` and `ai-service/tests/parity/`.
+- - Mutator shadow contracts and divergence guards described in [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md) and [`INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
 
 Because training jobs and the live AI/rules service share this stack, **any divergence between Python and the canonical TS rules engine** will affect both online play and offline datasets. The parity suites and mutator contracts listed above are therefore critical safeguards.
 
@@ -37,7 +39,7 @@ Because training jobs and the live AI/rules service share this stack, **any dive
 
 ## 2. Running the AI service for training
 
-Most training workflows expect the Python AI service to be installable and runnable on its own. For HTTP API details and the full Docker stack see [`ai-service/README.md`](../ai-service/README.md); this section focuses on quick local usage.
+Most training workflows expect the Python AI service to be installable and runnable on its own. For HTTP API details and the full Docker stack see [`ai-service/README.md`](../../ai-service/README.md); this section focuses on quick local usage.
 
 ### 2.1 Local virtualenv (recommended)
 
@@ -325,7 +327,105 @@ Combined with the training seeding rules above, this means:
   - [`ai-service/tests/test_engine_determinism.py`](../ai-service/tests/test_engine_determinism.py),
   - and the seeded AI tests under `ai-service/tests/test_mcts_dynamic_batching.py` and `ai-service/tests/test_ai_creation.py`.
 
-### 5.4 Board-dependent heuristic evaluation modes
+### 5.4 Self-play recording and evaluation pools
+
+Training and analysis harnesses now record self-play games by default to **GameReplayDB** SQLite databases and provide a standard path for exporting mid-game evaluation pools:
+
+- **Environment and helpers**
+  - `ai-service/app/db/recording.py` defines:
+    - `RINGRIFT_RECORD_SELFPLAY_GAMES` – global on/off switch for recording (`true` by default; `"false"`, `"0"`, `"no"` disable).
+    - `RINGRIFT_SELFPLAY_DB_PATH` – default DB path when scripts do not supply an explicit location.
+    - `should_record_games(...)` and `get_or_create_db(...)` – convenience helpers used by CLI scripts.
+- **CMA‑ES optimisation (`run_cmaes_optimization.py`)**
+  - Uses `should_record_games(cli_no_record=not config.record_games)` with `record_games=True` by default and a `--no-record` flag to opt out.
+  - When enabled, creates `{run_dir}/games.db` for each run and records every evaluated game via `record_completed_game(...)` with rich metadata (`source="cmaes"`, board, num_players, run_id, generation, candidate index, and any extra tags from `recording_context`).
+- **Self-play soaks and other generators**
+  - Self-play harnesses such as `run_self_play_soak.py` and evaluation helpers reuse the same `GameReplayDB` + `record_completed_game(...)` surface, honouring `RINGRIFT_RECORD_SELFPLAY_GAMES` and/or their own `--no-record` switches.
+- **Evaluation state pools**
+  - `ai-service/scripts/export_state_pool.py` reads one or more `games.db` files, samples states at configurable move numbers (for example `--sample-moves 20,40,60`), and writes JSONL pools under `data/eval_pools/**`.
+  - These JSONL files are consumed by `app.training.eval_pools.load_state_pool(...)` and used by `run_cmaes_optimization.py` (and related scripts) when running in `--eval-mode multi-start`.
+  - For long-running experiments that produce many small per-run DBs, `ai-service/scripts/merge_game_dbs.py` can be used to merge them into a single consolidated `GameReplayDB` before exporting pools or running parity/health checks.
+
+---
+
+## 6. Canonical GameRecord datasets for self-play and online games
+
+In addition to per-position samples and territory/combined-margin datasets, the
+training stack now supports exporting **canonical game-level GameRecord
+datasets** from both Python self-play and the Node backend.
+
+### 6.1 Python GameRecord export from Descent self-play
+
+The Descent self-play generator in
+[`ai-service/app/training/generate_data.py`](../ai-service/app/training/generate_data.py)
+accepts an optional `--game-records-jsonl` flag:
+
+```bash
+cd ai-service
+PYTHONPATH=. python app/training/generate_data.py \
+  --num-games 50 \
+  --board-type square8 \
+  --output logs/training_data.npz \
+  --game-records-jsonl logs/training_games.square8.jsonl
+```
+
+When provided, each completed self-play episode is exported as a single JSON
+line conforming to the canonical `GameRecord` schema from
+`app/models/game_record.py`:
+
+- Core fields: `id`, `boardType`, `numPlayers`, `rngSeed`, `isRated`.
+- Players: `players: PlayerRecordInfo[]` with per-seat metadata.
+- Result: `winner`, `outcome`, `finalScore` (ringsEliminated, territorySpaces, ringsRemaining).
+- Timing: `startedAt`, `endedAt`, `totalMoves`, `totalDurationMs`.
+- Moves: `moves: MoveRecord[]` (lightweight, replay-friendly move history).
+- Metadata: `metadata: GameRecordMetadata` (source, tags, generation/candidate IDs, etc.).
+
+The helper `build_training_game_record(...)` in
+`ai-service/app/training/game_record_export.py` bridges from live
+`GameState` / `Move` objects and environment termination metadata to this
+schema, including:
+
+- inferring `GameOutcome` via the same victory ladder as the TS backend;
+- mapping pure max-move cutoffs to a `timeout` outcome; and
+- deriving `FinalScore` from the terminal board + player tallies.
+
+These JSONL files can be consumed directly by TS tooling via the shared
+`src/shared/types/gameRecord.ts` types, or used as a canonical game-level
+dataset for offline evaluation and analysis.
+
+### 6.2 Online-game GameRecord export from Postgres
+
+The Node backend now persists canonical `GameRecord` metadata for completed
+online games in the Postgres `games` table:
+
+- `GameSession.finishGameWithResult(...)` calls
+  `GameRecordRepository.saveGameRecord(...)` to populate `finalState`,
+  `finalScore`, `outcome`, and `recordMetadata` on the `Game` row.
+- `src/server/services/GameRecordRepository.ts` exposes:
+  - `getGameRecord(id)` – hydrate a full `GameRecord` object from Postgres.
+  - `exportAsJsonl(filter)` – async generator yielding one JSONL line per game.
+
+For offline training/analysis there is a small companion script:
+
+- `scripts/export-game-records-jsonl.ts` – CLI utility that streams
+  `GameRecord` JSONL from Postgres:
+
+  ```bash
+  TS_NODE_PROJECT=tsconfig.server.json \
+  npx ts-node scripts/export-game-records-jsonl.ts \
+    --output data/game_records.jsonl \
+    --board-type square8
+  ```
+
+Together with the Python generator above, this provides two symmetric entry
+points into canonical GameRecord datasets:
+
+- Python self-play → JSONL `GameRecord` (via `generate_data.py`), and
+- Online games in Postgres → JSONL `GameRecord` (via GameRecordRepository and the export script).
+
+---
+
+### 6.3 Board-dependent heuristic evaluation modes
 
 To keep heuristic‑weight training and evaluation both performant and faithful to gameplay, training harnesses use a **board-dependent heuristic evaluation mode**:
 
@@ -392,10 +492,10 @@ The alignment tests in [`test_training_lps_alignment.py`](../ai-service/tests/te
 The territory generator is deliberately wired to the **same canonical rules logic** used by live games and TS parity fixtures:
 
 - All move legality and state transitions come from Python [`GameEngine.get_valid_moves()`](../ai-service/app/game_engine.py) and [`GameEngine.apply_move()`](../ai-service/app/game_engine.py), which in turn mirror the TS shared engine modules such as [`territoryDetection.ts`](../src/shared/engine/territoryDetection.ts), [`territoryProcessing.ts`](../src/shared/engine/territoryProcessing.ts), and [`territoryDecisionHelpers.ts`](../src/shared/engine/territoryDecisionHelpers.ts).
-- The rules façade [`DefaultRulesEngine`](../ai-service/app/rules/default_engine.py) and [`TerritoryMutator`](../ai-service/app/rules/mutators/territory.py) enforce **shadow contracts** against [`GameEngine.apply_move()`](../ai-service/app/game_engine.py) for territory moves, with a targeted escape hatch when host-level forced elimination for the next player occurs (see [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](./INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md)).
+- The rules façade [`DefaultRulesEngine`](../ai-service/app/rules/default_engine.py) and [`TerritoryMutator`](../ai-service/app/rules/mutators/territory.py) enforce **shadow contracts** against [`GameEngine.apply_move()`](../ai-service/app/game_engine.py) for territory moves, with a targeted escape hatch when host-level forced elimination for the next player occurs (see [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md)).
 - The CLI smoke test [`test_generate_territory_dataset_mixed_smoke`](../ai-service/tests/test_generate_territory_dataset_smoke.py) is the end-to-end guard that exercises the module in `engine_mode="mixed"`, asserts no `TerritoryMutator diverged from GameEngine.apply_move` messages appear on stderr, and verifies that a non-empty JSONL file is produced.
 
-For a deeper discussion of how TS and Python engines are kept in sync (trace parity, mutator equivalence tests, and shadow modes), see [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md) and the incident report in [`docs/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](./INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
+For a deeper discussion of how TS and Python engines are kept in sync (trace parity, mutator equivalence tests, and shadow modes), see [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md) and the incident report in [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
 
 ---
 

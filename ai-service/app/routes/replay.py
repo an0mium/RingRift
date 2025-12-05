@@ -8,6 +8,7 @@ See docs/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md for specification.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
@@ -80,6 +81,8 @@ class GameMetadata(BaseModel):
     timeControlType: Optional[str] = None
     initialTimeMs: Optional[int] = None
     timeIncrementMs: Optional[int] = None
+    # v5+: full recording metadata decoded from games.metadata_json
+    metadata: Optional[Dict[str, Any]] = None
     # Player details (included when fetching single game)
     players: Optional[List[PlayerMetadata]] = None
 
@@ -212,6 +215,17 @@ async def list_games(
         # Convert to response format
         game_list = []
         for g in games:
+            raw_metadata_json = g.get("metadata_json")
+            decoded_metadata: Optional[Dict[str, Any]]
+            if raw_metadata_json:
+                try:
+                    decoded_val = json.loads(raw_metadata_json)
+                    decoded_metadata = decoded_val if isinstance(decoded_val, dict) else None
+                except Exception:
+                    decoded_metadata = None
+            else:
+                decoded_metadata = None
+
             game_list.append(
                 GameMetadata(
                     gameId=g["game_id"],
@@ -228,6 +242,7 @@ async def list_games(
                     timeControlType=g.get("time_control_type"),
                     initialTimeMs=g.get("initial_time_ms"),
                     timeIncrementMs=g.get("time_increment_ms"),
+                    metadata=decoded_metadata,
                 )
             )
 
@@ -263,6 +278,17 @@ async def get_game(game_id: str):
                 )
             )
 
+        raw_metadata_json = game.get("metadata_json")
+        decoded_metadata: Optional[Dict[str, Any]]
+        if raw_metadata_json:
+            try:
+                decoded_val = json.loads(raw_metadata_json)
+                decoded_metadata = decoded_val if isinstance(decoded_val, dict) else None
+            except Exception:
+                decoded_metadata = None
+        else:
+            decoded_metadata = None
+
         return GameMetadata(
             gameId=game["game_id"],
             boardType=game["board_type"],
@@ -278,6 +304,7 @@ async def get_game(game_id: str):
             timeControlType=game.get("time_control_type"),
             initialTimeMs=game.get("initial_time_ms"),
             timeIncrementMs=game.get("time_increment_ms"),
+            metadata=decoded_metadata,
             players=players,
         )
 

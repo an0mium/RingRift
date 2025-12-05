@@ -302,7 +302,37 @@ export function evaluateVictory(state: GameState): VictoryResult {
     };
   }
 
-  // 3) Bare-board structural terminality & global stalemate.
+  // 3) Early Last-Player-Standing (R172): if exactly one player has stacks
+  // on the board AND all other players have neither stacks nor rings in hand,
+  // that player wins immediately. This matches Python's Early LPS check.
+  // Note: We only trigger this when there ARE stacks on board. If no stacks
+  // exist, we fall through to the bare-board stalemate logic which handles
+  // global structural terminality.
+  const playersWithStacks = new Set<number>();
+  for (const stack of state.board.stacks.values()) {
+    playersWithStacks.add(stack.controllingPlayer);
+  }
+
+  // Only consider Early LPS when exactly one player has stacks
+  if (playersWithStacks.size === 1) {
+    const stackOwner = Array.from(playersWithStacks)[0];
+    // Check if ALL other players have no material (no stacks, no rings in hand)
+    const othersHaveMaterial = players.some(
+      (p) =>
+        p.playerNumber !== stackOwner &&
+        (playersWithStacks.has(p.playerNumber) || p.ringsInHand > 0)
+    );
+    if (!othersHaveMaterial) {
+      return {
+        isGameOver: true,
+        winner: stackOwner,
+        reason: 'last_player_standing',
+        handCountsAsEliminated: false,
+      };
+    }
+  }
+
+  // 4) Bare-board structural terminality & global stalemate.
   const noStacksLeft = state.board.stacks.size === 0;
   if (!noStacksLeft) {
     return { isGameOver: false };

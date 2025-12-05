@@ -78,10 +78,14 @@ function VictoryStep() {
     {
       icon: '💎',
       name: 'Ring Elimination',
-      desc: "Capture more than half of any opponent's rings",
+      desc: 'Win by eliminating more than half of all rings in the game – not just one opponent.',
     },
-    { icon: '🏰', name: 'Territory Control', desc: 'Control more than half the board spaces' },
-    { icon: '👑', name: 'Last Standing', desc: 'Be the only player who can still move' },
+    {
+      icon: '🏰',
+      name: 'Territory Control',
+      desc: 'Control more than half the board spaces as Territory',
+    },
+    { icon: '👑', name: 'Last Standing', desc: 'Be the only player who can still make real moves' },
   ];
 
   return (

@@ -634,3 +634,90 @@ def test_line_and_territory_multi_region_ts_snapshot_parity() -> None:
     py_snapshot = _python_comparable_snapshot(ts_snapshot.get("label", "py"), state)
 
     assert _normalise_for_comparison(py_snapshot) == _normalise_for_comparison(ts_snapshot)
+
+
+@pytest.mark.parametrize(
+    "board_type",
+    [BoardType.SQUARE8, BoardType.SQUARE19, BoardType.HEXAGONAL],
+)
+def test_overlength_line_option2_segments_exhaustive(board_type: BoardType) -> None:
+    """Ensure CHOOSE_LINE_REWARD enumerates all TS-legal Option-2 segments.
+
+    For an overlength line of length L > requiredLength, TS semantics expose:
+    - 1 Option-1 reward (collapse-all), and
+    - (L - requiredLength + 1) distinct Option-2 rewards, one per contiguous
+      requiredLength-length segment of the line.
+
+    This test constructs a synthetic overlength line and asserts that
+    GameEngine.get_valid_moves surfaces exactly that set of Option-2 segments
+    for all supported board types.
+    """
+    state = create_base_state(board_type)
+    required_length = REQUIRED_LENGTH_BY_BOARD[board_type]
+
+    # Use a synthetic overlength line with two extra markers beyond the
+    # minimum required length to exercise multiple Option-2 segments.
+    line_positions = [Position(x=i, y=0) for i in range(required_length + 2)]
+    synthetic_line = LineInfo(
+        positions=line_positions,
+        player=1,
+        length=len(line_positions),
+        direction=Position(x=1, y=0),
+    )
+
+    orig_find_all_lines = BoardManager.find_all_lines
+    try:
+        # Force the board to report exactly our synthetic overlength line.
+        BoardManager.find_all_lines = staticmethod(lambda b, sl=synthetic_line: [sl])
+
+        state.current_phase = GamePhase.LINE_PROCESSING
+        state.current_player = 1
+
+        moves = GameEngine.get_valid_moves(state, 1)
+        assert moves, "Expected line-processing moves in LINE_PROCESSING"
+
+        reward_moves = [m for m in moves if m.type == MoveType.CHOOSE_LINE_REWARD]
+        assert reward_moves, "Expected CHOOSE_LINE_REWARD moves for overlength line"
+
+        line_len = len(line_positions)
+        # Option‑1: collapse‑all reward, identified by the canonical "-all" suffix
+        # used by GameEngine._get_line_processing_moves.
+        option1_moves = [
+            m for m in reward_moves
+            if m.id.endswith("-all")
+        ]
+        # Option‑2: minimum‑collapse segments of exactly required_length markers.
+        option2_moves = [
+            m for m in reward_moves
+            if m.collapsed_markers is not None
+            and len(m.collapsed_markers) == required_length
+        ]
+
+        # Exactly one collapse-all reward and the TS-expected number of
+        # minimum-collapse segments.
+        expected_option2_count = line_len - required_length + 1
+
+        # Python CHOOSE_LINE_REWARD enumeration must now exactly match the TS
+        # decision surface for this overlength line:
+        # - 1 collapse-all (Option-1) reward; and
+        # - (L - required_length + 1) distinct contiguous Option-2 segments.
+        assert len(option1_moves) == 1
+        assert len(option2_moves) == expected_option2_count
+
+        def _segment_key(segment: list[Position]) -> tuple[tuple[int, int, int | None], ...]:
+            return tuple((p.x, p.y, getattr(p, "z", None)) for p in segment)
+
+        expected_segments = {
+            _segment_key(line_positions[start : start + required_length])
+            for start in range(expected_option2_count)
+        }
+        actual_segments = {
+            _segment_key(list(m.collapsed_markers or ()))
+            for m in option2_moves
+        }
+
+        # Full parity: Python's Option-2 choices must equal the TS-legal set of
+        # contiguous required-length windows of the overlength line.
+        assert actual_segments == expected_segments
+    finally:
+        BoardManager.find_all_lines = orig_find_all_lines

@@ -1,0 +1,28 @@
+{
+  "databases": [
+    {
+      "board_type_counts": {
+        "square19": 3,
+        "square8": 27
+      },
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay.db",
+      "games_inspected": 30,
+      "marked_useless": true,
+      "num_players_counts": {
+        "2": 30
+      },
+      "source_counts": {
+        "selfplay_soak": 30
+      },
+      "structure_counts": {
+        "internal_inconsistent": 30
+      },
+      "termination_reason_counts": {
+        "env_done_flag": 29,
+        "max_moves_reached": 1
+      },
+      "total_games": 30
+    }
+  ],
+  "total_databases": 1
+}

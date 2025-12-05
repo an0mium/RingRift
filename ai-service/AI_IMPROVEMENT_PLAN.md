@@ -1,4 +1,4 @@
-> **Doc Status (2025-11-27): Active (AI host improvement plan, Python service only)**
+> **Doc Status (2025-12-04): Active (AI host improvement plan, Python service only)**
 >
 > - Role: prioritized technical improvement and performance plan for the Python AI microservice (agents, search patterns, training pipeline). It informs work on the AI host, but does not redefine game rules.
 > - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/CANONICAL_ENGINE_API.md).
@@ -168,23 +168,30 @@ The `HexNeuralNet` class exists with proper architecture, but:
 - Self-play training in [`train_loop.py`](app/training/train_loop.py) defaults to square boards
 - Hex-specific action encoder [`ActionEncoderHex`](app/ai/neural_net.py:1161) is implemented but unused in training
 
-#### 1.3.6 Self-Play Game Recording (NEW)
+#### 1.3.6 Self-Play Game Recording (Track 11)
 
-**Status:** 🔄 **IN PROGRESS** (Track 11 in TODO.md)
+**Status (2025-12-04):** ✅ **SUBSTANTIALLY COMPLETE** (see `IMPROVEMENT_PLAN.md` §10.3)
 
-**Current State:** CMA-ES optimization generates thousands of games per run (~3000-15000+) but does NOT record them to GameReplayDB. Only weights, checkpoints, and metadata are saved.
+**Current State:** CMA‑ES optimisation and other training/self‑play harnesses now record games by default to `GameReplayDB` SQLite databases:
 
-**Impact:** Lost opportunity for:
+- `ai-service/app/db/recording.py` provides the canonical recording helpers:
+  - Environment controls: `RINGRIFT_RECORD_SELFPLAY_GAMES` (global on/off, default enabled) and `RINGRIFT_SELFPLAY_DB_PATH` (default DB path when none is supplied).
+  - Helpers: `should_record_games(...)`, `get_or_create_db(...)`, `record_completed_game(...)`, and `GameRecorder` for incremental recording.
+- `run_cmaes_optimization.py`:
+  - Enables recording by default (`record_games=True`) and gates it via `should_record_games(cli_no_record=not config.record_games)` and a `--no-record` flag.
+  - Creates a per‑run DB at `{run_dir}/games.db` and records all evaluation games with rich metadata (`source="cmaes"`, board, num_players, run_id, generation, candidate index, and any extra tags from `recording_context`).
+- Other self‑play / evaluation scripts (for example `run_self_play_soak.py` and multi‑player evaluation helpers) share the same `GameReplayDB` + `record_completed_game(...)` surface when recording is enabled.
+- `ai-service/scripts/export_state_pool.py` extracts mid‑game states from one or more such DBs and writes JSONL evaluation pools that are consumed by `app.training.eval_pools.load_state_pool(...)` and the CMA‑ES/GA fitness harnesses.
 
-- Neural network training data (state/move pairs)
-- Evaluation pool generation (mid-game snapshots)
-- Sandbox replay and analysis
+**Remaining Gaps:**
 
-**Proposed Solution:** See [Unified Self-Play Game Recording Plan](/.claude/plans/memoized-cuddling-abelson.md):
+- No first‑class `merge_game_dbs.py` utility yet for combining many small per‑run DBs into larger corpora.
+- No centralised manifest/registry for long‑lived state pools (currently defined ad‑hoc via `POOL_PATHS` in `app.training.eval_pools`).
 
-1. Add default-enabled game recording to CMA-ES scripts (`--no-record` to disable)
-2. Create `export_state_pool.py` utility to extract mid-game states for evaluation pools
-3. Store games in per-run SQLite DBs with rich metadata (source, generation, candidate_id)
+**Follow‑up Direction:** Keep using `GameReplayDB` + `export_state_pool.py` as the canonical self‑play recording and evaluation‑pool surface, and consider:
+
+1. Adding a small `merge_game_dbs.py` utility for long‑running experiments and shared corpora.
+2. Promoting a stable set of evaluation pools (paths + metadata) into configuration and documentation (see `docs/ai/AI_TRAINING_AND_DATASETS.md` §5.4 and §6).
 
 ---
 

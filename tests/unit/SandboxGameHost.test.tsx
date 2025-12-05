@@ -7,6 +7,7 @@ import { useSandbox } from '../../src/client/contexts/SandboxContext';
 import { useAuth } from '../../src/client/contexts/AuthContext';
 import { useSandboxInteractions } from '../../src/client/hooks/useSandboxInteractions';
 import { gameApi } from '../../src/client/services/api';
+import { useFirstTimePlayer } from '../../src/client/hooks/useFirstTimePlayer';
 
 jest.mock('../../src/client/contexts/SandboxContext', () => ({
   useSandbox: jest.fn(),
@@ -26,10 +27,22 @@ jest.mock('../../src/client/services/api', () => ({
   },
 }));
 
+jest.mock('../../src/client/hooks/useFirstTimePlayer', () => ({
+  useFirstTimePlayer: jest.fn(() => ({
+    shouldShowWelcome: false,
+    markWelcomeSeen: jest.fn(),
+    markGameCompleted: jest.fn(),
+    isFirstTimePlayer: false,
+  })),
+}));
+
 const mockedUseSandbox = useSandbox as jest.MockedFunction<typeof useSandbox>;
 const mockedUseAuth = useAuth as jest.MockedFunction<typeof useAuth>;
 const mockedUseSandboxInteractions = useSandboxInteractions as jest.MockedFunction<
   typeof useSandboxInteractions
+>;
+const mockedUseFirstTimePlayer = useFirstTimePlayer as jest.MockedFunction<
+  typeof useFirstTimePlayer
 >;
 
 let sandboxValue: any;
@@ -37,6 +50,13 @@ let sandboxValue: any;
 describe('SandboxGameHost', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    mockedUseFirstTimePlayer.mockReturnValue({
+      shouldShowWelcome: false,
+      markWelcomeSeen: jest.fn(),
+      markGameCompleted: jest.fn(),
+      isFirstTimePlayer: false,
+    } as any);
 
     mockedUseAuth.mockReturnValue({
       user: { id: 'user-1' },
@@ -72,6 +92,8 @@ describe('SandboxGameHost', () => {
       sandboxStateVersion: 0,
       setSandboxStateVersion: jest.fn(),
       sandboxDiagnosticsEnabled: false,
+      developerToolsEnabled: false,
+      setDeveloperToolsEnabled: jest.fn(),
       initLocalSandboxEngine: jest.fn(),
       getSandboxGameState: jest.fn().mockReturnValue(null),
       resetSandboxEngine: jest.fn(),

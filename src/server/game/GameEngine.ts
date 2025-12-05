@@ -294,6 +294,13 @@ export class GameEngine {
   /**
    * @deprecated Legacy path removed - this is now a no-op.
    * Orchestrator always uses move-driven phases.
+   *
+   * Ownership / deprecation:
+   * - Still invoked by a number of backend-vs-sandbox parity and scenario suites
+   *   (for example: tests/helpers/orchestratorTestUtils.ts, TerritoryDecisions.*,
+   *   RefactoredEngineParity, Backend_vs_Sandbox.* parity tests).
+   * - New entry points should configure move-driven phases via the shared
+   *   TurnEngineAdapter/orchestrator instead of calling this directly.
    */
   public enableMoveDrivenDecisionPhases(): void {
     // No-op: orchestrator is now the only path
@@ -302,6 +309,12 @@ export class GameEngine {
   /**
    * @deprecated Legacy path removed - this is now a no-op.
    * Orchestrator adapter is always enabled.
+   *
+   * Ownership / deprecation:
+   * - Used in older test utilities (for example orchestratorTestUtils and
+   *   GameEngine.utilityMethods) to make the adapter behaviour explicit.
+   * - Orchestrator-backed hosts no longer need to toggle this; new code
+   *   should assume the adapter is always enabled.
    */
   public enableOrchestratorAdapter(): void {
     // No-op: orchestrator is now the only path
@@ -310,6 +323,11 @@ export class GameEngine {
   /**
    * @deprecated Legacy path removed - this is now a no-op.
    * The legacy GameEngine turn processing pipeline has been removed.
+   *
+   * Ownership / deprecation:
+   * - Exercised only by legacy/compat tests (see GameEngine.utilityMethods).
+   * - Kept as a no-op shim until those tests are fully migrated away from
+   *   explicit adapter toggling.
    */
   public disableOrchestratorAdapter(): void {
     // No-op: orchestrator is now the only path
@@ -317,6 +335,12 @@ export class GameEngine {
 
   /**
    * @deprecated Legacy path removed - always returns true.
+   *
+   * Ownership / deprecation:
+   * - Verified by GameEngine.utilityMethods tests as part of the
+   *   orchestrator-migration cleanup.
+   * - Callers that need to know whether orchestrator is active should instead
+   *   rely on configuration, not this legacy getter.
    */
   public isOrchestratorAdapterEnabled(): boolean {
     return true;
@@ -1250,8 +1274,15 @@ export class GameEngine {
    * This method will be removed once all tests migrate to orchestrator-backed flows.
    * See Wave 5.4 in TODO.md for deprecation timeline.
    *
-   * DO NOT REMOVE - used for parity testing (RulesMatrix.GameEngine.test.ts).
-   * See P20.3-2 for deprecation timeline.
+   * Ownership / deprecation:
+   * - Called directly by legacy scenario suites (for example
+   *   tests/scenarios/RulesMatrix.GameEngine.test.ts) which snapshot the
+   *   behaviour of the pre-orchestrator line pipeline.
+   * - New code should drive line processing via the shared
+   *   applyProcessLineDecision / applyChooseLineRewardDecision helpers and
+   *   TurnEngineAdapter instead of using this method.
+   * - Once the RulesMatrix and other parity suites have been fully migrated
+   *   to move-driven/orchestrator flows, this helper can be removed.
    */
 
   private async processLineFormations(): Promise<void> {
@@ -1325,8 +1356,12 @@ export class GameEngine {
    * This method will be removed once all tests migrate to orchestrator-backed flows.
    * See Wave 5.4 in TODO.md for deprecation timeline.
    *
-   * DO NOT REMOVE - still called internally by processLineFormations.
-   * See P20.3-2 for deprecation timeline.
+   * Ownership / deprecation:
+   * - Internal to the legacy line-processing pipeline; invoked by
+   *   processLineFormations() and never called by production hosts.
+   * - Behaviour is covered indirectly by RulesMatrix.* and other legacy
+   *   parity suites; new tests should prefer exercising the shared
+   *   lineDecisionHelpers surface instead.
    */
   private async processOneLine(line: LineInfo, requiredLength: number): Promise<void> {
     const lineLength = line.positions.length;
@@ -1643,8 +1678,11 @@ export class GameEngine {
    * This method will be removed once all tests migrate to orchestrator-backed flows.
    * See Wave 5.4 in TODO.md for deprecation timeline.
    *
-   * DO NOT REMOVE - still called internally by processDisconnectedRegions.
-   * See P20.3-2 for deprecation timeline.
+   * Ownership / deprecation:
+   * - Internal to the legacy territory-processing pipeline; invoked by
+   *   processDisconnectedRegions() and not used by production hosts.
+   * - Covered by legacy territory-disconnection suites; new callers should
+   *   use move-driven territory decisions via TurnEngineAdapter.
    */
   private async processOneDisconnectedRegion(
     region: Territory,
@@ -1673,8 +1711,13 @@ export class GameEngine {
    * This method will be removed once all tests migrate to orchestrator-backed flows.
    * See Wave 5.4 in TODO.md for deprecation timeline.
    *
-   * DO NOT REMOVE - used for parity testing (GameEngine.territoryDisconnection.test.ts).
-   * See P20.3-2 for deprecation timeline.
+   * Ownership / deprecation:
+   * - Used by legacy parity suites (for example
+   *   tests/unit/GameEngine.territoryDisconnection.test.ts and
+   *   tests/scenarios/RulesMatrix.Comprehensive.test.ts) to exercise the
+   *   pre-orchestrator territory pipeline.
+   * - New territory tests should drive decisions via the shared
+   *   territoryDecisionHelpers + TurnEngineAdapter instead of calling this.
    */
   public async processDisconnectedRegions(): Promise<void> {
     const movingPlayer = this.gameState.currentPlayer;
@@ -2404,8 +2447,16 @@ export class GameEngine {
    * be removed once all tests migrate to orchestrator-backed decision lifecycles.
    * See Wave 5.4 in TODO.md for deprecation timeline.
    *
-   * DO NOT REMOVE - called by getValidMoves() as production safety net for ACTIVE_NO_MOVES.
-   * Also used extensively in parity testing. See P20.3-2 for deprecation timeline.
+   * Ownership / deprecation:
+   * - Still invoked from getValidMoves() as a last-resort production safety
+   *   net for ACTIVE_NO_MOVES states.
+   * - Used by a number of diagnostic/parity suites
+   *   (for example ForcedEliminationAndStalemate, FullGameFlow.*, AI
+   *   simulation debug tests, and RuleEngine.placement.shared tests) to
+   *   exercise forced-elimination behaviour.
+   * - New hosts should rely on TurnEngine/advanceTurnAndPhase to avoid
+   *   entering blocked interactive phases in the first place, and only use
+   *   this helper from tests.
    */
   public resolveBlockedStateForCurrentPlayerForTesting(): void {
     if (this.gameState.gameStatus !== 'active') {

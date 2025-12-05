@@ -7,7 +7,7 @@
 
 > **Note:** Replace `OWNER` above with your GitHub username or organization name once the repository is hosted on GitHub.
 
-**Doc Status (2025-12-01): Active (project overview & navigation)**
+**Doc Status (2025-12-04): Active (project overview & navigation)**
 
 - High-level project overview, setup, and API surface.
 - Not a rules or lifecycle SSoT. For rules semantics, defer to `RULES_CANONICAL_SPEC.md` plus the shared TypeScript rules engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts + v2 contract vectors). For lifecycle semantics (move/decision/WebSocket), defer to `docs/architecture/CANONICAL_ENGINE_API.md` plus shared TS/WebSocket types and schemas.
@@ -29,7 +29,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 | Python Tests     | 836 passing                                                                 |
 | Contract Vectors | 49 vectors (16 files)                                                       |
 
-**Verification:** Code-verified assessment (see `CURRENT_STATE_ASSESSMENT.md` and `docs/PASS18_ASSESSMENT_REPORT_PASS3.md`)
+**Verification:** Code-verified assessment (see `CURRENT_STATE_ASSESSMENT.md` and `docs/archive/assessments/PASS18_ASSESSMENT_REPORT_PASS3.md`)
 **Overall Progress:** Stable beta approaching production readiness; see `CURRENT_STATE_ASSESSMENT.md` for the latest high-level summary.
 
 ### ✅ What's Working

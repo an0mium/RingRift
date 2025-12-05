@@ -23,7 +23,7 @@ import {
   type SandboxInteractionHandler,
 } from '../src/client/sandbox/ClientSandboxEngine';
 import type { BoardType, GameState, Move, Position } from '../src/shared/types/game';
-import { hashGameState } from '../src/shared/engine';
+import { hashGameStateSHA256 } from '../src/shared/engine';
 
 interface CliArgs {
   dbPath: string;
@@ -111,7 +111,9 @@ function summarizeState(label: string, state: GameState): Record<string, unknown
     currentPhase: state.currentPhase,
     gameStatus: state.gameStatus,
     moveHistoryLength: state.moveHistory.length,
-    stateHash: hashGameState(state),
+    // Use the compact hash that matches Python's _compute_state_hash for
+    // cross-engine parity checks and GameReplayDB history entries.
+    stateHash: hashGameStateSHA256(state),
   };
 }
 
@@ -181,10 +183,12 @@ async function main(): Promise<void> {
   );
 
   let applied = 0;
-  for (const move of recordedMoves) {
+  for (let i = 0; i < recordedMoves.length; i++) {
+    const move = recordedMoves[i];
+    const nextMove = i + 1 < recordedMoves.length ? recordedMoves[i + 1] : null;
     applied += 1;
 
-    await engine.applyCanonicalMoveForReplay(move);
+    await engine.applyCanonicalMoveForReplay(move, nextMove);
     const state = engine.getGameState();
     // eslint-disable-next-line no-console
     console.log(

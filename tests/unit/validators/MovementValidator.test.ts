@@ -317,7 +317,7 @@ describe('MovementValidator', () => {
       expect(result.valid).toBe(true);
     });
 
-    it('rejects landing on opponent marker', () => {
+    it('allows landing on opponent marker per canonical rules', () => {
       const marker: MarkerInfo = { player: 2, position: pos(5, 3), type: 'regular' };
       state.board.markers.set(posStr(5, 3), marker);
 
@@ -328,8 +328,7 @@ describe('MovementValidator', () => {
         to: pos(5, 3),
       };
       const result = validateMovement(state, action);
-      expect(result.valid).toBe(false);
-      expect(result.code).toBe('INVALID_LANDING');
+      expect(result.valid).toBe(true);
     });
 
     it('rejects landing on existing stack', () => {

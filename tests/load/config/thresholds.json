@@ -206,6 +206,18 @@
       ],
       "duration_minimum_minutes": 15,
       "target_load_description": "500+ simultaneous WebSocket connections for 5+ minutes"
+    },
+    "websocket_gameplay": {
+      "required_metrics": [
+        "ws_move_rtt_ms",
+        "ws_move_success_rate",
+        "ws_move_stalled_total",
+        "ws_moves_attempted_total",
+        "ws_connection_success_rate",
+        "ws_handshake_success_rate"
+      ],
+      "duration_minimum_minutes": 5,
+      "target_load_description": "Canonical WebSocket gameplay over human-vs-AI games; smoke (1-2 VUs) and throughput (20-40 VUs) modes"
     }
   },
 

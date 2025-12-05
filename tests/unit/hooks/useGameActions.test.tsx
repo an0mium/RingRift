@@ -46,9 +46,19 @@ const createMockGameContext = (overrides: Record<string, unknown> = {}) => ({
 });
 
 let mockContextValue = createMockGameContext();
+let mockUser: { id: string; username: string } | null = {
+  id: 'user-1',
+  username: 'Alice',
+};
 
 jest.mock('@/client/contexts/GameContext', () => ({
   useGame: () => mockContextValue,
+}));
+
+jest.mock('@/client/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: mockUser,
+  }),
 }));
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +69,10 @@ describe('useGameActions', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockContextValue = createMockGameContext();
+    mockUser = {
+      id: 'user-1',
+      username: 'Alice',
+    };
   });
 
   it('returns all expected action functions and state', () => {
@@ -230,6 +244,54 @@ describe('useGameActions', () => {
       const { result } = renderHook(() => useGameActions());
 
       expect(result.current.capabilities.canRespondToChoice).toBe(true);
+    });
+
+    it('disables move and decision capabilities for spectators while allowing chat', () => {
+      mockUser = { id: 'spectator-1', username: 'Spectator' };
+      mockContextValue = createMockGameContext();
+      const { result } = renderHook(() => useGameActions());
+
+      expect(result.current.capabilities.canSubmitMove).toBe(false);
+      expect(result.current.capabilities.canRespondToChoice).toBe(false);
+      expect(result.current.capabilities.canSendChat).toBe(true);
+      expect(result.current.capabilities.disabledReason).toBe(
+        'Spectators cannot submit moves or decisions'
+      );
+    });
+
+    it('does not call context submit/choice handlers when user is a spectator', () => {
+      mockUser = { id: 'spectator-1', username: 'Spectator' };
+      const mockChoice: PlayerChoice = {
+        id: 'choice-1',
+        type: 'line_reward_option',
+        playerNumber: 1,
+        options: ['add_ring', 'add_stack'],
+      };
+      mockContextValue = createMockGameContext({
+        pendingChoice: mockChoice,
+      });
+
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { result } = renderHook(() => useGameActions());
+
+      act(() => {
+        result.current.submitMove({
+          type: 'move_stack',
+          player: 1,
+          from: { x: 0, y: 0 },
+          to: { x: 1, y: 1 },
+        } as any);
+      });
+
+      act(() => {
+        result.current.respondToChoice(mockChoice, 'add_ring');
+      });
+
+      expect(mockSubmitMove).not.toHaveBeenCalled();
+      expect(mockRespondToChoice).not.toHaveBeenCalled();
+
+      consoleSpy.mockRestore();
     });
   });
 });

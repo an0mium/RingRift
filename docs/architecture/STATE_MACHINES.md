@@ -518,12 +518,160 @@ This section lists key tests that validate the state machines and their integrat
 - `tests/unit/GameSession.decisionPhaseTimeout.test.ts` – how choice/decision timeouts interact with session and connection state.
 - `tests/unit/GameEngine.lineRewardChoiceAIService.integration.test.ts` – AI-assisted choice flows (line reward) crossing WebSocket and AI-service boundaries.
 
-### 6.4 Connection
-
 - `tests/unit/WebSocketServer.connectionState.test.ts` – explicit tests of `PlayerConnectionState` behaviour in the WebSocket server.
-- `tests/unit/GameContext.reconnect.test.tsx`, `tests/integration/LobbyRealtime.test.ts`, `tests/integration/GameReconnection.test.ts` – client and server reconnection flows.
+- `tests/unit/GameContext.reconnect.test.tsx`, `tests/integration/LobbyRealtime.test.ts`, `tests/integration/GameReconnection.test.ts`, `tests/unit/client/BackendGameHost.test.tsx`, `tests/e2e/multiplayer.e2e.spec.ts` – client and server reconnection flows, including host-level UX for reconnect banners, abandonment, spectator mode, and rematch handshakes.
 
-If you add new states or transitions, add or update focused unit tests in the relevant `tests/unit/**` files and, where appropriate, cross-host integration tests under `tests/integration/**`.
+If you add new states or transitions, add or update focused unit tests in the relevant `tests/unit/**` files and, where appropriate, cross-host integration tests under `tests/integration/**` and `tests/e2e/**`.
+
+---
+
+### 6.5 Frontend host mapping: reconnect, spectators, rematch
+
+While this document focuses on **shared, host-agnostic state machines**, the client hosts map those machines into concrete UX flows. The key mappings for Wave&nbsp;2.2 are:
+
+#### 6.5.1 Reconnection window and abandonment
+
+Backend semantics are governed by `PlayerConnectionState` (see §5):
+
+- `connected` – player has an active WebSocket; heartbeats keep `lastSeenAt` fresh.
+- `disconnected_pending_reconnect` – backend has observed a disconnect and started a reconnection window (`deadlineAt`), but the player may still return.
+- `disconnected_expired` – reconnection window elapsed; the session treats the player as gone and may transition the game to `abandoned`.
+
+The React client maps this as follows:
+
+- `GameContext` (`src/client/contexts/GameContext.tsx`) wraps `SocketGameConnection` and exposes:
+  - `connectionStatus ∈ {'connecting','connected','reconnecting','disconnected'}`.
+  - `lastHeartbeatAt` (ms since epoch) for staleness detection.
+  - `disconnectedOpponents: DisconnectedPlayer[]` – opponents currently in `disconnected_pending_reconnect`.
+  - `gameEndedByAbandonment: boolean` – derived from `victoryState?.reason === 'abandonment'`.
+- `useGameConnection` (`src/client/hooks/useGameConnection.ts`) projects these into:
+  - Health flags (`isHealthy`, `isStale`, `isDisconnected`) and a human-readable `statusLabel`.
+  - Connection actions (`connectToGame`, `disconnect`).
+
+`BackendGameHost` (`src/client/pages/BackendGameHost.tsx`) consumes this projection to drive reconnect UX:
+
+- While `connectionStatus !== 'connected'` but a `game_state` snapshot is present, it shows a non-modal reconnection banner:
+  - `connecting` → “Connecting to game server…”.
+  - `reconnecting` → “Connection lost. Attempting to reconnect…”.
+  - `disconnected` → “Disconnected from server. Moves are paused.”
+
+- `disconnectedOpponents.length > 0` → an orange “waiting for opponent to reconnect” banner.
+- When the backend marks the game as `abandoned` (via `game_over` with `GameResult.reason === 'abandonment'`), `GameContext` sets `gameEndedByAbandonment = true`. The host shows a red “Game ended by abandonment. A player failed to reconnect within the allowed time.” banner and treats the game as terminal.
+
+Decision and timer consistency across reconnects:
+
+- Any fresh `game_state` payload from the backend is treated as **authoritative**:
+  - `onGameState` in `GameContext`:
+    - Replaces `gameState` and `validMoves`.
+    - Clears any stale decision UI: `pendingChoice = null`, `choiceDeadline = null`, `decisionPhaseTimeoutWarning = null`.
+    - Stores the latest `decisionAutoResolved` metadata from the diff summary (if present).
+
+- `usePendingChoice` and `useDecisionCountdown` (`src/client/hooks/useDecisionCountdown.ts`) then recompute client-side countdowns for the active choice based on:
+  - The fresh `choiceDeadline`.
+  - Any `decision_phase_timeout_warning` events that arrive after reconnect.
+- `BackendGameHost` passes the reconciled `effectiveTimeRemainingMs` and `isServerCapped` flags into both:
+  - `GameHUD` (for high-level “time pressure” cues).
+  - `ChoiceDialog` (for the per-decision countdown and auto-resolve hints).
+
+These behaviours are exercised end-to-end by:
+
+- `tests/unit/GameSession.reconnectDuringDecision.test.ts` (backend decision-timeout and reconnect semantics).
+- `tests/unit/WebSocketServer.connectionState.test.ts` (connection-state transitions).
+- `tests/unit/client/BackendGameHost.test.tsx` (host-level reconnect banners, abandonment flags, and decision/timer consistency).
+- `tests/e2e/multiplayer.e2e.spec.ts` (multi-browser reconnect flows).
+
+#### 6.5.2 Spectator join/leave and read-only semantics
+
+Spectators do **not** participate in `PlayerConnectionState` as players; they attach as observers:
+
+- They join via a dedicated route: `/spectate/:gameId` → `GamePage` → `BackendGameHost`.
+- On the client, `BackendGameHost` computes:
+  - `isPlayer = gameState.players.some(p => p.id === user?.id)`.
+  - `isSpectator = !isPlayer`.
+
+- Spectator behaviour is enforced at multiple layers:
+  - UI:
+    - `GameHUD` receives `isSpectator` via the `HUDViewModel` and shows a prominent “Spectator Mode” banner and spectator count.
+    - `BoardView` receives `isSpectator={true}` and hides/blocks interactive controls.
+    - The selection panel renders “Moves disabled while spectating.”.
+    - A small “Spectating” chip and “Back to lobby” button in `BackendGameHost` allow clean exit.
+  - Actions:
+    - `useGameActions` (`src/client/hooks/useGameActions.ts`) gates **all** move and decision dispatchers on the viewer being a real player:
+
+      ```ts
+      const isPlayer =
+        !!user &&
+        Array.isArray((gameState as any).players) &&
+        (gameState as any).players.some((p: any) => p.id === user.id || p.userId === user.id);
+
+      if (!isPlayer) {
+        console.warn('submitMove called by spectator – ignoring');
+        return;
+      }
+      ```
+
+    - The same check is applied to `respondToChoice`. Spectators may still send chat.
+
+- Leaving as a spectator:
+  - Pressing “Back to lobby” navigates to `/lobby`. The route change unmounts `BackendGameHost`, whose connection shell (`useBackendConnectionShell`) calls `disconnect()` on cleanup, closing the underlying WebSocket.
+  - No dangling `GameSession` is left: spectators never acquire a `playerNumber` or influence abandonment timers.
+
+Key coverage:
+
+- `tests/unit/hooks/useGameActions.test.tsx` – verifies that spectators:
+  - Cannot submit moves or decisions (handlers are not called).
+  - See capabilities `canSubmitMove = false`, `canRespondToChoice = false`, `canSendChat = true`.
+- `tests/unit/client/BackendGameHost.test.tsx` – verifies spectator HUD and evaluation panel behaviour.
+- `tests/e2e/multiplayer.e2e.spec.ts` – “Spectator can watch an ongoing game with read-only HUD and leave back to lobby”:
+  - Joins via `/spectate/:gameId`.
+  - Asserts spectator HUD, read-only message, and clean navigation back to lobby.
+
+#### 6.5.3 Post-game rematch vs back-to-lobby
+
+Rematch is modelled as a **new game session**, not a mutation of the existing one:
+
+- Backend:
+  - Uses explicit `rematch_request` / `rematch_response` WebSocket events (see `docs/CANONICAL_ENGINE_API.md` §3.9.x).
+  - On acceptance, creates a fresh `GameSession` with a new `gameId` and emits a `rematch_response` containing `status: 'accepted'` and `newGameId`.
+
+- Client mapping:
+  - `SocketGameConnection` (`src/client/services/GameConnection.ts`) wires:
+    - Outgoing `requestRematch()` → `rematch_request`.
+    - Outgoing `respondToRematch(requestId, accept)` → `rematch_respond`.
+    - Incoming `rematch_requested` / `rematch_response` → `GameEventHandlers` callbacks.
+  - `GameContext` tracks:
+    - `pendingRematchRequest: RematchRequestPayload | null`.
+    - `rematchGameId: string | null` – set on `status === 'accepted'`.
+    - `rematchLastStatus ∈ {'accepted' | 'declined' | 'expired' | null}`.
+  - `BackendGameHost`:
+    - Observes `rematchGameId` and navigates to `/game/:rematchGameId` when set. This unmounts the old host, calls `disconnect()`, and then reconnects to the new session via the route’s `:gameId`.
+    - Derives a `RematchStatus` view model passed into `VictoryModal` so both sides see pending/accepted/declined/expired status.
+
+- Victory modal actions:
+  - “Request Rematch” → `GameContext.requestRematch()` → emits `rematch_request`.
+  - “Accept” / “Decline” → `GameContext.acceptRematch` / `declineRematch` → emits `rematch_respond`.
+  - “Return to Lobby” → navigates to `/lobby`, tearing down the WebSocket via `disconnect()` on unmount.
+
+Coverage:
+
+- Backend lifecycle: `tests/integration/FullGameFlow.test.ts`, `tests/e2e/game-flow.e2e.spec.ts` (rematch semantics and session creation).
+- Frontend:
+  - `tests/unit/client/BackendGameHost.test.tsx` – verifies rematch view-model wiring and that a new `gameId` causes host navigation.
+  - `tests/e2e/multiplayer.e2e.spec.ts` – “Rematch flow: winner requests rematch and opponent accepts”:
+    - Uses a near-victory fixture to reach a terminal state.
+    - Player 1 requests rematch; Player 2 accepts.
+    - Asserts both clients navigate to a **new** `/game/:id` and see a reset HUD and move log.
+  - Another E2E slice verifies that “Return to Lobby” from the victory modal:
+    - Navigates back to `/lobby`.
+    - Leaves no stale game view or connection.
+
+Together, these mappings ensure that:
+
+- Reconnection honours the backend reconnection window and abandonment semantics.
+- Spectators remain strictly read-only and can leave without affecting player sessions.
+- Rematch always produces a new `GameSession` and WebSocket connection, avoiding leaks of choices, timers, or session IDs.
+
+## 7. Guidance for Changes & Extensions
 
 ---
 
