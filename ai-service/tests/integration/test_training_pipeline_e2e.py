@@ -58,6 +58,7 @@ from app.training.train import (
 from app.ai.neural_net import (
     RingRiftCNN,
     HexNeuralNet,
+    POLICY_SIZE_8x8,
     HEX_BOARD_SIZE,
     P_HEX,
 )
@@ -1543,8 +1544,9 @@ class TestRealModelIntegration:
             value_pred, policy_pred = model(features, globals_tensor)
 
             # Verify output shapes
+            # 8x8 board now correctly uses POLICY_SIZE_8x8 (7000)
             assert value_pred.shape == (features.shape[0], 1)
-            assert policy_pred.shape == (features.shape[0], 55000)
+            assert policy_pred.shape == (features.shape[0], POLICY_SIZE_8x8)
 
             loss = value_pred.sum()
             loss.backward()

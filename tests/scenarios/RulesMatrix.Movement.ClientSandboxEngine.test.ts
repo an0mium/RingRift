@@ -71,6 +71,7 @@ describe('RulesMatrix → ClientSandboxEngine movement scenarios (Section 8.2–
       const board = state.board;
 
       state.currentPlayer = 1;
+      state.currentPhase = 'movement';
 
       const { origin, stackHeight, blockers } = scenario;
       const originPos: Position =
@@ -209,12 +210,14 @@ describe('RulesMatrix → ClientSandboxEngine movement scenarios (Section 8.2–
       ) {
         const landingKeys = landings.map((p) => positionToString(p));
 
+        // Per RR-CANON-R091/R101: Landing on ANY marker (own or opponent) is legal,
+        // with cap-elimination cost. Both engines correctly allow both.
         if (scenario.boardType === 'square8') {
           const ownKey = positionToString({ x: originPos.x + 2, y: originPos.y });
           const oppKey = positionToString({ x: originPos.x, y: originPos.y + 2 });
 
           expect(landingKeys).toContain(ownKey);
-          expect(landingKeys).not.toContain(oppKey);
+          expect(landingKeys).toContain(oppKey);
         } else if (scenario.boardType === 'hexagonal') {
           const fromCube =
             origin.z != null
@@ -232,7 +235,7 @@ describe('RulesMatrix → ClientSandboxEngine movement scenarios (Section 8.2–
           });
 
           expect(landingKeys).toContain(ownKey);
-          expect(landingKeys).not.toContain(oppKey);
+          expect(landingKeys).toContain(oppKey);
         } else {
           throw new Error(
             `Unsupported boardType for marker landing scenario: ${scenario.boardType as string}`

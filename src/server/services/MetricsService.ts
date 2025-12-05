@@ -18,6 +18,8 @@ import { logger } from '../utils/logger';
 import { DegradationLevel, ServiceName, ServiceHealthStatus } from './ServiceStatusManager';
 import { shadowComparator } from './ShadowModeComparator';
 import type { ShadowMetrics } from './ShadowModeComparator';
+import type { RulesUxEventPayload } from '../../shared/telemetry/rulesUxEvents';
+import type { DifficultyCalibrationEventPayload } from '../../shared/telemetry/difficultyCalibrationEvents';
 
 /**
  * HTTP request method type for labels.
@@ -156,6 +158,50 @@ export class MetricsService {
 
   /** Counter: Total moves rejected by the server, labelled by reason */
   public readonly movesRejectedTotal: Counter<'reason'>;
+
+  // ===================
+  // Rules UX Telemetry Metrics
+  // ===================
+
+  /**
+   * Counter: Lightweight rules-UX telemetry events emitted by the client.
+   *
+   * Labels are intentionally low-cardinality:
+   * - type: event type (help_open, help_repeat, undo_churn, weird_state_*)
+   * - board_type: coarse board topology (square8, square19, hexagonal, ...)
+   * - num_players: number of players/seats (1–4)
+   * - ai_difficulty: coarse AI difficulty bucket or "none"
+   * - topic: teaching topic ID or "none"/"unknown"
+   * - rules_concept: curated rulesConcept ID or "none"/"unknown"
+   * - weird_state_type: weird-state classification or "none"/"unknown"
+   */
+  public readonly rulesUxEventsTotal: Counter<
+    | 'type'
+    | 'board_type'
+    | 'num_players'
+    | 'ai_difficulty'
+    | 'topic'
+    | 'rules_concept'
+    | 'weird_state_type'
+  >;
+
+  // ===================
+  // Difficulty Calibration Telemetry Metrics
+  // ===================
+
+  /**
+   * Counter: AI difficulty calibration telemetry events emitted by the client.
+   *
+   * Labels are intentionally low-cardinality:
+   * - type: event type (game_started, game_completed)
+   * - board_type: coarse board topology (square8, square19, hexagonal, ...)
+   * - num_players: number of players/seats (1–4)
+   * - difficulty: primary AI difficulty bucket (1–10) or "unknown"
+   * - result: coarse human result ('win' | 'loss' | 'draw' | 'abandoned' | 'none')
+   */
+  public readonly difficultyCalibrationEventsTotal: Counter<
+    'type' | 'board_type' | 'num_players' | 'difficulty' | 'result'
+  >;
 
   // ===================
   // Rules Parity Metrics (already exist, re-exported for convenience)
@@ -461,6 +507,34 @@ export class MetricsService {
       name: 'ringrift_moves_rejected_total',
       help: 'Total number of moves rejected by the server, labelled by reason',
       labelNames: ['reason'] as const,
+    });
+
+    // ===================
+    // Rules UX Telemetry Metrics
+    // ===================
+
+    this.rulesUxEventsTotal = new Counter({
+      name: 'ringrift_rules_ux_events_total',
+      help: 'Total number of rules-UX telemetry events by type and coarse context',
+      labelNames: [
+        'type',
+        'board_type',
+        'num_players',
+        'ai_difficulty',
+        'topic',
+        'rules_concept',
+        'weird_state_type',
+      ] as const,
+    });
+
+    // ===================
+    // Difficulty Calibration Telemetry Metrics
+    // ===================
+
+    this.difficultyCalibrationEventsTotal = new Counter({
+      name: 'ringrift_difficulty_calibration_events_total',
+      help: 'Total number of AI difficulty calibration telemetry events by type and coarse context',
+      labelNames: ['type', 'board_type', 'num_players', 'difficulty', 'result'] as const,
     });
 
     // ===================
@@ -1159,6 +1233,100 @@ export class MetricsService {
    */
   public recordMoveRejected(reason: string): void {
     this.movesRejectedTotal.inc({ reason });
+  }
+
+  // ===================
+  // Rules UX Telemetry Helpers
+  // ===================
+
+  /**
+   * Record a single rules-UX telemetry event.
+   *
+   * The payload is intentionally low-cardinality and omits any user-identifying
+   * information; labels are normalised and bucketed to keep the metrics
+   * surface stable over time.
+   */
+  public recordRulesUxEvent(event: RulesUxEventPayload): void {
+    const typeLabel = event.type || 'unknown';
+
+    const boardType = (event.boardType as string) || 'unknown';
+
+    const numPlayersRaw =
+      typeof event.numPlayers === 'number' && Number.isFinite(event.numPlayers)
+        ? event.numPlayers
+        : NaN;
+    const numPlayers = numPlayersRaw >= 1 && numPlayersRaw <= 4 ? String(numPlayersRaw) : 'unknown';
+
+    let aiDifficulty = 'none';
+    if (typeof event.aiDifficulty === 'number' && Number.isFinite(event.aiDifficulty)) {
+      const clamped = Math.min(10, Math.max(1, Math.round(event.aiDifficulty)));
+      aiDifficulty = String(clamped);
+    }
+
+    const topic =
+      typeof event.topic === 'string' && event.topic.length > 0 ? event.topic.slice(0, 64) : 'none';
+
+    const rulesConcept =
+      typeof event.rulesConcept === 'string' && event.rulesConcept.length > 0
+        ? event.rulesConcept.slice(0, 64)
+        : 'none';
+
+    const weirdStateType =
+      typeof event.weirdStateType === 'string' && event.weirdStateType.length > 0
+        ? event.weirdStateType.slice(0, 64)
+        : 'none';
+
+    this.rulesUxEventsTotal
+      .labels(typeLabel, boardType, numPlayers, aiDifficulty, topic, rulesConcept, weirdStateType)
+      .inc();
+  }
+
+  /**
+   * Record a single AI difficulty calibration telemetry event.
+   *
+   * The payload is intentionally low-cardinality and omits any user-identifying
+   * information; labels are normalised and bucketed to keep the metrics
+   * surface stable over time. Only events where isCalibrationOptIn=true are
+   * recorded so that organic games do not pollute calibration series.
+   */
+  public recordDifficultyCalibrationEvent(event: DifficultyCalibrationEventPayload): void {
+    if (!event.isCalibrationOptIn) {
+      // Only record explicit calibration opt-in games. Clients may still choose
+      // to send events for non-opt-in games, but these are ignored at the
+      // metrics layer to keep semantics tight.
+      return;
+    }
+
+    const typeLabel = event.type || 'unknown';
+
+    const boardType = (event.boardType as string) || 'unknown';
+
+    const numPlayersRaw =
+      typeof event.numPlayers === 'number' && Number.isFinite(event.numPlayers)
+        ? event.numPlayers
+        : NaN;
+    const numPlayers = numPlayersRaw >= 1 && numPlayersRaw <= 4 ? String(numPlayersRaw) : 'unknown';
+
+    const difficultyRaw =
+      typeof event.difficulty === 'number' && Number.isFinite(event.difficulty)
+        ? event.difficulty
+        : NaN;
+    const difficulty =
+      difficultyRaw >= 1 && difficultyRaw <= 10 ? String(Math.round(difficultyRaw)) : 'unknown';
+
+    let result = 'none';
+    if (
+      event.result === 'win' ||
+      event.result === 'loss' ||
+      event.result === 'draw' ||
+      event.result === 'abandoned'
+    ) {
+      result = event.result;
+    }
+
+    this.difficultyCalibrationEventsTotal
+      .labels(typeLabel, boardType, numPlayers, difficulty, result)
+      .inc();
   }
 
   // ===================

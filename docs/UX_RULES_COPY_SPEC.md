@@ -288,6 +288,44 @@ This section ties each text block in this spec to its implementation surface.
 - `scenario.learn.capture.chain.rulesSnippet` → `learn.capture.chain` in [`curated.json`](src/client/public/scenarios/curated.json:117).
 - `scenario.learn.lines.formation.rulesSnippet` → `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`](src/client/public/scenarios/curated.json:175).
 
+**Curated sandbox rules‑concept mapping (runtime `public/scenarios/curated.json`)**
+
+Each curated sandbox scenario loaded by [`loadCuratedScenarios()`](src/client/sandbox/scenarioLoader.ts:112) declares a `rulesConcept` and optional `uxSpecAnchor`:
+
+- `learning.empty.square8` → `rulesConcept: 'board_intro_square8'`
+  - Intro to 8×8 board, basic placement and movement.
+  - Anchors: §2 Terminology & invariants; §4 Movement semantics.
+- `learning.empty.hexagonal` and `learning.fourplayer.start` → `rulesConcept: 'board_intro_hex'`
+  - Hex board geometry and 6‑direction adjacency.
+  - Anchors: [`RULES_CANONICAL_SPEC.md` board types](RULES_CANONICAL_SPEC.md:46); §4 Movement semantics.
+- `learning.capture.setup` → `rulesConcept: 'capture_basic'`, `uxSpecAnchor: "capture.basic"`
+  - Single‑segment overtaking capture; captured rings stay in play.
+  - Anchors: §5 Capture and chain capture semantics.
+- `learning.chain.capture` → `rulesConcept: 'chain_capture_mandatory'`, `uxSpecAnchor: "capture.chain_capture"`
+  - Optional start / mandatory continuation chain captures with choice of direction.
+  - Anchors: §5 Capture and chain capture semantics.
+- `learning.line.almost` → `rulesConcept: 'lines_basic'`, `uxSpecAnchor: "lines.core"`
+  - Exact‑length line completion and basic graduated rewards.
+  - Anchors: §6 Lines and rewards.
+- `learning.territory.disconnect` → `rulesConcept: 'territory_basic'`, `uxSpecAnchor: "territory.core"`
+  - Disconnected‑region processing, ring elimination inside the region, and self‑elimination cost.
+  - Anchors: §7 Territory and disconnected regions.
+- `learning.advanced.multistack` → `rulesConcept: 'stack_height_mobility'`, `uxSpecAnchor: "movement.semantics"`
+  - Stack height vs minimum movement distance and marker interaction.
+  - Anchors: §4 Movement semantics.
+- `learning.midgame.balanced` → `rulesConcept: 'movement_basic'`, `uxSpecAnchor: "movement.semantics"`
+  - Standard non‑capture movement and basic tactics in a balanced midgame.
+  - Anchors: §4 Movement semantics.
+- `learning.endgame.elimination` → `rulesConcept: 'victory_ring_elimination'`, `uxSpecAnchor: "victory.elimination"`
+  - Ring Elimination HUD and threshold behaviour.
+  - Anchors: §3.1 Ring Elimination.
+- `learning.near_victory.territory` → `rulesConcept: 'territory_near_victory'`, `uxSpecAnchor: "victory.territory"`
+  - Territory Control victory threshold and immediate win during Territory processing.
+  - Anchors: §3.2 Territory Control and §7 Territory and disconnected regions.
+- `advanced.multi_phase_turn` → `rulesConcept: 'turn_multi_phase'`, `uxSpecAnchor: "turn.multi_phase.line_then_territory"`
+  - Full movement/capture → chain_capture → line_processing → territory_processing turn sequence.
+  - Anchors: §4 Turn / Phase / Step Structure and §4.5 Active‑No‑Moves & Forced Elimination Semantics.
+
 All changes to HUD, TeachingOverlay, OnboardingModal, SandboxGameHost, and curated scenarios **must** remain consistent with this document and the canonical rules references in §0.
 
 ## 10. Weird States: Active‑No‑Moves, Forced Elimination & Structural Stalemate Banners

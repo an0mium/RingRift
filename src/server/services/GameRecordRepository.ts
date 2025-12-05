@@ -21,7 +21,7 @@ import {
   PlayerRecordInfo,
   gameRecordToJsonlLine,
 } from '../../shared/types/gameRecord';
-import { GameState, MoveType } from '../../shared/types/game';
+import { GameState, MoveType, Position, LineInfo, Territory } from '../../shared/types/game';
 import { logger } from '../utils/logger';
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -183,34 +183,7 @@ export class GameRecordRepository {
   async listGameRecords(filter: GameRecordFilter = {}): Promise<GameRecordSummary[]> {
     const db = this.getDb();
 
-    // Build where clause dynamically
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {
-      finalState: { not: undefined },
-      outcome: { not: null },
-    };
-
-    if (filter.boardType) where.boardType = filter.boardType;
-    if (filter.numPlayers) where.maxPlayers = filter.numPlayers;
-    if (filter.outcome) where.outcome = filter.outcome;
-    if (filter.isRated !== undefined) where.isRated = filter.isRated;
-
-    if (filter.fromDate || filter.toDate) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dateFilter: any = {};
-      if (filter.fromDate) dateFilter.gte = filter.fromDate;
-      if (filter.toDate) dateFilter.lte = filter.toDate;
-      where.endedAt = dateFilter;
-    }
-
-    if (filter.playerId) {
-      where.OR = [
-        { player1Id: filter.playerId },
-        { player2Id: filter.playerId },
-        { player3Id: filter.playerId },
-        { player4Id: filter.playerId },
-      ];
-    }
+    const where = this.buildCompletedGamesWhereClause(filter);
 
     const games = await db.game.findMany({
       where,
@@ -233,16 +206,17 @@ export class GameRecordRepository {
   async *exportAsJsonl(filter: GameRecordFilter = {}): AsyncGenerator<string> {
     const db = this.getDb();
     const batchSize = 100;
-    let offset = 0;
+    const where = this.buildCompletedGamesWhereClause(filter);
+    let offset = filter.offset ?? 0;
+    const hasLimit = typeof filter.limit === 'number';
+    let remaining = hasLimit ? (filter.limit as number) : 0;
 
     while (true) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const where: any = {
-        finalState: { not: undefined },
-        outcome: { not: null },
-      };
+      if (hasLimit && remaining <= 0) {
+        break;
+      }
 
-      if (filter.boardType) where.boardType = filter.boardType;
+      const take = hasLimit ? Math.min(batchSize, remaining) : batchSize;
 
       const games = await db.game.findMany({
         where,
@@ -258,7 +232,7 @@ export class GameRecordRepository {
           winner: { select: { username: true } },
         },
         orderBy: { endedAt: 'desc' },
-        take: batchSize,
+        take,
         skip: offset,
       });
 
@@ -270,10 +244,17 @@ export class GameRecordRepository {
         if (game.finalState && gameWithFields.outcome) {
           const record = this.gameToGameRecord(game as unknown as GameWithRelations);
           yield gameRecordToJsonlLine(record);
+
+          if (hasLimit) {
+            remaining -= 1;
+            if (remaining <= 0) {
+              return;
+            }
+          }
         }
       }
 
-      offset += batchSize;
+      offset += games.length;
     }
   }
 
@@ -283,13 +264,7 @@ export class GameRecordRepository {
   async countGameRecords(filter: GameRecordFilter = {}): Promise<number> {
     const db = this.getDb();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const where: any = {
-      finalState: { not: undefined },
-      outcome: { not: null },
-    };
-
-    if (filter.boardType) where.boardType = filter.boardType;
+    const where = this.buildCompletedGamesWhereClause(filter);
 
     return db.game.count({ where });
   }
@@ -322,6 +297,39 @@ export class GameRecordRepository {
   // Private helpers
   // ────────────────────────────────────────────────────────────────────────
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private buildCompletedGamesWhereClause(filter: GameRecordFilter = {}): any {
+    const where: any = {
+      finalState: { not: undefined },
+      outcome: { not: null },
+    };
+
+    if (filter.boardType) where.boardType = filter.boardType;
+    if (filter.numPlayers) where.maxPlayers = filter.numPlayers;
+    if (filter.outcome) where.outcome = filter.outcome;
+    if (filter.isRated !== undefined) where.isRated = filter.isRated;
+
+    if (filter.fromDate || filter.toDate) {
+      const dateFilter: any = {};
+      if (filter.fromDate) dateFilter.gte = filter.fromDate;
+      if (filter.toDate) dateFilter.lte = filter.toDate;
+      where.endedAt = dateFilter;
+    }
+
+    if (filter.playerId) {
+      where.OR = [
+        { player1Id: filter.playerId },
+        { player2Id: filter.playerId },
+        { player3Id: filter.playerId },
+        { player4Id: filter.playerId },
+      ];
+    }
+
+    // Note: Filtering by source/tags in JSON recordMetadata would require
+    // JSON-path queries; export helpers currently ignore these filters.
+    return where;
+  }
+
   private gameToGameRecord(game: GameWithRelations): GameRecord {
     const metadata = (game.recordMetadata ?? {
       recordVersion: '1.0.0',
@@ -343,13 +351,65 @@ export class GameRecordRepository {
       });
     }
 
-    const moves: MoveRecord[] = game.moves.map((move) => ({
-      moveNumber: move.moveNumber,
-      player: players.findIndex((p) => p.username === move.player.username) + 1 || 1,
-      type: move.moveType as MoveType,
-      thinkTimeMs: 0, // Not tracked in current schema
-      ...((move.moveData as Record<string, unknown>) ?? {}),
-    }));
+    const moves: MoveRecord[] = game.moves.map((move) => {
+      const raw = (move.moveData ?? {}) as Record<string, unknown>;
+
+      const seatFromMove = typeof raw.player === 'number' ? (raw.player as number) : undefined;
+      const playerNumber =
+        seatFromMove && seatFromMove >= 1 && seatFromMove <= game.maxPlayers
+          ? seatFromMove
+          : players.findIndex((p) => p.username === move.player.username) + 1 || 1;
+
+      const thinkTimeMs = typeof raw.thinkTime === 'number' ? (raw.thinkTime as number) : 0;
+
+      const from = raw.from as Position | undefined;
+      const to = raw.to as Position | undefined;
+      const captureTarget = raw.captureTarget as Position | undefined;
+
+      const placementCount =
+        typeof raw.placementCount === 'number' ? (raw.placementCount as number) : undefined;
+      const placedOnStack =
+        typeof raw.placedOnStack === 'boolean' ? (raw.placedOnStack as boolean) : undefined;
+
+      const formedLines =
+        Array.isArray(raw.formedLines) && raw.formedLines.length > 0
+          ? (raw.formedLines as LineInfo[])
+          : undefined;
+      const collapsedMarkers =
+        Array.isArray(raw.collapsedMarkers) && raw.collapsedMarkers.length > 0
+          ? (raw.collapsedMarkers as Position[])
+          : undefined;
+      const disconnectedRegions =
+        Array.isArray(raw.disconnectedRegions) && raw.disconnectedRegions.length > 0
+          ? (raw.disconnectedRegions as Territory[])
+          : undefined;
+      const eliminatedRings =
+        Array.isArray(raw.eliminatedRings) && raw.eliminatedRings.length > 0
+          ? (raw.eliminatedRings as { player: number; count: number }[])
+          : undefined;
+
+      const rrn =
+        typeof raw.rrn === 'string' && (raw.rrn as string).length > 0
+          ? (raw.rrn as string)
+          : undefined;
+
+      return {
+        moveNumber: move.moveNumber,
+        player: playerNumber,
+        type: move.moveType as MoveType,
+        thinkTimeMs,
+        ...(from !== undefined && { from }),
+        ...(to !== undefined && { to }),
+        ...(captureTarget !== undefined && { captureTarget }),
+        ...(placementCount !== undefined && { placementCount }),
+        ...(placedOnStack !== undefined && { placedOnStack }),
+        ...(formedLines !== undefined && { formedLines }),
+        ...(collapsedMarkers !== undefined && { collapsedMarkers }),
+        ...(disconnectedRegions !== undefined && { disconnectedRegions }),
+        ...(eliminatedRings !== undefined && { eliminatedRings }),
+        ...(rrn !== undefined && { rrn }),
+      };
+    });
 
     const winnerIndex = game.winner
       ? players.findIndex((p) => p.username === game.winner?.username) + 1

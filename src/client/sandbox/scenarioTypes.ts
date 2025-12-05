@@ -31,6 +31,30 @@ export type ScenarioCategory =
 export type ScenarioDifficulty = 'beginner' | 'intermediate' | 'advanced';
 
 /**
+ * High-level rules concept families for curated scenarios.
+ * These are used for metadata validation and mapping curated
+ * sandbox scenarios back to canonical UX rules copy sections.
+ */
+export type ScenarioRulesConcept =
+  | 'board_intro_square8'
+  | 'board_intro_hex'
+  | 'placement_basic'
+  | 'movement_basic'
+  | 'stack_height_mobility'
+  | 'capture_basic'
+  | 'chain_capture_mandatory'
+  | 'chain_capture_extended'
+  | 'lines_basic'
+  | 'lines_overlength_option2'
+  | 'territory_basic'
+  | 'territory_mini_region_q23'
+  | 'territory_near_victory'
+  | 'victory_ring_elimination'
+  | 'victory_territory'
+  | 'turn_multi_phase'
+  | 'puzzle_capture';
+
+/**
  * Source of a scenario for filtering and display.
  */
 export type ScenarioSource = 'vector' | 'curated' | 'custom';
@@ -51,6 +75,18 @@ export interface ScenarioMetadata {
   difficulty?: ScenarioDifficulty | undefined;
   /** Tags for search/filtering */
   tags: string[];
+  /**
+   * Canonical rules concept this scenario primarily illustrates.
+   * Used for metadata validation and mapping back to UX rules copy.
+   */
+  rulesConcept?: ScenarioRulesConcept;
+  /**
+   * Optional anchor into UX_RULES_COPY_SPEC.md (or related docs)
+   * describing this scenario’s primary rules concept; e.g.
+   * "movement.semantics" or "territory.q23_mini_region".
+   * This is metadata-only and not parsed at runtime.
+   */
+  uxSpecAnchor?: string;
   /**
    * Optional flag indicating that this scenario is part of the
    * player-facing onboarding set. Used to surface a small, curated
@@ -201,3 +237,27 @@ export const CUSTOM_SCENARIOS_STORAGE_KEY = 'ringrift_custom_scenarios';
  * Maximum number of custom scenarios to store in localStorage.
  */
 export const MAX_CUSTOM_SCENARIOS = 20;
+
+/**
+ * Canonical list of allowed rulesConcept values for curated scenarios.
+ * Exported for use in metadata validation tests.
+ */
+export const SCENARIO_RULES_CONCEPTS: readonly ScenarioRulesConcept[] = [
+  'board_intro_square8',
+  'board_intro_hex',
+  'placement_basic',
+  'movement_basic',
+  'stack_height_mobility',
+  'capture_basic',
+  'chain_capture_mandatory',
+  'chain_capture_extended',
+  'lines_basic',
+  'lines_overlength_option2',
+  'territory_basic',
+  'territory_mini_region_q23',
+  'territory_near_victory',
+  'victory_ring_elimination',
+  'victory_territory',
+  'turn_multi_phase',
+  'puzzle_capture',
+] as const;

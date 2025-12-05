@@ -1,0 +1,61 @@
+{
+  "canonical_move": {
+    "actualDistance": null,
+    "captureChain": null,
+    "captureTarget": {
+      "x": 8,
+      "y": 1,
+      "z": null
+    },
+    "capturedStacks": null,
+    "claimedTerritory": null,
+    "collapsedMarkers": null,
+    "disconnectedRegions": null,
+    "eliminatedRings": null,
+    "formedLines": null,
+    "from": {
+      "x": 18,
+      "y": 11,
+      "z": null
+    },
+    "id": "capture-18,11-8,1-7,0-150",
+    "markerLeft": null,
+    "minimumDistance": null,
+    "moveNumber": 150,
+    "overtakenRings": null,
+    "placedOnStack": null,
+    "placementCount": null,
+    "player": 1,
+    "stackMoved": null,
+    "thinkTime": 0,
+    "timestamp": "2025-12-04T21:43:25.833275",
+    "to": {
+      "x": 7,
+      "y": 0,
+      "z": null
+    },
+    "type": "overtaking_capture"
+  },
+  "canonical_move_index": 149,
+  "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+  "diverged_at": 150,
+  "game_id": "591263f0-cde1-4531-a64b-3c1e3c94f76b",
+  "mismatch_context": "post_move",
+  "mismatch_kinds": ["current_player"],
+  "python_summary": {
+    "current_phase": "movement",
+    "current_player": 1,
+    "game_status": "active",
+    "move_index": 149,
+    "state_hash": "43782d6b962b07af"
+  },
+  "total_moves_python": 150,
+  "total_moves_ts": 150,
+  "ts_summary": {
+    "current_phase": "movement",
+    "current_player": 2,
+    "game_status": "active",
+    "move_index": 150,
+    "state_hash": "60f680c13a5b5bf9"
+  }
+}

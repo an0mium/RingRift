@@ -997,4 +997,285 @@ describe('GameEngine branch coverage', () => {
       expect(true).toBe(true);
     });
   });
+
+  describe('getValidMoves', () => {
+    it('returns valid moves for current player in ring_placement phase', () => {
+      const engine = new GameEngine('test-moves1', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.currentPhase).toBe('ring_placement');
+      const moves = engine.getValidMoves();
+      // In ring_placement, valid moves are place_ring moves
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('returns empty array when game is not active', () => {
+      const engine = new GameEngine('test-moves2', 'square8', createPlayers(), timeControl);
+      // Force game to completed state
+      (engine as unknown as { gameState: { gameStatus: string } }).gameState.gameStatus =
+        'completed';
+
+      const moves = engine.getValidMoves();
+      expect(moves).toEqual([]);
+    });
+
+    it('returns valid moves with playerNumber override', () => {
+      const engine = new GameEngine('test-moves3', 'square8', createPlayers(), timeControl);
+
+      // Get moves for player 2 even if it's player 1's turn
+      const moves = engine.getValidMoves(2);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+  });
+
+  describe('makeMove validation', () => {
+    it('rejects continue_capture_segment when no chain in progress', async () => {
+      const engine = new GameEngine('test-no-chain', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const move = {
+        type: 'continue_capture_segment' as const,
+        player: 1,
+        from: { x: 3, y: 3 },
+        to: { x: 5, y: 5 },
+        thinkTime: 100,
+      };
+
+      const result = await engine.makeMove(move);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No chain capture in progress');
+    });
+
+    it('handles place_ring move in ring_placement phase', async () => {
+      const engine = new GameEngine('test-place', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+      const state = engine.getGameState();
+
+      expect(state.currentPhase).toBe('ring_placement');
+
+      // Find a valid position for placing a ring
+      const boardSize = state.board.size;
+      const validPosition = { x: Math.floor(boardSize / 2), y: Math.floor(boardSize / 2) };
+
+      const move = {
+        type: 'place_ring' as const,
+        player: state.currentPlayer,
+        to: validPosition,
+        thinkTime: 100,
+      };
+
+      const result = await engine.makeMove(move);
+      // Either succeeds or fails with a specific validation error
+      expect(result.gameState).toBeDefined();
+    });
+
+    it('handles swap_sides move type', async () => {
+      const engine = new GameEngine(
+        'test-swap',
+        'square8',
+        createPlayers(),
+        timeControl,
+        false,
+        undefined,
+        undefined,
+        { swapRuleEnabled: true }
+      );
+      engine.startGame();
+
+      const move = {
+        type: 'swap_sides' as const,
+        player: 2, // Second player can swap
+        thinkTime: 100,
+      };
+
+      const result = await engine.makeMove(move);
+      // Swap might fail if conditions aren't met, but function should be callable
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('timer management', () => {
+    it('starts with timers initialized', () => {
+      const engine = new GameEngine('test-timer1', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      state.players.forEach((player) => {
+        expect(player.timeRemaining).toBe(600000);
+      });
+    });
+
+    it('startGame initializes timers', () => {
+      const engine = new GameEngine('test-timer2', 'square8', createPlayers(), timeControl);
+
+      const started = engine.startGame();
+      expect(started).toBe(true);
+
+      const state = engine.getGameState();
+      expect(state.gameStatus).toBe('active');
+    });
+
+    it('pauseGame stops game timer', () => {
+      const engine = new GameEngine('test-pause1', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const paused = engine.pauseGame();
+      expect(paused).toBe(true);
+
+      const state = engine.getGameState();
+      expect(state.gameStatus).toBe('paused');
+    });
+
+    it('resumeGame continues game timer', () => {
+      const engine = new GameEngine('test-resume1', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+      engine.pauseGame();
+
+      const resumed = engine.resumeGame();
+      expect(resumed).toBe(true);
+
+      const state = engine.getGameState();
+      expect(state.gameStatus).toBe('active');
+    });
+  });
+
+  describe('game result handling', () => {
+    it('resignPlayer ends game with resignation', () => {
+      const engine = new GameEngine('test-result1', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const result = engine.resignPlayer(1);
+
+      expect(result.success).toBe(true);
+      const state = engine.getGameState();
+      expect(state.gameStatus).toBe('completed');
+    });
+
+    it('abandonGameAsDraw handles draw', () => {
+      const engine = new GameEngine('test-result2', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const result = engine.abandonGameAsDraw();
+
+      expect(result.success).toBe(true);
+      const state = engine.getGameState();
+      expect(state.gameStatus).toBe('completed');
+    });
+
+    it('abandonPlayer marks player as abandoned', () => {
+      const engine = new GameEngine('test-result3', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const result = engine.abandonPlayer(1);
+
+      expect(result.success).toBe(true);
+      const state = engine.getGameState();
+      expect(state.gameStatus).toBe('completed');
+    });
+  });
+
+  describe('spectator management', () => {
+    it('addSpectator adds spectator to game', () => {
+      const engine = new GameEngine('test-spec1', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const added = engine.addSpectator('spectator-1');
+      expect(added).toBe(true);
+    });
+
+    it('addSpectator rejects duplicate', () => {
+      const engine = new GameEngine('test-spec2', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      engine.addSpectator('spectator-1');
+      const addedAgain = engine.addSpectator('spectator-1');
+      expect(addedAgain).toBe(false);
+    });
+
+    it('removeSpectator removes spectator', () => {
+      const engine = new GameEngine('test-spec3', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+      engine.addSpectator('spectator-1');
+
+      const removed = engine.removeSpectator('spectator-1');
+      expect(removed).toBe(true);
+    });
+
+    it('removeSpectator returns false for non-existent', () => {
+      const engine = new GameEngine('test-spec4', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const removed = engine.removeSpectator('non-existent');
+      expect(removed).toBe(false);
+    });
+  });
+
+  describe('player lookup', () => {
+    it('finds player in game state by player number', () => {
+      const engine = new GameEngine('test-player1', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      const player1 = state.players.find((p) => p.playerNumber === 1);
+      expect(player1?.playerNumber).toBe(1);
+      expect(player1?.id).toBe('p1');
+    });
+
+    it('returns undefined for invalid player number', () => {
+      const engine = new GameEngine('test-player2', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      const player = state.players.find((p) => p.playerNumber === 999);
+      expect(player).toBeUndefined();
+    });
+
+    it('current player matches state.currentPlayer', () => {
+      const engine = new GameEngine('test-current1', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      const currentPlayer = state.players.find((p) => p.playerNumber === state.currentPlayer);
+      expect(currentPlayer?.playerNumber).toBe(state.currentPlayer);
+    });
+  });
+
+  describe('phase transitions', () => {
+    it('initial phase is ring_placement', () => {
+      const engine = new GameEngine('test-phase1', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.currentPhase).toBe('ring_placement');
+    });
+
+    it('game starts in active status after startGame', () => {
+      const engine = new GameEngine('test-phase2', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const state = engine.getGameState();
+      expect(state.gameStatus).toBe('active');
+    });
+  });
+
+  describe('board access', () => {
+    it('game state includes board with correct size', () => {
+      const engine = new GameEngine('test-board1', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.board).toBeDefined();
+      expect(state.board.size).toBe(8);
+    });
+
+    it('game state includes empty stacks initially', () => {
+      const engine = new GameEngine('test-board2', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.board.stacks).toBeDefined();
+      expect(state.board.stacks.size).toBe(0);
+    });
+
+    it('game state includes empty markers initially', () => {
+      const engine = new GameEngine('test-board3', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.board.markers).toBeDefined();
+      expect(state.board.markers.size).toBe(0);
+    });
+  });
 });

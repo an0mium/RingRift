@@ -61,7 +61,8 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
     in higher-level tooling by constructing new TierEvaluationConfig
     instances.
     """
-    return {
+    # Canonical square8 2-player tiers used for the primary production ladder.
+    configs: Dict[str, TierEvaluationConfig] = {
         "D2": TierEvaluationConfig(
             tier_name="D2",
             display_name="D2 – easy heuristic (square8, 2p)",
@@ -201,6 +202,232 @@ def _build_default_configs() -> Dict[str, TierEvaluationConfig]:
             ),
         ),
     }
+
+    # Experimental multi-board and multi-player tiers used for smoke tests and
+    # early calibration on larger boards / additional player counts. These
+    # profiles intentionally reuse conservative thresholds and the canonical
+    # difficulty ladder so that wiring can be validated without committing to
+    # final balance numbers.
+    configs.update(
+        {
+            # Square19, 2-player tiers (easy heuristic / mid minimax).
+            "D2_SQ19_2P": TierEvaluationConfig(
+                tier_name="D2_SQ19_2P",
+                display_name="D2 – easy heuristic (square19, 2p)",
+                board_type=BoardType.SQUARE19,
+                num_players=2,
+                num_games=200,
+                candidate_difficulty=2,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="random_d1_sq19",
+                        description=(
+                            "Random baseline (canonical difficulty 1) "
+                            "on square19, 2-player"
+                        ),
+                        difficulty=1,
+                        ai_type=AIType.RANDOM,
+                        role="baseline",
+                    ),
+                ],
+                min_win_rate_vs_baseline=0.6,
+                max_regression_vs_previous_tier=None,
+                description=(
+                    "Sanity-check tier ensuring a difficulty-2 candidate "
+                    "comfortably beats pure random play on the larger "
+                    "square19 board in 2-player games."
+                ),
+            ),
+            "D4_SQ19_2P": TierEvaluationConfig(
+                tier_name="D4_SQ19_2P",
+                display_name="D4 – mid minimax (square19, 2p)",
+                board_type=BoardType.SQUARE19,
+                num_players=2,
+                num_games=400,
+                candidate_difficulty=4,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="random_d1_sq19",
+                        description=(
+                            "Random baseline (canonical difficulty 1) "
+                            "on square19, 2-player"
+                        ),
+                        difficulty=1,
+                        ai_type=AIType.RANDOM,
+                        role="baseline",
+                    ),
+                    TierOpponentConfig(
+                        id="tier_d2_sq19",
+                        description=(
+                            "Previous tier reference using canonical "
+                            "difficulty 2 profile on square19"
+                        ),
+                        difficulty=2,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=0.7,
+                max_regression_vs_previous_tier=0.05,
+                description=(
+                    "Mid-tier square19 2p minimax gate. Candidate should "
+                    "solidly beat random and not regress substantially "
+                    "relative to the square19 difficulty-2 tier."
+                ),
+            ),
+            # Hexagonal, 2-player tiers (easy heuristic / mid minimax).
+            "D2_HEX_2P": TierEvaluationConfig(
+                tier_name="D2_HEX_2P",
+                display_name="D2 – easy heuristic (hexagonal, 2p)",
+                board_type=BoardType.HEXAGONAL,
+                num_players=2,
+                num_games=200,
+                candidate_difficulty=2,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="random_d1_hex",
+                        description=(
+                            "Random baseline (canonical difficulty 1) "
+                            "on hexagonal, 2-player"
+                        ),
+                        difficulty=1,
+                        ai_type=AIType.RANDOM,
+                        role="baseline",
+                    ),
+                ],
+                min_win_rate_vs_baseline=0.6,
+                max_regression_vs_previous_tier=None,
+                description=(
+                    "Sanity-check tier for hexagonal 2-player games, "
+                    "verifying that a difficulty-2 candidate outperforms "
+                    "pure random play on the hex board."
+                ),
+            ),
+            "D4_HEX_2P": TierEvaluationConfig(
+                tier_name="D4_HEX_2P",
+                display_name="D4 – mid minimax (hexagonal, 2p)",
+                board_type=BoardType.HEXAGONAL,
+                num_players=2,
+                num_games=400,
+                candidate_difficulty=4,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="random_d1_hex",
+                        description=(
+                            "Random baseline (canonical difficulty 1) "
+                            "on hexagonal, 2-player"
+                        ),
+                        difficulty=1,
+                        ai_type=AIType.RANDOM,
+                        role="baseline",
+                    ),
+                    TierOpponentConfig(
+                        id="tier_d2_hex",
+                        description=(
+                            "Previous tier reference using canonical "
+                            "difficulty 2 profile on hexagonal"
+                        ),
+                        difficulty=2,
+                        ai_type=None,
+                        role="previous_tier",
+                    ),
+                ],
+                min_win_rate_vs_baseline=0.7,
+                max_regression_vs_previous_tier=0.05,
+                description=(
+                    "Mid-tier hexagonal 2p minimax gate. Candidate should "
+                    "solidly beat random and avoid major regression relative "
+                    "to the hexagonal difficulty-2 tier."
+                ),
+            ),
+            # Square8, 3-player and 4-player heuristic tiers. These reuse the
+            # canonical difficulty-2 ladder but run with 3p/4p board configs
+            # to provide stable evaluation entrypoints for multiplayer modes.
+            "D2_SQ8_3P": TierEvaluationConfig(
+                tier_name="D2_SQ8_3P",
+                display_name="D2 – heuristic (square8, 3p)",
+                board_type=BoardType.SQUARE8,
+                num_players=3,
+                num_games=200,
+                candidate_difficulty=2,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="random_d1_sq8_3p",
+                        description=(
+                            "Random baseline (canonical difficulty 1) "
+                            "on square8, 3-player"
+                        ),
+                        difficulty=1,
+                        ai_type=AIType.RANDOM,
+                        role="baseline",
+                    ),
+                    TierOpponentConfig(
+                        id="heuristic_d2_sq8_3p",
+                        description=(
+                            "Baseline heuristic profile at canonical "
+                            "difficulty 2 for 3-player games"
+                        ),
+                        difficulty=2,
+                        ai_type=AIType.HEURISTIC,
+                        role="baseline",
+                    ),
+                ],
+                min_win_rate_vs_baseline=0.55,
+                max_regression_vs_previous_tier=None,
+                description=(
+                    "Experimental square8 3-player tier ensuring that the "
+                    "difficulty-2 multiplayer heuristic comfortably beats "
+                    "random and performs competitively against a low "
+                    "difficulty heuristic baseline."
+                ),
+            ),
+            "D2_SQ8_4P": TierEvaluationConfig(
+                tier_name="D2_SQ8_4P",
+                display_name="D2 – heuristic (square8, 4p)",
+                board_type=BoardType.SQUARE8,
+                num_players=4,
+                num_games=200,
+                candidate_difficulty=2,
+                time_budget_ms=None,
+                opponents=[
+                    TierOpponentConfig(
+                        id="random_d1_sq8_4p",
+                        description=(
+                            "Random baseline (canonical difficulty 1) "
+                            "on square8, 4-player"
+                        ),
+                        difficulty=1,
+                        ai_type=AIType.RANDOM,
+                        role="baseline",
+                    ),
+                    TierOpponentConfig(
+                        id="heuristic_d2_sq8_4p",
+                        description=(
+                            "Baseline heuristic profile at canonical "
+                            "difficulty 2 for 4-player games"
+                        ),
+                        difficulty=2,
+                        ai_type=AIType.HEURISTIC,
+                        role="baseline",
+                    ),
+                ],
+                min_win_rate_vs_baseline=0.55,
+                max_regression_vs_previous_tier=None,
+                description=(
+                    "Experimental square8 4-player tier mirroring the 3p "
+                    "configuration, intended primarily as a stable smoke "
+                    "test entrypoint for 4-player evaluation."
+                ),
+            ),
+        }
+    )
+
+    return configs
  
  
 TIER_EVAL_CONFIGS = _build_default_configs()

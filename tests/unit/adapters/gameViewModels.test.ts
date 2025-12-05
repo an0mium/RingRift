@@ -2449,7 +2449,21 @@ describe('deriveBoardDecisionHighlights', () => {
   });
 
   it('should highlight positions for region_order choice', () => {
-    const gameState = createTestGameState();
+    const board = createTestBoard('square8');
+    // Two simple territories, each a single space, so we can assert both
+    // region membership and highlight grouping.
+    board.territories.set('region-a', {
+      spaces: [pos(0, 0)],
+      controllingPlayer: 1,
+      isDisconnected: true,
+    } as any);
+    board.territories.set('region-b', {
+      spaces: [pos(3, 3)],
+      controllingPlayer: 1,
+      isDisconnected: true,
+    } as any);
+
+    const gameState = createTestGameState({ board });
     const pendingChoice: PlayerChoice = {
       id: 'choice-1',
       type: 'region_order',
@@ -2457,15 +2471,31 @@ describe('deriveBoardDecisionHighlights', () => {
       playerNumber: 1,
       prompt: 'Choose region order',
       options: [
-        { regionIndex: 0, representativePosition: pos(0, 0), regionSize: 5 },
-        { regionIndex: 1, representativePosition: pos(3, 3), regionSize: 3 },
-      ],
+        {
+          regionId: 'region-a',
+          size: 1,
+          representativePosition: pos(0, 0),
+          moveId: 'move-region-a',
+        },
+        {
+          regionId: 'region-b',
+          size: 1,
+          representativePosition: pos(3, 3),
+          moveId: 'move-region-b',
+        },
+      ] as any,
     };
 
     const result = deriveBoardDecisionHighlights(gameState, pendingChoice);
 
     expect(result).toBeDefined();
+    // Both territory cells should be highlighted with primary intensity.
     expect(result?.highlights.length).toBe(2);
+    const keys = result!.highlights.map((h) => h.positionKey).sort();
+    expect(keys).toEqual([posStr(0, 0), posStr(3, 3)].sort());
+    expect(result!.highlights.every((h) => h.intensity === 'primary')).toBe(true);
+    // Grouping metadata should thread regionIds through for per-region styling.
+    expect(result!.territoryRegions?.regionIdsInDisplayOrder).toEqual(['region-a', 'region-b']);
   });
 
   it('should highlight positions for capture_direction choice', () => {

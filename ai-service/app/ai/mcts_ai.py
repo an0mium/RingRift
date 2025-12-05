@@ -508,6 +508,101 @@ class MCTSAI(HeuristicAI):
         # Lightweight tree root for incremental search
         self.last_root_lite: Optional[MCTSNodeLite] = None
 
+        # Store the search root BEFORE selecting best child (for training)
+        # This allows extraction of visit count distributions for soft policy targets
+        self._training_root: Optional[MCTSNode] = None
+        self._training_root_lite: Optional[MCTSNodeLite] = None
+
+    def get_last_search_root(self) -> Optional[MCTSNode]:
+        """Return the root node from the most recent legacy search.
+
+        This is useful for extracting MCTS visit count distributions
+        as soft policy targets during training data generation.
+
+        Returns:
+            The MCTSNode root from the last legacy search, or None if
+            incremental search was used or no search has been performed.
+        """
+        return self._training_root
+
+    def get_last_search_root_lite(self) -> Optional[MCTSNodeLite]:
+        """Return the root node from the most recent incremental search.
+
+        This is useful for extracting MCTS visit count distributions
+        as soft policy targets during training data generation.
+
+        Returns:
+            The MCTSNodeLite root from the last incremental search, or None if
+            legacy search was used or no search has been performed.
+        """
+        return self._training_root_lite
+
+    def get_visit_distribution(
+        self,
+    ) -> Tuple[List[Move], List[float]]:
+        """Extract normalized visit count distribution from the last search.
+
+        Returns a tuple of (moves, visit_probabilities) representing the
+        MCTS policy based on visit counts. This can be used as soft policy
+        targets during training for richer learning signal.
+
+        Returns:
+            Tuple of (list of moves, list of visit probabilities) where
+            probabilities sum to 1.0. Returns ([], []) if no search has
+            been performed or the root has no children.
+        """
+        # Try incremental root first (default search mode)
+        if self._training_root_lite is not None:
+            return self._extract_visit_dist_lite(self._training_root_lite)
+
+        # Fall back to legacy root
+        if self._training_root is not None:
+            return self._extract_visit_dist_legacy(self._training_root)
+
+        return [], []
+
+    def _extract_visit_dist_legacy(
+        self, root: MCTSNode
+    ) -> Tuple[List[Move], List[float]]:
+        """Extract visit distribution from legacy MCTSNode root."""
+        if not root.children:
+            return [], []
+
+        total_visits = sum(c.visits for c in root.children)
+        if total_visits == 0:
+            return [], []
+
+        moves: List[Move] = []
+        probs: List[float] = []
+
+        for child in root.children:
+            if child.move is not None and child.visits > 0:
+                moves.append(child.move)
+                probs.append(child.visits / total_visits)
+
+        return moves, probs
+
+    def _extract_visit_dist_lite(
+        self, root: MCTSNodeLite
+    ) -> Tuple[List[Move], List[float]]:
+        """Extract visit distribution from incremental MCTSNodeLite root."""
+        if not root.children:
+            return [], []
+
+        total_visits = sum(c.visits for c in root.children)
+        if total_visits == 0:
+            return [], []
+
+        moves: List[Move] = []
+        probs: List[float] = []
+
+        for child in root.children:
+            if child.move is not None and child.visits > 0:
+                moves.append(child.move)
+                probs.append(child.visits / total_visits)
+
+        return moves, probs
+
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """Select the best move using MCTS."""
         move, _ = self.select_move_and_policy(game_state)
@@ -641,6 +736,10 @@ class MCTSAI(HeuristicAI):
             self.dynamic_sizer.record_memory_sample(node_count)
 
         self._log_stats()
+
+        # Store root for training (visit count extraction) BEFORE selecting best child
+        self._training_root = root
+        self._training_root_lite = None  # Clear incremental root
 
         # Select best move based on visits
         return self._select_best_move_legacy(root, valid_moves)
@@ -987,6 +1086,10 @@ class MCTSAI(HeuristicAI):
             self.dynamic_sizer.record_memory_sample(node_count)
 
         self._log_stats()
+
+        # Store root for training (visit count extraction) BEFORE selecting best child
+        self._training_root_lite = root
+        self._training_root = None  # Clear legacy root
 
         # Select best move based on visits
         return self._select_best_move_incremental(root, valid_moves)

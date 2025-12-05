@@ -78,7 +78,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
   const [sandboxLastProgressAt, setSandboxLastProgressAt] = useState<number | null>(null);
   const [sandboxStallWarning, setSandboxStallWarning] = useState<string | null>(null);
   const [sandboxStateVersion, setSandboxStateVersion] = useState(0);
-  const [developerToolsEnabled, setDeveloperToolsEnabled] = useState(false);
+  const [developerToolsEnabled, setDeveloperToolsEnabled] = useState(true);
   const sandboxDiagnosticsEnabled = isSandboxAiStallDiagnosticsEnabled();
 
   const initLocalSandboxEngine = (options: {

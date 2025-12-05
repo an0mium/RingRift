@@ -424,4 +424,249 @@ describe('CaptureValidator branch coverage', () => {
       expect(result.valid).toBe(true);
     });
   });
+
+  describe('additional edge cases', () => {
+    it('rejects capture with invalid from position (negative)', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(1, 1), 1, 2);
+      addStack(state, pos(2, 1), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(-1, 0),
+        captureTarget: pos(2, 1),
+        to: pos(3, 1),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('INVALID_POSITION');
+    });
+
+    it('rejects capture with invalid to position (off board)', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(6, 0), 1, 2);
+      addStack(state, pos(7, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(6, 0),
+        captureTarget: pos(7, 0),
+        to: pos(8, 0), // Off board
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('INVALID_POSITION');
+    });
+
+    it('rejects capture with invalid captureTarget position', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(0, 0), 1, 2);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(-1, -1),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('INVALID_POSITION');
+    });
+
+    it('rejects capture in ring_placement phase', () => {
+      const state = makeGameState({ currentPhase: 'ring_placement' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('INVALID_PHASE');
+    });
+
+    it('rejects capture in line_processing phase', () => {
+      const state = makeGameState({ currentPhase: 'line_processing' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('INVALID_PHASE');
+    });
+
+    it('rejects capture in territory_processing phase', () => {
+      const state = makeGameState({ currentPhase: 'territory_processing' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('INVALID_PHASE');
+    });
+
+    it('allows capture in capture phase', () => {
+      const state = makeGameState({ currentPhase: 'capture' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(true);
+    });
+
+    it('allows capture in chain_capture phase', () => {
+      const state = makeGameState({ currentPhase: 'chain_capture' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(true);
+    });
+
+    it('rejects capture when landing on collapsed space', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 2, 1);
+      state.board.collapsedSpaces.set(positionToString(pos(2, 0)), 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects capture when no stack at from position', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(1, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0), // No stack here
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects capture when no stack at capture target', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(0, 0), 1, 2);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0), // No stack here
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+    });
+
+    it('handles capture of own stack (allowed when overtaking)', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 1, 1); // Own smaller stack
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      // Overtaking own stack may be valid if heights allow
+      expect(result.valid).toBe(true);
+    });
+
+    it('rejects capture when attacker height is not greater than target', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(0, 0), 1, 1); // Smaller
+      addStack(state, pos(1, 0), 2, 2); // Bigger
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+    });
+
+    it('validates capture when positions form a valid line', () => {
+      const state = makeGameState({ currentPhase: 'movement' });
+      addStack(state, pos(0, 0), 1, 2);
+      addStack(state, pos(1, 0), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(0, 0),
+        captureTarget: pos(1, 0),
+        to: pos(2, 0),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(true);
+    });
+  });
 });

@@ -247,6 +247,20 @@ describe('statePersistence', () => {
         rngSeed: number;
         moveHistory: unknown[];
         historyLength: number;
+        debug: {
+          gameStatus: string;
+          perPlayerActions: Array<{
+            playerNumber: number;
+            summary: {
+              hasTurnMaterial: boolean;
+              hasGlobalPlacementAction: boolean;
+              hasPhaseLocalInteractiveMove: boolean;
+              hasForcedEliminationAction: boolean;
+            };
+          }>;
+          isANMState: boolean;
+          victoryProbe: { isGameOver: boolean; winner?: number; reason?: string | undefined };
+        };
       };
 
       expect(fixture.kind).toBe('ringrift_sandbox_fixture_v1');
@@ -256,6 +270,8 @@ describe('statePersistence', () => {
       expect(fixture.rngSeed).toBe(12345);
       expect(fixture.moveHistory).toHaveLength(1);
       expect(fixture.historyLength).toBe(1);
+      expect(fixture.debug.gameStatus).toBe(gameState.gameStatus);
+      expect(fixture.debug.perPlayerActions).toHaveLength(gameState.players.length);
     });
 
     it('handles null rngSeed', () => {

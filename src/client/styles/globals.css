@@ -235,6 +235,26 @@ code {
   animation: piece-move var(--move-duration) ease-out forwards;
 }
 
+/* Shared selection / decision pulse used for:
+   - Selected stacks (selected-piece)
+   - Decision-phase board highlights (capture landings, targets, eliminations, regions)
+   The pulse scales very slightly and breathes a coloured halo based on
+   the current --ring-color so it remains legible on both square and hex boards. */
+@keyframes selection-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(var(--ring-color, 56, 189, 248), 0.0);
+  }
+  40% {
+    transform: scale(1.03);
+    box-shadow: 0 0 0 4px rgba(var(--ring-color, 56, 189, 248), 0.45);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(var(--ring-color, 56, 189, 248), 0.0);
+  }
+}
+
 /* Selection states with player-specific colors */
 .selected-piece {
   animation: selection-pulse var(--selection-duration) ease-in-out infinite;
@@ -297,14 +317,56 @@ code {
 
 /* Decision-phase pulses for board-level choices */
 .decision-pulse-capture {
-  animation: selection-pulse 1.6s ease-in-out infinite;
-  /* Slightly deeper green overlay than generic valid moves so
-     mandatory chain-capture landings stand out. */
-  background-color: rgba(16, 185, 129, 0.18); /* emerald-500-ish @18% */
+  position: relative;
+  animation: selection-pulse 1.8s ease-in-out infinite;
+  /* Deeper light green overlay for capture landings so they read as
+     high-value, rules-driven destinations without becoming fully dark. */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(16, 185, 129, 0.24),
+    rgba(16, 185, 129, 0.14) 45%,
+    transparent 72%
+  );
   box-shadow:
-    0 0 0 1px rgba(16, 185, 129, 0.8),
-    0 0 10px rgba(6, 95, 70, 0.8);
+    0 0 0 1px rgba(16, 185, 129, 0.85),
+    0 0 16px rgba(6, 95, 70, 0.9);
   --ring-color: 16, 185, 129; /* emerald-500 RGB */
+}
+
+.decision-pulse-capture::before {
+  content: "";
+  position: absolute;
+  /* Slight inward offset so the amber ring sits comfortably inside the
+     square/hex outline rather than hugging the edges. */
+  inset: 4px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px rgba(251, 191, 36, 0.9),
+    0 0 10px rgba(251, 191, 36, 0.6);
+}
+
+/* Capture target pulse: emphasise the overtaken stack with a distinct
+   amber ring and lighter fill so it is visually separate from landing
+   cells while still pulsing. */
+.capture-target-pulse {
+  position: relative;
+  animation: selection-pulse 1.6s ease-in-out infinite;
+  --ring-color: 251, 191, 36; /* amber-300/400 RGB */
+  box-shadow:
+    0 0 0 1px rgba(251, 191, 36, 0.85),
+    0 0 12px rgba(251, 191, 36, 0.7);
+}
+
+.capture-target-pulse::before {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px rgba(251, 191, 36, 0.95),
+    0 0 8px rgba(251, 191, 36, 0.7);
 }
 
 .decision-pulse-elimination {
@@ -337,8 +399,94 @@ code {
 }
 
 .decision-pulse-territory {
-  animation: selection-pulse 2s ease-in-out infinite;
-  --ring-color: 16, 185, 129; /* emerald-500 RGB, distinct from valid-move tint */
+  position: relative;
+  animation: selection-pulse 1.6s ease-in-out infinite;
+  /* Neutral teal base glow so territory regions read as a distinct
+     decision state compared to captures/eliminations and generic
+     decision highlights. Per-region classes add their own colour
+     accents on top of this pulse. */
+  --ring-color: 45, 212, 191; /* teal-400 RGB */
+  box-shadow:
+    0 0 0 1px rgba(45, 212, 191, 0.9),
+    0 0 18px rgba(15, 23, 42, 0.95);
+}
+
+/* Territory region palette: each region gets a distinct, high-contrast
+   halo so multiple choices are immediately recognisable. Overlaps use
+   a dedicated multi-colour style. These classes are applied in addition
+   to .decision-pulse-territory. */
+
+.territory-region-a::before,
+.territory-region-b::before,
+.territory-region-c::before,
+.territory-region-d::before,
+.territory-region-overlap::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.territory-region-a::before {
+  /* Cyan / teal */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(34, 211, 238, 0.3),
+    transparent 65%
+  );
+  box-shadow:
+    0 0 0 2px rgba(34, 211, 238, 0.9),
+    0 0 20px rgba(8, 47, 73, 0.95);
+}
+
+.territory-region-b::before {
+  /* Rose / magenta */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(244, 114, 182, 0.32),
+    transparent 68%
+  );
+  box-shadow:
+    0 0 0 2px rgba(244, 114, 182, 0.9),
+    0 0 20px rgba(131, 24, 67, 0.95);
+}
+
+.territory-region-c::before {
+  /* Amber / gold */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(251, 191, 36, 0.32),
+    transparent 70%
+  );
+  box-shadow:
+    0 0 0 2px rgba(251, 191, 36, 0.95),
+    0 0 22px rgba(120, 53, 15, 0.95);
+}
+
+.territory-region-d::before {
+  /* Violet / indigo */
+  background-image: radial-gradient(
+    circle at center,
+    rgba(167, 139, 250, 0.32),
+    transparent 68%
+  );
+  box-shadow:
+    0 0 0 2px rgba(167, 139, 250, 0.95),
+    0 0 22px rgba(49, 46, 129, 0.98);
+}
+
+.territory-region-overlap::before {
+  /* Multi-colour blend for cells that belong to more than one region.
+     Use concentric, slightly offset glows so the overlap is visually
+     distinct from any single-region style. */
+  background-image:
+    radial-gradient(circle at center, rgba(34, 211, 238, 0.32), transparent 55%),
+    radial-gradient(circle at center, rgba(244, 114, 182, 0.26), transparent 78%);
+  box-shadow:
+    0 0 0 2px rgba(247, 254, 231, 0.95),
+    0 0 26px rgba(56, 189, 248, 0.9),
+    0 0 32px rgba(244, 114, 182, 0.9);
 }
 
 /* Stack-level pulse for elimination choices so the stack itself breathes. */

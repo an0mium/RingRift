@@ -17,7 +17,8 @@ from typing import Optional, List, Tuple
 import numpy as np
 
 from app.ai.descent_ai import DescentAI
-from app.ai.neural_net import INVALID_MOVE_INDEX
+from app.ai.mcts_ai import MCTSAI, MCTSNode, MCTSNodeLite
+from app.ai.neural_net import INVALID_MOVE_INDEX, NeuralNetAI
 from app.db import GameReplayDB, get_or_create_db, record_completed_game
 from app.models import (
     GameState, BoardType, BoardState, GamePhase, GameStatus, TimeControl,
@@ -35,6 +36,72 @@ from app.training.hex_augmentation import (
     augment_hex_sample,
 )
 from app.utils.progress_reporter import SoakProgressReporter
+
+
+def extract_mcts_visit_distribution(
+    ai: MCTSAI,
+    state: GameState,
+    encoder: Optional[NeuralNetAI] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Extract MCTS visit count distribution as soft policy targets.
+
+    This provides a richer training signal than 1-hot policy targets by
+    capturing the relative value of different moves as explored by MCTS.
+
+    Parameters
+    ----------
+    ai : MCTSAI
+        The MCTS AI instance after a search has been performed.
+    state : GameState
+        The game state that was searched (for move encoding).
+    encoder : Optional[NeuralNetAI]
+        The neural network for encoding moves. If None, uses ai.neural_net.
+
+    Returns
+    -------
+    Tuple[np.ndarray, np.ndarray]
+        Tuple of (policy_indices, policy_values) as sparse arrays.
+        Returns empty arrays if no visit distribution is available.
+
+    Examples
+    --------
+    >>> ai = MCTSAI(1, config)
+    >>> move = ai.select_move(state)  # Performs MCTS search
+    >>> p_indices, p_values = extract_mcts_visit_distribution(ai, state)
+    >>> # p_indices contains move indices, p_values contains visit probabilities
+    """
+    if encoder is None:
+        encoder = ai.neural_net
+
+    if encoder is None:
+        return np.array([], dtype=np.int32), np.array([], dtype=np.float32)
+
+    # Get visit distribution from MCTS (handles both legacy and incremental)
+    moves, probs = ai.get_visit_distribution()
+
+    if not moves:
+        return np.array([], dtype=np.int32), np.array([], dtype=np.float32)
+
+    # Encode moves to policy indices
+    p_indices = []
+    p_values = []
+
+    for move, prob in zip(moves, probs):
+        idx = encoder.encode_move(move, state.board)
+        if idx != INVALID_MOVE_INDEX:
+            p_indices.append(idx)
+            p_values.append(prob)
+
+    # Re-normalize in case some moves couldn't be encoded
+    if p_values:
+        total = sum(p_values)
+        if total > 0:
+            p_values = [v / total for v in p_values]
+
+    return (
+        np.array(p_indices, dtype=np.int32),
+        np.array(p_values, dtype=np.float32),
+    )
 
 
 def create_initial_state(
@@ -198,6 +265,124 @@ def calculate_outcome(state, player_number, depth):
     elif base_val < 0:
         return max(-1.0, min(-0.001, discounted_val))
     return 0.0
+
+
+def calculate_multi_player_outcome(
+    state,
+    num_players: int,
+    depth: int,
+    max_players: int = 4,
+    graded: bool = False,
+) -> np.ndarray:
+    """
+    Calculate outcome values for all players simultaneously.
+
+    Returns a vector of shape (max_players,) where:
+    - Active player slots (0 to num_players-1) contain the outcome value
+    - Inactive slots (num_players to max_players-1) are set to 0.0
+
+    Parameters
+    ----------
+    state : GameState
+        The final game state.
+    num_players : int
+        Number of active players in this game (2, 3, or 4).
+    depth : int
+        Number of moves remaining from this position (for discounting).
+    max_players : int
+        Maximum number of players to support (default: 4).
+    graded : bool
+        If True, use graded outcomes for multiplayer games (2nd place gets
+        intermediate value instead of full loss). Default: False for backward
+        compatibility.
+
+    Returns
+    -------
+    np.ndarray
+        Shape (max_players,) with values in [-1, +1] for active players.
+    """
+    values = np.zeros(max_players, dtype=np.float32)
+
+    if not graded or num_players == 2:
+        # Standard binary win/lose calculation
+        for player_num in range(1, num_players + 1):
+            outcome = calculate_outcome(state, player_num, depth)
+            values[player_num - 1] = outcome
+    else:
+        # Graded outcomes for 3+ player games
+        # Rank players by their final position metrics
+        player_scores = []
+        for player_num in range(1, num_players + 1):
+            score = _calculate_player_score(state, player_num)
+            player_scores.append((player_num, score))
+
+        # Sort by score (highest = best performance)
+        player_scores.sort(key=lambda x: x[1], reverse=True)
+
+        # Assign graded values based on ranking
+        # For 3 players: 1st=+1.0, 2nd=0.0, 3rd=-1.0
+        # For 4 players: 1st=+1.0, 2nd=+0.33, 3rd=-0.33, 4th=-1.0
+        if num_players == 3:
+            graded_values = [1.0, 0.0, -1.0]
+        else:  # num_players == 4
+            graded_values = [1.0, 0.33, -0.33, -1.0]
+
+        # Apply temporal discounting
+        gamma = 0.99
+        discount = gamma ** depth
+
+        for rank, (player_num, score) in enumerate(player_scores):
+            base_val = graded_values[rank]
+            # Add small bonuses based on score margin
+            bonus = score * 0.001  # Normalize large scores
+            discounted_val = (base_val + bonus) * discount
+
+            # Clamp to valid range
+            if base_val > 0:
+                values[player_num - 1] = max(0.001, min(1.0, discounted_val))
+            elif base_val < 0:
+                values[player_num - 1] = max(-1.0, min(-0.001, discounted_val))
+            else:
+                # Neutral position (2nd place in 3-player)
+                values[player_num - 1] = max(-0.5, min(0.5, discounted_val))
+
+    return values
+
+
+def _calculate_player_score(state, player_number: int) -> float:
+    """
+    Calculate a composite score for ranking players in multiplayer games.
+
+    Higher score = better performance. Used for determining placement
+    in graded outcome calculation.
+
+    Scoring components:
+    - Winner bonus: +1000
+    - Territory count: +10 per space
+    - Rings on board: +1 per ring marker
+    - Eliminated rings of opponents: +5 per ring
+    """
+    score = 0.0
+
+    # Winner gets massive bonus
+    if state.winner == player_number:
+        score += 1000.0
+
+    # Territory count
+    for p_id in state.board.collapsed_spaces.values():
+        if p_id == player_number:
+            score += 10.0
+
+    # Ring markers on board
+    for m in state.board.markers.values():
+        if m.player == player_number:
+            score += 1.0
+
+    # Rings eliminated from this player (penalty)
+    eliminated = state.board.eliminated_rings.get(str(player_number), 0)
+    score -= eliminated * 2.0
+
+    return score
 
 
 def augment_data(
@@ -432,9 +617,16 @@ def generate_dataset(
     replay_db: Optional[GameReplayDB] = None,
     num_players: int = 2,
     game_records_jsonl: Optional[str] = None,
+    engine: str = "descent",
+    engine_mix: str = "single",
+    engine_ratio: float = 0.5,
+    nn_model_id: Optional[str] = None,
+    multi_player_values: bool = False,
+    max_players: int = 4,
+    graded_outcomes: bool = False,
 ) -> None:
     """
-    Generate self-play data using DescentAI and RingRiftEnv.
+    Generate self-play data using DescentAI/MCTSAI and RingRiftEnv.
     Logs (state, best_move, root_value) for training.
 
     Parameters
@@ -465,6 +657,36 @@ def generate_dataset(
         Optional path to a JSONL file. When provided, each completed
         self-play game is also exported as a canonical GameRecord line
         suitable for downstream training and analysis pipelines.
+    engine:
+        Default search engine for self-play. One of:
+          - "descent" (default): DescentAI-based pipeline
+          - "mcts": MCTSAI-based AlphaZero-style pipeline
+    engine_mix:
+        Engine mixing strategy for diverse data generation. One of:
+          - "single" (default): All players use the same engine type.
+          - "per_game": Randomly choose engine per game (based on engine_ratio).
+          - "per_player": Randomly choose engine per player within a game.
+        When engine_mix != "single", the `engine` param becomes the default
+        for ratio-based selection.
+    engine_ratio:
+        Ratio of MCTS games/players when using engine_mix != "single".
+        0.0 = all Descent, 1.0 = all MCTS, 0.5 = 50/50. Default: 0.5.
+    nn_model_id:
+        Optional neural network model ID (e.g. "ringrift_v1"). If provided,
+        AI instances will use this model for evaluation. If None, engines
+        use their default model loading behavior.
+    multi_player_values:
+        If True, store per-player value vectors of shape (N, max_players)
+        instead of scalar values from the current player's perspective.
+        Required for training RingRiftCNN_MultiPlayer models.
+    max_players:
+        Maximum number of player slots in value vectors (default: 4).
+        Only used when multi_player_values=True.
+    graded_outcomes:
+        If True, use graded outcome values for 3+ player games where
+        intermediate placements (2nd, 3rd) receive intermediate values
+        instead of full loss (-1). For example, in a 4-player game:
+        1st=+1.0, 2nd=+0.33, 3rd=-0.33, 4th=-1.0. Default: False.
     """
     if seed is not None:
         import torch
@@ -481,27 +703,82 @@ def generate_dataset(
     new_values = []
     new_policy_indices = []
     new_policy_values = []
+    # Optional multi-player value vectors and num_players metadata (v2)
+    new_values_mp: list[np.ndarray] = []
+    new_num_players: list[int] = []
+    # Optional per-sample metadata (aligned with replay export) used for
+    # advanced sampling strategies when present.
+    new_move_numbers: list[int] = []
+    new_total_game_moves: list[int] = []
+    new_phases: list[str] = []
+    new_engines: list[str] = []
 
-    # Initialize AI players for all players in the game.
-    # For 2-player games, use provided ai1/ai2 if available.
-    # For 3p/4p games, always create fresh AI instances.
-    ai_players: dict = {}
-    for player_num in range(1, num_players + 1):
-        if player_num == 1 and ai1 is not None:
-            ai_players[player_num] = ai1
-        elif player_num == 2 and ai2 is not None:
-            ai_players[player_num] = ai2
-        else:
-            ai_players[player_num] = DescentAI(
+    # Validate engine parameters
+    engine = engine.lower()
+    engine_mix = engine_mix.lower()
+    if engine not in {"descent", "mcts"}:
+        raise ValueError(f"Unsupported engine '{engine}'. Expected 'descent' or 'mcts'.")
+    if engine_mix not in {"single", "per_game", "per_player"}:
+        raise ValueError(f"Unsupported engine_mix '{engine_mix}'. Expected 'single', 'per_game', or 'per_player'.")
+    if not 0.0 <= engine_ratio <= 1.0:
+        raise ValueError(f"engine_ratio must be in [0.0, 1.0], got {engine_ratio}")
+
+    def _make_ai(player_num: int, engine_type: str):
+        """Create an AI instance for the specified player and engine type."""
+        ai_config = AIConfig(
+            difficulty=10,
+            randomness=0.1 if engine_type == "descent" else 0.0,
+            think_time=500,
+            nn_model_id=nn_model_id,  # May be None for default behavior
+        )
+        if engine_type == "descent":
+            return DescentAI(
                 player_number=player_num,
-                config=AIConfig(difficulty=10, randomness=0.1, think_time=500)
+                config=ai_config,
+            )
+        else:
+            return MCTSAI(
+                player_number=player_num,
+                config=ai_config,
             )
 
-    # Keep legacy references for 2-player backward compatibility
-    ai_p1 = ai_players[1]
-    ai_p2 = ai_players.get(2, ai_players[1])  # Fallback for edge cases
+    def _select_engine_for_player(player_num: int, game_engine: str) -> str:
+        """Select engine type for a player based on mixing strategy."""
+        if engine_mix == "single":
+            return game_engine
+        elif engine_mix == "per_player":
+            return "mcts" if py_random.random() < engine_ratio else "descent"
+        else:  # per_game - use the game-level engine
+            return game_engine
+
+    # For single engine mode or when using provided AI instances, build once.
+    # For mixing modes, we'll rebuild per-game or use the engine selection.
+    ai_players: dict = {}
+    game_engine_type = engine  # Will be updated per-game in per_game mode
+
+    if engine_mix == "single":
+        # Initialize AI players once for all games
+        for player_num in range(1, num_players + 1):
+            if engine == "descent":
+                if player_num == 1 and ai1 is not None:
+                    ai_players[player_num] = ai1
+                elif player_num == 2 and ai2 is not None:
+                    ai_players[player_num] = ai2
+                else:
+                    ai_players[player_num] = _make_ai(player_num, engine)
+            else:
+                ai_players[player_num] = _make_ai(player_num, engine)
+
+    # Keep legacy references for 2-player backward compatibility (only valid for single mode)
+    ai_p1 = ai_players.get(1)
+    ai_p2 = ai_players.get(2, ai_p1)
+
+    # Track engine statistics for logging
+    engine_stats = {"descent": 0, "mcts": 0}
 
     print(f"Generating {num_games} {num_players}-player games on {board_type}...")
+    if engine_mix != "single":
+        print(f"  Engine mixing: {engine_mix}, ratio (MCTS): {engine_ratio:.2f}")
 
     env_config = TrainingEnvConfig(
         board_type=board_type,
@@ -550,7 +827,41 @@ def generate_dataset(
         state_history = []
         history_length = 3
 
-        print(f"Game {game_idx+1} started")
+        # --- Engine mixing: select/create AI players for this game ---
+        player_engines: dict = {}  # Maps player_num -> engine_type string
+        if engine_mix == "per_game":
+            # Select engine type for this entire game
+            game_engine_type = "mcts" if py_random.random() < engine_ratio else "descent"
+            for pn in range(1, num_players + 1):
+                ai_players[pn] = _make_ai(pn, game_engine_type)
+                player_engines[pn] = game_engine_type
+            # Update legacy references
+            ai_p1 = ai_players[1]
+            ai_p2 = ai_players.get(2, ai_p1)
+        elif engine_mix == "per_player":
+            # Select engine type independently for each player
+            for pn in range(1, num_players + 1):
+                p_engine = _select_engine_for_player(pn, engine)
+                ai_players[pn] = _make_ai(pn, p_engine)
+                player_engines[pn] = p_engine
+            # Update legacy references
+            ai_p1 = ai_players[1]
+            ai_p2 = ai_players.get(2, ai_p1)
+            game_engine_type = "mixed"  # Sentinel for logging
+        else:
+            # Single mode: all players use the same engine (already initialized)
+            game_engine_type = engine
+            for pn in range(1, num_players + 1):
+                player_engines[pn] = engine
+
+        # Track stats
+        if engine_mix == "per_player":
+            for pn, eng in player_engines.items():
+                engine_stats[eng] += 1
+        else:
+            engine_stats[game_engine_type] += num_players
+
+        print(f"Game {game_idx+1} started (engine: {game_engine_type})")
         move_count = 0
 
         while (
@@ -559,11 +870,12 @@ def generate_dataset(
         ):
             current_player = state.current_player
             ai = ai_players.get(current_player, ai_p1)
+            current_engine = player_engines.get(current_player, engine)
 
-            # Use DescentAI to select move
-            # DescentAI doesn't return a policy distribution, but we can
-            # construct a one-hot target for the best move.
-            # Or better, we can use the root value from the search as a target.
+            # Select move using the chosen engine.
+            # For DescentAI we retain the existing value + soft-policy logic.
+            # For MCTSAI we use MCTS visit distributions as canonical soft
+            # policy targets via extract_mcts_visit_distribution(...).
             move = ai.select_move(state)
 
             if not move:
@@ -572,66 +884,77 @@ def generate_dataset(
                 state.game_status = GameStatus.FINISHED
                 break
 
-            # Encode state and action
-            if ai.neural_net:
-                # Collect Tree Learning data (search log)
-                search_data = ai.get_search_data()
+            # Encode state and action based on engine type for this player
+            if current_engine == "descent" and ai.neural_net:
+                # Collect Tree Learning data (search log). For scalar value
+                # training we retain these auxiliary samples; for multi-player
+                # value training we skip them to avoid mismatched targets.
+                if not multi_player_values:
+                    search_data = ai.get_search_data()
 
-                # Process search data (features, value)
-                # We don't have policy for these intermediate nodes, so we use zero policy
-                # Or we can skip policy training for these samples
-                for feat, val in search_data:
-                    # We need to reconstruct the full input (stacked history)
-                    # This is tricky because search nodes might be deep in the tree
-                    # and we don't have their history easily available.
-                    # However, for "Simple AlphaZero", they just use the current state features
-                    # without history for the auxiliary value targets, OR they assume history is negligible.
-                    # Given our architecture requires history, we might need to approximate.
-                    # For now, let's use the current game history as the context,
-                    # even though it's slightly incorrect for deep nodes (history should shift).
-                    # But since Descent doesn't simulate opponent moves in history during search (it's just state),
-                    # the history remains "what happened before search started".
+                    # Process search data (features, value).
+                    # These are auxiliary value-only samples gathered from the
+                    # Descent tree. We attach empty sparse policies and treat
+                    # them as pure value supervision.
+                    for feat, val in search_data:
+                        # We need to reconstruct the full input (stacked history)
+                        # This is tricky because search nodes might be deep in the tree
+                        # and we don't have their history easily available.
+                        # However, for "Simple AlphaZero", they just use the current state features
+                        # without history for the auxiliary value targets, OR they assume history is negligible.
+                        # Given our architecture requires history, we might need to approximate.
+                        # For now, let's use the current game history as the context,
+                        # even though it's slightly incorrect for deep nodes (history should shift).
+                        # But since Descent doesn't simulate opponent moves in history during search (it's just state),
+                        # the history remains "what happened before search started".
 
-                    # Construct stacked features using current game history
-                    hist_list = state_history[::-1]
-                    while len(hist_list) < history_length:
-                        hist_list.append(np.zeros_like(feat))
-                    hist_list = hist_list[:history_length]
-                    stack_list = [feat] + hist_list
-                    stacked_features = np.concatenate(stack_list, axis=0)
+                        # Construct stacked features using current game history
+                        hist_list = state_history[::-1]
+                        while len(hist_list) < history_length:
+                            hist_list.append(np.zeros_like(feat))
+                        hist_list = hist_list[:history_length]
+                        stack_list = [feat] + hist_list
+                        stacked_features = np.concatenate(stack_list, axis=0)
 
-                    # Globals need to be re-calculated for the search node state?
-                    # The search log only stored features.
-                    # We should probably store globals too in DescentAI.
-                    # For now, let's use the root globals as approximation or skip globals update.
-                    # Actually, let's just use the root globals.
-                    _, root_globals = ai.neural_net._extract_features(state)
+                        # Globals need to be re-calculated for the search node state?
+                        # The search log only stored features.
+                        # We should probably store globals too in DescentAI.
+                        # For now, let's use the root globals as approximation or skip globals update.
+                        # Actually, let's just use the root globals.
+                        _, root_globals = ai.neural_net._extract_features(state)
 
-                    # Policy is unknown/irrelevant for these value-only samples
-                    # We can use a zero vector or a uniform vector.
-                    # Policy is unknown/irrelevant for these value-only samples
-                    # Use empty sparse arrays
-                    p_indices = np.array([], dtype=np.int32)
-                    p_values = np.array([], dtype=np.float32)
+                        # Policy is unknown/irrelevant for these value-only
+                        # samples; use empty sparse arrays.
+                        p_indices = np.array([], dtype=np.int32)
+                        p_values = np.array([], dtype=np.float32)
 
-                    # Augment and add immediately
-                    augmented_samples = augment_data(
-                        stacked_features,
-                        root_globals,
-                        p_indices,
-                        p_values,
-                        ai.neural_net,
-                        state.board.type,
-                    )
+                        # Augment and add immediately
+                        augmented_samples = augment_data(
+                            stacked_features,
+                            root_globals,
+                            p_indices,
+                            p_values,
+                            ai.neural_net,
+                            state.board.type,
+                        )
 
-                    for f, g, pi, pv in augmented_samples:
-                        new_features.append(f)
-                        new_globals.append(g)
-                        new_values.append(val) # Use the search value directly
-                        new_policy_indices.append(pi)
-                        new_policy_values.append(pv)
+                        for f, g, pi, pv in augmented_samples:
+                            new_features.append(f)
+                            new_globals.append(g)
+                            new_values.append(val)  # Use the search value directly
+                            new_policy_indices.append(pi)
+                            new_policy_values.append(pv)
+                            # Approximate metadata for search nodes: treat them as
+                            # occurring at the current move with total length
+                            # bounded by the training max_moves. This keeps array
+                            # shapes aligned for weighting without requiring full
+                            # tree context.
+                            new_move_numbers.append(move_count + 1)
+                            new_total_game_moves.append(max_moves)
+                            new_phases.append(state.current_phase.value)
+                            new_engines.append("descent")
 
-                # Now handle the actual root move (standard AlphaZero training)
+                # Now handle the actual root move (standard AlphaZero-style)
                 features, globals_vec = ai.neural_net._extract_features(state)
 
                 # Construct stacked features
@@ -647,12 +970,10 @@ def generate_dataset(
                 if len(state_history) > history_length + 1:
                     state_history.pop(0)
 
-                # Encode policy using ordinal distribution from search values
-                # We need to access the search tree to get children values
-                # DescentAI stores this in transposition_table
+                # Encode policy using DescentAI search statistics (existing path)
                 state_key = ai._get_state_key(state)
-                p_indices = []
-                p_values = []
+                p_indices: List[int] = []
+                p_values: List[float] = []
 
                 entry = ai.transposition_table.get(state_key)
                 if entry is not None:
@@ -662,66 +983,96 @@ def generate_dataset(
                         _, children_values = entry
 
                     if children_values:
-                        # Extract values and compute soft targets
                         # children_values: {move_key: (move, val, prob)}
                         moves_data = []
-                        for m_key, data in children_values.items():
+                        for _, data in children_values.items():
                             m = data[0]
                             v = data[1]
                             moves_data.append((m, v))
 
-                        # Sort by value (descending for current player)
-                        # Since we want probability distribution, we want higher prob for better moves
-                        # If current_player == ai.player_number, higher value is better
-                        # If current_player != ai.player_number, lower value is better (but we are training from perspective of current player?)
-                        # Actually, DescentAI always stores values from perspective of player 1 (or consistent perspective)?
-                        # No, DescentAI evaluates:
-                        # if state.current_player == self.player_number: best_val = max(...)
-                        # else: best_val = min(...)
-                        # So values are relative to self.player_number.
-
-                        # We need to normalize values to be "goodness for current player"
+                        # Sort by "goodness" for current player
                         is_maximizing = (current_player == ai.player_number)
-
-                        # Sort moves by "goodness"
                         if is_maximizing:
                             moves_data.sort(key=lambda x: x[1], reverse=True)
                         else:
                             moves_data.sort(key=lambda x: x[1])
 
-                        # Rank-based distribution (Cohen-Solal)
-                        # p(rank) ~ 1 / (rank + k)
-                        # rank 0 is best
+                        # Rank-based distribution (Cohen-Solal style)
                         k_rank = 1.0
-                        probs = []
-                        for rank in range(len(moves_data)):
-                            probs.append(1.0 / (rank + k_rank))
-
-                        # Normalize
-                        probs = np.array(probs)
+                        probs = np.array(
+                            [1.0 / (rank + k_rank) for rank in range(len(moves_data))],
+                            dtype=np.float32,
+                        )
                         probs = probs / probs.sum()
 
-                        # Encode
-                        # Encode
                         for i, (m, _) in enumerate(moves_data):
                             idx = ai.neural_net.encode_move(m, state.board)
                             if idx != INVALID_MOVE_INDEX:
                                 p_indices.append(idx)
-                                p_values.append(probs[i])
+                                p_values.append(float(probs[i]))
 
-                # Fallback if no search data (shouldn't happen if search ran)
+                # Fallback if no search data
                 if not p_indices:
                     idx = ai.neural_net.encode_move(move, state.board)
                     if idx != INVALID_MOVE_INDEX:
                         p_indices.append(idx)
                         p_values.append(1.0)
-                game_history.append({
-                    'features': stacked_features,
-                    'globals': globals_vec,
-                    'policy_indices': np.array(p_indices, dtype=np.int32),
-                    'policy_values': np.array(p_values, dtype=np.float32),
-                    'player': current_player
-                })
+
+                game_history.append(
+                    {
+                        'features': stacked_features,
+                        'globals': globals_vec,
+                        'policy_indices': np.array(p_indices, dtype=np.int32),
+                        'policy_values': np.array(p_values, dtype=np.float32),
+                        'player': current_player,
+                        'engine': current_engine,  # Track which engine generated this sample
+                        'phase': state.current_phase.value,
+                    }
+                )
+
+            elif current_engine == "mcts" and isinstance(ai, MCTSAI) and ai.neural_net:
+                # MCTS-based soft policy targets using visit distributions.
+                # Extract NN features for the root state.
+                features, globals_vec = ai.neural_net._extract_features(state)
+
+                # Construct stacked features with history
+                hist_list = state_history[::-1]
+                while len(hist_list) < history_length:
+                    hist_list.append(np.zeros_like(features))
+                hist_list = hist_list[:history_length]
+                stack_list = [features] + hist_list
+                stacked_features = np.concatenate(stack_list, axis=0)
+
+                # Update history buffer
+                state_history.append(features)
+                if len(state_history) > history_length + 1:
+                    state_history.pop(0)
+
+                # Extract soft policy from MCTS visits
+                p_indices_arr, p_values_arr = extract_mcts_visit_distribution(
+                    ai,
+                    state,
+                    encoder=ai.neural_net,
+                )
+
+                # Fallback: 1-hot on selected move if distribution is empty
+                if p_indices_arr.size == 0:
+                    idx = ai.neural_net.encode_move(move, state.board)
+                    if idx != INVALID_MOVE_INDEX:
+                        p_indices_arr = np.array([idx], dtype=np.int32)
+                        p_values_arr = np.array([1.0], dtype=np.float32)
+
+                game_history.append(
+                    {
+                        'features': stacked_features,
+                        'globals': globals_vec,
+                        'policy_indices': p_indices_arr,
+                        'policy_values': p_values_arr,
+                        'player': current_player,
+                        'engine': current_engine,  # Track which engine generated this sample
+                        'phase': state.current_phase.value,
+                    }
+                )
 
             # Track move for DB recording before applying
             moves_for_db.append(move)
@@ -774,7 +1125,9 @@ def generate_dataset(
                     final_state=state,
                     moves=moves_for_db,
                     metadata={
-                        "engine_mode": "descent",
+                        "engine_mode": game_engine_type,
+                        "engine_mix": engine_mix,
+                        "player_engines": player_engines,
                         "seed": game_seed,
                         "source": "training_data_generation",
                     },
@@ -783,17 +1136,26 @@ def generate_dataset(
             except Exception as e:
                 print(f"Warning: Failed to record game to DB: {e}")
 
-        # Assign rewards
+        # Assign rewards and build per-position training samples
         total_moves = len(game_history)
 
         for i, step in enumerate(game_history):
             moves_remaining = total_moves - i
 
-            # Calculate outcome using detailed logic
-            # We need to pass the final state to calculate bonuses
-            # But we need to view it from the perspective of step['player']
-
-            outcome = calculate_outcome(state, step['player'], moves_remaining)
+            if multi_player_values:
+                # Vector outcome for all players plus scalar view for the
+                # current player for backwards compatibility.
+                values_vec = calculate_multi_player_outcome(
+                    state,
+                    num_players=num_players,
+                    depth=moves_remaining,
+                    max_players=max_players,
+                    graded=graded_outcomes,
+                )
+                outcome = float(values_vec[step['player'] - 1])
+            else:
+                # Scalar outcome from the perspective of the acting player.
+                outcome = calculate_outcome(state, step['player'], moves_remaining)
 
             # Augment data for training; board_type is fixed per dataset.
             augmented_samples = augment_data(
@@ -811,6 +1173,18 @@ def generate_dataset(
                 new_values.append(outcome)
                 new_policy_indices.append(pi)
                 new_policy_values.append(pv)
+                # Metadata aligned with replay-exported datasets:
+                # - move_numbers: 1-based move index within the game
+                # - total_game_moves: total (non-augmented) moves in the game
+                # - phases: canonical GamePhase string for this root state
+                # - engines: which engine produced this sample
+                new_move_numbers.append(i + 1)
+                new_total_game_moves.append(total_moves)
+                new_phases.append(step.get('phase', state.current_phase.value))
+                new_engines.append(step.get('engine', game_engine_type))
+                if multi_player_values:
+                    new_values_mp.append(values_vec)
+                    new_num_players.append(num_players)
 
         # Record game completion for progress reporting
         game_duration = time.time() - game_start_time
@@ -862,10 +1236,32 @@ def generate_dataset(
     # Sparse policies stored as object arrays of numpy arrays
     new_policy_indices = np.array(new_policy_indices, dtype=object)
     new_policy_values = np.array(new_policy_values, dtype=object)
+    # Optional multi-player value vectors and num_players metadata
+    if multi_player_values and new_values_mp:
+        new_values_mp_arr = np.stack(new_values_mp, axis=0).astype(np.float32)
+        new_num_players_arr = np.array(new_num_players, dtype=np.int32)
+    else:
+        new_values_mp_arr = None
+        new_num_players_arr = None
+    # Optional metadata arrays; kept simple for compatibility.
+    new_move_numbers_arr = np.array(new_move_numbers, dtype=np.int32)
+    new_total_game_moves_arr = np.array(new_total_game_moves, dtype=np.int32)
+    new_phases_arr = np.array(new_phases, dtype=object)
+    new_engines_arr = np.array(new_engines, dtype=object)
 
     print(f"Generated {len(new_values)} new samples")
 
+    # Log engine usage statistics
+    if engine_mix != "single":
+        total_engine_samples = engine_stats["descent"] + engine_stats["mcts"]
+        if total_engine_samples > 0:
+            descent_pct = 100 * engine_stats["descent"] / total_engine_samples
+            mcts_pct = 100 * engine_stats["mcts"] / total_engine_samples
+            print(f"Engine stats: Descent={descent_pct:.1f}%, MCTS={mcts_pct:.1f}%")
+
     # Load existing data if available
+    write_metadata = True
+    write_mp = multi_player_values
     if os.path.exists(output_path):
         try:
             with np.load(output_path, allow_pickle=True) as data:
@@ -888,14 +1284,81 @@ def generate_dataset(
                         for p in dense_policies:
                             indices = np.nonzero(p)[0]
                             values = p[indices]
-                            existing_policy_indices.append(indices.astype(np.int32))
-                            existing_policy_values.append(values.astype(np.float32))
-                        existing_policy_indices = np.array(existing_policy_indices, dtype=object)
-                        existing_policy_values = np.array(existing_policy_values, dtype=object)
+                            existing_policy_indices.append(
+                                indices.astype(np.int32)
+                            )
+                            existing_policy_values.append(
+                                values.astype(np.float32)
+                            )
+                        existing_policy_indices = np.array(
+                            existing_policy_indices,
+                            dtype=object,
+                        )
+                        existing_policy_values = np.array(
+                            existing_policy_values,
+                            dtype=object,
+                        )
 
                     print(f"Loaded {len(existing_values)} existing samples")
 
-                    # Concatenate
+                    # Optional metadata from prior runs. Only maintain
+                    # per-sample metadata when the existing file already
+                    # includes aligned arrays; this avoids mismatched
+                    # lengths when appending to legacy datasets.
+                    has_metadata = (
+                        'move_numbers' in data
+                        and 'total_game_moves' in data
+                        and 'phases' in data
+                        and 'engines' in data
+                    )
+                    if has_metadata:
+                        existing_move_numbers = data['move_numbers']
+                        existing_total_game_moves = data['total_game_moves']
+                        existing_phases = data['phases']
+                        existing_engines = data['engines']
+
+                        new_move_numbers_arr = np.concatenate(
+                            [existing_move_numbers, new_move_numbers_arr]
+                        )
+                        new_total_game_moves_arr = np.concatenate(
+                            [existing_total_game_moves, new_total_game_moves_arr]
+                        )
+                        new_phases_arr = np.concatenate(
+                            [existing_phases, new_phases_arr]
+                        )
+                        new_engines_arr = np.concatenate(
+                            [existing_engines, new_engines_arr]
+                        )
+                    else:
+                        # Do not attempt to write metadata when appending to
+                        # older files that lack it.
+                        write_metadata = False
+
+                    # Optional multi-player targets from prior runs. Only
+                    # append when the existing file already has them; when
+                    # appending to legacy scalar-only datasets we disable
+                    # multi-player writes to avoid inconsistent lengths.
+                    if multi_player_values:
+                        has_mp = (
+                            'values_mp' in data
+                            and 'num_players' in data
+                        )
+                        if has_mp and new_values_mp_arr is not None:
+                            existing_values_mp = data['values_mp']
+                            existing_num_players = data['num_players']
+
+                            new_values_mp_arr = np.concatenate(
+                                [existing_values_mp, new_values_mp_arr],
+                                axis=0,
+                            )
+                            new_num_players_arr = np.concatenate(
+                                [existing_num_players, new_num_players_arr],
+                                axis=0,
+                            )
+                        else:
+                            write_mp = False
+
+                    # Concatenate core arrays
                     new_features = np.concatenate(
                         [existing_features, new_features]
                     )
@@ -928,14 +1391,30 @@ def generate_dataset(
         new_policy_values = new_policy_values[-MAX_BUFFER_SIZE:]
 
     # Save as compressed npz
-    np.savez_compressed(
-        output_path,
-        features=new_features,
-        globals=new_globals,
-        values=new_values,
-        policy_indices=new_policy_indices,
-        policy_values=new_policy_values
-    )
+    save_kwargs = {
+        "features": new_features,
+        "globals": new_globals,
+        "values": new_values,
+        "policy_indices": new_policy_indices,
+        "policy_values": new_policy_values,
+    }
+    if write_metadata:
+        save_kwargs.update(
+            {
+                "move_numbers": new_move_numbers_arr,
+                "total_game_moves": new_total_game_moves_arr,
+                "phases": new_phases_arr,
+                "engines": new_engines_arr,
+            }
+        )
+    if write_mp and (new_values_mp_arr is not None) and (new_num_players_arr is not None):
+        save_kwargs.update(
+            {
+                "values_mp": new_values_mp_arr,
+                "num_players": new_num_players_arr,
+            }
+        )
+    np.savez_compressed(output_path, **save_kwargs)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -1011,6 +1490,72 @@ def _parse_args() -> argparse.Namespace:
             "self-play game (canonical schema for training pipelines)."
         ),
     )
+    parser.add_argument(
+        "--engine",
+        type=str,
+        default="descent",
+        choices=["descent", "mcts"],
+        help=(
+            "Self-play engine for data generation: 'descent' (default) "
+            "or 'mcts' for NN-guided MCTS with soft policy targets."
+        ),
+    )
+    parser.add_argument(
+        "--engine-mix",
+        type=str,
+        default="single",
+        choices=["single", "per_game", "per_player"],
+        help=(
+            "Engine mixing strategy: 'single' (all players use --engine), "
+            "'per_game' (choose engine per game), 'per_player' (choose engine "
+            "per player). See --engine-ratio to control MCTS proportion."
+        ),
+    )
+    parser.add_argument(
+        "--engine-ratio",
+        type=float,
+        default=0.5,
+        help=(
+            "When --engine-mix != 'single', ratio of MCTS usage (0.0 = all Descent, "
+            "1.0 = all MCTS, 0.5 = 50/50). Default: 0.5."
+        ),
+    )
+    parser.add_argument(
+        "--nn-model-id",
+        type=str,
+        default=None,
+        help=(
+            "Neural network model ID (e.g. 'ringrift_v1') for AI evaluation. "
+            "If not provided, engines use their default model loading behavior."
+        ),
+    )
+    parser.add_argument(
+        "--multi-player-values",
+        action="store_true",
+        help=(
+            "Store per-player value vectors (values_mp / num_players) in the "
+            "output dataset for multi-player training."
+        ),
+    )
+    parser.add_argument(
+        "--max-players",
+        type=int,
+        default=4,
+        help=(
+            "Maximum number of player slots for multi-player value vectors "
+            "(default: 4). Only used when --multi-player-values is set."
+        ),
+    )
+    parser.add_argument(
+        "--graded-outcomes",
+        action="store_true",
+        help=(
+            "Use graded outcome values for 3+ player games. Instead of "
+            "binary win/lose, intermediate placements get intermediate "
+            "values (e.g., 4-player: 1st=+1, 2nd=+0.33, 3rd=-0.33, 4th=-1). "
+            "Only affects --multi-player-values datasets."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1059,6 +1604,13 @@ def main() -> None:
         replay_db=replay_db,
         num_players=args.num_players,
         game_records_jsonl=args.game_records_jsonl,
+        engine=args.engine,
+        engine_mix=args.engine_mix,
+        engine_ratio=args.engine_ratio,
+        nn_model_id=args.nn_model_id,
+        multi_player_values=args.multi_player_values,
+        max_players=args.max_players,
+        graded_outcomes=args.graded_outcomes,
     )
 
 

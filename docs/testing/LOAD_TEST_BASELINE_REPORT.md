@@ -83,6 +83,151 @@ WS_URL=http://localhost:3000 \
 npx k6 run tests/load/scenarios/websocket-stress.js
 ```
 
+### Harness mechanics and SLO/go–no‑go reporting (Wave 3.1+)
+
+The commands above all use the shared `handleSummary` factory in [`tests/load/summary.js`](tests/load/summary.js:1). For each scenario:
+
+- A compact, SLO-aware JSON summary is written to:
+
+  ```text
+  ${K6_SUMMARY_DIR:-results/load}/${scenario}.${THRESHOLD_ENV}.summary.json
+  ```
+
+  Examples:
+  - `results/load/game-creation.staging.summary.json`
+  - `results/load/concurrent-games.production.summary.json`
+
+- The JSON structure is:
+
+  ```json
+  {
+    "scenario": "game-creation",
+    "environment": "staging-stack",
+    "runTimestamp": "2025-12-05T09:30:00.000Z",
+    "overallPass": true,
+    "thresholdsEnv": "staging",
+    "thresholds": [
+      {
+        "metric": "http_req_duration{name:create-game}",
+        "threshold": "p(95)<800",
+        "statistic": "p(95)",
+        "comparison": "<",
+        "limit": 800,
+        "value": 352.1,
+        "passed": true
+      }
+    ],
+    "http": { "... trimmed ..." },
+    "websocket": { "... trimmed ..." },
+    "ai": { "... trimmed ..." },
+    "classifications": { "... trimmed ..." },
+    "raw": { "... same fields as above, nested under raw ..." }
+  }
+  ```
+
+  Key fields:
+  - `scenario`: scenario identifier (e.g. `game-creation`, `concurrent-games`).
+  - `environment`: human-readable environment label for reporting. Preferentially taken from `RINGRIFT_ENV` (e.g. `staging`, `prod-preview`), with fallbacks to k6 `ENVIRONMENT` or `THRESHOLD_ENV`.
+  - `thresholdsEnv`: the environment key used when looking up SLO thresholds in [`tests/load/config/thresholds.json`](tests/load/config/thresholds.json:1) (e.g. `staging`, `production`).
+  - `thresholds`: one entry per k6 threshold expression actually evaluated during the run. Each entry includes:
+    - `metric`: k6 metric name (e.g. `http_req_duration{name:create-game}`).
+    - `threshold`: raw k6 threshold expression (e.g. `"p(95)<800"` or `"rate<0.01"`).
+    - `statistic`, `comparison`, `limit`: parsed components of the expression.
+    - `value`: the actual measured value used by k6 for that threshold.
+    - `passed`: the final pass/fail result for that threshold.
+  - `overallPass`: `true` if **all** thresholds for the scenario passed, `false` if any failed.
+  - `http`, `websocket`, `ai`, `classifications`: backward-compatible compact metric summaries (latencies, rates, classification counters).
+  - `raw`: the same compact metric blocks, plus `scenario`, `environment`, and `thresholdsEnv`, preserved as a nested object for consumers that prefer the original shape.
+
+**Per-scenario go/no‑go interpretation:**
+
+- **Go** for a scenario: its `.summary.json` has `"overallPass": true`.
+- **No‑go** for a scenario: `"overallPass": false`, and the failing thresholds in `thresholds[]` identify which SLOs were violated (e.g. latency p95, p99, error rate, capacity counters).
+
+### Aggregated run-level summary and single go/no‑go signal
+
+After running the required scenarios and generating their `.summary.json` files, you can produce a single run-level decision artifact via:
+
+```bash
+# From repo root, using the default results/load directory
+npx ts-node scripts/analyze-load-slos.ts
+
+# Or, if you overrode the summary directory via K6_SUMMARY_DIR
+K6_SUMMARY_DIR=results/load-staging \
+npx ts-node scripts/analyze-load-slos.ts
+```
+
+This helper:
+
+- Scans `${K6_SUMMARY_DIR:-results/load}/*.summary.json`.
+- Derives a normalized SLO view for each scenario (scenario id, environment, thresholds, `overallPass`).
+- Computes a run-level `overallPass` as the logical AND of all per-scenario `overallPass` values.
+- Writes an aggregate artifact to:
+
+  ```text
+  ${K6_SUMMARY_DIR:-results/load}/load_slo_summary.json
+  ```
+
+The aggregated JSON shape is:
+
+```json
+{
+  "runTimestamp": "2025-12-05T09:45:00.000Z",
+  "environment": "staging",
+  "scenarios": [
+    {
+      "scenario": "game-creation",
+      "environment": "staging-stack",
+      "thresholds": ["... per-threshold status objects ..."],
+      "overallPass": true,
+      "sourceFile": "results/load/game-creation.staging.summary.json"
+    },
+    {
+      "scenario": "concurrent-games",
+      "environment": "staging-stack",
+      "thresholds": ["... trimmed ..."],
+      "overallPass": true,
+      "sourceFile": "results/load/concurrent-games.staging.summary.json"
+    }
+  ],
+  "overallPass": true
+}
+```
+
+- `environment` is inferred from the set of scenario environments. If all scenarios share the same environment, that value is used; otherwise it is set to `"mixed"`.
+- `scenarios[*].overallPass` and the enclosing `overallPass` are the primary **go/no‑go** signals.
+
+The script also prints a compact table to stdout, for example:
+
+```text
+Wrote aggregated load SLO summary to results/load/load_slo_summary.json
+┌─────────┬────────────────────┬───────────────┬────────────┐
+│ (index) │     scenario       │ environment   │ overallPass│
+├─────────┼────────────────────┼───────────────┼────────────┤
+│    0    │  'game-creation'   │ 'staging'     │   true     │
+│    1    │ 'concurrent-games' │ 'staging'     │   true     │
+│    2    │   'player-moves'   │ 'staging'     │   true     │
+│    3    │ 'websocket-stress' │ 'staging'     │   true     │
+└─────────┴────────────────────┴───────────────┴────────────┘
+Overall load test SLO result: GO (all scenarios passed)
+```
+
+**Run-level go/no‑go interpretation:**
+
+- **Go** for a full Wave‑3.1 run when:
+  - All required scenarios (for the environment and release gate in question) are present in `scenarios[]`, **and**
+  - `overallPass` in `load_slo_summary.json` is `true`.
+- **No‑go** for the run when:
+  - Any required scenario is missing, **or**
+  - Any required scenario has `overallPass: false` in its per-scenario `.summary.json`, which will surface as `overallPass: false` in `load_slo_summary.json`.
+
+The underlying SLO targets and semantics remain defined in:
+
+- [`tests/load/config/thresholds.json`](tests/load/config/thresholds.json:1)
+- SLO strategy docs: [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:257), [`PROJECT_GOALS.md`](PROJECT_GOALS.md:150), and (where present) [`docs/ALERTING_THRESHOLDS.md`](docs/ALERTING_THRESHOLDS.md:10).
+
+The harness described here simply makes those SLOs executable for discrete load runs and exposes clear, scriptable go/no‑go signals.
+
 ## PASS24.3 – HTTP Move Harness k6 Player-Moves Scenario (2025-12-04)
 
 **Environment:**

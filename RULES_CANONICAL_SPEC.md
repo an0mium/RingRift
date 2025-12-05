@@ -213,6 +213,20 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - This ensures that as long as any stacks exist on the board, some player always has a legal action (movement or forced elimination) on their turn.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.2–2.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.2–4.4, 13.4, 13.5, 15.4 Q24.
 
+- **[RR-CANON-R073] Mandatory phase transitions for currentPhase.**
+  - The `currentPhase` field in `GameState` must change at specific points during turn processing:
+    - **ring_placement → movement:** After a `place_ring` or `skip_placement` move, `currentPhase` MUST change to `movement` for the same player.
+    - **movement → capture:** After a non-capture movement (`move_stack` or `move_ring`), if legal capture segments exist from the landing position per RR-CANON-R093, `currentPhase` MUST change to `capture`. If no such captures exist, proceed to `line_processing`.
+    - **capture → chain_capture:** After executing an `overtaking_capture` segment, if additional legal capture segments exist from the new landing position per RR-CANON-R103, `currentPhase` MUST change to `chain_capture` and the chain must continue.
+    - **chain_capture → line_processing:** After executing a `continue_capture_segment`, if no additional legal captures exist from the new position, `currentPhase` MUST change to `line_processing`.
+    - **capture → line_processing:** After executing an `overtaking_capture` segment where no chain continuation is required (no further captures from landing), `currentPhase` MUST change to `line_processing`.
+    - **movement → line_processing:** After a non-capture movement where no capture segments exist from the landing position, `currentPhase` MUST change to `line_processing`.
+    - **line_processing → territory_processing:** After all lines for the current player are processed (or none existed), `currentPhase` MUST change to `territory_processing`.
+    - **territory_processing → ring_placement/movement:** After all territory regions are processed (or none existed) and victory checks pass, the turn ends and the next player's `currentPhase` is set to `ring_placement` (if `ringsInHand > 0`) or `movement` (if `ringsInHand == 0` but stacks exist).
+  - These transitions are not optional; any engine implementation that does not perform them violates the canonical rules.
+  - Note: The `skip_capture` move type exists for cases where a player declines an optional capture opportunity; it explicitly transitions from `capture` to `line_processing` without executing a capture.
+  - References: RR-CANON-R070, RR-CANON-R093, RR-CANON-R103; TS `turnOrchestrator.ts` `processPostMovePhases` and `phaseStateMachine.ts`.
+
 ---
 
 ## 4.5 Active-No-Moves & Forced Elimination Semantics (R2xx)

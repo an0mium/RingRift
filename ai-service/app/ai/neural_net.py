@@ -15,7 +15,7 @@ import logging
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import Any, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime
 
 from .base import BaseAI
@@ -32,6 +32,67 @@ from ..rules.geometry import BoardGeometry
 
 INVALID_MOVE_INDEX = -1
 MAX_N = 19  # Canonical maximum side length for policy encoding (19x19 grid)
+
+# =============================================================================
+# Board-Specific Policy Sizes
+# =============================================================================
+#
+# Each board type has an optimal policy head size based on its action space.
+# Using board-specific sizes reduces wasted parameters and improves training.
+
+# Square 8x8 Policy Layout:
+#   Placement:       3 * 8 * 8 = 192
+#   Movement:        8 * 8 * 8 * 7 = 3,584  (8 directions, max 7 distance)
+#   Line Formation:  8 * 8 * 4 = 256
+#   Territory Claim: 8 * 8 = 64
+#   Skip Placement:  1
+#   Swap Sides:      1
+#   Line Choice:     4
+#   Territory Choice: 64 * 8 * 4 = 2,048
+#   Total: ~6,150 → 7,000 (with padding)
+POLICY_SIZE_8x8 = 7000
+
+# Square 19x19 Policy Layout (v2 - with robust territory choice encoding):
+#   0-1082:       Placement (3 * 19 * 19 = 1,083)
+#   1083-53066:   Movement/Capture (19 * 19 * 8 * 18 = 51,984)
+#   53067-54510:  Line Formation (19 * 19 * 4 = 1,444)
+#   54511-54871:  Territory Claim (19 * 19 = 361)
+#   54872:        Skip Placement (1)
+#   54873:        Swap Sides (1)
+#   54874-54877:  Line Choice (4)
+#   54878-66429:  Territory Choice (361 * 8 * 4 = 11,552)
+#   Total: 66,430 → 67,000 (with padding)
+POLICY_SIZE_19x19 = 67000
+
+# Legacy alias for backwards compatibility
+POLICY_SIZE = POLICY_SIZE_19x19
+
+# Maximum number of players for multi-player value head
+MAX_PLAYERS = 4
+
+# Board type to policy size mapping
+BOARD_POLICY_SIZES: Dict[BoardType, int] = {
+    BoardType.SQUARE8: POLICY_SIZE_8x8,
+    BoardType.SQUARE19: POLICY_SIZE_19x19,
+    BoardType.HEXAGONAL: 54244,  # P_HEX defined below
+}
+
+# Board type to spatial size mapping
+BOARD_SPATIAL_SIZES: Dict[BoardType, int] = {
+    BoardType.SQUARE8: 8,
+    BoardType.SQUARE19: 19,
+    BoardType.HEXAGONAL: 21,  # HEX_BOARD_SIZE
+}
+
+
+def get_policy_size_for_board(board_type: BoardType) -> int:
+    """Get the optimal policy head size for a board type."""
+    return BOARD_POLICY_SIZES.get(board_type, POLICY_SIZE_19x19)
+
+
+def get_spatial_size_for_board(board_type: BoardType) -> int:
+    """Get the spatial (H, W) size for a board type."""
+    return BOARD_SPATIAL_SIZES.get(board_type, 19)
 
 # Hex-specific canonical geometry and policy layout constants.
 #
@@ -213,13 +274,18 @@ class RingRiftCNN(nn.Module):
     This model uses a ResNet-style backbone with adaptive pooling to handle
     variable board sizes (8x8, 19x19, 21x21 hex).
 
+    For optimal training, use board-specific policy sizes:
+    - 8x8:  policy_size=7000  (POLICY_SIZE_8x8)
+    - 19x19: policy_size=67000 (POLICY_SIZE_19x19)
+    - Hex:   Use HexNeuralNet instead (P_HEX=54244)
+
     Architecture Version:
-        v1.0.0 - Initial architecture with 10 residual blocks, 128 filters,
-                 adaptive pooling to 4x4, policy head size 55000.
+        v1.1.0 - Added configurable policy_size for board-specific optimization.
+                 Models with different policy_size are NOT checkpoint-compatible.
     """
 
     # Architecture version for checkpoint compatibility checking
-    ARCHITECTURE_VERSION = "v1.0.0"
+    ARCHITECTURE_VERSION = "v1.1.0"
 
     def __init__(
         self,
@@ -229,6 +295,7 @@ class RingRiftCNN(nn.Module):
         num_res_blocks: int = 10,
         num_filters: int = 128,
         history_length: int = 3,
+        policy_size: Optional[int] = None,
     ):
         super(RingRiftCNN, self).__init__()
         self.board_size = board_size
@@ -280,12 +347,15 @@ class RingRiftCNN(nn.Module):
         self.value_head = nn.Linear(256, 1)
         self.tanh = nn.Tanh()
 
-        # Policy head
-        # We use a large fixed size to accommodate up to 19x19 boards.
-        # For smaller boards, we mask the invalid logits during
-        # inference/training.
-        # Max size 19x19: ~55,000
-        self.policy_size = 55000
+        # Policy head - use provided policy_size or infer from board_size
+        if policy_size is not None:
+            self.policy_size = policy_size
+        elif board_size == 8:
+            self.policy_size = POLICY_SIZE_8x8
+        elif board_size == 19:
+            self.policy_size = POLICY_SIZE_19x19
+        else:
+            self.policy_size = POLICY_SIZE  # Default to 19x19 size
         self.policy_head = nn.Linear(256, self.policy_size)
 
     def forward(self, x, globals):
@@ -338,9 +408,12 @@ class RingRiftCNN_MPS(nn.Module):
     via torch.mean(). This maintains similar model capacity while ensuring
     compatibility with PyTorch's MPS backend on macOS.
 
+    For optimal training, use board-specific policy sizes:
+    - 8x8:  policy_size=7000  (POLICY_SIZE_8x8)
+    - 19x19: policy_size=67000 (POLICY_SIZE_19x19)
+
     Architecture Version:
-        v1.0.0 - Initial MPS-compatible architecture mirroring RingRiftCNN
-                 but using manual average pooling instead of AdaptiveAvgPool2d.
+        v1.1.0-mps - Added configurable policy_size for board-specific optimization.
 
     Key Differences from RingRiftCNN:
         - Uses torch.mean(dim=[-2, -1]) instead of nn.AdaptiveAvgPool2d((4, 4))
@@ -349,7 +422,7 @@ class RingRiftCNN_MPS(nn.Module):
     """
 
     # Architecture version for checkpoint compatibility checking
-    ARCHITECTURE_VERSION = "v1.0.0-mps"
+    ARCHITECTURE_VERSION = "v1.1.0-mps"
 
     def __init__(
         self,
@@ -359,6 +432,7 @@ class RingRiftCNN_MPS(nn.Module):
         num_res_blocks: int = 10,
         num_filters: int = 128,
         history_length: int = 3,
+        policy_size: Optional[int] = None,
     ):
         super(RingRiftCNN_MPS, self).__init__()
         self.board_size = board_size
@@ -408,12 +482,15 @@ class RingRiftCNN_MPS(nn.Module):
         self.value_head = nn.Linear(256, 1)
         self.tanh = nn.Tanh()
 
-        # Policy head
-        # We use a large fixed size to accommodate up to 19x19 boards.
-        # For smaller boards, we mask the invalid logits during
-        # inference/training.
-        # Max size 19x19: ~55,000
-        self.policy_size = 55000
+        # Policy head - use provided policy_size or infer from board_size
+        if policy_size is not None:
+            self.policy_size = policy_size
+        elif board_size == 8:
+            self.policy_size = POLICY_SIZE_8x8
+        elif board_size == 19:
+            self.policy_size = POLICY_SIZE_19x19
+        else:
+            self.policy_size = POLICY_SIZE  # Default to 19x19 size
         self.policy_head = nn.Linear(256, self.policy_size)
 
     def forward(self, x, globals):
@@ -455,6 +532,393 @@ class RingRiftCNN_MPS(nn.Module):
             v, p = self.forward(x, g)
         return float(v.item()), p.cpu().numpy()[0]
 
+
+class RingRiftCNN_MultiPlayer(nn.Module):
+    """
+    CNN architecture for RingRift with per-player value head.
+
+    This model outputs a value vector for all players simultaneously instead
+    of a single scalar value from the current player's perspective. This is
+    more suitable for multiplayer games (3-4 players) where outcomes aren't
+    strictly zero-sum.
+
+    The value head outputs values for each player position (up to MAX_PLAYERS),
+    where each value represents that player's expected outcome in [-1, +1].
+
+    Architecture Version:
+        v2.0.0 - Multi-player value head architecture. Incompatible with v1.x
+                 checkpoints due to value head dimension change.
+    """
+
+    # Architecture version for checkpoint compatibility checking
+    ARCHITECTURE_VERSION = "v2.0.0"
+
+    def __init__(
+        self,
+        board_size: int = 8,
+        in_channels: int = 10,
+        global_features: int = 10,
+        num_res_blocks: int = 10,
+        num_filters: int = 128,
+        history_length: int = 3,
+        max_players: int = MAX_PLAYERS,
+        policy_size: Optional[int] = None,
+    ):
+        super(RingRiftCNN_MultiPlayer, self).__init__()
+        self.board_size = board_size
+        self.max_players = max_players
+
+        # Input channels = base_channels * (history_length + 1)
+        self.total_in_channels = in_channels * (history_length + 1)
+
+        # Initial convolution
+        self.conv1 = nn.Conv2d(
+            self.total_in_channels, num_filters, kernel_size=3, padding=1
+        )
+        self.bn1 = nn.BatchNorm2d(num_filters)
+        self.relu = nn.ReLU()
+
+        # Residual blocks
+        self.res_blocks = nn.ModuleList([
+            ResidualBlock(num_filters) for _ in range(num_res_blocks)
+        ])
+
+        # Adaptive Pooling to handle variable board sizes
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
+
+        # Fully connected layers
+        conv_out_size = num_filters * 4 * 4
+        self.fc1 = nn.Linear(conv_out_size + global_features, 256)
+        self.dropout = nn.Dropout(0.3)
+
+        # Multi-player value head: outputs values for each player position
+        self.value_head = nn.Linear(256, max_players)
+        self.tanh = nn.Tanh()
+
+        # Policy head - use provided policy_size or infer from board_size
+        if policy_size is not None:
+            self.policy_size = policy_size
+        elif board_size == 8:
+            self.policy_size = POLICY_SIZE_8x8
+        elif board_size == 19:
+            self.policy_size = POLICY_SIZE_19x19
+        else:
+            self.policy_size = POLICY_SIZE  # Default to 19x19 size
+        self.policy_head = nn.Linear(256, self.policy_size)
+
+    def forward(
+        self, x: torch.Tensor, globals: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass through the network.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Board features tensor of shape (batch, channels, height, width).
+        globals : torch.Tensor
+            Global features tensor of shape (batch, global_features).
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            - values: Shape (batch, max_players) with values in [-1, +1] for
+              each player position.
+            - policy: Shape (batch, POLICY_SIZE) with policy logits.
+        """
+        x = self.relu(self.bn1(self.conv1(x)))
+
+        for block in self.res_blocks:
+            x = block(x)
+
+        # Adaptive pooling to fixed size
+        x = self.adaptive_pool(x)
+
+        x = x.view(x.size(0), -1)  # Flatten
+
+        # Concatenate global features
+        x = torch.cat((x, globals), dim=1)
+
+        x = self.relu(self.fc1(x))
+        x = self.dropout(x)
+
+        # Multi-player values: (batch, max_players) with tanh activation
+        values = self.tanh(self.value_head(x))
+
+        # Policy logits unchanged
+        policy = self.policy_head(x)
+
+        return values, policy
+
+    def forward_single(
+        self, feature: np.ndarray, globals_vec: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Convenience method for single-sample inference.
+
+        Returns (values, policy_logits) where values is shape (max_players,).
+        """
+        self.eval()
+        with torch.no_grad():
+            x = torch.from_numpy(feature[None, ...]).float().to(
+                next(self.parameters()).device
+            )
+            g = torch.from_numpy(globals_vec[None, ...]).float().to(
+                next(self.parameters()).device
+            )
+            v, p = self.forward(x, g)
+        return v.cpu().numpy()[0], p.cpu().numpy()[0]
+
+    def get_perspective_value(
+        self, values: torch.Tensor, current_player: int
+    ) -> torch.Tensor:
+        """
+        Extract value from current player's perspective.
+
+        This provides backwards compatibility with code expecting scalar values.
+
+        Parameters
+        ----------
+        values : torch.Tensor
+            Multi-player values of shape (batch, max_players).
+        current_player : int
+            Current player number (1-indexed).
+
+        Returns
+        -------
+        torch.Tensor
+            Values from current player's perspective, shape (batch, 1).
+        """
+        # Player numbers are 1-indexed, convert to 0-indexed for tensor indexing
+        player_idx = current_player - 1
+        return values[:, player_idx:player_idx + 1]
+
+
+def multi_player_value_loss(
+    pred_values: torch.Tensor,
+    target_values: torch.Tensor,
+    num_players: int,
+) -> torch.Tensor:
+    """
+    MSE loss for multi-player value predictions.
+
+    Only computes loss over active players (slots 0 to num_players-1).
+    Inactive slots (for games with fewer than MAX_PLAYERS) are masked out.
+
+    Parameters
+    ----------
+    pred_values : torch.Tensor
+        Predicted values of shape (batch, MAX_PLAYERS).
+    target_values : torch.Tensor
+        Target values of shape (batch, MAX_PLAYERS).
+    num_players : int
+        Number of active players in the game (2, 3, or 4).
+
+    Returns
+    -------
+    torch.Tensor
+        Scalar MSE loss averaged over active players.
+    """
+    # Create mask for active players
+    mask = torch.zeros_like(target_values)
+    mask[:, :num_players] = 1.0
+
+    # Compute masked MSE
+    squared_errors = ((pred_values - target_values) ** 2) * mask
+    loss = squared_errors.sum() / mask.sum()
+
+    return loss
+
+
+# =============================================================================
+# Model Factory Functions
+# =============================================================================
+#
+# These functions create board-specific model instances with optimal
+# configurations for each board type.
+
+
+def create_model_for_board(
+    board_type: BoardType,
+    model_class: str = "RingRiftCNN",
+    use_mps: bool = False,
+    in_channels: int = 10,
+    global_features: int = 10,
+    num_res_blocks: int = 10,
+    num_filters: int = 128,
+    history_length: int = 3,
+    max_players: int = MAX_PLAYERS,
+) -> nn.Module:
+    """
+    Create a neural network model optimized for a specific board type.
+
+    This factory function instantiates the correct model architecture with
+    board-specific policy head sizes to avoid wasting parameters on unused
+    action space.
+
+    Parameters
+    ----------
+    board_type : BoardType
+        The board type (SQUARE8, SQUARE19, or HEXAGONAL).
+    model_class : str
+        The model class to use: "RingRiftCNN", "RingRiftCNN_MPS",
+        "RingRiftCNN_MultiPlayer", or "HexNeuralNet".
+    use_mps : bool
+        If True, use MPS-compatible architecture (RingRiftCNN_MPS).
+        Ignored if model_class is explicitly set to a specific class.
+    in_channels : int
+        Number of input feature channels (default 10).
+    global_features : int
+        Number of global feature dimensions (default 10).
+    num_res_blocks : int
+        Number of residual blocks in the backbone (default 10).
+    num_filters : int
+        Number of convolutional filters (default 128).
+    history_length : int
+        Number of historical frames to stack (default 3).
+    max_players : int
+        Maximum number of players for MultiPlayer models (default 4).
+
+    Returns
+    -------
+    nn.Module
+        A model instance configured for the specified board type.
+
+    Examples
+    --------
+    >>> # Create 8x8 model
+    >>> model_8x8 = create_model_for_board(BoardType.SQUARE8)
+    >>> assert model_8x8.policy_size == POLICY_SIZE_8x8  # 7000
+
+    >>> # Create 19x19 model
+    >>> model_19x19 = create_model_for_board(BoardType.SQUARE19)
+    >>> assert model_19x19.policy_size == POLICY_SIZE_19x19  # 67000
+
+    >>> # Create hex model
+    >>> model_hex = create_model_for_board(BoardType.HEXAGONAL)
+    >>> assert model_hex.policy_size == P_HEX  # 54244
+
+    >>> # Create multi-player 8x8 model
+    >>> model_mp = create_model_for_board(
+    ...     BoardType.SQUARE8,
+    ...     model_class="RingRiftCNN_MultiPlayer"
+    ... )
+    >>> assert model_mp.policy_size == POLICY_SIZE_8x8
+    """
+    # Get board-specific parameters
+    board_size = get_spatial_size_for_board(board_type)
+    policy_size = get_policy_size_for_board(board_type)
+
+    # Special case: hex boards use HexNeuralNet
+    if board_type == BoardType.HEXAGONAL:
+        if model_class in ("HexNeuralNet", "auto"):
+            return HexNeuralNet(
+                in_channels=in_channels * (history_length + 1),
+                global_features=global_features,
+                num_res_blocks=num_res_blocks,
+                num_filters=num_filters,
+                board_size=board_size,
+                policy_size=policy_size,
+            )
+        # Fall through to use standard models for hex if explicitly requested
+
+    # Select model class
+    if model_class == "RingRiftCNN_MultiPlayer":
+        return RingRiftCNN_MultiPlayer(
+            board_size=board_size,
+            in_channels=in_channels,
+            global_features=global_features,
+            num_res_blocks=num_res_blocks,
+            num_filters=num_filters,
+            history_length=history_length,
+            max_players=max_players,
+            policy_size=policy_size,
+        )
+    elif model_class == "RingRiftCNN_MPS" or use_mps:
+        return RingRiftCNN_MPS(
+            board_size=board_size,
+            in_channels=in_channels,
+            global_features=global_features,
+            num_res_blocks=num_res_blocks,
+            num_filters=num_filters,
+            history_length=history_length,
+            policy_size=policy_size,
+        )
+    else:
+        # Default: RingRiftCNN
+        return RingRiftCNN(
+            board_size=board_size,
+            in_channels=in_channels,
+            global_features=global_features,
+            num_res_blocks=num_res_blocks,
+            num_filters=num_filters,
+            history_length=history_length,
+            policy_size=policy_size,
+        )
+
+
+def get_model_config_for_board(board_type: BoardType) -> Dict[str, any]:
+    """
+    Get recommended model configuration for a specific board type.
+
+    Returns a dictionary of hyperparameters optimized for the board type,
+    including recommended residual block count and filter count based on
+    the complexity of the action space.
+
+    Parameters
+    ----------
+    board_type : BoardType
+        The board type to get configuration for.
+
+    Returns
+    -------
+    Dict[str, any]
+        Configuration dictionary with keys:
+        - board_size: Spatial dimension of the board
+        - policy_size: Action space size
+        - num_res_blocks: Recommended residual block count
+        - num_filters: Recommended filter count
+        - recommended_model: Which model class to use
+    """
+    config = {
+        "board_size": get_spatial_size_for_board(board_type),
+        "policy_size": get_policy_size_for_board(board_type),
+    }
+
+    if board_type == BoardType.SQUARE8:
+        # Smaller 8x8 board: fewer parameters needed
+        config.update({
+            "num_res_blocks": 6,
+            "num_filters": 64,
+            "recommended_model": "RingRiftCNN",
+            "description": "Compact model for 8x8 board with 7K policy head",
+        })
+    elif board_type == BoardType.SQUARE19:
+        # Large 19x19 board: full capacity
+        config.update({
+            "num_res_blocks": 10,
+            "num_filters": 128,
+            "recommended_model": "RingRiftCNN",
+            "description": "Full capacity model for 19x19 board with 67K policy head",
+        })
+    elif board_type == BoardType.HEXAGONAL:
+        # Hex board: specialized architecture
+        config.update({
+            "num_res_blocks": 8,
+            "num_filters": 128,
+            "recommended_model": "HexNeuralNet",
+            "description": "Hex-specialized model with masked pooling and 54K policy head",
+        })
+    else:
+        # Unknown board type: use defaults
+        config.update({
+            "num_res_blocks": 10,
+            "num_filters": 128,
+            "recommended_model": "RingRiftCNN",
+            "description": "Default model configuration",
+        })
+
+    return config
 
 
 class NeuralNetAI(BaseAI):
@@ -1027,6 +1491,7 @@ class NeuralNetAI(BaseAI):
         line_span = MAX_N * MAX_N * 4
         territory_base = line_base + line_span        # 54511
         skip_index = territory_base + MAX_N * MAX_N   # 54872
+        swap_sides_index = skip_index + 1             # 54873
 
         # Placement: 0..1082 (3 * 19 * 19)
         if move.type == "place_ring":
@@ -1137,6 +1602,74 @@ class NeuralNetAI(BaseAI):
         # Skip placement: single terminal index
         if move.type == "skip_placement":
             return skip_index
+
+        # Swap-sides (pie rule) decision. The decode_move implementation
+        # already treats the index directly above skip_index as a canonical
+        # SWAP_SIDES action; wiring encode_move to emit the same index ensures
+        # that recorded swap_sides moves are represented in the policy head
+        # and can be learned from training data.
+        if move.type == "swap_sides":
+            return swap_sides_index
+
+        # Choice moves: line and territory decision options
+        # Line choices: 4 slots (options 0-3, typically option 1 = partial, 2 = full)
+        line_choice_base = swap_sides_index + 1      # 54874
+
+        if move.type in ("choose_line_reward", "choose_line_option"):
+            # Line choice uses placement_count to indicate option (1-based)
+            option = (move.placement_count or 1) - 1  # Convert to 0-indexed
+            option = max(0, min(3, option))  # Clamp to valid range
+            return line_choice_base + option
+
+        # Territory choice encoding: uniquely identify by (position, size, player)
+        # This handles cases where canonical position alone is non-unique
+        # (e.g., overlapping regions with different borders)
+        #
+        # Layout: base + pos_idx * (SIZE_BUCKETS * MAX_PLAYERS) + size_bucket * MAX_PLAYERS + player_idx
+        # With SIZE_BUCKETS=8, MAX_PLAYERS=4: 361 * 8 * 4 = 11,552 slots
+        territory_choice_base = line_choice_base + 4  # 54878
+        TERRITORY_SIZE_BUCKETS = 8
+        TERRITORY_MAX_PLAYERS = 4
+
+        if move.type == "choose_territory_option":
+            # Extract region information from the move
+            canonical_pos = move.to  # Default to move.to
+            region_size = 1
+            controlling_player = move.player
+
+            if move.disconnected_regions:
+                regions = list(move.disconnected_regions)
+                if regions:
+                    region = regions[0]
+                    # Get region spaces
+                    if hasattr(region, 'spaces') and region.spaces:
+                        spaces = list(region.spaces)
+                        region_size = len(spaces)
+                        # Find canonical (lexicographically smallest) position
+                        canonical_pos = min(spaces, key=lambda p: (p.y, p.x))
+                    # Get controlling player (who owns the border)
+                    if hasattr(region, 'controlling_player'):
+                        controlling_player = region.controlling_player
+
+            # Convert position to canonical coordinates
+            if board is not None:
+                cx, cy = _to_canonical_xy(board, canonical_pos)
+            else:
+                cx, cy = canonical_pos.x, canonical_pos.y
+
+            if not (0 <= cx < MAX_N and 0 <= cy < MAX_N):
+                return INVALID_MOVE_INDEX
+
+            pos_idx = cy * MAX_N + cx
+            size_bucket = min(region_size - 1, TERRITORY_SIZE_BUCKETS - 1)  # 0-7
+            player_idx = (controlling_player - 1) % TERRITORY_MAX_PLAYERS  # 0-3
+
+            return (
+                territory_choice_base +
+                pos_idx * (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS) +
+                size_bucket * TERRITORY_MAX_PLAYERS +
+                player_idx
+            )
 
         return INVALID_MOVE_INDEX
 
@@ -1324,6 +1857,62 @@ class NeuralNetAI(BaseAI):
                 "type": "swap_sides",
                 "player": game_state.current_player,
                 "to": {"x": 0, "y": 0},
+                "timestamp": datetime.now(),
+                "thinkTime": 0,
+                "moveNumber": 0,
+            }
+            return Move(**move_data)
+
+        # Choice moves: line and territory options
+        line_choice_base = swap_sides_index + 1      # 54874
+        territory_choice_base = line_choice_base + 4  # 54878
+
+        # Line choice (indices 54874-54877)
+        if line_choice_base <= index < territory_choice_base:
+            option = index - line_choice_base + 1  # Convert to 1-indexed
+            move_data = {
+                "id": "decoded",
+                "type": "choose_line_option",
+                "player": game_state.current_player,
+                "to": {"x": 0, "y": 0},
+                "placementCount": option,
+                "timestamp": datetime.now(),
+                "thinkTime": 0,
+                "moveNumber": 0,
+            }
+            return Move(**move_data)
+
+        # Territory choice: (position, size_bucket, player) encoding
+        # Layout: base + pos_idx * (SIZE_BUCKETS * MAX_PLAYERS) + size_bucket * MAX_PLAYERS + player_idx
+        TERRITORY_SIZE_BUCKETS = 8
+        TERRITORY_MAX_PLAYERS = 4
+        territory_choice_span = MAX_N * MAX_N * TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS
+
+        if territory_choice_base <= index < territory_choice_base + territory_choice_span:
+            offset = index - territory_choice_base
+            player_idx = offset % TERRITORY_MAX_PLAYERS
+            offset //= TERRITORY_MAX_PLAYERS
+            size_bucket = offset % TERRITORY_SIZE_BUCKETS
+            pos_idx = offset // TERRITORY_SIZE_BUCKETS
+
+            cy = pos_idx // MAX_N
+            cx = pos_idx % MAX_N
+
+            pos = _from_canonical_xy(board, cx, cy)
+            if pos is None:
+                return None
+
+            to_payload: dict[str, int] = {"x": pos.x, "y": pos.y}
+            if pos.z is not None:
+                to_payload["z"] = pos.z
+
+            move_data = {
+                "id": "decoded",
+                "type": "choose_territory_option",
+                "player": game_state.current_player,
+                "to": to_payload,
+                # Size and player info embedded in the index, used for matching
+                "placementCount": size_bucket + 1,  # 1-indexed size bucket
                 "timestamp": datetime.now(),
                 "thinkTime": 0,
                 "moveNumber": 0,

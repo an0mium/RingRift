@@ -549,12 +549,32 @@ export const BoardView: React.FC<BoardViewProps> = ({
   // Precompute a lookup map for decision highlights when provided. When
   // multiple highlights target the same cell, primary intensity wins.
   const highlightByKey = useMemo(() => {
-    const map = new Map<string, 'primary' | 'secondary'>();
+    type HighlightMeta = { intensity: 'primary' | 'secondary'; groupIds?: string[] };
+
+    const map = new Map<string, HighlightMeta>();
     if (viewModel?.decisionHighlights) {
       for (const h of viewModel.decisionHighlights.highlights) {
         const existing = map.get(h.positionKey);
-        if (existing === 'primary') continue;
-        map.set(h.positionKey, h.intensity);
+        if (!existing) {
+          map.set(h.positionKey, {
+            intensity: h.intensity,
+            groupIds: h.groupId ? [h.groupId] : undefined,
+          });
+          continue;
+        }
+
+        const nextIntensity =
+          existing.intensity === 'primary' || h.intensity === 'primary' ? 'primary' : 'secondary';
+
+        const nextGroupIds = existing.groupIds ? [...existing.groupIds] : [];
+        if (h.groupId && !nextGroupIds.includes(h.groupId)) {
+          nextGroupIds.push(h.groupId);
+        }
+
+        map.set(h.positionKey, {
+          intensity: nextIntensity,
+          groupIds: nextGroupIds.length > 0 ? nextGroupIds : undefined,
+        });
       }
     }
     return map;
@@ -569,6 +589,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
   const isCaptureDirectionDecisionContext = decisionChoiceKind === 'capture_direction';
   const isRingEliminationDecisionContext = decisionChoiceKind === 'ring_elimination';
   const isTerritoryRegionDecisionContext = decisionChoiceKind === 'territory_region_order';
+  const territoryRegionIdsInDisplayOrder =
+    viewModel?.decisionHighlights?.territoryRegions?.regionIdsInDisplayOrder ?? [];
 
   // Rules-lab overlays: lightweight lookup maps for lines and territory
   // regions so we can cheaply decorate cells without re-walking geometry.
@@ -1470,10 +1492,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
           ? territoryOverlayByKey.get(key)
           : undefined;
 
-        // Decision-phase highlight intensity for this cell, if any. Primary highlights
+        // Decision-phase highlight metadata for this cell, if any. Primary highlights
         // are rendered more prominently than secondary ones, but both should coexist
         // cleanly with selection and valid-move styling.
-        const decisionHighlight = highlightByKey.get(key);
+        const highlightMeta = highlightByKey.get(key);
+        const decisionHighlight = highlightMeta?.intensity;
+        const territoryRegionGroupIds =
+          isTerritoryRegionDecisionContext && highlightMeta?.groupIds ? highlightMeta.groupIds : [];
         const hasStackForPulse = !!(cellVM?.stack || stack);
         // Destination pulse for recent moves: derive from the internal
         // board-diff animation state so we always highlight the actual
@@ -1515,12 +1540,39 @@ export const BoardView: React.FC<BoardViewProps> = ({
         // Invalid move shake animation: apply when this cell is the target of an invalid move attempt
         const isShaking = shakingCellKey === key;
 
-        const shouldPulseCaptureTarget =
+        const shouldPulseCaptureLanding =
           decisionHighlight === 'primary' && isCaptureDirectionDecisionContext;
+        const shouldPulseCaptureTarget =
+          decisionHighlight === 'secondary' && isCaptureDirectionDecisionContext;
         const shouldPulseEliminationTarget =
           decisionHighlight === 'primary' && isRingEliminationDecisionContext;
         const shouldPulseTerritoryRegion =
           decisionHighlight === 'primary' && isTerritoryRegionDecisionContext;
+
+        const territoryRegionClasses: string[] = [];
+        if (shouldPulseTerritoryRegion && territoryRegionGroupIds.length > 0) {
+          if (territoryRegionGroupIds.length > 1) {
+            // Any multi-region overlap gets a dedicated, more intense visual.
+            territoryRegionClasses.push('territory-region-overlap');
+          } else {
+            const regionId = territoryRegionGroupIds[0];
+            const paletteIndex = Math.max(0, territoryRegionIdsInDisplayOrder.indexOf(regionId));
+            switch (paletteIndex) {
+              case 0:
+                territoryRegionClasses.push('territory-region-a');
+                break;
+              case 1:
+                territoryRegionClasses.push('territory-region-b');
+                break;
+              case 2:
+                territoryRegionClasses.push('territory-region-c');
+                break;
+              default:
+                territoryRegionClasses.push('territory-region-d');
+                break;
+            }
+          }
+        }
 
         const cellClasses = [
           'relative border flex items-center justify-center text-[11px] md:text-xs rounded-sm',
@@ -1529,9 +1581,11 @@ export const BoardView: React.FC<BoardViewProps> = ({
           territoryClasses || baseSquareBg,
           decisionHighlightClass,
           isMoveDestination ? 'move-destination-pulse' : '',
-          shouldPulseCaptureTarget ? 'decision-pulse-capture' : '',
+          shouldPulseCaptureLanding ? 'decision-pulse-capture' : '',
+          shouldPulseCaptureTarget ? 'capture-target-pulse' : '',
           shouldPulseEliminationTarget ? 'decision-pulse-elimination' : '',
           shouldPulseTerritoryRegion ? 'decision-pulse-territory' : '',
+          ...territoryRegionClasses,
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting on square boards: thin, bright-green inset
           // ring plus a light near-white emerald tint that reads clearly even
@@ -1742,8 +1796,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
           ? territoryOverlayByKey.get(key)
           : undefined;
 
-        // Decision-phase highlight intensity for this hex cell, if any.
-        const decisionHighlight = highlightByKey.get(key);
+        // Decision-phase highlight metadata for this hex cell, if any.
+        const hexHighlightMeta = highlightByKey.get(key);
+        const decisionHighlight = hexHighlightMeta?.intensity;
+        const territoryRegionGroupIdsHex =
+          isTerritoryRegionDecisionContext && hexHighlightMeta?.groupIds
+            ? hexHighlightMeta.groupIds
+            : [];
         const hasStackForPulse = !!(cellVM?.stack || stack);
         const isMoveDestination =
           hasStackForPulse &&
@@ -1780,11 +1839,35 @@ export const BoardView: React.FC<BoardViewProps> = ({
         const isShaking = shakingCellKey === key;
 
         const shouldPulseCaptureTargetHex =
-          decisionHighlight === 'primary' && isCaptureDirectionDecisionContext;
+          decisionHighlight === 'secondary' && isCaptureDirectionDecisionContext;
         const shouldPulseEliminationTargetHex =
           decisionHighlight === 'primary' && isRingEliminationDecisionContext;
         const shouldPulseTerritoryRegionHex =
           decisionHighlight === 'primary' && isTerritoryRegionDecisionContext;
+
+        const territoryRegionClassesHex: string[] = [];
+        if (shouldPulseTerritoryRegionHex && territoryRegionGroupIdsHex.length > 0) {
+          if (territoryRegionGroupIdsHex.length > 1) {
+            territoryRegionClassesHex.push('territory-region-overlap');
+          } else {
+            const regionId = territoryRegionGroupIdsHex[0];
+            const paletteIndex = Math.max(0, territoryRegionIdsInDisplayOrder.indexOf(regionId));
+            switch (paletteIndex) {
+              case 0:
+                territoryRegionClassesHex.push('territory-region-a');
+                break;
+              case 1:
+                territoryRegionClassesHex.push('territory-region-b');
+                break;
+              case 2:
+                territoryRegionClassesHex.push('territory-region-c');
+                break;
+              default:
+                territoryRegionClassesHex.push('territory-region-d');
+                break;
+            }
+          }
+        }
 
         const cellClasses = [
           'relative w-8 h-8 md:w-9 md:h-9 mx-0 flex items-center justify-center text-[11px] md:text-xs rounded-full border',
@@ -1792,9 +1875,13 @@ export const BoardView: React.FC<BoardViewProps> = ({
           territoryClasses,
           decisionHighlightClass,
           isMoveDestination ? 'move-destination-pulse' : '',
-          shouldPulseCaptureTargetHex ? 'decision-pulse-capture' : '',
+          decisionHighlight === 'primary' && isCaptureDirectionDecisionContext
+            ? 'decision-pulse-capture'
+            : '',
+          shouldPulseCaptureTargetHex ? 'capture-target-pulse' : '',
           shouldPulseEliminationTargetHex ? 'decision-pulse-elimination' : '',
           shouldPulseTerritoryRegionHex ? 'decision-pulse-territory' : '',
+          ...territoryRegionClassesHex,
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting with subtle pulse animation
           effectiveIsValid

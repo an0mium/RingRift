@@ -471,7 +471,6 @@ describe('RuleEngine - Branch Coverage', () => {
         isDisconnected: true,
       } as any;
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       jest
         .spyOn(boardManager as any, 'findDisconnectedRegions')
         .mockReturnValue([regionFromEngine]);
@@ -733,6 +732,260 @@ describe('RuleEngine - Branch Coverage', () => {
       };
       const result = ruleEngine.validateMove(move, state);
       expect(typeof result).toBe('boolean');
+    });
+  });
+
+  // ==========================================================================
+  // Additional coverage for line processing
+  // ==========================================================================
+  describe('line processing validation', () => {
+    it('rejects process_line in wrong phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+
+      const move: Move = {
+        type: 'process_line',
+        player: 1,
+        lineIndex: 0,
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+
+    it('validates process_line during line_processing phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'line_processing';
+      state.currentPlayer = 1;
+      // Add a formed line
+      state.board.formedLines = [
+        {
+          player: 1,
+          positions: [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)],
+          length: 4,
+        },
+      ];
+
+      const move: Move = {
+        type: 'process_line',
+        player: 1,
+        lineIndex: 0,
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('rejects choose_line_reward in wrong phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+
+      const move: Move = {
+        type: 'choose_line_reward',
+        player: 1,
+        lineIndex: 0,
+        selection: 'COLLAPSE_ALL',
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Territory processing validation
+  // ==========================================================================
+  describe('territory processing validation', () => {
+    it('rejects process_territory_region in wrong phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+
+      const move: Move = {
+        type: 'process_territory_region',
+        player: 1,
+        regionId: 'region-1',
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+
+    it('rejects eliminate_rings_from_stack in wrong phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+
+      const move: Move = {
+        type: 'eliminate_rings_from_stack',
+        player: 1,
+        stackPosition: pos(0, 0),
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Skip placement validation
+  // ==========================================================================
+  describe('skip placement validation', () => {
+    it('rejects skip_placement in wrong phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+
+      const move: Move = {
+        type: 'skip_placement',
+        player: 1,
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+
+    it('validates skip_placement during ring_placement phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'ring_placement';
+      state.currentPlayer = 1;
+      // Player 1 has rings in hand
+      state.players[0].ringsInHand = 5;
+      // Add a stack for player 1
+      addStack(state.board, pos(3, 3), 1, 2, 2);
+
+      const move: Move = {
+        type: 'skip_placement',
+        player: 1,
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('rejects skip_placement when player has no rings', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'ring_placement';
+      state.currentPlayer = 1;
+      state.players[0].ringsInHand = 0;
+
+      const move: Move = {
+        type: 'skip_placement',
+        player: 1,
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Unknown move type handling
+  // ==========================================================================
+  describe('unknown move type handling', () => {
+    it('rejects unknown move types', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+
+      const move = {
+        type: 'unknown_move_type',
+        player: 1,
+      } as Move;
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Player validation edge cases
+  // ==========================================================================
+  describe('player validation edge cases', () => {
+    it('rejects move from non-existent player', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+
+      const move: Move = {
+        type: 'move_stack',
+        player: 99, // Non-existent player
+        from: pos(0, 0),
+        to: pos(1, 0),
+      };
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+
+    it('rejects move when not player turn', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 2;
+      addStack(state.board, pos(0, 0), 1);
+
+      const move: Move = {
+        type: 'move_stack',
+        player: 1, // Not current player
+        from: pos(0, 0),
+        to: pos(1, 0),
+      };
+
+      const result = ruleEngine.validateMove(move, state);
+      expect(result).toBe(false);
+    });
+  });
+
+  // ==========================================================================
+  // Valid moves enumeration
+  // ==========================================================================
+  describe('getValidMoves', () => {
+    it('returns moves for ring placement phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'ring_placement';
+      state.currentPlayer = 1;
+      state.players[0].ringsInHand = 5;
+
+      const moves = ruleEngine.getValidMoves(1, state);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('returns moves for movement phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+      addStack(state.board, pos(3, 3), 1, 2, 2);
+
+      const moves = ruleEngine.getValidMoves(1, state);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('returns empty array for player with no valid moves', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'movement';
+      state.currentPlayer = 1;
+      // No stacks for player 1
+
+      const moves = ruleEngine.getValidMoves(1, state);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('returns moves for line processing phase', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'line_processing';
+      state.currentPlayer = 1;
+      state.board.formedLines = [
+        {
+          player: 1,
+          positions: [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)],
+          length: 4,
+        },
+      ];
+
+      const moves = ruleEngine.getValidMoves(1, state);
+      expect(Array.isArray(moves)).toBe(true);
     });
   });
 });

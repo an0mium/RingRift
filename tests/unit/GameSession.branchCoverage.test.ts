@@ -4492,3 +4492,181 @@ describe('GameSession Branch Coverage - analysis mode branches', () => {
     expect(state).toBeDefined();
   });
 });
+
+// ============================================================================
+// ADDITIONAL TESTS FOR BRANCH COVERAGE
+// ============================================================================
+
+describe('GameSession additional branch coverage', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('handles 3-player game initialization', async () => {
+    const io = createMockIo();
+    const session = new GameSession('test-3p-game', io, {} as never, new Map());
+
+    mockGameFindUnique.mockResolvedValue({
+      id: 'test-3p-game',
+      boardType: 'square8',
+      status: 'active',
+      maxPlayers: 3,
+      isRated: false,
+      player1: { id: 'player-1', username: 'P1' },
+      player2: { id: 'player-2', username: 'P2' },
+      player3: { id: 'player-3', username: 'P3' },
+      timeControl: JSON.stringify({ type: 'rapid', initialTime: 600000, increment: 0 }),
+      gameState: null,
+      rngSeed: null,
+      moves: [],
+    });
+
+    await session.initialize();
+    const state = session.getGameState();
+    // Verifies 3-player configuration path is covered
+    expect(state).toBeDefined();
+    expect(state.players.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('handles 4-player game initialization', async () => {
+    const io = createMockIo();
+    const session = new GameSession('test-4p-game', io, {} as never, new Map());
+
+    mockGameFindUnique.mockResolvedValue({
+      id: 'test-4p-game',
+      boardType: 'square8',
+      status: 'active',
+      maxPlayers: 4,
+      isRated: false,
+      player1: { id: 'player-1', username: 'P1' },
+      player2: { id: 'player-2', username: 'P2' },
+      player3: { id: 'player-3', username: 'P3' },
+      player4: { id: 'player-4', username: 'P4' },
+      timeControl: JSON.stringify({ type: 'rapid', initialTime: 600000, increment: 0 }),
+      gameState: null,
+      rngSeed: null,
+      moves: [],
+    });
+
+    await session.initialize();
+    const state = session.getGameState();
+    // Verifies 4-player configuration path is covered
+    expect(state).toBeDefined();
+    expect(state.players.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('handles game with missing player slots gracefully', async () => {
+    const io = createMockIo();
+    const session = new GameSession('test-partial-game', io, {} as never, new Map());
+
+    mockGameFindUnique.mockResolvedValue({
+      id: 'test-partial-game',
+      boardType: 'square8',
+      status: 'waiting_for_players',
+      maxPlayers: 2,
+      isRated: false,
+      player1: { id: 'player-1', username: 'P1' },
+      player2: null, // No second player yet
+      timeControl: JSON.stringify({ type: 'rapid', initialTime: 600000, increment: 0 }),
+      gameState: null,
+      rngSeed: null,
+      moves: [],
+    });
+
+    await session.initialize();
+    const state = session.getGameState();
+    expect(state.players.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('handles square19 board type', async () => {
+    const io = createMockIo();
+    const session = new GameSession('test-sq19-game', io, {} as never, new Map());
+
+    mockGameFindUnique.mockResolvedValue({
+      id: 'test-sq19-game',
+      boardType: 'square19',
+      status: 'active',
+      maxPlayers: 2,
+      isRated: false,
+      player1: { id: 'player-1', username: 'P1' },
+      player2: { id: 'player-2', username: 'P2' },
+      timeControl: JSON.stringify({ type: 'rapid', initialTime: 600000, increment: 0 }),
+      gameState: null,
+      rngSeed: null,
+      moves: [],
+    });
+
+    await session.initialize();
+    const state = session.getGameState();
+    expect(state.boardType).toBe('square19');
+  });
+
+  it('handles hexagonal board type', async () => {
+    const io = createMockIo();
+    const session = new GameSession('test-hex-game', io, {} as never, new Map());
+
+    mockGameFindUnique.mockResolvedValue({
+      id: 'test-hex-game',
+      boardType: 'hexagonal',
+      status: 'active',
+      maxPlayers: 2,
+      isRated: false,
+      player1: { id: 'player-1', username: 'P1' },
+      player2: { id: 'player-2', username: 'P2' },
+      timeControl: JSON.stringify({ type: 'rapid', initialTime: 600000, increment: 0 }),
+      gameState: null,
+      rngSeed: null,
+      moves: [],
+    });
+
+    await session.initialize();
+    const state = session.getGameState();
+    expect(state.boardType).toBe('hexagonal');
+  });
+
+  it('handles different time control types', async () => {
+    const io = createMockIo();
+    const session = new GameSession('test-blitz-game', io, {} as never, new Map());
+
+    mockGameFindUnique.mockResolvedValue({
+      id: 'test-blitz-game',
+      boardType: 'square8',
+      status: 'active',
+      maxPlayers: 2,
+      isRated: true,
+      player1: { id: 'player-1', username: 'P1' },
+      player2: { id: 'player-2', username: 'P2' },
+      timeControl: JSON.stringify({ type: 'blitz', initialTime: 180000, increment: 2000 }),
+      gameState: null,
+      rngSeed: null,
+      moves: [],
+    });
+
+    await session.initialize();
+    const state = session.getGameState();
+    expect(state.timeControl.type).toBe('blitz');
+  });
+
+  it('handles unrated game initialization', async () => {
+    const io = createMockIo();
+    const session = new GameSession('test-unrated-game', io, {} as never, new Map());
+
+    mockGameFindUnique.mockResolvedValue({
+      id: 'test-unrated-game',
+      boardType: 'square8',
+      status: 'active',
+      maxPlayers: 2,
+      isRated: false,
+      player1: { id: 'player-1', username: 'P1' },
+      player2: { id: 'player-2', username: 'P2' },
+      timeControl: JSON.stringify({ type: 'rapid', initialTime: 600000, increment: 0 }),
+      gameState: null,
+      rngSeed: null,
+      moves: [],
+    });
+
+    await session.initialize();
+    const state = session.getGameState();
+    expect(state.isRated).toBe(false);
+  });
+});

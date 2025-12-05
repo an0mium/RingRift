@@ -12,6 +12,8 @@ import {
   hashGameState,
   chooseLocalMoveFromCandidates,
   evaluateSkipPlacementEligibility as evaluateSkipPlacementEligibilityAggregate,
+  isANMState,
+  computeGlobalLegalActionsSummary,
 } from '../../shared/engine';
 import {
   isSandboxAiCaptureDebugEnabled,
@@ -53,6 +55,15 @@ export const SANDBOX_STALL_WINDOW_STEPS = SANDBOX_NOOP_STALL_THRESHOLD;
 // to move. Used as a structural stall detector in dev/test builds.
 let sandboxConsecutiveNoopAITurns = 0;
 let sandboxStallLoggingSuppressed = false;
+
+/**
+ * Reset module-level sandbox AI stall counters. Used by tests to ensure
+ * isolation between test cases that run multiple sandbox AI turns.
+ */
+export function resetSandboxAIStallCounters(): void {
+  sandboxConsecutiveNoopAITurns = 0;
+  sandboxStallLoggingSuppressed = false;
+}
 
 interface SandboxAITurnTraceEntry {
   kind: 'ai_turn' | 'stall';
@@ -1051,8 +1062,8 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       return;
     }
 
-    // === Movement phase: canonical capture + movement candidates ===
-    if (gameState.currentPhase !== 'movement') {
+    // === Movement / capture phase: canonical capture + movement candidates ===
+    if (gameState.currentPhase !== 'movement' && gameState.currentPhase !== 'capture') {
       return;
     }
 
@@ -1062,19 +1073,28 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     // getValidMoves surface so sandbox AI stays aligned with backend
     // GameEngine.getValidMoves semantics.
     const allMoves = hooks.getValidMovesForCurrentPlayer();
-    let movementCandidates = allMoves.filter(
-      (m) => m.type === 'overtaking_capture' || m.type === 'move_stack' || m.type === 'move_ring'
-    );
-    // Fallback: if the host-reported canonical surface has no movement/capture
-    // moves but shared movement/capture helpers still see legal actions, use
-    // the shared helpers to build candidates. This defends against rare
-    // enumeration mismatches in deep seeds while keeping the primary path
-    // aligned with backend getValidMoves().
-    if (movementCandidates.length === 0) {
-      const fallback = buildSandboxMovementCandidates(gameState, hooks, rng);
-      if (fallback.candidates.length > 0) {
-        movementCandidates = fallback.candidates;
+    let movementCandidates: Move[] = [];
+
+    if (gameState.currentPhase === 'movement') {
+      movementCandidates = allMoves.filter(
+        (m) => m.type === 'overtaking_capture' || m.type === 'move_stack' || m.type === 'move_ring'
+      );
+      // Fallback: if the host-reported canonical surface has no movement/capture
+      // moves but shared movement/capture helpers still see legal actions, use
+      // the shared helpers to build candidates. This defends against rare
+      // enumeration mismatches in deep seeds while keeping the primary path
+      // aligned with backend getValidMoves().
+      if (movementCandidates.length === 0) {
+        const fallback = buildSandboxMovementCandidates(gameState, hooks, rng);
+        if (fallback.candidates.length > 0) {
+          movementCandidates = fallback.candidates;
+        }
       }
+    } else {
+      // capture phase: consider overtaking_capture vs skip_capture.
+      movementCandidates = allMoves.filter(
+        (m) => m.type === 'overtaking_capture' || m.type === 'skip_capture'
+      );
     }
 
     const captureCount = movementCandidates.filter((m) => m.type === 'overtaking_capture').length;
@@ -1085,7 +1105,7 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     debugCaptureCount = captureCount;
     debugSimpleMoveCount = simpleMoveCount;
 
-    if (captureCount === 0 && simpleMoveCount === 0) {
+    if (movementCandidates.length === 0) {
       const mustMoveFromStackKey = hooks.getMustMoveFromStackKey();
       let stacksForDebug = hooks.getPlayerStacks(playerNumber, gameState.board);
       if (mustMoveFromStackKey) {
@@ -1118,36 +1138,42 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
         });
       }
 
-      const beforeElimState = hooks.getGameState();
-      const beforeElimHash = hashGameState(beforeElimState);
+      // Only attempt forced elimination / structural resolution when we
+      // are in movement phase. In capture phase, an empty canonical
+      // move surface would indicate a deeper host bug; for now treat it
+      // as a no-op so stall diagnostics can surface it.
+      if (gameState.currentPhase === 'movement') {
+        const beforeElimState = hooks.getGameState();
+        const beforeElimHash = hashGameState(beforeElimState);
 
-      const eliminated = hooks.maybeProcessForcedEliminationForCurrentPlayer();
-      debugForcedEliminationAttempted = true;
-      debugForcedEliminationEliminated = eliminated;
+        const eliminated = hooks.maybeProcessForcedEliminationForCurrentPlayer();
+        debugForcedEliminationAttempted = true;
+        debugForcedEliminationEliminated = eliminated;
 
-      const afterElimState = hooks.getGameState();
-      const afterElimHash = hashGameState(afterElimState);
+        const afterElimState = hooks.getGameState();
+        const afterElimHash = hashGameState(afterElimState);
 
-      if (SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED && !sandboxStallLoggingSuppressed) {
-        if (
-          !eliminated &&
-          beforeElimHash === afterElimHash &&
-          afterElimState.gameStatus === 'active'
-        ) {
-          console.warn(
-            '[Sandbox AI Stall Diagnostic] No captures/moves, forced elimination did not change state',
-            {
-              boardType: gameState.boardType,
-              currentPlayer: gameState.currentPlayer,
-              currentPhase: gameState.currentPhase,
-              ringsInHand: gameState.players.map((p) => ({
-                playerNumber: p.playerNumber,
-                type: p.type,
-                ringsInHand: p.ringsInHand,
-                stacks: hooks.getPlayerStacks(p.playerNumber, gameState.board).length,
-              })),
-            }
-          );
+        if (SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED && !sandboxStallLoggingSuppressed) {
+          if (
+            !eliminated &&
+            beforeElimHash === afterElimHash &&
+            afterElimState.gameStatus === 'active'
+          ) {
+            console.warn(
+              '[Sandbox AI Stall Diagnostic] No captures/moves, forced elimination did not change state',
+              {
+                boardType: gameState.boardType,
+                currentPlayer: gameState.currentPlayer,
+                currentPhase: gameState.currentPhase,
+                ringsInHand: gameState.players.map((p) => ({
+                  playerNumber: p.playerNumber,
+                  type: p.type,
+                  ringsInHand: p.ringsInHand,
+                  stacks: hooks.getPlayerStacks(p.playerNumber, gameState.board).length,
+                })),
+              }
+            );
+          }
         }
       }
 
@@ -1247,6 +1273,24 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       return;
     }
 
+    if (selectedMove.type === 'skip_capture') {
+      const stateForMove = hooks.getGameState();
+      const moveNumber = stateForMove.history.length + 1;
+
+      const skipMove: Move = {
+        ...selectedMove,
+        id: '',
+        moveNumber,
+        timestamp: new Date(),
+      } as Move;
+
+      await hooks.applyCanonicalMove(skipMove);
+
+      lastAIMove = skipMove;
+      hooks.setLastAIMove(lastAIMove);
+      return;
+    }
+
     if (selectedMove.type === 'move_stack' || selectedMove.type === 'move_ring') {
       const stateBeforeMove = hooks.getGameState();
       const moveNumber = stateBeforeMove.history.length + 1;
@@ -1293,18 +1337,52 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       stillActive &&
       sandboxConsecutiveNoopAITurns >= SANDBOX_NOOP_STALL_THRESHOLD
     ) {
-      const stalled: GameState = {
-        ...afterStateForHistory,
-        gameStatus: 'completed',
-        // Normalise terminal phase and clear capture-specific cursor
-        // state so completed sandbox games do not present as if they
-        // were still mid-capture or awaiting a mandatory continuation.
-        currentPhase: 'ring_placement',
-        chainCapturePosition: undefined,
-        mustMoveFromStackKey: undefined,
-      };
-      hooks.setGameState(stalled);
-      sandboxStallLoggingSuppressed = true;
+      const isActiveNoMoves = isANMState(afterStateForHistory);
+      const allPlayersAI =
+        afterStateForHistory.players.length > 0 &&
+        afterStateForHistory.players.every((p) => p.type === 'ai');
+
+      if (allPlayersAI || isActiveNoMoves) {
+        // Genuine AI-only stall (fuzz harness / self-play) or a true
+        // ACTIVE_NO_MOVES plateau: treat as a structural end state for
+        // the sandbox to avoid infinite AI loops. This preserves existing
+        // seed-based AI stall regression behaviour while ensuring we
+        // also gate on RR-CANON ANM when humans are present.
+        const stalled: GameState = {
+          ...afterStateForHistory,
+          gameStatus: 'completed',
+          // Normalise terminal phase and clear capture-specific cursor
+          // state so completed sandbox games do not present as if they
+          // were still mid-capture or awaiting a mandatory continuation.
+          currentPhase: 'ring_placement',
+          chainCapturePosition: undefined,
+          mustMoveFromStackKey: undefined,
+        };
+        hooks.setGameState(stalled);
+        sandboxStallLoggingSuppressed = true;
+      } else if (!sandboxStallLoggingSuppressed && SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED) {
+        // Hash-based stall window was reached in a game with at least one
+        // human player, but ANM(state) is false: the active player still
+        // has some legal action according to the global action summary.
+        // This indicates an internal AI or host wiring bug; leave the
+        // game ACTIVE and emit a detailed warning instead of force-
+        // completing a rich mid-game sandbox game.
+        const summary = computeGlobalLegalActionsSummary(
+          afterStateForHistory,
+          afterStateForHistory.currentPlayer
+        );
+        console.warn(
+          '[Sandbox AI Stall Detector] No-op window reached with human present but ANM=false; game left active',
+          {
+            boardType: afterStateForHistory.boardType,
+            currentPlayer: afterStateForHistory.currentPlayer,
+            currentPhase: afterStateForHistory.currentPhase,
+            consecutiveNoopAITurns: sandboxConsecutiveNoopAITurns,
+            globalActionsSummary: summary,
+          }
+        );
+        sandboxStallLoggingSuppressed = true;
+      }
     }
 
     if (SANDBOX_AI_STALL_DIAGNOSTICS_ENABLED && debugIsAiTurn) {

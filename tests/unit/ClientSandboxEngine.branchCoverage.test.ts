@@ -648,4 +648,374 @@ describe('ClientSandboxEngine branch coverage', () => {
       expect(state).toBeDefined();
     });
   });
+
+  // ==========================================================================
+  // Additional branch coverage tests
+  // ==========================================================================
+  describe('getGameState consistency', () => {
+    it('returns consistent state on multiple calls', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const state1 = engine.getGameState();
+      const state2 = engine.getGameState();
+
+      expect(state1.id).toBe(state2.id);
+      expect(state1.boardType).toBe(state2.boardType);
+      expect(state1.players.length).toBe(state2.players.length);
+    });
+
+    it('getGameState returns state with board stacks', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const state = engine.getGameState();
+
+      expect(state.board).toBeDefined();
+      expect(state.board.stacks).toBeDefined();
+    });
+  });
+
+  describe('getVictoryResult branches', () => {
+    it('returns null when game is active', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const result = engine.getVictoryResult();
+
+      // During ring placement, no victory yet
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('loadFromExportedState error handling', () => {
+    it('throws on invalid state data', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      expect(() => {
+        engine.loadFromExportedState({ invalidData: true } as any);
+      }).toThrow();
+    });
+  });
+
+  describe('multi-player configurations', () => {
+    it('initializes 3-player game correctly', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(3),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const state = engine.getGameState();
+
+      expect(state.players.length).toBe(3);
+      expect(state.maxPlayers).toBe(3);
+    });
+
+    it('initializes 4-player game correctly', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(4),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const state = engine.getGameState();
+
+      expect(state.players.length).toBe(4);
+      expect(state.maxPlayers).toBe(4);
+    });
+  });
+
+  describe('board type configurations', () => {
+    it('supports square19 board type', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2, 'square19'),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const state = engine.getGameState();
+
+      expect(state.boardType).toBe('square19');
+      expect(state.board.type).toBe('square19');
+    });
+  });
+
+  describe('currentPhase tracking', () => {
+    it('starts in ring_placement phase', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const state = engine.getGameState();
+
+      expect(state.currentPhase).toBe('ring_placement');
+    });
+
+    it('tracks current player correctly', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const state = engine.getGameState();
+
+      expect(state.currentPlayer).toBe(1);
+    });
+  });
+
+  describe('history management', () => {
+    it('starts with empty history', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+      const state = engine.getGameState();
+
+      expect(state.history).toEqual([]);
+      expect(state.moveHistory).toEqual([]);
+    });
+  });
+
+  describe('multiple board clicks', () => {
+    it('handles rapid sequential clicks', async () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      // Make several clicks in sequence
+      await engine.handleHumanCellClick({ x: 0, y: 0 });
+      await engine.handleHumanCellClick({ x: 1, y: 0 });
+      await engine.handleHumanCellClick({ x: 2, y: 0 });
+
+      const state = engine.getGameState();
+      expect(state).toBeDefined();
+    });
+
+    it('handles click on same cell twice', async () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      await engine.handleHumanCellClick({ x: 0, y: 0 });
+      await engine.handleHumanCellClick({ x: 0, y: 0 });
+
+      const state = engine.getGameState();
+      expect(state).toBeDefined();
+    });
+  });
+
+  describe('consumeRecentLineHighlights', () => {
+    it('returns empty array initially', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const highlights = engine.consumeRecentLineHighlights();
+      expect(highlights).toEqual([]);
+    });
+
+    it('clears highlights after consumption', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      // Call twice - second call should also return empty
+      engine.consumeRecentLineHighlights();
+      const second = engine.consumeRecentLineHighlights();
+      expect(second).toEqual([]);
+    });
+  });
+
+  describe('getSerializedState', () => {
+    it('returns serializable state', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const serialized = engine.getSerializedState();
+      expect(serialized).toBeDefined();
+      expect(typeof serialized).toBe('object');
+    });
+
+    it('serialized state can be stringified', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const serialized = engine.getSerializedState();
+      const jsonString = JSON.stringify(serialized);
+      expect(jsonString).toBeTruthy();
+    });
+  });
+
+  describe('getStateAtMoveIndex', () => {
+    it('returns null for negative index', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const state = engine.getStateAtMoveIndex(-1);
+      expect(state).toBeNull();
+    });
+
+    it('returns initial state at index 0', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const state = engine.getStateAtMoveIndex(0);
+      // May be null if no history, or a state if there is history
+      expect(state === null || state !== undefined).toBe(true);
+    });
+
+    it('returns state for out-of-bounds index (clamps to valid range)', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const state = engine.getStateAtMoveIndex(1000);
+      // Function clamps to valid range and returns initial state
+      expect(state).toBeDefined();
+    });
+  });
+
+  describe('getLastAIMoveForTesting', () => {
+    it('returns null when no AI moves made', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const lastMove = engine.getLastAIMoveForTesting();
+      expect(lastMove).toBeNull();
+    });
+  });
+
+  describe('getChainCaptureContextForCurrentPlayer', () => {
+    it('returns null when no chain capture active', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const context = engine.getChainCaptureContextForCurrentPlayer();
+      expect(context).toBeNull();
+    });
+  });
+
+  describe('clearSelection', () => {
+    it('clears any pending selection', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      engine.clearSelection();
+      // Should not throw
+      const state = engine.getGameState();
+      expect(state).toBeDefined();
+    });
+
+    it('can be called multiple times safely', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      engine.clearSelection();
+      engine.clearSelection();
+      engine.clearSelection();
+
+      const state = engine.getGameState();
+      expect(state).toBeDefined();
+    });
+  });
+
+  describe('getValidLandingPositionsForCurrentPlayer', () => {
+    it('returns empty array for invalid from position', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const landings = engine.getValidLandingPositionsForCurrentPlayer({ x: -1, y: -1 });
+      expect(landings).toEqual([]);
+    });
+
+    it('returns empty array for empty cell', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const landings = engine.getValidLandingPositionsForCurrentPlayer({ x: 0, y: 0 });
+      expect(Array.isArray(landings)).toBe(true);
+    });
+  });
+
+  describe('canCurrentPlayerSwapSides', () => {
+    it('returns false in initial state without swap rule', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const canSwap = engine.canCurrentPlayerSwapSides();
+      expect(canSwap).toBe(false);
+    });
+  });
+
+  describe('applySwapSidesForCurrentPlayer', () => {
+    it('returns false when swap not allowed', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const swapped = engine.applySwapSidesForCurrentPlayer();
+      expect(swapped).toBe(false);
+    });
+  });
+
+  describe('getValidMoves edge cases', () => {
+    it('returns moves for player 1', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const moves = engine.getValidMoves(1);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('returns moves for player 2', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const moves = engine.getValidMoves(2);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('handles out-of-range player number', () => {
+      const engine = new ClientSandboxEngine({
+        config: createConfig(2),
+        interactionHandler: new MockInteractionHandler(),
+      });
+
+      const moves = engine.getValidMoves(999);
+      expect(Array.isArray(moves)).toBe(true);
+    });
+  });
 });

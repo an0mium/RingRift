@@ -71,7 +71,12 @@ import type {
   CaptureDirectionChoice,
   RingEliminationChoice,
 } from '../../shared/types/game';
-import { isSandboxAiTraceModeEnabled, isTestEnvironment } from '../../shared/utils/envFlags';
+import {
+  isSandboxAiTraceModeEnabled,
+  isSandboxLpsDebugEnabled,
+  isTestEnvironment,
+  debugLog,
+} from '../../shared/utils/envFlags';
 import { SeededRNG, generateGameSeed } from '../../shared/utils/rng';
 import { applyMarkerEffectsAlongPathOnBoard } from '../../shared/engine';
 import { enumerateSimpleMovementLandings } from './sandboxMovement';
@@ -1318,7 +1323,7 @@ export class ClientSandboxEngine {
    * move enumerators.
    */
   private hasAnyRealActionForPlayer(playerNumber: number): boolean {
-    return hasAnyRealAction(this.gameState, playerNumber, {
+    const result = hasAnyRealAction(this.gameState, playerNumber, {
       hasPlacement: (pn) => this.enumerateLegalRingPlacements(pn).length > 0,
       hasMovement: (pn) => this.enumerateSimpleMovementLandings(pn).length > 0,
       hasCapture: (pn) => {
@@ -1332,6 +1337,13 @@ export class ClientSandboxEngine {
         return false;
       },
     });
+
+    debugLog(isSandboxLpsDebugEnabled(), '[SandboxLPS] hasAnyRealActionForPlayer', {
+      playerNumber,
+      result,
+    });
+
+    return result;
   }
 
   /**
@@ -1487,6 +1499,26 @@ export class ClientSandboxEngine {
       hasMaterial: (pn) => this.playerHasMaterialLocal(pn),
     });
 
+    debugLog(isSandboxLpsDebugEnabled(), '[SandboxLPS] evaluateLpsVictory', {
+      stateSnapshot: {
+        currentPlayer: state.currentPlayer,
+        currentPhase: state.currentPhase,
+        gameStatus: state.gameStatus,
+        players: state.players.map((p) => ({
+          playerNumber: p.playerNumber,
+          ringsInHand: p.ringsInHand,
+          eliminatedRings: p.eliminatedRings,
+          territorySpaces: p.territorySpaces,
+        })),
+      },
+      lpsState: {
+        roundIndex: this._lpsState.roundIndex,
+        currentRoundFirstPlayer: this._lpsState.currentRoundFirstPlayer,
+        exclusivePlayerForCompletedRound: this._lpsState.exclusivePlayerForCompletedRound,
+      },
+      result: lpsResult,
+    });
+
     if (!lpsResult.isVictory || lpsResult.winner === undefined) {
       return;
     }
@@ -1548,15 +1580,16 @@ export class ClientSandboxEngine {
       lpsExclusivePlayerForCompletedRound: this._lpsState.exclusivePlayerForCompletedRound,
     };
 
-    if (isTestEnvironment()) {
-      // eslint-disable-next-line no-console
-      console.log('[TurnTrace.sandbox.handleStartOfInteractiveTurn]', {
+    debugLog(
+      isSandboxLpsDebugEnabled() || isTestEnvironment(),
+      '[TurnTrace.sandbox.handleStartOfInteractiveTurn]',
+      {
         decision: 'handleStartOfInteractiveTurn',
         reason: 'start_interactive_turn',
         before: beforeSnapshot,
         after: afterSnapshot,
-      });
-    }
+      }
+    );
   }
 
   // === Internal helpers ===
@@ -2300,7 +2333,31 @@ export class ClientSandboxEngine {
     }
 
     if (!this._selectedStackKey) {
-      // If clicking on a stack belonging to the current player, select it.
+      // In capture phase, allow clicking directly on a highlighted landing
+      // cell to apply an overtaking_capture without pre-selecting the stack.
+      if (this.gameState.currentPhase === 'capture') {
+        const adapter = this.getOrchestratorAdapter();
+        const validMoves = adapter.getValidMoves();
+        const captureMoves = validMoves.filter(
+          (m) =>
+            m.type === 'overtaking_capture' && m.to && positionToString(m.to as Position) === key
+        );
+
+        if (captureMoves.length > 0) {
+          let moveToApply: Move = captureMoves[0];
+
+          // If multiple capture options share the same landing, delegate to the
+          // existing capture-direction choice helper to disambiguate.
+          if (captureMoves.length > 1) {
+            moveToApply = await this.promptForCaptureDirection(captureMoves);
+          }
+
+          await this.applyCanonicalMove(moveToApply);
+          return;
+        }
+      }
+
+      // Otherwise fall back to normal click-to-select semantics.
       if (stackAtPos && stackAtPos.controllingPlayer === this.gameState.currentPlayer) {
         this._selectedStackKey = key;
       }
@@ -3452,6 +3509,19 @@ export class ClientSandboxEngine {
       bypassNoDeadPlacement: true,
     });
 
+    // Debug: trace phase after orchestrator for move_stack parity investigation
+    if (move.type === 'move_stack' && isTestEnvironment()) {
+      // eslint-disable-next-line no-console
+      console.log('[applyCanonicalMoveForReplay] POST-ORCHESTRATOR move_stack:', {
+        movePlayer: move.player,
+        moveTo: move.to ? positionToString(move.to) : null,
+        currentPhase: this.gameState.currentPhase,
+        currentPlayer: this.gameState.currentPlayer,
+        gameStatus: this.gameState.gameStatus,
+        changed,
+      });
+    }
+
     if (changed) {
       // Phase transition fix: After place_ring, Python automatically advances
       // to movement phase for the same player. The TS orchestrator may leave
@@ -3516,19 +3586,80 @@ export class ClientSandboxEngine {
         }
       }
 
-      // Note: Previously there was a workaround here to force transition to
-      // 'capture' phase after move_stack when the next move was a capture. This
-      // addressed a Python engine bug where chain_capture_state wasn't being
-      // cleared, causing captures after move_stack to be incorrectly classified.
-      // The Python engine was fixed (game_engine.py now clears chain_capture_state
-      // after MOVE_STACK, in _advance_to_line_processing, and in _end_turn), so
-      // this workaround is no longer needed. Both engines now correctly check for
-      // captures only from the landing position per RR-CANON-R093.
+      // RR-CANON-R073: Mandatory phase transition after move_stack/move_ring.
+      // Per the canonical rules, after a non-capture movement, if legal capture
+      // segments exist from the landing position, currentPhase MUST change to
+      // 'capture'. This ensures parity with Python which transitions immediately.
+      // IMPORTANT: Use move.player (the actual mover), not currentPlayer (which
+      // may have already advanced to the next player by this point).
+      if (
+        this.gameState.gameStatus === 'active' &&
+        this.gameState.currentPhase === 'movement' &&
+        (move.type === 'move_stack' || move.type === 'move_ring') &&
+        move.to
+      ) {
+        const capturesFromLanding = this.enumerateCaptureSegmentsFrom(move.to, move.player);
+        // Debug: trace capture enumeration for parity investigation
+        if (isTestEnvironment()) {
+          // eslint-disable-next-line no-console
+          console.log('[applyCanonicalMoveForReplay] RR-CANON-R073 capture check:', {
+            movePlayer: move.player,
+            moveTo: positionToString(move.to),
+            capturesFound: capturesFromLanding.length,
+            willTransition: capturesFromLanding.length > 0,
+          });
+        }
+        if (capturesFromLanding.length > 0) {
+          // Transition to capture phase per RR-CANON-R073
+          this.gameState = {
+            ...this.gameState,
+            currentPhase: 'capture' as GamePhase,
+          };
+        }
+      }
+
+      // RR-CANON-R073: Mandatory phase transition after overtaking_capture.
+      // After executing a capture segment, if additional legal captures exist
+      // from the new landing position, transition to chain_capture phase.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        (this.gameState.currentPhase === 'capture' ||
+          this.gameState.currentPhase === 'chain_capture') &&
+        move.type === 'overtaking_capture' &&
+        move.to
+      ) {
+        const chainCaptures = this.enumerateCaptureSegmentsFrom(move.to, move.player);
+        if (chainCaptures.length > 0) {
+          // Transition to chain_capture phase per RR-CANON-R073
+          this.gameState = {
+            ...this.gameState,
+            currentPhase: 'chain_capture' as GamePhase,
+          };
+        }
+      }
+
+      // RR-CANON-R073: Mandatory phase transition after continue_capture_segment.
+      // Same logic as overtaking_capture - if more captures exist, stay in chain_capture.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        this.gameState.currentPhase === 'chain_capture' &&
+        move.type === 'continue_capture_segment' &&
+        move.to
+      ) {
+        const moreCaptures = this.enumerateCaptureSegmentsFrom(move.to, move.player);
+        if (moreCaptures.length > 0) {
+          // Remain in chain_capture phase per RR-CANON-R073
+          this.gameState = {
+            ...this.gameState,
+            currentPhase: 'chain_capture' as GamePhase,
+          };
+        }
+      }
 
       // Lookahead phase alignment: if we know the next move, use it to align
       // the current phase/player with what Python expects. This handles cases
       // where the TS orchestrator's phase transitions differ from Python's
-      // (e.g., TS stays in capture phase after move_stack while Python advances).
+      // (e.g., for decision phases like line_processing or territory_processing).
       if (nextMove && this.gameState.gameStatus === 'active') {
         await this.autoResolvePendingDecisionPhasesForReplay(nextMove);
       }

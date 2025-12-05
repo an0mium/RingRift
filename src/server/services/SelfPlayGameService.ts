@@ -9,6 +9,14 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 import { gunzipSync } from 'zlib';
+import type { GameStatus as PrismaGameStatus } from '@prisma/client';
+import { getDatabaseClient } from '../database/connection';
+import { logger } from '../utils/logger';
+import { GamePersistenceService } from './GamePersistenceService';
+import { gameRecordRepository } from './GameRecordRepository';
+import { getOrCreateAIUser } from './AIUserService';
+import type { BoardType as DomainBoardType, GameState, Move } from '../../shared/types/game';
+import type { FinalScore, GameOutcome, RecordSource } from '../../shared/types/gameRecord';
 
 // Types for game data
 export interface SelfPlayGameSummary {
@@ -458,6 +466,257 @@ export class SelfPlayGameService {
       avgDuration: avgStats.avgDuration,
     };
   }
+}
+
+/**
+ * Options for importing a recorded self-play game into the canonical
+ * Postgres Game + GameRecord pipeline.
+ */
+export interface SelfPlayImportOptions {
+  dbPath: string;
+  gameId: string;
+  source?: RecordSource;
+  tags?: string[];
+}
+
+/**
+ * Map a self-play terminationReason string into the shared GameOutcome union.
+ * Falls back to last_player_standing/draw when the reason is unknown.
+ */
+function mapSelfPlayTerminationToOutcome(
+  terminationReason: string | null,
+  winner: number | null
+): GameOutcome {
+  switch (terminationReason) {
+    case 'ring_elimination':
+      return 'ring_elimination';
+    case 'territory':
+    case 'territory_control':
+      return 'territory_control';
+    case 'last_player_standing':
+      return 'last_player_standing';
+    case 'timeout':
+    case 'max_turns_reached':
+    case 'max_moves_reached':
+      return 'timeout';
+    case 'resignation':
+      return 'resignation';
+    case 'abandonment':
+      return 'abandonment';
+    case 'draw':
+    case 'stalemate':
+      return 'draw';
+    default:
+      if (winner !== null && winner !== undefined) {
+        return 'last_player_standing';
+      }
+      return 'draw';
+  }
+}
+
+/**
+ * Build a FinalScore object from self-play player summary rows.
+ */
+function buildFinalScoreFromSelfPlayPlayers(players: SelfPlayPlayer[]): FinalScore {
+  const ringsEliminated: Record<number, number> = {};
+  const territorySpaces: Record<number, number> = {};
+  const ringsRemaining: Record<number, number> = {};
+
+  for (const player of players) {
+    const seat = player.playerNumber;
+    ringsEliminated[seat] = player.finalEliminatedRings ?? 0;
+    territorySpaces[seat] = player.finalTerritorySpaces ?? 0;
+    ringsRemaining[seat] = 0;
+  }
+
+  return { ringsEliminated, territorySpaces, ringsRemaining };
+}
+
+/**
+ * Import a completed self-play game from a SQLite GameReplayDB into the
+ * canonical Postgres Game + GameRecord pipeline.
+ *
+ * This function:
+ * - Creates an unrated Game row with AI-only seats.
+ * - Persists all recorded moves via GamePersistenceService.saveMoveSync so
+ *   moveData JSON is available to GameRecordRepository.
+ * - Computes a best-effort FinalScore and GameOutcome from self-play metadata.
+ * - Writes finalState/finalScore/outcome/recordMetadata via
+ *   GameRecordRepository.saveGameRecord so that JSONL exporters can stream it.
+ *
+ * Returns the newly created Game.id.
+ */
+export async function importSelfPlayGameAsGameRecord(
+  options: SelfPlayImportOptions,
+  serviceOverride?: Pick<SelfPlayGameService, 'getGame' | 'getStateAtMove'>
+): Promise<string> {
+  const prisma = getDatabaseClient();
+  if (!prisma) {
+    throw new Error('Database not available');
+  }
+
+  const service = serviceOverride ?? getSelfPlayGameService();
+  const resolvedDbPath = path.isAbsolute(options.dbPath)
+    ? options.dbPath
+    : path.join(process.cwd(), options.dbPath);
+
+  const detail = service.getGame(resolvedDbPath, options.gameId);
+  if (!detail) {
+    throw new Error(`Self-play game ${options.gameId} not found in DB ${resolvedDbPath}`);
+  }
+
+  if (!detail.completedAt) {
+    throw new Error(`Self-play game ${options.gameId} is not completed and cannot be imported`);
+  }
+
+  const createdAt = new Date(detail.createdAt);
+  const endedAt = new Date(detail.completedAt);
+
+  let gameId: string;
+  try {
+    gameId = await GamePersistenceService.createGame({
+      boardType: detail.boardType as DomainBoardType,
+      maxPlayers: detail.numPlayers,
+      // Self-play imports use a neutral, non-rated time control bucket. Since
+      // TimeControl.type is restricted to the rated ladder buckets, we map
+      // these offline games into the slowest category so downstream tooling
+      // can treat them consistently without special-casing a new type.
+      timeControl: { type: 'classical', initialTime: 0, increment: 0 },
+      isRated: false,
+      allowSpectators: true,
+    });
+  } catch (err) {
+    logger.error('Failed to create Game row for self-play import', {
+      dbPath: resolvedDbPath,
+      selfPlayGameId: detail.gameId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+
+  try {
+    // Align basic timestamps and status with the recorded episode.
+    await prisma.game.update({
+      where: { id: gameId },
+      data: {
+        status: 'completed' as PrismaGameStatus,
+        createdAt,
+        startedAt: createdAt,
+        endedAt,
+        updatedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    logger.warn('Failed to update Game timestamps for self-play import', {
+      gameId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Persist moves using the shared persistence service so that moveData JSON
+  // is available to GameRecordRepository.
+  try {
+    const aiUser = await getOrCreateAIUser();
+
+    for (const m of detail.moves) {
+      const move = m.move as Move;
+
+      if (typeof move.moveNumber !== 'number') {
+        (move as any).moveNumber = m.moveNumber;
+      }
+      if (typeof move.thinkTime !== 'number') {
+        (move as any).thinkTime = m.thinkTimeMs ?? 0;
+      }
+      const rawTs = (move as any).timestamp;
+      if (!(rawTs instanceof Date)) {
+        (move as any).timestamp =
+          rawTs instanceof Date ? rawTs : typeof rawTs === 'string' ? new Date(rawTs) : createdAt;
+      }
+      if (typeof move.player !== 'number') {
+        (move as any).player = m.player;
+      }
+
+      await GamePersistenceService.saveMoveSync({
+        gameId,
+        playerId: aiUser.id,
+        moveNumber: (move as any).moveNumber as number,
+        move,
+      });
+    }
+  } catch (err) {
+    logger.error('Failed to persist self-play moves into Postgres', {
+      gameId,
+      dbPath: resolvedDbPath,
+      selfPlayGameId: detail.gameId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+
+  // Compute outcome, finalScore, and finalState for GameRecord storage.
+  const finalScore = buildFinalScoreFromSelfPlayPlayers(detail.players);
+  const outcome = mapSelfPlayTerminationToOutcome(detail.terminationReason, detail.winner);
+  const finalStateRaw =
+    service.getStateAtMove(resolvedDbPath, detail.gameId, detail.totalMoves) ??
+    detail.initialState ??
+    {};
+
+  const finalState = finalStateRaw as GameState;
+
+  const tagSet = new Set<string>(options.tags ?? []);
+  tagSet.add('self_play');
+  tagSet.add('import:selfplay_sqlite');
+  tagSet.add(`db:${path.basename(resolvedDbPath)}`);
+  tagSet.add(`selfplay_game_id:${detail.gameId}`);
+  if (detail.source) {
+    tagSet.add(`selfplay_source:${detail.source}`);
+  }
+  if (detail.terminationReason) {
+    tagSet.add(`termination:${detail.terminationReason}`);
+  }
+  if (detail.numPlayers) {
+    tagSet.add(`players:${detail.numPlayers}`);
+  }
+  if (detail.winner !== null && detail.winner !== undefined) {
+    tagSet.add(`winner_seat:${detail.winner}`);
+  }
+
+  try {
+    await gameRecordRepository.saveGameRecord(gameId, finalState, outcome, finalScore, {
+      source: options.source ?? 'self_play',
+      sourceId: detail.gameId,
+      tags: Array.from(tagSet),
+    });
+  } catch (err) {
+    logger.warn('Failed to save canonical GameRecord for self-play import', {
+      gameId,
+      dbPath: resolvedDbPath,
+      selfPlayGameId: detail.gameId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
+
+  // After record storage, ensure endedAt reflects the original episode end time.
+  try {
+    await prisma.game.update({
+      where: { id: gameId },
+      data: {
+        status: 'completed' as PrismaGameStatus,
+        createdAt,
+        startedAt: createdAt,
+        endedAt,
+        updatedAt: new Date(),
+      },
+    });
+  } catch (err) {
+    logger.warn('Failed to re-apply Game timestamps after GameRecord save', {
+      gameId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  return gameId;
 }
 
 // Singleton instance

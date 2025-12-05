@@ -38,6 +38,8 @@ import { useGame } from '../contexts/GameContext';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { useGameState } from '../hooks/useGameState';
 import { getWeirdStateBanner } from '../utils/gameStateWeirdness';
+import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
+import { sendRulesUxEvent } from '../utils/rulesUxTelemetry';
 import { useGameConnection } from '../hooks/useGameConnection';
 import {
   useGameActions,
@@ -529,6 +531,13 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   // Resignation state
   const [isResigning, setIsResigning] = useState(false);
 
+  // Weird-state tracking for rules-UX telemetry.
+  // We only care about coarse weird-state categories (ANM/FE/structural stalemate)
+  // and a single coarse timestamp for "seconds since weird state" on resign.
+  const weirdStateFirstSeenAtRef = useRef<number | null>(null);
+  const weirdStateTypeRef = useRef<RulesUxWeirdStateType | 'none'>('none');
+  const weirdStateResignReportedRef = useRef<Set<string>>(new Set());
+
   // Chat UI state (backend chat only; GameContext always provides sendChatMessage)
   const chatMessages = backendChatMessages;
   const [chatInput, setChatInput] = useState('');
@@ -694,6 +703,32 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         return 'Make your move.';
     }
   };
+
+  // Track the first time each weird-state type appears so that we can emit
+  // coarse-grained rules-UX telemetry when the local player resigns while a
+  // weird state is active.
+  useEffect(() => {
+    if (!gameState) {
+      weirdStateTypeRef.current = 'none';
+      weirdStateFirstSeenAtRef.current = null;
+      return;
+    }
+
+    const weird = getWeirdStateBanner(gameState, { victoryState });
+    const nextType = weird.type;
+    const currentType = weirdStateTypeRef.current;
+
+    if (nextType === 'none') {
+      weirdStateTypeRef.current = 'none';
+      weirdStateFirstSeenAtRef.current = null;
+      return;
+    }
+
+    if (currentType !== nextType) {
+      weirdStateTypeRef.current = nextType as RulesUxWeirdStateType;
+      weirdStateFirstSeenAtRef.current = Date.now();
+    }
+  }, [gameState, victoryState]);
 
   // Placeholder hook for future game_error events (kept for parity with previous GamePage logic)
   useEffect(() => {
@@ -1126,6 +1161,56 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
 
     setIsResigning(true);
     try {
+      const weirdType = weirdStateTypeRef.current;
+      const firstSeenAt = weirdStateFirstSeenAtRef.current;
+
+      // Derive coarse board / difficulty context from the current GameState.
+      let boardTypeForTelemetry: GameState['boardType'] | undefined;
+      let numPlayersForTelemetry: number | undefined;
+      let aiDifficultyForTelemetry: number | undefined;
+
+      if (gameState) {
+        boardTypeForTelemetry = gameState.boardType;
+        numPlayersForTelemetry = gameState.players.length;
+
+        const aiPlayers = gameState.players.filter((p) => p.type === 'ai');
+        let maxDifficulty = 0;
+        for (const p of aiPlayers) {
+          const d = p.aiProfile?.difficulty ?? p.aiDifficulty;
+          if (typeof d === 'number' && Number.isFinite(d) && d > maxDifficulty) {
+            maxDifficulty = d;
+          }
+        }
+        if (maxDifficulty > 0) {
+          aiDifficultyForTelemetry = maxDifficulty;
+        }
+      }
+
+      if (
+        boardTypeForTelemetry &&
+        typeof numPlayersForTelemetry === 'number' &&
+        numPlayersForTelemetry > 0 &&
+        weirdType &&
+        weirdType !== 'none' &&
+        !weirdStateResignReportedRef.current.has(weirdType)
+      ) {
+        const secondsSinceWeirdState =
+          typeof firstSeenAt === 'number'
+            ? Math.max(0, Math.round((Date.now() - firstSeenAt) / 1000))
+            : undefined;
+
+        weirdStateResignReportedRef.current.add(weirdType);
+
+        void sendRulesUxEvent({
+          type: 'rules_weird_state_resign',
+          boardType: boardTypeForTelemetry,
+          numPlayers: numPlayersForTelemetry,
+          aiDifficulty: aiDifficultyForTelemetry,
+          weirdStateType: weirdType as RulesUxWeirdStateType,
+          secondsSinceWeirdState,
+        });
+      }
+
       await gameApi.leaveGame(gameId);
       toast.success('You have resigned from the game.');
       // The server will broadcast victory/game over state via WebSocket
@@ -1182,10 +1267,77 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   const board = gameState.board;
   const boardType = gameState.boardType;
 
+  const rulesUxContext = {
+    boardType,
+    numPlayers: gameState.players.length,
+    aiDifficulty: (() => {
+      const aiPlayers = gameState.players.filter((p) => p.type === 'ai');
+      let maxDifficulty = 0;
+      for (const p of aiPlayers) {
+        const d = p.aiProfile?.difficulty ?? p.aiDifficulty;
+        if (typeof d === 'number' && Number.isFinite(d) && d > maxDifficulty) {
+          maxDifficulty = d;
+        }
+      }
+      return maxDifficulty > 0 ? maxDifficulty : undefined;
+    })(),
+  } as const;
+
   // Derive decision-phase board highlights (if any) from the current GameState
   // and pending PlayerChoice, then feed them into the BoardViewModel so the
   // BoardView can render consistent geometry overlays for all roles.
-  const decisionHighlights = deriveBoardDecisionHighlights(gameState, pendingChoice);
+  const baseDecisionHighlights = deriveBoardDecisionHighlights(gameState, pendingChoice);
+
+  // Optional-capture visibility (backend): when the game is in capture phase
+  // with no explicit PlayerChoice but canonical overtaking_capture moves
+  // exist for the current player, synthesise a lightweight capture_direction
+  // highlight model so both the over-taken stack and landing cells pulse
+  // clearly, mirroring the sandbox host semantics.
+  let decisionHighlights = baseDecisionHighlights;
+  if (
+    !decisionHighlights &&
+    gameState.gameStatus === 'active' &&
+    gameState.currentPhase === 'capture' &&
+    Array.isArray(validMoves) &&
+    validMoves.length > 0
+  ) {
+    const captureMoves = validMoves.filter((m) => m.type === 'overtaking_capture');
+    if (captureMoves.length > 0) {
+      type CaptureHighlight = { positionKey: string; intensity: 'primary' | 'secondary' };
+      const highlights: CaptureHighlight[] = [];
+      const seenPrimary = new Set<string>();
+      const seenAny = new Set<string>();
+
+      for (const move of captureMoves) {
+        const target = move.captureTarget as Position | undefined;
+        const landing = move.to as Position | undefined;
+
+        if (landing) {
+          const key = positionToString(landing);
+          if (!seenPrimary.has(key)) {
+            seenPrimary.add(key);
+            seenAny.add(key);
+            highlights.push({ positionKey: key, intensity: 'primary' });
+          }
+        }
+
+        if (target) {
+          const key = positionToString(target);
+          if (!seenAny.has(key)) {
+            seenAny.add(key);
+            highlights.push({ positionKey: key, intensity: 'secondary' });
+          }
+        }
+      }
+
+      if (highlights.length > 0) {
+        decisionHighlights = {
+          choiceKind: 'capture_direction',
+          highlights,
+        };
+      }
+    }
+  }
 
   const backendBoardViewModel = toBoardViewModel(board, {
     selectedPosition: selected || backendMustMoveFrom,
@@ -1193,7 +1345,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     decisionHighlights,
   });
 
-  const hudViewModel = toHUDViewModel(gameState, {
+  let hudViewModel = toHUDViewModel(gameState, {
     instruction: getInstruction(),
     connectionStatus,
     lastHeartbeatAt,
@@ -1205,6 +1357,62 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     decisionIsServerCapped: decisionCountdown.isServerCapped,
     victoryState,
   });
+
+  // Optional-capture HUD chip (backend): when capture is available directly
+  // from the capture phase (with skip_capture as an option) but no explicit
+  // decision choice is active, surface a bright attention chip so players do
+  // not miss the opportunity. This mirrors the sandbox host behaviour.
+  if (
+    hudViewModel &&
+    !hudViewModel.decisionPhase &&
+    gameState.gameStatus === 'active' &&
+    gameState.currentPhase === 'capture' &&
+    Array.isArray(validMoves) &&
+    validMoves.length > 0
+  ) {
+    const hasCaptureMove = validMoves.some((m) => m.type === 'overtaking_capture');
+    const hasSkipCaptureMove = validMoves.some((m) => m.type === 'skip_capture');
+
+    if (hasCaptureMove) {
+      const actingVm = hudViewModel.players.find((p) => p.isCurrentPlayer);
+      const actingPlayerNumber = actingVm?.playerNumber ?? gameState.currentPlayer;
+      const actingPlayerName =
+        actingVm?.username ||
+        gameState.players.find((p) => p.playerNumber === actingPlayerNumber)?.username ||
+        `Player ${actingPlayerNumber}`;
+
+      hudViewModel = {
+        ...hudViewModel,
+        decisionPhase: {
+          isActive: true,
+          actingPlayerNumber,
+          actingPlayerName,
+          isLocalActor: !!(actingVm?.isUserPlayer && isMyTurn),
+          label: hasSkipCaptureMove
+            ? 'Optional capture available'
+            : 'Capture available from this stack',
+          description: hasSkipCaptureMove
+            ? 'You may jump over a neighbouring stack for an overtaking capture, or skip capture to continue this turn.'
+            : 'You may jump over a neighbouring stack for an overtaking capture from your last move.',
+          shortLabel: 'Capture opportunity',
+          timeRemainingMs: null,
+          showCountdown: false,
+          warningThresholdMs: undefined,
+          isServerCapped: undefined,
+          spectatorLabel: hasSkipCaptureMove
+            ? `${actingPlayerName} may choose an overtaking capture or skip.`
+            : `${actingPlayerName} may choose an overtaking capture.`,
+          statusChip: {
+            text: hasSkipCaptureMove
+              ? 'Capture available – click a landing or skip'
+              : 'Capture available – click a landing',
+            tone: 'attention',
+          },
+          canSkip: hasSkipCaptureMove,
+        },
+      };
+    }
+  }
 
   const victoryViewModel = toVictoryViewModel(victoryState, gameState.players, gameState, {
     currentUserId: user?.id,
@@ -1403,12 +1611,14 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
               viewModel={hudViewModel}
               timeControl={gameState.timeControl}
               onShowBoardControls={() => setShowBoardControls(true)}
+              rulesUxContext={rulesUxContext}
             />
           ) : (
             <GameHUD
               viewModel={hudViewModel}
               timeControl={gameState.timeControl}
               onShowBoardControls={() => setShowBoardControls(true)}
+              rulesUxContext={rulesUxContext}
             />
           )}
 

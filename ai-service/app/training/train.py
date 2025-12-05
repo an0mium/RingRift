@@ -7,7 +7,7 @@ and distributed training support via PyTorch DDP.
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, WeightedRandomSampler
 import numpy as np
 import random
 import os
@@ -34,9 +34,12 @@ from typing import (
 import logging
 from app.ai.neural_net import (
     RingRiftCNN,
+    RingRiftCNN_MultiPlayer,
     HexNeuralNet,
     HEX_BOARD_SIZE,
     P_HEX,
+    MAX_PLAYERS,
+    multi_player_value_loss,
 )
 from app.training.config import TrainConfig
 from app.models import BoardType
@@ -55,6 +58,7 @@ from app.training.distributed import (  # noqa: E402
 )
 from app.training.data_loader import (  # noqa: E402
     StreamingDataLoader,
+    WeightedStreamingDataLoader,
     get_sample_count,
 )
 from app.training.model_versioning import (  # noqa: E402
@@ -755,10 +759,15 @@ class RingRiftDataset(Dataset):
         data_path: str,
         board_type: BoardType = BoardType.SQUARE8,
         augment_hex: bool = False,
+        use_multi_player_values: bool = False,
     ):
         self.data_path = data_path
         self.board_type = board_type
         self.augment_hex = augment_hex and board_type == BoardType.HEXAGONAL
+        # When True and the underlying dataset provides 'values_mp' and
+        # 'num_players', __getitem__ will surface vector value targets
+        # suitable for multi-player value heads.
+        self.use_multi_player_values = use_multi_player_values
         self.hex_transform: Optional[HexSymmetryTransform] = None
 
         # Initialize hex transform if augmentation enabled
@@ -776,6 +785,9 @@ class RingRiftDataset(Dataset):
         self.board_size_meta = None
         # List of valid sample indices (those with non-empty policies)
         self.valid_indices = None
+        # Multi-player value support metadata
+        self.has_multi_player_values = False
+        self.num_players_arr: Optional[np.ndarray] = None
 
         if os.path.exists(data_path):
             try:
@@ -831,6 +843,15 @@ class RingRiftDataset(Dataset):
                         self.board_type_meta = self.data["board_type"]
                     if "board_size" in files:
                         self.board_size_meta = self.data["board_size"]
+
+                    # Multi-player value targets: optional 'values_mp'
+                    # (N, MAX_PLAYERS) and 'num_players' (N,) arrays.
+                    if "values_mp" in files and "num_players" in files:
+                        self.has_multi_player_values = True
+                        self.num_players_arr = np.asarray(
+                            self.data["num_players"],
+                            dtype=np.int32,
+                        )
 
                     # Infer the canonical spatial shape (H, W) once so that
                     # callers can route samples into same-board batches if
@@ -948,11 +969,202 @@ class RingRiftDataset(Dataset):
             values_arr = np.asarray(policy_values, dtype=np.float32)
             policy_vector[indices_arr] = torch.from_numpy(values_arr)
 
+        # Scalar vs multi-player value targets:
+        # - Scalar: shape (1,) tensor containing float
+        # - Multi-player: shape (MAX_PLAYERS,) tensor from 'values_mp'
+        if self.use_multi_player_values and self.has_multi_player_values:
+            values_mp = np.asarray(
+                self.data["values_mp"][actual_idx],
+                dtype=np.float32,
+            )
+            value_tensor = torch.from_numpy(values_mp)
+        else:
+            value_tensor = torch.tensor(
+                [value.item()],
+                dtype=torch.float32,
+            )
+
         return (
             torch.from_numpy(features),
             torch.from_numpy(globals_vec),
-            torch.tensor([value.item()], dtype=torch.float32),
-            policy_vector
+            value_tensor,
+            policy_vector,
+        )
+
+
+class WeightedRingRiftDataset(RingRiftDataset):
+    """
+    Dataset with position-weighted sampling for curriculum learning.
+
+    Extends RingRiftDataset to compute per-sample weights based on:
+    - Game progress (late-game positions weighted higher)
+    - Game phase (territory/line decisions weighted higher)
+
+    The weights can be used with torch.utils.data.WeightedRandomSampler
+    for biased sampling during training.
+
+    Args:
+        data_path: Path to the .npz training data file
+        board_type: Board geometry type (for augmentation)
+        augment_hex: Enable D6 symmetry augmentation for hex boards
+        weighting: Weighting strategy - one of:
+            - 'uniform': No weighting (weight = 1.0 for all)
+            - 'late_game': Higher weight for late-game positions
+            - 'phase_emphasis': Higher weight for decision phases
+            - 'combined': Combines late_game and phase_emphasis
+    """
+
+    # Phase weights for phase_emphasis and combined strategies
+    PHASE_WEIGHTS = {
+        # Canonical GamePhase values (snake_case)
+        'ring_placement': 0.8,
+        'movement': 1.0,
+        'capture': 1.2,
+        'chain_capture': 1.3,
+        'line_processing': 1.5,
+        'territory_processing': 1.5,
+        # Legacy / alias names (for backwards compatibility)
+        'RING_PLACEMENT': 0.8,
+        'MOVEMENT': 1.0,
+        'CAPTURE': 1.2,
+        'CHAIN_CAPTURE': 1.3,
+        'LINE_DECISION': 1.5,
+        'TERRITORY_DECISION': 1.5,
+        'ring_movement': 1.0,
+        'line_decision': 1.5,
+        'territory_decision': 1.5,
+    }
+
+    def __init__(
+        self,
+        data_path: str,
+        board_type: BoardType = BoardType.SQUARE8,
+        augment_hex: bool = False,
+        weighting: str = 'late_game',
+        use_multi_player_values: bool = False,
+    ):
+        super().__init__(
+            data_path,
+            board_type,
+            augment_hex,
+            use_multi_player_values=use_multi_player_values,
+        )
+
+        self.weighting = weighting
+        self.sample_weights: Optional[np.ndarray] = None
+
+        if self.length > 0:
+            self._compute_weights()
+
+    def _compute_weights(self) -> None:
+        """Compute per-sample weights based on weighting strategy."""
+        weights = np.ones(self.length, dtype=np.float32)
+
+        # Load metadata if available
+        move_numbers = None
+        total_game_moves = None
+        phases = None
+
+        if self.data is not None:
+            if 'move_numbers' in self.data:
+                move_numbers = self.data['move_numbers']
+            if 'total_game_moves' in self.data:
+                total_game_moves = self.data['total_game_moves']
+            if 'phases' in self.data:
+                phases = self.data['phases']
+
+        if self.weighting == 'uniform':
+            # No weighting
+            pass
+
+        elif self.weighting == 'late_game':
+            # Weight positions higher toward end of game
+            # w = 0.5 + 0.5 * (move_num / total_moves)
+            if move_numbers is not None and total_game_moves is not None:
+                for i, orig_idx in enumerate(self.valid_indices):
+                    move_num = move_numbers[orig_idx]
+                    total = max(total_game_moves[orig_idx], 1)
+                    progress = move_num / total
+                    weights[i] = 0.5 + 0.5 * progress
+            else:
+                logger.warning(
+                    "late_game weighting requested but move_numbers/total_game_moves "
+                    "not in dataset. Using uniform weights."
+                )
+
+        elif self.weighting == 'phase_emphasis':
+            # Boost territory/line decision phases
+            if phases is not None:
+                for i, orig_idx in enumerate(self.valid_indices):
+                    phase = str(phases[orig_idx])
+                    weights[i] = self.PHASE_WEIGHTS.get(phase, 1.0)
+            else:
+                logger.warning(
+                    "phase_emphasis weighting requested but phases not in dataset. "
+                    "Using uniform weights."
+                )
+
+        elif self.weighting == 'combined':
+            # Combine late_game and phase_emphasis
+            late_game_available = (
+                move_numbers is not None and total_game_moves is not None
+            )
+            phase_available = phases is not None
+
+            for i, orig_idx in enumerate(self.valid_indices):
+                weight = 1.0
+
+                # Late game factor
+                if late_game_available:
+                    move_num = move_numbers[orig_idx]
+                    total = max(total_game_moves[orig_idx], 1)
+                    progress = move_num / total
+                    weight *= (0.5 + 0.5 * progress)
+
+                # Phase factor
+                if phase_available:
+                    phase = str(phases[orig_idx])
+                    weight *= self.PHASE_WEIGHTS.get(phase, 1.0)
+
+                weights[i] = weight
+
+        else:
+            logger.warning(
+                f"Unknown weighting strategy '{self.weighting}'. Using uniform."
+            )
+
+        # Normalize weights to sum to length (maintains expected gradient scale)
+        weight_sum = weights.sum()
+        if weight_sum > 0:
+            weights = weights * (self.length / weight_sum)
+
+        self.sample_weights = weights
+        logger.info(
+            f"Computed {self.weighting} weights: "
+            f"min={weights.min():.3f}, max={weights.max():.3f}, "
+            f"mean={weights.mean():.3f}"
+        )
+
+    def get_sampler(self) -> 'torch.utils.data.WeightedRandomSampler':
+        """
+        Get a WeightedRandomSampler using the computed weights.
+
+        Returns
+        -------
+        WeightedRandomSampler
+            Sampler that samples indices according to computed weights.
+        """
+        from torch.utils.data import WeightedRandomSampler
+
+        if self.sample_weights is None:
+            weights = torch.ones(self.length)
+        else:
+            weights = torch.from_numpy(self.sample_weights)
+
+        return WeightedRandomSampler(
+            weights=weights,
+            num_samples=self.length,
+            replacement=True,
         )
 
 
@@ -977,6 +1189,9 @@ def train_model(
     find_unused_parameters: bool = False,
     use_streaming: bool = False,
     data_dir: Optional[str] = None,
+    sampling_weights: str = 'uniform',
+    multi_player: bool = False,
+    num_players: int = 2,
 ):
     """
     Train the RingRift neural network model.
@@ -1007,6 +1222,8 @@ def train_model(
         find_unused_parameters: Enable find_unused_parameters for DDP
         use_streaming: Use StreamingDataLoader for large datasets
         data_dir: Directory containing multiple .npz files (for streaming)
+        sampling_weights: Position sampling strategy for non-streaming data:
+            'uniform', 'late_game', 'phase_emphasis', or 'combined'
     """
     # Set up distributed training if enabled
     if distributed:
@@ -1078,7 +1295,7 @@ def train_model(
                 f"Initializing RingRiftCNN with board_size={board_size}"
             )
 
-    # Initialize model based on board type
+    # Initialize model based on board type and multi-player mode
     if use_hex_model:
         # HexNeuralNet for hexagonal boards
         # in_channels = 10 base channels * (history_length + 1)
@@ -1091,6 +1308,25 @@ def train_model(
             board_size=board_size,
             policy_size=P_HEX,
         )
+        if multi_player:
+            if not distributed or is_main_process():
+                logger.warning(
+                    "Multi-player value head not yet implemented for HexNeuralNet. "
+                    "Using standard scalar value head."
+                )
+    elif multi_player:
+        # RingRiftCNN_MultiPlayer for multi-player games on square boards
+        model = RingRiftCNN_MultiPlayer(
+            board_size=board_size,
+            in_channels=10,
+            global_features=10,
+            history_length=config.history_length,
+            max_players=MAX_PLAYERS,
+        )
+        if not distributed or is_main_process():
+            logger.info(
+                f"Using RingRiftCNN_MultiPlayer with max_players={MAX_PLAYERS}"
+            )
     else:
         # RingRiftCNN for square boards
         model = RingRiftCNN(
@@ -1125,8 +1361,11 @@ def train_model(
             logger.info("Model wrapped with DistributedDataParallel")
 
     # Loss functions
-    value_criterion = nn.MSELoss()
+    # For multi-player mode, we use multi_player_value_loss instead of MSELoss
+    # which properly masks inactive player slots
+    value_criterion = nn.MSELoss()  # Used for scalar mode; multi-player uses function
     policy_criterion = nn.KLDivLoss(reduction='batchmean')
+    use_multi_player_loss = multi_player and not use_hex_model
 
     optimizer = optim.Adam(
         model.parameters(),
@@ -1254,18 +1493,35 @@ def train_model(
             stream_rank = 0
             stream_world_size = 1
 
-        train_streaming_loader = StreamingDataLoader(
-            data_paths=data_paths,
-            batch_size=config.batch_size,
-            shuffle=True,
-            seed=config.seed,
-            drop_last=False,
-            rank=stream_rank,
-            world_size=stream_world_size,
-        )
+        # Use weighted streaming loader when sampling_weights != 'uniform'
+        if sampling_weights != 'uniform':
+            train_streaming_loader = WeightedStreamingDataLoader(
+                data_paths=data_paths,
+                batch_size=config.batch_size,
+                shuffle=True,
+                seed=config.seed,
+                drop_last=False,
+                rank=stream_rank,
+                world_size=stream_world_size,
+                sampling_weights=sampling_weights,
+            )
+            if not distributed or is_main_process():
+                logger.info(
+                    f"Using WeightedStreamingDataLoader with "
+                    f"sampling_weights={sampling_weights}"
+                )
+        else:
+            train_streaming_loader = StreamingDataLoader(
+                data_paths=data_paths,
+                batch_size=config.batch_size,
+                shuffle=True,
+                seed=config.seed,
+                drop_last=False,
+                rank=stream_rank,
+                world_size=stream_world_size,
+            )
 
-        # For validation, we use the same files but with different seed
-        # and limit samples conceptually
+        # For validation, always use uniform sampling
         val_streaming_loader = StreamingDataLoader(
             data_paths=data_paths,
             batch_size=config.batch_size,
@@ -1276,22 +1532,44 @@ def train_model(
             world_size=stream_world_size,
         )
 
+        # Auto-detect multi-player values from streaming data
+        # If data has multi-player values but --multi-player wasn't specified,
+        # log a suggestion to the user
+        if train_streaming_loader.has_multi_player_values and not multi_player:
+            if not distributed or is_main_process():
+                logger.info(
+                    "Dataset contains multi-player value vectors (values_mp). "
+                    "Consider using --multi-player flag for multi-player training."
+                )
+
         train_sampler = None
         train_size = train_samples
         val_size = val_samples
 
     else:
-        # Legacy single-file loading with RingRiftDataset
+        # Legacy single-file loading with RingRiftDataset or WeightedRingRiftDataset
         if isinstance(data_path, list):
             data_path_str = data_path[0] if data_path else ""
         else:
             data_path_str = data_path
 
-        full_dataset = RingRiftDataset(
-            data_path_str,
-            board_type=config.board_type,
-            augment_hex=augment_hex_symmetry,
-        )
+        if sampling_weights == 'uniform':
+            full_dataset = RingRiftDataset(
+                data_path_str,
+                board_type=config.board_type,
+                augment_hex=augment_hex_symmetry,
+                use_multi_player_values=multi_player,
+            )
+            use_weighted_sampling = False
+        else:
+            full_dataset = WeightedRingRiftDataset(
+                data_path_str,
+                board_type=config.board_type,
+                augment_hex=augment_hex_symmetry,
+                weighting=sampling_weights,
+                use_multi_player_values=multi_player,
+            )
+            use_weighted_sampling = True
 
         if len(full_dataset) == 0:
             if not distributed or is_main_process():
@@ -1302,6 +1580,25 @@ def train_model(
             if distributed:
                 cleanup_distributed()
             return
+
+        # If multi-player mode was requested but the dataset does not provide
+        # vector value targets, fail fast to avoid silent shape mismatches.
+        if (
+            multi_player
+            and not getattr(full_dataset, "has_multi_player_values", False)
+        ):
+            if not distributed or is_main_process():
+                logger.error(
+                    "multi_player=True but dataset %s does not contain "
+                    "'values_mp' / 'num_players'. Regenerate data with "
+                    "multi-player value targets or disable --multi-player.",
+                    data_path_str,
+                )
+            if distributed:
+                cleanup_distributed()
+            raise ValueError(
+                "Multi-player training requested but dataset lacks values_mp."
+            )
 
         # Log spatial shape if available
         shape = getattr(full_dataset, "spatial_shape", None)
@@ -1347,17 +1644,46 @@ def train_model(
                 pin_memory=True,
             )
         else:
-            train_sampler = None
-            train_loader = DataLoader(
-                train_dataset,
-                batch_size=config.batch_size,
-                shuffle=True,
-            )
-            val_loader = DataLoader(
-                val_dataset,
-                batch_size=config.batch_size,
-                shuffle=False,
-            )
+            # Non-distributed: optionally use weighted sampling for training.
+            if use_weighted_sampling and isinstance(train_dataset, torch.utils.data.Subset):
+                base_dataset = cast(WeightedRingRiftDataset, train_dataset.dataset)
+                if base_dataset.sample_weights is None:
+                    train_weights = torch.ones(len(train_dataset), dtype=torch.float32)
+                else:
+                    subset_indices = np.array(train_dataset.indices, dtype=np.int64)
+                    train_weights_np = base_dataset.sample_weights[subset_indices]
+                    train_weights = torch.from_numpy(
+                        train_weights_np.astype(np.float32)
+                    )
+
+                train_sampler = WeightedRandomSampler(
+                    weights=train_weights,
+                    num_samples=len(train_dataset),
+                    replacement=True,
+                )
+                train_loader = DataLoader(
+                    train_dataset,
+                    batch_size=config.batch_size,
+                    shuffle=False,
+                    sampler=train_sampler,
+                )
+                val_loader = DataLoader(
+                    val_dataset,
+                    batch_size=config.batch_size,
+                    shuffle=False,
+                )
+            else:
+                train_sampler = None
+                train_loader = DataLoader(
+                    train_dataset,
+                    batch_size=config.batch_size,
+                    shuffle=True,
+                )
+                val_loader = DataLoader(
+                    val_dataset,
+                    batch_size=config.batch_size,
+                    shuffle=False,
+                )
 
     if not distributed or is_main_process():
         logger.info(
@@ -1415,20 +1741,38 @@ def train_model(
                 dist_metrics.reset()
 
             # Select appropriate data source
+            # For multi-player mode with streaming, use iter_with_mp() to get
+            # per-sample num_players from the batch.
             if use_streaming:
                 assert train_streaming_loader is not None
-                train_data_iter = iter(train_streaming_loader)
+                if use_multi_player_loss and train_streaming_loader.has_multi_player_values:
+                    train_data_iter = train_streaming_loader.iter_with_mp()
+                else:
+                    train_data_iter = iter(train_streaming_loader)
             else:
                 assert train_loader is not None
                 train_data_iter = iter(train_loader)
 
             for i, batch_data in enumerate(train_data_iter):
-                # Handle both streaming and legacy batch formats
+                # Handle streaming, streaming with multi-player, and legacy batch formats
+                batch_num_players = None  # Per-sample num_players or None
                 if use_streaming:
-                    (
-                        (features, globals_vec),
-                        (value_targets, policy_targets),
-                    ) = batch_data
+                    if use_multi_player_loss and train_streaming_loader.has_multi_player_values:
+                        # Streaming with multi-player values
+                        (
+                            (features, globals_vec),
+                            (value_targets, policy_targets),
+                            values_mp_batch,
+                            batch_num_players,
+                        ) = batch_data
+                        # Use values_mp as the value targets for multi-player loss
+                        if values_mp_batch is not None:
+                            value_targets = values_mp_batch
+                    else:
+                        (
+                            (features, globals_vec),
+                            (value_targets, policy_targets),
+                        ) = batch_data
                 else:
                     (
                         features,
@@ -1441,6 +1785,8 @@ def train_model(
                 globals_vec = globals_vec.to(device)
                 value_targets = value_targets.to(device)
                 policy_targets = policy_targets.to(device)
+                if batch_num_players is not None:
+                    batch_num_players = batch_num_players.to(device)
 
                 optimizer.zero_grad()
 
@@ -1456,7 +1802,20 @@ def train_model(
                     # Apply log_softmax to policy prediction for KLDivLoss
                     policy_log_probs = torch.log_softmax(policy_pred, dim=1)
 
-                    value_loss = value_criterion(value_pred, value_targets)
+                    # Use multi-player value loss for vector value targets
+                    if use_multi_player_loss:
+                        # Use per-sample num_players from batch if available,
+                        # otherwise fall back to the fixed num_players argument
+                        effective_num_players = (
+                            batch_num_players if batch_num_players is not None
+                            else num_players
+                        )
+                        value_loss = multi_player_value_loss(
+                            value_pred, value_targets, effective_num_players
+                        )
+                    else:
+                        value_loss = value_criterion(value_pred, value_targets)
+
                     policy_loss = policy_criterion(
                         policy_log_probs,
                         policy_targets,
@@ -1512,9 +1871,13 @@ def train_model(
                 dist_metrics.reset()
 
             # Select appropriate validation data source
+            # For multi-player mode with streaming, use iter_with_mp()
             if use_streaming:
                 assert val_streaming_loader is not None
-                val_data_iter = iter(val_streaming_loader)
+                if use_multi_player_loss and val_streaming_loader.has_multi_player_values:
+                    val_data_iter = val_streaming_loader.iter_with_mp()
+                else:
+                    val_data_iter = iter(val_streaming_loader)
                 # Limit validation to ~20% of batches for streaming
                 max_val_batches = max(
                     1,
@@ -1530,12 +1893,23 @@ def train_model(
                     if val_batch_idx >= max_val_batches:
                         break
 
-                    # Handle both streaming and legacy batch formats
+                    # Handle streaming, streaming with multi-player, and legacy batch formats
+                    val_batch_num_players = None
                     if use_streaming:
-                        (
-                            (features, globals_vec),
-                            (value_targets, policy_targets),
-                        ) = val_batch
+                        if use_multi_player_loss and val_streaming_loader.has_multi_player_values:
+                            (
+                                (features, globals_vec),
+                                (value_targets, policy_targets),
+                                values_mp_batch,
+                                val_batch_num_players,
+                            ) = val_batch
+                            if values_mp_batch is not None:
+                                value_targets = values_mp_batch
+                        else:
+                            (
+                                (features, globals_vec),
+                                (value_targets, policy_targets),
+                            ) = val_batch
                     else:
                         (
                             features,
@@ -1548,13 +1922,25 @@ def train_model(
                     globals_vec = globals_vec.to(device)
                     value_targets = value_targets.to(device)
                     policy_targets = policy_targets.to(device)
+                    if val_batch_num_players is not None:
+                        val_batch_num_players = val_batch_num_players.to(device)
 
                     # For DDP, forward through the wrapped model
                     value_pred, policy_pred = model(features, globals_vec)
 
                     policy_log_probs = torch.log_softmax(policy_pred, dim=1)
 
-                    v_loss = value_criterion(value_pred, value_targets)
+                    # Use multi-player value loss for validation too
+                    if use_multi_player_loss:
+                        effective_val_num_players = (
+                            val_batch_num_players if val_batch_num_players is not None
+                            else num_players
+                        )
+                        v_loss = multi_player_value_loss(
+                            value_pred, value_targets, effective_val_num_players
+                        )
+                    else:
+                        v_loss = value_criterion(value_pred, value_targets)
                     p_loss = policy_criterion(
                         policy_log_probs, policy_targets
                     )
@@ -1730,6 +2116,78 @@ def train_model(
             cleanup_distributed()
 
 
+def train_from_file(
+    data_path: str,
+    output_path: str,
+    config: Optional[TrainConfig] = None,
+    initial_model_path: Optional[str] = None,
+) -> Dict[str, float]:
+    """
+    Simplified training function for curriculum training.
+
+    This is a convenience wrapper around train_model that:
+    - Returns loss values as a dict
+    - Handles initial model loading
+    - Uses sensible defaults
+
+    Parameters
+    ----------
+    data_path : str
+        Path to training data (.npz file).
+    output_path : str
+        Path to save the trained model.
+    config : Optional[TrainConfig]
+        Training configuration. If None, uses defaults.
+    initial_model_path : Optional[str]
+        Path to initial model weights to start from.
+
+    Returns
+    -------
+    Dict[str, float]
+        Dictionary with keys 'total', 'policy', 'value' containing
+        the final training losses.
+    """
+    if config is None:
+        config = TrainConfig()
+
+    # Create checkpoint directory
+    checkpoint_dir = Path(output_path).parent / "checkpoints"
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
+    # Track losses (we'll parse from logging or estimate from final checkpoint)
+    # For now, run training and return placeholder losses
+    # TODO: Capture actual losses from training loop
+
+    try:
+        train_model(
+            config=config,
+            data_path=data_path,
+            save_path=output_path,
+            early_stopping_patience=5,
+            checkpoint_dir=str(checkpoint_dir),
+            checkpoint_interval=config.epochs_per_iter,
+            warmup_epochs=min(2, config.epochs_per_iter // 2),
+            lr_scheduler='cosine',
+            resume_path=initial_model_path,
+        )
+
+        # Return estimated losses (actual tracking would require modifying train_model)
+        # For now, we return placeholder values
+        return {
+            "total": 0.0,  # Would need to capture from training loop
+            "policy": 0.0,
+            "value": 0.0,
+        }
+
+    except Exception as e:
+        logger.error("Training failed: %s", e)
+        return {
+            "total": float('inf'),
+            "policy": float('inf'),
+            "value": float('inf'),
+        }
+
+
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse command line arguments.
 
@@ -1814,11 +2272,42 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help='Path to checkpoint to resume from'
     )
 
+    # Sampling weights for non-streaming datasets
+    parser.add_argument(
+        '--sampling-weights',
+        type=str,
+        default='uniform',
+        choices=['uniform', 'late_game', 'phase_emphasis', 'combined'],
+        help=(
+            "Position sampling strategy for non-streaming data: "
+            "'uniform', 'late_game', 'phase_emphasis', or 'combined'."
+        ),
+    )
+
     # Board type
     parser.add_argument(
         '--board-type', type=str, default=None,
         choices=['square8', 'square19', 'hexagonal'],
         help='Board type for training'
+    )
+
+    # Multi-player value head
+    parser.add_argument(
+        '--multi-player',
+        action='store_true',
+        help=(
+            'Use multi-player value head (RingRiftCNN_MultiPlayer) that '
+            'outputs values for all players simultaneously. Requires vector '
+            'value targets in training data. Recommended for 3-4 player games.'
+        ),
+    )
+    parser.add_argument(
+        '--num-players',
+        type=int,
+        default=2,
+        choices=[2, 3, 4],
+        help='Number of players in training games (default: 2). Used for '
+             'multi-player value loss masking.',
     )
 
     # Hex symmetry augmentation
@@ -1907,12 +2396,156 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         ),
     )
 
+    # Curriculum training mode
+    parser.add_argument(
+        '--curriculum',
+        action='store_true',
+        help=(
+            'Enable curriculum training mode: iterative self-play with '
+            'model promotion. Ignores standard training arguments and uses '
+            'curriculum-specific settings instead.'
+        ),
+    )
+    parser.add_argument(
+        '--curriculum-generations',
+        type=int,
+        default=10,
+        help='Number of curriculum generations to run (default: 10)',
+    )
+    parser.add_argument(
+        '--curriculum-games-per-gen',
+        type=int,
+        default=1000,
+        help='Self-play games per generation (default: 1000)',
+    )
+    parser.add_argument(
+        '--curriculum-eval-games',
+        type=int,
+        default=100,
+        help='Evaluation games for promotion decisions (default: 100)',
+    )
+    parser.add_argument(
+        '--curriculum-training-epochs',
+        type=int,
+        default=20,
+        help='Training epochs per generation (default: 20)',
+    )
+    parser.add_argument(
+        '--curriculum-promotion-threshold',
+        type=float,
+        default=0.55,
+        help='Win rate threshold for model promotion (default: 0.55)',
+    )
+    parser.add_argument(
+        '--curriculum-data-retention',
+        type=int,
+        default=3,
+        help='Number of past generations of data to retain (default: 3)',
+    )
+    parser.add_argument(
+        '--curriculum-num-players',
+        type=int,
+        default=2,
+        choices=[2, 3, 4],
+        help='Number of players for self-play games (default: 2)',
+    )
+    parser.add_argument(
+        '--curriculum-engine',
+        type=str,
+        default='descent',
+        choices=['descent', 'mcts'],
+        help='Engine type for self-play data generation (default: descent)',
+    )
+    parser.add_argument(
+        '--curriculum-engine-mix',
+        type=str,
+        default='single',
+        choices=['single', 'per_game', 'per_player'],
+        help=(
+            'Engine mixing strategy: single (one engine), per_game (random '
+            'engine per game), per_player (random per player). Default: single'
+        ),
+    )
+    parser.add_argument(
+        '--curriculum-engine-ratio',
+        type=float,
+        default=0.5,
+        help='MCTS ratio when engine-mix != single (0.0-1.0, default: 0.5)',
+    )
+    parser.add_argument(
+        '--curriculum-output-dir',
+        type=str,
+        default='curriculum_runs',
+        help='Output directory for curriculum artifacts (default: curriculum_runs)',
+    )
+    parser.add_argument(
+        '--curriculum-base-model',
+        type=str,
+        default=None,
+        help='Path to initial model checkpoint for curriculum training',
+    )
+
     return parser.parse_args(args)
 
 
 def main():
     """Main entry point for training."""
     args = parse_args()
+
+    # Curriculum training mode: iterative self-play with model promotion
+    if getattr(args, "curriculum", False):
+        from app.training.curriculum import CurriculumConfig, CurriculumTrainer
+
+        # Map board type string to enum
+        board_type_map = {
+            'square8': BoardType.SQUARE8,
+            'square19': BoardType.SQUARE19,
+            'hexagonal': BoardType.HEXAGONAL,
+        }
+        board_type = board_type_map.get(
+            args.board_type or 'square8',
+            BoardType.SQUARE8,
+        )
+
+        config = CurriculumConfig(
+            board_type=board_type,
+            generations=args.curriculum_generations,
+            games_per_generation=args.curriculum_games_per_gen,
+            training_epochs=args.curriculum_training_epochs,
+            eval_games=args.curriculum_eval_games,
+            promotion_threshold=args.curriculum_promotion_threshold,
+            data_retention=args.curriculum_data_retention,
+            num_players=args.curriculum_num_players,
+            # Learning rate from standard args if provided
+            learning_rate=args.learning_rate or 1e-3,
+            batch_size=args.batch_size or 32,
+            base_seed=args.seed or 42,
+            output_dir=args.curriculum_output_dir,
+            # Engine configuration
+            engine=args.curriculum_engine,
+            engine_mix=args.curriculum_engine_mix,
+            engine_ratio=args.curriculum_engine_ratio,
+        )
+
+        trainer = CurriculumTrainer(config, args.curriculum_base_model)
+        results = trainer.run()
+
+        # Print summary
+        print("\n" + "=" * 60)
+        print("CURRICULUM TRAINING COMPLETE")
+        print("=" * 60)
+        promoted_count = sum(1 for r in results if r.promoted)
+        print(f"Total generations: {len(results)}")
+        print(f"Promotions: {promoted_count}")
+        print(f"Output directory: {trainer.run_dir}")
+        print()
+        for r in results:
+            status = "PROMOTED" if r.promoted else "skipped"
+            print(
+                f"Gen {r.generation}: {status} (win={r.win_rate:.1%}, "
+                f"loss={r.training_loss:.4f})"
+            )
+        return
 
     # Offline heuristic CMA-ES optimisation mode is explicitly opt-in and
     # does not affect the neural-network training path.
@@ -1979,6 +2612,9 @@ def main():
         scale_lr=args.scale_lr,
         lr_scale_mode=args.lr_scale_mode,
         find_unused_parameters=args.find_unused_parameters,
+        sampling_weights=args.sampling_weights,
+        multi_player=args.multi_player,
+        num_players=args.num_players,
     )
 
 

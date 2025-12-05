@@ -499,3 +499,692 @@ Implementing these changes would raise the AI Service rating from 3.2/5 to an es
 | Self-play config      | [`train_loop.py`](app/training/train_loop.py)                             | 79-106    |
 | Hex neural net        | [`neural_net.py`](app/ai/neural_net.py)                                   | 1390-1519 |
 | Bounded transposition | [`bounded_transposition_table.py`](app/ai/bounded_transposition_table.py) | All       |
+
+---
+
+## 7. Neural Network Training Pipeline Improvements
+
+> **Status (2025-12-05):** Implementation plans finalized. These improvements target the training data generation and neural network architecture for better policy/value learning.
+
+### 7.1 Already Implemented (v1.x, scalar value head)
+
+The following pipeline improvements are implemented and in active use:
+
+| Improvement                        | Status      | Files Modified                                              | Notes                                                            |
+| ---------------------------------- | ----------- | ----------------------------------------------------------- | ---------------------------------------------------------------- |
+| Rank-aware value targets           | ✅ COMPLETE | `scripts/export_replay_dataset.py`                          | Scalar in `[-1,1]` from current player POV, rank-aware for 3–4p. |
+| Replay quality filtering           | ✅ COMPLETE | `scripts/export_replay_dataset.py`                          | Filters by `termination_reason` and move-count thresholds.       |
+| Robust territory / choice encoding | ✅ COMPLETE | `app/ai/neural_net.py`                                      | Encodes pie rule, line/territory options; `POLICY_SIZE`=67k.     |
+| Late-game / phase-aware sampling   | ✅ COMPLETE | `scripts/export_replay_dataset.py`, `app/training/train.py` | Weighted sampling via metadata + `WeightedRingRiftDataset`.      |
+
+**Rank-aware value targets (scalar v1):** For multiplayer games (3–4 players), the exporter uses a rank-based scalar value from the current player’s perspective:
+
+- 2-player: +1/-1 (winner/loser, unchanged)
+- 3-player: +1/0/-1 (1st/2nd/3rd)
+- 4-player: +1/+0.33/-0.33/-1 (1st/2nd/3rd/4th)
+
+This is implemented in `value_from_final_ranking(...)` and is compatible with the existing scalar value head in `RingRiftCNN`.
+
+**Robust territory / choice encoding and unified action space:**
+
+- The generic policy head now covers:
+  - Pie-rule `swap_sides` (meta-move),
+  - Legacy line/territory moves (`line_formation`, `territory_claim`),
+  - Canonical choice moves (`choose_line_option`, `choose_territory_option`) with extra structure (position, size bucket, controlling player).
+- The module-level `POLICY_SIZE` constant is 67,000, and all policy heads use it consistently. Older 55k checkpoints are treated as legacy and require retraining.
+
+**Late-game / phase-aware sampling:**
+
+- `scripts/export_replay_dataset.py` adds per-sample metadata:
+  - `move_numbers`, `total_game_moves`, `phases`.
+- `WeightedRingRiftDataset` in `app/training/train.py` computes per-sample weights using this metadata for four strategies:
+  - `uniform`, `late_game`, `phase_emphasis`, `combined`.
+- Training CLI exposes `--sampling-weights` to select a strategy. This is a cheap, robust bias toward sharper, decision-heavy positions without changing the core loss.
+
+### 7.2 Remaining Improvements – Future-Facing Design (v2.x+)
+
+#### 7.2.1 Search-Based Training Targets (MCTS Visit Counts → Soft Policy)
+
+**Priority:** HIGH | **Effort:** LOW | **Impact:** Better policy learning from search
+
+**Current State:**
+
+- For replay-based datasets (`export_replay_dataset.py`), policy targets are sparse 1‑hots derived from the actual move played.
+- For search-based datasets (`generate_data.py`), the DescentAI path already builds soft targets from search statistics (transposition table) but is Descent‑specific and more complex than necessary.
+- `MCTSAI` already exposes visit distributions via `get_visit_distribution()`, and `extract_mcts_visit_distribution(...)` exists in `app/training/generate_data.py`, but this is not yet wired into the main data generator.
+
+**Goal:** Make MCTS search the canonical source for high-quality soft policy targets, while keeping DescentAI available as a complementary engine. Provide a clean flag in the data generator to choose the engine per run.
+
+**Refined Design:**
+
+1. **Engine selection flag in `generate_data` CLI** (`app/training/generate_data.py`):
+   - Add `--engine {descent,mcts}` with:
+     - Default: `descent` (matches current behaviour and uses DescentAI).
+     - `mcts`: uses `MCTSAI` as the self-play engine.
+   - Internally, `generate_dataset(...)` becomes engine-agnostic:
+     - Creates either DescentAI or MCTSAI instances for each player, based on the flag.
+
+2. **Canonical MCTS soft policy extraction** (already partially implemented):
+   - Reuse `extract_mcts_visit_distribution(ai, state, encoder)`:
+     - Calls `ai.get_visit_distribution()` (works for both legacy and incremental MCTS).
+     - Encodes moves via `encoder.encode_move(...)` into sparse `policy_indices` and `policy_values` with probabilities proportional to visit counts.
+   - When `--engine mcts`:
+     - After `move = ai.select_move(state)`, call `extract_mcts_visit_distribution(...)` to generate policy targets for that root state.
+     - Use the scalar value target as either:
+       - Final outcome (v1‑style) for stability, or
+       - A smoothed blend of root value estimate and final outcome (v2 option).
+
+3. **DescentAI path as complementary search-based engine:**
+   - Keep the current DescentAI path for:
+     - Value‑only auxiliary targets derived from the search tree (`search_data`).
+     - Soft policies based on child values where helpful.
+   - Clearly separate the two modes in code and documentation:
+     - `--engine descent`: search‑guided self-play with Descent-specific features.
+     - `--engine mcts`: canonical AlphaZero-style pipeline with visit-based policies.
+
+4. **Dataset format:** No schema change required:
+   - Both engines produce sparse `policy_indices` + `policy_values`.
+   - Soft policies (MCTS or Descent) and 1‑hots are all compatible with the existing `KLDivLoss` training path.
+
+---
+
+#### 7.2.2 Curriculum / Bootstrapping Training Loop
+
+**Priority:** HIGH | **Effort:** MEDIUM | **Impact:** Continuous improvement loop
+
+**Current State:** Training typically uses a single generation of self-play data (or a small number of manually curated datasets) without a formal notion of “generations” or model promotion criteria.
+
+**Goal:** Introduce a lightweight but principled self-play curriculum:
+
+1. Generate self-play data with the current “champion” model.
+2. Train a candidate model on a mixture of recent and historical data.
+3. Evaluate candidate vs. champion under a fixed match protocol.
+4. Promote the candidate if it exceeds a target win rate (e.g. 55%).
+5. Repeat for N generations, with logging and checkpointing.
+
+**Implementation Steps:**
+
+Status: ✅ A first implementation exists in `app/training/curriculum.py` with a
+`CurriculumTrainer` class, JSON history, and a small CLI. The sketch below
+captures the original design shape and remains a useful reference.
+
+1. **Create curriculum training module** (`app/training/curriculum.py`):
+
+   ```python
+   @dataclass
+   class CurriculumConfig:
+       generations: int = 10
+       games_per_generation: int = 1000
+       training_epochs: int = 20
+       eval_games: int = 100
+       promotion_threshold: float = 0.55  # Win rate needed to promote
+       data_retention: int = 3  # Generations of data to keep
+
+   class CurriculumTrainer:
+       def __init__(self, config: CurriculumConfig, base_model_path: str):
+           self.config = config
+           self.base_model_path = base_model_path
+           self.current_generation = 0
+           self.history = []
+
+       def run_generation(self) -> dict:
+           """Run one generation of curriculum training."""
+           # 1. Generate self-play data
+           data_path = self._generate_self_play_data()
+
+           # 2. Combine with historical data
+           combined_data = self._combine_with_history(data_path)
+
+           # 3. Train candidate model
+           candidate_path = self._train_candidate(combined_data)
+
+           # 4. Evaluate against current best
+           eval_result = self._evaluate_candidate(candidate_path)
+
+           # 5. Promote if improved
+           if eval_result['win_rate'] >= self.config.promotion_threshold:
+               self._promote_candidate(candidate_path)
+               self.current_generation += 1
+
+           return {'generation': self.current_generation, ...}
+   ```
+
+2. **Add CLI integration** (`app/training/train.py`):
+
+   ```python
+   parser.add_argument('--curriculum', action='store_true')
+   parser.add_argument('--curriculum-generations', type=int, default=10)
+   ```
+
+3. **Implement data mixing**:
+   - Keep last N generations of data
+   - Weight recent data higher (exponential decay)
+
+4. **Implement model evaluation**:
+   - Use existing `run_model_vs_model_eval()` or similar
+   - Track win rate, draw rate, and average game length
+
+---
+
+#### 7.2.3 Per-Player Value Head (Vector Output for Multiplayer)
+
+**Priority:** HIGH | **Effort:** MEDIUM | **Impact:** Fundamental for multiplayer games
+
+**Current State:**
+
+- v1 model (`RingRiftCNN`) outputs a single scalar in `[-1, +1]` from the current player’s perspective and is still the default for training.
+- A v2 multi-player architecture (`RingRiftCNN_MultiPlayer`) and helper loss
+  (`multi_player_value_loss`) already exist in `app/ai/neural_net.py`.
+- Replay exporters compute richer, rank‑aware scalars per position today, and
+  `compute_multi_player_values` in `scripts/export_replay_dataset.py` provides
+  the per‑player vector encoding, but v2 datasets and training wiring have not
+  yet been switched over to use vector value targets end‑to‑end.
+
+**Goal:** Migrate to a vector value head that predicts an outcome or utility for _each_ player simultaneously, while keeping the v1 scalar head supported for backwards compatibility and incremental rollout.
+
+**Implementation Steps:**
+
+1. **Add a multi-player value variant** (`app/ai/neural_net.py`):
+
+   ```python
+   class RingRiftCNN_MultiPlayer(nn.Module):
+       """CNN with per-player value head for N-player games."""
+
+       ARCHITECTURE_VERSION = "v2.0.0"
+
+       def __init__(
+           self,
+           max_players: int = 4,
+           board_size: int = 8,
+           in_channels: int = 10,
+           global_features: int = 10,
+           num_res_blocks: int = 10,
+           num_filters: int = 128,
+           history_length: int = 3,
+       ):
+           super().__init__()
+           self.max_players = max_players
+           # ... existing backbone ...
+
+           # Multi-player value head
+           self.value_head = nn.Linear(256, max_players)
+           self.tanh = nn.Tanh()
+
+       def forward(self, features, globals_vec):
+           # ... backbone forward ...
+
+           # Value head: (batch, max_players)
+           values = self.tanh(self.value_head(x))
+
+           # Policy head unchanged
+           policy = self.policy_head(x)
+
+           return values, policy
+   ```
+
+2. **Update training loss** (`app/training/train.py`):
+
+   ```python
+   def multi_player_value_loss(pred_values, target_values, num_players):
+       """MSE loss only over active players."""
+       mask = torch.zeros_like(target_values)
+       mask[:, :num_players] = 1.0
+       mse = ((pred_values - target_values) ** 2) * mask
+       return mse.sum() / mask.sum()
+   ```
+
+3. **Update value target generation** (`scripts/export_replay_dataset.py`):
+
+   ```python
+   def compute_multi_player_values(final_state: GameState) -> List[float]:
+       """Compute value for each player position."""
+       values = [0.0] * 4  # max 4 players
+       num_players = len(final_state.players)
+
+       for player in final_state.players:
+           rank = compute_rank(player, final_state)
+           value = 1.0 - 2.0 * (rank - 1) / (num_players - 1)
+           values[player.number - 1] = value
+
+       return values
+   ```
+
+4. **Dataset format migration:**
+   - For v2+ data, store values as shape `(N, max_players)` plus a per-sample `num_players` array.
+   - Training code can then:
+     - Use vector loss (masked) when `values.ndim == 2`.
+     - Fall back to scalar loss when `values.ndim == 1`.
+   - This allows mixed datasets (legacy scalar + new vector) during transition.
+
+---
+
+#### 7.2.4 Move Sampling Weights (Late-Game / Phase-Aware Sampling)
+
+**Priority:** MEDIUM | **Effort:** LOW | **Impact:** Better data utilization
+
+**Status:** ✅ COMPLETE for single-file (non-streaming) training.
+
+**Current State / Design:**
+
+- Exporter writes `move_numbers`, `total_game_moves`, `phases` alongside the usual tensors.
+- `WeightedRingRiftDataset` encapsulates weighting logic and can be dropped into existing training flows.
+- Training CLI exposes `--sampling-weights` with four options:
+  - `uniform` (default), `late_game`, `phase_emphasis`, `combined`.
+
+**Future Refinements:**
+
+- Extend weighting to streaming mode (multiple files via `StreamingDataLoader`) by:
+  - Either enriching the streaming path with the same metadata, or
+  - Using per-file weighting heuristics (e.g., more weight to datasets from higher-quality self-play).
+- Experimentally tune phase weights based on empirical sensitivity (e.g., emphasise capture/territory phases more on square19 than square8).
+
+---
+
+### 7.3 ROI Summary
+
+| Rank | Improvement           | ROI  | Effort | Impact                              |
+| ---- | --------------------- | ---- | ------ | ----------------------------------- |
+| 1    | Search-based targets  | HIGH | LOW    | Stronger policy learning from MCTS  |
+| 2    | Per-player value head | HIGH | MEDIUM | Correct multiplayer value semantics |
+| 3    | Curriculum training   | HIGH | MEDIUM | Continuous, automated improvement   |
+| 4    | Move sampling weights | MED  | LOW    | Better utilisation of existing data |
+
+### 7.4 Implementation Order
+
+1. **Search-based targets (MCTS-first, with engine flag)** – immediate, high leverage.
+2. **Per-player value head + vector targets** – unlocks principled multiplayer training.
+3. **Curriculum training loop** – wraps self-play, training, and eval into a repeatable pipeline.
+4. **Move sampling weights** – already implemented for non-streaming; extend/tune as needed.
+
+### 7.5 Files to Modify
+
+| File                               | Changes                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| `app/ai/mcts_ai.py`                | Keep visit distribution API stable; minor cleanup/docs only.                |
+| `app/training/generate_data.py`    | Add `--engine {descent,mcts}` and wire `extract_mcts_visit_distribution`.   |
+| `app/ai/neural_net.py`             | Introduce `RingRiftCNN_MultiPlayer` or equivalent, value-head refactor.     |
+| `app/training/train.py`            | Add multi-player value loss, handle vector/scalar values, curriculum hooks. |
+| `app/training/curriculum.py`       | New module implementing generation loop and model promotion.                |
+| `scripts/export_replay_dataset.py` | Extend to vector value targets + `num_players` metadata for v2.             |
+
+### 7.6 Backwards Compatibility Notes
+
+- **POLICY_SIZE change (55000 → 67000):** Models trained with old policy size are incompatible. Retraining required.
+- **Multi-player value head (future v2.x):** Introducing a vector value head will require a new architecture version (e.g. `v2.0.0`) and dedicated checkpoints. v1 scalar checkpoints remain usable on scalar-only training runs.
+- **Dataset format:** New metadata fields (`move_numbers`, `total_game_moves`, `phases`) are optional; older datasets still train with uniform sampling. When vector values are introduced, training code must handle both scalar and vector `values` arrays during a transition period.
+
+---
+
+## 8. Board-Specific Neural Network Models
+
+> **Status (2025-12-05):** ✅ **COMPLETE** - Board-specific policy sizes, model factory functions, and training configurations implemented.
+
+### 8.1 Overview
+
+Each board type has a distinct action space size, and using a single large policy head (67K parameters) for small boards wastes computational resources and may hinder learning. This section documents the board-specific model configurations that optimize for each board type.
+
+### 8.2 Board-Specific Policy Sizes
+
+| Board Type           | Spatial Size | Policy Size | Description                               |
+| -------------------- | ------------ | ----------- | ----------------------------------------- |
+| **SQUARE8** (8×8)    | 8            | **7,000**   | Compact action space for fast training    |
+| **SQUARE19** (19×19) | 19           | **67,000**  | Full action space with territory encoding |
+| **HEXAGONAL** (N=10) | 21           | **54,244**  | Hex-specific with 6-direction movement    |
+
+**Policy Layout for 8×8:**
+
+```
+Placement:       3 * 8 * 8 = 192
+Movement:        8 * 8 * 8 * 7 = 3,584  (8 directions, max 7 distance)
+Line Formation:  8 * 8 * 4 = 256
+Territory Claim: 8 * 8 = 64
+Skip Placement:  1
+Swap Sides:      1
+Line Choice:     4
+Territory Choice: 64 * 8 * 4 = 2,048
+Total: ~6,150 → 7,000 (with padding)
+```
+
+**Policy Layout for 19×19:**
+
+```
+Placement:        3 * 19 * 19 = 1,083
+Movement:         19 * 19 * 8 * 18 = 51,984
+Line Formation:   19 * 19 * 4 = 1,444
+Territory Claim:  19 * 19 = 361
+Skip Placement:   1
+Swap Sides:       1
+Line Choice:      4
+Territory Choice: 361 * 8 * 4 = 11,552
+Total: 66,430 → 67,000 (with padding)
+```
+
+**Policy Layout for Hex (N=10):**
+
+```
+Placements:       21 × 21 × 3 = 1,323
+Movement/capture: 21 × 21 × 6 × 20 = 52,920
+Special:          1 (skip_placement)
+Total: P_HEX = 54,244
+```
+
+### 8.3 Model Classes and Factory Functions
+
+**Available Model Classes:**
+
+| Class                     | Architecture           | MPS Compatible | Value Head        |
+| ------------------------- | ---------------------- | -------------- | ----------------- |
+| `RingRiftCNN`             | ResNet + AdaptivePool  | ❌             | Scalar            |
+| `RingRiftCNN_MPS`         | ResNet + GlobalAvgPool | ✅             | Scalar            |
+| `RingRiftCNN_MultiPlayer` | ResNet + AdaptivePool  | ❌             | Vector (4-player) |
+| `HexNeuralNet`            | ResNet + MaskedPool    | ❌             | Scalar            |
+
+**Factory Function** (`app/ai/neural_net.py`):
+
+```python
+from app.ai.neural_net import create_model_for_board, get_model_config_for_board
+from app.models import BoardType
+
+# Create optimal model for each board type
+model_8x8 = create_model_for_board(BoardType.SQUARE8)
+model_19x19 = create_model_for_board(BoardType.SQUARE19)
+model_hex = create_model_for_board(BoardType.HEXAGONAL)
+
+# Get recommended configuration
+config = get_model_config_for_board(BoardType.SQUARE8)
+# Returns: {'board_size': 8, 'policy_size': 7000, 'num_res_blocks': 6, ...}
+
+# Create multiplayer model for specific board
+model_mp = create_model_for_board(
+    BoardType.SQUARE8,
+    model_class="RingRiftCNN_MultiPlayer"
+)
+```
+
+### 8.4 Board-Specific Training Configurations
+
+**Training Config Presets** (`app/training/config.py`):
+
+```python
+from app.training.config import get_training_config_for_board
+from app.models import BoardType
+
+# Get optimized training config
+config_8x8 = get_training_config_for_board(BoardType.SQUARE8)
+# config_8x8.policy_size = 7000
+# config_8x8.num_res_blocks = 6
+# config_8x8.num_filters = 64
+# config_8x8.batch_size = 64
+# config_8x8.learning_rate = 2e-3
+# config_8x8.model_id = "ringrift_8x8_v1"
+
+config_19x19 = get_training_config_for_board(BoardType.SQUARE19)
+# config_19x19.policy_size = 67000
+# config_19x19.num_res_blocks = 10
+# config_19x19.num_filters = 128
+# config_19x19.batch_size = 32
+# config_19x19.learning_rate = 1e-3
+# config_19x19.model_id = "ringrift_19x19_v1"
+
+config_hex = get_training_config_for_board(BoardType.HEXAGONAL)
+# config_hex.policy_size = 54244
+# config_hex.num_res_blocks = 8
+# config_hex.num_filters = 128
+# config_hex.model_id = "ringrift_hex_v1"
+```
+
+**Pre-defined Configurations** (accessed via `BOARD_TRAINING_CONFIGS`):
+
+| Board Type | Res Blocks | Filters | Batch Size | LR   | Model ID          |
+| ---------- | ---------- | ------- | ---------- | ---- | ----------------- |
+| SQUARE8    | 6          | 64      | 64         | 2e-3 | ringrift_8x8_v1   |
+| SQUARE19   | 10         | 128     | 32         | 1e-3 | ringrift_19x19_v1 |
+| HEXAGONAL  | 8          | 128     | 32         | 1e-3 | ringrift_hex_v1   |
+
+### 8.5 Parameter Count Comparison
+
+Using board-specific models significantly reduces parameter count for smaller boards:
+
+| Model                            | Board     | Policy Head Params      | Total Approx. Params |
+| -------------------------------- | --------- | ----------------------- | -------------------- |
+| RingRiftCNN (8x8, 64 filters)    | SQUARE8   | 256 × 7K = 1.8M         | ~2.5M                |
+| RingRiftCNN (19x19, 128 filters) | SQUARE19  | 256 × 67K = 17.2M       | ~18M                 |
+| HexNeuralNet (128 filters)       | HEXAGONAL | 128 × 441 × 54K = 13.9M | ~15M                 |
+
+The 8×8 model is **~7× smaller** than the 19×19 model, enabling:
+
+- Faster training iterations
+- Lower memory usage
+- More efficient inference on resource-constrained devices
+
+### 8.6 Checkpoint Naming Convention
+
+Board-specific checkpoints follow this naming pattern:
+
+```
+models/ringrift_<board>_<variant>_v<version>.pth
+```
+
+Examples:
+
+- `models/ringrift_8x8_v1.pth` - Standard 8×8 model
+- `models/ringrift_8x8_mps_v1.pth` - MPS-compatible 8×8 model
+- `models/ringrift_19x19_v1.pth` - Standard 19×19 model
+- `models/ringrift_hex_v1.pth` - Hex board model
+
+### 8.7 Usage Examples
+
+**Training a board-specific model:**
+
+```bash
+# Train 8×8 model
+python -m app.training.train \
+  --board-type square8 \
+  --model-id ringrift_8x8_v1 \
+  --epochs 100
+
+# Train 19×19 model
+python -m app.training.train \
+  --board-type square19 \
+  --model-id ringrift_19x19_v1 \
+  --epochs 100
+
+# Train hex model
+python -m app.training.train \
+  --board-type hexagonal \
+  --model-id ringrift_hex_v1 \
+  --epochs 100
+```
+
+**Loading board-specific models in inference:**
+
+```python
+from app.ai.neural_net import NeuralNetAI, create_model_for_board
+from app.models import AIConfig, BoardType
+
+# The NeuralNetAI automatically loads based on nn_model_id
+ai_8x8 = NeuralNetAI(
+    player_number=1,
+    config=AIConfig(nn_model_id="ringrift_8x8_v1")
+)
+
+ai_19x19 = NeuralNetAI(
+    player_number=1,
+    config=AIConfig(nn_model_id="ringrift_19x19_v1")
+)
+```
+
+### 8.8 Files Modified
+
+| File                     | Changes                                                                                                                                                                                                                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/ai/neural_net.py`   | Added `POLICY_SIZE_8x8`, `POLICY_SIZE_19x19`, `BOARD_POLICY_SIZES`, `BOARD_SPATIAL_SIZES`, `get_policy_size_for_board()`, `get_spatial_size_for_board()`, `create_model_for_board()`, `get_model_config_for_board()`. Updated all model classes to accept `policy_size` parameter. |
+| `app/training/config.py` | Added `num_res_blocks`, `num_filters`, `policy_size` to `TrainConfig`. Added `get_training_config_for_board()` and `BOARD_TRAINING_CONFIGS` preset dictionary.                                                                                                                     |
+
+### 8.9 Compatibility Notes
+
+- **Checkpoint incompatibility:** Models with different `policy_size` cannot share checkpoints. The policy head linear layer has different dimensions.
+- **Architecture version:** Each model class has an `ARCHITECTURE_VERSION` attribute for checkpoint validation:
+  - `RingRiftCNN`: v1.1.0
+  - `RingRiftCNN_MPS`: v1.1.0-mps
+  - `RingRiftCNN_MultiPlayer`: v2.0.0
+  - `HexNeuralNet`: v1.0.0
+
+---
+
+## 9. Engine Mixing for Self-Play Data Diversity
+
+> **Status (2025-12-05):** ✅ **COMPLETE** - Engine mixing implemented in `generate_data.py` and integrated with curriculum training.
+
+### 9.1 Overview
+
+To improve training data diversity and policy quality, the self-play data generation now supports engine mixing—the ability to randomize which search engine (Descent vs MCTS) is used during self-play games.
+
+**Motivation:**
+
+- **Descent AI** produces soft policies from transposition table values, which can be sharper but may overfit to Descent's specific search patterns.
+- **MCTS AI** produces soft policies from visit counts, which better represents move uncertainty and exploration.
+- Mixing engines in training data helps the neural network generalize across different play styles and reduces overfitting to a single search algorithm's biases.
+
+### 9.2 Engine Mixing Modes
+
+| Mode         | Description                                                                  | Use Case                                                     |
+| ------------ | ---------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `single`     | All players use the same engine (specified by `--engine`)                    | Baseline/controlled experiments                              |
+| `per_game`   | Randomly select engine per game (probability controlled by `--engine-ratio`) | Moderate diversity while keeping games internally consistent |
+| `per_player` | Randomly select engine per player within each game                           | Maximum diversity, tests cross-engine play                   |
+
+### 9.3 CLI Usage
+
+**Basic data generation with engine selection:**
+
+```bash
+# Generate data with MCTS only
+python -m app.training.generate_data \
+  --num-games 1000 \
+  --engine mcts
+
+# Generate data with Descent only (default)
+python -m app.training.generate_data \
+  --num-games 1000 \
+  --engine descent
+```
+
+**Engine mixing modes:**
+
+```bash
+# Per-game mixing: 50% MCTS, 50% Descent games
+python -m app.training.generate_data \
+  --num-games 1000 \
+  --engine-mix per_game \
+  --engine-ratio 0.5
+
+# Per-player mixing: each player independently uses MCTS with 30% probability
+python -m app.training.generate_data \
+  --num-games 1000 \
+  --engine-mix per_player \
+  --engine-ratio 0.3
+
+# Heavily MCTS-weighted generation
+python -m app.training.generate_data \
+  --num-games 1000 \
+  --engine-mix per_game \
+  --engine-ratio 0.8
+```
+
+### 9.4 Curriculum Training Integration
+
+Engine mixing is fully integrated with the curriculum training loop via `CurriculumConfig`:
+
+```python
+from app.training.curriculum import CurriculumConfig, CurriculumTrainer
+from app.models import BoardType
+
+config = CurriculumConfig(
+    board_type=BoardType.SQUARE8,
+    generations=10,
+    games_per_generation=1000,
+
+    # Engine mixing configuration
+    engine="descent",           # Base engine when mix="single"
+    engine_mix="per_game",      # Mix mode: "single", "per_game", "per_player"
+    engine_ratio=0.5,           # MCTS probability when mixing
+)
+
+trainer = CurriculumTrainer(config)
+trainer.run()
+```
+
+**CLI integration via train.py:**
+
+```bash
+# Curriculum training with engine mixing
+python -m app.training.train \
+  --curriculum \
+  --board-type square8 \
+  --curriculum-generations 10 \
+  --curriculum-games-per-gen 500 \
+  --curriculum-engine-mix per_game \
+  --curriculum-engine-ratio 0.5
+```
+
+### 9.5 Implementation Details
+
+**Key files modified:**
+
+| File                            | Changes                                                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app/training/generate_data.py` | Added `engine_mix`, `engine_ratio`, `nn_model_id` parameters to `generate_dataset()`. Added `_make_ai()` and `_select_engine_for_player()` helper functions. |
+| `app/training/curriculum.py`    | Added `engine`, `engine_mix`, `engine_ratio`, `nn_model_id` fields to `CurriculumConfig`. Updated `_generate_self_play_data()` to pass engine parameters.    |
+| `app/training/train.py`         | Added `--curriculum-engine`, `--curriculum-engine-mix`, `--curriculum-engine-ratio` CLI arguments.                                                           |
+
+**Engine selection logic** (`generate_data.py`):
+
+```python
+def _select_engine_for_player(player_num: int, game_engine: str) -> str:
+    """Select engine type for a player based on mixing mode."""
+    if engine_mix == "single":
+        return game_engine
+    elif engine_mix == "per_player":
+        return "mcts" if random.random() < engine_ratio else "descent"
+    else:  # per_game
+        return game_engine
+```
+
+### 9.6 Dataset Metadata
+
+When engine mixing is enabled, each game's history entries include the engine used:
+
+```python
+game_history = [
+    {
+        "state": state_dict,
+        "move": encoded_move,
+        "search_data": {...},
+        "engine": "mcts",  # or "descent"
+    },
+    ...
+]
+```
+
+This metadata can be used for:
+
+- Filtering training data by engine type
+- Analyzing engine-specific policy quality
+- Debugging engine mixing distributions
+
+### 9.7 Recommended Configurations
+
+| Scenario                        | Mode         | Ratio | Notes                                            |
+| ------------------------------- | ------------ | ----- | ------------------------------------------------ |
+| **Initial training**            | `per_game`   | 0.5   | Balanced diversity for exploration               |
+| **MCTS-focused fine-tuning**    | `per_game`   | 0.8   | Emphasize visit-based soft policies              |
+| **Descent-focused fine-tuning** | `per_game`   | 0.2   | Emphasize value-based policies                   |
+| **Maximum diversity**           | `per_player` | 0.5   | Cross-engine games, hardest for model to overfit |
+| **Controlled baseline**         | `single`     | N/A   | Reproducible experiments                         |
+
+### 9.8 Future Enhancements
+
+- **Engine-specific evaluation:** Evaluate trained models against both Descent and MCTS opponents to measure generalization.
+- **Adaptive mixing:** Adjust engine ratio dynamically based on training progress or model evaluation metrics.
+- **Engine annotations in policy targets:** Weight policy targets differently based on source engine (e.g., MCTS visit counts may be more reliable than Descent values for certain positions).

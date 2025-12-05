@@ -56,7 +56,7 @@ import type {
 } from '../sandbox/ClientSandboxEngine';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { serializeGameState } from '../../shared/engine/contracts/serialization';
-import { buildTestFixtureFromGameState } from '../sandbox/statePersistence';
+import { buildTestFixtureFromGameState, exportGameStateToFile } from '../sandbox/statePersistence';
 import { useIsMobile } from '../hooks/useIsMobile';
 
 const BOARD_PRESETS: Array<{
@@ -744,8 +744,23 @@ export const SandboxGameHost: React.FC = () => {
       interactionHandler,
     });
 
-    // Load the serialized state into the engine
-    engine.initFromSerializedState(scenario.state, playerTypes, interactionHandler);
+    // Load the serialized state into the engine. When scenarios carry a
+    // terminal gameStatus (e.g. completed self-play snapshots captured via
+    // ringrift_sandbox_fixture_v1), normalise them into a fresh, playable
+    // sandbox snapshot by re-opening the game as active from ring_placement.
+    const scenarioState = scenario.state;
+    const isTerminalStatus =
+      scenarioState.gameStatus === 'completed' || scenarioState.gameStatus === 'finished';
+    const normalizedState = isTerminalStatus
+      ? {
+          ...scenarioState,
+          gameStatus: 'active',
+          currentPhase: 'ring_placement',
+          chainCapturePosition: undefined,
+        }
+      : scenarioState;
+
+    engine.initFromSerializedState(normalizedState, playerTypes, interactionHandler);
 
     // Reset UI state
     setSelected(undefined);
@@ -876,7 +891,18 @@ export const SandboxGameHost: React.FC = () => {
 
     // Load the state into the engine (convert GameState to SerializedGameState)
     const serialized = serializeGameState(state);
-    engine.initFromSerializedState(serialized, playerTypes, interactionHandler);
+    const isTerminalStatus =
+      serialized.gameStatus === 'completed' || serialized.gameStatus === 'finished';
+    const normalizedSerialized = isTerminalStatus
+      ? {
+          ...serialized,
+          gameStatus: 'active',
+          currentPhase: 'ring_placement',
+          chainCapturePosition: undefined,
+        }
+      : serialized;
+
+    engine.initFromSerializedState(normalizedSerialized, playerTypes, interactionHandler);
 
     // Reset UI state
     setSelected(undefined);
@@ -1043,6 +1069,23 @@ export const SandboxGameHost: React.FC = () => {
     } catch (err) {
       console.error('Failed to export sandbox test fixture', err);
       toast.error('Failed to export sandbox test fixture; see console for details.');
+    }
+  };
+
+  const handleExportScenarioJson = () => {
+    try {
+      if (!sandboxGameState) {
+        toast.error('No sandbox game is currently active.');
+        return;
+      }
+
+      const turnLabel = sandboxGameState.turnNumber ?? sandboxGameState.moveHistory.length + 1;
+      const name = `Sandbox Scenario - Turn ${turnLabel}`;
+      exportGameStateToFile(sandboxGameState, name);
+      toast.success('Sandbox scenario JSON downloaded');
+    } catch (err) {
+      console.error('Failed to export sandbox scenario JSON', err);
+      toast.error('Failed to export sandbox scenario; see console for details.');
     }
   };
 
@@ -1406,6 +1449,57 @@ export const SandboxGameHost: React.FC = () => {
     }
   }
 
+  // Optional-capture visibility: when the sandbox is in capture phase with no
+  // explicit PlayerChoice but canonical overtaking_capture moves exist from the
+  // current player's stacks, surface stronger capture-direction highlights so
+  // both landing cells and overtaken stacks pulse clearly.
+  if (
+    !decisionHighlights &&
+    sandboxGameState &&
+    sandboxGameState.gameStatus === 'active' &&
+    sandboxGameState.currentPhase === 'capture' &&
+    sandboxEngine
+  ) {
+    const moves = sandboxEngine.getValidMoves(sandboxGameState.currentPlayer);
+    const captureMoves = moves.filter((m) => m.type === 'overtaking_capture');
+
+    if (captureMoves.length > 0) {
+      type CaptureHighlight = { positionKey: string; intensity: 'primary' | 'secondary' };
+      const highlights: CaptureHighlight[] = [];
+      const seenPrimary = new Set<string>();
+      const seenAny = new Set<string>();
+
+      for (const move of captureMoves) {
+        const target = move.captureTarget as Position | undefined;
+        const landing = move.to as Position | undefined;
+
+        if (landing) {
+          const key = positionToString(landing);
+          if (!seenPrimary.has(key)) {
+            seenPrimary.add(key);
+            seenAny.add(key);
+            highlights.push({ positionKey: key, intensity: 'primary' });
+          }
+        }
+
+        if (target) {
+          const key = positionToString(target);
+          if (!seenAny.has(key)) {
+            seenAny.add(key);
+            highlights.push({ positionKey: key, intensity: 'secondary' });
+          }
+        }
+      }
+
+      if (highlights.length > 0) {
+        decisionHighlights = {
+          choiceKind: 'capture_direction',
+          highlights,
+        };
+      }
+    }
+  }
+
   const sandboxBoardViewModel = sandboxBoardState
     ? toBoardViewModel(sandboxBoardState, {
         selectedPosition: selected,
@@ -1474,7 +1568,7 @@ export const SandboxGameHost: React.FC = () => {
   ].filter(Boolean) as string[];
 
   // Create unified HUD view model using toHUDViewModel (matches backend host pattern)
-  const sandboxHudVM = sandboxGameState
+  let sandboxHudVM = sandboxGameState
     ? toHUDViewModel(sandboxGameState, {
         connectionStatus: 'connected',
         lastHeartbeatAt: null,
@@ -1485,6 +1579,61 @@ export const SandboxGameHost: React.FC = () => {
         choiceTimeRemainingMs: sandboxDecisionTimeRemainingMs,
       })
     : null;
+
+  // Optional-capture HUD chip: when capture is available directly from the
+  // capture phase (with skip_capture as an option) but no explicit decision
+  // choice is active, surface a bright attention chip so players do not miss
+  // the opportunity.
+  if (
+    sandboxHudVM &&
+    !sandboxHudVM.decisionPhase &&
+    sandboxGameState &&
+    sandboxGameState.gameStatus === 'active' &&
+    sandboxGameState.currentPhase === 'capture' &&
+    sandboxEngine
+  ) {
+    const moves = sandboxEngine.getValidMoves(sandboxGameState.currentPlayer);
+    const hasCaptureMove = moves.some((m) => m.type === 'overtaking_capture');
+    const hasSkipCaptureMove = moves.some((m) => m.type === 'skip_capture');
+
+    if (hasCaptureMove) {
+      const actingPlayer =
+        sandboxGameState.players.find((p) => p.playerNumber === sandboxGameState.currentPlayer) ??
+        sandboxGameState.players[0];
+      const actingPlayerName = actingPlayer.username || `Player ${actingPlayer.playerNumber}`;
+
+      sandboxHudVM = {
+        ...sandboxHudVM,
+        decisionPhase: {
+          isActive: true,
+          actingPlayerNumber: actingPlayer.playerNumber,
+          actingPlayerName,
+          isLocalActor: true,
+          label: hasSkipCaptureMove
+            ? 'Optional capture available'
+            : 'Capture available from this stack',
+          description: hasSkipCaptureMove
+            ? 'You may jump over a neighbouring stack for an overtaking capture, or skip capture to continue this turn.'
+            : 'You may jump over a neighbouring stack for an overtaking capture from your last move.',
+          shortLabel: 'Capture opportunity',
+          timeRemainingMs: null,
+          showCountdown: false,
+          warningThresholdMs: undefined,
+          isServerCapped: undefined,
+          spectatorLabel: hasSkipCaptureMove
+            ? `${actingPlayerName} may choose an overtaking capture or skip.`
+            : `${actingPlayerName} may choose an overtaking capture.`,
+          statusChip: {
+            text: hasSkipCaptureMove
+              ? 'Capture available – tap a landing or skip'
+              : 'Capture available – tap a landing',
+            tone: 'attention',
+          },
+          canSkip: hasSkipCaptureMove,
+        },
+      };
+    }
+  }
 
   // Short, phase-specific hint for touch controls, derived from the HUD
   // decision view model where applicable. This keeps SandboxTouchControlsPanel
@@ -2204,13 +2353,22 @@ export const SandboxGameHost: React.FC = () => {
                           Save State
                         </button>
                         {developerToolsEnabled && (
-                          <button
-                            type="button"
-                            onClick={handleCopySandboxFixture}
-                            className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
-                          >
-                            Copy Test Fixture
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              onClick={handleExportScenarioJson}
+                              className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-sky-400 hover:text-sky-200 transition"
+                            >
+                              Export Scenario JSON
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCopySandboxFixture}
+                              className="px-3 py-1 rounded-lg border border-slate-600 text-xs font-semibold text-slate-100 hover:border-emerald-400 hover:text-emerald-200 transition"
+                            >
+                              Copy Test Fixture
+                            </button>
+                          </>
                         )}
                         <button
                           type="button"
@@ -2371,6 +2529,19 @@ export const SandboxGameHost: React.FC = () => {
                   isLocalSandboxOnly={!user}
                   viewModel={sandboxHudVM}
                   onShowBoardControls={() => setShowBoardControls(true)}
+                  rulesUxContext={{
+                    boardType: boardTypeValue,
+                    numPlayers: sandboxPlayersList.length,
+                    aiDifficulty: undefined,
+                    rulesConcept:
+                      lastLoadedScenario && lastLoadedScenario.onboarding
+                        ? lastLoadedScenario.rulesConcept
+                        : undefined,
+                    scenarioId:
+                      lastLoadedScenario && lastLoadedScenario.onboarding
+                        ? lastLoadedScenario.id
+                        : undefined,
+                  }}
                 />
               ) : (
                 <GameHUD
@@ -2378,6 +2549,19 @@ export const SandboxGameHost: React.FC = () => {
                   viewModel={sandboxHudVM}
                   onShowBoardControls={() => setShowBoardControls(true)}
                   hideVictoryConditions={true}
+                  rulesUxContext={{
+                    boardType: boardTypeValue,
+                    numPlayers: sandboxPlayersList.length,
+                    aiDifficulty: undefined,
+                    rulesConcept:
+                      lastLoadedScenario && lastLoadedScenario.onboarding
+                        ? lastLoadedScenario.rulesConcept
+                        : undefined,
+                    scenarioId:
+                      lastLoadedScenario && lastLoadedScenario.onboarding
+                        ? lastLoadedScenario.id
+                        : undefined,
+                  }}
                 />
               ))}
 

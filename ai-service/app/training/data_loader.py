@@ -39,6 +39,9 @@ class FileHandle:
 
     Supports .npz (numpy compressed) and .hdf5 formats with lazy loading
     and memory-efficient access patterns.
+
+    Automatically detects v2 datasets with multi-player value vectors
+    (values_mp, num_players) and exposes them alongside scalar values.
     """
 
     def __init__(self, path: str, filter_empty_policies: bool = True):
@@ -56,6 +59,8 @@ class FileHandle:
         self._format: Optional[str] = None
         self._total_samples = 0
         self._valid_indices: np.ndarray = np.array([], dtype=np.int64)
+        self._has_multi_player_values: bool = False
+        self._max_players: int = 4  # Default
 
         self._open()
 
@@ -142,6 +147,17 @@ class FileHandle:
         else:
             raise ValueError(f"Unsupported file format: {ext}")
 
+        # Detect v2 multi-player value vectors
+        if 'values_mp' in self._data and 'num_players' in self._data:
+            self._has_multi_player_values = True
+            # Infer max_players from shape of values_mp
+            values_mp_shape = self._data['values_mp'].shape
+            if len(values_mp_shape) == 2:
+                self._max_players = values_mp_shape[1]
+            logger.debug(
+                f"Detected v2 multi-player format (max_players={self._max_players})"
+            )
+
         logger.debug(
             f"Opened {self.path}: {len(self._valid_indices)} valid samples "
             f"out of {self._total_samples} total"
@@ -151,6 +167,16 @@ class FileHandle:
     def num_samples(self) -> int:
         """Number of valid samples in this file."""
         return len(self._valid_indices)
+
+    @property
+    def has_multi_player_values(self) -> bool:
+        """Whether this file contains v2 multi-player value vectors."""
+        return self._has_multi_player_values
+
+    @property
+    def max_players(self) -> int:
+        """Maximum players in multi-player value vectors (default: 4)."""
+        return self._max_players
 
     def get_sample(self, idx: int) -> Tuple[
         np.ndarray, np.ndarray, float, np.ndarray, np.ndarray
@@ -277,6 +303,100 @@ class FileHandle:
             policy_values_list,
         )
 
+    def get_sample_with_mp(
+        self, idx: int
+    ) -> Tuple[
+        np.ndarray, np.ndarray, float, np.ndarray, np.ndarray,
+        Optional[np.ndarray], Optional[int]
+    ]:
+        """
+        Get a single sample by index, including multi-player values if available.
+
+        Args:
+            idx: Index into valid_indices array
+
+        Returns:
+            Tuple of (features, globals, value, policy_indices, policy_values,
+                     values_mp, num_players)
+            - values_mp: Shape (max_players,) vector or None
+            - num_players: Actual player count for this sample or None
+        """
+        base = self.get_sample(idx)
+        features, globals_vec, value, policy_indices, policy_values = base
+
+        values_mp: Optional[np.ndarray] = None
+        num_players: Optional[int] = None
+
+        if self._has_multi_player_values:
+            actual_idx = int(self._valid_indices[idx])
+            values_mp = np.array(self._data['values_mp'][actual_idx])
+            num_players = int(self._data['num_players'][actual_idx])
+
+        return (
+            features, globals_vec, value, policy_indices, policy_values,
+            values_mp, num_players
+        )
+
+    def get_batch_with_mp(
+        self, indices: np.ndarray
+    ) -> Tuple[
+        np.ndarray, np.ndarray, np.ndarray, List, List,
+        Optional[np.ndarray], Optional[np.ndarray]
+    ]:
+        """
+        Get a batch of samples including multi-player values if available.
+
+        Args:
+            indices: Array of indices into valid_indices
+
+        Returns:
+            Tuple of (features_batch, globals_batch, values_batch,
+                     policy_indices_list, policy_values_list,
+                     values_mp_batch, num_players_batch)
+            - values_mp_batch: Shape (batch, max_players) or None
+            - num_players_batch: Shape (batch,) int array or None
+        """
+        base = self.get_batch(indices)
+        (features_batch, globals_batch, values_batch,
+         policy_indices_list, policy_values_list) = base
+
+        values_mp_batch: Optional[np.ndarray] = None
+        num_players_batch: Optional[np.ndarray] = None
+
+        if self._has_multi_player_values:
+            actual_indices = self._valid_indices[indices]
+
+            if self._format == 'npz':
+                values_mp_list = []
+                num_players_list = []
+                for actual_idx in actual_indices:
+                    idx = int(actual_idx)
+                    values_mp_list.append(
+                        np.array(self._data['values_mp'][idx])
+                    )
+                    num_players_list.append(
+                        int(self._data['num_players'][idx])
+                    )
+                values_mp_batch = np.stack(values_mp_list, axis=0)
+                num_players_batch = np.array(num_players_list, dtype=np.int32)
+            else:
+                # HDF5 with fancy indexing
+                sorted_indices = np.sort(actual_indices)
+                reorder = np.argsort(np.argsort(actual_indices))
+                values_mp_batch = np.array(
+                    self._data['values_mp'][sorted_indices.tolist()]
+                )[reorder]
+                num_players_batch = np.array(
+                    self._data['num_players'][sorted_indices.tolist()],
+                    dtype=np.int32
+                )[reorder]
+
+        return (
+            features_batch, globals_batch, values_batch,
+            policy_indices_list, policy_values_list,
+            values_mp_batch, num_players_batch
+        )
+
     def close(self) -> None:
         """Close file handle and release resources."""
         if self._data is not None:
@@ -386,6 +506,30 @@ class StreamingDataLoader:
                 f"StreamingDataLoader initialized: {self._total_samples} "
                 f"total samples across {len(self._file_handles)} files"
             )
+
+    @property
+    def has_multi_player_values(self) -> bool:
+        """
+        Whether any loaded file contains v2 multi-player value vectors.
+
+        Returns True only if ALL files have multi-player values (consistent format).
+        """
+        if not self._file_handles:
+            return False
+        return all(fh.has_multi_player_values for fh in self._file_handles)
+
+    @property
+    def max_players(self) -> int:
+        """
+        Maximum player count across all loaded files.
+
+        Returns the max_players from the first file with multi-player values,
+        or 4 as default if no files have multi-player values.
+        """
+        for fh in self._file_handles:
+            if fh.has_multi_player_values:
+                return fh.max_players
+        return 4  # Default
 
     def _global_to_file_index(self, global_idx: int) -> Tuple[int, int]:
         """
@@ -571,6 +715,138 @@ class StreamingDataLoader:
         if self.seed is not None:
             self._rng = np.random.default_rng(self.seed + epoch)
 
+    def iter_with_mp(self) -> Iterator[Tuple[
+        Tuple[torch.Tensor, torch.Tensor],
+        Tuple[torch.Tensor, torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+    ]]:
+        """
+        Iterate over batches including multi-player value vectors.
+
+        Similar to __iter__ but also yields values_mp and num_players tensors
+        when the dataset contains v2 multi-player format data.
+
+        Yields:
+            Tuple of ((features, globals), (values, policies), values_mp, num_players):
+            - features: torch.Tensor of shape (batch_size, C, H, W)
+            - globals: torch.Tensor of shape (batch_size, G)
+            - values: torch.Tensor of shape (batch_size, 1)
+            - policies: torch.Tensor of shape (batch_size, policy_size)
+            - values_mp: torch.Tensor of shape (batch, max_players) or None
+            - num_players: torch.Tensor of shape (batch,) int or None
+        """
+        if self._total_samples == 0:
+            return
+
+        # Create index array for this epoch
+        indices = np.arange(self._total_samples)
+
+        if self.shuffle:
+            self._rng.shuffle(indices)
+
+        # In distributed mode, shard the indices
+        if self.world_size > 1:
+            indices = indices[self.rank::self.world_size]
+
+        # Determine number of complete batches for this shard
+        shard_size = len(indices)
+        if self.drop_last:
+            num_batches = shard_size // self.batch_size
+        else:
+            num_batches = (shard_size + self.batch_size - 1) // self.batch_size
+
+        if num_batches == 0:
+            return
+
+        use_mp = self.has_multi_player_values
+
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * self.batch_size
+            end_idx = min(start_idx + self.batch_size, shard_size)
+            batch_indices = indices[start_idx:end_idx]
+
+            if self.drop_last and len(batch_indices) < self.batch_size:
+                continue
+
+            # Group indices by file
+            file_groups: dict = {}
+            for batch_pos, global_idx in enumerate(batch_indices):
+                f_idx, l_idx = self._global_to_file_index(int(global_idx))
+                if f_idx not in file_groups:
+                    file_groups[f_idx] = []
+                file_groups[f_idx].append((batch_pos, l_idx))
+
+            # Pre-allocate batch arrays
+            batch_size_actual = len(batch_indices)
+            features_batch = np.zeros((batch_size_actual, 1), dtype=np.float32)
+            globals_batch = np.zeros((batch_size_actual, 1), dtype=np.float32)
+            values_batch = np.zeros(batch_size_actual, dtype=np.float32)
+            policies_batch = np.zeros(
+                (batch_size_actual, self.policy_size), dtype=np.float32
+            )
+            values_mp_batch: Optional[np.ndarray] = None
+            num_players_batch: Optional[np.ndarray] = None
+            if use_mp:
+                values_mp_batch = np.zeros(
+                    (batch_size_actual, self.max_players), dtype=np.float32
+                )
+                num_players_batch = np.zeros(batch_size_actual, dtype=np.int32)
+            initialized = False
+
+            # Load from each file
+            for file_idx, positions in file_groups.items():
+                handle = self._file_handles[file_idx]
+                local_indices = np.array([p[1] for p in positions])
+
+                # Load batch including multi-player values
+                result = handle.get_batch_with_mp(local_indices)
+                (features, globals_vec, values, pol_indices, pol_values,
+                 file_values_mp, file_num_players) = result
+
+                # Initialize arrays on first file with correct shape
+                if not initialized:
+                    features_batch = np.zeros(
+                        (batch_size_actual,) + features.shape[1:],
+                        dtype=np.float32
+                    )
+                    globals_batch = np.zeros(
+                        (batch_size_actual,) + globals_vec.shape[1:],
+                        dtype=np.float32
+                    )
+                    initialized = True
+
+                # Place samples in correct batch positions
+                for i, (batch_pos, _) in enumerate(positions):
+                    features_batch[batch_pos] = features[i]
+                    globals_batch[batch_pos] = globals_vec[i]
+                    values_batch[batch_pos] = values[i]
+                    policies_batch[batch_pos] = self._sparse_to_dense_policy(
+                        pol_indices[i], pol_values[i]
+                    )
+                    if use_mp and file_values_mp is not None:
+                        values_mp_batch[batch_pos] = file_values_mp[i]
+                        num_players_batch[batch_pos] = file_num_players[i]
+
+            # Convert to torch tensors
+            features_tensor = torch.from_numpy(features_batch)
+            globals_tensor = torch.from_numpy(globals_batch)
+            values_tensor = torch.from_numpy(values_batch).unsqueeze(1)
+            policies_tensor = torch.from_numpy(policies_batch)
+
+            values_mp_tensor: Optional[torch.Tensor] = None
+            num_players_tensor: Optional[torch.Tensor] = None
+            if use_mp and values_mp_batch is not None:
+                values_mp_tensor = torch.from_numpy(values_mp_batch)
+                num_players_tensor = torch.from_numpy(num_players_batch)
+
+            yield (
+                (features_tensor, globals_tensor),
+                (values_tensor, policies_tensor),
+                values_mp_tensor,
+                num_players_tensor,
+            )
+
     def close(self) -> None:
         """Close all file handles and release resources."""
         for handle in self._file_handles:
@@ -655,6 +931,465 @@ class StreamingDataset(IterableDataset):  # type: ignore[type-arg]
     def total_samples(self) -> int:
         """Total samples in the dataset."""
         return self.loader.total_samples
+
+
+class WeightedStreamingDataLoader(StreamingDataLoader):
+    """
+    Streaming DataLoader with weighted sampling support.
+
+    Extends StreamingDataLoader to support:
+    - File-level weighting (newer/higher-quality files weighted more)
+    - Late-game bias
+    - Phase-aware sampling
+    - Engine-based weighting
+
+    Uses metadata from the dataset (move_numbers, total_game_moves, phases, engines)
+    when available. Falls back to uniform sampling when metadata is unavailable.
+    """
+
+    def __init__(
+        self,
+        data_paths: Union[str, List[str]],
+        batch_size: int = 32,
+        shuffle: bool = True,
+        filter_empty_policies: bool = True,
+        seed: Optional[int] = None,
+        drop_last: bool = False,
+        policy_size: int = 55000,
+        rank: int = 0,
+        world_size: int = 1,
+        # Weighting parameters
+        sampling_weights: str = 'uniform',
+        late_game_exponent: float = 2.0,
+        phase_weights: Optional[dict] = None,
+        engine_weights: Optional[dict] = None,
+        file_weights: Optional[Union[List[float], dict]] = None,
+        file_weight_mode: str = 'recency',
+    ):
+        """
+        Initialize the weighted streaming data loader.
+
+        Args:
+            data_paths: Path(s) to data files (.npz or .hdf5)
+            batch_size: Number of samples per batch
+            shuffle: Whether to shuffle at the start of each epoch
+            filter_empty_policies: Filter terminal states with empty policies
+            seed: Random seed for reproducible shuffling
+            drop_last: Whether to drop the last incomplete batch
+            policy_size: Size of dense policy vector
+            rank: Process rank for distributed training
+            world_size: Total number of processes
+            sampling_weights: Weighting strategy:
+                - 'uniform': No weighting (default)
+                - 'late_game': Bias toward late-game positions
+                - 'phase_emphasis': Weight by game phase
+                - 'combined': Combine late_game and phase_emphasis
+            late_game_exponent: Exponent for late-game weighting (default: 2.0)
+            phase_weights: Dict mapping phase names to weights
+            engine_weights: Dict mapping engine names to weights
+            file_weights: Per-file weighting. Can be:
+                - None: Auto-compute based on file_weight_mode
+                - List[float]: Explicit weights for each file (same order as data_paths)
+                - Dict[str, float]: Map filename to weight
+            file_weight_mode: How to auto-compute file weights when file_weights is None:
+                - 'uniform': All files weighted equally (default if file_weights=None)
+                - 'recency': Newer files (by modification time) weighted higher
+                - 'size_balanced': Weight inversely to file size (balance small/large files)
+        """
+        super().__init__(
+            data_paths=data_paths,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            filter_empty_policies=filter_empty_policies,
+            seed=seed,
+            drop_last=drop_last,
+            policy_size=policy_size,
+            rank=rank,
+            world_size=world_size,
+        )
+
+        self.sampling_weights = sampling_weights
+        self.late_game_exponent = late_game_exponent
+        self.phase_weights = phase_weights or {
+            'PLACEMENT': 0.5,
+            'MOVEMENT': 1.0,
+            'LINE_DECISION': 1.5,
+            'TERRITORY_DECISION': 2.0,
+            'GAME_OVER': 0.1,
+        }
+        self.engine_weights = engine_weights or {
+            'descent': 1.0,
+            'mcts': 1.0,
+        }
+        self.file_weights_input = file_weights
+        self.file_weight_mode = file_weight_mode
+
+        # Compute sample weights lazily
+        self._sample_weights: Optional[np.ndarray] = None
+        self._metadata_available = False
+        self._file_weights: Optional[np.ndarray] = None
+
+        # Compute per-file weights
+        self._compute_file_weights()
+
+    def _compute_file_weights(self) -> None:
+        """
+        Compute per-file weights based on configuration.
+
+        Sets self._file_weights as an array of shape (num_files,)
+        where each weight applies to all samples from that file.
+        """
+        num_files = len(self._file_handles)
+        if num_files == 0:
+            self._file_weights = np.array([], dtype=np.float32)
+            return
+
+        if self.file_weights_input is not None:
+            # User-provided explicit weights
+            if isinstance(self.file_weights_input, dict):
+                # Dict mapping filename to weight
+                weights = []
+                for handle in self._file_handles:
+                    filename = os.path.basename(handle.path)
+                    weight = self.file_weights_input.get(filename, 1.0)
+                    weights.append(weight)
+                self._file_weights = np.array(weights, dtype=np.float32)
+            elif isinstance(self.file_weights_input, (list, tuple)):
+                # List in same order as data_paths
+                if len(self.file_weights_input) != num_files:
+                    logger.warning(
+                        f"file_weights length ({len(self.file_weights_input)}) "
+                        f"doesn't match number of files ({num_files}); "
+                        f"using uniform weights"
+                    )
+                    self._file_weights = np.ones(num_files, dtype=np.float32)
+                else:
+                    self._file_weights = np.array(
+                        self.file_weights_input, dtype=np.float32
+                    )
+            else:
+                logger.warning(
+                    f"Invalid file_weights type: {type(self.file_weights_input)}; "
+                    f"using uniform weights"
+                )
+                self._file_weights = np.ones(num_files, dtype=np.float32)
+        else:
+            # Auto-compute based on file_weight_mode
+            if self.file_weight_mode == 'uniform':
+                self._file_weights = np.ones(num_files, dtype=np.float32)
+
+            elif self.file_weight_mode == 'recency':
+                # Weight newer files higher (by modification time)
+                mtimes = []
+                for handle in self._file_handles:
+                    try:
+                        mtime = os.path.getmtime(handle.path)
+                        mtimes.append(mtime)
+                    except OSError:
+                        mtimes.append(0.0)
+
+                mtimes = np.array(mtimes, dtype=np.float64)
+                if mtimes.max() > mtimes.min():
+                    # Normalize to [0, 1] range
+                    normalized = (mtimes - mtimes.min()) / (mtimes.max() - mtimes.min())
+                    # Apply exponential weighting: newest file gets 2x weight of oldest
+                    self._file_weights = (1.0 + normalized).astype(np.float32)
+                else:
+                    self._file_weights = np.ones(num_files, dtype=np.float32)
+
+            elif self.file_weight_mode == 'size_balanced':
+                # Weight inversely to sample count (balance small/large files)
+                sample_counts = np.array([
+                    handle.num_samples for handle in self._file_handles
+                ], dtype=np.float32)
+                if sample_counts.sum() > 0:
+                    # Inverse weighting: smaller files get higher weight
+                    self._file_weights = 1.0 / np.maximum(sample_counts, 1.0)
+                    # Normalize so total contribution is balanced
+                    self._file_weights = (
+                        self._file_weights * sample_counts.mean()
+                    )
+                else:
+                    self._file_weights = np.ones(num_files, dtype=np.float32)
+            else:
+                logger.warning(
+                    f"Unknown file_weight_mode: {self.file_weight_mode}; "
+                    f"using uniform weights"
+                )
+                self._file_weights = np.ones(num_files, dtype=np.float32)
+
+        # Normalize file weights to sum to num_files (mean = 1)
+        if self._file_weights.sum() > 0:
+            self._file_weights = (
+                self._file_weights / self._file_weights.mean()
+            )
+
+        logger.info(
+            f"File weights ({self.file_weight_mode}): "
+            f"min={self._file_weights.min():.3f}, "
+            f"max={self._file_weights.max():.3f}, "
+            f"mean={self._file_weights.mean():.3f}"
+        )
+
+    def _compute_sample_weights(self) -> np.ndarray:
+        """
+        Compute per-sample weights based on metadata and file weights.
+
+        File weights are always applied if specified/computed.
+        Sample-level weights (late_game, phase_emphasis) require metadata.
+        Returns uniform weights if no weighting is configured.
+        """
+        weights = np.ones(self._total_samples, dtype=np.float32)
+        has_sample_weighting = self.sampling_weights != 'uniform'
+        has_file_weighting = (
+            self._file_weights is not None
+            and len(self._file_weights) > 0
+            and not np.allclose(self._file_weights, 1.0)
+        )
+
+        # If no weighting at all, return uniform
+        if not has_sample_weighting and not has_file_weighting:
+            return weights
+
+        # Apply file-level weighting first (doesn't require metadata)
+        if has_file_weighting:
+            file_weights_expanded = []
+            for file_idx, handle in enumerate(self._file_handles):
+                file_weight = self._file_weights[file_idx]
+                num_samples = handle.num_samples
+                file_weights_expanded.append(
+                    np.full(num_samples, file_weight, dtype=np.float32)
+                )
+            if file_weights_expanded:
+                weights = np.concatenate(file_weights_expanded)
+            logger.info("Applied file-level weighting")
+
+        # If only file weighting, return early
+        if not has_sample_weighting:
+            weights = weights / np.sum(weights) * len(weights)
+            return weights
+
+        # Collect metadata from all files
+        all_move_numbers: List[np.ndarray] = []
+        all_total_moves: List[np.ndarray] = []
+        all_phases: List[np.ndarray] = []
+        all_engines: List[np.ndarray] = []
+
+        metadata_found = True
+
+        for handle in self._file_handles:
+            if handle._data is None:
+                continue
+
+            # Check if metadata exists in this file
+            has_meta = (
+                'move_numbers' in handle._data
+                and 'total_game_moves' in handle._data
+                and 'phases' in handle._data
+            )
+
+            if not has_meta:
+                metadata_found = False
+                break
+
+            # Extract metadata for valid indices only
+            valid_idx = handle._valid_indices
+            all_move_numbers.append(
+                np.array(handle._data['move_numbers'])[valid_idx]
+            )
+            all_total_moves.append(
+                np.array(handle._data['total_game_moves'])[valid_idx]
+            )
+            all_phases.append(
+                np.array(handle._data['phases'])[valid_idx]
+            )
+
+            # Engines may not exist in all files
+            if 'engines' in handle._data:
+                all_engines.append(
+                    np.array(handle._data['engines'])[valid_idx]
+                )
+            else:
+                all_engines.append(
+                    np.full(len(valid_idx), 'descent', dtype=object)
+                )
+
+        if not metadata_found or not all_move_numbers:
+            logger.info(
+                "Metadata not available in all files; using uniform weights"
+            )
+            return np.ones(self._total_samples, dtype=np.float32)
+
+        self._metadata_available = True
+
+        # Concatenate metadata
+        move_numbers = np.concatenate(all_move_numbers)
+        total_moves = np.concatenate(all_total_moves)
+        phases = np.concatenate(all_phases)
+        engines = np.concatenate(all_engines)
+
+        # Compute weights
+        weights = np.ones(self._total_samples, dtype=np.float32)
+
+        if self.sampling_weights in ('late_game', 'combined'):
+            # Late-game bias: weight = (move_num / total_moves) ^ exponent
+            # Later positions get higher weight
+            progress = np.clip(move_numbers / np.maximum(total_moves, 1), 0, 1)
+            late_game_weights = np.power(progress, self.late_game_exponent)
+            # Normalize to mean 1.0
+            late_game_weights = (
+                late_game_weights / np.mean(late_game_weights)
+                if np.mean(late_game_weights) > 0
+                else late_game_weights
+            )
+            weights *= late_game_weights
+
+        if self.sampling_weights in ('phase_emphasis', 'combined'):
+            # Phase-based weighting
+            phase_weights_arr = np.array([
+                self.phase_weights.get(str(p), 1.0) for p in phases
+            ], dtype=np.float32)
+            # Normalize to mean 1.0
+            phase_weights_arr = (
+                phase_weights_arr / np.mean(phase_weights_arr)
+                if np.mean(phase_weights_arr) > 0
+                else phase_weights_arr
+            )
+            weights *= phase_weights_arr
+
+        # Engine weighting (optional multiplier)
+        if self.engine_weights:
+            engine_weights_arr = np.array([
+                self.engine_weights.get(str(e), 1.0) for e in engines
+            ], dtype=np.float32)
+            weights *= engine_weights_arr
+
+        # Note: File-level weighting was already applied at the start
+        # of this function before sample-level weighting
+
+        # Final normalization
+        weights = weights / np.sum(weights) * len(weights)
+
+        logger.info(
+            "Computed sample weights: min=%.3f, max=%.3f, mean=%.3f",
+            weights.min(), weights.max(), weights.mean()
+        )
+
+        return weights
+
+    def __iter__(self) -> Iterator[Tuple[
+        Tuple[torch.Tensor, torch.Tensor],
+        Tuple[torch.Tensor, torch.Tensor]
+    ]]:
+        """
+        Iterate over batches with weighted sampling.
+
+        For weighted sampling, samples are drawn according to their weights
+        rather than uniformly shuffled.
+        """
+        if self._total_samples == 0:
+            return
+
+        # Compute weights if not already done
+        if self._sample_weights is None:
+            self._sample_weights = self._compute_sample_weights()
+
+        # If uniform or no metadata, use parent implementation
+        if self.sampling_weights == 'uniform' or not self._metadata_available:
+            yield from super().__iter__()
+            return
+
+        # Weighted sampling implementation
+        indices = np.arange(self._total_samples)
+
+        # Normalize weights to probabilities
+        probs = self._sample_weights / np.sum(self._sample_weights)
+
+        # Sample with replacement according to weights
+        # Note: This is different from shuffle - we draw samples weighted
+        # by their importance. For very large datasets this approximates
+        # the weighted distribution.
+        sampled_indices = self._rng.choice(
+            indices,
+            size=self._total_samples,
+            replace=True,
+            p=probs,
+        )
+
+        # In distributed mode, shard the sampled indices
+        if self.world_size > 1:
+            sampled_indices = sampled_indices[self.rank::self.world_size]
+
+        shard_size = len(sampled_indices)
+        if self.drop_last:
+            num_batches = shard_size // self.batch_size
+        else:
+            num_batches = (shard_size + self.batch_size - 1) // self.batch_size
+
+        if num_batches == 0:
+            return
+
+        for batch_idx in range(num_batches):
+            start_idx = batch_idx * self.batch_size
+            end_idx = min(start_idx + self.batch_size, shard_size)
+            batch_indices = sampled_indices[start_idx:end_idx]
+
+            if self.drop_last and len(batch_indices) < self.batch_size:
+                continue
+
+            # Group indices by file for efficient batch loading
+            file_groups: dict = {}
+            for batch_pos, global_idx in enumerate(batch_indices):
+                f_idx, l_idx = self._global_to_file_index(int(global_idx))
+                if f_idx not in file_groups:
+                    file_groups[f_idx] = []
+                file_groups[f_idx].append((batch_pos, l_idx))
+
+            # Pre-allocate batch arrays
+            batch_size_actual = len(batch_indices)
+            features_batch = np.zeros((batch_size_actual, 1), dtype=np.float32)
+            globals_batch = np.zeros((batch_size_actual, 1), dtype=np.float32)
+            values_batch = np.zeros(batch_size_actual, dtype=np.float32)
+            policies_batch = np.zeros(
+                (batch_size_actual, self.policy_size), dtype=np.float32
+            )
+            initialized = False
+
+            for file_idx, positions in file_groups.items():
+                handle = self._file_handles[file_idx]
+                local_indices = np.array([p[1] for p in positions])
+
+                features, globals_vec, values, pol_indices, pol_values = \
+                    handle.get_batch(local_indices)
+
+                if not initialized:
+                    features_batch = np.zeros(
+                        (batch_size_actual,) + features.shape[1:],
+                        dtype=np.float32
+                    )
+                    globals_batch = np.zeros(
+                        (batch_size_actual,) + globals_vec.shape[1:],
+                        dtype=np.float32
+                    )
+                    initialized = True
+
+                for i, (batch_pos, _) in enumerate(positions):
+                    features_batch[batch_pos] = features[i]
+                    globals_batch[batch_pos] = globals_vec[i]
+                    values_batch[batch_pos] = values[i]
+                    policies_batch[batch_pos] = self._sparse_to_dense_policy(
+                        pol_indices[i], pol_values[i]
+                    )
+
+            features_tensor = torch.from_numpy(features_batch)
+            globals_tensor = torch.from_numpy(globals_batch)
+            values_tensor = torch.from_numpy(values_batch).unsqueeze(1)
+            policies_tensor = torch.from_numpy(policies_batch)
+
+            yield (
+                (features_tensor, globals_tensor),
+                (values_tensor, policies_tensor)
+            )
 
 
 def get_sample_count(data_path: str) -> int:

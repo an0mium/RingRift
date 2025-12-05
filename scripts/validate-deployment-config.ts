@@ -40,6 +40,13 @@ interface DockerComposeConfig {
   networks: string[];
 }
 
+export interface DeploymentConfigValidationResult {
+  ok: boolean;
+  errors: string[];
+  warnings: string[];
+  results: ValidationResult[];
+}
+
 // ============================================================================
 // Environment Variable Parser
 // ============================================================================
@@ -740,6 +747,41 @@ function printResults(results: ValidationResult[]): boolean {
 // Entry Point
 // ============================================================================
 
-const results = validateDeploymentConfigs();
-const success = printResults(results);
-process.exit(success ? 0 : 1);
+export function validateDeploymentConfigProgrammatically(): DeploymentConfigValidationResult {
+  const results = validateDeploymentConfigs();
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  for (const result of results) {
+    if (result.errors.length > 0) {
+      for (const error of result.errors) {
+        errors.push(`[${result.file}] ${error}`);
+      }
+    }
+    if (result.warnings.length > 0) {
+      for (const warning of result.warnings) {
+        warnings.push(`[${result.file}] ${warning}`);
+      }
+    }
+  }
+
+  const ok = results.every((r) => r.valid);
+
+  return {
+    ok,
+    errors,
+    warnings,
+    results,
+  };
+}
+
+function main(): void {
+  const { results } = validateDeploymentConfigProgrammatically();
+  const success = printResults(results);
+  process.exit(success ? 0 : 1);
+}
+
+if (require.main === module) {
+  main();
+}

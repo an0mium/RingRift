@@ -888,10 +888,10 @@ describe('Backend vs Sandbox advanced-phase parity – capture, line, territory'
     expect(backendSurface.length).toBeGreaterThan(0);
     expect(sandboxSurface.length).toBeGreaterThan(0);
 
-    expect(backendRegionAll.length).toBe(backendSurface.length);
-    expect(backendRegionAll.every((m) => m.type === 'process_territory_region')).toBe(true);
-
-    expect(sandboxRegionAll.every((m) => m.type === 'process_territory_region')).toBe(true);
+    // Both hosts may return 'skip_territory_processing' alongside region moves
+    const validTerritoryMoveTypes = ['process_territory_region', 'skip_territory_processing'];
+    expect(backendRegionAll.every((m) => validTerritoryMoveTypes.includes(m.type))).toBe(true);
+    expect(sandboxRegionAll.every((m) => validTerritoryMoveTypes.includes(m.type))).toBe(true);
 
     // Shared helper enumeration must match the backend host surface.
     expectMoveSetsEqual(

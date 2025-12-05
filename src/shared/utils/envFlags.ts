@@ -67,6 +67,17 @@ export function isSandboxAiTraceModeEnabled(): boolean {
   return flagEnabled('RINGRIFT_SANDBOX_AI_TRACE_MODE');
 }
 
+/**
+ * Debug flag for sandbox Last-Player-Standing (LPS) and early game-end
+ * behaviour. When enabled, the sandbox engine emits additional console
+ * diagnostics around LPS round tracking, real-action detection, and
+ * victory evaluation so reproducible early-completion bugs can be
+ * investigated from the browser console.
+ */
+export function isSandboxLpsDebugEnabled(): boolean {
+  return flagEnabled('RINGRIFT_SANDBOX_LPS_DEBUG');
+}
+
 export function isSandboxAiParityModeEnabled(): boolean {
   return flagEnabled('RINGRIFT_SANDBOX_AI_PARITY_MODE');
 }

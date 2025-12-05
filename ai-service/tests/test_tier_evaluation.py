@@ -22,9 +22,15 @@ from app.models import AIType, BoardType  # noqa: E402
 from app.training.tier_eval_config import (  # noqa: E402
     TierEvaluationConfig,
     TierOpponentConfig,
+    get_tier_config,
 )
 from app.training.tier_eval_runner import run_tier_evaluation  # noqa: E402
-from app.training.eval_pools import HEURISTIC_TIER_SPECS, POOL_PATHS, run_all_heuristic_tiers, run_heuristic_tier_eval  # noqa: E402
+from app.training.eval_pools import (  # noqa: E402
+    HEURISTIC_TIER_SPECS,
+    POOL_PATHS,
+    run_all_heuristic_tiers,
+    run_heuristic_tier_eval,
+)
 from scripts import run_tier_gate  # noqa: E402
 
 
@@ -98,6 +104,49 @@ class TestTierEvaluationRunner:
         )
 
 
+@pytest.mark.timeout(120)
+@pytest.mark.parametrize(
+    "tier_name",
+    [
+        "D2_SQ19_2P",
+        "D2_SQ8_3P",
+    ],
+)
+def test_run_tier_evaluation_multiboard_and_multiplayer_smoke(
+    tier_name: str,
+) -> None:
+    """Smoke test run_tier_evaluation on multi-board / multiplayer tiers."""
+    tier_cfg = get_tier_config(tier_name)
+    candidate_id = f"test_candidate_{tier_name.lower()}"
+    num_games_override = 4
+
+    result = run_tier_evaluation(
+        tier_config=tier_cfg,
+        candidate_id=candidate_id,
+        seed=1,
+        num_games_override=num_games_override,
+    )
+
+    assert result.tier_name == tier_cfg.tier_name
+    assert result.board_type == tier_cfg.board_type
+    assert result.num_players == tier_cfg.num_players
+    assert result.candidate_difficulty == tier_cfg.candidate_difficulty
+    assert result.total_games == num_games_override * len(
+        tier_cfg.opponents
+    )
+    assert len(result.matchups) == len(tier_cfg.opponents)
+
+    data = result.to_dict()
+    assert data["tier"] == tier_name
+    assert data["candidate"]["id"] == candidate_id
+    assert "metrics" in data
+    assert "criteria" in data
+    assert "win_rate_vs_baseline" in data["metrics"]
+    assert "win_rate_vs_previous_tier" in data["metrics"]
+    assert "min_win_rate_vs_baseline" in data["criteria"]
+    assert "no_major_regression_vs_previous_tier" in data["criteria"]
+
+
 class TestTierEvaluationCli:
     """CLI smoke test for run_tier_evaluation.py."""
 
@@ -144,14 +193,23 @@ def test_heuristic_tier_eval_smoke(monkeypatch) -> None:
     JSONL eval pools and runs quickly.
     """
     # Ensure we have at least one heuristic tier defined.
-    assert HEURISTIC_TIER_SPECS, "Expected at least one heuristic heuristic tier spec"
+    assert HEURISTIC_TIER_SPECS, (
+        "Expected at least one heuristic heuristic tier spec"
+    )
     tier = HEURISTIC_TIER_SPECS[0]
 
     # Stub load_state_pool to return a single valid GameState snapshot.
     from app.training import eval_pools as eval_pools_mod  # noqa: E402
-    from app.training.generate_data import create_initial_state  # noqa: E402
+    from app.training.generate_data import (  # noqa: E402
+        create_initial_state,
+    )
 
-    def _fake_load_state_pool(board_type, pool_id="v1", max_states=None, num_players=None):
+    def _fake_load_state_pool(
+        board_type,
+        pool_id="v1",
+        max_states=None,
+        num_players=None,
+    ):
         state = create_initial_state(
             board_type=board_type,
             num_players=num_players or tier.num_players,
@@ -203,13 +261,17 @@ def test_heuristic_tier_specs_have_pool_paths() -> None:
     new tier without wiring an eval pool fails fast in tests instead of at
     runtime on long jobs.
     """
-    assert HEURISTIC_TIER_SPECS, "Expected at least one heuristic tier spec"
+    assert HEURISTIC_TIER_SPECS, (
+        "Expected at least one heuristic tier spec"
+    )
 
     missing: list[str] = []
     for spec in HEURISTIC_TIER_SPECS:
         key = (spec.board_type, spec.eval_pool_id)
         if key not in POOL_PATHS:
-            missing.append(f"{spec.id} -> ({spec.board_type!r}, {spec.eval_pool_id!r})")
+            missing.append(
+                f"{spec.id} -> ({spec.board_type!r}, {spec.eval_pool_id!r})"
+            )
 
     assert not missing, (
         "One or more heuristic tier specs reference eval pools that are not "
@@ -220,10 +282,13 @@ def test_heuristic_tier_specs_have_pool_paths() -> None:
 def test_run_tier_gate_cli_smoke(monkeypatch, capsys) -> None:
     """Smoke test for the heuristic tier gate CLI wrapper."""
     # Use the first heuristic tier spec as the target.
-    assert HEURISTIC_TIER_SPECS, "Expected at least one heuristic heuristic tier spec"
+    assert HEURISTIC_TIER_SPECS, (
+        "Expected at least one heuristic heuristic tier spec"
+    )
     tier = HEURISTIC_TIER_SPECS[0]
 
-    # Stub run_heuristic_tier_eval so the test does not depend on on-disk eval pools.
+    # Stub run_heuristic_tier_eval so the test does not depend on
+    # on-disk eval pools.
     def _fake_run_heuristic_tier_eval(tier_spec, rng_seed, max_games=None):
         assert tier_spec.id == tier.id
         assert isinstance(rng_seed, int)
@@ -239,19 +304,34 @@ def test_run_tier_gate_cli_smoke(monkeypatch, capsys) -> None:
             "games_requested": tier_spec.num_games,
             "games_played": 1,
             "results": {"wins": 1, "losses": 0, "draws": 0},
-            "margins": {"ring_margin_mean": 1.0, "territory_margin_mean": 0.0},
+            "margins": {
+                "ring_margin_mean": 1.0,
+                "territory_margin_mean": 0.0,
+            },
             "latency_ms": {"mean": 0.5, "p95": 1.0},
             "total_moves": 10,
             "victory_reasons": {"ring_elimination": 1},
         }
 
-    monkeypatch.setattr(run_tier_gate, "run_heuristic_tier_eval", _fake_run_heuristic_tier_eval)
+    monkeypatch.setattr(
+        run_tier_gate,
+        "run_heuristic_tier_eval",
+        _fake_run_heuristic_tier_eval,
+    )
 
     # Run the CLI-style main with a temporary argv.
     import sys as _sys
 
     argv_backup = list(_sys.argv)
-    _sys.argv = ["run_tier_gate.py", "--tier-id", tier.id, "--seed", "42", "--max-games", "1"]
+    _sys.argv = [
+        "run_tier_gate.py",
+        "--tier-id",
+        tier.id,
+        "--seed",
+        "42",
+        "--max-games",
+        "1",
+    ]
     try:
         run_tier_gate.main()
     finally:
@@ -263,3 +343,87 @@ def test_run_tier_gate_cli_smoke(monkeypatch, capsys) -> None:
     assert payload["tier_id"] == tier.id
     assert payload["tier_name"] == tier.name
     assert payload["games_played"] == 1
+
+def test_run_tier_gate_cli_difficulty_smoke(tmp_path) -> None:
+    """Smoke test for difficulty-tier mode of run_tier_gate CLI."""
+    output_path = tmp_path / "tier_gate_d2.json"
+    promo_path = tmp_path / "promotion_d2.json"
+    cmd = [
+        sys.executable,
+        "scripts/run_tier_gate.py",
+        "--tier",
+        "D2",
+        "--candidate-model-id",
+        "test_candidate_d2",
+        "--num-games",
+
+
+def test_run_tier_gate_cli_multiboard_sq19_smoke(tmp_path) -> None:
+    """Smoke test multiboard difficulty-tier mode of run_tier_gate CLI."""
+    output_path = tmp_path / "tier_gate_D2_SQ19_2P.json"
+    promo_path = tmp_path / "promotion_D2_SQ19_2P.json"
+    cmd = [
+        sys.executable,
+        "scripts/run_tier_gate.py",
+        "--tier",
+        "D2_SQ19_2P",
+        "--candidate-model-id",
+        "test_candidate_sq19_d2",
+        "--num-games",
+        "4",
+        "--seed",
+        "1",
+        "--output-json",
+        str(output_path),
+        "--promotion-plan-out",
+        str(promo_path),
+    ]
+
+    proc = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert output_path.exists()
+    assert promo_path.exists()
+
+    summary = json.loads(output_path.read_text(encoding="utf-8"))
+    assert summary["tier"] == "D2_SQ19_2P"
+
+    plan = json.loads(promo_path.read_text(encoding="utf-8"))
+    assert plan["tier"] == "D2_SQ19_2P"
+    assert plan["candidate_model_id"] == "test_candidate_sq19_d2"
+    assert plan["decision"] in ("promote", "reject")
+        "4",
+        "--seed",
+        "1",
+        "--output-json",
+        str(output_path),
+        "--promotion-plan-out",
+        str(promo_path),
+    ]
+
+    proc = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    assert output_path.exists()
+    assert promo_path.exists()
+
+    data = json.loads(output_path.read_text(encoding="utf-8"))
+    assert data["tier"] == "D2"
+    assert "overall_pass" in data
+
+    plan = json.loads(promo_path.read_text(encoding="utf-8"))
+    assert plan["tier"] == "D2"
+    assert plan["candidate_model_id"] == "test_candidate_d2"
+    assert plan["decision"] in ("promote", "reject")

@@ -121,7 +121,10 @@ module.exports = {
   
   // Transform files with ts-jest and handle import.meta
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', {
+    // Use ts-jest for both TypeScript and local JS helper modules (e.g. k6
+    // summary harness code under tests/load/). This allows Jest to import
+    // ESM-style .js files while keeping the main project config centralized.
+    '^.+\\.(ts|tsx|js)$': ['ts-jest', {
       tsconfig: '<rootDir>/tsconfig.jest.json',
       diagnostics: {
         ignoreCodes: ['TS1343'], // Ignore "import.meta" errors during transformation
@@ -204,6 +207,11 @@ module.exports = {
     '^@shared/(.*)$': '<rootDir>/src/shared/$1',
     '^@server/(.*)$': '<rootDir>/src/server/$1',
     '^@client/(.*)$': '<rootDir>/src/client/$1',
+    // Map the remote k6 summary helper URL used in tests/load/summary.js to a
+    // local Jest-friendly mock so that Jest can import the k6 harness helpers
+    // without attempting a real network/module resolution.
+    '^https://jslib\\.k6\\.io/k6-summary/0\\.0\\.1/index\\.js$':
+      '<rootDir>/tests/__mocks__/k6-summary.js',
     // Mock CSS and asset imports for React component tests
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
     '\\.(jpg|jpeg|png|gif|webp|svg)$': '<rootDir>/tests/__mocks__/fileMock.js',

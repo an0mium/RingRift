@@ -338,6 +338,78 @@ class Tournament:
         )
 
 
+def run_tournament(
+    model_a_path: str,
+    model_b_path: str,
+    num_games: int = 20,
+    board_type: BoardType = BoardType.SQUARE8,
+    num_players: int = 2,
+    max_moves: int = 200,
+    seed: Optional[int] = None,
+) -> Dict[str, any]:
+    """
+    Convenience function to run a tournament between two models.
+
+    Parameters
+    ----------
+    model_a_path : str
+        Path to the candidate model checkpoint.
+    model_b_path : str
+        Path to the baseline model checkpoint.
+    num_games : int
+        Number of games to play (alternating colors).
+    board_type : BoardType
+        Board type to use (currently only SQUARE8 fully supported).
+    num_players : int
+        Number of players (currently only 2 supported).
+    max_moves : int
+        Maximum moves per game.
+    seed : Optional[int]
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    Dict[str, any]
+        Results dictionary with keys:
+        - model_a_wins: Number of wins for model A
+        - model_b_wins: Number of wins for model B
+        - draws: Number of draws
+        - total_games: Total games played
+        - avg_game_length: Average game length in moves
+        - victory_reasons: Dict of victory reason counts
+    """
+    # Currently Tournament class only supports SQUARE8 2-player
+    # TODO: Extend Tournament class for other board types and player counts
+    if board_type != BoardType.SQUARE8:
+        logger.warning(
+            "Tournament currently only supports SQUARE8, using SQUARE8 instead of %s",
+            board_type.value,
+        )
+
+    if num_players != 2:
+        logger.warning(
+            "Tournament currently only supports 2 players, using 2 instead of %d",
+            num_players,
+        )
+
+    tournament = Tournament(
+        model_path_a=model_a_path,
+        model_path_b=model_b_path,
+        num_games=num_games,
+    )
+
+    results = tournament.run()
+
+    return {
+        "model_a_wins": results.get("A", 0),
+        "model_b_wins": results.get("B", 0),
+        "draws": results.get("Draw", 0),
+        "total_games": num_games,
+        "avg_game_length": 0,  # Not tracked by Tournament class currently
+        "victory_reasons": tournament.victory_reasons,
+    }
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 3:
         t = Tournament(sys.argv[1], sys.argv[2])

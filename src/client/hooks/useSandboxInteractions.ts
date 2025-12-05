@@ -126,26 +126,50 @@ export function useSandboxInteractions({
         return;
       }
 
-      // Find the option whose territory region contains the clicked cell.
-      let selectedOption: (typeof options)[number] | undefined;
-
-      territories.forEach((territory) => {
-        if (selectedOption) return;
+      // Identify which territory region(s) contain the clicked cell using
+      // the engine's regionId keys for stability, then map that back to
+      // the concrete RegionOrderChoice option list.
+      const clickedRegionIds: string[] = [];
+      territories.forEach((territory, regionId) => {
         const spaces = territory.spaces ?? [];
-        const containsClick = spaces.some((space) => positionsEqual(space, pos));
-        if (!containsClick) return;
-
-        // Match this region to the option whose representativePosition is
-        // inside the same territory.
-        const hasRepresentative = spaces.some((space) =>
-          options.some((opt) => positionsEqual(opt.representativePosition, space))
-        );
-        if (hasRepresentative) {
-          selectedOption = options.find((opt) =>
-            spaces.some((space) => positionsEqual(space, opt.representativePosition))
-          );
+        if (spaces.some((space) => positionsEqual(space, pos))) {
+          clickedRegionIds.push(regionId);
         }
       });
+
+      let selectedOption: (typeof options)[number] | undefined;
+
+      if (clickedRegionIds.length > 0) {
+        // Prefer the first option whose regionId owns the clicked cell,
+        // preserving the option ordering from the underlying choice.
+        selectedOption = options.find((opt) => clickedRegionIds.includes(opt.regionId));
+      }
+
+      // Fallback: if regionId-based mapping fails (for example, in older
+      // fixtures), fall back to the representative-position heuristic so
+      // clicks still resolve sensibly.
+      if (!selectedOption) {
+        territories.forEach((territory, regionId) => {
+          if (selectedOption) return;
+          const spaces = territory.spaces ?? [];
+          const containsClick = spaces.some((space) => positionsEqual(space, pos));
+          if (!containsClick) return;
+
+          const hasRepresentative = spaces.some((space) =>
+            options.some((opt) => positionsEqual(opt.representativePosition, space))
+          );
+          if (hasRepresentative) {
+            selectedOption = options.find((opt) =>
+              spaces.some((space) => positionsEqual(space, opt.representativePosition))
+            );
+          } else {
+            // As a final safety net, match purely on regionId when the
+            // click lies in a known territory but no representative
+            // position overlaps.
+            selectedOption = options.find((opt) => opt.regionId === regionId);
+          }
+        });
+      }
 
       if (selectedOption) {
         const resolver = choiceResolverRef.current;
@@ -341,9 +365,11 @@ export function useSandboxInteractions({
       return;
     }
 
-    // Movement phase: mirror backend UX – first click selects a stack
+    // Movement/capture phase: mirror backend UX – first click selects a stack
     // and highlights its legal landing positions; second click on a
-    // highlighted cell executes the move.
+    // highlighted cell executes the move. In capture phase, also allow
+    // clicking directly on a highlighted capture landing (with no prior
+    // stack selection) to apply the overtaking_capture.
     if (!selected) {
       // For non-movement/capture phases, retain the previous behaviour
       // and let the engine interpret the click without invalid-move UX.
@@ -353,6 +379,43 @@ export function useSandboxInteractions({
         setValidTargets(targets);
         engine.handleHumanCellClick(pos);
         return;
+      }
+
+      // Capture phase: when no stack is currently selected, treat clicks on
+      // canonical capture landings (derived from getValidMoves) as executing
+      // the overtaking_capture directly. This keeps sandbox UX aligned with
+      // the board-level capture highlights, where landing cells pulse even
+      // before the attacking stack is explicitly selected.
+      if (phaseBefore === 'capture') {
+        const captureMoves = validMoves.filter((m) => m.type === 'overtaking_capture');
+        const isCaptureLanding = captureMoves.some(
+          (m) => m.to && positionsEqual(m.to as Position, pos)
+        );
+
+        if (isCaptureLanding) {
+          setSelected(undefined);
+          setValidTargets([]);
+
+          void (async () => {
+            await engine.handleHumanCellClick(pos);
+
+            const after = engine.getGameState();
+            if (after.gameStatus === 'active' && after.currentPhase === 'chain_capture') {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- accessing internal engine method
+              const ctx = (engine as any).getChainCaptureContextForCurrentPlayer?.() ?? null;
+              if (ctx) {
+                setSelected(ctx.from);
+                setValidTargets(ctx.landings);
+              }
+            }
+
+            setSandboxTurn((t) => t + 1);
+            setSandboxStateVersion((v) => v + 1);
+            maybeRunSandboxAiIfNeeded();
+          })();
+
+          return;
+        }
       }
 
       const key = positionToString(pos);

@@ -15,7 +15,7 @@ import type {
   PlayerChoice,
   PlayerChoiceResponseFor,
 } from '../../../src/shared/types/game';
-import { createTestGameState, pos } from '../../utils/fixtures';
+import { createTestGameState, pos, addStack } from '../../utils/fixtures';
 
 // Mock the SandboxContext
 jest.mock('../../../src/client/contexts/SandboxContext', () => ({
@@ -37,6 +37,7 @@ function createMockEngine(
 
   return {
     getGameState: jest.fn(() => overrides.gameState ?? defaultState),
+    getValidMoves: jest.fn(() => []),
     getValidLandingPositionsForCurrentPlayer: jest.fn(() => overrides.validLandingPositions ?? []),
     handleHumanCellClick: jest.fn().mockResolvedValue(undefined),
     clearSelection: jest.fn(),
@@ -247,6 +248,76 @@ describe('useSandboxInteractions', () => {
       });
     });
 
+    describe('region_order choice handling', () => {
+      it('resolves region_order choice when clicking inside a territory region', async () => {
+        const territoryState = createTestGameState({
+          currentPhase: 'territory_processing',
+          currentPlayer: 1,
+          gameStatus: 'active',
+        });
+
+        // Two simple disconnected regions, one containing (0,0) and one
+        // containing (2,2), both credited to the moving player.
+        territoryState.board.territories.set('region-1', {
+          spaces: [pos(0, 0)],
+          controllingPlayer: 1,
+          isDisconnected: true,
+        } as any);
+        territoryState.board.territories.set('region-2', {
+          spaces: [pos(2, 2)],
+          controllingPlayer: 1,
+          isDisconnected: true,
+        } as any);
+
+        mockEngine = createMockEngine({ gameState: territoryState });
+        mockContext = createMockSandboxContext(mockEngine);
+
+        const regionChoice: PlayerChoice = {
+          id: 'choice-region-1',
+          type: 'region_order',
+          gameId: 'test-game-123',
+          playerNumber: 1,
+          prompt: 'Choose region order',
+          options: [
+            {
+              regionId: 'region-1',
+              size: 1,
+              representativePosition: pos(0, 0),
+              moveId: 'move-region-1',
+            },
+            {
+              regionId: 'region-2',
+              size: 1,
+              representativePosition: pos(2, 2),
+              moveId: 'move-region-2',
+            },
+          ] as any,
+        } as any;
+
+        mockContext.sandboxPendingChoice = regionChoice;
+        (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
+
+        render(<TestHarness />);
+
+        // Set up resolver to capture the response.
+        await act(async () => {
+          screen.getByTestId('set-resolver').click();
+        });
+
+        // Click inside the second region at (2,2); the hook should
+        // resolve the choice with the matching option.
+        await act(async () => {
+          screen.getByTestId('click-2-2').click();
+          jest.runAllTimers();
+        });
+
+        const response = (window as any).__lastResolverResponse;
+        expect(response).not.toBeNull();
+        expect(response.choiceType).toBe('region_order');
+        expect(response.selectedOption.regionId).toBe('region-2');
+      });
+    });
+
     describe('capture_direction choice handling', () => {
       it('should resolve capture_direction choice when clicking highlighted landing', async () => {
         const captureChoice: PlayerChoice = {
@@ -433,6 +504,23 @@ describe('useSandboxInteractions', () => {
         mockEngine = createMockEngine({
           validLandingPositions: [pos(1, 1), pos(2, 2)],
         });
+        // Seed a realistic movement state: player 1 controls a stack at (0,0)
+        // with at least one canonical move originating from that position.
+        const state = mockEngine.getGameState();
+        addStack(state.board, pos(0, 0), 1, 1);
+        mockEngine.getValidMoves.mockReturnValue([
+          {
+            id: 'move-0,0-1,1-test',
+            type: 'move_stack',
+            player: 1,
+            from: pos(0, 0),
+            to: pos(1, 1),
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber: 1,
+          } as any,
+        ]);
+
         mockContext = createMockSandboxContext(mockEngine);
         (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
@@ -534,6 +622,7 @@ describe('useSandboxInteractions', () => {
 
           const engine: any = {
             getGameState: jest.fn(() => currentState),
+            getValidMoves: jest.fn(() => []),
             getValidLandingPositionsForCurrentPlayer: jest.fn(() => [pos(1, 1)]),
             handleHumanCellClick: jest.fn(async () => {
               currentState = chainCaptureState;
@@ -1317,6 +1406,7 @@ describe('useSandboxInteractions', () => {
 
       const chainEngine = {
         getGameState: jest.fn(() => state),
+        getValidMoves: jest.fn(() => []),
         getValidLandingPositionsForCurrentPlayer: jest.fn(() => [pos(1, 1)]),
         handleHumanCellClick: jest.fn(async () => {
           state.currentPhase = 'chain_capture';
@@ -1374,6 +1464,7 @@ describe('useSandboxInteractions', () => {
 
       const chainEngine = {
         getGameState: jest.fn(() => state),
+        getValidMoves: jest.fn(() => []),
         getValidLandingPositionsForCurrentPlayer: jest.fn(() => [pos(1, 1)]),
         handleHumanCellClick: jest.fn(async () => {
           state.currentPhase = 'movement';

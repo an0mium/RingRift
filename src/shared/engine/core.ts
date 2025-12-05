@@ -152,8 +152,12 @@ export function getPathPositions(from: Position, to: Position): Position[] {
       x: Math.round(from.x + stepX * i),
       y: Math.round(from.y + stepY * i),
     };
-    if (to.z !== undefined) {
-      pos.z = Math.round((from.z || 0) + stepZ * i);
+    // Only add z to intermediate positions when z is an actual number.
+    // This fixes a parity bug where z: null from replay DBs would incorrectly
+    // create intermediate positions with z: 0, causing marker key mismatches
+    // (e.g., "4,2" vs "4,2,0") during path-based marker processing.
+    if (typeof to.z === 'number') {
+      pos.z = Math.round((from.z ?? 0) + stepZ * i);
     }
     path.push(pos);
   }

@@ -20,10 +20,12 @@ import type {
   PlayerViewModel,
   HUDWeirdStateViewModel,
 } from '../adapters/gameViewModels';
-import type { TimeControl } from '../../shared/types/game';
+import type { TimeControl, BoardType } from '../../shared/types/game';
 import { getCountdownSeverity } from '../utils/countdown';
 import { Tooltip } from './ui/Tooltip';
 import { TeachingOverlay, useTeachingOverlay, type TeachingTopic } from './TeachingOverlay';
+import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
+import { sendRulesUxEvent } from '../utils/rulesUxTelemetry';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -36,6 +38,18 @@ export interface MobileGameHUDProps {
   onShowBoardControls?: () => void;
   /** Handler for tapping a player card (e.g. to show details) */
   onPlayerTap?: (player: PlayerViewModel) => void;
+  /**
+   * Optional context used for lightweight rules-UX telemetry. When provided,
+   * the mobile HUD will emit privacy-aware telemetry for TeachingOverlay
+   * opens and weird-state help interactions.
+   */
+  rulesUxContext?: {
+    boardType: BoardType;
+    numPlayers: number;
+    aiDifficulty?: number;
+    rulesConcept?: string;
+    scenarioId?: string;
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -267,6 +281,7 @@ export function MobileGameHUD({
   timeControl: _timeControl,
   isLocalSandboxOnly = false,
   onShowBoardControls,
+  rulesUxContext,
 }: MobileGameHUDProps) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
   const { currentTopic, isOpen, showTopic, hideTopic } = useTeachingOverlay();
@@ -283,6 +298,12 @@ export function MobileGameHUD({
     weirdState,
   } = viewModel;
 
+  const rulesUxBoardType = rulesUxContext?.boardType;
+  const rulesUxNumPlayers = rulesUxContext?.numPlayers ?? players.length;
+  const rulesUxAiDifficulty = rulesUxContext?.aiDifficulty;
+  const rulesUxRulesConcept = rulesUxContext?.rulesConcept;
+  const rulesUxScenarioId = rulesUxContext?.scenarioId;
+
   const isMyTurn = players.some((p) => p.isUserPlayer && p.isCurrentPlayer);
 
   const connectionColor =
@@ -291,6 +312,69 @@ export function MobileGameHUD({
       : connectionStatus === 'reconnecting'
         ? 'text-amber-400'
         : 'text-rose-400';
+
+  const helpOpenCountsRef = React.useRef<Record<string, number>>({});
+  const prevIsOpenRef = React.useRef(false);
+  const prevTopicRef = React.useRef<TeachingTopic | null>(null);
+
+  // Emit telemetry when the mobile TeachingOverlay opens for a topic.
+  React.useEffect(() => {
+    const prevIsOpen = prevIsOpenRef.current;
+    const prevTopic = prevTopicRef.current;
+
+    prevIsOpenRef.current = isOpen;
+    prevTopicRef.current = currentTopic;
+
+    if (!isOpen || !currentTopic) {
+      return;
+    }
+
+    // Detect overlay opening for a topic (either from closed or when the topic changes).
+    const isNewOpen = !prevIsOpen || prevTopic !== currentTopic;
+    if (!isNewOpen) {
+      return;
+    }
+
+    if (!rulesUxBoardType) {
+      // Without board context we skip emitting telemetry entirely for this HUD.
+      return;
+    }
+
+    const key = currentTopic;
+    const counts = helpOpenCountsRef.current;
+    const newCount = (counts[key] ?? 0) + 1;
+    counts[key] = newCount;
+
+    const baseEvent = {
+      boardType: rulesUxBoardType,
+      numPlayers: rulesUxNumPlayers,
+      aiDifficulty: rulesUxAiDifficulty,
+      topic: currentTopic,
+      rulesConcept: rulesUxRulesConcept,
+      scenarioId: rulesUxScenarioId,
+    } as const;
+
+    void sendRulesUxEvent({
+      type: 'rules_help_open',
+      ...baseEvent,
+    });
+
+    if (newCount >= 2) {
+      void sendRulesUxEvent({
+        type: 'rules_help_repeat',
+        ...baseEvent,
+        repeatCount: newCount,
+      });
+    }
+  }, [
+    currentTopic,
+    isOpen,
+    rulesUxAiDifficulty,
+    rulesUxBoardType,
+    rulesUxNumPlayers,
+    rulesUxRulesConcept,
+    rulesUxScenarioId,
+  ]);
 
   const handleWeirdStateHelp = React.useCallback(() => {
     if (!weirdState) return;
@@ -317,7 +401,31 @@ export function MobileGameHUD({
     if (topic) {
       showTopic(topic);
     }
-  }, [weirdState, showTopic]);
+
+    if (!rulesUxBoardType || !topic) {
+      return;
+    }
+
+    const weirdStateType = weirdState.type as RulesUxWeirdStateType;
+    void sendRulesUxEvent({
+      type: 'rules_weird_state_help',
+      boardType: rulesUxBoardType,
+      numPlayers: rulesUxNumPlayers,
+      aiDifficulty: rulesUxAiDifficulty,
+      weirdStateType,
+      topic,
+      rulesConcept: rulesUxRulesConcept,
+      scenarioId: rulesUxScenarioId,
+    });
+  }, [
+    rulesUxAiDifficulty,
+    rulesUxBoardType,
+    rulesUxNumPlayers,
+    rulesUxRulesConcept,
+    rulesUxScenarioId,
+    showTopic,
+    weirdState,
+  ]);
 
   const togglePlayerExpand = (playerId: string) => {
     setExpandedPlayerId((prev) => (prev === playerId ? null : playerId));

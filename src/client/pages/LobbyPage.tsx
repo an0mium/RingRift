@@ -9,6 +9,7 @@ import { Select } from '../components/ui/Select';
 import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/types/websocket';
 import { readEnv } from '../../shared/utils/envFlags';
 import { extractErrorMessage } from '../utils/errorReporting';
+import { DIFFICULTY_DESCRIPTORS, getDifficultyDescriptor } from '../utils/difficultyUx';
 
 interface FormState {
   boardType: BoardType;
@@ -441,8 +442,14 @@ export default function LobbyPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [filters, setFilters] = useState<LobbyFilters>({});
   const [sortBy, setSortBy] = useState<SortOption>('created');
+  const [showDifficultyInfo, setShowDifficultyInfo] = useState(false);
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>('');
+
+  const selectedDifficultyDescriptor =
+    getDifficultyDescriptor(form.aiDifficulty) ??
+    getDifficultyDescriptor(5) ??
+    DIFFICULTY_DESCRIPTORS.find((d) => d.id === 5);
 
   // Get current user ID
   useEffect(() => {
@@ -727,12 +734,120 @@ export default function LobbyPage() {
               </div>
             </div>
 
+            <div className="mt-4 border-t border-slate-700 pt-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-100">AI opponent</h3>
+                <button
+                  type="button"
+                  className="text-xs text-slate-300 hover:text-emerald-300 underline underline-offset-2"
+                  onClick={() => setShowDifficultyInfo(true)}
+                >
+                  About difficulty levels
+                </button>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
+                <label className="inline-flex items-center gap-2 text-slate-100">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-600 bg-slate-900 text-emerald-600 focus:ring-emerald-500"
+                    checked={form.aiCount > 0}
+                    onChange={(e) => handleChange('aiCount', e.target.checked ? 1 : 0)}
+                  />
+                  <span>Play vs AI</span>
+                </label>
+                <p className="text-xs text-slate-400">
+                  {form.aiCount > 0
+                    ? 'You will be matched against a computer opponent at the selected difficulty.'
+                    : 'Uncheck to create a human-only game.'}
+                </p>
+              </div>
+              {form.aiCount > 0 && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-sm font-medium mb-1 text-slate-100">
+                      AI difficulty
+                    </label>
+                    <Select
+                      value={form.aiDifficulty}
+                      onChange={(e) => handleChange('aiDifficulty', Number(e.target.value))}
+                    >
+                      {DIFFICULTY_DESCRIPTORS.map((descriptor) => (
+                        <option key={descriptor.id} value={descriptor.id}>
+                          {descriptor.name} (D{descriptor.id})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  {selectedDifficultyDescriptor && (
+                    <div className="text-xs text-slate-300 space-y-1">
+                      <div className="font-semibold text-slate-100">
+                        {selectedDifficultyDescriptor.name}{' '}
+                        <span className="text-slate-400">(D{selectedDifficultyDescriptor.id})</span>
+                      </div>
+                      <p>{selectedDifficultyDescriptor.shortDescription}</p>
+                      <p className="text-slate-400">
+                        Recommended for: {selectedDifficultyDescriptor.recommendedAudience}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="flex justify-end pt-2">
               <Button type="submit" size="sm" disabled={isSubmitting}>
                 {isSubmitting ? 'Creating game…' : 'Create Game'}
               </Button>
             </div>
           </form>
+          {showDifficultyInfo && (
+            <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/80">
+              <div className="max-w-xl w-full mx-4 rounded-2xl bg-slate-900 border border-slate-700 shadow-xl p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">About AI difficulty levels</h3>
+                    <p className="text-xs text-slate-300">
+                      Difficulty levels use the same 1–10 ladder as the AI service and are
+                      calibrated on compact Square‑8 2-player games. Tiers D2, D4, D6, and D8 are
+                      the main anchors for casual, intermediate, advanced, and near‑expert play (see
+                      the Human Calibration Guide).
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDifficultyInfo(false)}
+                    className="ml-2 text-slate-400 hover:text-slate-100"
+                    aria-label="Close difficulty information"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="max-h-80 overflow-y-auto mt-2 space-y-2">
+                  {DIFFICULTY_DESCRIPTORS.filter((d) => d.id <= 8).map((descriptor) => (
+                    <div
+                      key={descriptor.id}
+                      className="p-2 rounded-xl border border-slate-700 bg-slate-800/60 text-xs text-slate-200"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-semibold text-slate-100">
+                          {descriptor.name}{' '}
+                          <span className="text-slate-400">(D{descriptor.id})</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400">
+                          {descriptor.recommendedAudience}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-slate-200">{descriptor.detailedDescription}</p>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-slate-700 text-[11px] text-slate-400">
+                    Experimental tiers D9–D10 are intended for internal testing and may change
+                    between releases. They are not currently part of the human-calibrated ladder.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

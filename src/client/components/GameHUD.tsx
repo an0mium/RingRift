@@ -1,5 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { GameState, Player, GamePhase, BOARD_CONFIGS, TimeControl } from '../../shared/types/game';
+import {
+  GameState,
+  Player,
+  GamePhase,
+  BOARD_CONFIGS,
+  TimeControl,
+  BoardType,
+} from '../../shared/types/game';
 import { ConnectionStatus } from '../contexts/GameContext';
 import { Button } from './ui/Button';
 import { Tooltip } from './ui/Tooltip';
@@ -13,6 +20,8 @@ import type {
   HUDWeirdStateViewModel,
 } from '../adapters/gameViewModels';
 import { TeachingOverlay, useTeachingOverlay, type TeachingTopic } from './TeachingOverlay';
+import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
+import { sendRulesUxEvent } from '../utils/rulesUxTelemetry';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Props Types
@@ -151,6 +160,18 @@ export interface GameHUDViewModelProps {
   onShowBoardControls?: (() => void) | undefined;
   /** Hide the victory conditions panel (when rendering it elsewhere) */
   hideVictoryConditions?: boolean;
+  /**
+   * Optional context used for lightweight rules-UX telemetry. When provided,
+   * the HUD will emit privacy-aware telemetry for teaching/help usage and
+   * weird-state interactions. When omitted, telemetry is disabled for this HUD.
+   */
+  rulesUxContext?: {
+    boardType: BoardType;
+    numPlayers: number;
+    aiDifficulty?: number;
+    rulesConcept?: string;
+    scenarioId?: string;
+  };
 }
 
 /**
@@ -950,6 +971,7 @@ export function GameHUD(props: GameHUDProps) {
         onShowBoardControls={props.onShowBoardControls}
         hideVictoryConditions={props.hideVictoryConditions}
         isLocalSandboxOnly={props.isLocalSandboxOnly}
+        rulesUxContext={props.rulesUxContext}
       />
     );
   }
@@ -1120,12 +1142,14 @@ function GameHUDFromViewModel({
   onShowBoardControls,
   hideVictoryConditions = false,
   isLocalSandboxOnly = false,
+  rulesUxContext,
 }: {
   viewModel: HUDViewModel;
   timeControl?: TimeControl | undefined;
   onShowBoardControls?: (() => void) | undefined;
   hideVictoryConditions?: boolean;
   isLocalSandboxOnly?: boolean;
+  rulesUxContext?: GameHUDViewModelProps['rulesUxContext'];
 }) {
   const {
     phase,
@@ -1142,6 +1166,12 @@ function GameHUDFromViewModel({
     decisionPhase,
     weirdState,
   } = viewModel;
+
+  const rulesUxBoardType = rulesUxContext?.boardType;
+  const rulesUxNumPlayers = rulesUxContext?.numPlayers ?? players.length;
+  const rulesUxAiDifficulty = rulesUxContext?.aiDifficulty;
+  const rulesUxRulesConcept = rulesUxContext?.rulesConcept;
+  const rulesUxScenarioId = rulesUxContext?.scenarioId;
 
   const timeControlSummary = formatTimeControlSummary(timeControl);
 
@@ -1176,6 +1206,69 @@ function GameHUDFromViewModel({
 
   const { currentTopic, isOpen, showTopic, hideTopic } = useTeachingOverlay();
 
+  const helpOpenCountsRef = React.useRef<Record<string, number>>({});
+  const prevIsOpenRef = React.useRef(false);
+  const prevTopicRef = React.useRef<TeachingTopic | null>(null);
+
+  // Emit telemetry when the contextual TeachingOverlay opens for a topic.
+  React.useEffect(() => {
+    const prevIsOpen = prevIsOpenRef.current;
+    const prevTopic = prevTopicRef.current;
+
+    prevIsOpenRef.current = isOpen;
+    prevTopicRef.current = currentTopic;
+
+    if (!isOpen || !currentTopic) {
+      return;
+    }
+
+    // Detect overlay opening for a topic (either from closed or when the topic changes).
+    const isNewOpen = !prevIsOpen || prevTopic !== currentTopic;
+    if (!isNewOpen) {
+      return;
+    }
+
+    if (!rulesUxBoardType) {
+      // Without board context we skip emitting telemetry entirely for this HUD.
+      return;
+    }
+
+    const key = currentTopic;
+    const counts = helpOpenCountsRef.current;
+    const newCount = (counts[key] ?? 0) + 1;
+    counts[key] = newCount;
+
+    const baseEvent = {
+      boardType: rulesUxBoardType,
+      numPlayers: rulesUxNumPlayers,
+      aiDifficulty: rulesUxAiDifficulty,
+      topic: currentTopic,
+      rulesConcept: rulesUxRulesConcept,
+      scenarioId: rulesUxScenarioId,
+    } as const;
+
+    void sendRulesUxEvent({
+      type: 'rules_help_open',
+      ...baseEvent,
+    });
+
+    if (newCount >= 2) {
+      void sendRulesUxEvent({
+        type: 'rules_help_repeat',
+        ...baseEvent,
+        repeatCount: newCount,
+      });
+    }
+  }, [
+    isOpen,
+    currentTopic,
+    rulesUxBoardType,
+    rulesUxNumPlayers,
+    rulesUxAiDifficulty,
+    rulesUxRulesConcept,
+    rulesUxScenarioId,
+  ]);
+
   const handleWeirdStateHelp = React.useCallback(() => {
     if (!weirdState) return;
 
@@ -1201,7 +1294,31 @@ function GameHUDFromViewModel({
     if (topic) {
       showTopic(topic);
     }
-  }, [weirdState, showTopic]);
+
+    if (!rulesUxBoardType || !topic) {
+      return;
+    }
+
+    const weirdStateType = weirdState.type as RulesUxWeirdStateType;
+    void sendRulesUxEvent({
+      type: 'rules_weird_state_help',
+      boardType: rulesUxBoardType,
+      numPlayers: rulesUxNumPlayers,
+      aiDifficulty: rulesUxAiDifficulty,
+      weirdStateType,
+      topic,
+      rulesConcept: rulesUxRulesConcept,
+      scenarioId: rulesUxScenarioId,
+    });
+  }, [
+    rulesUxAiDifficulty,
+    rulesUxBoardType,
+    rulesUxNumPlayers,
+    rulesUxRulesConcept,
+    rulesUxScenarioId,
+    showTopic,
+    weirdState,
+  ]);
 
   function formatMsAsClock(ms: number): string {
     const totalSeconds = Math.max(0, Math.floor(ms / 1000));

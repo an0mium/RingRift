@@ -237,6 +237,7 @@ function createSandboxGameState(overrides: Partial<GameState> = {}): GameState {
     stackHeight: 1,
     capHeight: 1,
     controllingPlayer: 1,
+    position: { x: 0, y: 0 },
   });
 
   const players = createPlayers(overrides.players as Player[] | undefined);
@@ -564,6 +565,7 @@ describe('SandboxGameHost (React host behaviour)', () => {
     const engine = {
       getGameState: jest.fn(() => sandboxState),
       getVictoryResult: jest.fn(() => null as GameResult | null),
+      getValidMoves: jest.fn(() => []),
     };
 
     const captureChoice: PlayerChoice = {
@@ -682,6 +684,68 @@ describe('SandboxGameHost (React host behaviour)', () => {
     expect(chainCapturePath.length).toBeGreaterThanOrEqual(2);
 
     expect(viewModel?.decisionHighlights?.choiceKind).toBe('capture_direction');
+  });
+
+  it('surfaces optional capture opportunities in capture phase via pulsing highlights and a HUD chip', () => {
+    // Sandbox state in capture phase with no explicit PlayerChoice but with
+    // canonical overtaking_capture + skip_capture moves available for the
+    // current player. This should surface stronger capture-direction
+    // highlights and a bright HUD chip so the opportunity is obvious.
+    const sandboxState = createSandboxGameState({
+      currentPhase: 'capture',
+      gameStatus: 'active',
+    });
+
+    const engine = {
+      getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+      getValidMoves: jest.fn(() => {
+        const from: Position = { x: 0, y: 0 };
+        const captureTarget: Position = { x: 0, y: 1 };
+        const landing: Position = { x: 0, y: 2 };
+        const baseMove: Partial<Move> = {
+          id: 'm1',
+          player: 1,
+          from,
+          captureTarget,
+          to: landing,
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber: 1,
+        };
+        return [
+          { ...baseMove, type: 'overtaking_capture' } as Move,
+          { ...baseMove, type: 'skip_capture' } as Move,
+        ];
+      }),
+    };
+
+    // Capture targets array is used purely for touch-panel listing; landing
+    // cells are still derived from canonical moves above.
+    const captureTargets: Position[] = [{ x: 0, y: 1 }];
+
+    mockSandboxValue = createMockSandboxContext({
+      isConfigured: true,
+      sandboxEngine: engine,
+      sandboxCaptureTargets: captureTargets,
+    });
+
+    render(<SandboxGameHost />);
+
+    // Both the capture target stack and landing cell should receive capture
+    // pulse styling via decisionHighlights with choiceKind=capture_direction.
+    const targetCell = getSquareCell(0, 1);
+    expect(targetCell).toHaveAttribute('data-decision-highlight', 'secondary');
+    expect(targetCell.className).toContain('capture-target-pulse');
+
+    const landingCell = getSquareCell(0, 2);
+    expect(landingCell).toHaveAttribute('data-decision-highlight', 'primary');
+    expect(landingCell.className).toContain('decision-pulse-capture');
+
+    // HUD should render a bright attention-style status chip advertising the
+    // optional capture opportunity.
+    const chip = screen.getByTestId('hud-decision-status-chip');
+    expect(chip.textContent).toMatch(/Capture available/i);
   });
 
   it('applies decision-phase highlights to the sandbox BoardView when a pending choice is active', () => {

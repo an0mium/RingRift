@@ -290,6 +290,16 @@ export interface BoardDecisionHighlightsViewModel {
   choiceKind: ChoiceKind;
   /** Flat collection of highlighted board cells. */
   highlights: DecisionHighlight[];
+  /**
+   * Optional territory-region metadata used by the board to apply
+   * per-region styling. Only populated for territory_region_order
+   * decisions and kept intentionally lightweight so view logic
+   * remains UI-framework agnostic.
+   */
+  territoryRegions?: {
+    /** Stable region identifiers in the order presented to the player. */
+    regionIdsInDisplayOrder: string[];
+  };
 }
 
 /**
@@ -921,10 +931,14 @@ export function deriveBoardDecisionHighlights(
   const vm = getChoiceViewModel(pendingChoice);
   const highlights: DecisionHighlight[] = [];
 
-  const pushPosition = (position: Position | undefined, intensity: DecisionHighlightIntensity) => {
+  const pushPosition = (
+    position: Position | undefined,
+    intensity: DecisionHighlightIntensity,
+    groupId?: string
+  ) => {
     if (!position) return;
     const positionKey = positionToString(position);
-    highlights.push({ positionKey, intensity });
+    highlights.push(groupId ? { positionKey, intensity, groupId } : { positionKey, intensity });
   };
 
   switch (pendingChoice.type) {
@@ -966,6 +980,7 @@ export function deriveBoardDecisionHighlights(
       // territories map is populated; otherwise fall back to the
       // representative positions so the decision surface remains visible.
       const territories = gameState.board.territories;
+      const regionIdsInDisplayOrder: string[] = [];
 
       for (const option of pendingChoice.options) {
         // Skip options represent the meta-move "skip_territory_processing"
@@ -975,32 +990,61 @@ export function deriveBoardDecisionHighlights(
           continue;
         }
 
+        if (!regionIdsInDisplayOrder.includes(option.regionId)) {
+          regionIdsInDisplayOrder.push(option.regionId);
+        }
+
         const rep = option.representativePosition;
         if (!rep) continue;
 
         let highlighted = false;
 
         if (territories && territories.size > 0) {
-          territories.forEach((territory) => {
-            if (highlighted) return;
-            const containsRep = territory.spaces.some((pos) => positionsEqual(pos, rep));
-            if (containsRep) {
-              for (const pos of territory.spaces) {
-                pushPosition(pos, 'primary');
+          // Primary mapping: look up the concrete Territory by regionId
+          // when available so geometry/choice stay in lockstep even if
+          // representativePosition drifts.
+          const territoryById = territories.get(option.regionId);
+          if (territoryById) {
+            for (const pos of territoryById.spaces) {
+              pushPosition(pos, 'primary', option.regionId);
+            }
+            highlighted = true;
+          } else {
+            // Fallback: scan for the territory whose spaces contain the
+            // representative position, mirroring earlier behaviour.
+            territories.forEach((territory) => {
+              if (highlighted) return;
+              const spaces = territory.spaces ?? [];
+              const containsRep = spaces.some((pos) => positionsEqual(pos, rep));
+              if (!containsRep) return;
+
+              for (const pos of spaces) {
+                pushPosition(pos, 'primary', option.regionId);
               }
               highlighted = true;
-            }
-          });
+            });
+          }
         }
 
         // Fallback: if we could not map the representative position to
         // a concrete territory region, still highlight the representative
         // cell so players and spectators see where the choice lives.
         if (!highlighted) {
-          pushPosition(rep, 'primary');
+          pushPosition(rep, 'primary', option.regionId);
         }
       }
-      break;
+
+      if (highlights.length === 0) {
+        return undefined;
+      }
+
+      return {
+        choiceKind: vm.kind,
+        highlights,
+        territoryRegions: {
+          regionIdsInDisplayOrder,
+        },
+      };
     }
     case 'capture_direction': {
       // For capture-direction decisions, we highlight both the capture target

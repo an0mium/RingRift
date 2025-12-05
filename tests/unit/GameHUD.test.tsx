@@ -283,8 +283,8 @@ describe('GameHUD', () => {
 
     const helper = screen.getByTestId('victory-conditions-help');
     expect(helper).toBeInTheDocument();
-    expect(screen.getByText(/Ring Elimination – win by eliminating/)).toBeInTheDocument();
-    expect(screen.getByText(/Territory Control – win by controlling/)).toBeInTheDocument();
+    expect(screen.getByText(/Ring Elimination – Win by eliminating/)).toBeInTheDocument();
+    expect(screen.getByText(/Territory Control – Win by controlling/)).toBeInTheDocument();
     expect(screen.getByText(/Last Player Standing/)).toBeInTheDocument();
   });
 

@@ -1,0 +1,57 @@
+{
+  "canonical_move": {
+    "actualDistance": null,
+    "captureChain": null,
+    "captureTarget": null,
+    "capturedStacks": null,
+    "claimedTerritory": null,
+    "collapsedMarkers": null,
+    "disconnectedRegions": null,
+    "eliminatedRings": null,
+    "formedLines": null,
+    "from": {
+      "x": 5,
+      "y": -1,
+      "z": -4
+    },
+    "id": "simulated",
+    "markerLeft": null,
+    "minimumDistance": null,
+    "moveNumber": 16,
+    "overtakenRings": null,
+    "placedOnStack": null,
+    "placementCount": null,
+    "player": 3,
+    "stackMoved": null,
+    "thinkTime": 0,
+    "timestamp": "2025-12-04T22:00:58.866804",
+    "to": {
+      "x": 8,
+      "y": -4,
+      "z": -4
+    },
+    "type": "move_stack"
+  },
+  "canonical_move_index": 15,
+  "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_4p.db",
+  "diverged_at": 16,
+  "game_id": "e42c35ca-de3d-46b0-9a93-b4add45b3b7d",
+  "mismatch_context": "post_move",
+  "mismatch_kinds": ["current_phase"],
+  "python_summary": {
+    "current_phase": "capture",
+    "current_player": 3,
+    "game_status": "active",
+    "move_index": 15,
+    "state_hash": "bf28706e56d928b4"
+  },
+  "total_moves_python": 353,
+  "total_moves_ts": 353,
+  "ts_summary": {
+    "current_phase": "movement",
+    "current_player": 3,
+    "game_status": "active",
+    "move_index": 16,
+    "state_hash": "1a5fc91e3260cc79"
+  }
+}

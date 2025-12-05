@@ -3,6 +3,7 @@ import {
   SandboxConfig,
   SandboxInteractionHandler,
 } from '../../src/client/sandbox/ClientSandboxEngine';
+import { resetSandboxAIStallCounters } from '../../src/client/sandbox/sandboxAI';
 import {
   BoardType,
   GameState,
@@ -79,6 +80,11 @@ async function performFirstLegalPlacement(engine: ClientSandboxEngine): Promise<
 }
 
 describe('ClientSandboxEngine mixed human/AI sandbox flows', () => {
+  beforeEach(() => {
+    // Reset module-level stall counters to ensure test isolation.
+    resetSandboxAIStallCounters();
+  });
+
   test('human then AI: human place+move passes turn to AI and AI game terminates', async () => {
     const engine = createEngine(['human', 'ai']);
 

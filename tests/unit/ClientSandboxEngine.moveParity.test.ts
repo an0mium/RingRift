@@ -234,11 +234,13 @@ describe('ClientSandboxEngine movement parity with RuleEngine', () => {
     const ownKey = positionToString(ownMarker);
     const oppKey = positionToString(oppMarker);
 
+    // Per RR-CANON-R091/R101: Landing on ANY marker (own or opponent) is legal,
+    // with cap-elimination cost. Both backends correctly allow both.
     expect(backendTargetSet.has(ownKey)).toBe(true);
-    expect(backendTargetSet.has(oppKey)).toBe(false);
+    expect(backendTargetSet.has(oppKey)).toBe(true);
 
     expect(sandboxLandingKeys).toContain(ownKey);
-    expect(sandboxLandingKeys).not.toContain(oppKey);
+    expect(sandboxLandingKeys).toContain(oppKey);
   });
 
   test('getValidLandingPositionsForCurrentPlayer includes both capture and non-capture landings when overtaking is optional', () => {

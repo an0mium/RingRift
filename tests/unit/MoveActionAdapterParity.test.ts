@@ -633,45 +633,40 @@ describe('Move↔GameAction adapter – capture parity scenario', () => {
     );
     legacy.startGame();
 
-    // Build a simple overtaking capture scenario via legacy makeMove:
-    // 1. P1 places at (0,0) and moves to (0,1).
-    // 2. P2 places at (0,3) and moves to (0,4).
-    // 3. P1 places at (0,2).
-    const setupMoves: Array<Omit<Move, 'id' | 'timestamp' | 'moveNumber'>> = [
+    // Build an overtaking capture scenario by directly manipulating board state
+    // to avoid complex capture-phase interactions during setup.
+    // We use BoardManager to set up a clean capture scenario.
+    const legacyAny = legacy as any;
+    const boardManager = legacyAny.boardManager;
+    const gameState = legacyAny.gameState;
+
+    // Set up P1's attacker stack at (0,1) with height 3
+    boardManager.setStack(
+      { x: 0, y: 1 },
       {
-        type: 'place_ring',
-        player: 1,
-        to: { x: 0, y: 0 },
-        thinkTime: 0,
+        position: { x: 0, y: 1 },
+        rings: [1, 1, 1],
+        stackHeight: 3,
+        capHeight: 3,
+        controllingPlayer: 1,
       },
-      {
-        type: 'move_stack',
-        player: 1,
-        from: { x: 0, y: 0 },
-        to: { x: 0, y: 1 },
-        thinkTime: 0,
-      },
-      {
-        type: 'place_ring',
-        player: 2,
-        to: { x: 0, y: 3 },
-        thinkTime: 0,
-      },
-      {
-        type: 'move_stack',
-        player: 2,
-        from: { x: 0, y: 3 },
-        to: { x: 0, y: 4 },
-        thinkTime: 0,
-      },
-      {
-        type: 'place_ring',
-        player: 1,
-        to: { x: 0, y: 2 },
-        placementCount: 3,
-        thinkTime: 0,
-      },
-    ];
+      gameState.board
+    );
+
+    // Set up P2's target stack at (0,4) with height 1
+    boardManager.setStack(
+      { x: 0, y: 4 },
+      { position: { x: 0, y: 4 }, rings: [2], stackHeight: 1, capHeight: 1, controllingPlayer: 2 },
+      gameState.board
+    );
+
+    // Set P1 as current player in movement phase so they can capture
+    gameState.currentPlayer = 1;
+    gameState.currentPhase = 'movement';
+
+    // Final: P1 at (0,1) with height 3 can capture P2 at (0,4) landing at (0,5).
+    // Distance from (0,1) to (0,5) is 4, which is > 3 (stack height).
+    const setupMoves: Array<Omit<Move, 'id' | 'timestamp' | 'moveNumber'>> = [];
 
     for (const payload of setupMoves) {
       const res = await legacy.makeMove(payload);
@@ -683,11 +678,12 @@ describe('Move↔GameAction adapter – capture parity scenario', () => {
     const preCaptureLegacy = legacy.getGameState();
     const shared = new SharedGameEngine(preCaptureLegacy as unknown as SharedEngineGameState);
 
-    // Overtaking capture: P1 from (0,2) over (0,4) landing at (0,5).
+    // Overtaking capture: P1 from (0,1) over P2 at (0,4) landing at (0,5).
+    // P1 has stack height 3, distance is 4 (from y=1 to y=5), which is > 3.
     const capturePayload: Omit<Move, 'id' | 'timestamp' | 'moveNumber'> = {
       type: 'overtaking_capture',
       player: preCaptureLegacy.currentPlayer,
-      from: { x: 0, y: 2 },
+      from: { x: 0, y: 1 },
       captureTarget: { x: 0, y: 4 },
       to: { x: 0, y: 5 },
       thinkTime: 0,

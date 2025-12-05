@@ -24,28 +24,42 @@ import {
   gameRecordRepository,
   type GameRecordFilter,
 } from '../src/server/services/GameRecordRepository';
+import { connectDatabase, disconnectDatabase } from '../src/server/database/connection';
 
-interface CliArgs {
-  output: string;
+export interface CliArgs {
+  output?: string;
   boardType?: BoardType;
+  limit?: number;
+  ratedOnly?: boolean;
+  since?: Date;
+  until?: Date;
 }
 
 function printUsage(): void {
   // eslint-disable-next-line no-console
   console.log(
     [
-      'Usage: export-game-records-jsonl.ts --output <path> [--board-type square8|square19|hexagonal]',
+      'Usage: export-game-records-jsonl.ts [--output <path>] [--board-type square8|square19|hexagonal]',
+      '                                      [--limit <n>] [--rated-only] [--since <iso>] [--until <iso>]',
       '',
-      'Example:',
+      'Examples:',
+      '  # Basic export with default output location',
+      '  TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/export-game-records-jsonl.ts',
+      '',
+      '  # Filter by board type and rated games only',
       '  TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/export-game-records-jsonl.ts \\',
-      '    --output data/game_records.jsonl --board-type square8',
+      '    --output data/square8_rated.jsonl --board-type square8 --rated-only --limit 100',
     ].join('\n')
   );
 }
 
-function parseArgs(argv: string[]): CliArgs | null {
+export function parseArgs(argv: string[]): CliArgs | null {
   let output: string | undefined;
   let boardType: BoardType | undefined;
+  let limit: number | undefined;
+  let ratedOnly = false;
+  let since: Date | undefined;
+  let until: Date | undefined;
 
   for (let i = 2; i < argv.length; i += 1) {
     const raw = argv[i];
@@ -80,6 +94,60 @@ function parseArgs(argv: string[]): CliArgs | null {
           i += 1;
         }
         break;
+      case '--limit':
+        if (!value) {
+          console.error('Missing value for --limit');
+          return null;
+        }
+        {
+          const parsed = Number.parseInt(value, 10);
+          if (!Number.isFinite(parsed) || parsed <= 0) {
+            console.error(`Invalid --limit value: ${value}`);
+            return null;
+          }
+          limit = parsed;
+        }
+        if (!valueMaybe && next === value) {
+          i += 1;
+        }
+        break;
+      case '--rated-only':
+        if (valueMaybe || (next && !next.startsWith('--'))) {
+          const rawVal = value ?? next;
+          if (rawVal === 'false' || rawVal === '0') {
+            ratedOnly = false;
+          } else {
+            ratedOnly = true;
+          }
+          if (!valueMaybe && next === rawVal) {
+            i += 1;
+          }
+        } else {
+          ratedOnly = true;
+        }
+        break;
+      case '--since':
+      case '--until':
+        if (!value) {
+          console.error(`Missing value for ${flag}`);
+          return null;
+        }
+        {
+          const date = new Date(value);
+          if (Number.isNaN(date.getTime())) {
+            console.error(`Invalid ${flag} datetime: ${value}`);
+            return null;
+          }
+          if (flag === '--since') {
+            since = date;
+          } else {
+            until = date;
+          }
+        }
+        if (!valueMaybe && next === value) {
+          i += 1;
+        }
+        break;
       default:
         console.warn(`Ignoring unknown flag: ${flag}`);
         if (!valueMaybe && next && !next.startsWith('--')) {
@@ -88,11 +156,63 @@ function parseArgs(argv: string[]): CliArgs | null {
     }
   }
 
-  if (!output) {
-    return null;
+  return { output, boardType, limit, ratedOnly, since, until };
+}
+
+function buildDefaultOutputPath(): string {
+  const iso = new Date().toISOString();
+  const timestamp = iso.replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  const relative = path.join('results', 'game-records', `game_records_${timestamp}.jsonl`);
+  return path.join(process.cwd(), relative);
+}
+
+export function resolveOutputPath(output: string | undefined): string {
+  const resolved = output ?? buildDefaultOutputPath();
+  return path.isAbsolute(resolved) ? resolved : path.join(process.cwd(), resolved);
+}
+
+export function buildFilterFromCliArgs(args: CliArgs): GameRecordFilter {
+  const filter: GameRecordFilter = {};
+  if (args.boardType) {
+    filter.boardType = args.boardType;
+  }
+  if (args.ratedOnly) {
+    filter.isRated = true;
+  }
+  if (typeof args.limit === 'number') {
+    filter.limit = args.limit;
+  }
+  if (args.since) {
+    filter.fromDate = args.since;
+  }
+  if (args.until) {
+    filter.toDate = args.until;
+  }
+  return filter;
+}
+
+export async function runExport(filter: GameRecordFilter, outputPath: string): Promise<number> {
+  const outputDir = path.dirname(outputPath);
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const writeStream = fs.createWriteStream(outputPath, { flags: 'w' });
+
+  let count = 0;
+
+  for await (const line of gameRecordRepository.exportAsJsonl(filter)) {
+    writeStream.write(line);
+    writeStream.write('\n');
+    count += 1;
   }
 
-  return { output, boardType };
+  await new Promise<void>((resolve, reject) => {
+    writeStream.end((err: NodeJS.ErrnoException | null) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+  return count;
 }
 
 async function main(): Promise<void> {
@@ -103,47 +223,38 @@ async function main(): Promise<void> {
     return;
   }
 
-  const outputPath = path.isAbsolute(args.output)
-    ? args.output
-    : path.join(process.cwd(), args.output);
-
-  const outputDir = path.dirname(outputPath);
-  fs.mkdirSync(outputDir, { recursive: true });
-
-  const writeStream = fs.createWriteStream(outputPath, { flags: 'w' });
-
-  const filter: GameRecordFilter = {};
-  if (args.boardType) {
-    filter.boardType = args.boardType;
-  }
-
-  let count = 0;
+  const outputPath = resolveOutputPath(args.output);
+  const filter = buildFilterFromCliArgs(args);
 
   // eslint-disable-next-line no-console
   console.log(
-    `[export-game-records-jsonl] Exporting game records to ${outputPath}${
-      args.boardType ? ` (boardType=${args.boardType})` : ''
-    }...`
+    `[export-game-records-jsonl] Exporting game records to ${outputPath}` +
+      `${filter.boardType ? ` (boardType=${filter.boardType})` : ''}` +
+      `${filter.isRated ? ' [rated-only]' : ''}` +
+      `${filter.limit ? ` [limit=${filter.limit}]` : ''}` +
+      `${filter.fromDate ? ` [since=${filter.fromDate.toISOString()}]` : ''}` +
+      `${filter.toDate ? ` [until=${filter.toDate.toISOString()}]` : ''}...`
   );
 
-  for await (const line of gameRecordRepository.exportAsJsonl(filter)) {
-    writeStream.write(line);
-    writeStream.write('\n');
-    count += 1;
+  try {
+    await connectDatabase();
+  } catch (err) {
+    console.error('[export-game-records-jsonl] Failed to connect to database:', err);
+    process.exitCode = 1;
+    return;
   }
 
-  await new Promise<void>((resolve, reject) => {
-    writeStream.end((err) => {
-      if (err) reject(err);
-      else resolve();
-    });
-  });
-
-  // eslint-disable-next-line no-console
-  console.log(`[export-game-records-jsonl] Done. Wrote ${count} record(s) to ${outputPath}.`);
+  try {
+    const count = await runExport(filter, outputPath);
+    console.log(`[export-game-records-jsonl] Done. Wrote ${count} record(s) to ${outputPath}.`);
+  } finally {
+    await disconnectDatabase().catch(() => undefined);
+  }
 }
 
-main().catch((err) => {
-  console.error('[export-game-records-jsonl] Fatal error:', err);
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[export-game-records-jsonl] Fatal error:', err);
+    process.exitCode = 1;
+  });
+}

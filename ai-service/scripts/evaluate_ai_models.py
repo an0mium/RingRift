@@ -34,6 +34,14 @@ Usage Examples:
         --player2 minimax \\
         --games 50 \\
         --checkpoint checkpoints/checkpoint_final_epoch_5.pth
+
+    # Neural network vs Neural network (dual-checkpoint comparison)
+    python scripts/evaluate_ai_models.py \\
+        --player1 neural_network \\
+        --player2 neural_network \\
+        --games 100 \\
+        --checkpoint models/ringrift_from_mcts.pth \\
+        --checkpoint2 models/ringrift_from_descent.pth
 """
 
 from __future__ import annotations
@@ -542,6 +550,7 @@ def run_evaluation(
     board_type: BoardType,
     seed: Optional[int],
     checkpoint_path: Optional[str],
+    checkpoint_path2: Optional[str],
     cmaes_weights_path: Optional[str],
     minimax_depth: int,
     max_moves_per_game: int,
@@ -555,7 +564,9 @@ def run_evaluation(
         num_games: Number of games to play
         board_type: Board type to use
         seed: Random seed for reproducibility
-        checkpoint_path: Path to neural network checkpoint
+        checkpoint_path: Path to neural network checkpoint for player 1
+        checkpoint_path2: Path to neural network checkpoint for player 2
+            (if None, uses checkpoint_path for both players)
         cmaes_weights_path: Path to CMA-ES weights file
         minimax_depth: Depth for minimax search
         max_moves_per_game: Maximum moves per game before draw
@@ -564,6 +575,9 @@ def run_evaluation(
     Returns:
         EvaluationResults with all metrics
     """
+    # If checkpoint2 not specified, both players use checkpoint_path
+    p1_checkpoint = checkpoint_path
+    p2_checkpoint = checkpoint_path2 if checkpoint_path2 else checkpoint_path
     start_time = time.time()
 
     board_value = board_type.value if hasattr(board_type, 'value') else str(
@@ -620,22 +634,24 @@ def run_evaluation(
             # player1_type plays as Player 1
             ai_p1 = create_ai(
                 player1_type, 1,
-                checkpoint_path, minimax_depth, cmaes_weights_path, game_seed
+                p1_checkpoint, minimax_depth, cmaes_weights_path, game_seed
             )
             ai_p2 = create_ai(
                 player2_type, 2,
-                checkpoint_path, minimax_depth, cmaes_weights_path, game_seed
+                p2_checkpoint, minimax_depth, cmaes_weights_path, game_seed
             )
             p1_is_player1_type = True
         else:
             # player2_type plays as Player 1 (color swap)
+            # When swapping colors, also swap checkpoints so each AI type
+            # always uses its designated checkpoint
             ai_p1 = create_ai(
                 player2_type, 1,
-                checkpoint_path, minimax_depth, cmaes_weights_path, game_seed
+                p2_checkpoint, minimax_depth, cmaes_weights_path, game_seed
             )
             ai_p2 = create_ai(
                 player1_type, 2,
-                checkpoint_path, minimax_depth, cmaes_weights_path, game_seed
+                p1_checkpoint, minimax_depth, cmaes_weights_path, game_seed
             )
             p1_is_player1_type = False
 
@@ -953,7 +969,14 @@ Supported AI Types:
         "--checkpoint",
         type=str,
         default=None,
-        help="Path to neural network checkpoint"
+        help="Path to neural network checkpoint for player 1 (or both if --checkpoint2 not set)"
+    )
+
+    parser.add_argument(
+        "--checkpoint2",
+        type=str,
+        default=None,
+        help="Path to neural network checkpoint for player 2 (enables NN vs NN comparison)"
     )
 
     parser.add_argument(
@@ -1001,6 +1024,10 @@ def main() -> int:
 
     print(f"\nStarting evaluation: {args.player1} vs {args.player2}")
     print(f"Games: {args.games}, Board: {args.board}, Seed: {args.seed}")
+    if args.checkpoint:
+        print(f"P1 checkpoint: {args.checkpoint}")
+    if args.checkpoint2:
+        print(f"P2 checkpoint: {args.checkpoint2}")
 
     # Run evaluation
     results = run_evaluation(
@@ -1010,6 +1037,7 @@ def main() -> int:
         board_type=board_type,
         seed=args.seed,
         checkpoint_path=args.checkpoint,
+        checkpoint_path2=args.checkpoint2,
         cmaes_weights_path=args.cmaes_weights,
         minimax_depth=args.minimax_depth,
         max_moves_per_game=args.max_moves,

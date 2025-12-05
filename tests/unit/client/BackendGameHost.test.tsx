@@ -588,9 +588,9 @@ describe('BackendGameHost (React host behaviour)', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    const region1 = screen.getByTestId('sr-announcer-1');
-    const region2 = screen.getByTestId('sr-announcer-2');
-    const combinedText = `${region1.textContent ?? ''} ${region2.textContent ?? ''}`;
+    const polite1 = screen.getByTestId('sr-announcer-polite-1');
+    const polite2 = screen.getByTestId('sr-announcer-polite-2');
+    const combinedText = `${polite1.textContent ?? ''} ${polite2.textContent ?? ''}`;
 
     expect(combinedText).toMatch(/last player standing/i);
   });

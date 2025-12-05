@@ -7,13 +7,20 @@ import os
 # Ensure app package is importable
 sys.path.append(os.path.join(os.path.dirname(__file__), "../"))
 
-from app.ai.neural_net import RingRiftCNN, HexNeuralNet, P_HEX
+from app.ai.neural_net import (
+    RingRiftCNN,
+    HexNeuralNet,
+    P_HEX,
+    POLICY_SIZE_8x8,
+)
 
 
 class TestModelArchitecture(unittest.TestCase):
     """Architecture sanity checks for the square-board CNN."""
 
     def setUp(self):
+        # Note: With board_size=8, the model now correctly uses POLICY_SIZE_8x8 (7000)
+        # instead of the 19x19 default. This is the intended board-specific behavior.
         self.model = RingRiftCNN(
             board_size=8,
             in_channels=10,
@@ -33,7 +40,8 @@ class TestModelArchitecture(unittest.TestCase):
         value, policy = self.model(features, globals_vec)
 
         self.assertEqual(value.shape, (batch_size, 1))
-        self.assertEqual(policy.shape, (batch_size, 55000))
+        # 8x8 board now correctly uses POLICY_SIZE_8x8 (7000)
+        self.assertEqual(policy.shape, (batch_size, POLICY_SIZE_8x8))
 
     def test_value_range(self):
         """Value output is constrained to [-1, 1] for square model."""
@@ -55,7 +63,8 @@ class TestModelArchitecture(unittest.TestCase):
 
         self.assertIsInstance(value, float)
         self.assertIsInstance(policy, np.ndarray)
-        self.assertEqual(policy.shape, (55000,))
+        # 8x8 board now correctly uses POLICY_SIZE_8x8 (7000)
+        self.assertEqual(policy.shape, (POLICY_SIZE_8x8,))
         self.assertTrue(-1.0 <= value <= 1.0)
 
 
