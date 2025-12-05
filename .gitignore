@@ -87,6 +87,12 @@ ai-service/self_play_data/
 # Local debug artifacts
 debug_output.txt
 
+# Local cluster configuration (contains personal IPs)
+ai-service/scripts/cluster_workers.txt
+
+# Distributed selfplay remote artifacts
+*.remote_*
+
 # Python virtual environments
 .venv/
 **/.venv/

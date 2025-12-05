@@ -327,4 +327,68 @@ describe('GameHUD – view-model props', () => {
 
     expect(screen.getByText(/Clock: No clock \(local sandbox\)/i)).toBeInTheDocument();
   });
+
+  it('renders a weird-state banner when HUDViewModel.weirdState is provided', () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      weirdState: {
+        type: 'forced-elimination',
+        title: 'Forced Elimination',
+        body: 'You control stacks but have no legal moves; caps will be removed automatically.',
+        tone: 'warning',
+      },
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const banner = screen.getByTestId('hud-weird-state-banner');
+    expect(banner).toBeInTheDocument();
+    expect(banner).toHaveTextContent('Forced Elimination');
+    expect(banner).toHaveTextContent('You control stacks but have no legal moves');
+  });
+
+  it('does not render a weird-state banner when HUDViewModel.weirdState is undefined', () => {
+    const viewModel = createHUDViewModel();
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    expect(screen.queryByTestId('hud-weird-state-banner')).toBeNull();
+  });
+
+  it('opens TeachingOverlay for Forced Elimination when clicking the weird-state help button', () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      weirdState: {
+        type: 'forced-elimination',
+        title: 'Forced Elimination',
+        body: 'You control stacks but have no legal moves; caps will be removed automatically.',
+        tone: 'warning',
+      },
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.getByTestId('hud-weird-state-help');
+    helpButton.click();
+
+    // TeachingOverlay should show the Forced Elimination topic title
+    expect(screen.getByText('Forced Elimination (FE)')).toBeInTheDocument();
+  });
 });

@@ -15,10 +15,15 @@
  */
 
 import React, { useState } from 'react';
-import type { HUDViewModel, PlayerViewModel } from '../adapters/gameViewModels';
+import type {
+  HUDViewModel,
+  PlayerViewModel,
+  HUDWeirdStateViewModel,
+} from '../adapters/gameViewModels';
 import type { TimeControl } from '../../shared/types/game';
 import { getCountdownSeverity } from '../utils/countdown';
 import { Tooltip } from './ui/Tooltip';
+import { TeachingOverlay, useTeachingOverlay, type TeachingTopic } from './TeachingOverlay';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -36,6 +41,69 @@ export interface MobileGameHUDProps {
 // ═══════════════════════════════════════════════════════════════════════════
 // Helper Components
 // ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compact banner for unusual rules states (Active–No–Moves, Forced Elimination,
+ * structural stalemate) in the mobile HUD.
+ */
+function MobileWeirdStateBanner({
+  weirdState,
+  onShowHelp,
+}: {
+  weirdState: HUDWeirdStateViewModel;
+  onShowHelp?: () => void;
+}) {
+  const toneClasses =
+    weirdState.tone === 'critical'
+      ? 'border-red-400/80 bg-red-950/80 text-red-50'
+      : weirdState.tone === 'warning'
+        ? 'border-amber-400/80 bg-amber-950/80 text-amber-50'
+        : 'border-sky-400/80 bg-sky-950/80 text-sky-50';
+
+  const badgeLabel =
+    weirdState.type === 'forced-elimination'
+      ? 'Forced Elimination'
+      : weirdState.type === 'structural-stalemate'
+        ? 'Structural stalemate'
+        : weirdState.type.startsWith('active-no-moves')
+          ? 'No Legal Moves'
+          : 'Rules notice';
+
+  const icon = weirdState.tone === 'critical' ? '⚠️' : weirdState.tone === 'warning' ? '⚠️' : 'ℹ️';
+
+  return (
+    <div
+      className={`px-2 py-1.5 rounded-lg border text-[10px] flex items-start gap-2 ${toneClasses}`}
+      role="status"
+      aria-live="polite"
+      data-testid="mobile-weird-state-banner"
+    >
+      <span className="mt-0.5 text-base" aria-hidden="true">
+        {icon}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1 mb-0.5">
+          <span className="text-[9px] uppercase tracking-wide font-semibold opacity-80">
+            {badgeLabel}
+          </span>
+        </div>
+        <div className="font-semibold text-xs leading-snug">{weirdState.title}</div>
+        <div className="mt-0.5 text-[10px] leading-snug opacity-90">{weirdState.body}</div>
+      </div>
+      {onShowHelp && (
+        <button
+          type="button"
+          onClick={onShowHelp}
+          className="ml-1 mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-current/60 text-[10px] font-semibold"
+          aria-label="Learn more about this situation"
+          data-testid="mobile-weird-state-help"
+        >
+          ?
+        </button>
+      )}
+    </div>
+  );
+}
 
 /**
  * Compact turn/phase indicator bar for mobile
@@ -201,9 +269,18 @@ export function MobileGameHUD({
   onShowBoardControls,
 }: MobileGameHUDProps) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null);
+  const { currentTopic, isOpen, showTopic, hideTopic } = useTeachingOverlay();
 
-  const { phase, players, turnNumber, instruction, connectionStatus, isSpectator, decisionPhase } =
-    viewModel;
+  const {
+    phase,
+    players,
+    turnNumber,
+    instruction,
+    connectionStatus,
+    isSpectator,
+    decisionPhase,
+    weirdState,
+  } = viewModel;
 
   const isMyTurn = players.some((p) => p.isUserPlayer && p.isCurrentPlayer);
 
@@ -213,6 +290,33 @@ export function MobileGameHUD({
       : connectionStatus === 'reconnecting'
         ? 'text-amber-400'
         : 'text-rose-400';
+
+  const handleWeirdStateHelp = React.useCallback(() => {
+    if (!weirdState) return;
+
+    let topic: TeachingTopic | null = null;
+
+    switch (weirdState.type) {
+      case 'active-no-moves-movement':
+      case 'active-no-moves-line':
+      case 'active-no-moves-territory':
+        topic = 'active_no_moves';
+        break;
+      case 'forced-elimination':
+        topic = 'forced_elimination';
+        break;
+      case 'structural-stalemate':
+        topic = 'victory_stalemate';
+        break;
+      default:
+        topic = null;
+        break;
+    }
+
+    if (topic) {
+      showTopic(topic);
+    }
+  }, [weirdState, showTopic]);
 
   const togglePlayerExpand = (playerId: string) => {
     setExpandedPlayerId((prev) => (prev === playerId ? null : playerId));
@@ -240,6 +344,11 @@ export function MobileGameHUD({
           </svg>
           <span>Spectating</span>
         </div>
+      )}
+
+      {/* Weird-state banner (compact) */}
+      {weirdState && (
+        <MobileWeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />
       )}
 
       {/* Phase + turn bar */}
@@ -300,6 +409,15 @@ export function MobileGameHUD({
           )}
         </div>
       </div>
+
+      {currentTopic && (
+        <TeachingOverlay
+          topic={currentTopic}
+          isOpen={isOpen}
+          onClose={hideTopic}
+          position="bottom-right"
+        />
+      )}
     </div>
   );
 }

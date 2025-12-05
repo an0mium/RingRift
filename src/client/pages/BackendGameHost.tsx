@@ -20,6 +20,7 @@ import { gameApi } from '../services/api';
 import {
   BoardState,
   GameState,
+  GameResult,
   Move,
   Position,
   positionToString,
@@ -36,6 +37,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useGame } from '../contexts/GameContext';
 import { getGameOverBannerText } from '../utils/gameCopy';
 import { useGameState } from '../hooks/useGameState';
+import { getWeirdStateBanner } from '../utils/gameStateWeirdness';
 import { useGameConnection } from '../hooks/useGameConnection';
 import {
   useGameActions,
@@ -172,7 +174,8 @@ function useBackendDiagnosticsLog(
   pendingChoice: PlayerChoice | null,
   connectionStatus: ConnectionStatus,
   decisionAutoResolved: DecisionAutoResolvedMeta | null,
-  decisionPhaseTimeoutWarning: DecisionPhaseTimeoutWarningPayload | null
+  decisionPhaseTimeoutWarning: DecisionPhaseTimeoutWarningPayload | null,
+  victoryState: GameResult | null
 ): BackendDiagnosticsState {
   const [eventLog, setEventLog] = useState<string[]>([]);
   const [showSystemEventsInLog, setShowSystemEventsInLog] = useState(true);
@@ -183,6 +186,12 @@ function useBackendDiagnosticsLog(
   const lastAutoResolvedKeyRef = useRef<string | null>(null);
   const lastConnectionStatusRef = useRef<ConnectionStatus | null>(null);
   const lastTimeoutWarningKeyRef = useRef<string | null>(null);
+  const lastWeirdStateTypeRef = useRef<string | null>(null);
+  const forcedElimContextRef = useRef<{
+    active: boolean;
+    startTotal: number;
+    playerNumber: number | null;
+  } | null>(null);
 
   // Phase / current player / choice transitions
   useEffect(() => {
@@ -283,6 +292,90 @@ function useBackendDiagnosticsLog(
     setEventLog((prev) => [label, ...prev].slice(0, 50));
     lastConnectionStatusRef.current = connectionStatus;
   }, [connectionStatus]);
+
+  // Weird-state (ANM / forced elimination / structural stalemate) diagnostics.
+  useEffect(() => {
+    if (!gameState) {
+      lastWeirdStateTypeRef.current = null;
+      forcedElimContextRef.current = null;
+      return;
+    }
+
+    const weird = getWeirdStateBanner(gameState, { victoryState });
+    const prevType = lastWeirdStateTypeRef.current;
+    const nextType = weird.type;
+
+    const events: string[] = [];
+
+    // Detect entry into ANM states (movement / line / territory).
+    if (
+      nextType === 'active-no-moves-movement' ||
+      nextType === 'active-no-moves-line' ||
+      nextType === 'active-no-moves-territory'
+    ) {
+      if (prevType !== nextType) {
+        const phaseLabel =
+          nextType === 'active-no-moves-movement'
+            ? 'movement'
+            : nextType === 'active-no-moves-line'
+              ? 'line processing'
+              : 'territory processing';
+        const playerNumber = (weird as Extract<typeof weird, { playerNumber: number }>)
+          .playerNumber;
+        events.push(
+          `Active–No–Moves detected for P${playerNumber} during ${phaseLabel}; the engine will apply forced resolution according to the rulebook.`
+        );
+      }
+    }
+
+    // Detect start and completion of forced elimination sequences.
+    if (nextType === 'forced-elimination') {
+      if (prevType !== 'forced-elimination') {
+        const playerNumber = (weird as Extract<typeof weird, { playerNumber: number }>)
+          .playerNumber;
+        const startTotal =
+          (gameState as GameState & { totalRingsEliminated?: number }).totalRingsEliminated ?? 0;
+        forcedElimContextRef.current = {
+          active: true,
+          startTotal,
+          playerNumber,
+        };
+        events.push(`Forced elimination sequence started for P${playerNumber}.`);
+      }
+    } else if (prevType === 'forced-elimination') {
+      const ctx = forcedElimContextRef.current;
+      const endTotal =
+        (gameState as GameState & { totalRingsEliminated?: number }).totalRingsEliminated ?? 0;
+      if (ctx) {
+        const delta = Math.max(0, endTotal - ctx.startTotal);
+        const playerLabel = ctx.playerNumber ? `P${ctx.playerNumber}` : 'the active player';
+        const detail =
+          delta > 0
+            ? `${delta} ring${delta === 1 ? '' : 's'} were eliminated during the forced elimination sequence.`
+            : 'No additional rings were eliminated during the forced elimination sequence.';
+        events.push(`Forced elimination sequence completed for ${playerLabel}. ${detail}`);
+      } else {
+        events.push('Forced elimination sequence completed.');
+      }
+      forcedElimContextRef.current = null;
+    }
+
+    // Detect structural stalemate / plateau end conditions.
+    if (nextType === 'structural-stalemate' && prevType !== 'structural-stalemate') {
+      events.push(
+        'Structural stalemate: no legal placements, movements, captures, or forced eliminations remain. The game ended by plateau auto-resolution.'
+      );
+    }
+
+    if (events.length > 0) {
+      setEventLog((prev) => {
+        const merged = [...events, ...prev];
+        return merged.slice(0, 50);
+      });
+    }
+
+    lastWeirdStateTypeRef.current = nextType;
+  }, [gameState, victoryState]);
 
   return {
     eventLog,
@@ -407,7 +500,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     pendingChoice,
     connection.connectionStatus,
     decisionAutoResolved,
-    decisionPhaseTimeoutWarning
+    decisionPhaseTimeoutWarning,
+    victoryState
   );
 
   const connectionStatus = connection.connectionStatus;
@@ -1106,6 +1200,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     choiceDeadline,
     choiceTimeRemainingMs: reconciledDecisionTimeRemainingMs,
     decisionIsServerCapped: decisionCountdown.isServerCapped,
+    victoryState,
   });
 
   const victoryViewModel = toVictoryViewModel(victoryState, gameState.players, gameState, {

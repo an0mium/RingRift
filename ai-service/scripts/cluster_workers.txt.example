@@ -1,0 +1,11 @@
+# List of worker hosts for distributed selfplay
+# One host per line (hostname or IP address)
+# Lines starting with # are ignored
+#
+# Copy this file to cluster_workers.txt and add your worker IPs:
+#   cp cluster_workers.txt.example cluster_workers.txt
+#
+# Example:
+# 192.168.1.100
+# macmini.local
+# worker2.local

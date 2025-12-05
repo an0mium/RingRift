@@ -18,11 +18,11 @@ This guide explains how to set up distributed self-play across multiple local Ma
 ```
 ┌─────────────────┐     SSH     ┌─────────────────┐
 │  Main Machine   │────────────>│  Worker Mac 1   │
-│  (Coordinator)  │             │  (10.0.0.170)   │
+│  (Coordinator)  │             │  (192.168.1.10) │
 │                 │             └─────────────────┘
 │  Runs:          │     SSH     ┌─────────────────┐
 │  - Job dist.    │────────────>│  Worker Mac 2   │
-│  - Result merge │             │  (10.0.0.229)   │
+│  - Result merge │             │  (192.168.1.20) │
 └─────────────────┘             └─────────────────┘
 ```
 
@@ -48,18 +48,24 @@ From your main machine, copy your SSH key to each worker:
 ssh-keygen -t ed25519
 
 # Copy to each worker
-ssh-copy-id 10.0.0.170
-ssh-copy-id 10.0.0.229
+ssh-copy-id 192.168.1.10
+ssh-copy-id 192.168.1.20
 ```
 
 ### 3. Add Workers to Configuration
 
-Edit `scripts/cluster_workers.txt`:
+Copy the template and edit `scripts/cluster_workers.txt`:
+
+```bash
+cp scripts/cluster_workers.txt.example scripts/cluster_workers.txt
+```
+
+Then add your worker IPs:
 
 ```
 # List of worker hosts
-10.0.0.170
-10.0.0.229
+192.168.1.10
+192.168.1.20
 ```
 
 ### 4. Set Up Workers
@@ -121,10 +127,10 @@ For more sophisticated job distribution, workers can run an HTTP service:
 
 ```bash
 # Start worker service on a remote host
-./scripts/cluster_setup.sh start 10.0.0.170
+./scripts/cluster_setup.sh start <worker-ip>
 
 # Check health
-curl http://10.0.0.170:8765/health
+curl http://<worker-ip>:8765/health
 ```
 
 The HTTP service supports:
