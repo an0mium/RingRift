@@ -24,11 +24,7 @@ from app.training.tier_eval_config import (  # noqa: E402
     TierOpponentConfig,
 )
 from app.training.tier_eval_runner import run_tier_evaluation  # noqa: E402
-from app.training.eval_pools import (  # noqa: E402
-    HEURISTIC_TIER_SPECS,
-    run_all_heuristic_tiers,
-    run_heuristic_tier_eval,
-)
+from app.training.eval_pools import HEURISTIC_TIER_SPECS, POOL_PATHS, run_all_heuristic_tiers, run_heuristic_tier_eval  # noqa: E402
 
 
 class TestTierEvaluationRunner:
@@ -197,3 +193,24 @@ def test_heuristic_tier_eval_smoke(monkeypatch) -> None:
     assert len(report["tiers"]) == 1
     tier_entry = report["tiers"][0]
     assert tier_entry["tier_id"] == tier.id
+
+
+def test_heuristic_tier_specs_have_pool_paths() -> None:
+    """Ensure every heuristic tier spec has a configured eval pool path.
+
+    This keeps HEURISTIC_TIER_SPECS and POOL_PATHS in sync so that adding a
+    new tier without wiring an eval pool fails fast in tests instead of at
+    runtime on long jobs.
+    """
+    assert HEURISTIC_TIER_SPECS, "Expected at least one heuristic tier spec"
+
+    missing: list[str] = []
+    for spec in HEURISTIC_TIER_SPECS:
+        key = (spec.board_type, spec.eval_pool_id)
+        if key not in POOL_PATHS:
+            missing.append(f"{spec.id} -> ({spec.board_type!r}, {spec.eval_pool_id!r})")
+
+    assert not missing, (
+        "One or more heuristic tier specs reference eval pools that are not "
+        f"configured in POOL_PATHS: {', '.join(missing)}"
+    )

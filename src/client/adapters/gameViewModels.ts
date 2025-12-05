@@ -635,6 +635,12 @@ export interface ToHUDViewModelOptions {
    * understand reconciliation semantics itself.
    */
   decisionIsServerCapped?: boolean | undefined;
+  /**
+   * Optional terminal victory state for the current game, when known. Used
+   * purely for UX surfaces such as structural-stalemate banners; does not
+   * affect rules semantics or engine behaviour.
+   */
+  victoryState?: GameResult | null | undefined;
 }
 
 /**
@@ -651,6 +657,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     choiceDeadline,
     choiceTimeRemainingMs,
     decisionIsServerCapped,
+    victoryState,
   } = options;
 
   const HEARTBEAT_STALE_THRESHOLD_MS = 8000;
@@ -797,8 +804,10 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     };
   }
 
-  // Weird-state banner: interpret ANM / forced-elimination states for HUD copy.
-  const weird = getWeirdStateBanner(gameState);
+  // Weird-state banner: interpret ANM / forced-elimination / structural-stalemate
+  // states for HUD copy. Victory state is passed purely for UX; rules semantics
+  // remain owned by the shared engine.
+  const weird = getWeirdStateBanner(gameState, { victoryState: victoryState ?? null });
   let weirdState: HUDWeirdStateViewModel | undefined;
 
   const resolvePlayerLabel = (
@@ -1131,6 +1140,8 @@ export function formatVictoryReason(reason: GameResult['reason']): string {
       return 'Territory Control';
     case 'last_player_standing':
       return 'Last Player Standing';
+    case 'game_completed':
+      return 'Structural Stalemate';
     case 'timeout':
       return 'Timeout';
     case 'resignation':
@@ -1139,8 +1150,13 @@ export function formatVictoryReason(reason: GameResult['reason']): string {
       return 'Abandonment';
     case 'draw':
       return 'Draw';
-    default:
-      return reason.replace(/_/g, ' ');
+    default: {
+      // Fallback for any future or engine-specific reasons that are not
+      // explicitly mapped above. At this point `reason` is narrowed to
+      // `never` in the type system, so cast defensively for formatting.
+      const label = String(reason);
+      return label.replace(/_/g, ' ');
+    }
   }
 }
 
@@ -1546,6 +1562,13 @@ function getVictoryMessage(
         titleColorClass,
       };
     }
+    case 'game_completed':
+      return {
+        title: '🧱 Structural Stalemate',
+        description:
+          'No players had any legal placements, movements, captures, or forced eliminations left. The board reached a stable plateau and the final score was computed from territory and eliminated rings.',
+        titleColorClass,
+      };
     case 'timeout':
       return {
         title: `⏰ ${winnerName} Wins!`,

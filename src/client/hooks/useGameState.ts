@@ -156,8 +156,7 @@ export function useGameState(): RawGameState {
  * ```
  */
 export function useHUDViewModel(options: UseHUDViewModelOptions = {}): HUDViewModel | null {
-  const { gameState } = useGame();
-  const { connectionStatus, lastHeartbeatAt } = useGame();
+  const { gameState, victoryState, connectionStatus, lastHeartbeatAt } = useGame();
   const { instruction, currentUserId } = options;
 
   return useMemo(() => {
@@ -172,10 +171,11 @@ export function useHUDViewModel(options: UseHUDViewModelOptions = {}): HUDViewMo
       lastHeartbeatAt,
       isSpectator,
       currentUserId,
+      victoryState,
     };
 
     return toHUDViewModel(gameState, viewModelOptions);
-  }, [gameState, connectionStatus, lastHeartbeatAt, instruction, currentUserId]);
+  }, [gameState, victoryState, connectionStatus, lastHeartbeatAt, instruction, currentUserId]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
