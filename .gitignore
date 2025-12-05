@@ -81,8 +81,10 @@ ai-service/app/training/**/data/
 ai-service/models/
 ai-service/data/eval_pools/
 ai-service/**/*.pth
+ai-service/**/*.pth.bak
 ai-service/**/*.npz
 ai-service/self_play_data/
+ai-service/results/
 
 # Local debug artifacts
 debug_output.txt

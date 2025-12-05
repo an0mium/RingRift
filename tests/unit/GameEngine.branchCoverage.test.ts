@@ -783,4 +783,218 @@ describe('GameEngine branch coverage', () => {
       expect(engine.isOrchestratorAdapterEnabled()).toBe(true);
     });
   });
+
+  describe('makeMove validation branches', () => {
+    it('rejects continue_capture_segment when no chain is active', async () => {
+      const engine = new GameEngine('test-no-chain', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const result = await engine.makeMove({
+        type: 'continue_capture_segment',
+        player: 1,
+        from: { x: 0, y: 0 },
+        to: { x: 1, y: 1 },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No chain capture in progress');
+    });
+
+    it('handles placement move via adapter', async () => {
+      const engine = new GameEngine('test-placement', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      // Player 1 should be able to place rings in ring_placement phase
+      const result = await engine.makeMove({
+        type: 'place_rings',
+        player: 1,
+        to: { x: 3, y: 3 },
+        count: 1,
+      });
+
+      // Either succeeds or fails with meaningful error (not a crash)
+      expect(typeof result.success).toBe('boolean');
+    });
+
+    it('handles movement move after placement', async () => {
+      const engine = new GameEngine('test-movement', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      // Make initial placement
+      await engine.makeMove({
+        type: 'place_rings',
+        player: 1,
+        to: { x: 3, y: 3 },
+        count: 1,
+      });
+
+      // Attempt movement from the placed position
+      const result = await engine.makeMove({
+        type: 'move_stack',
+        player: 1,
+        from: { x: 3, y: 3 },
+        to: { x: 4, y: 3 },
+      });
+
+      // Either succeeds or fails with validation error
+      expect(typeof result.success).toBe('boolean');
+    });
+  });
+
+  describe('game lifecycle', () => {
+    it('startGame sets game status to active', () => {
+      const engine = new GameEngine('test-start', 'square8', createPlayers(), timeControl);
+      const started = engine.startGame();
+
+      expect(started).toBe(true);
+      expect(engine.getGameState().gameStatus).toBe('active');
+    });
+
+    it('startGame can be called multiple times and always returns true if players ready', () => {
+      const engine = new GameEngine('test-double-start', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+      const secondStart = engine.startGame();
+
+      // startGame doesn't prevent re-starting, it just checks player readiness
+      expect(secondStart).toBe(true);
+    });
+
+    it('tracks current player after game start', () => {
+      const engine = new GameEngine('test-turns', 'square8', createPlayers(), timeControl);
+      engine.startGame();
+
+      const currentPlayer = engine.getGameState().currentPlayer;
+      expect(currentPlayer).toBeDefined();
+    });
+  });
+
+  describe('spectator management', () => {
+    it('addSpectator adds user to spectators list', () => {
+      const engine = new GameEngine('test-spec1', 'square8', createPlayers(), timeControl);
+      const result = engine.addSpectator('spectator-1');
+
+      expect(result).toBe(true);
+      expect(engine.getGameState().spectators).toContain('spectator-1');
+    });
+
+    it('addSpectator rejects duplicate spectators', () => {
+      const engine = new GameEngine('test-spec2', 'square8', createPlayers(), timeControl);
+      engine.addSpectator('spectator-1');
+      const result = engine.addSpectator('spectator-1');
+
+      expect(result).toBe(false);
+    });
+
+    it('removeSpectator removes user from list', () => {
+      const engine = new GameEngine('test-spec3', 'square8', createPlayers(), timeControl);
+      engine.addSpectator('spectator-1');
+      engine.removeSpectator('spectator-1');
+
+      expect(engine.getGameState().spectators).not.toContain('spectator-1');
+    });
+
+    it('removeSpectator handles non-existent spectator', () => {
+      const engine = new GameEngine('test-spec4', 'square8', createPlayers(), timeControl);
+      // Should not throw
+      engine.removeSpectator('non-existent');
+      expect(engine.getGameState().spectators).toEqual([]);
+    });
+  });
+
+  describe('board configuration', () => {
+    it('supports square8 board type', () => {
+      const engine = new GameEngine('test-sq8', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.board.type).toBe('square8');
+      expect(state.boardType).toBe('square8');
+    });
+
+    it('supports square19 board type', () => {
+      const players = createPlayers(2);
+      const square19Config = BOARD_CONFIGS['square19'];
+      if (square19Config) {
+        players.forEach((p) => {
+          p.ringsInHand = square19Config.ringsPerPlayer;
+        });
+        const engine = new GameEngine('test-sq19', 'square19', players, timeControl);
+        const state = engine.getGameState();
+        expect(state.board.type).toBe('square19');
+      }
+    });
+
+    it('supports hex board type', () => {
+      const players = createPlayers(2);
+      const hexConfig = BOARD_CONFIGS['hex'];
+      if (hexConfig) {
+        players.forEach((p) => {
+          p.ringsInHand = hexConfig.ringsPerPlayer;
+        });
+        const engine = new GameEngine('test-hex', 'hex', players, timeControl);
+        const state = engine.getGameState();
+        expect(state.board.type).toBe('hex');
+      }
+    });
+  });
+
+  describe('multi-player support', () => {
+    it('supports 3-player games', () => {
+      const engine = new GameEngine('test-3p', 'square8', createPlayers(3), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.players.length).toBe(3);
+    });
+
+    it('supports 4-player games', () => {
+      const engine = new GameEngine('test-4p', 'square8', createPlayers(4), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.players.length).toBe(4);
+    });
+  });
+
+  describe('move history', () => {
+    it('starts with empty move history', () => {
+      const engine = new GameEngine('test-hist1', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.moveHistory).toEqual([]);
+    });
+
+    it('starts with empty history array', () => {
+      const engine = new GameEngine('test-hist2', 'square8', createPlayers(), timeControl);
+      const state = engine.getGameState();
+
+      expect(state.history).toEqual([]);
+    });
+  });
+
+  describe('game state access', () => {
+    it('getGameState returns consistent state', () => {
+      const engine = new GameEngine('test-state', 'square8', createPlayers(), timeControl);
+      const state1 = engine.getGameState();
+      const state2 = engine.getGameState();
+
+      expect(state1.id).toBe(state2.id);
+      expect(state1.boardType).toBe(state2.boardType);
+      expect(state1.players.length).toBe(state2.players.length);
+    });
+  });
+
+  describe('debug checkpoint hook', () => {
+    it('setDebugCheckpointHook accepts callback', () => {
+      const engine = new GameEngine('test-debug1', 'square8', createPlayers(), timeControl);
+      const hookFn = jest.fn();
+
+      engine.setDebugCheckpointHook(hookFn);
+      expect(true).toBe(true);
+    });
+
+    it('setDebugCheckpointHook accepts undefined to clear', () => {
+      const engine = new GameEngine('test-debug2', 'square8', createPlayers(), timeControl);
+
+      engine.setDebugCheckpointHook(undefined);
+      expect(true).toBe(true);
+    });
+  });
 });

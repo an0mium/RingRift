@@ -37,6 +37,14 @@ export interface SandboxTouchControlsPanelProps {
   canSkipTerritoryProcessing?: boolean;
   /** Optional handler invoked when the user taps the skip territory button. */
   onSkipTerritoryProcessing?: () => void;
+  /**
+   * Optional flag indicating that a skip_capture action is currently
+   * available during the capture phase. When true and onSkipCapture is
+   * provided, the panel surfaces a dedicated "Skip capture" control.
+   */
+  canSkipCapture?: boolean;
+  /** Optional handler invoked when the user taps the skip capture button. */
+  onSkipCapture?: () => void;
   autoSaveGames?: boolean;
   onToggleAutoSave?: (next: boolean) => void;
   gameSaveStatus?: 'idle' | 'saving' | 'saved' | 'saved-local' | 'error';
@@ -80,6 +88,8 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
   phaseHint,
   canSkipTerritoryProcessing,
   onSkipTerritoryProcessing,
+  canSkipCapture,
+  onSkipCapture,
   autoSaveGames,
   onToggleAutoSave,
   gameSaveStatus,
@@ -164,6 +174,23 @@ export const SandboxTouchControlsPanel: React.FC<SandboxTouchControlsPanelProps>
             </button>
             <p className="text-[10px] text-amber-200/80">
               Leave remaining disconnected regions unprocessed for this turn.
+            </p>
+          </div>
+        )}
+
+        {canSkipCapture && onSkipCapture && (
+          <div className="mt-2 space-y-1">
+            <button
+              type="button"
+              onClick={onSkipCapture}
+              className="px-3 py-1.5 rounded-lg border border-amber-400 text-[11px] font-semibold text-amber-100 bg-amber-900/40 hover:border-amber-200 hover:bg-amber-800/70 transition"
+              data-testid="sandbox-skip-capture-button"
+            >
+              Skip capture
+            </button>
+            <p className="text-[10px] text-amber-200/80">
+              Decline optional overtaking capture from this position and continue to line and
+              territory processing.
             </p>
           </div>
         )}

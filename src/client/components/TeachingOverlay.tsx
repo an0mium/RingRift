@@ -75,11 +75,11 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     title: 'Line Bonus',
     icon: '═',
     description:
-      'When a straight line of your markers reaches the minimum scoring length for this board, it becomes a completed line. You collapse markers in that line into permanent Territory and, on many boards, pay a small ring-elimination cost from one of your stacks.',
+      'Lines are built from your markers. When a straight line of your markers reaches the minimum scoring length for this board, it becomes a scoring line: you collapse markers in that line into permanent Territory and, on many boards, must pay a ring-elimination cost from a stack you control.',
     tips: [
-      'Lines are formed from markers, not rings – horizontal, vertical, and diagonal lines all count',
-      'Exact-length lines usually collapse fully into Territory and require an elimination cost',
-      'Overlength lines can trade safety for value: collapse a shorter segment with no elimination, or the full line with a ring cost',
+      'Lines are formed from markers, not rings – horizontal, vertical, and diagonal lines all count.',
+      'Exact-length lines always collapse fully into Territory and usually require you to eliminate a ring from one of your stacks.',
+      'Overlength lines can trade safety for value: you may collapse a shorter scoring segment with no elimination, or collapse the full line and pay the ring cost.',
     ],
     relatedPhases: ['line_processing'],
   },
@@ -87,11 +87,11 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     title: 'Territory Control',
     icon: '▣',
     description:
-      'Territory spaces are permanently owned by a player. Controlling >50% of all board spaces wins the game. Territory cannot be captured or removed.',
+      'Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, often at the cost of eliminating a ring from one of your other stacks. If your Territory passes more than half of the board, you win immediately.',
     tips: [
-      'Territory from line bonuses is permanent',
-      'Plan lines to claim strategic board positions',
-      'Territory provides a path to victory without elimination',
+      'Territory comes from collapsing marker lines and resolving disconnected regions.',
+      'Once a space becomes Territory it cannot be captured back or undone.',
+      'Crossing the territory threshold ends the game immediately, even if other wins were possible.',
     ],
     relatedPhases: ['territory_processing'],
   },
@@ -134,22 +134,22 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     title: 'Victory: Territory',
     icon: '🏰',
     description:
-      'Win by controlling more than half of all board spaces through territory. This requires consistent line formations throughout the game.',
+      'Win by owning more than half of all board spaces as Territory. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
     tips: [
-      'Territory cannot be lost once claimed',
-      'On an 8×8 board, control 33+ spaces to win',
-      'Balance territory gains with defensive play',
+      'Territory is permanent: once claimed, those spaces never return to neutral.',
+      'On an 8×8 board, you need at least 33 Territory spaces to win.',
+      'Territory victories often come from big line/region resolutions rather than single moves.',
     ],
   },
   victory_stalemate: {
-    title: 'Victory: Last Standing',
+    title: 'Victory: Last Player Standing',
     icon: '👑',
     description:
-      'Win if, after a full round of turns, you are the only player able to make a meaningful move (placement, movement, or capture).',
+      'Last Player Standing happens when, after a full round of turns, you are the only player who can still make real moves (placements, movements, or captures). Forced eliminations and automatic territory processing do not prevent LPS.',
     tips: [
-      'Occurs when opponents run out of valid moves',
-      'Can happen through elimination or board control',
-      'Usually a late-game condition',
+      'Real moves are placements, movements, and captures; forced eliminations do not count.',
+      'Opponents who are out of real moves for a full round are considered out for LPS.',
+      'Structural stalemate is different: it happens when no players have real moves or forced eliminations available.',
     ],
   },
 };

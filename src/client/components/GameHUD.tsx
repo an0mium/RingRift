@@ -975,7 +975,9 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
           <span className="mt-0.5">•</span>
           <div className="flex-1">
             <div className="flex items-center gap-1">
-              <span>Ring Elimination – win by eliminating {'>'}50% of all rings in play.</span>
+              <span>
+                Ring Elimination – Win by eliminating more than half of all rings in play.
+              </span>
               <Tooltip
                 content={
                   'You win Ring Elimination when the rings you have eliminated exceed 50% of all rings in the game.\nOnly eliminated rings count – captured rings you carry in stacks remain in play.\nEliminations can come from movement onto markers, line rewards, territory processing, or forced elimination.'
@@ -998,7 +1000,8 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
           <div className="flex-1">
             <div className="flex items-center gap-1">
               <span>
-                Territory Control – win by controlling {'>'}50% of all board spaces as territory.
+                Territory Control – Win by controlling more than half of all board spaces as
+                territory.
               </span>
               <Tooltip
                 content={

@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { GameHUD } from '../../../src/client/components/GameHUD';
 import type { GameState, Player } from '../../../src/shared/types/game';
@@ -366,7 +366,7 @@ describe('GameHUD – view-model props', () => {
     expect(screen.queryByTestId('hud-weird-state-banner')).toBeNull();
   });
 
-  it('opens TeachingOverlay for Forced Elimination when clicking the weird-state help button', () => {
+  it('opens TeachingOverlay for Forced Elimination when clicking the weird-state help button', async () => {
     const baseVm = createHUDViewModel();
     const viewModel: HUDViewModel = {
       ...baseVm,
@@ -388,7 +388,9 @@ describe('GameHUD – view-model props', () => {
     const helpButton = screen.getByTestId('hud-weird-state-help');
     helpButton.click();
 
-    // TeachingOverlay should show the Forced Elimination topic title
-    expect(screen.getByText('Forced Elimination (FE)')).toBeInTheDocument();
+    // Wait for the TeachingOverlay to render after state update
+    await waitFor(() => {
+      expect(screen.getByText('Forced Elimination (FE)')).toBeInTheDocument();
+    });
   });
 });

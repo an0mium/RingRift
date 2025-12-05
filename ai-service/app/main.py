@@ -15,6 +15,10 @@ from datetime import datetime, timezone
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from .metrics import AI_MOVE_LATENCY, AI_MOVE_REQUESTS, observe_ai_move_start
+from .config.ladder_config import (
+    LadderTierConfig,
+    get_ladder_tier_config,
+)
 
 from .ai.random_ai import RandomAI
 from .ai.heuristic_ai import HeuristicAI
@@ -133,7 +137,10 @@ class PositionEvaluationRequest(BaseModel):
 
 
 class PositionEvaluationResponse(BaseModel):
-    """Response model for multi-player position evaluation suitable for streaming."""
+    """Response model for multi-player position evaluation.
+
+    Suitable for streaming over analysis and spectator channels.
+    """
 
     engine_profile: str
     board_type: str
@@ -242,9 +249,32 @@ async def get_ai_move(request: MoveRequest):
     # Select AI type and canonical difficulty profile based on difficulty
     # if not explicitly specified on the request. This keeps the Python
     # service, TypeScript backend, and client-facing difficulty ladder
-    # aligned.
+    # aligned. Where a board-aware LadderTierConfig exists for the current
+    # (difficulty, board_type, num_players) triple, its settings take
+    # precedence so that live play and tier evaluation share the same
+    # canonical ladder.
     profile = _get_difficulty_profile(request.difficulty)
-    ai_type = request.ai_type or profile["ai_type"]
+
+    ladder_config: Optional[LadderTierConfig] = None
+    try:
+        board_type = getattr(request.game_state, "board_type", None)
+        players = getattr(request.game_state, "players", None)
+        num_players = len(players) if players is not None else None
+        if board_type is not None and num_players:
+            ladder_config = get_ladder_tier_config(
+                request.difficulty,
+                board_type,
+                num_players,
+            )
+    except Exception:
+        ladder_config = None
+
+    base_ai_type = (
+        ladder_config.ai_type
+        if ladder_config is not None
+        else profile["ai_type"]
+    )
+    ai_type = request.ai_type or base_ai_type
     labels_ai_type, labels_difficulty = observe_ai_move_start(
         ai_type.value,
         request.difficulty,
@@ -260,8 +290,17 @@ async def get_ai_move(request: MoveRequest):
         heuristic_profile_id: Optional[str] = None
         nn_model_id: Optional[str] = None
 
-        if ai_type == AIType.HEURISTIC:
+        if ladder_config is not None and ladder_config.heuristic_profile_id:
+            heuristic_profile_id = ladder_config.heuristic_profile_id
+        elif ai_type == AIType.HEURISTIC:
             heuristic_profile_id = profile.get("profile_id")
+
+        if (
+            ladder_config is not None
+            and ladder_config.model_id
+            and ai_type in (AIType.MCTS, AIType.DESCENT)
+        ):
+            nn_model_id = ladder_config.model_id
 
         if seed_source == "derived":
             # Mark non-SSOT / non-parity-critical paths explicitly so they
@@ -274,10 +313,21 @@ async def get_ai_move(request: MoveRequest):
                 },
             )
 
+        randomness = (
+            ladder_config.randomness
+            if ladder_config is not None
+            else profile["randomness"]
+        )
+        think_time_ms = (
+            ladder_config.think_time_ms
+            if ladder_config is not None
+            else profile["think_time_ms"]
+        )
+
         config = AIConfig(
             difficulty=request.difficulty,
-            randomness=profile["randomness"],
-            think_time=profile["think_time_ms"],
+            randomness=randomness,
+            think_time=think_time_ms,
             rngSeed=effective_seed,
             heuristic_profile_id=heuristic_profile_id,
             nn_model_id=nn_model_id,
@@ -419,9 +469,10 @@ async def evaluate_position_multi(request: PositionEvaluationRequest):
 
         # For the initial implementation we reuse the heuristic evaluator at a
         # fixed profile roughly aligned with difficulty 5. This keeps the
-        # analysis surface consistent with existing /ai/evaluate while remaining
-        # fast enough for live usage. Stronger engines (Minimax/Descent+NN) can
-        # be plugged in behind the same contract later.
+        # analysis surface consistent with existing /ai/evaluate while
+        # remaining fast enough for live usage. Stronger engines
+        # (Minimax/Descent+NN) can be plugged in behind the same contract
+        # later.
         engine_profile = request.engine_profile or "heuristic_v1_d5"
         base_seed = _select_effective_eval_seed(state, request.random_seed)
 
@@ -434,14 +485,15 @@ async def evaluate_position_multi(request: PositionEvaluationRequest):
             if player_number is None:
                 continue
 
-            # Derive a per-player seed so that evaluations are deterministic for
-            # a given (game_state, base_seed) pair but do not share RNG streams.
+            # Derive a per-player seed so that evaluations are deterministic
+            # for a given (game_state, base_seed) pair but do not share RNG
+            # streams.
             player_seed = (base_seed + (idx + 1) * 100_003) & 0x7FFFFFFF
 
             config = AIConfig(
                 difficulty=5,
                 randomness=0.0,
-                rng_seed=player_seed,
+                rngSeed=player_seed,
                 heuristic_profile_id="v1-heuristic-5",
             )
             ai = HeuristicAI(player_number, config)
@@ -456,7 +508,10 @@ async def evaluate_position_multi(request: PositionEvaluationRequest):
             raw_rings[player_number] = eliminated_rings
 
         if not raw_total:
-            raise HTTPException(status_code=400, detail="No players found in game_state")
+            raise HTTPException(
+                status_code=400,
+                detail="No players found in game_state",
+            )
 
         def _to_zero_sum(source: Dict[int, float]) -> Dict[int, float]:
             if not source:
@@ -500,7 +555,11 @@ async def evaluate_position_multi(request: PositionEvaluationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Error evaluating position (multi-player): %s", str(e), exc_info=True)
+        logger.error(
+            "Error evaluating position (multi-player): %s",
+            str(e),
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=str(e))
 
 

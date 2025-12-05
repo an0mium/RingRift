@@ -1161,7 +1161,7 @@ export class ClientSandboxEngine {
       }
 
       this.appendHistoryEntry(beforeState, move);
-    } else if (phase === 'movement') {
+    } else if (phase === 'movement' || phase === 'capture') {
       // Human-driven movement click. Record canonical history via the
       // movement engine hooks without interfering with canonical replays.
       this._movementInvocationContext = 'human';
@@ -1251,11 +1251,16 @@ export class ClientSandboxEngine {
     const captureSegments = this.enumerateCaptureSegmentsFrom(from, playerNumber);
     const captureLandings = captureSegments.map((seg) => seg.landing);
 
-    // 2. Enumerate simple (non-capturing) movement options from this stack.
-    const simpleMoves = this.enumerateSimpleMovementLandings(playerNumber).filter(
-      (m) => m.fromKey === fromKey
-    );
-    const simpleLandings = simpleMoves.map((m) => m.to);
+    // 2. Enumerate simple (non-capturing) movement options from this stack
+    // only during the core movement phase. In capture/chain_capture phases,
+    // rules semantics allow only capture segments.
+    let simpleLandings: Position[] = [];
+    if (this.gameState.currentPhase === 'movement') {
+      const simpleMoves = this.enumerateSimpleMovementLandings(playerNumber).filter(
+        (m) => m.fromKey === fromKey
+      );
+      simpleLandings = simpleMoves.map((m) => m.to);
+    }
 
     // 3. Return the union of capture and simple landings, deduplicated.
     const allLandings: Position[] = [];

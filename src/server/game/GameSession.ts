@@ -11,7 +11,7 @@ import { getOrCreateAIUser } from '../services/AIUserService';
 import { PythonRulesClient } from '../services/PythonRulesClient';
 import { GamePersistenceService } from '../services/GamePersistenceService';
 import { gameRecordRepository } from '../services/GameRecordRepository';
-import { GameOutcome, FinalScore } from '@shared/types/gameRecord';
+import { GameOutcome, FinalScore } from '../../shared/types/gameRecord';
 import { getDatabaseClient } from '../database/connection';
 import { logger } from '../utils/logger';
 import { getMetricsService } from '../services/MetricsService';
@@ -1266,6 +1266,7 @@ export class GameSession {
           gameId: this.gameId,
           playerNumber: currentPlayerNumber,
           moveType: appliedMoveType,
+          aiDiagnostics: this.diagnosticsSnapshot,
         });
 
         // Recursively check for next AI turn

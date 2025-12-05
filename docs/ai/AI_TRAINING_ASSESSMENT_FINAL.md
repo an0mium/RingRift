@@ -253,6 +253,21 @@ These tools confirm that, in the current 8×8 self-play setting, profiles near `
 - Evaluate profiles over mixed boards (8×8, 19×19, hexagonal).
 - Seed CMA-ES with GA-discovered candidates rather than only the hand-tuned baseline.
 
+> **Practical gate: heuristic tier CLI**
+>
+> For day‑to‑day “did this heuristic change regress?” checks, prefer the dedicated tier‑gate CLI over wiring CMA‑ES directly:
+>
+> ```bash
+> cd ai-service
+> PYTHONPATH=. python scripts/run_tier_gate.py \
+>   --tier-id sq8_heuristic_baseline_v1 \
+>   --seed 123 \
+>   --max-games 32 \
+>   --output-json results/ai_eval/tier_gate.sq8_heuristic_baseline_v1.json
+> ```
+>
+> This runs a single `HeuristicTierSpec` against its eval pool and emits a compact JSON summary (wins/draws/losses, margins, latency) suitable for CI gates or dashboard ingestion, without invoking a full CMA‑ES loop.
+
 ### Neural Network Training
 
 | Metric | Value |

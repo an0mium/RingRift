@@ -19,6 +19,105 @@ export function EvaluationPanel({
       ? evaluationHistory[evaluationHistory.length - 1]
       : null;
 
+  // Build a simple per-player sparkline over the evaluation history.
+  const sparkline = React.useMemo(() => {
+    if (!evaluationHistory || evaluationHistory.length === 0) {
+      return null;
+    }
+
+    // Collect all player numbers that appear in any snapshot.
+    const playerNumbers = new Set<number>();
+    for (const snapshot of evaluationHistory) {
+      for (const key of Object.keys(snapshot.perPlayer)) {
+        const pn = Number.parseInt(key, 10);
+        if (Number.isFinite(pn)) {
+          playerNumbers.add(pn);
+        }
+      }
+    }
+
+    if (playerNumbers.size === 0) {
+      return null;
+    }
+
+    // Determine vertical scale from all totalEval values.
+    let maxAbs = 0;
+    for (const snapshot of evaluationHistory) {
+      for (const pn of playerNumbers) {
+        const ev = snapshot.perPlayer[pn];
+        if (!ev || typeof ev.totalEval !== 'number') continue;
+        const abs = Math.abs(ev.totalEval);
+        if (abs > maxAbs) {
+          maxAbs = abs;
+        }
+      }
+    }
+
+    if (maxAbs === 0) {
+      maxAbs = 1;
+    }
+
+    const width = 220;
+    const height = 60;
+    const verticalMargin = 4;
+    const midY = height / 2;
+    const count = evaluationHistory.length;
+    const step = count > 1 ? width / (count - 1) : 0;
+
+    const playerByNumber = new Map<number, Player>();
+    for (const p of players) {
+      playerByNumber.set(p.playerNumber, p);
+    }
+
+    const series = Array.from(playerNumbers)
+      .sort((a, b) => a - b)
+      .map((playerNumber) => {
+        const colors = PLAYER_COLORS[playerNumber as keyof typeof PLAYER_COLORS] ?? {
+          ring: 'bg-slate-300',
+          hex: '#64748b',
+        };
+
+        const points: string[] = [];
+        evaluationHistory.forEach((snapshot, index) => {
+          const ev = snapshot.perPlayer[playerNumber];
+          if (!ev || typeof ev.totalEval !== 'number') {
+            return;
+          }
+          const value = ev.totalEval;
+          const normalized = value / maxAbs;
+          const x = count > 1 ? index * step : width / 2;
+          const y = midY - normalized * (midY - verticalMargin);
+          points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+        });
+
+        if (points.length === 0) {
+          return null;
+        }
+
+        const player = playerByNumber.get(playerNumber);
+        const label = player?.username || `P${playerNumber}`;
+
+        return {
+          playerNumber,
+          label,
+          stroke: colors.hex,
+          points: points.join(' '),
+        };
+      })
+      .filter(Boolean) as Array<{
+      playerNumber: number;
+      label: string;
+      stroke: string;
+      points: string;
+    }>;
+
+    if (series.length === 0) {
+      return null;
+    }
+
+    return { width, height, series };
+  }, [evaluationHistory, players]);
+
   return (
     <div
       className={`border border-slate-700 rounded bg-slate-900/70 p-3 ${className}`}
@@ -110,6 +209,58 @@ export function EvaluationPanel({
             Positive values favour the listed player; totals are relative margins combining
             territory and eliminated-ring advantage.
           </div>
+
+          {sparkline && (
+            <div className="mt-3">
+              <svg
+                width={sparkline.width}
+                height={sparkline.height}
+                viewBox={`0 0 ${sparkline.width} ${sparkline.height}`}
+                className="w-full h-16 text-slate-500"
+                aria-hidden="true"
+                data-testid="evaluation-sparkline"
+              >
+                <rect
+                  x="0"
+                  y="0"
+                  width={sparkline.width}
+                  height={sparkline.height}
+                  className="fill-slate-900/0"
+                />
+                {/* Zero line */}
+                <line
+                  x1={0}
+                  x2={sparkline.width}
+                  y1={sparkline.height / 2}
+                  y2={sparkline.height / 2}
+                  className="stroke-slate-700"
+                  strokeWidth={0.5}
+                  strokeDasharray="2 2"
+                />
+                {sparkline.series.map((s) => (
+                  <polyline
+                    key={s.playerNumber}
+                    fill="none"
+                    stroke={s.stroke}
+                    strokeWidth={1.5}
+                    points={s.points}
+                    className="opacity-80"
+                  />
+                ))}
+              </svg>
+              <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-slate-400">
+                {sparkline.series.map((s) => (
+                  <span key={s.playerNumber} className="inline-flex items-center gap-1">
+                    <span
+                      className="inline-block w-2 h-2 rounded-full"
+                      style={{ backgroundColor: s.stroke }}
+                    />
+                    <span>{s.label}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <div className="text-[11px] text-slate-500">

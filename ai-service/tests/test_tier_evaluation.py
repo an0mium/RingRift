@@ -25,6 +25,7 @@ from app.training.tier_eval_config import (  # noqa: E402
 )
 from app.training.tier_eval_runner import run_tier_evaluation  # noqa: E402
 from app.training.eval_pools import HEURISTIC_TIER_SPECS, POOL_PATHS, run_all_heuristic_tiers, run_heuristic_tier_eval  # noqa: E402
+from scripts import run_tier_gate  # noqa: E402
 
 
 class TestTierEvaluationRunner:
@@ -214,3 +215,51 @@ def test_heuristic_tier_specs_have_pool_paths() -> None:
         "One or more heuristic tier specs reference eval pools that are not "
         f"configured in POOL_PATHS: {', '.join(missing)}"
     )
+
+
+def test_run_tier_gate_cli_smoke(monkeypatch, capsys) -> None:
+    """Smoke test for the heuristic tier gate CLI wrapper."""
+    # Use the first heuristic tier spec as the target.
+    assert HEURISTIC_TIER_SPECS, "Expected at least one heuristic heuristic tier spec"
+    tier = HEURISTIC_TIER_SPECS[0]
+
+    # Stub run_heuristic_tier_eval so the test does not depend on on-disk eval pools.
+    def _fake_run_heuristic_tier_eval(tier_spec, rng_seed, max_games=None):
+        assert tier_spec.id == tier.id
+        assert isinstance(rng_seed, int)
+        assert max_games in (None, 1)
+        return {
+            "tier_id": tier_spec.id,
+            "tier_name": tier_spec.name,
+            "board_type": tier_spec.board_type.value,
+            "num_players": tier_spec.num_players,
+            "eval_pool_id": tier_spec.eval_pool_id,
+            "candidate_profile_id": tier_spec.candidate_profile_id,
+            "baseline_profile_id": tier_spec.baseline_profile_id,
+            "games_requested": tier_spec.num_games,
+            "games_played": 1,
+            "results": {"wins": 1, "losses": 0, "draws": 0},
+            "margins": {"ring_margin_mean": 1.0, "territory_margin_mean": 0.0},
+            "latency_ms": {"mean": 0.5, "p95": 1.0},
+            "total_moves": 10,
+            "victory_reasons": {"ring_elimination": 1},
+        }
+
+    monkeypatch.setattr(run_tier_gate, "run_heuristic_tier_eval", _fake_run_heuristic_tier_eval)
+
+    # Run the CLI-style main with a temporary argv.
+    import sys as _sys
+
+    argv_backup = list(_sys.argv)
+    _sys.argv = ["run_tier_gate.py", "--tier-id", tier.id, "--seed", "42", "--max-games", "1"]
+    try:
+        run_tier_gate.main()
+    finally:
+        _sys.argv = argv_backup
+
+    captured = capsys.readouterr()
+    # The CLI prints a single JSON object to stdout; parse and sanity-check it.
+    payload = json.loads(captured.out)
+    assert payload["tier_id"] == tier.id
+    assert payload["tier_name"] == tier.name
+    assert payload["games_played"] == 1

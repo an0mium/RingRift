@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuth } from './contexts/AuthContext';
+import { AccessibilityProvider } from './contexts/AccessibilityContext';
 import Layout from './components/Layout';
 import LoadingSpinner from './components/LoadingSpinner';
 
@@ -56,7 +57,7 @@ function App() {
   }
 
   return (
-    <>
+    <AccessibilityProvider>
       <Toaster
         position="top-center"
         toastOptions={{
@@ -90,7 +91,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </Suspense>
-    </>
+    </AccessibilityProvider>
   );
 }
 

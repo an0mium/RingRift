@@ -11,6 +11,7 @@ import { SandboxProvider } from './contexts/SandboxContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { setupGlobalErrorHandlers, isErrorReportingEnabled } from './utils/errorReporting';
 import './styles/globals.css';
+import './styles/accessibility.css';
 
 // Create a client
 const queryClient = new QueryClient({

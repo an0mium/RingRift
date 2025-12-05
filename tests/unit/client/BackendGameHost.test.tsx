@@ -81,6 +81,26 @@ jest.mock('@/client/utils/socketBaseUrl', () => ({
   getSocketBaseUrl: jest.fn(() => 'http://localhost:3000'),
 }));
 
+// Weird-state helper is exercised indirectly via BackendGameHost diagnostics;
+// here we mock it so we can drive specific ANM / FE / plateau transitions
+// without importing heavy engine state into this test.
+jest.mock('../../../src/client/utils/gameStateWeirdness', () => ({
+  __esModule: true,
+  getWeirdStateBanner: jest.fn(),
+}));
+
+const { getWeirdStateBanner } = require('../../../src/client/utils/gameStateWeirdness') as {
+  getWeirdStateBanner: jest.Mock;
+};
+
+// Weird-state helper is exercised indirectly via BackendGameHost diagnostics;
+// here we mock it so we can drive specific ANM / FE / plateau transitions
+// without importing heavy engine state into this test.
+jest.mock('../../../src/client/utils/gameStateWeirdness', () => ({
+  __esModule: true,
+  getWeirdStateBanner: jest.fn(),
+}));
+
 // Dynamic state backing the hook mocks so tests can control host behaviour.
 let mockGameState: GameState | null = null;
 let mockValidMoves: Move[] | null = null;
@@ -314,6 +334,10 @@ function getSquareCell(x: number, y: number): HTMLButtonElement {
 describe('BackendGameHost (React host behaviour)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+
+    // Default weird-state helper behaviour: no weird state unless a test
+    // overrides it explicitly.
+    getWeirdStateBanner.mockReturnValue({ type: 'none' });
 
     setIsMobile(false);
 
@@ -883,6 +907,86 @@ describe('BackendGameHost (React host behaviour)', () => {
     expect(log).toHaveTextContent(/Phase: ring_placement/);
     expect(log).toHaveTextContent(/Phase changed: ring_placement → movement/);
     expect(log).toHaveTextContent(/Choice requested: region_order for P1/);
+  });
+
+  it('logs Active–No–Moves detection as a system event in GameEventLog', () => {
+    // Drive the weird-state helper directly so we do not depend on full ANM
+    // semantics from the engine in this host test.
+    getWeirdStateBanner.mockReturnValue({
+      type: 'active-no-moves-movement',
+      playerNumber: 1,
+    });
+
+    setBackendHostState({ phase: 'movement', validMoves: [] });
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    const log = screen.getByTestId('game-event-log');
+    expect(log).toHaveTextContent(
+      /Active–No–Moves detected for P1 during movement; the engine will apply forced resolution according to the rulebook\./
+    );
+  });
+
+  it('logs forced-elimination sequences start and completion into GameEventLog', () => {
+    // Use a mutable stub so we can transition from forced-elimination to
+    // non-weird state across renders while keeping the same mock function.
+    const weirdState: any = { type: 'forced-elimination', playerNumber: 1 };
+    getWeirdStateBanner.mockImplementation(() => weirdState);
+
+    const state1 = createGameState('movement');
+    state1.totalRingsEliminated = 2;
+    mockGameState = state1;
+    mockPlayers = state1.players;
+    mockCurrentPlayer = mockPlayers[0];
+    mockValidMoves = [];
+    mockVictoryState = null;
+
+    const { rerender } = render(<BackendGameHost gameId="game-123" />);
+
+    // Transition to a non-forced-elimination weird state with additional
+    // eliminated rings so the diagnostics hook can compute the delta.
+    const state2: GameState = {
+      ...state1,
+      totalRingsEliminated: 5,
+    };
+    mockGameState = state2;
+    weirdState.type = 'none';
+
+    rerender(<BackendGameHost gameId="game-123" />);
+
+    const logText = screen.getByTestId('game-event-log').textContent ?? '';
+
+    expect(logText).toMatch(/Forced elimination sequence started for P1\./);
+    expect(logText).toMatch(
+      /Forced elimination sequence completed for P1\. 3 rings were eliminated during the forced elimination sequence\./
+    );
+  });
+
+  it('logs structural-stalemate diagnostics when weird-state reports structural-stalemate', () => {
+    getWeirdStateBanner.mockReturnValue({
+      type: 'structural-stalemate',
+      winner: 1,
+      reason: 'game_completed',
+    });
+
+    const victory: GameResult = {
+      winner: 1,
+      reason: 'game_completed',
+      finalScore: {
+        ringsEliminated: {},
+        territorySpaces: {},
+        ringsRemaining: {},
+      },
+    };
+
+    setBackendHostState({ phase: 'movement', validMoves: [], victoryState: victory });
+
+    render(<BackendGameHost gameId="game-123" />);
+
+    const log = screen.getByTestId('game-event-log');
+    expect(log).toHaveTextContent(
+      /Structural stalemate: no legal placements, movements, captures, or forced eliminations remain\. The game ended by plateau auto-resolution\./
+    );
   });
 
   it('renders chat log and calls sendChatMessage when submitting a message', () => {

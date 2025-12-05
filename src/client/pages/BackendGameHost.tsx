@@ -111,9 +111,12 @@ function renderGameHeader(gameState: GameState) {
 
   return (
     <>
-      <h1 className="text-3xl font-bold mb-1">Game</h1>
-      <p className="text-sm text-gray-500">
-        Game ID: {gameState.id} • Board: {gameState.boardType} • Players: {playerSummary}
+      <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold">Game</h1>
+      <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">
+        Board: {gameState.boardType} • {playerSummary}
+      </p>
+      <p className="text-xs text-gray-500 sm:hidden">
+        {gameState.boardType} • {gameState.players.length}P
       </p>
     </>
   );
@@ -1252,7 +1255,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       : null;
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-4">
+    <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
       {/* Screen reader live region for game announcements */}
       <ScreenReaderAnnouncer message={srMessage} />
 
@@ -1321,26 +1324,24 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         </div>
       )}
 
-      <header className="flex items-center justify-between">
-        <div>
+      <header className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
           {renderGameHeader(gameState)}
           {!isPlayer && (
-            <span className="ml-2 px-2 py-0.5 bg-purple-900/50 border border-purple-500/50 text-purple-200 text-xs rounded-full uppercase tracking-wider font-bold">
+            <span className="px-2 py-0.5 bg-purple-900/50 border border-purple-500/50 text-purple-200 text-xs rounded-full uppercase tracking-wider font-bold">
               Spectating
             </span>
           )}
         </div>
-        <div className="flex items-center space-x-3 text-xs text-gray-400">
-          <div className="flex items-center space-x-2">
-            <span>Status: {gameState.gameStatus}</span>
-            <span>• Phase: {hudViewModel.phase.label}</span>
-            <span>
-              • Current player:{' '}
-              {hudCurrentPlayer
-                ? hudCurrentPlayer.username || `P${hudCurrentPlayer.playerNumber}`
-                : '—'}
-            </span>
-          </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400">
+          <span className="hidden sm:inline">Status: {gameState.gameStatus}</span>
+          <span className="hidden sm:inline">• Phase: {hudViewModel.phase.label}</span>
+          <span className="hidden lg:inline">
+            • Current:{' '}
+            {hudCurrentPlayer
+              ? hudCurrentPlayer.username || `P${hudCurrentPlayer.playerNumber}`
+              : '—'}
+          </span>
           {!isPlayer && (
             <button
               type="button"
@@ -1373,8 +1374,9 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         currentUserId={user?.id}
       />
 
-      <main className="flex flex-col md:flex-row md:space-x-8 space-y-4 md:space-y-0">
-        <section>
+      <main className="flex flex-col lg:flex-row lg:gap-8 gap-4">
+        {/* Board container - centers on mobile, takes available space on desktop */}
+        <section className="flex-shrink-0 flex justify-center lg:justify-start">
           <BoardView
             boardType={boardType}
             board={board}
@@ -1392,7 +1394,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
           />
         </section>
 
-        <aside className="w-full md:w-72 space-y-3 text-sm text-slate-100">
+        <aside className="w-full lg:w-80 flex-shrink-0 space-y-3 text-sm text-slate-100">
           {/* Primary HUD band – placed at the top of the sidebar so phase/turn/time
               are always visible alongside the board. On mobile, render the
               compact MobileGameHUD; on larger screens, use the full GameHUD. */}

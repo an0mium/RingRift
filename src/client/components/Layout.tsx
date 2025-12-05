@@ -1,4 +1,5 @@
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from './ui/Button';
 
@@ -14,8 +15,23 @@ function navLinkClasses({ isActive }: { isActive: boolean }) {
   ].join(' ');
 }
 
+const mobileNavLinkClasses = ({ isActive }: { isActive: boolean }) =>
+  [
+    'block px-4 py-3 text-base font-medium rounded-lg transition-colors',
+    isActive
+      ? 'bg-emerald-500/20 text-emerald-300'
+      : 'text-slate-300 hover:bg-slate-800 hover:text-white',
+  ].join(' ');
+
 export default function Layout() {
   const { user, logout } = useAuth();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const location = useLocation();
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -58,20 +74,106 @@ export default function Layout() {
                     <span className="text-slate-400">Rating {user.rating}</span>
                   )}
                 </div>
-                <Button type="button" variant="secondary" size="sm" onClick={logout}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={logout}
+                  className="hidden sm:inline-flex"
+                >
                   Logout
                 </Button>
               </>
             ) : (
               <Link
                 to="/login"
-                className="text-sm font-medium text-emerald-300 hover:text-emerald-200"
+                className="hidden text-sm font-medium text-emerald-300 hover:text-emerald-200 sm:inline"
               >
                 Login
               </Link>
             )}
+
+            {/* Mobile hamburger button */}
+            <button
+              type="button"
+              className="inline-flex items-center justify-center rounded-md p-2 text-slate-400 hover:bg-slate-800 hover:text-white focus:outline-none focus:ring-2 focus:ring-inset focus:ring-emerald-500 md:hidden"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-menu"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              <span className="sr-only">{mobileMenuOpen ? 'Close menu' : 'Open menu'}</span>
+              {mobileMenuOpen ? (
+                <svg
+                  className="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="1.5"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg
+                  className="h-6 w-6"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth="1.5"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"
+                  />
+                </svg>
+              )}
+            </button>
           </div>
         </div>
+
+        {/* Mobile menu dropdown */}
+        {mobileMenuOpen && (
+          <div className="border-t border-slate-800 md:hidden" id="mobile-menu">
+            <div className="space-y-1 px-3 py-4">
+              <NavLink to="/" end className={mobileNavLinkClasses}>
+                Home
+              </NavLink>
+              <NavLink to="/lobby" className={mobileNavLinkClasses}>
+                Lobby
+              </NavLink>
+              <NavLink to="/leaderboard" className={mobileNavLinkClasses}>
+                Leaderboard
+              </NavLink>
+              <NavLink to="/sandbox" className={mobileNavLinkClasses}>
+                Sandbox
+              </NavLink>
+            </div>
+
+            {/* Mobile user section */}
+            <div className="border-t border-slate-800 px-3 py-4">
+              {user ? (
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold text-slate-100">{user.username}</span>
+                    {typeof user.rating === 'number' && (
+                      <span className="text-xs text-slate-400">Rating {user.rating}</span>
+                    )}
+                  </div>
+                  <Button type="button" variant="secondary" size="sm" onClick={logout}>
+                    Logout
+                  </Button>
+                </div>
+              ) : (
+                <Link
+                  to="/login"
+                  className="block rounded-lg bg-emerald-600 px-4 py-3 text-center text-sm font-medium text-white hover:bg-emerald-500"
+                >
+                  Login
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
       </nav>
 
       <main id="main-content" className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">

@@ -841,7 +841,7 @@ AI heuristics have been optimized for multi-player:
 - `src/client/hooks/index.ts` - Exports for new hooks
 - `src/client/components/KeyboardShortcutsHelp.tsx` - Added Game Actions section with Home/End
 
-### 14.2 Screen Reader Support (P1) 🔄 IN PROGRESS (Dec 4, 2025)
+### 14.2 Screen Reader Support (P1) ✅ SUBSTANTIALLY COMPLETE (Dec 5, 2025)
 
 - [x] Add ARIA labels to GameHUD elements (Dec 4, 2025)
   - Phase indicator with `role="status"` and comprehensive `aria-label` (phase name, description, action hint)
@@ -851,42 +851,75 @@ AI heuristics have been optimized for multi-player:
   - Spectator mode banner with `role="status"` and `aria-label`
   - Spectator count chip with accessible label
   - Victory condition tooltips with `aria-label` attributes
-- [ ] Add ARIA labels to remaining game elements
-  - Board cells with position and contents
-  - BoardView component accessibility
-- [x] Implement live regions for game state changes (partial, Dec 4, 2025)
+- [x] Add ARIA labels to BoardView/board cells (Dec 5, 2025)
+  - Board container with `role="grid"` and comprehensive `aria-label` including navigation instructions
+  - Each cell with `role="gridcell"`, detailed `aria-label` (position, stack info, valid move target status)
+  - `aria-selected` attribute for selected cells
+  - Keyboard-focused vs selected distinction with appropriate focus rings
+  - Screen reader live region in BoardView for selection announcements
+- [x] Implement live regions for game state changes (Dec 5, 2025)
   - Phase indicator uses `aria-live="polite"` for phase transitions
   - Decision phase banner uses `aria-live="assertive"` for critical timeouts
   - Spectator banner uses `aria-live="polite"`
-  - [ ] Move announcements (future)
-  - [ ] Victory/defeat notifications (future)
-- [ ] Extend `ScreenReaderAnnouncer.tsx` component
-  - Already exists in `src/client/components/`
-  - Add priority queue for announcements
-  - Implement polite vs assertive modes
-- [ ] Create screen reader-friendly game log
-  - Text descriptions of all moves
-  - Context for captures and lines
-  - Territory changes
+  - BoardView has internal `aria-live="polite"` region for selection and valid move announcements
+- [x] Extend `ScreenReaderAnnouncer.tsx` component (Dec 5, 2025)
+  - Priority queue system via `useGameAnnouncements` hook
+  - Polite vs assertive modes based on announcement category
+  - `GameAnnouncements` helper object with generators for all event types:
+    - Turn changes, phase transitions, moves, placements, captures
+    - Chain captures, line formations, territory claims
+    - Victory/defeat, player elimination, timer warnings
+    - Cell selection, valid moves, decisions required, ring stats
+  - `useGameStateAnnouncements` hook for automatic announcements on state changes
+  - Category-based configuration: priority, politeness, debounce timing
+  - Alternating live regions to ensure duplicate messages are announced
+- [x] Screen reader announcer wired to game hosts (Dec 5, 2025)
+  - BackendGameHost and SandboxGameHost both include `<ScreenReaderAnnouncer>`
+  - Basic announcement flow working via `useScreenReaderAnnouncement` hook
+  - Advanced priority-queued announcements available via `useGameAnnouncements` (ready for integration)
 
-### 14.3 Visual Accessibility (P2)
+**Future Enhancements (Deferred):**
 
-- [ ] Implement high-contrast mode option
-  - Toggle in settings panel
-  - Increased border widths
-  - Stronger color differentiation
-- [ ] Add colorblind-friendly player color palette
-  - Distinct patterns in addition to colors
-  - Shape indicators for player ownership
-  - Tested against deuteranopia, protanopia, tritanopia
-- [ ] Implement reduced motion option
-  - Disable animations when `prefers-reduced-motion`
-  - Static alternatives for pulsing effects
-  - Instant transitions option
-- [ ] Add zoom/magnification support
-  - Board scales with browser zoom
-  - Touch-friendly pinch-to-zoom
-  - Maintain playability at 200% zoom
+- [ ] Wire `useGameAnnouncements` priority queue into hosts for richer event announcements
+- [ ] Create dedicated screen reader-friendly game log component (text descriptions of all moves)
+
+### 14.3 Visual Accessibility (P2) ✅ SUBSTANTIALLY COMPLETE (Dec 5, 2025)
+
+- [x] Create `AccessibilityContext` (`src/client/contexts/AccessibilityContext.tsx`)
+  - Manages user preferences: `highContrastMode`, `colorVisionMode`, `reducedMotion`, `largeText`
+  - Persists to localStorage with key `ringrift-accessibility-preferences`
+  - Detects system `prefers-reduced-motion` preference
+  - Applies CSS classes to document root: `.high-contrast`, `.reduce-motion`, `.large-text`, `data-color-vision`
+- [x] Create `AccessibilitySettingsPanel` component (`src/client/components/AccessibilitySettingsPanel.tsx`)
+  - Toggle switches for high contrast, reduced motion, large text
+  - Dropdown for color vision mode (normal, deuteranopia, protanopia, tritanopia)
+  - Color preview showing player color palette
+  - Reset to defaults button
+- [x] Wire `AccessibilityProvider` into `App.tsx`
+- [x] Create dedicated accessibility stylesheet (`src/client/styles/accessibility.css`)
+  - High-contrast mode: stronger borders, brighter focus indicators
+  - Reduced motion: disables animations and transitions
+  - Large text mode: scales up font sizes
+  - Color vision patterns for player indicators
+  - Touch target sizing for accessibility (44px minimum)
+  - Screen reader utilities (`.sr-only`, skip links, live region styling)
+- [x] Colorblind-friendly player color palettes
+  - Normal: emerald/sky/amber/fuchsia
+  - Deuteranopia/Protanopia: blue/orange/cyan/violet (avoids red-green confusion)
+  - Tritanopia: pink/cyan/lime/orange (avoids blue-yellow confusion)
+  - Helper functions: `getPlayerColorClass()`, `getPlayerColor()` in context
+
+**Files Created:**
+
+- `src/client/contexts/AccessibilityContext.tsx` - Core context and hooks
+- `src/client/components/AccessibilitySettingsPanel.tsx` - Settings UI
+- `src/client/styles/accessibility.css` - Accessibility CSS rules
+
+**Future Enhancements (Deferred):**
+
+- [ ] Add AccessibilitySettingsPanel to a settings page or modal in Layout
+- [ ] Board-level pinch-to-zoom implementation
+- [ ] Additional player indicator shape differentiation (beyond patterns)
 
 ### 14.4 Test Coverage Improvements (P1)
 

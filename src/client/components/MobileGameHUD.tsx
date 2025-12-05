@@ -278,6 +278,7 @@ export function MobileGameHUD({
     instruction,
     connectionStatus,
     isSpectator,
+    spectatorCount,
     decisionPhase,
     weirdState,
   } = viewModel;
@@ -333,7 +334,10 @@ export function MobileGameHUD({
 
       {/* Spectator badge */}
       {isSpectator && (
-        <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-purple-900/40 border border-purple-500/40 text-xs text-purple-100">
+        <div
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-purple-900/40 border border-purple-500/40 text-xs text-purple-100"
+          data-testid="mobile-spectator-badge"
+        >
           <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
             <path d="M10 12.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z" />
             <path
@@ -343,6 +347,11 @@ export function MobileGameHUD({
             />
           </svg>
           <span>Spectating</span>
+          {typeof spectatorCount === 'number' && spectatorCount > 0 && (
+            <span className="text-[10px] text-purple-200/80">
+              • {spectatorCount} {spectatorCount === 1 ? 'viewer' : 'viewers'}
+            </span>
+          )}
         </div>
       )}
 

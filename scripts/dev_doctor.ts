@@ -30,6 +30,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import axios from 'axios';
 
 import { config } from '../src/server/config';
 import {
@@ -188,6 +189,59 @@ async function checkAiModels(): Promise[CheckResult] {
   };
 }
 
+async function checkAiServiceHttp(): Promise<CheckResult> {
+  // Opt-in health check so dev_doctor does not hang or fail when the
+  // Python AI service is not running. Enable via:
+  //
+  //   DEV_DOCTOR_CHECK_AI_SERVICE=true npm run dev:doctor
+  //
+  const enabled =
+    process.env.DEV_DOCTOR_CHECK_AI_SERVICE === 'true' ||
+    process.env.DEV_DOCTOR_CHECK_AI_SERVICE === '1';
+
+  const baseUrl = (config as any).aiService?.url as string | undefined;
+
+  if (!enabled || !baseUrl) {
+    return {
+      name: 'AI service (HTTP)',
+      ok: false,
+      message: enabled
+        ? 'AI service URL is not configured; skipping HTTP health check.'
+        : 'AI service HTTP health check skipped (set DEV_DOCTOR_CHECK_AI_SERVICE=true to enable).',
+      fatal: false,
+    };
+  }
+
+  const healthUrl = `${baseUrl.replace(/\/+$/, '')}/health`;
+
+  try {
+    const response = await axios.get(healthUrl, {
+      timeout: (config as any).aiService?.requestTimeoutMs ?? 2000,
+    });
+
+    const status = (response.data as { status?: string } | undefined)?.status ?? 'unknown';
+    const ok = response.status === 200;
+
+    return {
+      name: 'AI service (HTTP)',
+      ok,
+      message: ok
+        ? `AI service responded at ${healthUrl} with status=${status}.`
+        : `AI service at ${healthUrl} returned HTTP ${response.status} (status=${status}).`,
+      fatal: false,
+    };
+  } catch (err) {
+    return {
+      name: 'AI service (HTTP)',
+      ok: false,
+      message: `Failed to reach AI service at ${healthUrl}. Error: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+      fatal: false,
+    };
+  }
+}
+
 async function main(): Promise<void> {
   console.log('=== RingRift dev_doctor ===\n');
 
@@ -196,6 +250,7 @@ async function main(): Promise<void> {
     checkDatabase,
     checkRedis,
     checkAiModels,
+    checkAiServiceHttp,
   ];
 
   const results: CheckResult[] = [];

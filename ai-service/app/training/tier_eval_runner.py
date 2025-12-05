@@ -18,6 +18,10 @@ from app.training.tier_eval_config import (
     TierEvaluationConfig,
     TierOpponentConfig,
 )
+from app.config.ladder_config import (
+    LadderTierConfig,
+    get_ladder_tier_config,
+)
 from app.main import (
     DifficultyProfile,
     _create_ai_instance,
@@ -123,6 +127,7 @@ class TierEvaluationResult:
 
 
 def _create_ladder_ai_instance(
+    tier_config: TierEvaluationConfig,
     difficulty: int,
     player_number: int,
     time_budget_ms: Optional[int],
@@ -133,18 +138,47 @@ def _create_ladder_ai_instance(
 
     This helper mirrors the /ai/move construction logic in app.main so
     that tier evaluation uses the same underlying AI family, randomness,
-    and search budgets as the production ladder.
+    and search budgets as the production ladder. When a board-aware
+    LadderTierConfig exists for (difficulty, board_type, num_players),
+    its values take precedence; otherwise we fall back to the global
+    difficulty profile.
     """
     profile: DifficultyProfile = _get_difficulty_profile(difficulty)
-    ai_type = ai_type_override or profile["ai_type"]
-    randomness = profile["randomness"]
-    think_time_ms = profile["think_time_ms"]
+
+    ladder_config: Optional[LadderTierConfig] = None
+    try:
+        ladder_config = get_ladder_tier_config(
+            difficulty,
+            tier_config.board_type,
+            tier_config.num_players,
+        )
+    except Exception:
+        ladder_config = None
+
+    base_ai_type = (
+        ladder_config.ai_type
+        if ladder_config is not None
+        else profile["ai_type"]
+    )
+    ai_type = ai_type_override or base_ai_type
+
+    randomness = (
+        ladder_config.randomness
+        if ladder_config is not None
+        else profile["randomness"]
+    )
+
     if time_budget_ms is not None:
         think_time_ms = time_budget_ms
+    elif ladder_config is not None:
+        think_time_ms = ladder_config.think_time_ms
+    else:
+        think_time_ms = profile["think_time_ms"]
 
     heuristic_profile_id: Optional[str] = None
-    nn_model_id: Optional[str] = None
-    if ai_type == AIType.HEURISTIC:
+    if ladder_config is not None and ladder_config.heuristic_profile_id:
+        heuristic_profile_id = ladder_config.heuristic_profile_id
+    elif ai_type == AIType.HEURISTIC:
         heuristic_profile_id = profile.get("profile_id")
 
     config = AIConfig(
@@ -153,7 +187,7 @@ def _create_ladder_ai_instance(
         think_time=think_time_ms,
         rngSeed=rng_seed,
         heuristic_profile_id=heuristic_profile_id,
-        nn_model_id=nn_model_id,
+        nn_model_id=None,
     )
     return _create_ai_instance(ai_type, player_number, config)
 
@@ -203,6 +237,7 @@ def _play_matchup(
             game_seed = (base_seed * 1_000_003 + game_index) & 0x7FFFFFFF
 
         candidate_ai = _create_ladder_ai_instance(
+            tier_config=tier_config,
             difficulty=tier_config.candidate_difficulty,
             player_number=candidate_seat,
             time_budget_ms=tier_config.time_budget_ms,
@@ -210,6 +245,7 @@ def _play_matchup(
             rng_seed=game_seed,
         )
         opponent_ai = _create_ladder_ai_instance(
+            tier_config=tier_config,
             difficulty=opponent.difficulty,
             player_number=opponent_seat,
             time_budget_ms=tier_config.time_budget_ms,

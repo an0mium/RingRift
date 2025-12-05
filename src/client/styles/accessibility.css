@@ -1,0 +1,270 @@
+/**
+ * Accessibility Styles
+ *
+ * These styles are applied via CSS class toggles on document.documentElement
+ * by the AccessibilityContext. Classes:
+ * - .high-contrast: Stronger borders, higher color differentiation
+ * - .reduce-motion: Disables animations and transitions
+ * - .large-text: Increases base font sizes
+ * - data-color-vision: Applied via [data-color-vision="..."] attribute
+ */
+
+/* ==========================================================================
+   High Contrast Mode
+   ========================================================================== */
+
+.high-contrast {
+  /* Increase overall contrast */
+  --ring-offset-shadow: 0 0 #000;
+}
+
+/* Stronger borders throughout */
+.high-contrast * {
+  border-width: 2px !important;
+}
+
+/* Ensure focus indicators are highly visible */
+.high-contrast *:focus {
+  outline: 3px solid #fbbf24 !important;
+  outline-offset: 2px !important;
+}
+
+.high-contrast *:focus-visible {
+  outline: 3px solid #fbbf24 !important;
+  outline-offset: 2px !important;
+}
+
+/* Increase text contrast on dark backgrounds */
+.high-contrast .bg-slate-800,
+.high-contrast .bg-slate-900,
+.high-contrast .bg-gray-800,
+.high-contrast .bg-gray-900 {
+  color: #fff;
+}
+
+/* Stronger button contrasts */
+.high-contrast button,
+.high-contrast [role="button"] {
+  border: 2px solid currentColor !important;
+}
+
+/* Card and panel borders */
+.high-contrast .rounded-lg,
+.high-contrast .rounded-xl,
+.high-contrast .rounded-md {
+  border: 2px solid #64748b !important;
+}
+
+/* ==========================================================================
+   Reduced Motion
+   ========================================================================== */
+
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Disable specific animated elements */
+.reduce-motion .animate-pulse,
+.reduce-motion .animate-bounce,
+.reduce-motion .animate-spin,
+.reduce-motion .animate-ping {
+  animation: none !important;
+}
+
+/* Keep essential state changes instant but visible */
+.reduce-motion *:hover,
+.reduce-motion *:focus,
+.reduce-motion *:active {
+  transition: none !important;
+}
+
+/* ==========================================================================
+   Large Text Mode
+   ========================================================================== */
+
+.large-text {
+  font-size: 1.125rem; /* 18px base */
+}
+
+.large-text .text-xs {
+  font-size: 0.875rem !important; /* 14px */
+}
+
+.large-text .text-sm {
+  font-size: 1rem !important; /* 16px */
+}
+
+.large-text .text-base {
+  font-size: 1.125rem !important; /* 18px */
+}
+
+.large-text .text-lg {
+  font-size: 1.25rem !important; /* 20px */
+}
+
+.large-text .text-xl {
+  font-size: 1.5rem !important; /* 24px */
+}
+
+.large-text .text-2xl {
+  font-size: 1.875rem !important; /* 30px */
+}
+
+.large-text .text-3xl {
+  font-size: 2.25rem !important; /* 36px */
+}
+
+/* Increase line height for readability */
+.large-text {
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   Color Vision Patterns (Optional visual patterns as secondary indicators)
+   ========================================================================== */
+
+/* These patterns provide additional differentiation beyond color */
+[data-color-vision="deuteranopia"] .player-indicator-pattern-0,
+[data-color-vision="protanopia"] .player-indicator-pattern-0 {
+  background-image: linear-gradient(45deg, transparent 30%, currentColor 30%, currentColor 70%, transparent 70%);
+  background-size: 6px 6px;
+}
+
+[data-color-vision="deuteranopia"] .player-indicator-pattern-1,
+[data-color-vision="protanopia"] .player-indicator-pattern-1 {
+  background-image: radial-gradient(circle, currentColor 2px, transparent 2px);
+  background-size: 8px 8px;
+}
+
+[data-color-vision="deuteranopia"] .player-indicator-pattern-2,
+[data-color-vision="protanopia"] .player-indicator-pattern-2 {
+  background-image: linear-gradient(0deg, transparent 40%, currentColor 40%, currentColor 60%, transparent 60%);
+  background-size: 4px 8px;
+}
+
+[data-color-vision="deuteranopia"] .player-indicator-pattern-3,
+[data-color-vision="protanopia"] .player-indicator-pattern-3 {
+  background-image: 
+    linear-gradient(45deg, currentColor 25%, transparent 25%),
+    linear-gradient(-45deg, currentColor 25%, transparent 25%);
+  background-size: 8px 8px;
+}
+
+[data-color-vision="tritanopia"] .player-indicator-pattern-0 {
+  background-image: linear-gradient(90deg, transparent 40%, currentColor 40%, currentColor 60%, transparent 60%);
+  background-size: 8px 4px;
+}
+
+[data-color-vision="tritanopia"] .player-indicator-pattern-1 {
+  background-image: radial-gradient(circle, transparent 3px, currentColor 3px, currentColor 4px, transparent 4px);
+  background-size: 10px 10px;
+}
+
+[data-color-vision="tritanopia"] .player-indicator-pattern-2 {
+  background-image: linear-gradient(135deg, transparent 30%, currentColor 30%, currentColor 70%, transparent 70%);
+  background-size: 6px 6px;
+}
+
+[data-color-vision="tritanopia"] .player-indicator-pattern-3 {
+  background-image: 
+    linear-gradient(0deg, currentColor 2px, transparent 2px),
+    linear-gradient(90deg, currentColor 2px, transparent 2px);
+  background-size: 10px 10px;
+}
+
+/* ==========================================================================
+   Board Zoom Support
+   ========================================================================== */
+
+/* Ensure board scales properly at high zoom levels */
+.board-container {
+  touch-action: pan-x pan-y;
+  overflow: auto;
+}
+
+/* At 200%+ zoom, ensure interactive elements remain accessible */
+@media (min-resolution: 2dppx) {
+  .board-cell {
+    min-width: 24px;
+    min-height: 24px;
+  }
+}
+
+/* Touch target sizing for accessibility */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ==========================================================================
+   Screen Reader Utilities
+   ========================================================================== */
+
+/* Visually hidden but accessible to screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+/* Skip link for keyboard navigation */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #1e293b;
+  color: #fff;
+  padding: 8px 16px;
+  z-index: 100;
+  transition: top 0.3s;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Ensure aria-live regions don't affect layout */
+[aria-live] {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* Make live region visible when it has content for debugging */
+[aria-live].visible-live-region {
+  clip: auto;
+  clip-path: none;
+  height: auto;
+  width: auto;
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px;
+  font-size: 12px;
+  max-width: 300px;
+  z-index: 9999;
+}

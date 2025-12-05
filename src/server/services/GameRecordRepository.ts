@@ -20,8 +20,8 @@ import {
   RecordSource,
   PlayerRecordInfo,
   gameRecordToJsonlLine,
-} from '@shared/types/gameRecord';
-import { GameState, MoveType } from '@shared/types/game';
+} from '../../shared/types/gameRecord';
+import { GameState, MoveType } from '../../shared/types/game';
 import { logger } from '../utils/logger';
 
 // ────────────────────────────────────────────────────────────────────────────

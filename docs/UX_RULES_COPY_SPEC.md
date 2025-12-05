@@ -256,7 +256,11 @@ This section ties each text block in this spec to its implementation surface.
   - [`RingStatsFromVM`](src/client/components/GameHUD.tsx:552) elimination label.
   - [`CompactScoreSummary`](src/client/components/GameHUD.tsx:933) "Rings Eliminated" label.
 - `victory_modal.ring_elimination.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1408) branch for `ring_elimination`.
+- `victory_modal.territory.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) branch for `territory_control`.
+- `victory_modal.lps.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) branch for `last_player_standing`.
+- `victory_modal.structural_stalemate.description` → [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) branch for `game_completed`.
 - `victory_modal.table.rings_eliminated.header` → [`FinalStatsTable`](src/client/components/VictoryModal.tsx:108) elimination column header.
+- `hud.game_over.structural_stalemate.banner` → [`getGameOverBannerText()`](src/client/utils/gameCopy.ts:3) branch for `game_completed`.
 
 ### 9.2 Teaching & onboarding surfaces
 
@@ -266,9 +270,11 @@ This section ties each text block in this spec to its implementation surface.
 - `teaching.chain_capture` → [`TEACHING_CONTENT.chain_capture`](src/client/components/TeachingOverlay.tsx:60).
 - `teaching.lines` → [`TEACHING_CONTENT.line_bonus`](src/client/components/TeachingOverlay.tsx:72).
 - `teaching.territory` → [`TEACHING_CONTENT.territory`](src/client/components/TeachingOverlay.tsx:84).
+- `teaching.active_no_moves` → [`TEACHING_CONTENT.active_no_moves`](src/client/components/TeachingOverlay.tsx:98).
+- `teaching.forced_elimination` → [`TEACHING_CONTENT.forced_elimination`](src/client/components/TeachingOverlay.tsx:110).
 - `teaching.victory_elimination` → [`TEACHING_CONTENT.victory_elimination`](src/client/components/TeachingOverlay.tsx:96).
 - `teaching.victory_territory` → [`TEACHING_CONTENT.victory_territory`](src/client/components/TeachingOverlay.tsx:107).
-- `teaching.victory_stalemate` → [`TEACHING_CONTENT.victory_stalemate`](src/client/components/TeachingOverlay.tsx:118).
+- `teaching.victory_stalemate` → [`TEACHING_CONTENT.victory_stalemate`](src/client/components/TeachingOverlay.tsx:144).
 - `onboarding.victory.elimination` → Ring Elimination card in [`OnboardingModal.VictoryStep`](src/client/components/OnboardingModal.tsx:76).
 
 ### 9.3 Sandbox & curated scenarios
@@ -283,3 +289,141 @@ This section ties each text block in this spec to its implementation surface.
 - `scenario.learn.lines.formation.rulesSnippet` → `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`](src/client/public/scenarios/curated.json:175).
 
 All changes to HUD, TeachingOverlay, OnboardingModal, SandboxGameHost, and curated scenarios **must** remain consistent with this document and the canonical rules references in §0.
+
+## 10. Weird States: Active‑No‑Moves, Forced Elimination & Structural Stalemate Banners
+
+This section defines the canonical UX copy for the “weird state” banners and teaching topics that explain:
+
+- Active‑No‑Moves (ANM) in different phases,
+- Forced Elimination (FE) sequences,
+- Structural stalemate / plateau endings.
+
+These surfaces are **explanatory only** and must not redefine rules semantics; they mirror behaviour specified in:
+
+- [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/ACTIVE_NO_MOVES_BEHAVIOUR.md:1)
+- [`RULES_DYNAMIC_VERIFICATION.md`](RULES_DYNAMIC_VERIFICATION.md:1)
+- [`RULES_CONSISTENCY_EDGE_CASES.md`](RULES_CONSISTENCY_EDGE_CASES.md:1)
+- [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1)
+
+### 10.1 ANM banners (movement / line / territory)
+
+#### Movement‑phase ANM (no real moves, stacks remain)
+
+HUD banner text (used by [`HUDWeirdStateViewModel`](src/client/adapters/gameViewModels.ts:115) in [`GameHUD`](src/client/components/GameHUD.tsx:943) and [`MobileGameHUD`](src/client/components/MobileGameHUD.tsx:266)):
+
+- **Title (local player)**
+  `"You have no legal moves this turn"`
+- **Title (other player)**
+  `"<Name> has no legal moves"`
+- **Body (both)**
+  `"You have no legal placements, movements, or captures this turn. Forced elimination will now resolve automatically according to the rulebook."`
+
+Semantics reference:
+
+- This is an ANM state from [`isANMState()`](src/shared/engine/globalActions.ts:1) in the **movement family** of phases (including capture/chain, when applicable).
+- “Real moves” are placements, movements, and captures; forced elimination and automatic processing are _not_ real moves for LPS (see §2 “Real moves vs forced elimination”).
+
+#### Line‑processing ANM
+
+HUD banner:
+
+- **Title (local player)**
+  `"No legal line actions available"`
+- **Title (other player)**
+  `"<Name> has no line actions"`
+- **Body**
+  `"No valid line actions are available. The game will auto-resolve this phase according to the rulebook."`
+
+Semantics note:
+
+- This reflects ANM in `line_processing` – engine has no interactive line-processing choices left and will auto‑resolve.
+
+#### Territory‑processing ANM
+
+HUD banner:
+
+- **Title (local player)**
+  `"No legal territory actions available"`
+- **Title (other player)**
+  `"<Name> has no territory actions"`
+- **Body**
+  `"No valid territory or self-elimination actions are available. The game will auto-resolve this phase according to the rulebook."`
+
+Semantics note:
+
+- This matches ANM in `territory_processing` – no remaining region‑order choices or self‑elimination moves; engine advances via its automatic territory logic.
+
+### 10.2 Forced Elimination (FE) banners
+
+HUD banner (movement‑family phases where FE is available but no real moves exist):
+
+- **Badge label**
+  `"Forced Elimination"`
+- **Title**
+  `"Forced Elimination"`
+- **Body (local player)**
+  `"You control stacks but have no legal placements, movements, or captures. A cap will be removed from one of your stacks until a legal move becomes available, following the forced-elimination rules."`
+- **Body (other player)**
+  `"<Name> controls stacks but has no legal placements, movements, or captures. A cap will be removed from one of their stacks until a legal move becomes available, following the forced-elimination rules."`
+
+Semantics reference:
+
+- FE availability matches the global summary used by invariants:
+  - Player has turn material,
+  - No legal placements or movement/capture,
+  - At least one legal forced‑elimination action.
+- Rings removed by FE are **eliminated rings** and count toward elimination victory (see §3.1).
+
+### 10.3 Structural stalemate / plateau banners
+
+HUD banner (when the game ends by plateau / structural stalemate):
+
+- **Badge label**
+  `"Structural stalemate"`
+- **Title**
+  `"Structural stalemate"`
+- **Body**
+  `"No legal placements, movements, captures, or forced eliminations remain for any player. The game ends and the final score is computed from territory and eliminated rings."`
+
+Game‑over banner (host‑level banner after dismissing VictoryModal):
+
+- [`getGameOverBannerText()`](src/client/utils/gameCopy.ts:3) for `reason: 'game_completed'`:
+  - `"Game over – structural stalemate. Final score from territory and eliminated rings."`
+
+VictoryModal description:
+
+- [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) when `reason === 'game_completed'`:
+  - Title: `"🧱 Structural Stalemate"`
+  - Description:
+    `"No players had any legal placements, movements, captures, or forced eliminations left. The board reached a stable plateau and the final score was computed from territory and eliminated rings."`
+
+### 10.4 TeachingOverlay topics for weird states
+
+Two dedicated topics explain weird states:
+
+- `teaching.active_no_moves` → [`TEACHING_CONTENT.active_no_moves`](src/client/components/TeachingOverlay.tsx:98)
+  - **Title**: `"When you have no legal moves"`
+  - **Icon**: `⛔`
+  - **Description** (canonical):
+    `"Sometimes it is your turn but there are no legal placements, movements, or captures available. This is an Active–No–Moves state: the rules engine will either trigger forced elimination of your stacks, or, if no eliminations are possible, treat you as structurally stuck for Last Player Standing and plateau detection."`
+  - **Key tips (aligned with ANM docs)**:
+    - Real moves = placements, movements, captures; FE and auto line/territory do **not** count for LPS.
+    - If you still control stacks but have no placements or movements, FE will remove caps until a real move exists or you run out of stacks.
+    - When no players have real moves _or_ FE available, the game reaches a structural plateau and ends by structural stalemate.
+
+- `teaching.forced_elimination` → [`TEACHING_CONTENT.forced_elimination`](src/client/components/TeachingOverlay.tsx:110)
+  - **Title**: `"Forced Elimination (FE)"`
+  - **Icon**: `💥`
+  - **Description** (canonical):
+    `"Forced Elimination happens when you control stacks but have no legal placements, movements, or captures. Caps are removed from your stacks automatically until either a real move becomes available or your stacks are gone. These eliminations are mandatory and follow the rules, not player choice."`
+  - **Key tips**:
+    - FE eliminations are permanent and count toward Ring Elimination.
+    - FE is not a “real move” for Last Player Standing.
+    - FE is mandatory once its conditions are met; stack and cap choices follow the engine’s rules, not ad‑hoc UX.
+
+HUD surfaces route weird-state banner help buttons to these topics:
+
+- Desktop HUD: [`GameHUD.WeirdStateBanner` + help](src/client/components/GameHUD.tsx:320) mapped in [`GameHUDFromViewModel`](src/client/components/GameHUD.tsx:1114).
+- Mobile HUD: [`MobileWeirdStateBanner` + help](src/client/components/MobileGameHUD.tsx:45) mapped in [`MobileGameHUD`](src/client/components/MobileGameHUD.tsx:266).
+
+These mappings must remain stable when copy is updated so that context‑sensitive “?” help consistently opens the correct explanation for ANM, FE, or structural stalemate.

@@ -235,33 +235,34 @@ const PHASE_COPY: Record<
 > = {
   ring_placement: {
     label: 'Ring Placement',
-    summary: 'Place new rings or add to existing stacks while keeping a legal move available.',
+    summary:
+      'Place new rings or add to existing stacks while keeping at least one real move available for your next turn.',
   },
   movement: {
     label: 'Movement',
     summary:
-      'Pick a stack and move in a straight line at least as many spaces as its height; you may go farther if the path stays clear. Stacks and territory spaces block movement; markers do not but may eliminate your top ring when you land on them.',
+      'Pick a stack and move it in a straight line at least as far as its height, and farther if the path stays clear (stacks and territory block; markers do not).',
   },
   // Support both 'capture' and 'chain_capture' phase keys for compatibility
   capture: {
     label: 'Capture',
     summary:
-      'Start an overtaking capture by jumping over an adjacent stack and landing on the empty or marker space just beyond. Starting a capture is optional; captured rings stay in play in your stack.',
+      'Start an overtaking capture by jumping over an adjacent stack and landing on an empty or marker space beyond it.',
   },
   chain_capture: {
     label: 'Chain Capture',
     summary:
-      'You are in a capture chain: you must keep capturing while any capture is available, choosing which stack to jump over each time.',
+      'Continue the capture chain: you must keep jumping while any capture exists, but you choose which capture direction to take next.',
   },
   line_processing: {
     label: 'Line Completion',
     summary:
-      'Resolve completed lines of markers and choose how to collapse them into Territory and apply any ring-elimination costs.',
+      'Resolve completed marker lines into Territory and choose whether to take or skip any ring-elimination reward.',
   },
   territory_processing: {
     label: 'Territory Claim',
     summary:
-      'Evaluate disconnected regions, claim Territory spaces, and apply any required ring eliminations (including self-elimination costs).',
+      'Evaluate disconnected regions, collapse them into Territory, and pay any required self-elimination cost; territory wins are checked here.',
   },
 };
 
@@ -362,6 +363,7 @@ export const SandboxGameHost: React.FC = () => {
   const [syncState, setSyncState] = useState<SyncState | null>(null);
   const initialGameStateRef = useRef<GameState | null>(null);
   const gameSavedRef = useRef(false);
+  const lastEvaluatedMoveRef = useRef<number | null>(null);
 
   // Screen reader announcements for accessibility (mirrors BackendGameHost)
   const { message: srMessage, announce: srAnnounce } = useScreenReaderAnnouncement();
@@ -1526,6 +1528,14 @@ export const SandboxGameHost: React.FC = () => {
   const selectedBoardPreset =
     BOARD_PRESETS.find((preset) => preset.value === config.boardType) ?? BOARD_PRESETS[0];
 
+  const canSkipCaptureForTouch =
+    !!sandboxGameState &&
+    sandboxGameState.currentPhase === 'capture' &&
+    !!sandboxEngine &&
+    sandboxEngine
+      .getValidMoves(sandboxGameState.currentPlayer)
+      .some((m) => m.type === 'skip_capture');
+
   // Keyboard shortcuts for sandbox overlay:
   // - "?" (Shift + "/") toggles the Board Controls overlay when a sandbox game is active.
   // - "Escape" closes the overlay when open.
@@ -1571,6 +1581,7 @@ export const SandboxGameHost: React.FC = () => {
       // Reset refs when engine is destroyed
       initialGameStateRef.current = null;
       gameSavedRef.current = false;
+      lastEvaluatedMoveRef.current = null;
       setGameSaveStatus('idle');
       return;
     }
@@ -1673,14 +1684,50 @@ export const SandboxGameHost: React.FC = () => {
     saveCompletedGame();
   }, [autoSaveGames, sandboxVictoryResult, sandboxEngine, config.playerTypes, config.numPlayers]);
 
+  // When developer tools are enabled, automatically request a sandbox AI
+  // evaluation after each new move so the EvaluationPanel can render a
+  // lightweight sparkline over the turn history.
+  useEffect(() => {
+    if (!developerToolsEnabled || !sandboxEngine || !sandboxGameState) {
+      return;
+    }
+
+    // Skip when viewing historical states via replay/fixtures.
+    if (isInReplayMode || isViewingHistory) {
+      return;
+    }
+
+    const moveNumber = sandboxGameState.moveHistory.length;
+    if (moveNumber <= 0) {
+      return;
+    }
+
+    if (lastEvaluatedMoveRef.current === moveNumber) {
+      return;
+    }
+
+    lastEvaluatedMoveRef.current = moveNumber;
+    // Fire and forget; requestSandboxEvaluation manages its own loading state.
+    requestSandboxEvaluation();
+  }, [
+    developerToolsEnabled,
+    sandboxEngine,
+    sandboxGameState,
+    isInReplayMode,
+    isViewingHistory,
+    requestSandboxEvaluation,
+  ]);
+
   // Pre-game setup view
   if (!isConfigured || !sandboxEngine) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100">
-        <div className="container mx-auto px-4 py-8 space-y-6">
-          <header className="flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
+        <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 space-y-4 sm:space-y-6">
+          <header className="flex flex-col gap-2 sm:gap-3 sm:flex-row sm:items-baseline sm:justify-between">
             <div>
-              <h1 className="text-3xl font-bold mb-1">Start a RingRift Game (Local Sandbox)</h1>
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold mb-1">
+                Start a Game (Sandbox)
+              </h1>
               <p className="text-sm text-slate-400">
                 This mode runs entirely in the browser using a local board. To view or play a real
                 server-backed game, navigate to a URL with a game ID (e.g.
@@ -2009,7 +2056,7 @@ export const SandboxGameHost: React.FC = () => {
   // === Active sandbox game ===
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="container mx-auto px-4 py-8 space-y-4">
+      <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
         {/* Screen reader live region for game announcements (accessibility parity with BackendGameHost) */}
         <ScreenReaderAnnouncer message={srMessage} />
 
@@ -2123,17 +2170,20 @@ export const SandboxGameHost: React.FC = () => {
           }}
         />
 
-        <main className="flex flex-col md:flex-row md:space-x-8 space-y-4 md:space-y-0">
-          <section className="flex justify-center md:block">
+        <main className="flex flex-col lg:flex-row lg:gap-8 gap-4">
+          {/* Board container - centers on mobile, takes available space on desktop */}
+          <section className="flex-shrink-0 flex justify-center lg:justify-start">
             {sandboxBoardState && (
               <div className="inline-block space-y-3">
-                <div className="p-4 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="p-3 sm:p-4 rounded-2xl border border-slate-700 bg-slate-900/70 shadow-lg">
+                  <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                      <p className="text-[10px] sm:text-xs uppercase tracking-wide text-slate-400">
                         Local Sandbox
                       </p>
-                      <h1 className="text-2xl font-bold text-white">Game – {boardDisplayLabel}</h1>
+                      <h1 className="text-lg sm:text-2xl font-bold text-white">
+                        Game – {boardDisplayLabel}
+                      </h1>
                     </div>
                     <div className="flex items-center gap-3">
                       <label className="inline-flex items-center gap-2 text-[11px] text-slate-400 select-none">
@@ -2304,7 +2354,7 @@ export const SandboxGameHost: React.FC = () => {
             )}
           </section>
 
-          <aside className="w-full md:w-80 space-y-4 text-sm text-slate-100">
+          <aside className="w-full lg:w-80 flex-shrink-0 space-y-3 sm:space-y-4 text-sm text-slate-100">
             {/* Replay Panel - Game Database Browser */}
             <ReplayPanel
               onStateChange={setReplayState}
@@ -2607,6 +2657,22 @@ export const SandboxGameHost: React.FC = () => {
                 setSandboxStateVersion((v) => v + 1);
                 maybeRunSandboxAiIfNeeded();
               }}
+              canSkipCapture={canSkipCaptureForTouch}
+              onSkipCapture={
+                canSkipCaptureForTouch && sandboxEngine && sandboxGameState
+                  ? async () => {
+                      const moves = sandboxEngine.getValidMoves(sandboxGameState.currentPlayer);
+                      const skipMove = moves.find((m) => m.type === 'skip_capture');
+                      if (!skipMove) {
+                        return;
+                      }
+                      await sandboxEngine.applyCanonicalMove(skipMove as any);
+                      setSandboxStateVersion((v) => v + 1);
+                      clearSandboxSelection();
+                      maybeRunSandboxAiIfNeeded();
+                    }
+                  : undefined
+              }
               autoSaveGames={autoSaveGames}
               onToggleAutoSave={(next) => setAutoSaveGames(next)}
               gameSaveStatus={gameSaveStatus}

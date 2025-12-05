@@ -30,7 +30,9 @@ describe('EvaluationPanel', () => {
       { id: 'p2', username: 'Bob', playerNumber: 2 } as any,
     ];
 
-    render(<EvaluationPanel evaluationHistory={[baseSnapshot]} players={players} />);
+    const { getByTestId } = render(
+      <EvaluationPanel evaluationHistory={[baseSnapshot]} players={players} />
+    );
 
     expect(screen.getByTestId('evaluation-panel')).toBeInTheDocument();
     expect(screen.getByText(/AI Evaluation/i)).toBeInTheDocument();
@@ -42,6 +44,9 @@ describe('EvaluationPanel', () => {
 
     // Advantage for the leading player should be rendered with sign.
     expect(screen.getByText(/\+3\.2/)).toBeInTheDocument();
+
+    // Sparkline SVG should be rendered when history is present.
+    expect(getByTestId('evaluation-sparkline')).toBeInTheDocument();
   });
 
   it('skips players that have no evaluation entry in perPlayer', () => {
