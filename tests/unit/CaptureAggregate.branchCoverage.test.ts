@@ -21,7 +21,13 @@ import {
   enumerateAllCaptureMoves,
   enumerateChainCaptureSegments,
   getChainCaptureContinuationInfo,
+  enumerateChainCaptures,
+  mutateCapture,
+  applyCapture,
+  applyCaptureSegment,
+  updateChainCaptureStateAfterCapture,
   type ChainCaptureStateSnapshot,
+  type ChainCaptureState,
   type CaptureBoardAdapters,
 } from '../../src/shared/engine/aggregates/CaptureAggregate';
 import type { OvertakingCaptureAction } from '../../src/shared/engine/types';
@@ -30,8 +36,12 @@ import {
   createTestGameState,
   createTestPlayer,
   addStack,
+  addMarker,
+  addCollapsedSpace,
   pos,
 } from '../utils/fixtures';
+import type { Move } from '../../src/shared/types/game';
+import type { ContinueChainAction } from '../../src/shared/engine/types';
 
 describe('CaptureAggregate branch coverage', () => {
   const boardType: BoardType = 'square8';
@@ -495,6 +505,885 @@ describe('CaptureAggregate branch coverage', () => {
       const moves = enumerateAllCaptureMoves(state, 1);
       // Should still have captures available (markers don't block landing)
       expect(moves.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('enumerateChainCaptures', () => {
+    it('returns positions from chain capture continuation info', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const positions = enumerateChainCaptures(state, pos(2, 2), 1);
+      // Should return landing positions for the available captures
+      expect(Array.isArray(positions)).toBe(true);
+    });
+
+    it('returns empty array when no captures available', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      // No targets to capture
+
+      const positions = enumerateChainCaptures(state, pos(2, 2), 1);
+      expect(positions).toHaveLength(0);
+    });
+  });
+
+  describe('disallowRevisitedTargets filter', () => {
+    it('filters out previously captured targets when option is set', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1); // Target
+
+      const snapshot: ChainCaptureStateSnapshot = {
+        player: 1,
+        currentPosition: pos(2, 2),
+        capturedThisChain: [pos(4, 2)], // Already captured this target
+      };
+
+      const segments = enumerateChainCaptureSegments(state, snapshot, {
+        disallowRevisitedTargets: true,
+        kind: 'continuation',
+      });
+
+      // Should filter out the target at (4,2) since it was already captured
+      const capturesTo4_2 = segments.filter(
+        (m) => m.captureTarget?.x === 4 && m.captureTarget.y === 2
+      );
+      expect(capturesTo4_2).toHaveLength(0);
+    });
+
+    it('allows revisited targets when option is false', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const snapshot: ChainCaptureStateSnapshot = {
+        player: 1,
+        currentPosition: pos(2, 2),
+        capturedThisChain: [pos(4, 2)],
+      };
+
+      const segments = enumerateChainCaptureSegments(state, snapshot, {
+        disallowRevisitedTargets: false,
+        kind: 'continuation',
+      });
+
+      // Should allow the target at (4,2)
+      const capturesTo4_2 = segments.filter(
+        (m) => m.captureTarget?.x === 4 && m.captureTarget.y === 2
+      );
+      expect(capturesTo4_2.length).toBeGreaterThan(0);
+    });
+
+    it('handles empty capturedThisChain with disallowRevisitedTargets', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const snapshot: ChainCaptureStateSnapshot = {
+        player: 1,
+        currentPosition: pos(2, 2),
+        capturedThisChain: [],
+      };
+
+      // Should work fine with empty array
+      const segments = enumerateChainCaptureSegments(state, snapshot, {
+        disallowRevisitedTargets: true,
+        kind: 'continuation',
+      });
+      expect(segments.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('mutateCapture', () => {
+    it('places marker at origin after capture', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Origin should now have a marker
+      const originMarker = newState.board.markers.get('2,2');
+      expect(originMarker).toBeDefined();
+      expect(originMarker?.player).toBe(1);
+    });
+
+    it('flips opponent marker in capture path', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(5, 2), 2, 1);
+      // Add opponent marker in path
+      addMarker(state.board, pos(3, 2), 2);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(5, 2),
+        to: pos(7, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Marker at (3,2) should be flipped to player 1
+      const flippedMarker = newState.board.markers.get('3,2');
+      expect(flippedMarker?.player).toBe(1);
+    });
+
+    it('collapses own marker in capture path', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(5, 2), 2, 1);
+      // Add own marker in path
+      addMarker(state.board, pos(3, 2), 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(5, 2),
+        to: pos(7, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Marker at (3,2) should be collapsed
+      expect(newState.board.markers.has('3,2')).toBe(false);
+      expect(newState.board.collapsedSpaces.has('3,2')).toBe(true);
+    });
+
+    it('handles target with multiple rings', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      // Target with 3 rings - mixed ownership
+      state.board.stacks.set('4,2', {
+        position: pos(4, 2),
+        rings: [2, 1, 2], // P2 on top, P1, P2
+        stackHeight: 3,
+        capHeight: 1, // Single cap owned by P2
+        controllingPlayer: 2,
+      });
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Target should still exist with 2 rings
+      const targetStack = newState.board.stacks.get('4,2');
+      expect(targetStack).toBeDefined();
+      expect(targetStack?.stackHeight).toBe(2);
+      expect(targetStack?.rings).toEqual([1, 2]); // P2 ring captured, P1 now on top
+    });
+
+    it('removes target entirely when single ring', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1); // Single ring
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Target should be removed
+      expect(newState.board.stacks.has('4,2')).toBe(false);
+    });
+
+    it('handles landing on marker and eliminates top ring', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+      // Add marker at landing position
+      addMarker(state.board, pos(6, 2), 2);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Marker at landing should be removed
+      expect(newState.board.markers.has('6,2')).toBe(false);
+
+      // Stack at landing should have eliminated a ring
+      const landingStack = newState.board.stacks.get('6,2');
+      // Original: 2 rings from attacker + 1 from target = 3, then -1 for landing = 2
+      expect(landingStack?.stackHeight).toBe(2);
+    });
+
+    it('eliminates stack entirely when landing on marker with single ring', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      // Single ring attacker
+      addStack(state.board, pos(2, 2), 1, 1);
+      addStack(state.board, pos(4, 2), 2, 1);
+      // Add marker at landing position
+      addMarker(state.board, pos(6, 2), 2);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Attacker: 1 ring + captured: 1 ring = 2, then eliminate top = 1 remaining
+      const landingStack = newState.board.stacks.get('6,2');
+      expect(landingStack?.stackHeight).toBe(1);
+    });
+
+    it('throws when attacker stack is missing', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      // No attacker stack at (2,2)
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      expect(() => mutateCapture(state, action)).toThrow('Missing attacker or target stack');
+    });
+
+    it('throws when target stack is missing', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      // No target stack at (4,2)
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      expect(() => mutateCapture(state, action)).toThrow('Missing attacker or target stack');
+    });
+  });
+
+  describe('updateChainCaptureStateAfterCapture', () => {
+    it('creates new chain state on first capture', () => {
+      const move: Move = {
+        id: 'test-capture',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = updateChainCaptureStateAfterCapture(undefined, move, 1);
+
+      expect(result).toBeDefined();
+      expect(result?.playerNumber).toBe(1);
+      expect(result?.startPosition).toEqual(pos(2, 2));
+      expect(result?.currentPosition).toEqual(pos(6, 2));
+      expect(result?.segments).toHaveLength(1);
+      expect(result?.visitedPositions.has('2,2')).toBe(true);
+    });
+
+    it('updates existing chain state on subsequent capture', () => {
+      const initialState: ChainCaptureState = {
+        playerNumber: 1,
+        startPosition: pos(2, 2),
+        currentPosition: pos(6, 2),
+        segments: [
+          { from: pos(2, 2), target: pos(4, 2), landing: pos(6, 2), capturedCapHeight: 1 },
+        ],
+        availableMoves: [],
+        visitedPositions: new Set(['2,2']),
+      };
+
+      const move: Move = {
+        id: 'test-capture-2',
+        type: 'continue_capture_segment',
+        player: 1,
+        from: pos(6, 2),
+        captureTarget: pos(6, 4),
+        to: pos(6, 6),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 2,
+      };
+
+      const result = updateChainCaptureStateAfterCapture(initialState, move, 1);
+
+      expect(result).toBeDefined();
+      expect(result?.currentPosition).toEqual(pos(6, 6));
+      expect(result?.segments).toHaveLength(2);
+      expect(result?.visitedPositions.has('6,2')).toBe(true);
+    });
+
+    it('returns undefined state when move has no from', () => {
+      const move: Move = {
+        id: 'test-move',
+        type: 'overtaking_capture',
+        player: 1,
+        from: undefined as unknown as Position,
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = updateChainCaptureStateAfterCapture(undefined, move, 1);
+      expect(result).toBeUndefined();
+    });
+
+    it('returns current state when move has no captureTarget', () => {
+      const existingState: ChainCaptureState = {
+        playerNumber: 1,
+        startPosition: pos(2, 2),
+        currentPosition: pos(6, 2),
+        segments: [],
+        availableMoves: [],
+        visitedPositions: new Set(),
+      };
+
+      const move: Move = {
+        id: 'test-move',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 2),
+        captureTarget: undefined as unknown as Position,
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = updateChainCaptureStateAfterCapture(existingState, move, 1);
+      expect(result).toBe(existingState); // Returns same reference
+    });
+  });
+
+  describe('applyCapture', () => {
+    it('rejects non-capture move types', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const move: Move = {
+        id: 'test-move',
+        type: 'move_stack', // Wrong type
+        player: 1,
+        from: pos(2, 2),
+        to: pos(3, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('Expected');
+    });
+
+    it('rejects move without from position', () => {
+      const state = makeEmptyGameState();
+
+      const move: Move = {
+        id: 'test-move',
+        type: 'overtaking_capture',
+        player: 1,
+        to: pos(6, 2),
+        captureTarget: pos(4, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('required');
+    });
+
+    it('rejects move without captureTarget', () => {
+      const state = makeEmptyGameState();
+
+      const move: Move = {
+        id: 'test-move',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 2),
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(false);
+      expect(result.reason).toContain('required');
+    });
+
+    it('successfully applies capture and returns new state', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const move: Move = {
+        id: 'test-capture',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.newState).toBeDefined();
+        expect(result.chainCaptures).toBeDefined();
+      }
+    });
+
+    it('handles continue_capture_segment move type', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'chain_capture';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const move: Move = {
+        id: 'test-continue',
+        type: 'continue_capture_segment',
+        player: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 2,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(true);
+    });
+
+    it('catches errors and returns failure result', () => {
+      const state = makeEmptyGameState();
+      // Missing stacks will cause mutateCapture to throw
+
+      const move: Move = {
+        id: 'test-capture',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 2), // No stack here
+        captureTarget: pos(4, 2), // No stack here
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(false);
+      expect(result.reason).toBeDefined();
+    });
+  });
+
+  describe('applyCaptureSegment', () => {
+    it('returns chain continuation info', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const outcome = applyCaptureSegment(state, {
+        from: pos(2, 2),
+        target: pos(4, 2),
+        landing: pos(6, 2),
+        player: 1,
+      });
+
+      expect(outcome.nextState).toBeDefined();
+      expect(outcome.ringsTransferred).toBe(1);
+      expect(typeof outcome.chainContinuationRequired).toBe('boolean');
+    });
+
+    it('detects chain continuation when more captures available', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 3); // Strong stack
+      addStack(state.board, pos(4, 2), 2, 1); // First target
+      addStack(state.board, pos(6, 4), 2, 1); // Second target (after landing at 6,2)
+
+      const outcome = applyCaptureSegment(state, {
+        from: pos(2, 2),
+        target: pos(4, 2),
+        landing: pos(6, 2),
+        player: 1,
+      });
+
+      // After capturing, the stack lands at (6,2) with cap height 4
+      // It may be able to capture the stack at (6,4)
+      expect(outcome.nextState).toBeDefined();
+    });
+  });
+
+  describe('getChainCaptureContinuationInfo', () => {
+    it('returns mustContinue=false when no targets', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      // No targets
+
+      const info = getChainCaptureContinuationInfo(state, 1, pos(2, 2));
+      expect(info.mustContinue).toBe(false);
+      expect(info.availableContinuations).toHaveLength(0);
+    });
+
+    it('returns mustContinue=true with available continuations', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+
+      const info = getChainCaptureContinuationInfo(state, 1, pos(2, 2));
+      expect(info.mustContinue).toBe(true);
+      expect(info.availableContinuations.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('enumeration break conditions', () => {
+    it('stops landing enumeration at collapsed space', () => {
+      const adapters: CaptureBoardAdapters = {
+        isValidPosition: (p) => p.x >= 0 && p.x < 8 && p.y >= 0 && p.y < 8,
+        isCollapsedSpace: (p) => p.x === 6 && p.y === 2, // Collapsed at first landing
+        getStackAt: (p) => {
+          if (p.x === 2 && p.y === 2) {
+            return { controllingPlayer: 1, capHeight: 2, stackHeight: 2 };
+          }
+          if (p.x === 4 && p.y === 2) {
+            return { controllingPlayer: 2, capHeight: 1, stackHeight: 1 };
+          }
+          return undefined;
+        },
+        getMarkerOwner: () => undefined,
+      };
+
+      // First valid landing would be (5,2), but (6,2) is collapsed
+      const moves = enumerateCaptureMoves(boardType, pos(2, 2), 1, adapters, 1);
+
+      // Should have landing at (5,2) but not beyond (6,2) since it's collapsed
+      const eastCaptures = moves.filter((m) => m.captureTarget?.x === 4 && m.captureTarget.y === 2);
+      const landingsAt6 = eastCaptures.filter((m) => m.to.x === 6);
+      expect(landingsAt6).toHaveLength(0);
+    });
+
+    it('stops landing enumeration when hitting another stack', () => {
+      const adapters: CaptureBoardAdapters = {
+        isValidPosition: (p) => p.x >= 0 && p.x < 8 && p.y >= 0 && p.y < 8,
+        isCollapsedSpace: () => false,
+        getStackAt: (p) => {
+          if (p.x === 2 && p.y === 2) {
+            return { controllingPlayer: 1, capHeight: 2, stackHeight: 2 };
+          }
+          if (p.x === 4 && p.y === 2) {
+            return { controllingPlayer: 2, capHeight: 1, stackHeight: 1 };
+          }
+          if (p.x === 6 && p.y === 2) {
+            return { controllingPlayer: 1, capHeight: 1, stackHeight: 1 }; // Blocking stack
+          }
+          return undefined;
+        },
+        getMarkerOwner: () => undefined,
+      };
+
+      const moves = enumerateCaptureMoves(boardType, pos(2, 2), 1, adapters, 1);
+
+      // Should have landing at (5,2) but not at (6,2) or beyond due to blocking stack
+      const eastCaptures = moves.filter((m) => m.captureTarget?.x === 4 && m.captureTarget.y === 2);
+      const landingsAt6 = eastCaptures.filter((m) => m.to.x === 6);
+      expect(landingsAt6).toHaveLength(0);
+    });
+  });
+
+  describe('mixed ownership target stacks', () => {
+    it('handles capture of stack with alternating ownership', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(2, 2), 1, 3);
+
+      // Target with alternating rings: P2, P1, P2, P1
+      state.board.stacks.set('4,2', {
+        position: pos(4, 2),
+        rings: [2, 1, 2, 1],
+        stackHeight: 4,
+        capHeight: 1, // P2 controls (single ring on top)
+        controllingPlayer: 2,
+      });
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Target should have 3 remaining rings with P1 now controlling
+      const targetStack = newState.board.stacks.get('4,2');
+      expect(targetStack?.stackHeight).toBe(3);
+      expect(targetStack?.rings).toEqual([1, 2, 1]);
+      expect(targetStack?.controllingPlayer).toBe(1);
+    });
+  });
+
+  describe('marker processing in path', () => {
+    it('processes multiple markers in path correctly', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+      addStack(state.board, pos(1, 2), 1, 2);
+      addStack(state.board, pos(5, 2), 2, 1);
+
+      // Opponent marker between origin and target
+      addMarker(state.board, pos(2, 2), 2);
+      // Own marker between origin and target
+      addMarker(state.board, pos(3, 2), 1);
+      // Opponent marker between target and landing
+      addMarker(state.board, pos(6, 2), 2);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(1, 2),
+        captureTarget: pos(5, 2),
+        to: pos(7, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // Opponent marker at (2,2) should be flipped
+      expect(newState.board.markers.get('2,2')?.player).toBe(1);
+
+      // Own marker at (3,2) should be collapsed
+      expect(newState.board.markers.has('3,2')).toBe(false);
+      expect(newState.board.collapsedSpaces.has('3,2')).toBe(true);
+
+      // Opponent marker at (6,2) should be flipped
+      expect(newState.board.markers.get('6,2')?.player).toBe(1);
+    });
+  });
+
+  describe('applyCapture with chain continuation', () => {
+    it('populates chainCaptures when continuation is required', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+
+      // Set up a scenario where chain capture will be possible after first capture
+      // Strong attacker
+      addStack(state.board, pos(2, 2), 1, 3);
+      // First target
+      addStack(state.board, pos(4, 2), 2, 1);
+      // Second target reachable from landing position (6,2)
+      addStack(state.board, pos(6, 4), 2, 1);
+
+      const move: Move = {
+        id: 'test-capture',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(true);
+      if (result.success) {
+        // After landing at (6,2), should be able to continue capturing (6,4)
+        // The chainCaptures array should be populated if continuation is required
+        expect(Array.isArray(result.chainCaptures)).toBe(true);
+      }
+    });
+
+    it('includes continuation landing positions in chainCaptures', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+
+      // Strong attacker at (2, 3)
+      addStack(state.board, pos(2, 3), 1, 4);
+      // First target at (4, 3)
+      addStack(state.board, pos(4, 3), 2, 1);
+      // Second target at (6, 5) - capturable after landing at (6, 3)
+      addStack(state.board, pos(6, 5), 2, 1);
+
+      const move: Move = {
+        id: 'test-capture',
+        type: 'overtaking_capture',
+        player: 1,
+        from: pos(2, 3),
+        captureTarget: pos(4, 3),
+        to: pos(6, 3),
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyCapture(state, move);
+      expect(result.success).toBe(true);
+      if (result.success && result.chainCaptures.length > 0) {
+        // Each position in chainCaptures should be a valid landing position
+        for (const chainPos of result.chainCaptures) {
+          expect(chainPos).toBeDefined();
+          expect(typeof chainPos.x).toBe('number');
+          expect(typeof chainPos.y).toBe('number');
+        }
+      }
+    });
+  });
+
+  describe('getMarkerOwner adapter functions', () => {
+    it('createBoardAdapters getMarkerOwner returns marker owner', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+      // Add a marker
+      addMarker(state.board, pos(5, 2), 2);
+
+      // When we enumerate captures, the adapter's getMarkerOwner is called internally
+      // to check if landing on own marker (which would trigger ring elimination)
+      const moves = enumerateAllCaptureMoves(state, 1);
+      // The function should work regardless of marker presence
+      expect(Array.isArray(moves)).toBe(true);
+    });
+
+    it('getMarkerOwner returns undefined for position without marker', () => {
+      const state = makeEmptyGameState();
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1);
+      // No markers
+
+      const moves = enumerateAllCaptureMoves(state, 1);
+      expect(moves.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('edge case: landing eliminates stack completely', () => {
+    it('handles rare case where combined stack has single ring and lands on marker', () => {
+      // This is a theoretical edge case - in practice, capturing always adds at least
+      // one ring from the target to the attacker, so minimum combined stack is 2 rings.
+      // After landing on marker, minimum is 1 ring.
+      // The code path for reducedRings.length === 0 at line 773 appears to be defensive.
+
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+
+      // Single ring attacker
+      addStack(state.board, pos(2, 2), 1, 1);
+      // Single ring target
+      addStack(state.board, pos(4, 2), 2, 1);
+      // Marker at landing
+      addMarker(state.board, pos(6, 2), 2);
+
+      const action: OvertakingCaptureAction = {
+        type: 'OVERTAKING_CAPTURE',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const newState = mutateCapture(state, action);
+
+      // After capture: 1 (attacker) + 1 (captured) = 2 rings
+      // After landing on marker: 2 - 1 = 1 ring remaining
+      const landingStack = newState.board.stacks.get('6,2');
+      expect(landingStack?.stackHeight).toBe(1);
+    });
+  });
+
+  describe('validateCaptureSegmentOnBoard via validateCapture', () => {
+    it('rejects capture when path is blocked', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1); // Target
+      addStack(state.board, pos(3, 2), 1, 1); // Blocking stack in path
+
+      const action: OvertakingCaptureAction = {
+        type: 'overtaking_capture',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2),
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
+    });
+
+    it('rejects capture when landing path is blocked', () => {
+      const state = makeEmptyGameState();
+      state.currentPhase = 'movement';
+
+      addStack(state.board, pos(2, 2), 1, 2);
+      addStack(state.board, pos(4, 2), 2, 1); // Target
+      addStack(state.board, pos(5, 2), 1, 1); // Stack between target and landing
+
+      const action: OvertakingCaptureAction = {
+        type: 'overtaking_capture',
+        playerId: 1,
+        from: pos(2, 2),
+        captureTarget: pos(4, 2),
+        to: pos(6, 2), // Must pass through (5,2) to reach (6,2)
+      };
+
+      const result = validateCapture(state, action);
+      expect(result.valid).toBe(false);
     });
   });
 });

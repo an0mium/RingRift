@@ -43,7 +43,7 @@
     "current_player": 1,
     "game_status": "active",
     "move_index": 13,
-    "state_hash": "50b2e4f133132a6e"
+    "state_hash": "32a942b1147b21b8"
   },
   "total_moves_python": 59,
   "total_moves_ts": 59,

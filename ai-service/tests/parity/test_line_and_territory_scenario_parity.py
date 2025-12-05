@@ -177,7 +177,7 @@ def test_line_and_territory_scenario_parity(board_type: BoardType) -> None:
 
     try:
         BoardManager.find_all_lines = staticmethod(
-            lambda b: [synthetic_line]
+            lambda b, num_players=3: [synthetic_line]
         )
         BoardManager.find_disconnected_regions = staticmethod(
             lambda b, moving_player: [region_territory]
@@ -304,7 +304,9 @@ def test_get_valid_moves_line_processing_surfaces_only_line_decisions() -> None:
                 direction=Position(x=1, y=0),
             )
 
-            BoardManager.find_all_lines = staticmethod(lambda board, sl=synthetic_line: [sl])
+            BoardManager.find_all_lines = staticmethod(
+                lambda board, num_players=2, sl=synthetic_line: [sl]
+            )
 
             state.current_phase = GamePhase.LINE_PROCESSING
             state.current_player = 1
@@ -668,7 +670,9 @@ def test_overlength_line_option2_segments_exhaustive(board_type: BoardType) -> N
     orig_find_all_lines = BoardManager.find_all_lines
     try:
         # Force the board to report exactly our synthetic overlength line.
-        BoardManager.find_all_lines = staticmethod(lambda b, sl=synthetic_line: [sl])
+        BoardManager.find_all_lines = staticmethod(
+            lambda b, num_players=3, sl=synthetic_line: [sl]
+        )
 
         state.current_phase = GamePhase.LINE_PROCESSING
         state.current_player = 1

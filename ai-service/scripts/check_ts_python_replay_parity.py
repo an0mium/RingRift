@@ -435,6 +435,8 @@ def trace_game(db_path: Path, game_id: str, max_k: Optional[int] = None) -> None
             init_dims.append("current_phase")
         if py_initial.game_status != ts_initial.game_status:
             init_dims.append("game_status")
+        if py_initial.state_hash != ts_initial.state_hash:
+            init_dims.append("state_hash")
 
     print(
         "TRACE "
@@ -450,6 +452,8 @@ def trace_game(db_path: Path, game_id: str, max_k: Optional[int] = None) -> None
         f"ts_phase={(ts_initial.current_phase if ts_initial is not None else 'None')} "
         f"py_status={py_initial.game_status} "
         f"ts_status={(ts_initial.game_status if ts_initial is not None else 'None')} "
+        f"py_hash={py_initial.state_hash} "
+        f"ts_hash={(ts_initial.state_hash if ts_initial is not None else 'None')} "
         f"dims={','.join(init_dims)}"
     )
 
@@ -480,6 +484,8 @@ def trace_game(db_path: Path, game_id: str, max_k: Optional[int] = None) -> None
                 dims.append("current_phase")
             if py_summary.game_status != ts_summary.game_status:
                 dims.append("game_status")
+            if py_summary.state_hash != ts_summary.state_hash:
+                dims.append("state_hash")
         elif py_summary is None and ts_summary is not None:
             dims.append("python_missing_step")
         elif py_summary is not None and ts_summary is None:
@@ -500,6 +506,8 @@ def trace_game(db_path: Path, game_id: str, max_k: Optional[int] = None) -> None
         ts_phase = ts_summary.current_phase if ts_summary is not None else None
         py_status = py_summary.game_status if py_summary is not None else None
         ts_status = ts_summary.game_status if ts_summary is not None else None
+        py_hash = py_summary.state_hash if py_summary is not None else None
+        ts_hash = ts_summary.state_hash if ts_summary is not None else None
 
         line = (
             "TRACE "
@@ -516,6 +524,8 @@ def trace_game(db_path: Path, game_id: str, max_k: Optional[int] = None) -> None
             f"ts_phase={ts_phase} "
             f"py_status={py_status} "
             f"ts_status={ts_status} "
+            f"py_hash={py_hash} "
+            f"ts_hash={ts_hash} "
             f"dims={','.join(dims)}"
         )
         if py_error:

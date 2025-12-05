@@ -393,4 +393,109 @@ describe('GameHUD – view-model props', () => {
       expect(screen.getByText('Forced Elimination (FE)')).toBeInTheDocument();
     });
   });
+
+  it('shows a territory help button during territory_processing decisions and opens TeachingOverlay', async () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'territory_processing' as any,
+        label: 'Territory Processing',
+        description: 'Resolve disconnected regions and territory.',
+      },
+      decisionPhase: {
+        isActive: true,
+        actingPlayerNumber: 1,
+        actingPlayerName: 'Alice',
+        isLocalActor: true,
+        label: 'Your decision: Choose region order',
+        description: 'Choose which disconnected region to process first.',
+        shortLabel: 'Territory region order',
+        timeRemainingMs: null,
+        showCountdown: false,
+        warningThresholdMs: undefined,
+        isServerCapped: undefined,
+        spectatorLabel: 'Waiting for Alice to choose a region to process first',
+        statusChip: {
+          text: 'Territory claimed – choose region to process or skip',
+          tone: 'attention',
+        },
+      },
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.getByTestId('hud-territory-help');
+    expect(helpButton).toBeInTheDocument();
+
+    helpButton.click();
+
+    await waitFor(() => {
+      expect(screen.getByText('Territory Control')).toBeInTheDocument();
+    });
+  });
+
+  it('shows a line-processing phase help chip and opens TeachingOverlay', async () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'line_processing' as any,
+        label: 'Line Formation',
+        description: 'Resolve completed lines and rewards.',
+      },
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.getByTestId('hud-phase-help-line_processing');
+    expect(helpButton).toBeInTheDocument();
+
+    helpButton.click();
+
+    await waitFor(() => {
+      expect(screen.getByText('Line Bonus')).toBeInTheDocument();
+    });
+  });
+
+  it('shows a chain-capture phase help chip and opens TeachingOverlay', async () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'chain_capture' as any,
+        label: 'Chain Capture',
+        description: 'Continue your capture sequence.',
+      },
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.getByTestId('hud-phase-help-chain_capture');
+    expect(helpButton).toBeInTheDocument();
+
+    helpButton.click();
+
+    await waitFor(() => {
+      expect(screen.getByText('Chain Capture')).toBeInTheDocument();
+    });
+  });
 });

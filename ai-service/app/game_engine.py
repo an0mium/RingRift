@@ -27,7 +27,7 @@ from .models import (
 from .board_manager import BoardManager
 from .ai.zobrist import ZobristHash
 from .rules.geometry import BoardGeometry
-from .rules.core import count_rings_in_play_for_player, get_line_length_for_board
+from .rules.core import count_rings_in_play_for_player, get_line_length_for_board, get_effective_line_length
 from .rules.capture_chain import enumerate_capture_moves_py
 
 
@@ -2377,13 +2377,14 @@ class GameEngine:
         - One PROCESS_LINE move per player-owned line.
         - One CHOOSE_LINE_REWARD move per overlength line (length > required).
         """
-        lines = BoardManager.find_all_lines(game_state.board)
+        num_players = len(game_state.players)
+        lines = BoardManager.find_all_lines(game_state.board, num_players)
         player_lines = [line for line in lines if line.player == player_number]
 
         if not player_lines:
             return []
 
-        required_len = get_line_length_for_board(game_state.board.type)
+        required_len = get_effective_line_length(game_state.board.type, num_players)
         moves: List[Move] = []
 
         for idx, line in enumerate(player_lines):
@@ -3181,7 +3182,8 @@ class GameEngine:
 
         # Final fallback: recompute from markers.
         if target_line is None:
-            for line in BoardManager.find_all_lines(board):
+            num_players = len(game_state.players)
+            for line in BoardManager.find_all_lines(board, num_players):
                 if line.positions and line.positions[0].to_key() == move.to.to_key():
                     target_line = line
                     break
@@ -3190,7 +3192,8 @@ class GameEngine:
             return
 
         # 2. Determine required minimum line length.
-        required_len = get_line_length_for_board(board.type)
+        num_players = len(game_state.players)
+        required_len = get_effective_line_length(board.type, num_players)
 
         # 3. Decide which positions to collapse.
         positions_to_collapse: List[Position]
@@ -3216,14 +3219,12 @@ class GameEngine:
             else:
                 positions_to_collapse = list(target_line.positions)
 
-        # 4. Apply collapses. TS currently tracks territory ownership for
-        # line-collapse rewards implicitly via board.collapsedSpaces; the
-        # per-player territorySpaces counters are not updated by the shared
-        # LineMutator, and the TS parity fixtures' hashes reflect that. To
-        # stay aligned, we update board.collapsed_spaces only and leave
-        # territory_spaces unchanged here.
+        # 4. Apply collapses. TS's LineAggregate increments territorySpaces
+        # by the number of collapsed marker positions (collapsedKeys.size).
+        # We mirror that here.
         seen_keys = set()
         zobrist = ZobristHash()
+        collapsed_count = 0
         for pos in positions_to_collapse:
             key = pos.to_key()
             if key in seen_keys:
@@ -3239,6 +3240,14 @@ class GameEngine:
             BoardManager.set_collapsed_space(pos, move.player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
+            collapsed_count += 1
+
+        # Update the moving player's territory_spaces to match TS LineAggregate
+        if collapsed_count > 0:
+            for player_state in game_state.players:
+                if player_state.player_number == move.player:
+                    player_state.territory_spaces += collapsed_count
+                    break
 
         # Note: board.formed_lines is not currently consulted by the Python
         # GameEngine when generating further line-processing moves, and it is

@@ -692,10 +692,17 @@ router.post(
     }
 
     // Derive initial engine-side state including AI opponent configuration and
-    // per-game rules options (e.g., swap rule configuration).
+    // per-game rules options (e.g., swap rule configuration). This object is
+    // persisted as JSON in the Game row and later used by the GameEngine host
+    // to construct a full GameState; it may safely include extra metadata
+    // fields that are not part of the canonical GameState type.
     const initialGameState: {
       aiOpponents?: AiOpponentsConfig;
       rulesOptions?: GameState['rulesOptions'];
+      calibration?: {
+        isCalibrationGame: boolean;
+        difficulty?: number;
+      };
     } = {};
     if (gameData.aiOpponents && gameData.aiOpponents.count > 0) {
       initialGameState.aiOpponents = gameData.aiOpponents;

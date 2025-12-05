@@ -86,7 +86,7 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     copy: {
       title: 'Choose Line Reward',
       description:
-        'Your markers formed a line! Choose to collapse them into territory, or take an elimination bonus.',
+        'Your markers formed a scoring line. Choose to collapse them into territory or, on some boards, take an elimination bonus; with overlength lines you can collapse a minimal scoring segment and skip elimination, or collapse the full line and pay the ring cost.',
       shortLabel: 'Line reward',
       spectatorLabel: ({ actingPlayerName }) =>
         `Waiting for ${actingPlayerName} to choose a line reward option`,
@@ -98,7 +98,7 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     copy: {
       title: 'Choose Elimination Stack',
       description:
-        'You must eliminate rings to satisfy the territory claim. Select which of your stacks to sacrifice from.',
+        'You must eliminate rings to pay for this claim. Select which of your stacks to sacrifice rings from; eliminated rings are permanently removed and count toward Ring Elimination.',
       shortLabel: 'Ring elimination',
       spectatorLabel: ({ actingPlayerName }) =>
         `Waiting for ${actingPlayerName} to choose a stack for ring elimination`,
@@ -109,7 +109,8 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     kind: 'territory_region_order',
     copy: {
       title: 'Choose Territory Region',
-      description: 'Pick which disconnected region to resolve next.',
+      description:
+        'Pick which disconnected region you control to resolve next: its spaces will collapse into Territory and rings in the region will be eliminated, often at the cost of a ring from one of your other stacks.',
       shortLabel: 'Territory region',
       spectatorLabel: ({ actingPlayerName }) =>
         `Waiting for ${actingPlayerName} to choose a territory region to process`,
@@ -121,7 +122,7 @@ const CHOICE_VIEW_MODEL_MAP: Record<PlayerChoiceType, ChoiceViewModelConfig> = {
     copy: {
       title: 'Choose Capture Direction',
       description:
-        'You must continue the capture chain. Select which direction to jump next.',
+        'You are in a chain capture: once the chain begins you must keep capturing as long as any capture is available, choosing which target to jump over each time.',
       shortLabel: 'Capture direction',
       spectatorLabel: ({ actingPlayerName }) =>
         `Waiting for ${actingPlayerName} to choose a capture direction`,

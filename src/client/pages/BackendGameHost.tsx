@@ -40,6 +40,11 @@ import { useGameState } from '../hooks/useGameState';
 import { getWeirdStateBanner } from '../utils/gameStateWeirdness';
 import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
 import { sendRulesUxEvent } from '../utils/rulesUxTelemetry';
+import {
+  sendDifficultyCalibrationEvent,
+  getDifficultyCalibrationSession,
+  clearDifficultyCalibrationSession,
+} from '../utils/difficultyCalibrationTelemetry';
 import { useGameConnection } from '../hooks/useGameConnection';
 import {
   useGameActions,
@@ -538,6 +543,10 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   const weirdStateTypeRef = useRef<RulesUxWeirdStateType | 'none'>('none');
   const weirdStateResignReportedRef = useRef<Set<string>>(new Set());
 
+  // Difficulty calibration tracking: ensure we emit at most one
+  // game_completed event per calibration game.
+  const calibrationEventReportedRef = useRef(false);
+
   // Chat UI state (backend chat only; GameContext always provides sendChatMessage)
   const chatMessages = backendChatMessages;
   const [chatInput, setChatInput] = useState('');
@@ -729,6 +738,57 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       weirdStateFirstSeenAtRef.current = Date.now();
     }
   }, [gameState, victoryState]);
+
+  // Emit a single difficulty_calibration_game_completed event for calibration games
+  // that have a stored session (created from the Lobby). This remains purely
+  // client-driven for now and does not depend on server-side calibration flags.
+  useEffect(() => {
+    if (!victoryState || calibrationEventReportedRef.current) {
+      return;
+    }
+
+    const session = getDifficultyCalibrationSession(routeGameId);
+    if (!session || !session.isCalibrationOptIn) {
+      return;
+    }
+
+    if (!gameState) {
+      return;
+    }
+
+    let result: 'win' | 'loss' | 'draw' | 'abandoned' = 'abandoned';
+
+    if (victoryState.reason === 'draw') {
+      result = 'draw';
+    } else if (victoryState.reason === 'abandonment') {
+      result = 'abandoned';
+    } else if (typeof victoryState.winner === 'number') {
+      const winnerPlayer = gameState.players.find((p) => p.playerNumber === victoryState.winner);
+      if (winnerPlayer?.type === 'human') {
+        result = 'win';
+      } else if (winnerPlayer?.type === 'ai') {
+        result = 'loss';
+      }
+    }
+
+    const movesPlayed =
+      Array.isArray(gameState.moveHistory) && gameState.moveHistory.length > 0
+        ? gameState.moveHistory.length
+        : undefined;
+
+    calibrationEventReportedRef.current = true;
+    clearDifficultyCalibrationSession(routeGameId);
+
+    void sendDifficultyCalibrationEvent({
+      type: 'difficulty_calibration_game_completed',
+      boardType: session.boardType,
+      numPlayers: session.numPlayers,
+      difficulty: session.difficulty,
+      isCalibrationOptIn: true,
+      result,
+      movesPlayed,
+    });
+  }, [victoryState, gameState, routeGameId]);
 
   // Placeholder hook for future game_error events (kept for parity with previous GamePage logic)
   useEffect(() => {

@@ -41,7 +41,7 @@
   "diverged_at": 150,
   "game_id": "86e5db64-1b12-4465-8dd4-6adfd8c786ea",
   "mismatch_context": "post_move",
-  "mismatch_kinds": ["current_player", "current_phase"],
+  "mismatch_kinds": ["current_phase"],
   "python_summary": {
     "current_phase": "capture",
     "current_player": 3,
@@ -52,10 +52,10 @@
   "total_moves_python": 150,
   "total_moves_ts": 150,
   "ts_summary": {
-    "current_phase": "movement",
-    "current_player": 2,
+    "current_phase": "territory_processing",
+    "current_player": 3,
     "game_status": "active",
     "move_index": 150,
-    "state_hash": "c6cbc1cdd2045952"
+    "state_hash": "2bc32cf86a2147ec"
   }
 }

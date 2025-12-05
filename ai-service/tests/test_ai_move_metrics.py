@@ -22,7 +22,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.testclient import TestClient
 
 from app.main import app  # type: ignore
-from app.metrics import AI_MOVE_LATENCY, AI_MOVE_REQUESTS
+from app.metrics import AI_MOVE_LATENCY, AI_MOVE_REQUESTS, observe_ai_move_start
 from app.models import (  # type: ignore
     AIType,
     BoardState,
@@ -87,11 +87,20 @@ def _make_minimal_state() -> GameState:
 
 
 def _get_counter_value(counter, labels: Dict[str, str]) -> float:
-    """Return the current value for a Counter with the given label set."""
+    """Return the current value for a Counter with the given label set.
+
+    Prometheus client libraries may expose Counter samples either under the
+    bare metric name (for example ``ai_move_requests_total``) or with an
+    additional ``_total`` suffix depending on the version and how the metric
+    was originally registered. To keep this helper robust across versions, we
+    accept both forms.
+    """
     metric_name = counter._name  # type: ignore[attr-defined]
+    candidate_names = {metric_name, f"{metric_name}_total"}
+
     for metric in counter.collect():
         for sample in metric.samples:
-            if sample.name != metric_name:
+            if sample.name not in candidate_names:
                 continue
             if all(sample.labels.get(k) == v for k, v in labels.items()):
                 return float(sample.value)
@@ -151,6 +160,14 @@ def test_ai_move_success_increments_metrics() -> None:
     assert after_latency_count == before_latency_count + 1
 
 
+def test_observe_ai_move_start_normalises_labels() -> None:
+    """observe_ai_move_start returns stringified difficulty labels."""
+    ai_type_label, difficulty_label = observe_ai_move_start("mcts", 6)
+
+    assert ai_type_label == "mcts"
+    assert difficulty_label == "6"
+
+
 @pytest.mark.timeout(TEST_TIMEOUT_SECONDS)
 def test_ai_move_error_increments_error_metrics_and_surfaces_detail() -> None:
     """Failing /ai/move calls increment error metrics and return clear detail."""
@@ -189,4 +206,3 @@ def test_ai_move_error_increments_error_metrics_and_surfaces_detail() -> None:
     assert after_success == before_success
     assert after_error == before_error + 1
     assert after_latency_count == before_latency_count + 1
-

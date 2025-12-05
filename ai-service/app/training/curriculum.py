@@ -6,6 +6,53 @@ Implements iterative self-play training with:
 - Model evaluation and promotion
 - Historical data mixing
 - Board-type-specific training
+
+Canonical curriculum runs
+-------------------------
+
+This module is the single source of truth for **self-play curriculum
+configuration**, complementing:
+
+- ``ai-service/app/config/ladder_config.py`` – canonical difficulty ladder
+  (D1–D10) per ``(difficulty, board_type, num_players)``.
+- ``docs/ai/AI_HUMAN_CALIBRATION_GUIDE.md`` – human-facing calibration
+  procedures for D2/D4/D6/D8 on square8 2‑player.
+
+The current canonical curriculum slices are:
+
+- **Square‑8, 2‑player** (primary production focus)
+  - ``board_type = BoardType.SQUARE8``
+  - ``num_players = 2``
+  - Default curriculum hyperparameters come from ``CurriculumConfig``.
+- **Square‑19, 2‑player** (experimental)
+  - ``board_type = BoardType.SQUARE19``
+  - ``num_players = 2``
+- **Hexagonal, 2‑player** (experimental)
+  - ``board_type = BoardType.HEXAGONAL``
+  - ``num_players = 2``
+
+All of these share the same CurriculumConfig knobs (generations, games per
+generation, eval_games, max_moves, engine mix, etc.). For auditability,
+each run writes its resolved configuration to ``<run_dir>/config.json`` via
+``CurriculumTrainer._save_config()`` so that training parameters can be
+inspected and reproduced later.
+
+To launch a canonical square8 2‑player curriculum run with the defaults:
+
+.. code-block:: bash
+
+    cd ai-service
+    python -m app.training.curriculum \\
+      --board-type square8 \\
+      --generations 10 \\
+      --games-per-gen 1000 \\
+      --eval-games 100 \\
+      --output-dir curriculum_runs/square8_2p
+
+These defaults are intentionally conservative and match the values used by
+initial curriculum experiments; they can be tuned per run by overriding the
+corresponding CLI flags, but every change will still be recorded in the
+run's ``config.json`` for later analysis.
 """
 
 import json

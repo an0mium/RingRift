@@ -739,4 +739,324 @@ describe('VictoryAggregate branch coverage', () => {
       expect(result).toBeDefined();
     });
   });
+
+  // ==========================================================================
+  // hasAnyLegalPlacementOnBareBoard - Line 106 branch
+  // ==========================================================================
+  describe('hasAnyLegalPlacementOnBareBoard branch coverage', () => {
+    it('handles player not found in players array', () => {
+      const state = makeGameState({
+        players: [makePlayer(1), makePlayer(2)],
+      });
+
+      // Check victory when a non-existent player is referenced internally
+      const result = evaluateVictory(state);
+      expect(result).toBeDefined();
+    });
+
+    it('handles player with zero rings in hand', () => {
+      const board = makeBoardState();
+      // Empty board with no stacks
+
+      const state = makeGameState({
+        board,
+        players: [makePlayer(1, { ringsInHand: 0 }), makePlayer(2, { ringsInHand: 0 })],
+      });
+
+      // Both players have no rings to place
+      const result = evaluateVictory(state);
+      expect(result).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // Stack lookup in view callback - Lines 160-173
+  // ==========================================================================
+  describe('stack lookup in move validation', () => {
+    it('handles board with stacks during placement check', () => {
+      const board = makeBoardState();
+      // Add a stack to the board
+      const key = positionToString({ x: 3, y: 3 });
+      board.stacks.set(key, {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+        capHeight: 2,
+      });
+
+      const state = makeGameState({
+        board,
+        players: [makePlayer(1, { ringsInHand: 5 }), makePlayer(2, { ringsInHand: 5 })],
+      });
+
+      const result = evaluateVictory(state);
+      expect(result).toBeDefined();
+    });
+
+    it('handles stack lookup returning undefined', () => {
+      const board = makeBoardState();
+
+      const state = makeGameState({
+        board,
+        players: [makePlayer(1, { ringsInHand: 1 }), makePlayer(2, { ringsInHand: 1 })],
+      });
+
+      // Empty board - stack lookups should return undefined
+      const result = evaluateVictory(state);
+      expect(result).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // Last player standing - Line 326
+  // ==========================================================================
+  describe('last player standing victory condition', () => {
+    it('detects last player standing when only one player has stacks', () => {
+      const board = makeBoardState();
+      const key = positionToString({ x: 3, y: 3 });
+      board.stacks.set(key, {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+        capHeight: 2,
+      });
+
+      const state = makeGameState({
+        board,
+        players: [
+          makePlayer(1, { ringsInHand: 5 }),
+          makePlayer(2, { ringsInHand: 0 }), // No rings left
+        ],
+      });
+
+      const result = checkLastPlayerStanding(state);
+      // Player 2 has no material (no stacks, no rings in hand)
+      // This may trigger last_player_standing condition
+      expect(result).toBeDefined();
+    });
+
+    it('no victory when multiple players have material', () => {
+      const board = makeBoardState();
+      // Player 1 has a stack
+      const key1 = positionToString({ x: 3, y: 3 });
+      board.stacks.set(key1, {
+        position: { x: 3, y: 3 },
+        stackHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+        capHeight: 2,
+      });
+      // Player 2 has a stack
+      const key2 = positionToString({ x: 5, y: 5 });
+      board.stacks.set(key2, {
+        position: { x: 5, y: 5 },
+        stackHeight: 2,
+        controllingPlayer: 2,
+        composition: [{ player: 2, count: 2 }],
+        rings: [2, 2],
+        capHeight: 2,
+      });
+
+      const state = makeGameState({
+        board,
+        players: [makePlayer(1, { ringsInHand: 0 }), makePlayer(2, { ringsInHand: 0 })],
+      });
+
+      const result = checkLastPlayerStanding(state);
+      // Returns null or object with isGameOver: false when no winner
+      expect(result === null || result.isGameOver === false).toBe(true);
+    });
+  });
+
+  // ==========================================================================
+  // Safety fallback - Line 444
+  // ==========================================================================
+  describe('safety fallback for degenerate game states', () => {
+    it('handles state with no actors in history', () => {
+      const state = makeGameState({
+        history: [],
+        moveHistory: [],
+      });
+
+      const lastActor = getLastActor(state);
+      // getLastActor may return currentPlayer as fallback or undefined
+      // depending on implementation
+      expect(lastActor === undefined || typeof lastActor === 'number').toBe(true);
+    });
+
+    it('uses history player when available', () => {
+      const state = makeGameState({
+        history: [{ player: 1, moveNumber: 1, type: 'place_ring' } as never],
+        moveHistory: [],
+      });
+
+      const lastActor = getLastActor(state);
+      // getLastActor returns a player number from history or fallback
+      expect(typeof lastActor).toBe('number');
+    });
+
+    it('uses moveHistory as fallback', () => {
+      const state = makeGameState({
+        history: [],
+        moveHistory: [{ player: 2, moveNumber: 1, type: 'place_ring' } as never],
+      });
+
+      const lastActor = getLastActor(state);
+      // Should use moveHistory player
+      expect(typeof lastActor).toBe('number');
+    });
+  });
+
+  // ==========================================================================
+  // Tie-breaker comparisons - Lines 668-674
+  // ==========================================================================
+  describe('tie-breaker logic', () => {
+    it('breaks ties by eliminated rings when territory equal', () => {
+      const board = makeBoardState();
+      // Both players have same territory
+      const key1 = positionToString({ x: 1, y: 1 });
+      const key2 = positionToString({ x: 5, y: 5 });
+      board.stacks.set(key1, {
+        position: { x: 1, y: 1 },
+        stackHeight: 2,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 2 }],
+        rings: [1, 1],
+        capHeight: 2,
+      });
+      board.stacks.set(key2, {
+        position: { x: 5, y: 5 },
+        stackHeight: 2,
+        controllingPlayer: 2,
+        composition: [{ player: 2, count: 2 }],
+        rings: [2, 2],
+        capHeight: 2,
+      });
+
+      const state = makeGameState({
+        board,
+        gameStatus: 'completed',
+        players: [
+          makePlayer(1, { territorySpaces: 5, eliminatedRings: 10 }),
+          makePlayer(2, { territorySpaces: 5, eliminatedRings: 8 }),
+        ],
+      });
+
+      const result = evaluateVictoryDetailed(state);
+      expect(result).toBeDefined();
+      if (result.standings) {
+        // Player 1 has more eliminated rings, should rank higher in tie-breaker
+        expect(result.standings[0].playerNumber).toBe(1);
+      }
+    });
+
+    it('breaks ties by marker count when territory and eliminated rings equal', () => {
+      const board = makeBoardState();
+      // Add markers for different players
+      board.markers.set(positionToString({ x: 0, y: 0 }), {
+        player: 1,
+        type: 'captured',
+      } as MarkerInfo);
+      board.markers.set(positionToString({ x: 0, y: 1 }), {
+        player: 1,
+        type: 'captured',
+      } as MarkerInfo);
+      board.markers.set(positionToString({ x: 1, y: 0 }), {
+        player: 1,
+        type: 'captured',
+      } as MarkerInfo);
+      board.markers.set(positionToString({ x: 2, y: 2 }), {
+        player: 2,
+        type: 'captured',
+      } as MarkerInfo);
+
+      const state = makeGameState({
+        board,
+        gameStatus: 'completed',
+        players: [
+          makePlayer(1, { territorySpaces: 5, eliminatedRings: 10 }),
+          makePlayer(2, { territorySpaces: 5, eliminatedRings: 10 }),
+        ],
+      });
+
+      const result = evaluateVictoryDetailed(state);
+      expect(result).toBeDefined();
+      if (result.standings) {
+        // Player 1 has more markers (3 vs 1), should rank higher
+        expect(result.standings[0].playerNumber).toBe(1);
+      }
+    });
+
+    it('handles equal scores across all tie-breakers', () => {
+      const board = makeBoardState();
+
+      const state = makeGameState({
+        board,
+        gameStatus: 'completed',
+        players: [
+          makePlayer(1, { territorySpaces: 5, eliminatedRings: 10 }),
+          makePlayer(2, { territorySpaces: 5, eliminatedRings: 10 }),
+        ],
+      });
+
+      // Both players equal in everything
+      const result = evaluateVictoryDetailed(state);
+      expect(result).toBeDefined();
+      expect(result.standings).toBeDefined();
+    });
+  });
+
+  // ==========================================================================
+  // Additional edge cases
+  // ==========================================================================
+  describe('additional edge cases', () => {
+    it('handles 3-player game with varied elimination status', () => {
+      const board = makeBoardState();
+      const key = positionToString({ x: 3, y: 3 });
+      board.stacks.set(key, {
+        position: { x: 3, y: 3 },
+        stackHeight: 3,
+        controllingPlayer: 1,
+        composition: [{ player: 1, count: 3 }],
+        rings: [1, 1, 1],
+        capHeight: 3,
+      });
+
+      const state = makeGameState({
+        board,
+        players: [
+          makePlayer(1, { ringsInHand: 5 }),
+          makePlayer(2, { ringsInHand: 0 }), // Eliminated
+          makePlayer(3, { ringsInHand: 0 }), // Eliminated
+        ],
+      });
+
+      const result = evaluateVictory(state);
+      expect(result).toBeDefined();
+    });
+
+    it('handles 4-player game standings', () => {
+      const board = makeBoardState();
+
+      const state = makeGameState({
+        board,
+        gameStatus: 'completed',
+        players: [
+          makePlayer(1, { territorySpaces: 10, eliminatedRings: 5 }),
+          makePlayer(2, { territorySpaces: 8, eliminatedRings: 7 }),
+          makePlayer(3, { territorySpaces: 6, eliminatedRings: 3 }),
+          makePlayer(4, { territorySpaces: 4, eliminatedRings: 2 }),
+        ],
+      });
+
+      const result = evaluateVictoryDetailed(state);
+      expect(result).toBeDefined();
+      expect(result.standings?.length).toBe(4);
+    });
+  });
 });

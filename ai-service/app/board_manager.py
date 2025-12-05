@@ -123,9 +123,13 @@ class BoardManager:
         ])
 
     @staticmethod
-    def find_all_lines(board: BoardState) -> List[LineInfo]:
+    def find_all_lines(board: BoardState, num_players: int = 3) -> List[LineInfo]:
         """
-        Find all marker lines on the board (4+ for 8x8, 4+ for 19x19/hex).
+        Find all marker lines on the board.
+
+        Line length thresholds per RR-CANON-R120:
+        - square8: 3
+        - square19 / hexagonal: 4
 
         Mirrors src/shared/engine/lineDetection.findAllLines and the server
         BoardManager.findAllLines implementation:
@@ -136,8 +140,13 @@ class BoardManager:
         lines: List[LineInfo] = []
         processed_keys = set()
 
-        # Determine line length based on board type
-        min_length = 4 if board.type == BoardType.SQUARE8 else 4
+        # Determine line length based on board type.
+        # Canonical rules (RR-CANON-R120) use board-type-only thresholds.
+        if board.type == BoardType.SQUARE8:
+            min_length = 3
+        else:
+            # square19, hexagonal: 4
+            min_length = 4
 
         directions = BoardManager._get_line_directions(board.type)
 

@@ -592,6 +592,24 @@ export const BoardView: React.FC<BoardViewProps> = ({
   const territoryRegionIdsInDisplayOrder =
     viewModel?.decisionHighlights?.territoryRegions?.regionIdsInDisplayOrder ?? [];
 
+  // Chain capture accessibility helpers: track which cells are part of the
+  // currently visualized chain path so we can expose richer aria-labels.
+  const chainCaptureKeySet = useMemo(() => {
+    if (!chainCapturePath || chainCapturePath.length === 0) {
+      return null;
+    }
+    const set = new Set<string>();
+    for (const pos of chainCapturePath) {
+      set.add(positionToString(pos));
+    }
+    return set;
+  }, [chainCapturePath]);
+
+  const chainCaptureCurrentKey =
+    chainCapturePath && chainCapturePath.length > 0
+      ? positionToString(chainCapturePath[chainCapturePath.length - 1])
+      : null;
+
   // Rules-lab overlays: lightweight lookup maps for lines and territory
   // regions so we can cheaply decorate cells without re-walking geometry.
   const lineOverlayByKey = useMemo(() => {
@@ -1549,6 +1567,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
         const shouldPulseTerritoryRegion =
           decisionHighlight === 'primary' && isTerritoryRegionDecisionContext;
 
+        // Track palette index for ARIA descriptions; -1 means "not assigned".
+        let territoryRegionPaletteIndex = -1;
         const territoryRegionClasses: string[] = [];
         if (shouldPulseTerritoryRegion && territoryRegionGroupIds.length > 0) {
           if (territoryRegionGroupIds.length > 1) {
@@ -1557,6 +1577,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
           } else {
             const regionId = territoryRegionGroupIds[0];
             const paletteIndex = Math.max(0, territoryRegionIdsInDisplayOrder.indexOf(regionId));
+            territoryRegionPaletteIndex = paletteIndex;
             switch (paletteIndex) {
               case 0:
                 territoryRegionClasses.push('territory-region-a');
@@ -1619,13 +1640,54 @@ export const BoardView: React.FC<BoardViewProps> = ({
             ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-slate-950'
             : '';
 
-        // Generate accessible label for the cell
+        // Generate accessible label for the cell. We enrich the generic
+        // "valid move" wording with more specific descriptions for capture
+        // landings/targets, territory-region decisions, and chain-capture
+        // path cells so screen readers surface the same intent as visuals.
         const stackInfo = cellVM?.stack
           ? `Stack height ${cellVM.stack.stackHeight}, cap ${cellVM.stack.capHeight}, player ${cellVM.stack.controllingPlayer}`
           : stack
             ? `Stack height ${stack.stackHeight}, cap ${stack.capHeight}, player ${stack.controllingPlayer}`
             : 'Empty cell';
-        const cellLabel = `Row ${y + 1}, Column ${x + 1}. ${stackInfo}${effectiveIsValid ? '. Valid move target' : ''}`;
+        const accessibilityAnnotations: string[] = [];
+
+        if (shouldPulseCaptureLanding) {
+          accessibilityAnnotations.push('Capture landing, valid move target');
+        } else if (shouldPulseCaptureTarget) {
+          accessibilityAnnotations.push('Capture target stack');
+        }
+
+        if (shouldPulseEliminationTarget) {
+          accessibilityAnnotations.push('Ring elimination candidate');
+        }
+
+        if (shouldPulseTerritoryRegion) {
+          if (territoryRegionGroupIds.length > 1) {
+            accessibilityAnnotations.push('Overlapping territory regions for this choice');
+          } else if (territoryRegionPaletteIndex >= 0) {
+            const humanIndex = territoryRegionPaletteIndex + 1;
+            accessibilityAnnotations.push(`Territory region option ${humanIndex}`);
+          } else {
+            accessibilityAnnotations.push('Territory region option');
+          }
+        }
+
+        if (chainCaptureKeySet && chainCaptureKeySet.has(key)) {
+          if (chainCaptureCurrentKey && chainCaptureCurrentKey === key) {
+            accessibilityAnnotations.push('Current capture position in chain');
+          } else {
+            accessibilityAnnotations.push('Visited position in capture chain');
+          }
+        }
+
+        if (effectiveIsValid && accessibilityAnnotations.length === 0) {
+          accessibilityAnnotations.push('Valid move target');
+        }
+
+        const accessibilitySuffix =
+          accessibilityAnnotations.length > 0 ? `. ${accessibilityAnnotations.join('. ')}` : '';
+
+        const cellLabel = `Row ${y + 1}, Column ${x + 1}. ${stackInfo}${accessibilitySuffix}`;
 
         cells.push(
           <button
@@ -1845,6 +1907,8 @@ export const BoardView: React.FC<BoardViewProps> = ({
         const shouldPulseTerritoryRegionHex =
           decisionHighlight === 'primary' && isTerritoryRegionDecisionContext;
 
+        // Track palette index for ARIA descriptions; -1 means "not assigned".
+        let territoryRegionPaletteIndexHex = -1;
         const territoryRegionClassesHex: string[] = [];
         if (shouldPulseTerritoryRegionHex && territoryRegionGroupIdsHex.length > 0) {
           if (territoryRegionGroupIdsHex.length > 1) {
@@ -1852,6 +1916,7 @@ export const BoardView: React.FC<BoardViewProps> = ({
           } else {
             const regionId = territoryRegionGroupIdsHex[0];
             const paletteIndex = Math.max(0, territoryRegionIdsInDisplayOrder.indexOf(regionId));
+            territoryRegionPaletteIndexHex = paletteIndex;
             switch (paletteIndex) {
               case 0:
                 territoryRegionClassesHex.push('territory-region-a');
@@ -1920,7 +1985,45 @@ export const BoardView: React.FC<BoardViewProps> = ({
           : stack
             ? `Stack height ${stack.stackHeight}, cap ${stack.capHeight}, player ${stack.controllingPlayer}`
             : 'Empty cell';
-        const cellLabel = `Hex position q${q} r${r}. ${stackInfo}${effectiveIsValid ? '. Valid move target' : ''}`;
+        const accessibilityAnnotations: string[] = [];
+
+        if (decisionHighlight === 'primary' && isCaptureDirectionDecisionContext) {
+          accessibilityAnnotations.push('Capture landing, valid move target');
+        } else if (shouldPulseCaptureTargetHex) {
+          accessibilityAnnotations.push('Capture target stack');
+        }
+
+        if (shouldPulseEliminationTargetHex) {
+          accessibilityAnnotations.push('Ring elimination candidate');
+        }
+
+        if (shouldPulseTerritoryRegionHex) {
+          if (territoryRegionGroupIdsHex.length > 1) {
+            accessibilityAnnotations.push('Overlapping territory regions for this choice');
+          } else if (territoryRegionPaletteIndexHex >= 0) {
+            const humanIndex = territoryRegionPaletteIndexHex + 1;
+            accessibilityAnnotations.push(`Territory region option ${humanIndex}`);
+          } else {
+            accessibilityAnnotations.push('Territory region option');
+          }
+        }
+
+        if (chainCaptureKeySet && chainCaptureKeySet.has(key)) {
+          if (chainCaptureCurrentKey && chainCaptureCurrentKey === key) {
+            accessibilityAnnotations.push('Current capture position in chain');
+          } else {
+            accessibilityAnnotations.push('Visited position in capture chain');
+          }
+        }
+
+        if (effectiveIsValid && accessibilityAnnotations.length === 0) {
+          accessibilityAnnotations.push('Valid move target');
+        }
+
+        const accessibilitySuffix =
+          accessibilityAnnotations.length > 0 ? `. ${accessibilityAnnotations.join('. ')}` : '';
+
+        const cellLabel = `Hex position q${q} r${r}. ${stackInfo}${accessibilitySuffix}`;
 
         cells.push(
           <button

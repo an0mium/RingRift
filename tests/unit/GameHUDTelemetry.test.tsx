@@ -119,4 +119,68 @@ describe('GameHUD rules-UX telemetry wiring', () => {
     expect(repeatEvent.boardType).toBe('square8');
     expect(repeatEvent.numPlayers).toBe(2);
   });
+
+  it('emits rules_help_open when territory help is opened during territory_processing', () => {
+    const hud: HUDViewModel = {
+      phase: {
+        phaseKey: 'territory_processing' as any,
+        label: 'Territory Processing',
+        description: 'Resolve disconnected regions and territory.',
+        icon: '▣',
+        colorClass: 'bg-emerald-500',
+        actionHint: 'Choose a region to process',
+        spectatorHint: 'Player is resolving territory',
+      },
+      players: [],
+      turnNumber: 5,
+      moveNumber: 10,
+      connectionStatus: 'connected' as any,
+      isConnectionStale: false,
+      isSpectator: false,
+      spectatorCount: 0,
+      subPhaseDetail: undefined,
+      weirdState: undefined,
+      decisionPhase: {
+        isActive: true,
+        actingPlayerNumber: 1,
+        actingPlayerName: 'Alice',
+        isLocalActor: true,
+        label: 'Your decision: Choose region order',
+        description: 'Choose which disconnected region to process first.',
+        shortLabel: 'Territory region order',
+        timeRemainingMs: null,
+        showCountdown: false,
+        warningThresholdMs: undefined,
+        isServerCapped: undefined,
+        spectatorLabel: 'Waiting for Alice to choose a region to process first',
+        statusChip: {
+          text: 'Territory claimed – choose region to process or skip',
+          tone: 'attention',
+        },
+      },
+      pieRuleSummary: undefined,
+      instruction: 'Instruction',
+    };
+
+    render(
+      <GameHUD
+        viewModel={hud}
+        timeControl={undefined}
+        rulesUxContext={{
+          boardType: 'square8' as any,
+          numPlayers: 2,
+          aiDifficulty: 5,
+        }}
+      />
+    );
+
+    const helpButton = screen.getByTestId('hud-territory-help');
+    fireEvent.click(helpButton);
+
+    expect(
+      mockSendRulesUxEvent.mock.calls.some(
+        ([arg]: any) => arg.type === 'rules_help_open' && arg.topic === 'territory'
+      )
+    ).toBe(true);
+  });
 });

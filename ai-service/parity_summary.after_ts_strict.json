@@ -1,0 +1,3939 @@
+{
+  "games_with_semantic_divergence": 157,
+  "games_with_structural_issues": 0,
+  "mismatch_counts_by_dimension": {
+    "current_phase": 132,
+    "current_player": 102,
+    "game_status": 25
+  },
+  "semantic_divergences": [
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 39,
+      "game_id": "1f548a03-da60-4113-afa3-c1359012fede",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 38,
+        "state_hash": "5475cfc791c62cf9"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 72,
+      "total_moves_ts": 72,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 2,
+        "game_status": "completed",
+        "move_index": 39,
+        "state_hash": "6e2609557c7d5011"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 40,
+      "game_id": "7dd973db-3857-482d-b790-9004508534a9",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 39,
+        "state_hash": "10dd738ac6dc25e1"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 67,
+      "total_moves_ts": 67,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "2343e7b56406b72b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 41,
+      "game_id": "5b9f8fdc-f779-4097-ab57-e715ec875067",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "95739b421d53adb7"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 41,
+        "state_hash": "2decb9a6daee8746"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 58,
+      "game_id": "80403f8c-5eae-4e22-acab-6a21f2835a8d",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 57,
+        "state_hash": "b61fa4fb32c2d934"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 74,
+      "total_moves_ts": 74,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 58,
+        "state_hash": "2bc3cdb7e407dcff"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "a54122e6-9357-423c-88cf-46c5a7a78a77",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 56,
+        "state_hash": "abbd13937b6fe0e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 57,
+        "state_hash": "cc93bc59796ea74d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 39,
+      "game_id": "41ca1180-0de1-44d2-b6da-a58f8e1aa2fb",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 38,
+        "state_hash": "5475cfc791c62cf9"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 72,
+      "total_moves_ts": 72,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 2,
+        "game_status": "completed",
+        "move_index": 39,
+        "state_hash": "6e2609557c7d5011"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 40,
+      "game_id": "3f9641f6-5f17-423d-b529-aa9fc054d786",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 39,
+        "state_hash": "10dd738ac6dc25e1"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 67,
+      "total_moves_ts": 67,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "2343e7b56406b72b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 41,
+      "game_id": "89fabff1-1898-4585-9fc7-ea0350a2a99a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "95739b421d53adb7"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 41,
+        "state_hash": "2decb9a6daee8746"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 58,
+      "game_id": "7cd9e854-a739-4902-866e-2cd034f526b8",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 57,
+        "state_hash": "b61fa4fb32c2d934"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 74,
+      "total_moves_ts": 74,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 58,
+        "state_hash": "2bc3cdb7e407dcff"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "e1212ce7-aa7c-4190-bc52-7d9f6d443e84",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 56,
+        "state_hash": "abbd13937b6fe0e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 57,
+        "state_hash": "cc93bc59796ea74d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 50,
+      "game_id": "966e8704-a178-47c9-9352-cb41c7c39d07",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 49,
+        "state_hash": "72a3c9030732a3f5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 69,
+      "total_moves_ts": 69,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 50,
+        "state_hash": "26761292b84ee0dc"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 20,
+      "game_id": "c88caef9-20ab-4d8f-a95b-ef5f073e76ab",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 19,
+        "state_hash": "bc08f20ad410666f"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 48,
+      "total_moves_ts": 48,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 20,
+        "state_hash": "2f930d25ed863268"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 41,
+      "game_id": "d5180c12-14fe-43c6-9339-4c4f650591d2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "95739b421d53adb7"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 41,
+        "state_hash": "2decb9a6daee8746"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 58,
+      "game_id": "027adf51-2068-4815-a051-9a1487119c87",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 57,
+        "state_hash": "b61fa4fb32c2d934"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 74,
+      "total_moves_ts": 74,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 58,
+        "state_hash": "2bc3cdb7e407dcff"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "e8bf602d-dc84-407c-b674-595891b2f1ec",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 56,
+        "state_hash": "abbd13937b6fe0e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 57,
+        "state_hash": "cc93bc59796ea74d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "48a467fc-d2dc-46b1-a9f8-8369c90df927",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 56,
+        "state_hash": "abbd13937b6fe0e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 57,
+        "state_hash": "cc93bc59796ea74d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 39,
+      "game_id": "ffc12031-71be-4e9c-ae90-17bcfce42dc4",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 38,
+        "state_hash": "c02ec43a1af3992a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 55,
+      "total_moves_ts": 55,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 39,
+        "state_hash": "685cfb7165ed97bf"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 40,
+      "game_id": "f45ab0d3-1741-4ab8-9e42-8cd4ddae8225",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 39,
+        "state_hash": "10dd738ac6dc25e1"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 67,
+      "total_moves_ts": 67,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "2343e7b56406b72b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 41,
+      "game_id": "71328859-d33f-42c3-ae13-68bf84269a89",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "95739b421d53adb7"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 41,
+        "state_hash": "2decb9a6daee8746"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 58,
+      "game_id": "53d98a0e-ccb8-4adb-bef4-5be6db392987",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 57,
+        "state_hash": "b61fa4fb32c2d934"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 74,
+      "total_moves_ts": 74,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 58,
+        "state_hash": "2bc3cdb7e407dcff"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "bb5f569a-e5af-4d95-b2d9-68d38dc550c9",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 56,
+        "state_hash": "abbd13937b6fe0e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 57,
+        "state_hash": "cc93bc59796ea74d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 37,
+      "game_id": "749dc4d2-112b-44e2-b43b-4883e52689a3",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "61a24423d1e4c097"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 66,
+      "total_moves_ts": 66,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 37,
+        "state_hash": "5455854082dd623b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 28,
+      "game_id": "0ef7ed0d-ef29-4db8-97cb-ec41090e9730",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 27,
+        "state_hash": "e3249e3270222b8a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 68,
+      "total_moves_ts": 68,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 28,
+        "state_hash": "bf8e5ec820b1e4e7"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 41,
+      "game_id": "b32e472d-2b4b-45e6-9de9-2f2c3f3a16bf",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "95739b421d53adb7"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 41,
+        "state_hash": "2decb9a6daee8746"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 58,
+      "game_id": "5db2dc32-e8a3-4bfb-9027-c28c90447976",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 57,
+        "state_hash": "b61fa4fb32c2d934"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 74,
+      "total_moves_ts": 74,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 58,
+        "state_hash": "2bc3cdb7e407dcff"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "6b492e00-db2f-4db7-8b76-7837ec83b425",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 56,
+        "state_hash": "abbd13937b6fe0e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 57,
+        "state_hash": "cc93bc59796ea74d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 46,
+      "game_id": "c46aa35d-8ec5-4bd1-b5da-24a4a669d6cf",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 45,
+        "state_hash": "5fc578207450cbcd"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 69,
+      "total_moves_ts": 69,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 46,
+        "state_hash": "679d6a3f708582fd"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 61,
+      "game_id": "10fc4ad6-7e90-4d34-beda-11f19efcde0a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "finished",
+        "move_index": 60,
+        "state_hash": "c410153cc34f3e98"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 61,
+      "total_moves_ts": 61,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 61,
+        "state_hash": "99c99036bd2181b4"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 48,
+      "game_id": "b62df4ff-4a86-432c-a48e-3c71d0fb0e4a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 47,
+        "state_hash": "e699cea0cfbc7689"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 65,
+      "total_moves_ts": 65,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 48,
+        "state_hash": "d7a16465873e06f8"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 61,
+      "game_id": "05e2c421-c737-405f-b1b9-3ab67db37765",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 60,
+        "state_hash": "16010d86efb3e94d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 72,
+      "total_moves_ts": 72,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 61,
+        "state_hash": "14339f014f3bd0fb"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 59,
+      "game_id": "5d4a5792-8557-451e-94fe-e5b2c6a74502",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 58,
+        "state_hash": "d31f8afb96e8030b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 66,
+      "total_moves_ts": 66,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 59,
+        "state_hash": "cd7d576fc8226353"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 40,
+      "game_id": "841c2be8-6385-4dfe-9753-61a7c08e117e",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 39,
+        "state_hash": "0202b582681d3a36"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "14c3db11946f7bc9"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 36,
+      "game_id": "be62687a-dc1c-468f-9203-1d613b4cc974",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 35,
+        "state_hash": "32f0204470213bf8"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 86,
+      "total_moves_ts": 86,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "b1376f6e8cbc980c"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 19,
+      "game_id": "e382de52-f37a-441d-b242-9a499b16b89f",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 18,
+        "state_hash": "67e04a922ac958ff"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 64,
+      "total_moves_ts": 64,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 19,
+        "state_hash": "ccdeb5c53edd169a"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "0917655f-543d-484c-b343-f252bdfef5c0",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "finished",
+        "move_index": 56,
+        "state_hash": "46e5ccac1f61bfc4"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 57,
+      "total_moves_ts": 57,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 57,
+        "state_hash": "812fdf58fad102f4"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 45,
+      "game_id": "0b99c0ea-16f7-45e0-a934-af4d1aa9e235",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 44,
+        "state_hash": "05923193d8bb6bdc"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 80,
+      "total_moves_ts": 80,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 45,
+        "state_hash": "95f0d148748f8f7a"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 48,
+      "game_id": "6425100c-577c-432b-b382-524fa5c4d3c4",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 47,
+        "state_hash": "92d9f2214a6a09ac"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 53,
+      "total_moves_ts": 53,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 48,
+        "state_hash": "652fdd17d9121119"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 53,
+      "game_id": "1b637e2f-3710-4def-b2dc-a3425cf5ce84",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "finished",
+        "move_index": 52,
+        "state_hash": "a83a0537e584aeab"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 53,
+      "total_moves_ts": 53,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 53,
+        "state_hash": "b0dde6ce1d6efa36"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 49,
+      "game_id": "e1e2a893-d252-4301-aaaf-659232d9468e",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "finished",
+        "move_index": 48,
+        "state_hash": "2e9b2156e3139ec6"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 49,
+      "total_moves_ts": 49,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 49,
+        "state_hash": "194f0abe2e4e0816"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 33,
+      "game_id": "45a200ff-d51f-4a29-b022-6e99832c53b9",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "116794608ceff416"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 74,
+      "total_moves_ts": 74,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 33,
+        "state_hash": "09d93d93de376a5f"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 28,
+      "game_id": "913a2906-06b3-4309-8f58-77c394225780",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 27,
+        "state_hash": "e3249e3270222b8a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 73,
+      "total_moves_ts": 73,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 28,
+        "state_hash": "bf8e5ec820b1e4e7"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 41,
+      "game_id": "db6fced9-c619-40c3-938b-e142a5ca776b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "95739b421d53adb7"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 41,
+        "state_hash": "2decb9a6daee8746"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 58,
+      "game_id": "5908c886-1ea3-48ef-a38f-845a6a64247d",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 57,
+        "state_hash": "b61fa4fb32c2d934"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 74,
+      "total_moves_ts": 74,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 58,
+        "state_hash": "2bc3cdb7e407dcff"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_2p.db",
+      "diverged_at": 57,
+      "game_id": "3309749b-6b37-4be0-ab26-3ac42d35b2a2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 56,
+        "state_hash": "abbd13937b6fe0e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 57,
+        "state_hash": "cc93bc59796ea74d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 74,
+      "game_id": "7fbe4d22-8acc-41e4-b2e2-05fa9c4ec70a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 73,
+        "state_hash": "1de86c53c1188f3c"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 114,
+      "total_moves_ts": 114,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 74,
+        "state_hash": "17c3197597e69f3c"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 17,
+      "game_id": "d92095f9-485b-453b-9167-36adb637e08f",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 16,
+        "state_hash": "b218c50846eaa3dd"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 71,
+      "total_moves_ts": 71,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 17,
+        "state_hash": "881c643a72c06318"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 32,
+      "game_id": "f750adcb-8fdf-49bd-b383-90e42948ece9",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 31,
+        "state_hash": "546da34f5e6545ed"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 104,
+      "total_moves_ts": 104,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "3c0cf180de231473"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 74,
+      "game_id": "0a1c036c-e417-4e42-9303-731f2bf78b5e",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 73,
+        "state_hash": "1de86c53c1188f3c"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 114,
+      "total_moves_ts": 114,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 74,
+        "state_hash": "17c3197597e69f3c"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 51,
+      "game_id": "a8291b41-307a-4041-abda-71cd1924f9f2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 50,
+        "state_hash": "1b554ab529205f2f"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 56,
+      "total_moves_ts": 56,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 51,
+        "state_hash": "7f740afcc5e22a5b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 30,
+      "game_id": "35651914-b657-4375-a2e8-f3a9236e5073",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 29,
+        "state_hash": "71d7618cc4d135e9"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 68,
+      "total_moves_ts": 68,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 30,
+        "state_hash": "5339a4b179f14454"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 53,
+      "game_id": "8168c88e-e8a6-417e-8664-24dfa5be80f6",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 52,
+        "state_hash": "18aac69c1dbeb332"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 85,
+      "total_moves_ts": 85,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 53,
+        "state_hash": "34069d2beb780530"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 66,
+      "game_id": "70d6bd0c-1be6-4d88-b65d-93e5c3d49976",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 65,
+        "state_hash": "8170324e42014d11"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 99,
+      "total_moves_ts": 99,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 66,
+        "state_hash": "ab4efcb411b88813"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 31,
+      "game_id": "448c3a3a-4b72-433b-aba5-348e5dc4ffdd",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 30,
+        "state_hash": "3431cd42a83d5d02"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 105,
+      "total_moves_ts": 105,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 31,
+        "state_hash": "4be3e284950b89d8"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 37,
+      "game_id": "68d34d2a-5cb2-4df2-acb2-50de842d5c43",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "9df9678564597e56"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 102,
+      "total_moves_ts": 102,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 37,
+        "state_hash": "6c5a0ea73df577ea"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 68,
+      "game_id": "da428a9b-2796-4b40-8043-b09aa3f7b265",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 67,
+        "state_hash": "2a067ed1f038a494"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 105,
+      "total_moves_ts": 105,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 2,
+        "game_status": "completed",
+        "move_index": 68,
+        "state_hash": "4c5d43753ebcff86"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 59,
+      "game_id": "11d52c12-3dcb-4e89-9483-c0eef11dab99",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 58,
+        "state_hash": "e81a03096a9b78ce"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 112,
+      "total_moves_ts": 112,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 59,
+        "state_hash": "b6652caea7209025"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 77,
+      "game_id": "14d7e79a-d39c-4868-ae5c-467521f3a7d4",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 76,
+        "state_hash": "c925feac1e291d35"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 94,
+      "total_moves_ts": 94,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 77,
+        "state_hash": "5e38c448b3f26dfb"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 14,
+      "game_id": "c3c8c03f-1534-4823-91db-79a141a60aa2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 13,
+        "state_hash": "32a942b1147b21b8"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 59,
+      "total_moves_ts": 59,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 14,
+        "state_hash": "83460db0d8fbc0ac"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 43,
+      "game_id": "414b647e-b0b3-4ba0-8f03-4c067ea2bdb2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 42,
+        "state_hash": "545c0f5df3f0af2b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 89,
+      "total_moves_ts": 89,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 43,
+        "state_hash": "698ae6496d7046a0"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 38,
+      "game_id": "f9c8dbc2-f556-4bc2-bdc2-9363f2d485fd",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 37,
+        "state_hash": "d1a75d90d34ce729"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 81,
+      "total_moves_ts": 81,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 38,
+        "state_hash": "8c381fe179dab47b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 74,
+      "game_id": "cd6b9fbb-2a96-4e2b-a7df-b9380fd66177",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 73,
+        "state_hash": "1de86c53c1188f3c"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 114,
+      "total_moves_ts": 114,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 74,
+        "state_hash": "17c3197597e69f3c"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 17,
+      "game_id": "172bce50-570c-4908-99c3-1f288929e620",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 16,
+        "state_hash": "b218c50846eaa3dd"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 71,
+      "total_moves_ts": 71,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 17,
+        "state_hash": "881c643a72c06318"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_3p.db",
+      "diverged_at": 30,
+      "game_id": "0dbfbabe-abf8-4853-8af1-265cd6fe2a08",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 29,
+        "state_hash": "71d7618cc4d135e9"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 68,
+      "total_moves_ts": 68,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 30,
+        "state_hash": "5339a4b179f14454"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 28,
+      "game_id": "f69a1fcb-a2e5-4d6a-971e-21879e8dd5b1",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 27,
+        "state_hash": "fafec6c224477a2a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 94,
+      "total_moves_ts": 94,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 28,
+        "state_hash": "0b3b6a5c6957a282"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 22,
+      "game_id": "0f3d1a5f-226b-4197-8b90-220b2743babe",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 21,
+        "state_hash": "e0cc66b68118e467"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 111,
+      "total_moves_ts": 111,
+      "ts_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 22,
+        "state_hash": "be302c285ff7bff3"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 28,
+      "game_id": "28c0d275-6636-4303-83d6-88211ec8b8b4",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 27,
+        "state_hash": "fafec6c224477a2a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 94,
+      "total_moves_ts": 94,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 28,
+        "state_hash": "0b3b6a5c6957a282"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 22,
+      "game_id": "1d0228f3-b68c-4f57-9205-9ed88846fd83",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 21,
+        "state_hash": "e0cc66b68118e467"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 111,
+      "total_moves_ts": 111,
+      "ts_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 22,
+        "state_hash": "be302c285ff7bff3"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 78,
+      "game_id": "4c5c015e-eae8-4dc5-8f9c-eb6ec3f2bf3c",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 77,
+        "state_hash": "f41f9464ebfb65c2"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 104,
+      "total_moves_ts": 104,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 78,
+        "state_hash": "c8501c789c7eea65"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 65,
+      "game_id": "ae52c0e0-7783-41e7-9d89-a47a8aa9844b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 64,
+        "state_hash": "c73712ec0efc3178"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 119,
+      "total_moves_ts": 119,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 65,
+        "state_hash": "d11c2067c773114b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 29,
+      "game_id": "0723a105-70b4-4764-a8af-cbf2902d340a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 28,
+        "state_hash": "3e61c9e7508e923d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 105,
+      "total_moves_ts": 105,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 29,
+        "state_hash": "c3de76753a48e7fc"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 49,
+      "game_id": "8657b120-b2a0-4181-8738-35d42d334e28",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 48,
+        "state_hash": "950970e052d5eeab"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 111,
+      "total_moves_ts": 111,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 49,
+        "state_hash": "f6404649261bfe1a"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 20,
+      "game_id": "6f358b89-3e87-4f5a-a1a4-78ed5492b6bd",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 19,
+        "state_hash": "f537843f7eb34fba"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 119,
+      "total_moves_ts": 119,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 20,
+        "state_hash": "ce62bdeb0b4d83f7"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 27,
+      "game_id": "66541252-c4f9-488b-90a8-d1bd4742197c",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 26,
+        "state_hash": "84e1cfd443a60ab1"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 120,
+      "total_moves_ts": 120,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 27,
+        "state_hash": "e279b1d145cd6010"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 27,
+      "game_id": "a2959468-4ca3-44b2-8eae-95a5d03ac8d3",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 26,
+        "state_hash": "08ebd8748a93a757"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 120,
+      "total_moves_ts": 120,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 27,
+        "state_hash": "cdacf58deb1d592d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 31,
+      "game_id": "9f7d9cc8-f941-4f6e-91bc-14d76968d20e",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 30,
+        "state_hash": "64b637e13de12de4"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 81,
+      "total_moves_ts": 81,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 31,
+        "state_hash": "69f936034d18c00b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 33,
+      "game_id": "a751fa48-de13-4bfe-a961-2ab44c50b149",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "e433f5f5b8f5baf3"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 125,
+      "total_moves_ts": 125,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 33,
+        "state_hash": "1ec42aa4191c7d73"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square8_4p.db",
+      "diverged_at": 19,
+      "game_id": "68c88872-6bee-41e9-80fb-ce1ea7039831",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 18,
+        "state_hash": "af3c51c70ee4e61b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 130,
+      "total_moves_ts": 130,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 19,
+        "state_hash": "1ab2ac759237cf05"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hex_mps_smoke.db",
+      "diverged_at": 78,
+      "game_id": "17f47484-8704-4c02-8f08-b365115a0d7b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 77,
+        "state_hash": "ab6556cd8b7b3004"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 78,
+        "state_hash": "d2177cf981be6180"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/square8_3p.db",
+      "diverged_at": 15,
+      "game_id": "dac42566-0f25-44b1-bbb0-89dcd4b2e207",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 14,
+        "state_hash": "6320b41fb6698348"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 43,
+      "total_moves_ts": 43,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 15,
+        "state_hash": "3604ed8394785f82"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/square8_2p.db",
+      "diverged_at": 21,
+      "game_id": "73585670-89c3-4b48-a421-58cf55daa05b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 20,
+        "state_hash": "5f801f2cefe5d2c0"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 76,
+      "total_moves_ts": 76,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 21,
+        "state_hash": "8b2dc5e20f1a4090"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/square8_2p.db",
+      "diverged_at": 37,
+      "game_id": "ac1234c3-f240-4dc1-b192-7f0b594caf33",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "finished",
+        "move_index": 36,
+        "state_hash": "61971faef7fadc2d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 37,
+      "total_moves_ts": 37,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 37,
+        "state_hash": "809c5d7992b6fe02"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/square8_4p.db",
+      "diverged_at": 40,
+      "game_id": "648d0a47-e0a4-4ecf-ba8f-554b2c48210f",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 39,
+        "state_hash": "445f7da90a062e8e"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 60,
+      "total_moves_ts": 60,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "529953b508b6b1e3"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_4p.db",
+      "diverged_at": 168,
+      "game_id": "740f1492-6530-4bff-a97f-c37029e0250c",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 167,
+        "state_hash": "f808ea1ded50d9ff"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 351,
+      "total_moves_ts": 351,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 168,
+        "state_hash": "771157dd9f293ac7"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_4p.db",
+      "diverged_at": 15,
+      "game_id": "dfa77d63-5b60-46f4-9728-eec3f68c81e6",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 14,
+        "state_hash": "1b6c195bd30f8b8b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 397,
+      "total_moves_ts": 397,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 15,
+        "state_hash": "0e01f4c2860ad7fd"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_4p.db",
+      "diverged_at": 16,
+      "game_id": "e42c35ca-de3d-46b0-9a93-b4add45b3b7d",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 15,
+        "state_hash": "22e4225e6398230a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 353,
+      "total_moves_ts": 353,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 16,
+        "state_hash": "1a5fc91e3260cc79"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_4p.db",
+      "diverged_at": 76,
+      "game_id": "2b9c428a-1a8b-4599-bda9-6e5a6221e937",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 75,
+        "state_hash": "ffddab9d0b454939"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 385,
+      "total_moves_ts": 385,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 76,
+        "state_hash": "9a3c079742721725"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_4p.db",
+      "diverged_at": 85,
+      "game_id": "23cf620b-9bc5-459f-b508-22aa617f809b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 84,
+        "state_hash": "d3de35ffa8a3eb64"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 372,
+      "total_moves_ts": 372,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 85,
+        "state_hash": "5b261789ae54ba62"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_4p.db",
+      "diverged_at": 95,
+      "game_id": "5ad54629-38ad-4a17-a112-07a6ab3792e3",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 94,
+        "state_hash": "a5018fe6aed37b29"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 382,
+      "total_moves_ts": 382,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 95,
+        "state_hash": "e0608087db3c1e52"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 62,
+      "game_id": "a666f263-400a-4cd0-b245-f8a5526e3d9d",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 61,
+        "state_hash": "51b71e9c30e10534"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 384,
+      "total_moves_ts": 384,
+      "ts_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 62,
+        "state_hash": "6e58990541324946"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 32,
+      "game_id": "1666166a-db61-4b9d-af49-967baaae7106",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 31,
+        "state_hash": "ae32d3116df16ea2"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 402,
+      "total_moves_ts": 402,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "4c40d68774ecba13"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 119,
+      "game_id": "e32869c7-2772-42a9-9377-3ef00d1bab5f",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 118,
+        "state_hash": "b65ce7f035d68a4b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 406,
+      "total_moves_ts": 406,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 119,
+        "state_hash": "fb42969bb05010ef"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 156,
+      "game_id": "a1d5d088-f79f-4d74-b6d6-bece26317e30",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 155,
+        "state_hash": "2a3f448cfe6d6f7a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 400,
+      "total_moves_ts": 400,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 156,
+        "state_hash": "3f1cd35e0970698a"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 113,
+      "game_id": "23b6d835-05be-4bd9-b295-350197f4d2e5",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 112,
+        "state_hash": "01c33df0c1744bb8"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 400,
+      "total_moves_ts": 400,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 113,
+        "state_hash": "7849a924d0429102"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 150,
+      "game_id": "b0b1c91c-f575-446b-9524-842fba8464dc",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 149,
+        "state_hash": "7181ee168b0ea695"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 4,
+        "game_status": "active",
+        "move_index": 150,
+        "state_hash": "903b0c6b6b93571c"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 150,
+      "game_id": "591263f0-cde1-4531-a64b-3c1e3c94f76b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 149,
+        "state_hash": "43782d6b962b07af"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 150,
+        "state_hash": "60f680c13a5b5bf9"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_4p.db",
+      "diverged_at": 113,
+      "game_id": "75331744-3d91-4f9a-893a-bd8248cee062",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 112,
+        "state_hash": "01c33df0c1744bb8"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 113,
+        "state_hash": "7849a924d0429102"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/minimal_test.db",
+      "diverged_at": 27,
+      "game_id": "1cdcd120-bd17-4eb4-b50a-d1fb86b2d6f5",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 26,
+        "state_hash": "60f40a6711bd687a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 73,
+      "total_moves_ts": 73,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 27,
+        "state_hash": "26e6290cfdad6aa2"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/minimal_test.db",
+      "diverged_at": 9,
+      "game_id": "730fbc61-29e6-4ca0-b669-7cb473a24bb7",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 8,
+        "state_hash": "471329882c42d2a0"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 82,
+      "total_moves_ts": 82,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 9,
+        "state_hash": "30db681295e9c1a8"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/minimal_test.db",
+      "diverged_at": 40,
+      "game_id": "a1c51db8-0af6-4255-9ee9-95b064fa1fbb",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 39,
+        "state_hash": "0202b582681d3a36"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 75,
+      "total_moves_ts": 75,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 40,
+        "state_hash": "14c3db11946f7bc9"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/minimal_test.db",
+      "diverged_at": 36,
+      "game_id": "cef3a64c-8ab3-4f13-a716-98e489afad24",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 35,
+        "state_hash": "32f0204470213bf8"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 86,
+      "total_moves_ts": 86,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "b1376f6e8cbc980c"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/minimal_test.db",
+      "diverged_at": 19,
+      "game_id": "6a16c9c4-4df6-4fb6-9923-e687d2592bc7",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 18,
+        "state_hash": "67e04a922ac958ff"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 64,
+      "total_moves_ts": 64,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 19,
+        "state_hash": "ccdeb5c53edd169a"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 42,
+      "game_id": "fe083fa9-9420-4a87-8080-d6f4b7555172",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 41,
+        "state_hash": "da094071133d9b8d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 212,
+      "total_moves_ts": 212,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 42,
+        "state_hash": "0c9a8ead578dc059"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 36,
+      "game_id": "056999d3-fbff-4c6a-ae98-c5950cd60572",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 35,
+        "state_hash": "120b3b56ad1a5d25"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 187,
+      "total_moves_ts": 187,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "0bf020af8472c2dc"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 64,
+      "game_id": "c7b9aec0-c6bd-4382-9b6e-b27eb036db40",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 63,
+        "state_hash": "ca202d388eb79c66"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 143,
+      "total_moves_ts": 143,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 64,
+        "state_hash": "69c247c17c259958"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 149,
+      "game_id": "ff6d3f62-1b59-4944-89ec-2d5130d071f0",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 148,
+        "state_hash": "8ae1e76f52a42d9f"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 222,
+      "total_moves_ts": 222,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 149,
+        "state_hash": "1c0d17846d80c4d2"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 51,
+      "game_id": "cc883f1c-2822-42c3-acdb-3eeb6d116076",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 50,
+        "state_hash": "429cfe2c1a27e38a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 167,
+      "total_moves_ts": 167,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 51,
+        "state_hash": "cd3b74b9aef66ffe"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 8,
+      "game_id": "41c7c746-af99-48cb-8887-435b03b5eac7",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 7,
+        "state_hash": "5f37a7f61903e207"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 206,
+      "total_moves_ts": 206,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 8,
+        "state_hash": "d13d25f44f09c8aa"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 36,
+      "game_id": "93c2e92d-ea4b-4985-97b1-497c41b80b28",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 35,
+        "state_hash": "b65eb53daaaa82a0"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 191,
+      "total_moves_ts": 191,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "b53008259bd3e6b6"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 43,
+      "game_id": "e06a95d6-7ed2-48fe-bf54-ad702b93acb2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 42,
+        "state_hash": "358103f906c28bf3"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 191,
+      "total_moves_ts": 191,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 43,
+        "state_hash": "ce0f41ecf1803ff7"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 47,
+      "game_id": "bfff4937-5409-46a4-98f3-fe7fc68b6453",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 46,
+        "state_hash": "89bfdb82754e933a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 223,
+      "total_moves_ts": 223,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 47,
+        "state_hash": "e6e6cd1ee9a9a5c1"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_2p.db",
+      "diverged_at": 48,
+      "game_id": "41f15516-0020-4579-8837-ba528e369f96",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 47,
+        "state_hash": "10b4d5b472a432e2"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 214,
+      "total_moves_ts": 214,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 48,
+        "state_hash": "5d2f68500bf1a90d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 73,
+      "game_id": "274efb78-ffd1-40b2-97cd-ebda758b79ab",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 72,
+        "state_hash": "336e0ba2c11ecf1b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 199,
+      "total_moves_ts": 199,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 73,
+        "state_hash": "bc78727435c9713e"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 108,
+      "game_id": "61283d92-9d3d-45ee-872c-a36436b24616",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "finished",
+        "move_index": 107,
+        "state_hash": "320c8ed14c163152"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 108,
+      "total_moves_ts": 108,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 108,
+        "state_hash": "dd4501124358ab75"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 128,
+      "game_id": "3839fe99-950a-448f-9e88-46e41f582566",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 127,
+        "state_hash": "6dc2e1da255b548c"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 183,
+      "total_moves_ts": 183,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 128,
+        "state_hash": "097e474f3c67d82b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 12,
+      "game_id": "2682d3b5-450c-4e9c-b656-0901859fbac4",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 11,
+        "state_hash": "a94be3a9b3c58a20"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 109,
+      "total_moves_ts": 109,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 12,
+        "state_hash": "98324b41c86ee6d4"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 73,
+      "game_id": "108862d6-e646-4892-8746-80fa94362143",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 72,
+        "state_hash": "336e0ba2c11ecf1b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 199,
+      "total_moves_ts": 199,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 73,
+        "state_hash": "bc78727435c9713e"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 63,
+      "game_id": "da44fd61-aa49-4314-8448-fd60512fa45b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 62,
+        "state_hash": "5b41450fb0850a69"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 107,
+      "total_moves_ts": 107,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 63,
+        "state_hash": "5dd4f997dbade1ac"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 123,
+      "game_id": "8862e2b8-9cca-4158-b548-7058bfa731cc",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 122,
+        "state_hash": "07c77ea1aa0b0cc6"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 206,
+      "total_moves_ts": 206,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 123,
+        "state_hash": "49c5d5f8c60ef380"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 128,
+      "game_id": "ea0ef3e9-00a5-4dbe-ba2a-e758b109f027",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 127,
+        "state_hash": "6dc2e1da255b548c"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 183,
+      "total_moves_ts": 183,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 128,
+        "state_hash": "097e474f3c67d82b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 73,
+      "game_id": "956b724f-d551-4d27-b6f7-b9ce054b88bb",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 72,
+        "state_hash": "336e0ba2c11ecf1b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 199,
+      "total_moves_ts": 199,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 73,
+        "state_hash": "bc78727435c9713e"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 12,
+      "game_id": "cd531ed2-3d14-46cf-80dd-cb1b66beeb1c",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 11,
+        "state_hash": "a94be3a9b3c58a20"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 102,
+      "total_moves_ts": 102,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 12,
+        "state_hash": "98324b41c86ee6d4"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 118,
+      "game_id": "02aa8d91-47aa-4d3e-a506-cdd493bda33a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 117,
+        "state_hash": "3390a94633e990e9"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 165,
+      "total_moves_ts": 165,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 118,
+        "state_hash": "cc0098b0773f8d96"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 128,
+      "game_id": "cc0e8a9c-3f9e-4019-80f7-7c173cd16eb0",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 127,
+        "state_hash": "6dc2e1da255b548c"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 183,
+      "total_moves_ts": 183,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 128,
+        "state_hash": "097e474f3c67d82b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 70,
+      "game_id": "a8bdcef9-4bb9-4743-9e61-0e98d4850fe6",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 69,
+        "state_hash": "c8d9d0b5b2c14363"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 114,
+      "total_moves_ts": 114,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 70,
+        "state_hash": "cbbf802e8e49ea15"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 12,
+      "game_id": "8bfb8e95-c328-4015-9630-ddcc4ae9b39a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 11,
+        "state_hash": "a94be3a9b3c58a20"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 102,
+      "total_moves_ts": 102,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 12,
+        "state_hash": "98324b41c86ee6d4"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 106,
+      "game_id": "76086bb3-8fab-4bb8-a00e-ad1db9290d49",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 105,
+        "state_hash": "0c743d072e002a6b"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 113,
+      "total_moves_ts": 113,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 106,
+        "state_hash": "57d87cc7dbe30d3a"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 90,
+      "game_id": "19d4530a-4682-432c-a449-4c07aaf02bcb",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 89,
+        "state_hash": "162d6a2c430cdd22"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 102,
+      "total_moves_ts": 102,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 90,
+        "state_hash": "adb0de36c578797e"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 76,
+      "game_id": "f990fc5a-2f9c-4633-827a-a43e3942b1b3",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 75,
+        "state_hash": "380317785d30e483"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 100,
+      "total_moves_ts": 100,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 76,
+        "state_hash": "386f4353c2085d1b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 37,
+      "game_id": "c7634f74-32c1-428f-8e02-cdfaa64cc4d0",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "8661ccaa9dbbcbd1"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 207,
+      "total_moves_ts": 207,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 37,
+        "state_hash": "891f5fe63ae7e9ec"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 89,
+      "game_id": "de166de5-dfb9-48ae-b349-8e57a52b4301",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 88,
+        "state_hash": "187bd096a420140d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 218,
+      "total_moves_ts": 218,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 89,
+        "state_hash": "765552c161dcde40"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 60,
+      "game_id": "648df14b-b695-42f1-9786-d2db3c77e2cb",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 59,
+        "state_hash": "8758f0ed5659d5e5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 203,
+      "total_moves_ts": 203,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 60,
+        "state_hash": "6ee9dd1eea5aeec2"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 36,
+      "game_id": "77c89f49-c6b0-4887-a788-a87504f1cb38",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 35,
+        "state_hash": "4289d9c08b77ddd5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 179,
+      "total_moves_ts": 179,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 36,
+        "state_hash": "cdabf42d1f268f7c"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 88,
+      "game_id": "b151f835-7844-49fd-a8aa-d05d5301c26c",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 87,
+        "state_hash": "a98549a49f550f20"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 131,
+      "total_moves_ts": 131,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 88,
+        "state_hash": "0387d24308f760b4"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 29,
+      "game_id": "391ea37a-6af8-470f-9db3-3e23309e0206",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 28,
+        "state_hash": "b43e507b1f85a1eb"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 197,
+      "total_moves_ts": 197,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 29,
+        "state_hash": "4d4e4857c69076cd"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 33,
+      "game_id": "c4c27e70-4514-4f80-bfe3-dc04005294d2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "3ae91e87f3e8628e"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 160,
+      "total_moves_ts": 160,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 33,
+        "state_hash": "1c5ca073ba0fb12e"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 95,
+      "game_id": "88b650c2-fb84-45c5-97fc-f61f71bcb74d",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 94,
+        "state_hash": "0f5509abae92510f"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 95,
+        "state_hash": "54def186862b04d0"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 29,
+      "game_id": "c3c95043-db61-47ff-889a-5ca9c8460efe",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 28,
+        "state_hash": "b43e507b1f85a1eb"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 29,
+        "state_hash": "4d4e4857c69076cd"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
+      "diverged_at": 33,
+      "game_id": "555c8ad0-6c3e-439c-ba06-c90d02996ab4",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "3ae91e87f3e8628e"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 33,
+        "state_hash": "1c5ca073ba0fb12e"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 137,
+      "game_id": "c2075d79-f916-46d1-a13c-4d6abcd85d91",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 136,
+        "state_hash": "a467da071d6c8fe1"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 335,
+      "total_moves_ts": 335,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 137,
+        "state_hash": "6f5a4404efdc5735"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 120,
+      "game_id": "a95bf4f3-0150-49d3-a180-4bf619fed38c",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 119,
+        "state_hash": "b3e5ec3115445f9d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 318,
+      "total_moves_ts": 318,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 120,
+        "state_hash": "fe654f39d3ada428"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 91,
+      "game_id": "4389e891-56fb-48e2-8983-ae4ac6c5781e",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 90,
+        "state_hash": "7387d5302e5bc15a"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 319,
+      "total_moves_ts": 319,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 91,
+        "state_hash": "3f935bce972ec972"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 64,
+      "game_id": "007db468-3371-483b-b3e9-c78d1fdc2d25",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 63,
+        "state_hash": "8c9a26dd6b7b05b0"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 266,
+      "total_moves_ts": 266,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 64,
+        "state_hash": "81d64512a2c09add"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 155,
+      "game_id": "1b1ca28e-a58b-4877-aa98-429d9c85ad26",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 154,
+        "state_hash": "a6f63bcfb904d7a3"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 310,
+      "total_moves_ts": 310,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 155,
+        "state_hash": "5ece6b31cc5025bf"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 32,
+      "game_id": "c35c9984-4bdc-4231-b525-2c6313a7269b",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 31,
+        "state_hash": "6f5fd30b2c7250b0"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 341,
+      "total_moves_ts": 341,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "b02ff357ce3123c7"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 48,
+      "game_id": "87420e2a-44eb-4ea4-9e10-8e6f5448053f",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player"],
+      "python_summary": {
+        "current_phase": "line_processing",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 47,
+        "state_hash": "01665fc554513032"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 48,
+        "state_hash": "f7a498262f319946"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 150,
+      "game_id": "86e5db64-1b12-4465-8dd4-6adfd8c786ea",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 149,
+        "state_hash": "3efc7652af50788d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "territory_processing",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 150,
+        "state_hash": "2bc32cf86a2147ec"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_3p.db",
+      "diverged_at": 32,
+      "game_id": "cfe83282-e676-4a41-96a6-905930bcf27e",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 31,
+        "state_hash": "6f5fd30b2c7250b0"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 150,
+      "total_moves_ts": 150,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "b02ff357ce3123c7"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 66,
+      "game_id": "8cf90c15-fb0b-4da1-9353-ea82451bd8b4",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 65,
+        "state_hash": "cffe780ac27f179c"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 285,
+      "total_moves_ts": 285,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 66,
+        "state_hash": "74362a4eb072be4f"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 102,
+      "game_id": "e75537c9-b080-443e-9255-8d7b942f6c46",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 101,
+        "state_hash": "ffdeaf75f337dcc0"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 281,
+      "total_moves_ts": 281,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 102,
+        "state_hash": "5b923f97eebc8b5b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 131,
+      "game_id": "aaefa732-45d2-43de-8ee5-2a3ebc2549c2",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 130,
+        "state_hash": "89c2385c715fa172"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 293,
+      "total_moves_ts": 293,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 131,
+        "state_hash": "be8e8e2b80147228"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 33,
+      "game_id": "a5f0a32b-4668-47df-b64c-9b451ada813e",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "0d678c2a6c61f3de"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 318,
+      "total_moves_ts": 318,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 33,
+        "state_hash": "7841c98137d0934d"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 71,
+      "game_id": "c84f4c95-5355-4a79-868e-6bd94fa47b6a",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 70,
+        "state_hash": "96b07825541713d5"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 309,
+      "total_moves_ts": 309,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 71,
+        "state_hash": "6538d6bad93da0e5"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 33,
+      "game_id": "fa267386-c4cd-4ce2-a15f-fb4313020903",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 32,
+        "state_hash": "ba7f4aff53f71576"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 288,
+      "total_moves_ts": 288,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 33,
+        "state_hash": "24de707984b8511a"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 87,
+      "game_id": "1f7a10cc-e41c-48eb-80a9-8c4bfde8d3d0",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "chain_capture",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 86,
+        "state_hash": "34b3e9c432f77674"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 277,
+      "total_moves_ts": 277,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 3,
+        "game_status": "active",
+        "move_index": 87,
+        "state_hash": "3263d602b0f53a6b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_hexagonal_3p.db",
+      "diverged_at": 81,
+      "game_id": "229b8f40-aa14-48a4-9b28-46c2526ce4d5",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 80,
+        "state_hash": "f5f0a01a4161b247"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 275,
+      "total_moves_ts": 275,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 81,
+        "state_hash": "cfc0977276fc9bb0"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/coverage_selfplay.db",
+      "diverged_at": 16,
+      "game_id": "47f34614-8a2a-420a-8ae2-9d1c51d5196f",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_phase"],
+      "python_summary": {
+        "current_phase": "capture",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 15,
+        "state_hash": "27eee453efb4e18d"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 91,
+      "total_moves_ts": 91,
+      "ts_summary": {
+        "current_phase": "movement",
+        "current_player": 1,
+        "game_status": "active",
+        "move_index": 16,
+        "state_hash": "799ba075b100070b"
+      }
+    },
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/coverage_selfplay.db",
+      "diverged_at": 48,
+      "game_id": "68cd9284-32dc-4b6d-9c8e-5e11b9ac8a08",
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "finished",
+        "move_index": 47,
+        "state_hash": "826edb0cbac5f518"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 48,
+      "total_moves_ts": 48,
+      "ts_summary": {
+        "current_phase": "line_processing",
+        "current_player": 2,
+        "game_status": "active",
+        "move_index": 48,
+        "state_hash": "3ca51e6463758312"
+      }
+    }
+  ],
+  "structural_issues": [],
+  "total_databases": 17,
+  "total_games_checked": 157
+}

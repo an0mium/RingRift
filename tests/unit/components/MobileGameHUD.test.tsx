@@ -43,4 +43,101 @@ describe('MobileGameHUD', () => {
     expect(badge).toHaveTextContent('Spectating');
     expect(badge).toHaveTextContent('3 viewer');
   });
+
+  it('renders a phase help button during line_processing', () => {
+    const vm = createBaseViewModel({
+      phase: {
+        phaseKey: 'line_processing' as any,
+        label: 'Line Formation',
+        description: 'Resolve completed lines and rewards.',
+        icon: '═',
+        colorClass: 'bg-amber-500',
+        actionHint: 'Choose how to resolve lines',
+        spectatorHint: 'Player is resolving lines',
+      },
+    });
+
+    render(<MobileGameHUD viewModel={vm} />);
+
+    const helpButton = screen.getByTestId('mobile-phase-help-line_processing');
+    expect(helpButton).toBeInTheDocument();
+    expect(helpButton).toHaveTextContent('Phase rules');
+  });
+
+  it('renders a territory help button during territory_processing', () => {
+    const vm = createBaseViewModel({
+      phase: {
+        phaseKey: 'territory_processing' as any,
+        label: 'Territory Processing',
+        description: 'Resolve disconnected regions and territory.',
+        icon: '▣',
+        colorClass: 'bg-emerald-500',
+        actionHint: 'Choose a region to process',
+        spectatorHint: 'Player is resolving territory',
+      },
+      decisionPhase: {
+        isActive: true,
+        actingPlayerNumber: 1,
+        actingPlayerName: 'Alice',
+        isLocalActor: true,
+        label: 'Your decision: Choose region order',
+        description: 'Choose which disconnected region to process first.',
+        shortLabel: 'Territory region order',
+        timeRemainingMs: null,
+        showCountdown: false,
+        warningThresholdMs: undefined,
+        isServerCapped: undefined,
+        spectatorLabel: 'Waiting for Alice to choose a region to process first',
+      } as any,
+    });
+
+    render(<MobileGameHUD viewModel={vm} />);
+
+    const helpButton = screen.getByTestId('mobile-territory-help');
+    expect(helpButton).toBeInTheDocument();
+    expect(helpButton).toHaveTextContent('Territory rules');
+  });
+
+  it('renders decision status chip and skip hint when decisionPhase provides them', () => {
+    const vm = createBaseViewModel({
+      phase: {
+        phaseKey: 'line_processing' as any,
+        label: 'Line Formation',
+        description: 'Resolve completed lines and rewards.',
+        icon: '═',
+        colorClass: 'bg-amber-500',
+        actionHint: 'Choose how to resolve lines',
+        spectatorHint: 'Player is resolving lines',
+      },
+      decisionPhase: {
+        isActive: true,
+        actingPlayerNumber: 1,
+        actingPlayerName: 'Alice',
+        isLocalActor: true,
+        label: 'Your decision: Ring elimination',
+        description: 'Choose which stack to eliminate from.',
+        shortLabel: 'Ring elimination',
+        timeRemainingMs: null,
+        showCountdown: false,
+        warningThresholdMs: undefined,
+        isServerCapped: undefined,
+        spectatorLabel: 'Waiting for Alice to choose a stack for ring elimination',
+        statusChip: {
+          text: 'Select stack cap to eliminate',
+          tone: 'attention',
+        },
+        canSkip: true,
+      } as any,
+    });
+
+    render(<MobileGameHUD viewModel={vm} />);
+
+    const chip = screen.getByTestId('mobile-decision-status-chip');
+    expect(chip).toBeInTheDocument();
+    expect(chip).toHaveTextContent('Select stack cap to eliminate');
+
+    const skipHint = screen.getByTestId('mobile-decision-skip-hint');
+    expect(skipHint).toBeInTheDocument();
+    expect(skipHint).toHaveTextContent(/Skip available/i);
+  });
 });

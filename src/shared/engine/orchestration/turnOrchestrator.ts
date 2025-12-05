@@ -356,6 +356,18 @@ function createChainCaptureDecision(state: GameState, continuations: Move[]): Pe
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * Options for processTurn behavior.
+ */
+export interface ProcessTurnOptions {
+  /**
+   * When true, even single territory regions will return a decision instead
+   * of being auto-processed. This is used in replay contexts where explicit
+   * process_territory_region moves from recordings should be used.
+   */
+  skipSingleTerritoryAutoProcess?: boolean;
+}
+
+/**
  * Process a single move synchronously.
  *
  * This is the main entry point when decisions can be made immediately
@@ -364,7 +376,11 @@ function createChainCaptureDecision(state: GameState, continuations: Move[]): Pe
  * For cases requiring async decision resolution (human player choices),
  * use processTurnAsync or check the 'awaiting_decision' status.
  */
-export function processTurn(state: GameState, move: Move): ProcessTurnResult {
+export function processTurn(
+  state: GameState,
+  move: Move,
+  options?: ProcessTurnOptions
+): ProcessTurnResult {
   const sInvariantBefore = computeSInvariant(state);
   const startTime = Date.now();
   const stateMachine = new PhaseStateMachine(createTurnProcessingState(state, move));
@@ -402,7 +418,7 @@ export function processTurn(state: GameState, move: Move): ProcessTurnResult {
   if (!isPlacementMove && (moveActuallyChangedState || !isDecisionMove)) {
     // Process post-move phases only for movement/capture moves, or for decision moves
     // that actually changed state.
-    result = processPostMovePhases(stateMachine);
+    result = processPostMovePhases(stateMachine, options);
   }
 
   // Finalize metadata
@@ -618,7 +634,10 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
 /**
  * Process post-move phases (lines, territory, victory check).
  */
-function processPostMovePhases(stateMachine: PhaseStateMachine): {
+function processPostMovePhases(
+  stateMachine: PhaseStateMachine,
+  options?: ProcessTurnOptions
+): {
   pendingDecision?: PendingDecision;
   victoryResult?: VictoryState;
 } {
@@ -750,6 +769,12 @@ function processPostMovePhases(stateMachine: PhaseStateMachine): {
           pendingDecision: createRegionOrderDecision(state, regions),
         };
       } else if (regions.length === 1) {
+        // Single region: in replay mode, return decision so explicit move is used
+        if (options?.skipSingleTerritoryAutoProcess) {
+          return {
+            pendingDecision: createRegionOrderDecision(state, regions),
+          };
+        }
         // Single region: process automatically
         const region = regions[0];
         const move: Move = {

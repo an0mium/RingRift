@@ -1602,7 +1602,7 @@ describe('toVictoryViewModel', () => {
       {
         reason: 'ring_elimination',
         expectedTitlePattern: /Wins!/,
-        expectedDescPattern: /capturing.*50%.*rings/i,
+        expectedDescPattern: /eliminating more than half of all rings/i,
       },
       {
         reason: 'territory_control',

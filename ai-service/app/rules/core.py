@@ -40,10 +40,28 @@ BOARD_CONFIGS: Dict[BoardType, BoardConfig] = {
 
 def get_line_length_for_board(board_type: BoardType) -> int:
     """
-    Return the required line length for the given board type.
+    Return the BASE line length for the given board type.
     Mirrors TS BOARD_CONFIGS[boardType].lineLength
+
+    NOTE: For player-count-aware line length, use get_effective_line_length.
     """
     return BOARD_CONFIGS[board_type].line_length
+
+
+def get_effective_line_length(board_type: BoardType, num_players: int) -> int:
+    """
+    Return the effective line length threshold for the given board and player count.
+
+    Canonical RR-CANON-R120 defines lineLength purely by board type:
+    - square8: 3
+    - square19 / hexagonal: 4
+
+    The num_players parameter is accepted for API compatibility with TS
+    helpers but does not affect the canonical threshold on the Python side.
+    """
+    base = BOARD_CONFIGS[board_type].line_length
+
+    return base
 
 
 class BoardView(Protocol):

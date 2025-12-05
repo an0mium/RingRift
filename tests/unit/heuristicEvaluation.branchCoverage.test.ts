@@ -652,5 +652,87 @@ describe('heuristicEvaluation branch coverage', () => {
       // Should have penalty for blocked stack
       expect(typeof breakdown.stackMobility).toBe('number');
     });
+
+    it('mobility evaluates capture opportunity against weaker adjacent opponent (line 623)', () => {
+      const state = makeEmptyGameState();
+      state.players[0].ringsInHand = 0;
+      // My taller stack can capture adjacent weaker opponent
+      addStack(state, pos(3, 3), 1, 3, 3);
+      addStack(state, pos(3, 4), 2, 1, 1); // Adjacent weaker opponent
+      const breakdown = evaluateHeuristicStateWithBreakdown(state, 1);
+      // Mobility should be positive due to capture opportunity
+      expect(breakdown.mobility).toBeGreaterThan(0);
+    });
+
+    it('victory proximity returns 1000 when victory threshold reached (line 724)', () => {
+      const state = makeEmptyGameState();
+      // Player 1 has reached the elimination victory threshold
+      state.players[0].eliminatedRings = state.victoryThreshold;
+      const breakdown = evaluateHeuristicStateWithBreakdown(state, 1);
+      // Victory proximity should be at max (1000 * weight)
+      expect(breakdown.victoryProximity).toBeGreaterThan(0);
+    });
+
+    it('victory proximity returns 1000 when territory threshold reached (line 724)', () => {
+      const state = makeEmptyGameState();
+      // Player 1 has reached the territory victory threshold
+      state.players[0].territorySpaces = state.territoryVictoryThreshold;
+      const breakdown = evaluateHeuristicStateWithBreakdown(state, 1);
+      expect(breakdown.victoryProximity).toBeGreaterThan(0);
+    });
+
+    it('approxMovesForPlayer counts capture opportunities (lines 798-799)', () => {
+      const state = makeEmptyGameState({ numPlayers: 3 });
+      state.players[0].ringsInHand = 0;
+      state.players[1].ringsInHand = 0;
+      state.players[2].ringsInHand = 0;
+      // Player 1 has a stack that can capture an adjacent opponent stack
+      addStack(state, pos(3, 3), 1, 3, 3);
+      addStack(state, pos(3, 4), 2, 1, 1); // Adjacent weaker opponent
+      // Player 2 has no moves (blocked)
+      addStack(state, pos(0, 0), 2, 1, 1);
+      addStack(state, pos(1, 0), 1, 5, 5);
+      addStack(state, pos(0, 1), 1, 5, 5);
+      addStack(state, pos(1, 1), 1, 5, 5);
+      const breakdown = evaluateHeuristicStateWithBreakdown(state, 1);
+      // Should register as having advantage due to capture opportunity
+      expect(typeof breakdown.lpsActionAdvantage).toBe('number');
+    });
+
+    it('LPS action advantage penalizes player with no actions (line 898)', () => {
+      const state = makeEmptyGameState({ numPlayers: 3 });
+      // Player 1 has no actions: no rings in hand and no stacks
+      state.players[0].ringsInHand = 0;
+      // Player 2 and 3 have actions
+      state.players[1].ringsInHand = 5;
+      state.players[2].ringsInHand = 5;
+      const breakdown = evaluateHeuristicStateWithBreakdown(state, 1);
+      // Should be negative since player has no actions
+      expect(breakdown.lpsActionAdvantage).toBeLessThan(0);
+    });
+
+    it('territory safety calculates hex z-distance (line 1170)', () => {
+      const state = makeEmptyGameState({ boardType: 'hexagonal' });
+      // Add marker at a hex position
+      addMarker(state, pos(0, 0, 0), 1);
+      // Add opponent stack nearby (uses z coordinate in distance)
+      addStack(state, pos(1, 0, -1), 2, 2, 2);
+      const breakdown = evaluateHeuristicStateWithBreakdown(state, 1);
+      // Territory safety should account for the nearby threat
+      expect(breakdown.territorySafety).toBeLessThanOrEqual(0);
+    });
+
+    it('stack mobility counts capture moves (line 1216)', () => {
+      const state = makeEmptyGameState();
+      state.players[0].ringsInHand = 0;
+      // My tall stack at center with adjacent weaker opponent stacks
+      addStack(state, pos(3, 3), 1, 4, 4);
+      // Multiple adjacent weaker opponents that can be captured
+      addStack(state, pos(3, 4), 2, 1, 1);
+      addStack(state, pos(4, 3), 2, 1, 1);
+      const breakdown = evaluateHeuristicStateWithBreakdown(state, 1);
+      // Stack mobility should count these capture opportunities
+      expect(breakdown.stackMobility).toBeGreaterThan(0);
+    });
   });
 });

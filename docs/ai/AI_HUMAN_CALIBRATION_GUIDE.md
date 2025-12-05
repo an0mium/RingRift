@@ -42,6 +42,22 @@ For square8 2‑player, the ladder defines these anchor tiers:
 | D6   | 6                 | Minimax       | High search budget; punishes clear mistakes.  |
 | D8   | 8                 | MCTS          | Strong search; intended "near‑expert" anchor. |
 
+### 1.1 Mapping to client difficulty labels and ladder configs
+
+To keep human calibration, UX copy, and ladder configs aligned, use the
+following mapping as the single mental model for Square‑8 2‑player:
+
+| Ladder tier | Ladder config (ai‑service)                                                                              | Client difficulty label (`difficultyUx.ts`)    | Intended strength band                         |
+| ----------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| D2          | `difficulty=2`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=HEURISTIC`, `model_id="heuristic_v1_2p"` | **Learner (D2 – Casual / Learning)** (`id: 2`) | Casual / learning; brand‑new RingRift players. |
+| D4          | `difficulty=4`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MINIMAX`, `model_id="v1-minimax-4"`      | **Challenging (D4 – Intermediate)** (`id: 4`)  | Intermediate players / strong casuals.         |
+| D6          | `difficulty=6`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MINIMAX`, `model_id="v1-minimax-6"`      | **Advanced (D6 – Strong club)** (`id: 6`)      | Strong club‑level / advanced RingRift players. |
+| D8          | `difficulty=8`, `BoardType.SQUARE8`, `num_players=2`, `ai_type=MCTS`, `model_id="v1-mcts-8"`            | **Strong Expert (D8 – Near‑expert)** (`id: 8`) | Very strong / near‑expert players.             |
+
+Interpolated client tiers (D3, D5, D7) are UX‑level “bridges” between these
+anchors and do not introduce new ladder configs; they should be interpreted
+as sitting strictly between the neighbouring anchor tiers above.
+
 Unless otherwise stated, calibration sessions should:
 
 - Use **Square‑8, 2 players**.

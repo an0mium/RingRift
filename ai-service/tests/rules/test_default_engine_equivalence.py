@@ -354,7 +354,7 @@ def test_default_engine_apply_move_matches_game_engine_for_process_line_syntheti
 
     try:
         BoardManager.find_all_lines = staticmethod(  # type: ignore[assignment]
-            lambda board: [synthetic_line]
+            lambda board, num_players=3: [synthetic_line]
         )
 
         line_moves = GameEngine._get_line_processing_moves(state, 1)

@@ -28,6 +28,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 
 import {
   getSelfPlayGameService,
@@ -40,6 +41,7 @@ import {
 } from '../src/client/sandbox/ClientSandboxEngine';
 import type { BoardType, GameState, Move, Position } from '../src/shared/types/game';
 import { hashGameStateSHA256 } from '../src/shared/engine';
+import { serializeGameState } from '../src/shared/engine/contracts/serialization';
 import { connectDatabase, disconnectDatabase } from '../src/server/database/connection';
 import type { PrismaClient } from '@prisma/client';
 
@@ -53,6 +55,8 @@ interface BaseCliArgs {
 interface ReplayCliArgs extends BaseCliArgs {
   mode: 'replay';
   gameId: string;
+  /** Move number(s) at which to dump full TS state JSON for debugging */
+  dumpStateAt?: number[];
 }
 
 interface ImportCliArgs extends BaseCliArgs {
@@ -70,7 +74,11 @@ function printUsage(): void {
       'Usage:',
       '  # Replay a single self-play game into the TS sandbox engine',
       '  TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/selfplay-db-ts-replay.ts \\',
-      '    --db /path/to/games.db --game <gameId>',
+      '    --db /path/to/games.db --game <gameId> [--dump-state-at <k1,k2,...>]',
+      '',
+      '  # Dump full TS state JSON at specific move numbers for parity debugging',
+      '  TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/selfplay-db-ts-replay.ts \\',
+      '    --db /path/to/games.db --game <gameId> --dump-state-at 50,51,52',
       '',
       '  # Import completed self-play games as canonical GameRecords',
       '  TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/selfplay-db-ts-replay.ts \\',
@@ -95,6 +103,7 @@ export function parseArgs(argv: string[]): CliArgs | null {
   let limit: number | undefined;
   const tags: string[] = [];
   let dryRun = false;
+  const dumpStateAt: number[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -128,6 +137,20 @@ export function parseArgs(argv: string[]): CliArgs | null {
       i += 1;
     } else if (arg === '--dry-run') {
       dryRun = true;
+    } else if ((arg === '--dump-state-at' || arg === '--dump-at') && argv[i + 1]) {
+      const raw = argv[i + 1];
+      // Support comma-separated list: --dump-state-at 10,20,30
+      const parts = raw.split(',').map((s) => s.trim());
+      for (const part of parts) {
+        const parsed = Number.parseInt(part, 10);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          dumpStateAt.push(parsed);
+        } else {
+          console.error(`Invalid --dump-state-at value: ${part}`);
+          return null;
+        }
+      }
+      i += 1;
     }
   }
 
@@ -148,6 +171,7 @@ export function parseArgs(argv: string[]): CliArgs | null {
       mode: 'replay',
       dbPath: resolvedDb,
       gameId,
+      ...(dumpStateAt.length > 0 && { dumpStateAt }),
     };
   }
 
@@ -221,7 +245,7 @@ function summarizeState(label: string, state: GameState): Record<string, unknown
 }
 
 async function runReplayMode(args: ReplayCliArgs): Promise<void> {
-  const { dbPath, gameId } = args;
+  const { dbPath, gameId, dumpStateAt } = args;
 
   const service = getSelfPlayGameService();
   const detail = service.getGame(dbPath, gameId);
@@ -262,10 +286,26 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     },
   };
 
+  // Optional debug configuration: dump TS GameState JSON at specified move numbers.
+  // Supports both CLI args (--dump-state-at 10,20,30) and env var (legacy).
+  // Dumps are written to RINGRIFT_TS_REPLAY_DUMP_DIR or ./ts-replay-dumps.
+  const dumpKRaw = process.env.RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K;
+  const envDumpK = dumpKRaw ? Number.parseInt(dumpKRaw, 10) : NaN;
+  const dumpKSet = new Set<number>(dumpStateAt ?? []);
+  if (Number.isFinite(envDumpK)) {
+    dumpKSet.add(envDumpK);
+  }
+  const shouldDumpState = dumpKSet.size > 0;
+  const dumpDirEnv = process.env.RINGRIFT_TS_REPLAY_DUMP_DIR;
+  const dumpDir =
+    dumpDirEnv && dumpDirEnv.length > 0 ? dumpDirEnv : path.join(process.cwd(), 'ts-replay-dumps');
+
   const engine = new ClientSandboxEngine({
     config,
     interactionHandler,
-    traceMode: false,
+    // Enable traceMode so the sandbox replay path uses strict, parity-oriented
+    // semantics (no extra auto line/territory processing beyond recorded moves).
+    traceMode: true,
   });
 
   engine.initFromSerializedState(sanitizedState, config.playerKinds, interactionHandler);
@@ -293,6 +333,26 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
     await engine.applyCanonicalMoveForReplay(move, nextMove);
     const state = engine.getGameState();
+
+    // Optional debug dump for parity investigation
+    if (shouldDumpState && dumpKSet.has(applied)) {
+      try {
+        fs.mkdirSync(dumpDir, { recursive: true });
+        const fileName = `${path.basename(dbPath)}__${gameId}__k${applied}.ts_state.json`;
+        const outPath = path.join(dumpDir, fileName);
+        // Use serializeGameState to properly convert Map objects to plain objects
+        fs.writeFileSync(outPath, JSON.stringify(serializeGameState(state), null, 2), 'utf-8');
+
+        console.error(
+          `[selfplay-db-ts-replay] Dumped TS state for ${gameId} @ k=${applied} to ${outPath}`
+        );
+      } catch (err) {
+        console.error(
+          `[selfplay-db-ts-replay] Failed to dump TS state for ${gameId} @ k=${applied}:`,
+          err
+        );
+      }
+    }
     // eslint-disable-next-line no-console
     console.log(
       JSON.stringify({

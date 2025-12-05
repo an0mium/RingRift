@@ -41,13 +41,13 @@
   "diverged_at": 102,
   "game_id": "e75537c9-b080-443e-9255-8d7b942f6c46",
   "mismatch_context": "post_move",
-  "mismatch_kinds": ["current_phase"],
+  "mismatch_kinds": ["current_player", "current_phase"],
   "python_summary": {
-    "current_phase": "chain_capture",
-    "current_player": 3,
+    "current_phase": "ring_placement",
+    "current_player": 1,
     "game_status": "active",
     "move_index": 101,
-    "state_hash": "c33eb3bf888326a8"
+    "state_hash": "ffdeaf75f337dcc0"
   },
   "total_moves_python": 281,
   "total_moves_ts": 281,

@@ -473,6 +473,16 @@ describe('serialization branch coverage', () => {
       expect(result.victoryThreshold).toBe(20);
       expect(result.territoryVictoryThreshold).toBe(10);
     });
+
+    it('handles undefined moveHistory with nullish coalescing (line 172)', () => {
+      const state = makeGameState();
+      // Force moveHistory to be undefined to test the nullish coalescing branch
+      (state as unknown as { moveHistory: undefined }).moveHistory = undefined;
+
+      // The function will throw later at line 187 when trying to map,
+      // but line 172's nullish coalescing branch is covered before the throw
+      expect(() => serializeGameState(state)).toThrow();
+    });
   });
 
   describe('deserializeGameState', () => {

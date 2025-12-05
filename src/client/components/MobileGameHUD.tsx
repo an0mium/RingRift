@@ -316,6 +316,67 @@ export function MobileGameHUD({
   const helpOpenCountsRef = React.useRef<Record<string, number>>({});
   const prevIsOpenRef = React.useRef(false);
   const prevTopicRef = React.useRef<TeachingTopic | null>(null);
+  const autoScenarioHelpShownRef = React.useRef<Record<string, boolean>>({});
+
+  const phaseHelpTopic: TeachingTopic | null = React.useMemo(() => {
+    switch (phase.phaseKey) {
+      case 'movement':
+        return 'stack_movement';
+      case 'capture':
+        return 'capturing';
+      case 'chain_capture':
+        return 'chain_capture';
+      case 'line_processing':
+        return 'line_bonus';
+      default:
+        return null;
+    }
+  }, [phase.phaseKey]);
+
+  // Map curated scenario rulesConcepts to TeachingOverlay topics and the
+  // phases where it makes sense to auto-open contextual help on mobile.
+  const scenarioHelpConfig = React.useMemo(() => {
+    if (!rulesUxRulesConcept) return null;
+
+    type PhaseKey = typeof phase.phaseKey;
+    type Config = { topic: TeachingTopic; phaseKeys: PhaseKey[] };
+
+    const concept = rulesUxRulesConcept;
+
+    if (concept === 'capture_basic') {
+      const cfg: Config = { topic: 'capturing', phaseKeys: ['movement', 'capture'] as PhaseKey[] };
+      return cfg;
+    }
+
+    if (concept === 'chain_capture_mandatory') {
+      const cfg: Config = { topic: 'chain_capture', phaseKeys: ['chain_capture'] as PhaseKey[] };
+      return cfg;
+    }
+
+    if (concept === 'lines_basic' || concept === 'lines_overlength_option2') {
+      const cfg: Config = { topic: 'line_bonus', phaseKeys: ['line_processing'] as PhaseKey[] };
+      return cfg;
+    }
+
+    if (
+      concept === 'territory_basic' ||
+      concept === 'territory_near_victory' ||
+      concept === 'territory_mini_region_q23'
+    ) {
+      const cfg: Config = {
+        topic: 'territory',
+        phaseKeys: ['territory_processing'] as PhaseKey[],
+      };
+      return cfg;
+    }
+
+    if (concept === 'movement_basic' || concept === 'stack_height_mobility') {
+      const cfg: Config = { topic: 'stack_movement', phaseKeys: ['movement'] as PhaseKey[] };
+      return cfg;
+    }
+
+    return null;
+  }, [phase.phaseKey, rulesUxRulesConcept]);
 
   // Emit telemetry when the mobile TeachingOverlay opens for a topic.
   React.useEffect(() => {
@@ -375,6 +436,28 @@ export function MobileGameHUD({
     rulesUxRulesConcept,
     rulesUxScenarioId,
   ]);
+
+  // Auto-open curated TeachingOverlay topics for selected onboarding / rules
+  // scenarios on mobile the first time their key phase becomes active.
+  React.useEffect(() => {
+    if (!scenarioHelpConfig || !rulesUxScenarioId) {
+      return;
+    }
+
+    if (!scenarioHelpConfig.phaseKeys.includes(phase.phaseKey)) {
+      return;
+    }
+
+    const topic = scenarioHelpConfig.topic;
+    const key = `${rulesUxScenarioId}:${topic}`;
+
+    if (autoScenarioHelpShownRef.current[key]) {
+      return;
+    }
+
+    autoScenarioHelpShownRef.current[key] = true;
+    showTopic(topic);
+  }, [phase.phaseKey, rulesUxScenarioId, scenarioHelpConfig, showTopic]);
 
   const handleWeirdStateHelp = React.useCallback(() => {
     if (!weirdState) return;
@@ -471,6 +554,22 @@ export function MobileGameHUD({
       {/* Phase + turn bar */}
       <MobilePhaseBar phase={phase} turnNumber={turnNumber} isMyTurn={isMyTurn} />
 
+      {/* Phase-level rules help */}
+      {phaseHelpTopic && (
+        <div className="flex justify-end mt-1">
+          <button
+            type="button"
+            onClick={() => showTopic(phaseHelpTopic)}
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-600 bg-slate-900/80 text-[10px] text-slate-100"
+            aria-label="Phase rules help"
+            data-testid={`mobile-phase-help-${phase.phaseKey}`}
+          >
+            <span className="text-xs">?</span>
+            <span>Phase rules</span>
+          </button>
+        </div>
+      )}
+
       {/* Decision timer (when active) */}
       {decisionPhase &&
         decisionPhase.isActive &&
@@ -486,6 +585,47 @@ export function MobileGameHUD({
             />
           </div>
         )}
+
+      {/* Decision-specific status chip (e.g., ring elimination prompt) */}
+      {decisionPhase?.statusChip && (
+        <div className="mt-1 flex items-center justify-between">
+          <span
+            className={
+              decisionPhase.statusChip.tone === 'attention'
+                ? 'px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[10px] font-semibold border border-amber-300'
+                : 'px-2 py-0.5 rounded-full bg-sky-900/60 text-sky-100 text-[10px] font-medium border border-sky-500/60'
+            }
+            data-testid="mobile-decision-status-chip"
+          >
+            {decisionPhase.statusChip.text}
+          </span>
+          {decisionPhase.canSkip && (
+            <span
+              className="ml-2 px-1.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-600 text-[9px] uppercase tracking-wide text-slate-200"
+              data-testid="mobile-decision-skip-hint"
+            >
+              Skip available
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Territory-processing help: surface a concise rules recap when players
+          are choosing regions or eliminations during the territory phase. */}
+      {phase.phaseKey === 'territory_processing' && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => showTopic('territory')}
+            className="mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-full border border-slate-600 bg-slate-900/80 text-[10px] text-slate-100"
+            aria-label="Territory rules help"
+            data-testid="mobile-territory-help"
+          >
+            <span className="text-xs">?</span>
+            <span>Territory rules</span>
+          </button>
+        </div>
+      )}
 
       {/* Instruction banner (compact) */}
       {instruction && (

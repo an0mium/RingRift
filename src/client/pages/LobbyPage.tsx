@@ -10,6 +10,10 @@ import type { ClientToServerEvents, ServerToClientEvents } from '../../shared/ty
 import { readEnv } from '../../shared/utils/envFlags';
 import { extractErrorMessage } from '../utils/errorReporting';
 import { DIFFICULTY_DESCRIPTORS, getDifficultyDescriptor } from '../utils/difficultyUx';
+import {
+  sendDifficultyCalibrationEvent,
+  storeDifficultyCalibrationSession,
+} from '../utils/difficultyCalibrationTelemetry';
 
 interface FormState {
   boardType: BoardType;
@@ -23,6 +27,8 @@ interface FormState {
   aiDifficulty: number;
   aiMode: 'local_heuristic' | 'service';
   aiType: 'random' | 'heuristic' | 'minimax' | 'mcts';
+  /** When true, create a canonical Square-8 2-player calibration game vs AI. */
+  isCalibrationGame: boolean;
 }
 
 interface LobbyFilters {
@@ -47,6 +53,7 @@ const defaultForm: FormState = {
   aiDifficulty: 5,
   aiMode: 'service',
   aiType: 'heuristic',
+  isCalibrationGame: false,
 };
 
 function getSocketBaseUrl(): string {
@@ -451,6 +458,10 @@ export default function LobbyPage() {
     getDifficultyDescriptor(5) ??
     DIFFICULTY_DESCRIPTORS.find((d) => d.id === 5);
 
+  const difficultyOptions = form.isCalibrationGame
+    ? DIFFICULTY_DESCRIPTORS.filter((d) => d.id === 2 || d.id === 4 || d.id === 6 || d.id === 8)
+    : DIFFICULTY_DESCRIPTORS;
+
   // Get current user ID
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -542,43 +553,120 @@ export default function LobbyPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const createGameFromForm = async (formState: FormState) => {
+    const isCalibration = formState.isCalibrationGame;
+    const effectiveBoardType: BoardType = isCalibration ? 'square8' : formState.boardType;
+    const effectiveMaxPlayers = isCalibration ? 2 : formState.maxPlayers;
+    const effectiveAiCount = isCalibration ? 1 : formState.aiCount;
+
+    let effectiveAiDifficulty = formState.aiDifficulty;
+    if (
+      isCalibration &&
+      effectiveAiDifficulty !== 2 &&
+      effectiveAiDifficulty !== 4 &&
+      effectiveAiDifficulty !== 6 &&
+      effectiveAiDifficulty !== 8
+    ) {
+      effectiveAiDifficulty = 4;
+    }
+
+    const isAiGame = effectiveAiCount > 0;
+    const isRated = isAiGame ? false : formState.isRated;
+
+    const payload: CreateGameRequest = {
+      boardType: effectiveBoardType,
+      maxPlayers: effectiveMaxPlayers,
+      isRated,
+      isPrivate: formState.isPrivate,
+      timeControl: {
+        type: formState.timeControlType,
+        initialTime: formState.initialTime,
+        increment: formState.increment,
+      },
+      ...(effectiveAiCount > 0
+        ? {
+            aiOpponents: {
+              count: effectiveAiCount,
+              difficulty: Array(effectiveAiCount).fill(effectiveAiDifficulty),
+              mode: formState.aiMode,
+              aiType: formState.aiType,
+            },
+          }
+        : {}),
+      ...(effectiveMaxPlayers === 2 ? { rulesOptions: { swapRuleEnabled: true } } : {}),
+      ...(isCalibration
+        ? {
+            isCalibrationGame: true,
+            calibrationDifficulty: effectiveAiDifficulty,
+          }
+        : {}),
+    };
+
+    const game = await gameApi.createGame(payload);
+
+    if (isCalibration) {
+      storeDifficultyCalibrationSession(game.id, {
+        boardType: effectiveBoardType,
+        numPlayers: effectiveMaxPlayers,
+        difficulty: effectiveAiDifficulty,
+        isCalibrationOptIn: true,
+      });
+
+      void sendDifficultyCalibrationEvent({
+        type: 'difficulty_calibration_game_started',
+        boardType: effectiveBoardType,
+        numPlayers: effectiveMaxPlayers,
+        difficulty: effectiveAiDifficulty,
+        isCalibrationOptIn: true,
+      });
+    }
+
+    return game;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const payload: CreateGameRequest = {
-        boardType: form.boardType,
-        maxPlayers: form.maxPlayers,
-        isRated: form.isRated,
-        isPrivate: form.isPrivate,
-        timeControl: {
-          type: form.timeControlType,
-          initialTime: form.initialTime,
-          increment: form.increment,
-        },
-        // Use conditional spreads to avoid assigning undefined with exactOptionalPropertyTypes
-        ...(form.aiCount > 0
-          ? {
-              aiOpponents: {
-                count: form.aiCount,
-                difficulty: Array(form.aiCount).fill(form.aiDifficulty),
-                mode: form.aiMode,
-                aiType: form.aiType,
-              },
-            }
-          : {}),
-        // For now, expose the swap rule as a default-on 2-player variant from
-        // the lobby. Future UI can add an explicit toggle; until then, hosts
-        // can still disable it via direct API calls.
-        ...(form.maxPlayers === 2 ? { rulesOptions: { swapRuleEnabled: true } } : {}),
-      };
-
-      const game = await gameApi.createGame(payload);
+      const game = await createGameFromForm(form);
       navigate(`/game/${game.id}`);
     } catch (error: unknown) {
       setError(extractErrorMessage(error, 'Failed to create game'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGuidedIntro = async () => {
+    setError(null);
+    setShowCreateForm(true);
+
+    const guidedForm: FormState = {
+      ...defaultForm,
+      boardType: 'square8',
+      maxPlayers: 2,
+      isRated: false,
+      isPrivate: false,
+      timeControlType: 'rapid',
+      initialTime: 600,
+      increment: 5,
+      aiCount: 1,
+      aiDifficulty: 2,
+      aiMode: 'service',
+      aiType: 'heuristic',
+      isCalibrationGame: true,
+    };
+
+    setForm(guidedForm);
+    setIsSubmitting(true);
+
+    try {
+      const game = await createGameFromForm(guidedForm);
+      navigate(`/game/${game.id}`);
+    } catch (error: unknown) {
+      setError(extractErrorMessage(error, 'Failed to create guided intro game'));
     } finally {
       setIsSubmitting(false);
     }
@@ -626,9 +714,27 @@ export default function LobbyPage() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-50">Game Lobby</h1>
           <p className="text-sm text-slate-400 mt-1">Find and join games in real-time</p>
         </div>
-        <Button type="button" size="lg" onClick={() => setShowCreateForm(!showCreateForm)}>
-          {showCreateForm ? '← Back to Lobby' : '+ Create Game'}
-        </Button>
+        <div className="flex flex-col items-end gap-2">
+          <p className="text-[11px] text-slate-400 text-right max-w-xs">
+            New to RingRift?{' '}
+            <span className="font-semibold text-slate-200">Guided Intro vs AI</span> starts an easy
+            8x8 game against a gentle AI and contributes to difficulty calibration.
+          </p>
+          <div className="flex items-center gap-3">
+            <Button type="button" size="lg" onClick={() => setShowCreateForm(!showCreateForm)}>
+              {showCreateForm ? '← Back to Lobby' : '+ Create Game'}
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant="secondary"
+              onClick={handleGuidedIntro}
+              data-testid="guided-intro-button"
+            >
+              Guided Intro vs AI
+            </Button>
+          </div>
+        </div>
       </header>
 
       {showCreateForm ? (
@@ -750,18 +856,51 @@ export default function LobbyPage() {
                   <input
                     type="checkbox"
                     className="rounded border-slate-600 bg-slate-900 text-emerald-600 focus:ring-emerald-500"
-                    checked={form.aiCount > 0}
+                    checked={form.isCalibrationGame ? true : form.aiCount > 0}
+                    disabled={form.isCalibrationGame}
                     onChange={(e) => handleChange('aiCount', e.target.checked ? 1 : 0)}
                   />
                   <span>Play vs AI</span>
                 </label>
                 <p className="text-xs text-slate-400">
-                  {form.aiCount > 0
+                  {form.aiCount > 0 || form.isCalibrationGame
                     ? 'You will be matched against a computer opponent at the selected difficulty.'
                     : 'Uncheck to create a human-only game.'}
                 </p>
               </div>
-              {form.aiCount > 0 && (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm">
+                <label className="inline-flex items-center gap-2 text-slate-100">
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-600 bg-slate-900 text-emerald-600 focus:ring-emerald-500"
+                    checked={form.isCalibrationGame}
+                    onChange={(e) => {
+                      const enabled = e.target.checked;
+                      handleChange('isCalibrationGame', enabled);
+                      if (enabled) {
+                        handleChange('boardType', 'square8' as BoardType);
+                        handleChange('maxPlayers', 2);
+                        handleChange('aiCount', 1);
+                        handleChange('isRated', false);
+                        if (
+                          form.aiDifficulty !== 2 &&
+                          form.aiDifficulty !== 4 &&
+                          form.aiDifficulty !== 6 &&
+                          form.aiDifficulty !== 8
+                        ) {
+                          handleChange('aiDifficulty', 4);
+                        }
+                      }
+                    }}
+                  />
+                  <span>Contribute to AI difficulty calibration (Square-8 vs AI)</span>
+                </label>
+                <p className="text-xs text-slate-400">
+                  Calibration games are unrated, 2-player Square-8 vs AI at a canonical tier (D2,
+                  D4, D6, or D8).
+                </p>
+              </div>
+              {(form.aiCount > 0 || form.isCalibrationGame) && (
                 <div className="space-y-2">
                   <div>
                     <label className="block text-sm font-medium mb-1 text-slate-100">

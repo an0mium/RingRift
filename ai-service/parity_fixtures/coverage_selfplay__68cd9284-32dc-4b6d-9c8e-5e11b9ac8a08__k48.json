@@ -37,7 +37,7 @@
   "diverged_at": 48,
   "game_id": "68cd9284-32dc-4b6d-9c8e-5e11b9ac8a08",
   "mismatch_context": "post_move",
-  "mismatch_kinds": ["current_phase", "game_status"],
+  "mismatch_kinds": ["current_player", "current_phase", "game_status"],
   "python_summary": {
     "current_phase": "ring_placement",
     "current_player": 1,
@@ -48,10 +48,10 @@
   "total_moves_python": 48,
   "total_moves_ts": 48,
   "ts_summary": {
-    "current_phase": "territory_processing",
-    "current_player": 1,
+    "current_phase": "line_processing",
+    "current_player": 2,
     "game_status": "active",
     "move_index": 48,
-    "state_hash": "7530c6ee972c95d3"
+    "state_hash": "3ca51e6463758312"
   }
 }

@@ -19,6 +19,7 @@ import {
   processTurn,
   validateMove,
   getValidMoves,
+  type ProcessTurnOptions,
 } from '../../shared/engine/orchestration/turnOrchestrator';
 import type {
   ProcessTurnResult,
@@ -88,6 +89,12 @@ export interface SandboxAdapterDeps {
   stateAccessor: SandboxStateAccessor;
   decisionHandler: SandboxDecisionHandler;
   callbacks?: SandboxAdapterCallbacks;
+  /**
+   * When true, territory decision (region_order) auto-resolution is skipped.
+   * This is used in traceMode/replay contexts where explicit process_territory_region
+   * moves should be replayed instead of auto-resolving.
+   */
+  skipTerritoryAutoResolve?: boolean;
 }
 
 /**
@@ -162,6 +169,7 @@ export class SandboxOrchestratorAdapter {
   private readonly stateAccessor: SandboxStateAccessor;
   private readonly decisionHandler: SandboxDecisionHandler;
   private readonly callbacks?: SandboxAdapterCallbacks | undefined;
+  private readonly skipTerritoryAutoResolve: boolean;
 
   /**
    * Chain capture continuation moves, populated when processTurnAsync returns
@@ -174,6 +182,7 @@ export class SandboxOrchestratorAdapter {
     this.stateAccessor = deps.stateAccessor;
     this.decisionHandler = deps.decisionHandler;
     this.callbacks = deps.callbacks;
+    this.skipTerritoryAutoResolve = deps.skipTerritoryAutoResolve ?? false;
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -213,8 +222,13 @@ export class SandboxOrchestratorAdapter {
 
       // Helper to run processTurn and accumulate phase metadata
       let phasesTraversed: string[] = [];
+      const processTurnOptions: ProcessTurnOptions = {
+        // In replay/traceMode, don't auto-process single territory regions so
+        // explicit process_territory_region moves from the recording are used.
+        skipSingleTerritoryAutoProcess: this.skipTerritoryAutoResolve,
+      };
       const runProcessTurn = (state: GameState, moveToApply: Move): ProcessTurnResult => {
-        const result = processTurn(state, moveToApply);
+        const result = processTurn(state, moveToApply, processTurnOptions);
         if (result.metadata?.phasesTraversed?.length) {
           phasesTraversed = phasesTraversed.concat(result.metadata.phasesTraversed);
         }
@@ -238,6 +252,13 @@ export class SandboxOrchestratorAdapter {
         // continuation moves via getValidMoves() and return without auto-resolving.
         if (decision.type === 'chain_capture') {
           this.chainCaptureOptions = decision.options;
+          break;
+        }
+
+        // Territory decisions (region_order) are skipped when skipTerritoryAutoResolve
+        // is enabled. This is used in replay/traceMode contexts where explicit
+        // process_territory_region moves should come from the recording.
+        if (decision.type === 'region_order' && this.skipTerritoryAutoResolve) {
           break;
         }
 

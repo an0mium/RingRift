@@ -41,6 +41,119 @@ function logDevWarning(message: string, error: unknown, extra?: Record<string, u
   });
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Per-game calibration session helpers
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Lightweight client-side record of a calibration session for a specific game.
+ * This is used to bridge between game creation (Lobby) and game completion
+ * (BackendGameHost) so that we can emit a started + completed pair of events
+ * without requiring the server to persist calibration flags yet.
+ */
+export interface DifficultyCalibrationSession {
+  boardType: BoardType;
+  numPlayers: number;
+  difficulty: number;
+  isCalibrationOptIn: boolean;
+}
+
+const SESSION_STORAGE_KEY_PREFIX = 'rr_difficulty_calibration_game:';
+
+function getSessionStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (!('sessionStorage' in window)) return null;
+    return window.sessionStorage;
+  } catch {
+    // Access to sessionStorage can throw in some sandboxed environments; fail soft.
+    return null;
+  }
+}
+
+/**
+ * Persist a calibration session for the given gameId in sessionStorage.
+ * This is best-effort and silently no-ops when storage is unavailable.
+ */
+export function storeDifficultyCalibrationSession(
+  gameId: string,
+  session: DifficultyCalibrationSession
+): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+
+  const key = `${SESSION_STORAGE_KEY_PREFIX}${gameId}`;
+  try {
+    storage.setItem(
+      key,
+      JSON.stringify({
+        boardType: session.boardType,
+        numPlayers: session.numPlayers,
+        difficulty: session.difficulty,
+        isCalibrationOptIn: !!session.isCalibrationOptIn,
+      })
+    );
+  } catch {
+    // Swallow storage errors; calibration is strictly best-effort.
+  }
+}
+
+/**
+ * Look up a previously stored calibration session for the given gameId.
+ * Returns null when no valid session is present.
+ */
+export function getDifficultyCalibrationSession(
+  gameId: string
+): DifficultyCalibrationSession | null {
+  const storage = getSessionStorage();
+  if (!storage) return null;
+
+  const key = `${SESSION_STORAGE_KEY_PREFIX}${gameId}`;
+  const raw = storage.getItem(key);
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<DifficultyCalibrationSession> & {
+      boardType?: string;
+    };
+
+    if (
+      !parsed ||
+      typeof parsed.boardType !== 'string' ||
+      typeof parsed.numPlayers !== 'number' ||
+      !Number.isFinite(parsed.numPlayers) ||
+      parsed.numPlayers < 1 ||
+      typeof parsed.difficulty !== 'number' ||
+      !Number.isFinite(parsed.difficulty)
+    ) {
+      return null;
+    }
+
+    return {
+      boardType: parsed.boardType as BoardType,
+      numPlayers: parsed.numPlayers,
+      difficulty: parsed.difficulty,
+      isCalibrationOptIn: !!parsed.isCalibrationOptIn,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clear any stored calibration session metadata for the given gameId.
+ */
+export function clearDifficultyCalibrationSession(gameId: string): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  const key = `${SESSION_STORAGE_KEY_PREFIX}${gameId}`;
+  try {
+    storage.removeItem(key);
+  } catch {
+    // Ignore removal failures.
+  }
+}
+
 /**
  * Send a single difficulty-calibration telemetry event to the backend.
  *

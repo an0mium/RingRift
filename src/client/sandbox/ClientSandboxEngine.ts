@@ -487,6 +487,9 @@ export class ClientSandboxEngine {
           console.error(`[SandboxOrchestratorAdapter] Error in ${context}:`, error);
         },
       },
+      // In traceMode (replay), skip auto-resolving territory decisions so explicit
+      // process_territory_region moves from the recording are used instead.
+      skipTerritoryAutoResolve: this.traceMode,
     });
   }
 
@@ -3665,33 +3668,53 @@ export class ClientSandboxEngine {
       }
 
       // End-game phase completion: when this is the LAST move (no nextMove),
-      // we must advance through any remaining phases and check victory to
-      // match Python's post-move semantics. Without this, TS may stay in an
-      // intermediate phase (e.g., 'capture') while Python declares victory.
+      // we may need to advance phases and check victory to match Python's
+      // post-move semantics. In strict replay/trace mode we avoid inventing
+      // additional territory/line decisions beyond those recorded; in normal
+      // sandbox UX we still auto-process to a terminal shape.
       if (!nextMove && this.gameState.gameStatus === 'active') {
         // First, check victory immediately - this catches Early LPS (one player
         // has all material) without needing to advance phases further.
         this.checkAndApplyVictory();
 
-        // Then advance through any pending phases to completion.
-        const maxIterations = 20;
+        const maxIterations = 50;
         let iterations = 0;
         while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
           const prevPhase = this.gameState.currentPhase;
           const prevPlayer = this.gameState.currentPlayer;
-          this.advanceTurnAndPhaseForCurrentPlayer();
+
+          if (this.traceMode) {
+            // Strict replay: do NOT auto-apply additional territory or line
+            // decisions that Python did not record as moves. Only use the
+            // shared turn/phase sequencer to advance to a stable shape.
+            this.advanceTurnAndPhaseForCurrentPlayer();
+          } else {
+            // Normal sandbox UX: process pending decision phases to completion.
+            if (this.gameState.currentPhase === 'territory_processing') {
+              const resolved = await this.autoResolveOneTerritoryRegionForReplay();
+              if (!resolved) {
+                this.advanceTurnAndPhaseForCurrentPlayer();
+              }
+            } else if (this.gameState.currentPhase === 'line_processing') {
+              const resolved = await this.autoResolveOneLineForReplay();
+              if (!resolved) {
+                this.advanceTurnAndPhaseForCurrentPlayer();
+              }
+            } else {
+              this.advanceTurnAndPhaseForCurrentPlayer();
+            }
+          }
 
           // Check victory after each phase advancement
           this.checkAndApplyVictory();
 
-          // If no change occurred, we've reached a stable end state
           if (
             this.gameState.currentPhase === prevPhase &&
             this.gameState.currentPlayer === prevPlayer
           ) {
             break;
           }
-          iterations++;
+          iterations += 1;
         }
       }
 
@@ -3737,12 +3760,31 @@ export class ClientSandboxEngine {
         // First, check victory immediately - this catches Early LPS.
         this.checkAndApplyVictory();
 
-        const maxIterations = 20;
+        const maxIterations = 50;
         let iterations = 0;
         while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
           const prevPhase = this.gameState.currentPhase;
           const prevPlayer = this.gameState.currentPlayer;
-          this.advanceTurnAndPhaseForCurrentPlayer();
+
+          if (this.traceMode) {
+            // Strict replay: do not invent extra decision moves.
+            this.advanceTurnAndPhaseForCurrentPlayer();
+          } else {
+            // Normal sandbox UX: auto-process remaining decisions.
+            if (this.gameState.currentPhase === 'territory_processing') {
+              const resolved = await this.autoResolveOneTerritoryRegionForReplay();
+              if (!resolved) {
+                this.advanceTurnAndPhaseForCurrentPlayer();
+              }
+            } else if (this.gameState.currentPhase === 'line_processing') {
+              const resolved = await this.autoResolveOneLineForReplay();
+              if (!resolved) {
+                this.advanceTurnAndPhaseForCurrentPlayer();
+              }
+            } else {
+              this.advanceTurnAndPhaseForCurrentPlayer();
+            }
+          }
 
           // Check victory after each phase advancement
           this.checkAndApplyVictory();
@@ -3753,7 +3795,7 @@ export class ClientSandboxEngine {
           ) {
             break;
           }
-          iterations++;
+          iterations += 1;
         }
       }
 
@@ -3865,6 +3907,20 @@ export class ClientSandboxEngine {
         this.gameState.currentPlayer = nextMove.player;
       }
 
+      // RR-CANON-R121: Player alignment for line_processing moves.
+      // Per the canonical rules, the "moving player" who triggered line detection
+      // should process their lines. The TS orchestrator may advance to the next
+      // player before line_processing, so we align currentPlayer to match the
+      // recorded move's player.
+      if (
+        this.gameState.gameStatus === 'active' &&
+        lineProcessingMoveTypes.includes(nextMove.type) &&
+        this.gameState.currentPhase === 'line_processing' &&
+        nextMove.player !== this.gameState.currentPlayer
+      ) {
+        this.gameState.currentPlayer = nextMove.player;
+      }
+
       // After alignment (or if already aligned), let the decision move proceed
       return;
     }
@@ -3881,23 +3937,58 @@ export class ClientSandboxEngine {
       iterations += 1;
 
       if (this.gameState.currentPhase === 'territory_processing') {
-        const resolved = await this.autoResolveOneTerritoryRegionForReplay();
-        if (!resolved) {
-          // No more regions to process, but still in territory_processing
-          // This shouldn't happen, but advance turn to recover
+        // Check if there are pending territory regions to process
+        const regions = findDisconnectedRegionsOnBoard(this.gameState.board);
+        const eligible = regions.filter((region) =>
+          this.canProcessDisconnectedRegion(
+            region.spaces,
+            this.gameState.currentPlayer,
+            this.gameState.board
+          )
+        );
+
+        if (eligible.length === 0) {
+          // No pending regions - safe to advance phase/turn
           this.advanceTurnAndPhaseForCurrentPlayer();
+        } else if (this.traceMode) {
+          // PARITY FIX: In traceMode, if there are pending regions, do NOT
+          // auto-process them. Python records territory decisions as explicit
+          // moves (process_territory_region), so we must let those recorded
+          // moves arrive in sequence. Break here and wait for them.
+          break;
+        } else {
+          const resolved = await this.autoResolveOneTerritoryRegionForReplay();
+          if (!resolved) {
+            // No more regions to process, but still in territory_processing
+            // This shouldn't happen, but advance turn to recover
+            this.advanceTurnAndPhaseForCurrentPlayer();
+          }
         }
       } else if (this.gameState.currentPhase === 'line_processing') {
-        const phaseBefore = this.gameState.currentPhase;
-        const resolved = await this.autoResolveOneLineForReplay();
-        if (!resolved) {
-          // No more lines to process, advance turn
+        // Check if there are pending lines to process
+        const lineMoves = enumerateProcessLineMoves(this.gameState, this.gameState.currentPlayer);
+
+        if (lineMoves.length === 0) {
+          // No pending lines - safe to advance phase/turn
           this.advanceTurnAndPhaseForCurrentPlayer();
-        } else if (this.gameState.currentPhase === phaseBefore) {
-          // autoResolveOneLineForReplay processed something but phase didn't change.
-          // This can happen when line processing is already complete but the
-          // orchestrator leaves us in line_processing. Force advance.
-          this.advanceTurnAndPhaseForCurrentPlayer();
+        } else if (this.traceMode) {
+          // PARITY FIX: In traceMode, if there are pending lines, do NOT
+          // auto-process them. Python records line decisions as explicit
+          // moves (process_line, choose_line_reward), so we must let those
+          // recorded moves arrive in sequence. Break here and wait for them.
+          break;
+        } else {
+          const phaseBefore = this.gameState.currentPhase;
+          const resolved = await this.autoResolveOneLineForReplay();
+          if (!resolved) {
+            // No more lines to process, advance turn
+            this.advanceTurnAndPhaseForCurrentPlayer();
+          } else if (this.gameState.currentPhase === phaseBefore) {
+            // autoResolveOneLineForReplay processed something but phase didn't change.
+            // This can happen when line processing is already complete but the
+            // orchestrator leaves us in line_processing. Force advance.
+            this.advanceTurnAndPhaseForCurrentPlayer();
+          }
         }
       } else if (
         this.gameState.currentPhase === 'capture' ||

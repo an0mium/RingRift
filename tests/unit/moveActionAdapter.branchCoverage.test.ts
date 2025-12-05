@@ -929,4 +929,303 @@ describe('moveActionAdapter branch coverage', () => {
       expect(error.move).toBe(move);
     });
   });
+
+  // ==========================================================================
+  // Additional branch coverage tests (lines 258, 292-295, 405-412, 435-443, 459, 487)
+  // ==========================================================================
+  describe('resolveLineIndexFromMove additional branches', () => {
+    it('rejects line with different player (line 258)', () => {
+      const state = makeEngineState();
+      // Line on state belongs to player 2
+      const stateLine = makeLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]);
+      state.board.formedLines = [stateLine];
+
+      // Move references a line with same positions but different player
+      const moveLine = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]);
+      const move: Move = {
+        id: 'test',
+        type: 'process_line',
+        player: 1,
+        to: pos(0, 0),
+        formedLines: [moveLine],
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      // Should throw because move.formedLines[0].player !== line.player
+      expect(() => moveToGameAction(move, state)).toThrow(
+        'Could not match Move.formedLines[0] to any board.formedLines entry'
+      );
+    });
+  });
+
+  describe('resolveRegionIdFromMove additional branches', () => {
+    it('skips non-disconnected regions (line 292)', () => {
+      const state = makeEngineState();
+      // Add a connected territory (isDisconnected = false)
+      const connectedTerritory = makeTerritory(1, [pos(0, 0), pos(1, 0)], false);
+      // Add a disconnected territory
+      const disconnectedTerritory = makeTerritory(1, [pos(5, 5), pos(6, 5)], true);
+      state.board.territories = new Map([
+        ['region-connected', connectedTerritory],
+        ['region-disconnected', disconnectedTerritory],
+      ]);
+
+      const move: Move = {
+        id: 'test',
+        type: 'process_territory_region',
+        player: 1,
+        to: pos(5, 5),
+        disconnectedRegions: [disconnectedTerritory],
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const action = moveToGameAction(move, state);
+      // Should match the disconnected one, skipping the connected one
+      expect((action as { regionId: string }).regionId).toBe('region-disconnected');
+    });
+
+    it('skips regions with different controlling player (line 293)', () => {
+      const state = makeEngineState();
+      // Add territory for player 2
+      const player2Territory = makeTerritory(2, [pos(0, 0), pos(1, 0)], true);
+      // Add territory for player 1 (matching)
+      const player1Territory = makeTerritory(1, [pos(5, 5), pos(6, 5)], true);
+      state.board.territories = new Map([
+        ['region-player2', player2Territory],
+        ['region-player1', player1Territory],
+      ]);
+
+      const move: Move = {
+        id: 'test',
+        type: 'process_territory_region',
+        player: 1,
+        to: pos(5, 5),
+        disconnectedRegions: [player1Territory],
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const action = moveToGameAction(move, state);
+      // Should skip player 2's region
+      expect((action as { regionId: string }).regionId).toBe('region-player1');
+    });
+
+    it('skips regions with different size (line 295)', () => {
+      const state = makeEngineState();
+      // Add territory with different size
+      const smallTerritory = makeTerritory(1, [pos(0, 0)], true);
+      // Add territory with matching size
+      const matchingTerritory = makeTerritory(1, [pos(5, 5), pos(6, 5)], true);
+      state.board.territories = new Map([
+        ['region-small', smallTerritory],
+        ['region-matching', matchingTerritory],
+      ]);
+
+      const move: Move = {
+        id: 'test',
+        type: 'process_territory_region',
+        player: 1,
+        to: pos(5, 5),
+        disconnectedRegions: [matchingTerritory],
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const action = moveToGameAction(move, state);
+      expect((action as { regionId: string }).regionId).toBe('region-matching');
+    });
+  });
+
+  describe('actionToProcessLineMove fallbacks', () => {
+    it('uses fallback when line.length is undefined (line 405)', () => {
+      const state = makeEngineState();
+      // Create line without explicit length
+      const line = {
+        player: 1,
+        positions: [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)],
+        // No length property
+        direction: { x: 1, y: 0 },
+      };
+      state.board.formedLines = [line as LineInfo];
+
+      const action = { type: 'PROCESS_LINE' as const, playerId: 1, lineIndex: 0 };
+      const move = gameActionToMove(action, state);
+
+      // Should use positions.length as fallback
+      expect(move.formedLines![0].length).toBe(4);
+    });
+
+    it('uses fallback when line.direction is undefined (line 406)', () => {
+      const state = makeEngineState();
+      // Create line without direction
+      const line = {
+        player: 1,
+        positions: [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)],
+        length: 4,
+        // No direction property
+      };
+      state.board.formedLines = [line as LineInfo];
+
+      const action = { type: 'PROCESS_LINE' as const, playerId: 1, lineIndex: 0 };
+      const move = gameActionToMove(action, state);
+
+      // Should use fallback direction
+      expect(move.formedLines![0].direction).toEqual({ x: 0, y: 0 });
+    });
+
+    it('uses fallback when line.positions is empty (line 412)', () => {
+      const state = makeEngineState();
+      // Create line with empty positions
+      const line = {
+        player: 1,
+        positions: [] as Position[],
+        length: 0,
+        direction: { x: 1, y: 0 },
+      };
+      state.board.formedLines = [line as LineInfo];
+
+      const action = { type: 'PROCESS_LINE' as const, playerId: 1, lineIndex: 0 };
+      const move = gameActionToMove(action, state);
+
+      // Should use fallback position
+      expect(move.to).toEqual({ x: 0, y: 0 });
+    });
+  });
+
+  describe('actionToChooseLineRewardMove fallbacks', () => {
+    it('uses fallback when line.length is undefined (line 435)', () => {
+      const state = makeEngineState();
+      const line = {
+        player: 1,
+        positions: [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)],
+        // No length
+        direction: { x: 1, y: 0 },
+      };
+      state.board.formedLines = [line as LineInfo];
+
+      const action = {
+        type: 'CHOOSE_LINE_REWARD' as const,
+        playerId: 1,
+        lineIndex: 0,
+        selection: 'COLLAPSE_ALL' as const,
+      };
+      const move = gameActionToMove(action, state);
+
+      expect(move.formedLines![0].length).toBe(4);
+    });
+
+    it('uses fallback when line.direction is undefined (line 436)', () => {
+      const state = makeEngineState();
+      const line = {
+        player: 1,
+        positions: [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)],
+        length: 4,
+        // No direction
+      };
+      state.board.formedLines = [line as LineInfo];
+
+      const action = {
+        type: 'CHOOSE_LINE_REWARD' as const,
+        playerId: 1,
+        lineIndex: 0,
+        selection: 'COLLAPSE_ALL' as const,
+      };
+      const move = gameActionToMove(action, state);
+
+      expect(move.formedLines![0].direction).toEqual({ x: 0, y: 0 });
+    });
+
+    it('uses fallback when line.positions is empty (line 443)', () => {
+      const state = makeEngineState();
+      const line = {
+        player: 1,
+        positions: [] as Position[],
+        length: 0,
+        direction: { x: 1, y: 0 },
+      };
+      state.board.formedLines = [line as LineInfo];
+
+      const action = {
+        type: 'CHOOSE_LINE_REWARD' as const,
+        playerId: 1,
+        lineIndex: 0,
+        selection: 'COLLAPSE_ALL' as const,
+      };
+      const move = gameActionToMove(action, state);
+
+      expect(move.to).toEqual({ x: 0, y: 0 });
+    });
+
+    it('handles MINIMUM_COLLAPSE without collapsedPositions (line 439)', () => {
+      const state = makeEngineState();
+      const line = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]);
+      state.board.formedLines = [line];
+
+      const action = {
+        type: 'CHOOSE_LINE_REWARD' as const,
+        playerId: 1,
+        lineIndex: 0,
+        selection: 'MINIMUM_COLLAPSE' as const,
+        // No collapsedPositions - should use fallback
+      };
+      const move = gameActionToMove(action, state);
+
+      // collapsedMarkers should be undefined or empty
+      expect(move.collapsedMarkers).toBeUndefined();
+    });
+  });
+
+  describe('actionToProcessTerritoryMove fallbacks', () => {
+    it('uses fallback when region.spaces is empty (line 459)', () => {
+      const state = makeEngineState();
+      const territory = {
+        controllingPlayer: 1,
+        spaces: [] as Position[],
+        isDisconnected: true,
+      };
+      state.board.territories = new Map([['region-empty', territory]]);
+
+      const action = {
+        type: 'PROCESS_TERRITORY' as const,
+        playerId: 1,
+        regionId: 'region-empty',
+      };
+      const move = gameActionToMove(action, state);
+
+      // Should use fallback position
+      expect(move.to).toEqual({ x: 0, y: 0 });
+    });
+  });
+
+  describe('actionToEliminateStackMove fallbacks', () => {
+    it('uses capHeight as fallback for totalHeight when stackHeight undefined (line 487)', () => {
+      const state = makeEngineState();
+      // Create a stack without stackHeight property
+      const stack = {
+        position: pos(3, 3),
+        owner: 1,
+        rings: [1, 1],
+        capHeight: 2,
+        controllingPlayer: 1,
+        // stackHeight is undefined
+      };
+      state.board.stacks.set('3,3', stack as any);
+
+      const action = {
+        type: 'ELIMINATE_STACK' as const,
+        playerId: 1,
+        stackPosition: pos(3, 3),
+      };
+      const move = gameActionToMove(action, state);
+
+      // totalHeight should fall back to capHeight
+      expect(move.eliminationFromStack?.totalHeight).toBe(2);
+    });
+  });
 });

@@ -1209,6 +1209,66 @@ function GameHUDFromViewModel({
   const helpOpenCountsRef = React.useRef<Record<string, number>>({});
   const prevIsOpenRef = React.useRef(false);
   const prevTopicRef = React.useRef<TeachingTopic | null>(null);
+  const autoScenarioHelpShownRef = React.useRef<Record<string, boolean>>({});
+  const phaseHelpTopic: TeachingTopic | null = React.useMemo(() => {
+    switch (phase.phaseKey) {
+      case 'movement':
+        return 'stack_movement';
+      case 'capture':
+        return 'capturing';
+      case 'chain_capture':
+        return 'chain_capture';
+      case 'line_processing':
+        return 'line_bonus';
+      default:
+        return null;
+    }
+  }, [phase.phaseKey]);
+
+  // Map curated scenario rulesConcepts to TeachingOverlay topics and the
+  // phases where it makes sense to auto-open contextual help.
+  const scenarioHelpConfig = React.useMemo(() => {
+    if (!rulesUxRulesConcept) return null;
+
+    type PhaseKey = typeof phase.phaseKey;
+    type Config = { topic: TeachingTopic; phaseKeys: PhaseKey[] };
+
+    const concept = rulesUxRulesConcept;
+
+    if (concept === 'capture_basic') {
+      const cfg: Config = { topic: 'capturing', phaseKeys: ['movement', 'capture'] as PhaseKey[] };
+      return cfg;
+    }
+
+    if (concept === 'chain_capture_mandatory') {
+      const cfg: Config = { topic: 'chain_capture', phaseKeys: ['chain_capture'] as PhaseKey[] };
+      return cfg;
+    }
+
+    if (concept === 'lines_basic' || concept === 'lines_overlength_option2') {
+      const cfg: Config = { topic: 'line_bonus', phaseKeys: ['line_processing'] as PhaseKey[] };
+      return cfg;
+    }
+
+    if (
+      concept === 'territory_basic' ||
+      concept === 'territory_near_victory' ||
+      concept === 'territory_mini_region_q23'
+    ) {
+      const cfg: Config = {
+        topic: 'territory',
+        phaseKeys: ['territory_processing'] as PhaseKey[],
+      };
+      return cfg;
+    }
+
+    if (concept === 'movement_basic' || concept === 'stack_height_mobility') {
+      const cfg: Config = { topic: 'stack_movement', phaseKeys: ['movement'] as PhaseKey[] };
+      return cfg;
+    }
+
+    return null;
+  }, [phase.phaseKey, rulesUxRulesConcept]);
 
   // Emit telemetry when the contextual TeachingOverlay opens for a topic.
   React.useEffect(() => {
@@ -1269,6 +1329,30 @@ function GameHUDFromViewModel({
     rulesUxScenarioId,
   ]);
 
+  // Auto-open curated TeachingOverlay topics for selected onboarding / rules
+  // scenarios the first time their key phase becomes active. This uses the
+  // same TeachingOverlay surface as the explicit help chips but avoids
+  // re-opening on every render or phase change.
+  React.useEffect(() => {
+    if (!scenarioHelpConfig || !rulesUxScenarioId) {
+      return;
+    }
+
+    if (!scenarioHelpConfig.phaseKeys.includes(phase.phaseKey)) {
+      return;
+    }
+
+    const topic = scenarioHelpConfig.topic;
+    const key = `${rulesUxScenarioId}:${topic}`;
+
+    if (autoScenarioHelpShownRef.current[key]) {
+      return;
+    }
+
+    autoScenarioHelpShownRef.current[key] = true;
+    showTopic(topic);
+  }, [phase.phaseKey, rulesUxScenarioId, scenarioHelpConfig, showTopic]);
+
   const handleWeirdStateHelp = React.useCallback(() => {
     if (!weirdState) return;
 
@@ -1319,6 +1403,12 @@ function GameHUDFromViewModel({
     showTopic,
     weirdState,
   ]);
+
+  const handleTerritoryHelp = React.useCallback(() => {
+    // Territory-processing decisions often confuse new players; surface the
+    // dedicated TeachingOverlay topic for a concise rules recap.
+    showTopic('territory');
+  }, [showTopic]);
 
   function formatMsAsClock(ms: number): string {
     const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -1455,6 +1545,20 @@ function GameHUDFromViewModel({
       {/* Phase Indicator & weird-state banner */}
       {weirdState && <WeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />}
       <PhaseIndicator phase={phase} isMyTurn={isMyTurn} isSpectator={isSpectator} />
+      {phaseHelpTopic && (
+        <div className="mt-1 flex items-center text-[11px] text-slate-300">
+          <button
+            type="button"
+            onClick={() => showTopic(phaseHelpTopic)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-slate-600 bg-slate-900/80 hover:border-slate-300 hover:text-slate-50 transition-colors"
+            aria-label="Learn more about this phase"
+            data-testid={`hud-phase-help-${phase.phaseKey}`}
+          >
+            <span className="text-xs">?</span>
+            <span>Phase rules</span>
+          </button>
+        </div>
+      )}
       <SubPhaseDetails detail={subPhaseDetail} />
 
       {/* High-level decision time-pressure cue for the current phase */}
@@ -1505,6 +1609,17 @@ function GameHUDFromViewModel({
             >
               Skip available
             </span>
+          )}
+          {phase.phaseKey === 'territory_processing' && (
+            <button
+              type="button"
+              onClick={handleTerritoryHelp}
+              className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-600 bg-slate-900/80 text-[11px] text-slate-200 hover:border-slate-300 hover:text-slate-50 transition-colors"
+              aria-label="Learn more about territory processing"
+              data-testid="hud-territory-help"
+            >
+              ?
+            </button>
           )}
         </div>
       )}

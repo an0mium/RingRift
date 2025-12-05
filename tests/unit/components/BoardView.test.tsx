@@ -556,6 +556,122 @@ describe('BoardView', () => {
     });
   });
 
+  describe('accessibility labels for decision states', () => {
+    it('describes capture landings and targets in aria-labels on square boards', () => {
+      const board = createEmptyBoardState('square8');
+
+      const viewModel: BoardViewModel = {
+        boardType: 'square8',
+        size: 8,
+        cells: [],
+        rows: [],
+        decisionHighlights: {
+          choiceKind: 'capture_direction',
+          highlights: [
+            { positionKey: '2,2', intensity: 'primary' }, // landing
+            { positionKey: '3,3', intensity: 'secondary' }, // target stack
+          ],
+        },
+      };
+
+      const { container } = render(
+        <BoardView
+          boardType="square8"
+          board={board}
+          viewModel={viewModel}
+          validTargets={[{ x: 2, y: 2 }]}
+        />
+      );
+
+      const landingCell = container.querySelector(
+        'button[data-x="2"][data-y="2"]'
+      ) as HTMLButtonElement | null;
+      const targetCell = container.querySelector(
+        'button[data-x="3"][data-y="3"]'
+      ) as HTMLButtonElement | null;
+
+      expect(landingCell).not.toBeNull();
+      expect(targetCell).not.toBeNull();
+
+      expect(landingCell?.getAttribute('aria-label')).toContain(
+        'Capture landing, valid move target'
+      );
+      expect(targetCell?.getAttribute('aria-label')).toContain('Capture target stack');
+    });
+
+    it('describes territory region options in aria-labels on square boards', () => {
+      const board = createEmptyBoardState('square8');
+
+      const viewModel: BoardViewModel = {
+        boardType: 'square8',
+        size: 8,
+        cells: [],
+        rows: [],
+        decisionHighlights: {
+          choiceKind: 'territory_region_order',
+          highlights: [
+            { positionKey: '2,2', intensity: 'primary', groupId: 'region-2' },
+            // Same cell in two regions to exercise overlap description.
+            { positionKey: '3,3', intensity: 'primary', groupId: 'region-1' },
+            { positionKey: '3,3', intensity: 'secondary', groupId: 'region-2' },
+          ],
+          territoryRegions: {
+            regionIdsInDisplayOrder: ['region-1', 'region-2'],
+          },
+        },
+      };
+
+      const { container } = render(
+        <BoardView boardType="square8" board={board} viewModel={viewModel} />
+      );
+
+      const singleRegionCell = container.querySelector(
+        'button[data-x="2"][data-y="2"]'
+      ) as HTMLButtonElement | null;
+      const overlapCell = container.querySelector(
+        'button[data-x="3"][data-y="3"]'
+      ) as HTMLButtonElement | null;
+
+      expect(singleRegionCell).not.toBeNull();
+      expect(overlapCell).not.toBeNull();
+
+      // Second region in display order should be announced as "option 2".
+      expect(singleRegionCell?.getAttribute('aria-label')).toContain('Territory region option 2');
+
+      // Overlapping regions get an explicit overlap description.
+      expect(overlapCell?.getAttribute('aria-label')).toContain(
+        'Overlapping territory regions for this choice'
+      );
+    });
+
+    it('describes chain capture path positions in aria-labels', () => {
+      const board = createEmptyBoardState('square8');
+      const chainCapturePath: Position[] = [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+      ];
+
+      const { container } = render(
+        <BoardView boardType="square8" board={board} chainCapturePath={chainCapturePath} />
+      );
+
+      const originCell = container.querySelector(
+        'button[data-x="0"][data-y="0"]'
+      ) as HTMLButtonElement | null;
+      const currentCell = container.querySelector(
+        'button[data-x="2"][data-y="0"]'
+      ) as HTMLButtonElement | null;
+
+      expect(originCell).not.toBeNull();
+      expect(currentCell).not.toBeNull();
+
+      expect(originCell?.getAttribute('aria-label')).toContain('Visited position in capture chain');
+      expect(currentCell?.getAttribute('aria-label')).toContain(
+        'Current capture position in chain'
+      );
+    });
+  });
+
   describe('chain capture path visualization', () => {
     it('accepts chainCapturePath prop and renders board without errors', () => {
       const board = createEmptyBoardState('square8');
