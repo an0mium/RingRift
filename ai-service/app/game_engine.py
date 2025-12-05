@@ -2817,9 +2817,18 @@ class GameEngine:
             )
 
         # Process markers along movement path (excluding endpoints)
+        # Track collapsed space delta for territory_spaces update
+        collapsed_before = len(board.collapsed_spaces)
         GameEngine._process_markers_along_path(
             board, move.from_pos, move.to, move.player, game_state
         )
+        collapsed_after = len(board.collapsed_spaces)
+        collapsed_delta = collapsed_after - collapsed_before
+        if collapsed_delta > 0:
+            for p in game_state.players:
+                if p.player_number == move.player:
+                    p.territory_spaces += collapsed_delta
+                    break
 
         # Check for marker at landing
         # Per RR-CANON-R091/R092: landing on any marker (own or opponent) removes
@@ -3016,18 +3025,26 @@ class GameEngine:
         # Insert captured ring at bottom of attacker.
         #
         # In the TS engine, rings are stored [top -> bottom] and the captured
-        # ring is appended at the bottom, which does not change the
-        # controlling player or cap height of the attacking stack. Our Python
-        # representation stores rings bottom -> top, but inserting at index 0
-        # is the analogous "bottom" operation and likewise leaves the cap
-        # unchanged.
-        prev_controlling = attacker.controlling_player
-        prev_cap_height = attacker.cap_height
-
+        # ring is appended at the bottom. Our Python representation stores
+        # rings bottom -> top, so inserting at index 0 is the analogous
+        # "bottom" operation.
+        #
+        # IMPORTANT: We must recalculate cap_height after insertion because
+        # if the captured ring is the same color as the entire cap (e.g.,
+        # attacker has [1,1,1] and captures 1), the cap extends to include
+        # the new ring. TS correctly recalculates this via calculateCapHeight.
         attacker.rings.insert(0, captured_ring)
         attacker.stack_height += 1
-        attacker.controlling_player = prev_controlling
-        attacker.cap_height = prev_cap_height
+        # Controlling player is the top ring (last in our bottom->top array)
+        attacker.controlling_player = attacker.rings[-1]
+        # Recalculate cap_height from top (end of array) going down
+        h = 0
+        for r in reversed(attacker.rings):
+            if r == attacker.controlling_player:
+                h += 1
+            else:
+                break
+        attacker.cap_height = h
 
         # Move attacker to landing (merge if stack already present)
         existing_dest = board.stacks.get(landing_key)
