@@ -1,4 +1,5 @@
 import type { DifficultyCalibrationEventPayload } from '../../shared/telemetry/difficultyCalibrationEvents';
+import type { BoardType } from '../../shared/types/game';
 import api from '../services/api';
 
 /**

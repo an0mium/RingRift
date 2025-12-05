@@ -174,6 +174,18 @@ export interface CreateGameRequest {
   rulesOptions?: RulesOptions | undefined;
   /** Optional RNG seed for deterministic games; auto-generated if not provided */
   seed?: number | undefined;
+  /**
+   * When true, marks this game as part of an explicit AI difficulty
+   * calibration run (for example, Square‑8 2-player D2/D4/D6/D8 tests).
+   * Calibration games are currently always unrated and vs AI.
+   */
+  isCalibrationGame?: boolean | undefined;
+  /**
+   * Primary AI difficulty tier being calibrated for this game (1–10).
+   * For calibration games with multiple AI opponents, this should
+   * represent the primary target tier (usually the strongest AI).
+   */
+  calibrationDifficulty?: number | undefined;
 }
 
 export interface AIProfile {

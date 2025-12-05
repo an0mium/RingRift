@@ -2,11 +2,7 @@
   "canonical_move": {
     "actualDistance": null,
     "captureChain": null,
-    "captureTarget": {
-      "x": 16,
-      "y": 9,
-      "z": null
-    },
+    "captureTarget": null,
     "capturedStacks": null,
     "claimedTerritory": null,
     "collapsedMarkers": null,
@@ -14,48 +10,48 @@
     "eliminatedRings": null,
     "formedLines": null,
     "from": {
-      "x": 14,
-      "y": 9,
+      "x": 18,
+      "y": 11,
       "z": null
     },
-    "id": "capture-14,9-16,9-18,9-47",
+    "id": "simulated",
     "markerLeft": null,
     "minimumDistance": null,
-    "moveNumber": 47,
+    "moveNumber": 128,
     "overtakenRings": null,
     "placedOnStack": null,
     "placementCount": null,
-    "player": 2,
+    "player": 1,
     "stackMoved": null,
     "thinkTime": 0,
-    "timestamp": "2025-12-04T21:43:11.032765",
+    "timestamp": "2025-12-04T23:07:37.075285",
     "to": {
       "x": 18,
-      "y": 9,
+      "y": 16,
       "z": null
     },
-    "type": "overtaking_capture"
+    "type": "move_stack"
   },
-  "canonical_move_index": 46,
+  "canonical_move_index": 127,
   "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
-  "diverged_at": 47,
-  "game_id": "c3c95043-db61-47ff-889a-5ca9c8460efe",
+  "diverged_at": 128,
+  "game_id": "cc0e8a9c-3f9e-4019-80f7-7c173cd16eb0",
   "mismatch_context": "post_move",
   "mismatch_kinds": ["current_phase"],
   "python_summary": {
-    "current_phase": "chain_capture",
-    "current_player": 2,
-    "game_status": "active",
-    "move_index": 46,
-    "state_hash": "97aa3128a5140ae6"
-  },
-  "total_moves_python": 150,
-  "total_moves_ts": 150,
-  "ts_summary": {
     "current_phase": "capture",
-    "current_player": 2,
+    "current_player": 1,
     "game_status": "active",
-    "move_index": 47,
-    "state_hash": "e5d7b2d942d58faa"
+    "move_index": 127,
+    "state_hash": "e5f2c060842647b3"
+  },
+  "total_moves_python": 183,
+  "total_moves_ts": 183,
+  "ts_summary": {
+    "current_phase": "movement",
+    "current_player": 1,
+    "game_status": "active",
+    "move_index": 128,
+    "state_hash": "097e474f3c67d82b"
   }
 }

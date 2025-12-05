@@ -3,8 +3,8 @@
     "actualDistance": null,
     "captureChain": null,
     "captureTarget": {
-      "x": 16,
-      "y": 9,
+      "x": 14,
+      "y": 11,
       "z": null
     },
     "capturedStacks": null,
@@ -14,48 +14,48 @@
     "eliminatedRings": null,
     "formedLines": null,
     "from": {
-      "x": 14,
-      "y": 9,
+      "x": 8,
+      "y": 17,
       "z": null
     },
-    "id": "capture-14,9-16,9-18,9-47",
+    "id": "capture-8,17-14,11-17,8-111",
     "markerLeft": null,
     "minimumDistance": null,
-    "moveNumber": 47,
+    "moveNumber": 111,
     "overtakenRings": null,
     "placedOnStack": null,
     "placementCount": null,
     "player": 2,
     "stackMoved": null,
     "thinkTime": 0,
-    "timestamp": "2025-12-04T21:43:11.032765",
+    "timestamp": "2025-12-04T21:59:35.838462",
     "to": {
-      "x": 18,
-      "y": 9,
+      "x": 17,
+      "y": 8,
       "z": null
     },
-    "type": "overtaking_capture"
+    "type": "continue_capture_segment"
   },
-  "canonical_move_index": 46,
+  "canonical_move_index": 110,
   "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/selfplay_square19_2p.db",
-  "diverged_at": 47,
-  "game_id": "c3c95043-db61-47ff-889a-5ca9c8460efe",
+  "diverged_at": 111,
+  "game_id": "de166de5-dfb9-48ae-b349-8e57a52b4301",
   "mismatch_context": "post_move",
-  "mismatch_kinds": ["current_phase"],
+  "mismatch_kinds": ["current_player"],
   "python_summary": {
-    "current_phase": "chain_capture",
+    "current_phase": "line_processing",
     "current_player": 2,
     "game_status": "active",
-    "move_index": 46,
-    "state_hash": "97aa3128a5140ae6"
+    "move_index": 110,
+    "state_hash": "96a2b40b6305a667"
   },
-  "total_moves_python": 150,
-  "total_moves_ts": 150,
+  "total_moves_python": 218,
+  "total_moves_ts": 218,
   "ts_summary": {
-    "current_phase": "capture",
-    "current_player": 2,
+    "current_phase": "line_processing",
+    "current_player": 1,
     "game_status": "active",
-    "move_index": 47,
-    "state_hash": "e5d7b2d942d58faa"
+    "move_index": 111,
+    "state_hash": "60b8cbf553e935ec"
   }
 }

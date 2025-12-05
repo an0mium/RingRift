@@ -271,6 +271,17 @@ export const CreateGameSchema = z.object({
       // (future) territoryTemplateId?: string;
     })
     .optional(),
+  /**
+   * When true, marks this game as part of an explicit AI difficulty
+   * calibration run (for example, Square‑8 2-player D2/D4/D6/D8 tests).
+   */
+  isCalibrationGame: z.boolean().optional(),
+  /**
+   * Primary AI difficulty tier being calibrated for this game (1–10). For
+   * calibration games with multiple AI opponents, this should represent the
+   * primary target tier (usually the strongest AI).
+   */
+  calibrationDifficulty: z.number().min(1).max(10).optional(),
 });
 
 // Convenience alias so server code can use a single source of truth
