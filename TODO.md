@@ -5,7 +5,7 @@
 > - Canonical high-level task/backlog tracker for near- and mid-term work.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** December 4, 2025
+**Last Updated:** December 5, 2025
 
 This file is the canonical high-level task tracker for the project.
 When it disagrees with older planning docs (for example files under
@@ -774,14 +774,21 @@ keep them green; treat regressions as P0 until resolved.
 - [ ] Wire game storage into online game completion
 - [ ] Wire game storage into self-play scripts (CMA-ES, soak tests)
 
-### Wave 10.3 – Self-Play Recording (Track 11)
+### Wave 10.3 – Self-Play Recording (Track 11) ✅
 
-- [ ] Default-enabled game recording in `run_cmaes_optimization.py`
+- [x] Default-enabled game recording in `run_cmaes_optimization.py`
   - Per-run DB at `{output_dir}/games.db`
   - Rich metadata: source, generation, candidate, board_type, num_players
-- [ ] State pool export utility (`scripts/export_state_pool.py`)
-- [ ] Database merge utility (`scripts/merge_game_dbs.py`)
-- [ ] Environment variables: `RINGRIFT_RECORD_SELFPLAY_GAMES`, `RINGRIFT_SELFPLAY_DB_PATH`
+- [x] State pool export utility (`scripts/export_state_pool.py`)
+- [x] Database merge utility (`scripts/merge_game_dbs.py`)
+- [x] Environment variables: `RINGRIFT_RECORD_SELFPLAY_GAMES`, `RINGRIFT_SELFPLAY_DB_PATH`
+- [x] **Canonical parity gate** (`scripts/run_canonical_selfplay_parity_gate.py`)
+- [x] **Training data registry** (`ai-service/TRAINING_DATA_REGISTRY.md`)
+  - Classifies DBs as canonical/legacy_noncanonical/pending_gate
+  - Documents model provenance and training data allowlist policy
+- [x] **Training dataset exporter** (`scripts/export_replay_dataset.py`)
+  - NPZ format for neural net training
+  - Rank-aware value targets for multiplayer
 
 ### Wave 10.4 – Replay System
 

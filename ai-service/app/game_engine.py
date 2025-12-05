@@ -190,10 +190,19 @@ class GameEngine:
         GameEngine._cache_misses = 0
 
     @staticmethod
-    def apply_move(game_state: GameState, move: Move) -> GameState:
+    def apply_move(
+        game_state: GameState, move: Move, *, trace_mode: bool = False
+    ) -> GameState:
         """
-        Apply a move to a game state and return the new state
-        This is a simplified simulation for AI lookahead
+        Apply a move to a game state and return the new state.
+
+        Args:
+            game_state: The current game state.
+            move: The move to apply.
+            trace_mode: When True, disables automatic forced elimination during
+                turn rotation, matching TS's traceMode behavior. Use this when
+                replaying recorded games where forced eliminations are explicit
+                moves in the sequence.
         """
         # Optimization: Manual shallow copy of GameState and BoardState
         # We only deep copy mutable structures that we intend to modify
@@ -313,7 +322,7 @@ class GameEngine:
                 new_state.must_move_from_stack_key = move.to.to_key()
 
         # Handle phase transitions
-        GameEngine._update_phase(new_state, move)
+        GameEngine._update_phase(new_state, move, trace_mode=trace_mode)
 
         # Update hash for phase/player change (add new)
         if new_state.zobrist_hash is not None:
@@ -650,7 +659,9 @@ class GameEngine:
             pass
 
     @staticmethod
-    def _update_phase(game_state: GameState, last_move: Move):
+    def _update_phase(
+        game_state: GameState, last_move: Move, *, trace_mode: bool = False
+    ):
         """
         Advance phase after a move, partially mirroring TS TurnEngine semantics.
 
@@ -662,6 +673,12 @@ class GameEngine:
             MOVEMENT phase.
           * If no, end the turn and rotate to the next player.
         - Other move types retain the existing phase transitions for now.
+
+        Args:
+            game_state: The game state to update.
+            last_move: The move that was just applied.
+            trace_mode: When True, passed to _end_turn to disable automatic
+                forced elimination during turn rotation (for replay parity).
         """
         current_player = game_state.current_player
 
@@ -670,15 +687,22 @@ class GameEngine:
         # the next player has stacks but no valid actions. The legacy Python
         # FORCED_ELIMINATION move type is therefore treated as internal-only.
         if last_move.type == MoveType.FORCED_ELIMINATION:
-            # Legacy path retained for backwards compatibility with any tests
-            # that still construct explicit FORCED_ELIMINATION moves. After
-            # such a move, mirror the TS TurnEngine semantics: re-check whether
-            # the same player now has any valid actions; if so, continue their
-            # turn in MOVEMENT, otherwise end the turn.
-            if GameEngine._has_valid_actions(game_state, current_player):
-                game_state.current_phase = GamePhase.MOVEMENT
+            if trace_mode:
+                # In trace_mode, we're replaying recorded moves where
+                # forced_elimination is explicit. Match TS sandbox behavior:
+                # set phase to territory_processing and DON'T rotate player.
+                # The recorded move sequence handles turn transitions.
+                game_state.current_phase = GamePhase.TERRITORY_PROCESSING
             else:
-                GameEngine._end_turn(game_state)
+                # Legacy path retained for backwards compatibility with any tests
+                # that still construct explicit FORCED_ELIMINATION moves. After
+                # such a move, mirror the TS TurnEngine semantics: re-check whether
+                # the same player now has any valid actions; if so, continue their
+                # turn in MOVEMENT, otherwise end the turn.
+                if GameEngine._has_valid_actions(game_state, current_player):
+                    game_state.current_phase = GamePhase.MOVEMENT
+                else:
+                    GameEngine._end_turn(game_state, trace_mode=trace_mode)
 
         elif last_move.type == MoveType.PLACE_RING:
             # After placement, decide whether to enter movement or, if no
@@ -695,7 +719,9 @@ class GameEngine:
             if has_moves or has_captures:
                 game_state.current_phase = GamePhase.MOVEMENT
             else:
-                GameEngine._advance_to_line_processing(game_state)
+                GameEngine._advance_to_line_processing(
+                    game_state, trace_mode=trace_mode
+                )
 
         elif last_move.type == MoveType.SKIP_PLACEMENT:
             # Skipping placement is only allowed when movement or capture is
@@ -717,7 +743,9 @@ class GameEngine:
                 game_state.current_phase = GamePhase.CAPTURE
             else:
                 # No captures, go to line processing
-                GameEngine._advance_to_line_processing(game_state)
+                GameEngine._advance_to_line_processing(
+                    game_state, trace_mode=trace_mode
+                )
 
         elif (
             last_move.type == MoveType.OVERTAKING_CAPTURE
@@ -734,7 +762,9 @@ class GameEngine:
                 game_state.current_phase = GamePhase.CHAIN_CAPTURE
             else:
                 # End of chain
-                GameEngine._advance_to_line_processing(game_state)
+                GameEngine._advance_to_line_processing(
+                    game_state, trace_mode=trace_mode
+                )
 
         elif last_move.type in (
             MoveType.PROCESS_LINE,
@@ -752,7 +782,9 @@ class GameEngine:
                 current_player,
             )
             if not remaining_lines:
-                GameEngine._advance_to_territory_processing(game_state)
+                GameEngine._advance_to_territory_processing(
+                    game_state, trace_mode=trace_mode
+                )
 
         elif last_move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
             # After ELIMINATE_RINGS_FROM_STACK, check if the game will end:
@@ -795,7 +827,9 @@ class GameEngine:
             pass
 
     @staticmethod
-    def _advance_to_line_processing(game_state: GameState):
+    def _advance_to_line_processing(
+        game_state: GameState, *, trace_mode: bool = False
+    ):
         # Clear chain_capture_state when leaving capture phase.
         # This ensures the next capture opportunity (e.g., after a future
         # MOVE_STACK) will be correctly classified as OVERTAKING_CAPTURE.
@@ -807,10 +841,14 @@ class GameEngine:
         if line_moves:
             game_state.current_phase = GamePhase.LINE_PROCESSING
         else:
-            GameEngine._advance_to_territory_processing(game_state)
+            GameEngine._advance_to_territory_processing(
+                game_state, trace_mode=trace_mode
+            )
 
     @staticmethod
-    def _advance_to_territory_processing(game_state: GameState):
+    def _advance_to_territory_processing(
+        game_state: GameState, *, trace_mode: bool = False
+    ):
         """Advance from movement/capture into territory processing.
 
         Mirrors the minimal TS shared GameEngine semantics used after
@@ -841,7 +879,7 @@ class GameEngine:
         if eligible:
             game_state.current_phase = GamePhase.TERRITORY_PROCESSING
         else:
-            GameEngine._end_turn(game_state)
+            GameEngine._end_turn(game_state, trace_mode=trace_mode)
 
     @staticmethod
     def _rotate_to_next_active_player(game_state: GameState) -> None:
@@ -914,7 +952,7 @@ class GameEngine:
         game_state.must_move_from_stack_key = None
 
     @staticmethod
-    def _end_turn(game_state: GameState):
+    def _end_turn(game_state: GameState, *, trace_mode: bool = False):
         """
         End the current player's turn and advance to the next active player.
 
@@ -932,6 +970,13 @@ class GameEngine:
         - If no players have any material at all, leave current_player
           unchanged and allow _check_victory to resolve global stalemate via
           tie-breakers.
+
+        Args:
+            game_state: The game state to update.
+            trace_mode: When True, skip automatic forced elimination. In trace
+                mode, forced elimination is expected to arrive as an explicit
+                `forced_elimination` move in the recorded sequence. This ensures
+                parity with the TS engine's traceMode replay semantics.
         """
         # Clear chain_capture_state at turn end. This ensures the next player's
         # first capture (if any) will be correctly classified as OVERTAKING_CAPTURE.
@@ -976,7 +1021,10 @@ class GameEngine:
             # if this player controls at least one stack but has no legal
             # placement, movement, or capture actions, we must eliminate a cap
             # before starting their interactive turn.
-            if has_stacks and not GameEngine._has_valid_actions(
+            #
+            # In trace_mode, we skip this: forced elimination will arrive as
+            # an explicit `forced_elimination` move in the recorded sequence.
+            if not trace_mode and has_stacks and not GameEngine._has_valid_actions(
                 game_state,
                 candidate.player_number,
             ):

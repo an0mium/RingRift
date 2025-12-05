@@ -1121,58 +1121,48 @@ class GameReplayDB:
     ) -> Optional[GameState]:
         """Reconstruct state at a specific move number.
 
-        Uses snapshots when available for faster reconstruction.
+        This method intentionally **replays moves from the initial state**
+        using the current GameEngine implementation rather than trusting
+        any cached snapshots. Older databases may contain snapshots that
+        were produced by previous engine versions with subtly different
+        rules semantics (e.g., forced elimination or line rewards), and
+        using them directly would corrupt TS↔Python parity checks.
+
+        We still use the database's initial_state record as the starting
+        point, but all intermediate states are derived by applying the
+        recorded move sequence with ``trace_mode=True`` so that:
+
+        - Automatic forced elimination between turns is disabled, and
+        - All eliminations/decisions must be represented as explicit
+          moves in the history, matching TS ``traceMode`` semantics.
 
         Args:
             game_id: Game identifier
             move_number: The move number to reconstruct state after
 
         Returns:
-            GameState after the specified move, or None if not found
+            GameState after the specified move, or None if not found.
         """
         # Import here to avoid circular imports
         from app.game_engine import GameEngine
 
-        with self._get_conn() as conn:
-            # Find nearest snapshot at or before target move
-            snapshot_row = conn.execute(
-                """
-                SELECT move_number, state_json, compressed
-                FROM game_state_snapshots
-                WHERE game_id = ? AND move_number <= ?
-                ORDER BY move_number DESC
-                LIMIT 1
-                """,
-                (game_id, move_number),
-            ).fetchone()
+        # Always start from the recorded initial state so that reconstructed
+        # trajectories reflect the current canonical rules implementation.
+        state = self.get_initial_state(game_id)
+        if state is None:
+            return None
 
-            if snapshot_row and snapshot_row["move_number"] == move_number:
-                # Exact snapshot match
-                json_str = snapshot_row["state_json"]
-                if snapshot_row["compressed"]:
-                    json_str = _decompress_json(json_str)
-                return _deserialize_state(json_str)
-
-            # Start from snapshot or initial state
-            if snapshot_row:
-                json_str = snapshot_row["state_json"]
-                if snapshot_row["compressed"]:
-                    json_str = _decompress_json(json_str)
-                state = _deserialize_state(json_str)
-                start_move = snapshot_row["move_number"] + 1
-            else:
-                state = self.get_initial_state(game_id)
-                if state is None:
-                    return None
-                start_move = 0
-
-            # Replay moves from start to target
-            if start_move <= move_number:
-                moves = self.get_moves(game_id, start=start_move, end=move_number + 1)
-                for move in moves:
-                    state = GameEngine.apply_move(state, move)
-
+        if move_number < 0:
             return state
+
+        # Replay moves 0..move_number (inclusive) with trace_mode=True so
+        # that host-level forced elimination and decision phases behave
+        # like the TS sandbox replay path used by the parity harness.
+        moves = self.get_moves(game_id, start=0, end=move_number + 1)
+        for move in moves:
+            state = GameEngine.apply_move(state, move, trace_mode=True)
+
+        return state
 
     def get_choices_at_move(
         self,

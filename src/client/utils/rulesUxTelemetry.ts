@@ -59,7 +59,7 @@ function hashString(value: string): number {
 function shouldEmitSampled(event: RulesUxEventPayload): boolean {
   const { type } = event;
 
-  if (type !== 'rules_help_open') {
+  if (type !== 'rules_help_open' && type !== 'help_open') {
     // Non-help-open events are expected to be relatively low volume.
     return true;
   }
@@ -88,6 +88,54 @@ function logDevWarning(message: string, error: unknown, extra?: Record<string, u
   });
 }
 
+let cachedSessionId: string | null = null;
+
+/**
+ * Best-effort classification of the current client platform.
+ * Used to populate RulesUxEventPayload.clientPlatform.
+ */
+function getClientPlatform(): 'web' | 'mobile_web' | 'desktop' | string {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') {
+    return 'desktop';
+  }
+
+  const ua = navigator.userAgent || '';
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+  return isMobile ? 'mobile_web' : 'web';
+}
+
+/**
+ * Best-effort locale detection for telemetry enrichment.
+ */
+function getLocale(): string | undefined {
+  if (typeof navigator !== 'undefined' && typeof navigator.language === 'string') {
+    return navigator.language;
+  }
+  return undefined;
+}
+
+/**
+ * Lazily generate a per-session identifier for correlating rules-UX events.
+ * This is intentionally not tied to user identity and is not persisted
+ * beyond the current runtime environment.
+ */
+function getSessionId(): string {
+  if (cachedSessionId) return cachedSessionId;
+
+  try {
+    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
+    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
+      cachedSessionId = anyCrypto.randomUUID();
+      return cachedSessionId;
+    }
+  } catch {
+    // Ignore and fall back to Math.random-based id.
+  }
+
+  cachedSessionId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return cachedSessionId;
+}
+
 /**
  * Send a single rules-UX telemetry event to the backend.
  *
@@ -100,13 +148,183 @@ export async function sendRulesUxEvent(event: RulesUxEventPayload): Promise<void
   if (!isTelemetryEnabled()) return;
   if (!shouldEmitSampled(event)) return;
 
+  const enriched: RulesUxEventPayload = {
+    ...event,
+    ts: event.ts ?? new Date().toISOString(),
+    clientBuild:
+      event.clientBuild ??
+      getEnv().VITE_CLIENT_BUILD ??
+      getEnv().VITE_GIT_SHA ??
+      getEnv().VITE_APP_VERSION ??
+      getEnv().MODE,
+    clientPlatform: event.clientPlatform ?? getClientPlatform(),
+    locale: event.locale ?? getLocale(),
+    sessionId: event.sessionId ?? getSessionId(),
+  };
+
   try {
     // Fire-and-forget; callers do not depend on telemetry success.
-    await api.post('/telemetry/rules-ux', event);
+    await api.post('/telemetry/rules-ux', enriched);
   } catch (error) {
     logDevWarning('Failed to send rules UX telemetry event', error, {
-      type: event.type as RulesUxEventType,
-      boardType: event.boardType,
+      type: enriched.type as RulesUxEventType,
+      boardType: enriched.boardType,
     });
   }
+}
+
+/**
+ * High-level helper that enriches a RulesUxEventPayload with common
+ * client metadata (timestamp, build, platform, locale, and a
+ * per-session identifier) before sending it via {@link sendRulesUxEvent}.
+ */
+export async function logRulesUxEvent(event: RulesUxEventPayload): Promise<void> {
+  await sendRulesUxEvent(event);
+}
+
+/**
+ * Generate a fresh correlation id for a help session.
+ *
+ * This is separate from the per-session {@link getSessionId} and is intended
+ * to be reused across a single help_open → help_topic_view → help_reopen
+ * interaction as described in UX_RULES_TELEMETRY_SPEC.md.
+ */
+export function newHelpSessionId(): string {
+  try {
+    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
+    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
+      return anyCrypto.randomUUID();
+    }
+  } catch {
+    // Ignore and fall back to Math.random-based id.
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Generate a fresh correlation id for a weird-state overlay / banner session.
+ *
+ * Used to tie together weird_state_banner_impression, weird_state_overlay_shown,
+ * weird_state_overlay_dismiss, and resign_after_weird_state events.
+ */
+export function newOverlaySessionId(): string {
+  try {
+    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
+    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
+      return anyCrypto.randomUUID();
+    }
+  } catch {
+    // Ignore and fall back to Math.random-based id.
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Generate a fresh correlation id for a multi-step teaching flow.
+ *
+ * Intended for teaching_step_started / teaching_step_completed and
+ * sandbox_scenario_* events that are part of a single coherent flow.
+ */
+export function newTeachingFlowId(): string {
+  try {
+    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
+    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
+      return anyCrypto.randomUUID();
+    }
+  } catch {
+    // Ignore and fall back to Math.random-based id.
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Options for emitting a spec-aligned help_open event.
+ *
+ * This is a thin, typed wrapper over {@link sendRulesUxEvent} that fills
+ * the envelope fields recommended in UX_RULES_TELEMETRY_SPEC.md §3.1.
+ */
+export interface HelpOpenEventOptions {
+  boardType: RulesUxEventPayload['boardType'];
+  numPlayers: RulesUxEventPayload['numPlayers'];
+  aiDifficulty?: number;
+  difficulty?: string;
+  rulesContext?: RulesUxEventPayload['rulesContext'];
+  rulesConcept?: RulesUxEventPayload['rulesConcept'];
+  topic?: RulesUxEventPayload['topic'];
+  scenarioId?: RulesUxEventPayload['scenarioId'];
+  source: RulesUxEventPayload['source'];
+  /**
+   * Low-cardinality identifier for where help was opened from, e.g.:
+   * - 'hud_help_chip'
+   * - 'mobile_hud_help_chip'
+   * - 'victory_modal_help_link'
+   * - 'sandbox_toolbar_help'
+   * - 'faq_button'
+   */
+  entrypoint: string;
+  gameId?: string;
+  isRanked?: boolean;
+  isCalibrationGame?: boolean;
+  isSandbox?: boolean;
+  seatIndex?: number;
+  perspectivePlayerCount?: number;
+  /**
+   * Optional pre-generated help_session_id. When omitted, a new one is
+   * created via {@link newHelpSessionId}.
+   */
+  helpSessionId?: string;
+}
+
+/**
+ * Emit a spec-aligned help_open event with the given options.
+ *
+ * This does not replace the legacy rules_help_open event; callers that
+ * still need the legacy metrics can emit both. The payload here follows
+ * the language-agnostic contract in UX_RULES_TELEMETRY_SPEC.md.
+ */
+export async function logHelpOpenEvent(options: HelpOpenEventOptions): Promise<void> {
+  const {
+    boardType,
+    numPlayers,
+    aiDifficulty,
+    difficulty,
+    rulesContext,
+    rulesConcept,
+    topic,
+    scenarioId,
+    source,
+    entrypoint,
+    gameId,
+    isRanked,
+    isCalibrationGame,
+    isSandbox,
+    seatIndex,
+    perspectivePlayerCount,
+    helpSessionId,
+  } = options;
+
+  const event: RulesUxEventPayload = {
+    type: 'help_open',
+    boardType,
+    numPlayers,
+    aiDifficulty,
+    difficulty,
+    rulesContext,
+    rulesConcept,
+    topic,
+    scenarioId,
+    source,
+    gameId,
+    isRanked,
+    isCalibrationGame,
+    isSandbox,
+    seatIndex,
+    perspectivePlayerCount,
+    helpSessionId: helpSessionId ?? newHelpSessionId(),
+    payload: {
+      entrypoint,
+    },
+  };
+
+  await sendRulesUxEvent(event);
 }

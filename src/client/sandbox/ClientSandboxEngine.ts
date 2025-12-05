@@ -1747,6 +1747,15 @@ export class ClientSandboxEngine {
       hasAnyCapture: (state, playerNumber, turn) =>
         this.hasAnyMovementOrCaptureForPlayer(state, playerNumber, turn as SandboxTurnState),
       applyForcedElimination: (state, playerNumber) => {
+        // In traceMode, do not inject host-level forced elimination between
+        // recorded moves. Canonical replays expect any eliminations to be
+        // represented as explicit moves in the history, so the delegate is
+        // a no-op here. Live games (traceMode=false) keep the original
+        // behaviour.
+        if (this.traceMode) {
+          return state;
+        }
+
         this.gameState = state;
         // Use sync version for delegate (TurnLogicDelegates requires sync execution)
         this.forceEliminateCapSync(playerNumber);
@@ -1858,6 +1867,16 @@ export class ClientSandboxEngine {
     state: GameState,
     turnState: SandboxTurnState
   ): { state: GameState; turnState: SandboxTurnState; eliminated: boolean } {
+    // In strict replay/trace mode we must not inject implicit forced
+    // eliminations between recorded moves. Canonical self-play replays
+    // represent such effects as explicit eliminate_rings_from_stack moves
+    // in the history. When traceMode is enabled, treat this helper as a
+    // no-op so that replay semantics are driven solely by the recorded
+    // move sequence.
+    if (this.traceMode) {
+      return { state, turnState, eliminated: false };
+    }
+
     const current = state.currentPlayer;
     const player = state.players.find((p) => p.playerNumber === current);
     if (!player) {
@@ -1961,6 +1980,14 @@ export class ClientSandboxEngine {
    * be blocked with no legal actions). Used by TurnLogicDelegates.
    */
   private forceEliminateCapSync(playerNumber: number): void {
+    // In traceMode (canonical replay), forced elimination must only occur
+    // via explicit recorded moves (normalized as eliminate_rings_from_stack).
+    // Suppress the implicit helper so that replays do not introduce extra
+    // eliminations between moves.
+    if (this.traceMode) {
+      return;
+    }
+
     const outcome = applyForcedEliminationForPlayer(this.gameState, playerNumber);
     if (!outcome || outcome.eliminatedCount <= 0) {
       return;
@@ -3338,22 +3365,54 @@ export class ClientSandboxEngine {
     _opts: { bypassNoDeadPlacement?: boolean } = {}
   ): Promise<boolean> {
     this.debugCheckpoint(`before-applyCanonicalMoveInternal-${move.type}`);
-    const beforeHash = hashGameState(this.getGameState());
+    const beforeState = this.getGameState();
+    const beforeHash = hashGameState(beforeState);
 
     // ═══════════════════════════════════════════════════════════════════════
     // Orchestrator Adapter Delegation (permanently enabled)
     // ═══════════════════════════════════════════════════════════════════════
     // Delegate all rules logic to the shared orchestrator. This eliminates
     // duplicated logic and ensures sandbox and backend use identical rules processing.
-    const beforeState = this.getGameState();
-    const changed = await this.processMoveViaAdapter(move, beforeState);
+    const changedByAdapter = await this.processMoveViaAdapter(move, beforeState);
 
     // Debug checkpoint after adapter processing
     this.debugCheckpoint(`after-applyCanonicalMoveInternal-adapter-${move.type}`);
 
     // Verify state actually changed
-    const afterHash = hashGameState(this.getGameState());
-    return changed && beforeHash !== afterHash;
+    const afterState = this.getGameState();
+    const afterHash = hashGameState(afterState);
+    if (changedByAdapter && beforeHash !== afterHash) {
+      return true;
+    }
+
+    // Fallback for canonical replay / traceMode:
+    //
+    // Some legacy self-play databases were recorded under older orchestrator
+    // semantics. When re-running them under the current shared orchestrator
+    // in traceMode, certain historical placement moves may be treated as
+    // no-ops (e.g., due to stricter gating), even though Python's canonical
+    // GameEngine still applies them and the recording expects their effects.
+    //
+    // To preserve TS↔Python parity for canonical replays while keeping live
+    // gameplay fully orchestrator-driven, we fall back to the shared
+    // PlacementAggregate when:
+    //   - traceMode is enabled,
+    //   - the adapter reported no effective state change, and
+    //   - the move is a recorded place_ring.
+    //
+    // This mirrors Python's _apply_place_ring semantics and ensures that
+    // every explicit place_ring in a canonical recording actually mutates
+    // state during sandbox replay.
+    if (this.traceMode && move.type === 'place_ring') {
+      const placementOutcome = applyPlacementMoveAggregate(beforeState, move);
+      const placementHash = hashGameState(placementOutcome.nextState);
+      if (placementHash !== beforeHash) {
+        this.gameState = placementOutcome.nextState;
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -3669,26 +3728,27 @@ export class ClientSandboxEngine {
 
       // End-game phase completion: when this is the LAST move (no nextMove),
       // we may need to advance phases and check victory to match Python's
-      // post-move semantics. In strict replay/trace mode we avoid inventing
-      // additional territory/line decisions beyond those recorded; in normal
-      // sandbox UX we still auto-process to a terminal shape.
+      // post-move semantics. In strict replay/trace mode (traceMode=true),
+      // do NOT advance phases - leave the state exactly as the orchestrator
+      // returned it to match Python's GameEngine.apply_move semantics. In
+      // normal sandbox UX we still auto-process to a terminal shape.
       if (!nextMove && this.gameState.gameStatus === 'active') {
         // First, check victory immediately - this catches Early LPS (one player
         // has all material) without needing to advance phases further.
         this.checkAndApplyVictory();
 
-        const maxIterations = 50;
-        let iterations = 0;
-        while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
-          const prevPhase = this.gameState.currentPhase;
-          const prevPlayer = this.gameState.currentPlayer;
+        // PARITY FIX: In traceMode, do NOT advance phases after the last move.
+        // Python's get_state_at_move returns the state immediately after
+        // GameEngine.apply_move, without any additional phase advancement.
+        // Advancing phases here would cause divergence (e.g., movement →
+        // line_processing) that Python doesn't do.
+        if (!this.traceMode) {
+          const maxIterations = 50;
+          let iterations = 0;
+          while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
+            const prevPhase = this.gameState.currentPhase;
+            const prevPlayer = this.gameState.currentPlayer;
 
-          if (this.traceMode) {
-            // Strict replay: do NOT auto-apply additional territory or line
-            // decisions that Python did not record as moves. Only use the
-            // shared turn/phase sequencer to advance to a stable shape.
-            this.advanceTurnAndPhaseForCurrentPlayer();
-          } else {
             // Normal sandbox UX: process pending decision phases to completion.
             if (this.gameState.currentPhase === 'territory_processing') {
               const resolved = await this.autoResolveOneTerritoryRegionForReplay();
@@ -3703,18 +3763,18 @@ export class ClientSandboxEngine {
             } else {
               this.advanceTurnAndPhaseForCurrentPlayer();
             }
-          }
 
-          // Check victory after each phase advancement
-          this.checkAndApplyVictory();
+            // Check victory after each phase advancement
+            this.checkAndApplyVictory();
 
-          if (
-            this.gameState.currentPhase === prevPhase &&
-            this.gameState.currentPlayer === prevPlayer
-          ) {
-            break;
+            if (
+              this.gameState.currentPhase === prevPhase &&
+              this.gameState.currentPlayer === prevPlayer
+            ) {
+              break;
+            }
+            iterations += 1;
           }
-          iterations += 1;
         }
       }
 
@@ -3756,20 +3816,19 @@ export class ClientSandboxEngine {
       }
 
       // End-game phase completion for no-change moves (same logic as changed branch).
+      // PARITY FIX: In traceMode, skip phase advancement after last move.
       if (!nextMove && this.gameState.gameStatus === 'active') {
         // First, check victory immediately - this catches Early LPS.
         this.checkAndApplyVictory();
 
-        const maxIterations = 50;
-        let iterations = 0;
-        while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
-          const prevPhase = this.gameState.currentPhase;
-          const prevPlayer = this.gameState.currentPlayer;
+        // In traceMode, do NOT advance phases after the last move for parity with Python.
+        if (!this.traceMode) {
+          const maxIterations = 50;
+          let iterations = 0;
+          while (this.gameState.gameStatus === 'active' && iterations < maxIterations) {
+            const prevPhase = this.gameState.currentPhase;
+            const prevPlayer = this.gameState.currentPlayer;
 
-          if (this.traceMode) {
-            // Strict replay: do not invent extra decision moves.
-            this.advanceTurnAndPhaseForCurrentPlayer();
-          } else {
             // Normal sandbox UX: auto-process remaining decisions.
             if (this.gameState.currentPhase === 'territory_processing') {
               const resolved = await this.autoResolveOneTerritoryRegionForReplay();
@@ -3784,18 +3843,18 @@ export class ClientSandboxEngine {
             } else {
               this.advanceTurnAndPhaseForCurrentPlayer();
             }
-          }
 
-          // Check victory after each phase advancement
-          this.checkAndApplyVictory();
+            // Check victory after each phase advancement
+            this.checkAndApplyVictory();
 
-          if (
-            this.gameState.currentPhase === prevPhase &&
-            this.gameState.currentPlayer === prevPlayer
-          ) {
-            break;
+            if (
+              this.gameState.currentPhase === prevPhase &&
+              this.gameState.currentPlayer === prevPlayer
+            ) {
+              break;
+            }
+            iterations += 1;
           }
-          iterations += 1;
         }
       }
 

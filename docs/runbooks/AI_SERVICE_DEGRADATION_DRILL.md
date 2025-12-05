@@ -460,6 +460,43 @@ Once you are satisfied with the degraded-state observations:
 
 ---
 
+### 3.8 Capture an automated drill report (optional)
+
+To make the drill repeatable and to attach concrete artefacts to release/ops tickets, you can run the lightweight **AI degradation drill harness** from the monorepo. This script does **not** induce degradation itself; it only verifies basic health wiring and writes a JSON report under `results/ops/`.
+
+From the repo root on the staging host:
+
+```bash
+# Baseline (before stopping ai-service)
+APP_BASE=${APP_BASE:-http://localhost:3000}
+
+./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts \
+  --env staging \
+  --phase baseline
+
+# During induced degradation (ai-service stopped)
+./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts \
+  --env staging \
+  --phase degraded
+
+# After recovery (ai-service restarted and healthy)
+./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts \
+  --env staging \
+  --phase recovery
+```
+
+Notes:
+
+- The harness:
+  - Calls `APP_BASE/health` (defaulting to `http://localhost:3000/health` when `APP_BASE` is unset).
+  - Uses the server’s `HealthCheckService` readiness check to inspect the `aiService` dependency.
+  - Runs a placeholder check for AI fallback behaviour (documented in the JSON report).
+- Each run produces `results/ops/ai_degradation.<env>.<phase>.<timestamp>.json` with:
+  - `drillType: "ai_service_degradation"`.
+  - `environment`, `operator` (when passed via `--operator`), and `phase`.
+  - A list of named checks (`backend_http_health`, `ai_service_health`, `ai_fallback_behaviour`) and `overallPass`.
+- When filing drill results, you can attach or link these JSON reports as evidence alongside Grafana/Prometheus screenshots.
+
 ## 4. Validation Checklist
 
 Use this checklist to decide whether the drill has successfully validated AI degradation handling in staging.

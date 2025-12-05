@@ -860,7 +860,7 @@ export class GameSession {
       if (currentState.spectators.includes(userId)) {
         throw new Error('Spectators cannot make moves');
       }
-      throw new Error('Current socket user is not a player in this game');
+      throw new Error('Current user is not a player in this game');
     }
 
     const result = await this.rulesFacade.applyMoveById(player.playerNumber, moveId);

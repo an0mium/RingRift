@@ -21,13 +21,33 @@ function coerceRulesUxEventPayload(raw: unknown): RulesUxEventPayload {
     boardType,
     numPlayers,
     aiDifficulty,
+    difficulty,
+    rulesContext,
+    source,
+    gameId,
+    isRanked,
+    isCalibrationGame,
+    isSandbox,
+    aiProfile,
+    seatIndex,
+    perspectivePlayerCount,
+    ts,
+    clientBuild,
+    clientPlatform,
+    locale,
+    sessionId,
+    helpSessionId,
+    overlaySessionId,
+    teachingFlowId,
     topic,
     rulesConcept,
     scenarioId,
     weirdStateType,
+    reasonCode,
     undoStreak,
     repeatCount,
     secondsSinceWeirdState,
+    payload: rawPayload,
   } = body;
 
   if (!isRulesUxEventType(type)) {
@@ -67,6 +87,88 @@ function coerceRulesUxEventPayload(raw: unknown): RulesUxEventPayload {
     payload.aiDifficulty = aiDifficulty;
   }
 
+  if (typeof difficulty === 'string' && difficulty.length > 0) {
+    payload.difficulty = difficulty;
+  }
+
+  if (typeof rulesContext === 'string' && rulesContext.length > 0) {
+    payload.rulesContext = rulesContext;
+  }
+
+  if (typeof source === 'string' && source.length > 0) {
+    payload.source = source;
+  }
+
+  if (typeof gameId === 'string' && gameId.length > 0) {
+    payload.gameId = gameId;
+  }
+
+  if (typeof isRanked === 'boolean') {
+    payload.isRanked = isRanked;
+  }
+
+  if (typeof isCalibrationGame === 'boolean') {
+    payload.isCalibrationGame = isCalibrationGame;
+  }
+
+  if (typeof isSandbox === 'boolean') {
+    payload.isSandbox = isSandbox;
+  }
+
+  if (typeof aiProfile === 'string' && aiProfile.length > 0) {
+    payload.aiProfile = aiProfile;
+  }
+
+  if (
+    typeof seatIndex === 'number' &&
+    Number.isInteger(seatIndex) &&
+    seatIndex >= 1 &&
+    seatIndex <= 4
+  ) {
+    payload.seatIndex = seatIndex;
+  }
+
+  if (
+    typeof perspectivePlayerCount === 'number' &&
+    Number.isInteger(perspectivePlayerCount) &&
+    perspectivePlayerCount >= 1 &&
+    perspectivePlayerCount <= 4
+  ) {
+    payload.perspectivePlayerCount = perspectivePlayerCount;
+  }
+
+  if (typeof ts === 'string' && ts.length > 0) {
+    payload.ts = ts;
+  }
+
+  if (typeof clientBuild === 'string' && clientBuild.length > 0) {
+    payload.clientBuild = clientBuild;
+  }
+
+  if (typeof clientPlatform === 'string' && clientPlatform.length > 0) {
+    payload.clientPlatform = clientPlatform as RulesUxEventPayload['clientPlatform'];
+  }
+
+  if (typeof locale === 'string' && locale.length > 0) {
+    payload.locale = locale;
+  }
+
+  if (typeof sessionId === 'string' && sessionId.length > 0) {
+    payload.sessionId = sessionId;
+  }
+
+  if (typeof helpSessionId === 'string' && helpSessionId.length > 0) {
+    payload.helpSessionId = helpSessionId;
+  }
+
+  if (typeof overlaySessionId === 'string' && overlaySessionId.length > 0) {
+    payload.overlaySessionId = overlaySessionId;
+  }
+
+  if (typeof teachingFlowId === 'string' && teachingFlowId.length > 0) {
+    payload.teachingFlowId = teachingFlowId;
+  }
+
   if (typeof topic === 'string' && topic.length > 0) {
     payload.topic = topic;
   }
@@ -83,6 +185,10 @@ function coerceRulesUxEventPayload(raw: unknown): RulesUxEventPayload {
     payload.weirdStateType = weirdStateType;
   }
 
+  if (typeof reasonCode === 'string' && reasonCode.length > 0) {
+    payload.reasonCode = reasonCode;
+  }
+
   if (typeof undoStreak === 'number' && Number.isFinite(undoStreak) && undoStreak > 0) {
     payload.undoStreak = undoStreak;
   }
@@ -97,6 +203,10 @@ function coerceRulesUxEventPayload(raw: unknown): RulesUxEventPayload {
     secondsSinceWeirdState >= 0
   ) {
     payload.secondsSinceWeirdState = secondsSinceWeirdState;
+  }
+
+  if (rawPayload && typeof rawPayload === 'object') {
+    payload.payload = rawPayload as Record<string, unknown>;
   }
 
   return payload;

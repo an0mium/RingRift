@@ -6,6 +6,8 @@ import {
   ProgressSnapshot,
   BoardSummary,
   positionToString,
+  type GameStatus,
+  type GamePhase,
 } from '../types/game';
 import { debugLog, flagEnabled } from '../utils/envFlags';
 
@@ -643,7 +645,22 @@ export function fingerprintGameState(state: GameState): string {
     .sort()
     .join('|');
 
-  const meta = `${state.currentPlayer}:${state.currentPhase}:${state.gameStatus}`;
+  // Canonicalise terminal status strings so that legacy 'finished'
+  // and newer 'completed' values fingerprint identically. This keeps
+  // the cross-engine hash stable even when hosts use different but
+  // equivalent terminal status labels.
+  const canonicalStatus: GameStatus =
+    state.gameStatus === 'finished' ? ('completed' as GameStatus) : state.gameStatus;
+
+  // For terminal states, currentPlayer/currentPhase are host-local
+  // metadata and not semantically meaningful. Canonicalise them so
+  // that engines which differ only in their choice of terminal
+  // phase/player still produce identical fingerprints.
+  const isTerminal = canonicalStatus === 'completed' || canonicalStatus === 'abandoned';
+  const metaPlayer = isTerminal ? 0 : state.currentPlayer;
+  const metaPhase: GamePhase = isTerminal ? 'movement' : state.currentPhase;
+
+  const meta = `${metaPlayer}:${metaPhase}:${canonicalStatus}`;
 
   return [
     meta,

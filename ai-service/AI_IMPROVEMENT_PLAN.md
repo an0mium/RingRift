@@ -193,6 +193,107 @@ The `HexNeuralNet` class exists with proper architecture, but:
 1. Adding a small `merge_game_dbs.py` utility for long‑running experiments and shared corpora.
 2. Promoting a stable set of evaluation pools (paths + metadata) into configuration and documentation (see `docs/ai/AI_TRAINING_AND_DATASETS.md` §5.4 and §6).
 
+#### 1.3.7 Canonical Self-Play + Parity Gate (New)
+
+**Status (2025-12-05):** ✅ **INITIAL IMPLEMENTATION COMPLETE**
+
+**Current State:** We now have an end-to-end driver that:
+
+- Runs a small Python self‑play soak using the canonical GameEngine for a given board type.
+- Records completed games into a fresh `GameReplayDB` SQLite file.
+- Invokes the TS↔Python replay parity harness on that DB.
+- Emits a concise JSON summary indicating whether the DB passes a **canonical parity gate**:
+  - `games_with_structural_issues == 0`, and
+  - `games_with_semantic_divergence == 0`.
+
+**Key Script:**
+
+- `ai-service/scripts/run_canonical_selfplay_parity_gate.py`
+  - CLI:
+    ```bash
+    # From ai-service/
+    PYTHONPATH=. python scripts/run_canonical_selfplay_parity_gate.py \
+      --board-type square8 \
+      --num-games 20 \
+      --db data/games/selfplay_square8_parity_gate.db \
+      --summary parity_gate.square8.json
+    ```
+  - Parameters:
+    - `--board-type`: `square8`, `square19`, or `hexagonal`.
+    - `--num-games`: number of self-play games to run (default: 20).
+    - `--db`: path to the GameReplayDB to create/write.
+    - `--seed`: base RNG seed (default: 42).
+    - `--max-moves`: max moves per game before forced termination (default: 200).
+    - `--summary`: optional path for the parity gate JSON summary; when omitted, the summary is printed to stdout only.
+  - Behaviour:
+    - Internally calls `scripts/run_self_play_soak.py` with:
+      - `RINGRIFT_STRICT_NO_MOVE_INVARIANT=1`,
+      - `--engine-mode mixed`, `--num-players 2`.
+    - Then calls `scripts/check_ts_python_replay_parity.py --db <db>`.
+    - Sets `passed_canonical_parity_gate = true` iff:
+      - The parity harness returns successfully, and
+      - Both `games_with_structural_issues` and `games_with_semantic_divergence` are zero.
+
+**Recommended Usage in Training Pipelines:**
+
+- Before training on any new self‑play corpus for a given board type:
+  1. Run the canonical parity gate script with a modest `--num-games` (e.g. 20–50) and inspect the summary for:
+     - Structural issues (should be 0).
+     - Any unexpected semantic divergences.
+  2. Only promote DB paths to the **training allowlist** if they either:
+     - Pass the parity gate cleanly, or
+     - Have known, locally-suppressed bookkeeping-only differences (e.g. agreed phase bookkeeping) that are explicitly documented.
+- Over time, extend this gate to:
+  - Cover multiple player counts (2p/3p/4p) per board type.
+  - Run as part of CI for rules-engine changes that may affect self‑play.
+
+#### 1.3.8 Training Data Hygiene & Registry (New)
+
+**Status (2025-12-05):** ✅ **DOCUMENTED**
+
+**Current State:** A **Training Data Registry** now exists at [`TRAINING_DATA_REGISTRY.md`](./TRAINING_DATA_REGISTRY.md) that:
+
+- Classifies all game replay databases as **canonical**, **legacy_noncanonical**, or **pending_gate**.
+- Documents model provenance: which training data each `.pth` checkpoint was trained on.
+- Defines the **Training Data Allowlist** policy: new training must only use parity-gated DBs.
+
+**Key Classifications:**
+
+| Classification        | Meaning                                                           |
+| --------------------- | ----------------------------------------------------------------- |
+| `canonical`           | Passes `run_canonical_selfplay_parity_gate.py`; safe for training |
+| `legacy_noncanonical` | Pre-dates line-length/territory/parity fixes; DO NOT use          |
+| `pending_gate`        | Not yet validated; requires parity gate before use                |
+
+**Legacy Data (Not For New Training):**
+
+All self-play databases generated before December 2025 parity fixes are **legacy_noncanonical**:
+
+- `selfplay_square8_2p.db`, `selfplay_square19_*.db`, `selfplay_hexagonal_*.db`
+- `selfplay.db`, `square8_2p.db`, `minimal_test.db`
+
+These pre-date:
+
+- Line-length validation fix (RR-CANON-R120)
+- Explicit line decision flow (RR-CANON-R121-R122)
+- All turn actions/skips explicit (RR-CANON-R074)
+- Forced elimination player rotation fixes
+
+**Canonical Data (For New Training):**
+
+Fresh parity-gated DBs:
+
+- `canonical_square8.db` (gate: `parity_gate.square8.json`)
+- `canonical_square19.db` (gate: `parity_gate.square19.json`)
+- `canonical_hex.db` (gate: `parity_gate.hexagonal.json`)
+
+**Action Items:**
+
+1. Move legacy DBs to `data/games/legacy/` directory.
+2. Move legacy models to `models/legacy/` directory.
+3. Retrain v2 models from canonical DBs only.
+4. Update training scripts to enforce allowlist checks.
+
 ---
 
 ## 2. Top 5 Improvement Priorities

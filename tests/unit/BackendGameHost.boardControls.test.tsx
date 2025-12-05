@@ -43,7 +43,7 @@ jest.mock('../../src/client/components/VictoryModal', () => ({
 jest.mock('../../src/client/components/GameHUD', () => {
   // Use require inside the factory so we do not reference the top-level React
   // import, which Jest forbids in mock factories.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+
   const React = require('react');
 
   const GameHUDMock = ({ onShowBoardControls }: { onShowBoardControls?: () => void }) =>
@@ -57,8 +57,8 @@ jest.mock('../../src/client/components/GameHUD', () => {
           'data-testid': 'board-controls-button',
           onClick: onShowBoardControls,
         },
-        'Help',
-      ),
+        'Help'
+      )
     );
 
   return {
@@ -170,6 +170,7 @@ describe('BackendGameHost board controls overlay wiring', () => {
       chatMessages: [],
       connectionStatus: 'connected',
       lastHeartbeatAt: Date.now(),
+      disconnectedOpponents: [],
     } as any);
   });
 
@@ -177,16 +178,14 @@ describe('BackendGameHost board controls overlay wiring', () => {
     render(
       <MemoryRouter initialEntries={['/game/game-123']}>
         <BackendGameHost gameId="game-123" />
-      </MemoryRouter>,
+      </MemoryRouter>
     );
   }
 
   it('opens the board controls overlay in backend mode when the help button is clicked', () => {
     renderHost();
 
-    expect(
-      screen.queryByTestId('board-controls-overlay'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('board-controls-overlay')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('board-controls-button'));
 
@@ -198,35 +197,25 @@ describe('BackendGameHost board controls overlay wiring', () => {
   it('toggles the overlay with the "?" keyboard shortcut', () => {
     renderHost();
 
-    expect(
-      screen.queryByText('BoardControlsOverlay-backend'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('BoardControlsOverlay-backend')).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '?', shiftKey: true });
 
-    expect(
-      screen.getByText('BoardControlsOverlay-backend'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('BoardControlsOverlay-backend')).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: '?', shiftKey: true });
 
-    expect(
-      screen.queryByText('BoardControlsOverlay-backend'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('BoardControlsOverlay-backend')).not.toBeInTheDocument();
   });
 
   it('closes the overlay with Escape when it is open', () => {
     renderHost();
 
     fireEvent.keyDown(window, { key: '?', shiftKey: true });
-    expect(
-      screen.getByText('BoardControlsOverlay-backend'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('BoardControlsOverlay-backend')).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
-    expect(
-      screen.queryByText('BoardControlsOverlay-backend'),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText('BoardControlsOverlay-backend')).not.toBeInTheDocument();
   });
 });

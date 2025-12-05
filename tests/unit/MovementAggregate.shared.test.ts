@@ -328,7 +328,9 @@ describe('MovementAggregate.validateMovement', () => {
     expect(result.code).toBe('PATH_BLOCKED');
   });
 
-  test('rejects landing on an opponent marker', () => {
+  test('allows landing on opponent marker per RR-CANON-R091/R092', () => {
+    // Per canonical rules, landing on ANY marker (own or opponent) is valid.
+    // The marker is removed and a ring from the cap is eliminated.
     const board = createTestBoard('square8');
     const from = pos(2, 2);
     const to = pos(4, 2);
@@ -350,11 +352,7 @@ describe('MovementAggregate.validateMovement', () => {
     };
 
     const result = validateMovement(state, action);
-    expect(result.valid).toBe(false);
-    if (result.valid) {
-      throw new Error('Expected validation failure for landing on opponent marker');
-    }
-    expect(result.code).toBe('INVALID_LANDING');
+    expect(result.valid).toBe(true);
   });
 
   test('allows landing on own marker with clear path', () => {
@@ -609,12 +607,15 @@ describe('MovementAggregate.mutateMovement', () => {
     expect(player?.eliminatedRings).toBe(1);
   });
 
-  test('throws when landing on opponent marker (defensive guard)', () => {
+  test('handles landing on opponent marker per RR-CANON-R091/R092', () => {
+    // Per canonical rules, landing on ANY marker (own or opponent) removes the
+    // marker and eliminates a ring from the cap. Single ring stacks are fully
+    // eliminated.
     const board = createTestBoard('square8');
     const from = pos(2, 2);
     const to = pos(4, 2);
-    addStack(board, from, 1, 1);
-    addMarker(board, to, 2);
+    addStack(board, from, 1, 1); // Single ring stack
+    addMarker(board, to, 2); // Opponent marker
 
     const state = createTestGameState({
       boardType: 'square8',
@@ -630,9 +631,16 @@ describe('MovementAggregate.mutateMovement', () => {
       to,
     };
 
-    expect(() => mutateMovement(state as any, action)).toThrow(
-      'MovementMutator: Landing on opponent marker is not supported in simple movement'
-    );
+    const result = mutateMovement(state as any, action);
+
+    // Marker should be removed
+    expect(result.board.markers.has(positionToString(to))).toBe(false);
+    // Single ring stack is fully eliminated when landing on marker
+    expect(result.board.stacks.has(positionToString(to))).toBe(false);
+    // Origin marker placed where stack started
+    expect(result.board.markers.has(positionToString(from))).toBe(true);
+    // Ring elimination counted
+    expect(result.totalRingsEliminated).toBe(1);
   });
 
   test('throws when there is no stack at origin', () => {

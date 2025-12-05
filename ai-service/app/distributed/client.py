@@ -124,13 +124,17 @@ class WorkerClient:
         Parameters
         ----------
         worker_url : str
-            Worker address in format "host:port"
+            Worker address in format "host:port" or full URL "http://host:port"
         timeout : float
             Request timeout in seconds
         """
         self.worker_url = worker_url
         self.timeout = timeout
-        self._base_url = f"http://{worker_url}"
+        # Handle both "host:port" and "http://host:port" formats
+        if worker_url.startswith("http://") or worker_url.startswith("https://"):
+            self._base_url = worker_url
+        else:
+            self._base_url = f"http://{worker_url}"
 
     def health_check(self) -> Dict[str, Any]:
         """

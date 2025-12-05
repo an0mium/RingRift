@@ -2243,6 +2243,7 @@ export const SandboxGameHost: React.FC = () => {
           <VictoryModal
             isOpen={!!sandboxVictoryResult && !isSandboxVictoryModalDismissed}
             viewModel={sandboxVictoryViewModel}
+            isSandbox
             onClose={() => {
               setIsSandboxVictoryModalDismissed(true);
             }}

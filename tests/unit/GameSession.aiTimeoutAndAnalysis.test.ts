@@ -167,7 +167,8 @@ describe('GameSession.getAIMoveWithTimeout branches', () => {
     const state = createMinimalState();
     const result = await (session as any).getAIMoveWithTimeout(1, state, 1234);
 
-    expect(globalAIEngine.getAIMove).toHaveBeenCalledWith(1, state);
+    // getAIMove signature: (playerNumber, gameState, rng?, options?)
+    expect(globalAIEngine.getAIMove).toHaveBeenCalledWith(1, state, undefined, undefined);
     expect(result).toBe(fakeMove);
   });
 

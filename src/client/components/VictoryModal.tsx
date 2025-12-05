@@ -6,6 +6,12 @@ import {
   type PlayerFinalStatsViewModel,
   type PlayerViewModel,
 } from '../adapters/gameViewModels';
+import { TeachingOverlay, useTeachingOverlay, type TeachingTopic } from './TeachingOverlay';
+import {
+  getWeirdStateReasonForGameResult,
+  getTeachingTopicForReason,
+} from '../../shared/engine/weirdStateReasons';
+import { logRulesUxEvent, newOverlaySessionId } from '../utils/rulesUxTelemetry';
 
 /**
  * Status of a pending rematch request.
@@ -49,6 +55,12 @@ interface VictoryModalProps {
   /** Current rematch status for backend games */
   rematchStatus?: RematchStatus;
   currentUserId?: string;
+  /**
+   * Optional flag indicating that this VictoryModal is being shown from a
+   * sandbox / local game context. Used for low-cardinality rules-UX telemetry
+   * labels (is_sandbox).
+   */
+  isSandbox?: boolean;
 }
 
 /**
@@ -376,9 +388,12 @@ export function VictoryModal({
   onDeclineRematch,
   rematchStatus,
   currentUserId,
+  isSandbox,
 }: VictoryModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const overlaySessionIdRef = useRef<string | null>(null);
+  const { currentTopic, isOpen: isTeachingOpen, showTopic, hideTopic } = useTeachingOverlay();
 
   // Keyboard navigation (Escape to close)
   useEffect(() => {
@@ -436,6 +451,50 @@ export function VictoryModal({
     };
   }, [isOpen]);
 
+  // Rules-UX telemetry: emit weird_state_banner_impression for weird-state victories
+  // when the VictoryModal first becomes visible for a given result.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const effectivePlayersLocal = players ?? [];
+    const effectiveGameResultLocal = gameResult ?? null;
+
+    const vm =
+      viewModel ??
+      toVictoryViewModel(effectiveGameResultLocal, effectivePlayersLocal, gameState, {
+        currentUserId,
+        isDismissed: false,
+      });
+
+    if (!vm || !vm.isVisible) {
+      return;
+    }
+
+    const weirdInfo = getWeirdStateReasonForGameResult(effectiveGameResultLocal);
+    if (!weirdInfo) {
+      return;
+    }
+
+    let overlaySessionId = overlaySessionIdRef.current;
+    if (!overlaySessionId) {
+      overlaySessionId = newOverlaySessionId();
+      overlaySessionIdRef.current = overlaySessionId;
+    }
+
+    void logRulesUxEvent({
+      type: 'weird_state_banner_impression',
+      boardType: vm.gameSummary.boardType,
+      numPlayers: vm.gameSummary.playerCount,
+      rulesContext: weirdInfo.rulesContext,
+      source: 'victory_modal',
+      weirdStateType: weirdInfo.weirdStateType,
+      reasonCode: weirdInfo.reasonCode,
+      isRanked: gameState?.isRated,
+      isSandbox: isSandbox ?? false,
+      overlaySessionId,
+    });
+  }, [isOpen, gameResult, players, gameState, viewModel, currentUserId, isSandbox]);
+
   if (!isOpen) return null;
 
   const effectivePlayers = players ?? [];
@@ -452,6 +511,33 @@ export function VictoryModal({
     return null;
   }
 
+  const weirdStateInfo = getWeirdStateReasonForGameResult(effectiveGameResult);
+
+  let weirdStateTeachingTopic: TeachingTopic | null = null;
+  if (weirdStateInfo) {
+    const teachingId = getTeachingTopicForReason(weirdStateInfo.reasonCode);
+    switch (teachingId) {
+      case 'teaching.active_no_moves':
+        weirdStateTeachingTopic = 'active_no_moves';
+        break;
+      case 'teaching.forced_elimination':
+        weirdStateTeachingTopic = 'forced_elimination';
+        break;
+      case 'teaching.line_bonus':
+        weirdStateTeachingTopic = 'line_bonus';
+        break;
+      case 'teaching.territory':
+        weirdStateTeachingTopic = 'territory';
+        break;
+      case 'teaching.victory_stalemate':
+        weirdStateTeachingTopic = 'victory_stalemate';
+        break;
+      default:
+        weirdStateTeachingTopic = null;
+        break;
+    }
+  }
+
   const { title, description, finalStats, winner, gameSummary, userWon, userLost, isDraw } =
     effectiveViewModel;
 
@@ -459,6 +545,34 @@ export function VictoryModal({
     if (event.target === event.currentTarget) {
       onClose();
     }
+  };
+
+  const handleWeirdStateHelpClick = () => {
+    if (!weirdStateInfo || !weirdStateTeachingTopic) {
+      return;
+    }
+
+    showTopic(weirdStateTeachingTopic);
+
+    let overlaySessionId = overlaySessionIdRef.current;
+    if (!overlaySessionId) {
+      overlaySessionId = newOverlaySessionId();
+      overlaySessionIdRef.current = overlaySessionId;
+    }
+
+    void logRulesUxEvent({
+      type: 'weird_state_details_open',
+      boardType: gameSummary.boardType,
+      numPlayers: gameSummary.playerCount,
+      rulesContext: weirdStateInfo.rulesContext,
+      source: 'victory_modal',
+      weirdStateType: weirdStateInfo.weirdStateType,
+      reasonCode: weirdStateInfo.reasonCode,
+      isRanked: gameState?.isRated,
+      isSandbox: isSandbox ?? false,
+      overlaySessionId,
+      topic: weirdStateTeachingTopic,
+    });
   };
 
   const showConfetti = !isDraw && effectiveGameResult?.reason !== 'abandonment';
@@ -505,6 +619,17 @@ export function VictoryModal({
           >
             {description}
           </p>
+          {weirdStateInfo && weirdStateTeachingTopic && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={handleWeirdStateHelpClick}
+                className="text-sm text-sky-300 hover:text-sky-200 underline decoration-dotted"
+              >
+                What happened?
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Statistics Table with staggered animation */}
@@ -547,6 +672,14 @@ export function VictoryModal({
           </button>
         </div>
       </div>
+      {currentTopic && (
+        <TeachingOverlay
+          topic={currentTopic}
+          isOpen={isTeachingOpen}
+          onClose={hideTopic}
+          position="center"
+        />
+      )}
     </div>
   );
 }

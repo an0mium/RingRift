@@ -4,7 +4,7 @@ Mirrors src/shared/engine/core.ts
 """
 
 from typing import List, Optional, Protocol, Any, Dict, NamedTuple
-from app.models import Position, BoardType, GameState, BoardState
+from app.models import Position, BoardType, GameState, GameStatus, BoardState
 
 
 class BoardConfig(NamedTuple):
@@ -250,7 +250,25 @@ def hash_game_state(state: GameState) -> str:
         else state.game_status
     )
 
-    meta = f"{state.current_player}:{current_phase}:{game_status}"
+    # Canonicalise terminal status strings so that legacy 'finished'
+    # and newer 'completed' values hash identically. This avoids
+    # treating purely naming-level differences between equivalent
+    # terminal states as semantic divergences in parity checks.
+    if game_status == GameStatus.FINISHED.value:
+        game_status = GameStatus.COMPLETED.value
+
+    # For terminal states, currentPlayer/currentPhase are host-local
+    # metadata and not semantically meaningful. Canonicalise them so
+    # that engines which differ only in their choice of terminal
+    # phase/player still produce identical fingerprints.
+    is_terminal = game_status in {
+        GameStatus.COMPLETED.value,
+        GameStatus.ABANDONED.value,
+    }
+    meta_player = 0 if is_terminal else state.current_player
+    meta_phase = "movement" if is_terminal else current_phase
+
+    meta = f"{meta_player}:{meta_phase}:{game_status}"
 
     return "#".join(
         [

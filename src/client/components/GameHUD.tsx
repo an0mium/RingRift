@@ -21,7 +21,14 @@ import type {
 } from '../adapters/gameViewModels';
 import { TeachingOverlay, useTeachingOverlay, type TeachingTopic } from './TeachingOverlay';
 import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
-import { sendRulesUxEvent } from '../utils/rulesUxTelemetry';
+import {
+  sendRulesUxEvent,
+  logRulesUxEvent,
+  logHelpOpenEvent,
+  newHelpSessionId,
+  newOverlaySessionId,
+} from '../utils/rulesUxTelemetry';
+import { getWeirdStateReasonForType } from '../../shared/engine/weirdStateReasons';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Props Types
@@ -1211,9 +1218,12 @@ function GameHUDFromViewModel({
   const { currentTopic, isOpen, showTopic, hideTopic } = useTeachingOverlay();
 
   const helpOpenCountsRef = React.useRef<Record<string, number>>({});
+  const helpSessionIdRef = React.useRef<string | null>(null);
   const prevIsOpenRef = React.useRef(false);
   const prevTopicRef = React.useRef<TeachingTopic | null>(null);
   const autoScenarioHelpShownRef = React.useRef<Record<string, boolean>>({});
+  const weirdStateOverlaySessionRef = React.useRef<string | null>(null);
+  const lastWeirdStateTypeRef = React.useRef<RulesUxWeirdStateType | null>(null);
   const phaseHelpTopic: TeachingTopic | null = React.useMemo(() => {
     switch (phase.phaseKey) {
       case 'movement':
@@ -1311,6 +1321,34 @@ function GameHUDFromViewModel({
       scenarioId: rulesUxScenarioId,
     } as const;
 
+    // Ensure we have a correlation id for this help session.
+    if (!helpSessionIdRef.current) {
+      helpSessionIdRef.current = newHelpSessionId();
+    }
+    const helpSessionId = helpSessionIdRef.current;
+
+    // Spec-aligned help_open event for rules telemetry dashboards.
+    void logHelpOpenEvent({
+      boardType: rulesUxBoardType,
+      numPlayers: rulesUxNumPlayers,
+      aiDifficulty: rulesUxAiDifficulty,
+      difficulty: undefined,
+      rulesContext: undefined,
+      rulesConcept: rulesUxRulesConcept,
+      topic: currentTopic,
+      scenarioId: rulesUxScenarioId,
+      source: 'hud',
+      entrypoint: 'hud_help_chip',
+      gameId: undefined,
+      isRanked: undefined,
+      isCalibrationGame: undefined,
+      isSandbox: undefined,
+      seatIndex: undefined,
+      perspectivePlayerCount: undefined,
+      helpSessionId,
+    });
+
+    // Legacy metrics events kept for backwards compatibility.
     void sendRulesUxEvent({
       type: 'rules_help_open',
       ...baseEvent,
@@ -1357,6 +1395,49 @@ function GameHUDFromViewModel({
     showTopic(topic);
   }, [phase.phaseKey, rulesUxScenarioId, scenarioHelpConfig, showTopic]);
 
+  // Emit a spec-aligned weird_state_banner_impression when a new weird-state
+  // banner becomes active in the HUD. This uses the coarse weird-state type
+  // from the view model and maps it to a stable reason code and rules_context.
+  React.useEffect(() => {
+    if (!weirdState || !rulesUxBoardType) {
+      lastWeirdStateTypeRef.current = null;
+      weirdStateOverlaySessionRef.current = null;
+      return;
+    }
+
+    const currentType = weirdState.type as RulesUxWeirdStateType;
+
+    if (lastWeirdStateTypeRef.current === currentType && weirdStateOverlaySessionRef.current) {
+      return;
+    }
+
+    lastWeirdStateTypeRef.current = currentType;
+
+    const { reasonCode, rulesContext, weirdStateType } = getWeirdStateReasonForType(currentType);
+    const overlaySessionId = newOverlaySessionId();
+    weirdStateOverlaySessionRef.current = overlaySessionId;
+
+    void logRulesUxEvent({
+      type: 'weird_state_banner_impression',
+      boardType: rulesUxBoardType,
+      numPlayers: rulesUxNumPlayers,
+      aiDifficulty: rulesUxAiDifficulty,
+      rulesContext,
+      source: 'hud',
+      weirdStateType,
+      reasonCode,
+      rulesConcept: rulesUxRulesConcept,
+      scenarioId: rulesUxScenarioId,
+    });
+  }, [
+    weirdState,
+    rulesUxAiDifficulty,
+    rulesUxBoardType,
+    rulesUxNumPlayers,
+    rulesUxRulesConcept,
+    rulesUxScenarioId,
+  ]);
+
   const handleWeirdStateHelp = React.useCallback(() => {
     if (!weirdState) return;
 
@@ -1388,6 +1469,31 @@ function GameHUDFromViewModel({
     }
 
     const weirdStateType = weirdState.type as RulesUxWeirdStateType;
+    const { reasonCode, rulesContext } = getWeirdStateReasonForType(weirdStateType);
+
+    let overlaySessionId = weirdStateOverlaySessionRef.current;
+    if (!overlaySessionId) {
+      overlaySessionId = newOverlaySessionId();
+      weirdStateOverlaySessionRef.current = overlaySessionId;
+    }
+
+    // Spec-aligned event for weird-state detail opens.
+    void logRulesUxEvent({
+      type: 'weird_state_details_open',
+      boardType: rulesUxBoardType,
+      numPlayers: rulesUxNumPlayers,
+      aiDifficulty: rulesUxAiDifficulty,
+      rulesContext,
+      source: 'hud',
+      weirdStateType,
+      reasonCode,
+      rulesConcept: rulesUxRulesConcept,
+      scenarioId: rulesUxScenarioId,
+      overlaySessionId,
+      topic,
+    });
+
+    // Legacy event kept for backwards-compatible metrics.
     void sendRulesUxEvent({
       type: 'rules_weird_state_help',
       boardType: rulesUxBoardType,

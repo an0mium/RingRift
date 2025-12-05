@@ -250,7 +250,7 @@ describe('GameSession Move Handling', () => {
             position: { x: 0, y: 0 },
             moveType: 'ring_placement',
           })
-        ).rejects.toThrow('Current socket user is not a player in this game');
+        ).rejects.toThrow('Current user is not a player in this game');
       });
 
       it('rejects move from spectator', async () => {
@@ -711,7 +711,7 @@ describe('GameSession Move Handling', () => {
       const socket = createMockSocket('not-a-player');
 
       await expect(session.handlePlayerMoveById(socket, 'move-id-1')).rejects.toThrow(
-        'Current socket user is not a player in this game'
+        'Current user is not a player in this game'
       );
     });
 

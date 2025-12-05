@@ -116,8 +116,9 @@ describe('SandboxGameHost', () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText(/Start a RingRift Game \(Local Sandbox\)/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Launch Game/i })).toBeInTheDocument();
+    // New UI shows game mode selection buttons (may appear multiple times)
+    expect(screen.getAllByText(/Human vs AI/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Full Board vs AI/i).length).toBeGreaterThan(0);
   });
 
   it('attempts to create backend game when Launch Game is clicked', async () => {

@@ -166,23 +166,25 @@ export class MetricsService {
   /**
    * Counter: Lightweight rules-UX telemetry events emitted by the client.
    *
-   * Labels are intentionally low-cardinality:
-   * - type: event type (help_open, help_repeat, undo_churn, weird_state_*)
+   * Labels are intentionally low-cardinality and derived from bounded enums:
+   * - event_type: coarse event discriminant (help_open, weird_state_banner_impression, teaching_step_started, ...)
+   * - rules_context: semantic rules concept (anm_forced_elimination, structural_stalemate, ...)
+   * - source: emitting surface (hud, victory_modal, teaching_overlay, sandbox, ...)
    * - board_type: coarse board topology (square8, square19, hexagonal, ...)
-   * - num_players: number of players/seats (1–4)
-   * - ai_difficulty: coarse AI difficulty bucket or "none"
-   * - topic: teaching topic ID or "none"/"unknown"
-   * - rules_concept: curated rulesConcept ID or "none"/"unknown"
-   * - weird_state_type: weird-state classification or "none"/"unknown"
+   * - num_players: number of players/seats (1–4 or "unknown")
+   * - difficulty: coarse difficulty bucket or AI level (tutorial, casual, ranked_low, 1–10, or "unknown")
+   * - is_ranked: "true" / "false" / "unknown"
+   * - is_sandbox: "true" / "false" / "unknown"
    */
   public readonly rulesUxEventsTotal: Counter<
-    | 'type'
+    | 'event_type'
+    | 'rules_context'
+    | 'source'
     | 'board_type'
     | 'num_players'
-    | 'ai_difficulty'
-    | 'topic'
-    | 'rules_concept'
-    | 'weird_state_type'
+    | 'difficulty'
+    | 'is_ranked'
+    | 'is_sandbox'
   >;
 
   // ===================
@@ -517,13 +519,14 @@ export class MetricsService {
       name: 'ringrift_rules_ux_events_total',
       help: 'Total number of rules-UX telemetry events by type and coarse context',
       labelNames: [
-        'type',
+        'event_type',
+        'rules_context',
+        'source',
         'board_type',
         'num_players',
-        'ai_difficulty',
-        'topic',
-        'rules_concept',
-        'weird_state_type',
+        'difficulty',
+        'is_ranked',
+        'is_sandbox',
       ] as const,
     });
 
@@ -1247,7 +1250,7 @@ export class MetricsService {
    * surface stable over time.
    */
   public recordRulesUxEvent(event: RulesUxEventPayload): void {
-    const typeLabel = event.type || 'unknown';
+    const eventType = event.type || 'unknown';
 
     const boardType = (event.boardType as string) || 'unknown';
 
@@ -1257,27 +1260,45 @@ export class MetricsService {
         : NaN;
     const numPlayers = numPlayersRaw >= 1 && numPlayersRaw <= 4 ? String(numPlayersRaw) : 'unknown';
 
-    let aiDifficulty = 'none';
-    if (typeof event.aiDifficulty === 'number' && Number.isFinite(event.aiDifficulty)) {
+    // Normalised rules_context: semantic rules concept or "none".
+    const rulesContextLabel =
+      typeof event.rulesContext === 'string' && event.rulesContext.length > 0
+        ? event.rulesContext.slice(0, 64)
+        : 'none';
+
+    // Normalised source: emitting surface or "unknown".
+    const sourceLabel =
+      typeof event.source === 'string' && event.source.length > 0
+        ? event.source.slice(0, 64)
+        : 'unknown';
+
+    // Difficulty: prefer explicit difficulty bucket, fall back to aiDifficulty (1–10),
+    // otherwise "unknown".
+    let difficultyLabel = 'unknown';
+    if (typeof event.difficulty === 'string' && event.difficulty.length > 0) {
+      difficultyLabel = event.difficulty.slice(0, 64);
+    } else if (typeof event.aiDifficulty === 'number' && Number.isFinite(event.aiDifficulty)) {
       const clamped = Math.min(10, Math.max(1, Math.round(event.aiDifficulty)));
-      aiDifficulty = String(clamped);
+      difficultyLabel = String(clamped);
     }
 
-    const topic =
-      typeof event.topic === 'string' && event.topic.length > 0 ? event.topic.slice(0, 64) : 'none';
+    const isRankedLabel =
+      typeof event.isRanked === 'boolean' ? (event.isRanked ? 'true' : 'false') : 'unknown';
 
-    const rulesConcept =
-      typeof event.rulesConcept === 'string' && event.rulesConcept.length > 0
-        ? event.rulesConcept.slice(0, 64)
-        : 'none';
-
-    const weirdStateType =
-      typeof event.weirdStateType === 'string' && event.weirdStateType.length > 0
-        ? event.weirdStateType.slice(0, 64)
-        : 'none';
+    const isSandboxLabel =
+      typeof event.isSandbox === 'boolean' ? (event.isSandbox ? 'true' : 'false') : 'unknown';
 
     this.rulesUxEventsTotal
-      .labels(typeLabel, boardType, numPlayers, aiDifficulty, topic, rulesConcept, weirdStateType)
+      .labels(
+        eventType,
+        rulesContextLabel,
+        sourceLabel,
+        boardType,
+        numPlayers,
+        difficultyLabel,
+        isRankedLabel,
+        isSandboxLabel
+      )
       .inc();
   }
 

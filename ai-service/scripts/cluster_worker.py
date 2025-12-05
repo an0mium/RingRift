@@ -279,7 +279,14 @@ class WorkerRequestHandler(BaseHTTPRequestHandler):
         self, status_code: int, data: Dict[str, Any]
     ) -> None:
         """Send a JSON response."""
-        body = json.dumps(data).encode("utf-8")
+
+        def json_default(obj: Any) -> Any:
+            """Handle non-serializable types."""
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+        body = json.dumps(data, default=json_default).encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

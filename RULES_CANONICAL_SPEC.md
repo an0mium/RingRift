@@ -243,6 +243,19 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - Analogue play (each step is announced and agreed upon by players), and
     - Digital implementations, including AI self-play and parity/training harnesses, which must record every rules-level action and voluntary skip as an explicit move/choice for reproducibility and analysis.
 
+- **[RR-CANON-R075] Canonical replay and between-move semantics.**
+  - Canonical recordings (for example, GameReplayDBs used for AI training and TS↔Python parity) are sequences of explicit moves and decisions. For such recordings:
+    - **No additional line-processing, Territory-processing, or ring elimination may occur "between moves".** Every collapse, elimination, or region/line resolution step must be attributable to a specific, explicit move in the record:
+      - `place_ring`, `skip_placement`,
+      - `move_stack` / `move_ring`,
+      - `overtaking_capture`, `continue_capture_segment`,
+      - `process_line`, `choose_line_reward`,
+      - `process_territory_region`, `choose_territory_option`,
+      - `eliminate_rings_from_stack`, or
+      - a host-level `forced_elimination` action modelled as an explicit move.
+    - Replay engines MUST NOT inject extra collapses, region resolutions, or forced eliminations solely as a consequence of "advancing phases" or "resolving ANM" when consuming a canonical recording; if such work is required by the rules, it must appear as explicit moves/choices in the recording itself.
+  - Hosts are free to implement richer UX flows (for example, auto-processing a single exact-length line for a human player) **so long as** those flows still emit the corresponding canonical moves into history. Canonical replay and parity tooling must treat the move history as the sole source of truth for state changes.
+
 ---
 
 ## 4.5 Active-No-Moves & Forced Elimination Semantics (R2xx)
@@ -527,9 +540,11 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - While at least one eligible line remains:
       - Moving player P chooses one eligible line L to process. This choice is
         always represented as an explicit, player-visible line-processing
-        decision in the `line_processing` phase (e.g. a `process_line`
-        decision for exact-length lines, possibly followed by a
-        `choose_line_reward` decision for overlength lines).
+        decision in the `line_processing` phase (for example:
+        - a `process_line` decision for every exact-length line, including
+          the case where L is the **only** eligible line; and
+        - a `process_line` decision followed by a `choose_line_reward`
+          decision for overlength lines when a reward choice is available).
       - Apply collapse/elimination for L per RR-CANON-R122 as a consequence
         of that explicit decision.
       - Recompute eligible lines; continue until none remain or P cannot pay required eliminations.
@@ -557,6 +572,23 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
         must not silently default to either option for overlength lines.
   - After each processed line, update all counters and recompute lines.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §5.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.5, 11.2–11.3, 15.4 Q7, Q22.
+
+> **Example E1 – Exact-length line with no follow-up decisions (8×8).**
+>
+> - Board: `square8`, 2-player.
+> - Situation: Late game, Player 1 (P1) has just completed a non-capture movement that forms a single, exact-length line of their own markers and does **not** disconnect any Territory regions.
+> - Canonical sequence:
+>   1. P1 plays their interactive move (e.g., a `move_stack`).
+>   2. The engine detects one eligible line for P1. Even though it is the only line, P1 must process it via an explicit `process_line` decision:
+>      - One `process_line` move is recorded for that line.
+>      - Collapse and any required line-reward elimination are applied as consequences of that move (and, when applicable, a follow-up `choose_line_reward` decision for overlength lines).
+>   3. No other lines remain; the engine does **not** auto-collapse additional markers or perform extra eliminations between moves.
+>   4. Because no Territory regions were disconnected, there is no `territory_processing` phase for this turn; the engine proceeds directly to victory checks and turn rotation.
+> - Replay behaviour:
+>   - A canonical GameReplayDB for this turn records:
+>     - the original `move_stack` (or `overtaking_capture`), and
+>     - the explicit `process_line` (and `choose_line_reward`, if needed).
+>   - Canonical replay must reach the post-line state **only** by applying those explicit moves in order; it may not inject additional collapses or eliminations between them.
 
 ---
 

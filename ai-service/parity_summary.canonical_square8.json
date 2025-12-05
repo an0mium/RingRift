@@ -1,0 +1,38 @@
+{
+  "end_of_game_only_divergences": [
+    {
+      "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/canonical_square8.db",
+      "diverged_at": 64,
+      "game_id": "ff857a99-7240-4ebe-b8b8-fc3021b1d136",
+      "is_end_of_game_only": true,
+      "mismatch_context": "post_move",
+      "mismatch_kinds": ["current_player", "current_phase", "game_status"],
+      "python_summary": {
+        "current_phase": "movement",
+        "current_player": 2,
+        "game_status": "finished",
+        "move_index": 63,
+        "state_hash": "fe03f11b2fed5bab"
+      },
+      "structure": "good",
+      "structure_reason": null,
+      "total_moves_python": 64,
+      "total_moves_ts": 64,
+      "ts_summary": {
+        "current_phase": "ring_placement",
+        "current_player": 1,
+        "game_status": "completed",
+        "move_index": 64,
+        "state_hash": "fe03f11b2fed5bab"
+      }
+    }
+  ],
+  "games_with_end_of_game_only_divergence": 1,
+  "games_with_semantic_divergence": 0,
+  "games_with_structural_issues": 0,
+  "mismatch_counts_by_dimension": {},
+  "semantic_divergences": [],
+  "structural_issues": [],
+  "total_databases": 1,
+  "total_games_checked": 5
+}

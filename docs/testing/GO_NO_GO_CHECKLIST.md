@@ -72,8 +72,9 @@ These gates ensure the orchestrator, shared rules engine, and cross‑language p
   - **References**
     - [`CURRENT_STATE_ASSESSMENT.md`](../CURRENT_STATE_ASS
 
-ESSMENT.md:258) (§“P0 – Engine Parity & Rules Coverage”).  
- - Contract/vector test docs referenced there.
+ESSMENT.md:258) (§“P0 – Engine Parity & Rules Coverage”).
+
+- Contract/vector test docs referenced there.
 
 - [ ] **Golden replay suites (TS shared engine + Python parity) are green**
   - **Automation / commands**
@@ -151,6 +152,11 @@ These gates ensure AI behaviour under normal conditions and under degradation ma
     - Staging **AI degradation drill** successfully completed in the last N days using:
       - [`docs/runbooks/AI_SERVICE_DEGRADATION_DRILL.md`](./runbooks/AI_SERVICE_DEGRADATION_DRILL.md:1)
       - Validates alerts `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, `AIRequestHighLatency`, `AIErrorsIncreasing` defined in [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:417) and [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml:1).
+      - Optionally capture structured drill reports via:
+        - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase baseline`
+        - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase degraded`
+        - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase recovery`
+        - and attach the resulting `results/ops/ai_degradation.staging.*.json` files as evidence.
   - **Evidence**
     - Drill notes (date, environment, findings) linked from the release ticket or ops log.
   - **References**
@@ -249,10 +255,70 @@ These gates ensure the monitoring / alerting surface and deployment configuratio
     - From the project root:
       - `npm run validate:deployment` → [`scripts/validate-deployment-config.ts`](../scripts/validate-deployment-config.ts:1)
         - Validates `.env.example`, `docker-compose*.yml`, env schema (`src/server/config/env.ts`), `.env.staging`, and CI workflow alignment.
+      - For a **prod-preview style deployment**, optionally run the production preview go/no-go harness:
+        - `./node_modules/.bin/ts-node scripts/run-prod-preview-go-no-go.ts --env prod-preview --expectedTopology single`
+        - and attach the resulting `results/ops/prod_preview_go_no_go.prod-preview.*.json` report as evidence.
   - **Evidence**
     - Latest `npm run validate:deployment` output attached to the release ticket, with **0 errors** for the target environment configuration.
+    - (Optional) Latest `prod_preview_go_no_go` JSON report for the target environment, demonstrating a passing topology/config/auth/game/AI smoke.
   - **References**
     - Deployment / topology expectations: [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md:241), [`docs/DEPLOYMENT_REQUIREMENTS.md`](./DEPLOYMENT_REQUIREMENTS.md:1).
+
+#### Operational helper: production‑preview go/no‑go harness (staging / pre‑prod)
+
+- **Purpose**
+  - Provides a single, lightweight **production‑preview go/no‑go smoke** for a prod‑like stack (for example, staging or pre‑prod) without starting containers.
+  - Validates that:
+    - The app topology matches the expected prod‑preview value (for example `RINGRIFT_APP_TOPOLOGY=single`).
+    - Deployment config validation is clean (`npm run validate:deployment`).
+    - Core auth flows work end‑to‑end.
+    - Lobby / game creation, WebSocket session, basic reconnection, and at least one AI path succeed.
+    - AI service readiness is healthy from the backend’s point of view.
+
+- **How to run**
+
+  ```bash
+  TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/run-prod-preview-go-no-go.ts --env staging --operator your-handle
+  ```
+
+  - Optional flags:
+    - `--baseUrl https://staging.example.com` to override the default `BASE_URL` / `APP_BASE` / `http://localhost:3000`.
+    - `--expectedTopology single` to override the default expected topology (defaults to `'single'`).
+  - Script entrypoint: [`scripts/run-prod-preview-go-no-go.ts`](../scripts/run-prod-preview-go-no-go.ts:1).
+
+- **JSON report**
+  - Location (by default):
+
+    ```text
+    results/ops/prod_preview_go_no_go.<env>.<timestamp>.json
+    ```
+
+  - Key fields:
+    - `drillType: "prod_preview_go_no_go"` – identifies this as the production‑preview go/no‑go harness.
+    - `environment` / `operator` – environment label and operator handle used when running the harness.
+    - `topologySummary`:
+      - `appTopology` – effective `RINGRIFT_APP_TOPOLOGY` value seen by the backend.
+      - `expectedTopology` – the topology you told the harness to expect.
+      - `configOk` – whether [`npm run validate:deployment`](../scripts/validate-deployment-config.ts:1) passed.
+    - `checks` – per‑check results:
+      - `topology_and_config` – topology matches expectations **and** deployment config validation is clean.
+      - `auth_smoke_test` – `scripts/test-auth.sh` HTTP auth flow is working.
+      - `game_session_smoke` – lobby / game creation / WebSocket / reconnection / AI smoke via the existing [`scripts/game-session-load-smoke.ts`](../scripts/game-session-load-smoke.ts:1) harness.
+      - `ai_service_readiness` – AI readiness based on the same `HealthCheckService` surface used by the AI degradation drill.
+    - `overallPass` – `true` only if **all** checks report `status: "pass"`.
+
+- **Relationship to this checklist**
+  - For a candidate build + environment where this harness is applicable (staging / pre‑prod with a prod‑like topology):
+    - “Prod‑like topology configured” and “deployment config validates cleanly” evidence can be satisfied by:
+      - `checks[].name === "topology_and_config"` with `status: "pass"` and a reasonable `topologySummary`.
+    - “Auth OK” evidence can be satisfied by:
+      - `checks[].name === "auth_smoke_test"` with `status: "pass"`.
+    - “Game session OK (lobby, WebSocket, reconnection, AI path)” evidence can be satisfied by:
+      - `checks[].name === "game_session_smoke"` with `status: "pass"`.
+    - “AI wiring / readiness OK” evidence can be satisfied by:
+      - `checks[].name === "ai_service_readiness"` with `status: "pass"`.
+  - `overallPass: true` in the prod‑preview go/no‑go report is a **necessary precondition** for a GO decision in that environment, but **not sufficient on its own**:
+    - The full checklist (including load, SLOs, drills, and documentation gates) must still be satisfied or explicitly waived.
 
 - [ ] **Monitoring configuration and alerts validate cleanly**
   - **Automation / commands**
@@ -313,6 +379,11 @@ These gates ensure the security‑critical and operational drills that underpin 
     - Validate that:
       - Alerts `AIServiceDown`, `AIFallbackRateHigh`, `AIFallbackRateCritical`, and `ServiceDegraded` fire and clear as expected (see [`ALERTING_THRESHOLDS.md`](./ALERTING_THRESHOLDS.md:417)).
       - Fallback behaviour matches [`docs/incidents/AI_SERVICE.md`](./incidents/AI_SERVICE.md:1) and AI fallbacks behave as in automated tests.
+    - Optionally capture structured drill reports via:
+      - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase baseline`
+      - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase degraded`
+      - `./node_modules/.bin/ts-node scripts/run-ai-degradation-drill.ts --env staging --phase recovery`
+      - and attach the resulting `results/ops/ai_degradation.staging.*.json` files as evidence.
   - **Evidence**
     - Drill notes (timeline, metrics screenshots, alert states, user‑visible behaviour) captured in incident / ops logs.
   - **References**

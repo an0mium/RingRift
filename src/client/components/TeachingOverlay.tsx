@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import type { GamePhase, Move } from '../../shared/types/game';
+import {
+  TEACHING_SCENARIOS,
+  type RulesConcept,
+  type TeachingScenarioMetadata,
+} from '../../shared/teaching/teachingScenarios';
 
 export type TeachingTopic =
   | 'ring_placement'
@@ -154,6 +159,17 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
   },
 };
 
+/**
+ * Mapping from TeachingOverlay topics to the primary rulesConcept families
+ * they relate to. Used to surface related scenario-driven teaching flows
+ * defined in shared teaching metadata.
+ */
+const TOPIC_RULES_CONCEPTS: Partial<Record<TeachingTopic, RulesConcept[]>> = {
+  active_no_moves: ['anm_forced_elimination'],
+  forced_elimination: ['anm_forced_elimination'],
+  victory_stalemate: ['structural_stalemate', 'last_player_standing'],
+};
+
 export interface TeachingOverlayProps {
   /** The topic to display */
   topic: TeachingTopic;
@@ -179,6 +195,17 @@ export function TeachingOverlay({
   className = '',
 }: TeachingOverlayProps) {
   const content = TEACHING_CONTENT[topic];
+
+  const relatedScenarios: TeachingScenarioMetadata[] = React.useMemo(() => {
+    const concepts = TOPIC_RULES_CONCEPTS[topic];
+    if (!concepts || concepts.length === 0) {
+      return [];
+    }
+    return TEACHING_SCENARIOS.filter(
+      (scenario) =>
+        concepts.includes(scenario.rulesConcept) && scenario.showInTeachingOverlay === true
+    );
+  }, [topic]);
 
   // Close on Escape key
   useEffect(() => {
@@ -259,6 +286,25 @@ export function TeachingOverlay({
             ))}
           </ul>
         </div>
+
+        {/* Related teaching scenarios for this topic (flows & steps) */}
+        {relatedScenarios.length > 0 && (
+          <div className="px-4 pb-4">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
+              Related teaching steps
+            </h3>
+            <ul className="space-y-1.5">
+              {relatedScenarios.map((scenario) => (
+                <li key={scenario.scenarioId} className="text-xs text-slate-300">
+                  <div className="font-semibold text-slate-100">
+                    {scenario.flowId} · Step {scenario.stepIndex}
+                  </div>
+                  <div className="text-slate-400">{scenario.learningObjectiveShort}</div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Related Phases Badge */}
         {content.relatedPhases && content.relatedPhases.length > 0 && (

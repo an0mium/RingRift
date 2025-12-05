@@ -42,7 +42,20 @@ describe('rulesUxTelemetry.sendRulesUxEvent', () => {
     await expect(sendRulesUxEvent(event)).resolves.toBeUndefined();
 
     expect(mockedApi.post).toHaveBeenCalledTimes(1);
-    expect(mockedApi.post).toHaveBeenCalledWith('/telemetry/rules-ux', event);
+    const [path, payload] = mockedApi.post.mock.calls[0];
+    expect(path).toBe('/telemetry/rules-ux');
+    // Payload should contain the original event fields plus enrichment metadata.
+    expect(payload).toEqual(
+      expect.objectContaining({
+        type: 'rules_help_open',
+        boardType: 'square8',
+        numPlayers: 2,
+        aiDifficulty: 5,
+        topic: 'active_no_moves',
+      })
+    );
+    expect(typeof payload.ts).toBe('string');
+    expect(typeof payload.clientPlatform).toBe('string');
   });
 
   it('swallows errors from the underlying HTTP call and still resolves', async () => {
@@ -123,6 +136,18 @@ describe('rulesUxTelemetry.sendRulesUxEvent', () => {
     await sendRulesUxEvent(event);
 
     expect(mockedApi.post).toHaveBeenCalledTimes(1);
-    expect(mockedApi.post).toHaveBeenCalledWith('/telemetry/rules-ux', event);
+    const [path, payload] = mockedApi.post.mock.calls[0];
+
+    expect(path).toBe('/telemetry/rules-ux');
+    // Non-help events should still be sent even when help-open sampling is 0.
+    // The payload is enriched with telemetry metadata, so we assert on a subset.
+    expect(payload).toEqual(
+      expect.objectContaining({
+        type: 'rules_undo_churn',
+        boardType: 'square8',
+        numPlayers: 2,
+        undoStreak: 4,
+      })
+    );
   });
 });

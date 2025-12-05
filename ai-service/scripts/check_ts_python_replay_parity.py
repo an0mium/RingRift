@@ -62,6 +62,10 @@ class GameParityResult:
     mismatch_kinds: List[str] = field(default_factory=list)
     # Optional free-form context, such as "initial_state" vs "post_move"
     mismatch_context: Optional[str] = None
+    # True when divergence occurs only at the very last move (end-of-game metadata
+    # differences). These are insignificant for training purposes as no AI decisions
+    # are made based on the divergent state.
+    is_end_of_game_only: bool = False
 
 
 def repo_root() -> Path:
@@ -355,6 +359,12 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
                 step_mismatches.append("current_phase")
             if py_summary.game_status != ts_summary.game_status:
                 step_mismatches.append("game_status")
+            # Treat any difference in the canonical state hash as a semantic
+            # divergence. The hash is derived from the shared hash_game_state
+            # fingerprint and should match whenever board geometry and core
+            # progress counters (elims/territory) agree across engines.
+            if py_summary.state_hash != ts_summary.state_hash:
+                step_mismatches.append("state_hash")
 
             if step_mismatches:
                 diverged_at = ts_k
@@ -366,10 +376,28 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
 
     # If we had no per-move divergence but move counts differ, record that as a
     # distinct mismatch kind so callers can track move-count-only issues.
-    if diverged_at is None and total_moves_python != total_moves_ts:
+    if diverged_at is None and total_moves_py != total_moves_ts:
         diverged_at = None  # keep as None; mismatch is global, not at a single k
         mismatch_kinds = ["move_count"]
         mismatch_context = "global"
+
+    # Determine if divergence is only at the very last move (end-of-game only)
+    # AND the canonical state hash matches. Pure metadata differences in
+    # player/phase/status at the terminal snapshot are insignificant for
+    # training; any structural difference (state_hash mismatch) is treated as
+    # a full semantic divergence.
+    is_end_of_game_only = False
+    if (
+        diverged_at is not None
+        and diverged_at == total_moves_py
+        and diverged_at == total_moves_ts
+    ):
+        if py_summary_at_diverge is not None and ts_summary_at_diverge is not None:
+            # Only treat as "end-of-game only" when the underlying board /
+            # territory / elimination fingerprint is identical and the
+            # divergence is limited to metadata fields.
+            if py_summary_at_diverge.state_hash == ts_summary_at_diverge.state_hash:
+                is_end_of_game_only = True
 
     return GameParityResult(
         db_path=str(db_path),
@@ -383,6 +411,7 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
         ts_summary=ts_summary_at_diverge,
         mismatch_kinds=mismatch_kinds,
         mismatch_context=mismatch_context,
+        is_end_of_game_only=is_end_of_game_only,
     )
 
 
@@ -614,9 +643,11 @@ def main() -> None:
 
     structural_issues: List[Dict[str, object]] = []
     semantic_divergences: List[Dict[str, object]] = []
+    end_of_game_only_divergences: List[Dict[str, object]] = []
     mismatch_counts_by_dimension: Dict[str, int] = {}
     total_games = 0
     total_semantic_divergent = 0
+    total_end_of_game_only = 0
     total_structural_issues = 0
 
     fixtures_dir: Optional[Path] = Path(args.emit_fixtures_dir).resolve() if args.emit_fixtures_dir else None
@@ -661,16 +692,22 @@ def main() -> None:
                 continue
 
             if result.diverged_at is not None or result.total_moves_python != result.total_moves_ts:
-                total_semantic_divergent += 1
                 payload = asdict(result)
                 if result.python_summary is not None:
                     payload["python_summary"] = asdict(result.python_summary)
                 if result.ts_summary is not None:
                     payload["ts_summary"] = asdict(result.ts_summary)
-                semantic_divergences.append(payload)
-                # Increment per-dimension mismatch counters
-                for kind in result.mismatch_kinds or []:
-                    mismatch_counts_by_dimension[kind] = mismatch_counts_by_dimension.get(kind, 0) + 1
+
+                # Classify divergence: significant vs end-of-game-only
+                if result.is_end_of_game_only:
+                    total_end_of_game_only += 1
+                    end_of_game_only_divergences.append(payload)
+                else:
+                    total_semantic_divergent += 1
+                    semantic_divergences.append(payload)
+                    # Increment per-dimension mismatch counters (only for significant divergences)
+                    for kind in result.mismatch_kinds or []:
+                        mismatch_counts_by_dimension[kind] = mismatch_counts_by_dimension.get(kind, 0) + 1
 
                 # Optionally emit a compact JSON fixture for this divergence so TS tests
                 # can consume it directly without re-querying the replay DB.
@@ -751,8 +788,10 @@ def main() -> None:
         "total_databases": len(db_paths),
         "total_games_checked": total_games,
         "games_with_semantic_divergence": total_semantic_divergent,
+        "games_with_end_of_game_only_divergence": total_end_of_game_only,
         "games_with_structural_issues": total_structural_issues,
         "semantic_divergences": semantic_divergences,
+        "end_of_game_only_divergences": end_of_game_only_divergences,
         "structural_issues": structural_issues,
         "mismatch_counts_by_dimension": mismatch_counts_by_dimension,
     }

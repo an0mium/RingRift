@@ -324,7 +324,9 @@ describe('CaptureAggregate – canonical capture-chain behaviour', () => {
     expect(player1.eliminatedRings).toBe(1);
   });
 
-  it('mutateCapture removes opponent landing marker without eliminating a ring', () => {
+  it('mutateCapture removes opponent landing marker and eliminates a ring per RR-CANON-R091/R092', () => {
+    // Per canonical rules, landing on ANY marker (own or opponent) removes the
+    // marker and eliminates a ring from the cap.
     const state = makeEmptyGameState();
     const from = pos(2, 2);
     const target = pos(2, 4);
@@ -350,8 +352,10 @@ describe('CaptureAggregate – canonical capture-chain behaviour', () => {
 
     const next = mutateCapture(state, action);
 
+    // Marker should be removed
     expect(next.board.markers.has(landingKey)).toBe(false);
-    expect(next.board.eliminatedRings[1] || 0).toBe(0);
+    // One ring eliminated per RR-CANON-R091/R092
+    expect(next.board.eliminatedRings[1] || 0).toBe(1);
   });
 
   it('applyCapture handles non-capture moves and structural errors gracefully', () => {

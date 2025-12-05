@@ -300,11 +300,13 @@ describe('LineValidator', () => {
       expect(result.code).toBe('NOT_YOUR_LINE');
     });
 
-    it('returns error when MINIMUM_COLLAPSE on exact-length line (4 in 2p)', () => {
+    it('returns error when MINIMUM_COLLAPSE on exact-length line (3 in 2p)', () => {
+      // For square8, threshold is 3 for all player counts.
+      // A 3-position line is exact-length, so MINIMUM_COLLAPSE is invalid.
       const state = createMinimalState({
         currentPhase: 'line_processing',
         currentPlayer: 1,
-        formedLines: [{ player: 1, length: 4, positions: fourPositions }],
+        formedLines: [{ player: 1, length: 3, positions: threePositions }],
         playerCount: 2,
       });
       const action: ChooseLineRewardAction = {
@@ -312,7 +314,7 @@ describe('LineValidator', () => {
         lineIndex: 0,
         playerId: 1,
         selection: 'MINIMUM_COLLAPSE',
-        collapsedPositions: fourPositions,
+        collapsedPositions: threePositions,
       };
 
       const result = validateChooseLineReward(state, action);
@@ -449,6 +451,7 @@ describe('LineValidator', () => {
     });
 
     it('returns error when MINIMUM_COLLAPSE with wrong position count', () => {
+      // For square8, threshold is 3. MINIMUM_COLLAPSE requires exactly 3 positions.
       const state = createMinimalState({
         currentPhase: 'line_processing',
         currentPlayer: 1,
@@ -463,8 +466,7 @@ describe('LineValidator', () => {
         collapsedPositions: [
           { x: 0, y: 0 },
           { x: 1, y: 0 },
-          { x: 2, y: 0 },
-        ], // Only 3, need 4
+        ], // Only 2, need 3
       };
 
       const result = validateChooseLineReward(state, action);
@@ -474,6 +476,7 @@ describe('LineValidator', () => {
     });
 
     it('returns error when MINIMUM_COLLAPSE with position not in line', () => {
+      // For square8, threshold is 3. MINIMUM_COLLAPSE requires exactly 3 positions.
       const state = createMinimalState({
         currentPhase: 'line_processing',
         currentPlayer: 1,
@@ -488,7 +491,6 @@ describe('LineValidator', () => {
         collapsedPositions: [
           { x: 0, y: 0 },
           { x: 1, y: 0 },
-          { x: 2, y: 0 },
           { x: 5, y: 5 }, // Not in the line
         ],
       };
@@ -500,6 +502,7 @@ describe('LineValidator', () => {
     });
 
     it('returns error when MINIMUM_COLLAPSE with non-consecutive positions', () => {
+      // For square8, threshold is 3. MINIMUM_COLLAPSE requires exactly 3 consecutive positions.
       const state = createMinimalState({
         currentPhase: 'line_processing',
         currentPlayer: 1,
@@ -516,7 +519,6 @@ describe('LineValidator', () => {
           { x: 1, y: 0 },
           // Skip x: 2, y: 0
           { x: 3, y: 0 },
-          { x: 4, y: 0 },
         ],
       };
 
@@ -546,6 +548,7 @@ describe('LineValidator', () => {
     });
 
     it('allows valid MINIMUM_COLLAPSE with consecutive positions', () => {
+      // For square8, threshold is 3. MINIMUM_COLLAPSE requires exactly 3 consecutive positions.
       const state = createMinimalState({
         currentPhase: 'line_processing',
         currentPlayer: 1,
@@ -561,7 +564,6 @@ describe('LineValidator', () => {
           { x: 1, y: 0 },
           { x: 2, y: 0 },
           { x: 3, y: 0 },
-          { x: 4, y: 0 },
         ],
       };
 
@@ -571,6 +573,7 @@ describe('LineValidator', () => {
     });
 
     it('allows MINIMUM_COLLAPSE starting from beginning of line', () => {
+      // For square8, threshold is 3. MINIMUM_COLLAPSE requires exactly 3 consecutive positions.
       const state = createMinimalState({
         currentPhase: 'line_processing',
         currentPlayer: 1,
@@ -586,7 +589,6 @@ describe('LineValidator', () => {
           { x: 0, y: 0 },
           { x: 1, y: 0 },
           { x: 2, y: 0 },
-          { x: 3, y: 0 },
         ],
       };
 

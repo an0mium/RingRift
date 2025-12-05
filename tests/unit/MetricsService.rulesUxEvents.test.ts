@@ -28,7 +28,7 @@ describe('MetricsService rules-UX telemetry metrics', () => {
 
     expect(output).toContain('ringrift_rules_ux_events_total');
     expect(output).toContain(
-      'ringrift_rules_ux_events_total{type="rules_help_open",board_type="square8",num_players="2",ai_difficulty="5",topic="active_no_moves",rules_concept="anm_intro",weird_state_type="active-no-moves-movement"} 1'
+      'ringrift_rules_ux_events_total{event_type="rules_help_open",rules_context="none",source="unknown",board_type="square8",num_players="2",difficulty="5",is_ranked="unknown",is_sandbox="unknown"} 1'
     );
   });
 
@@ -50,7 +50,7 @@ describe('MetricsService rules-UX telemetry metrics', () => {
     const output = await metrics.getMetrics();
 
     expect(output).toContain(
-      'ringrift_rules_ux_events_total{type="rules_help_open",board_type="hexagonal",num_players="unknown",ai_difficulty="none",topic="none",rules_concept="none",weird_state_type="none"} 1'
+      'ringrift_rules_ux_events_total{event_type="rules_help_open",rules_context="none",source="unknown",board_type="hexagonal",num_players="unknown",difficulty="unknown",is_ranked="unknown",is_sandbox="unknown"} 1'
     );
   });
 });

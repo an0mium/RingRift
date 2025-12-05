@@ -6,6 +6,22 @@ import { toVictoryViewModel } from '../../src/client/adapters/gameViewModels';
 import { getGameOverBannerText } from '../../src/client/utils/gameCopy';
 import type { GameResult, Player, GameState, BoardState } from '../../src/shared/types/game';
 import { RulesUxPhrases } from './rulesUxExpectations.testutil';
+import * as rulesUxTelemetry from '../../src/client/utils/rulesUxTelemetry';
+
+// Stub rules-UX telemetry so VictoryModal tests do not perform real network calls.
+// We keep the rest of the module's behaviour intact.
+jest.mock('../../src/client/utils/rulesUxTelemetry', () => ({
+  __esModule: true,
+  // Preserve actual exports so other helpers (e.g. id generators) remain usable.
+  ...jest.requireActual('../../src/client/utils/rulesUxTelemetry'),
+  // Replace logRulesUxEvent with a Jest mock to avoid HTTP requests and keep tests deterministic.
+  logRulesUxEvent: jest.fn(),
+}));
+
+// Explicitly reference the mocked function so TypeScript understands the mock shape.
+const _mockLogRulesUxEvent = rulesUxTelemetry.logRulesUxEvent as jest.MockedFunction<
+  typeof rulesUxTelemetry.logRulesUxEvent
+>;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

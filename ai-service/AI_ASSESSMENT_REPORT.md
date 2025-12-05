@@ -4,6 +4,19 @@
 > - Not a semantics or lifecycle SSoT: for rules semantics and lifecycle / API contracts, defer to the shared TypeScript rules engine under `src/shared/engine/**`, the engine contracts under `src/shared/engine/contracts/**`, the v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`, [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md), [`ringrift_complete_rules.md`](../ringrift_complete_rules.md), [`RULES_ENGINE_ARCHITECTURE.md`](../RULES_ENGINE_ARCHITECTURE.md), [`RULES_IMPLEMENTATION_MAPPING.md`](../RULES_IMPLEMENTATION_MAPPING.md), and [`docs/CANONICAL_ENGINE_API.md`](../docs/CANONICAL_ENGINE_API.md).
 > - For the current AI architecture and improvement backlog, prefer [`AI_ARCHITECTURE.md`](../AI_ARCHITECTURE.md), this repository’s live [`AI_IMPROVEMENT_PLAN.md`](./AI_IMPROVEMENT_PLAN.md), and [`docs/AI_TRAINING_AND_DATASETS.md`](../docs/AI_TRAINING_AND_DATASETS.md).
 > - Related docs: historical variants in [`archive/AI_ASSESSMENT_REPORT.md`](../archive/AI_ASSESSMENT_REPORT.md) and [`archive/AI_IMPROVEMENT_PLAN.md`](../archive/AI_IMPROVEMENT_PLAN.md), parity and invariants meta-docs such as [`docs/PYTHON_PARITY_REQUIREMENTS.md`](../docs/PYTHON_PARITY_REQUIREMENTS.md), [`docs/STRICT_INVARIANT_SOAKS.md`](../docs/STRICT_INVARIANT_SOAKS.md), [`tests/TEST_SUITE_PARITY_PLAN.md`](../tests/TEST_SUITE_PARITY_PLAN.md), and [`docs/PARITY_SEED_TRIAGE.md`](../docs/PARITY_SEED_TRIAGE.md).
+>
+> **2025-12-05 Update – Rules & Data Hygiene Progress:**
+> Since this report was first written, several of the "Gaps & Simplifications" called out below have been addressed or scoped more narrowly:
+>
+> - Canonical rules have been tightened in [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) with:
+>   - Explicit line-processing semantics (RR-CANON-R120–R122) requiring **all** line effects (exact-length and overlength) to be driven by explicit `process_line` / `choose_line_reward` decisions.
+>   - A new RR-CANON-R074 invariant that all turn actions and voluntary skips must be represented as explicit moves/choices in the game record (no implicit auto-actions).
+> - The TS sandbox replay path (`ClientSandboxEngine` in trace mode) and the Python `GameEngine` now agree structurally on representative self-play games when driven from canonical recordings; auto-processing of single lines/territory regions is confined to UX-only paths.
+> - A `run_canonical_selfplay_parity_gate.py` driver and `TRAINING_DATA_REGISTRY.md` have been added under `ai-service/` to:
+>   - Generate fresh self-play GameReplayDBs per board type.
+>   - Gate them on TS↔Python replay parity before they enter training pipelines.
+>   - Classify legacy self-play DBs and NN checkpoints as `legacy_noncanonical` so they are **not** used for new training runs.
+>     For an up-to-date view of which databases/models are considered canonical, see `ai-service/TRAINING_DATA_REGISTRY.md` and `ai-service/AI_IMPROVEMENT_PLAN.md` §1.3.6–1.3.7.
 
 # AI Service Technical Assessment Report
 

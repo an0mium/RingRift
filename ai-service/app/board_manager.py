@@ -74,53 +74,13 @@ class BoardManager:
         Canonical hash of a GameState used by tests and diagnostic tooling to
         detect state changes and compare backend/sandbox traces.
         Matches TypeScript implementation in src/shared/engine/core.ts
+
+        Delegates to app.rules.core.hash_game_state for consistent cross-engine
+        parity with the TypeScript fingerprintGameState function.
         """
-        # Summarize board
-        stacks = []
-        for key, stack in state.board.stacks.items():
-            stacks.append(f"{key}:{stack.controlling_player}:{stack.stack_height}:{stack.cap_height}")
-        stacks.sort()
+        from app.rules.core import hash_game_state as core_hash_game_state
 
-        markers = []
-        for key, marker in state.board.markers.items():
-            markers.append(f"{key}:{marker.player}")
-        markers.sort()
-
-        collapsed_spaces = []
-        for key, owner in state.board.collapsed_spaces.items():
-            collapsed_spaces.append(f"{key}:{owner}")
-        collapsed_spaces.sort()
-
-        # Summarize players
-        players_meta = []
-        for p in state.players:
-            players_meta.append(f"{p.player_number}:{p.rings_in_hand}:{p.eliminated_rings}:{p.territory_spaces}")
-        players_meta.sort()
-        players_meta_str = "|".join(players_meta)
-
-        # Meta info
-        meta = f"{state.current_player}:{state.current_phase.value}:{state.game_status.value}"
-        if state.must_move_from_stack_key:
-            meta += f":must_move={state.must_move_from_stack_key}"
-
-        # Include capture context in hash
-        if state.current_phase in ["capture", "chain_capture"]:
-            if state.chain_capture_state:
-                meta += f":chain={state.chain_capture_state.current_position.to_key()}"
-                meta += f":visited={','.join(sorted(state.chain_capture_state.visited_positions))}"
-            elif state.move_history:
-                # Initial capture depends on last move's destination (attacker position)
-                last_move = state.move_history[-1]
-                if last_move.to:
-                    meta += f":last_to={last_move.to.to_key()}"
-
-        return "#".join([
-            meta,
-            players_meta_str,
-            "|".join(stacks),
-            "|".join(markers),
-            "|".join(collapsed_spaces)
-        ])
+        return core_hash_game_state(state)
 
     @staticmethod
     def find_all_lines(board: BoardState, num_players: int = 3) -> List[LineInfo]:

@@ -1,6 +1,6 @@
 # RingRift Current State Assessment
 
-**Assessment Date:** 2025-12-04 (Post-PASS20-21)
+**Assessment Date:** 2025-12-05 (Post-PASS20-21, Training Data Hygiene)
 **Last CI Test Runs:** 2025-12-01 (TypeScript CI-gated suites: 2,987 passed, 0 failing; Python: 836 passing)
 **Last Full Jest Snapshot:** See `jest-results.json` and [`docs/archive/assessments/PASS20_ASSESSMENT.md`](docs/archive/assessments/PASS20_ASSESSMENT.md) for extended/diagnostic profile analysis
 **Assessor:** Code + Test Review + CI Analysis
@@ -45,6 +45,18 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
   - Backend adapter (`TurnEngineAdapter.ts`) and sandbox adapter (`SandboxOrchestratorAdapter.ts`)
   - Contract testing framework with 100% Python parity on **54 test vectors** (extended from 12 in P18.5-\*)
   - **Orchestrator at Phase 4 (100% rollout):** All environments (dev, staging, CI, production-ready) configured with `ORCHESTRATOR_ADAPTER_ENABLED=true` and `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`. Soak tests show zero invariant violations across all board types (square8, square19, hexagonal).
+
+- **Rules Semantics & Training Data Hygiene (2025‑12‑05):**
+  - Canonical rules spec tightened:
+    - Line processing (RR‑CANON‑R120–R122) now explicitly requires **all** line effects (exact‑length and overlength) to be driven by explicit `process_line` / `choose_line_reward` decisions, never as implicit side‑effects of movement or capture.
+    - RR‑CANON‑R074 mandates that every turn action and voluntary forgo decision (e.g. `skip_placement`, `skip_capture`, `skip_territory_processing`) is represented as an explicit move/choice in the game record; engines must not silently assume these.
+  - Replay parity infrastructure:
+    - TS sandbox replay in `traceMode` aligns with Python `GameEngine` semantics for movement/capture/line/territory when driven from canonical GameReplayDBs.
+    - `ai-service/scripts/check_ts_python_replay_parity.py`, `scripts/selfplay-db-ts-replay.ts`, and `ai-service/scripts/debug_ts_python_state_diff.py` provide end‑to‑end TS↔Python trace and structural diff tooling.
+  - Self‑play data and model hygiene:
+    - `ai-service/TRAINING_DATA_REGISTRY.md` classifies all known GameReplayDBs and NN checkpoints as `canonical`, `legacy_noncanonical`, or `pending_gate`, and documents which artifacts are safe for new training.
+    - `ai-service/scripts/run_canonical_selfplay_parity_gate.py` runs a small canonical Python self‑play soak for a given board type, records games into a fresh GameReplayDB, and gates that DB on TS↔Python replay parity (no structural issues, no semantic divergences).
+    - Legacy self‑play DBs (e.g. early `selfplay_square8_2p.db`, `selfplay_square19_*.db`, `selfplay_hexagonal_*.db`, `selfplay.db`) and v1 NN checkpoints trained on them are explicitly marked `legacy_noncanonical` and are no longer used for new training runs; they are retained only for historical comparison and ablations.
 
 - **PASS18 Complete (33 tasks, 2025-12):**
   - **P18.1-\*: Host Parity** – Capture/territory host unification, advanced-phase ordering aligned
@@ -186,8 +198,13 @@ A reasonable label for the current state is: **stable beta with consolidated arc
   - **Endpoints:** `/ai/move`, `/ai/evaluate`, and choice-specific endpoints (`/ai/choice/line_reward_option`, etc.)
   - **Difficulty mapping:** Canonical 1–10 difficulty ladder with engine selection:
     - 1: RandomAI; 2: HeuristicAI; 3–6: MinimaxAI; 7–8: MCTSAI (+ NeuralNetAI backend); 9–10: DescentAI (+ NeuralNetAI backend).
-    - Lobby currently exposes the numeric ladder; difficulties **7–10** are treated as a “Stronger Opponents” band and are intended for advanced/experimental play rather than default rated queues.
+    - Lobby currently exposes the numeric ladder; difficulties **7–10** are treated as a "Stronger Opponents" band and are intended for advanced/experimental play rather than default rated queues.
   - **Rules parity:** Python rules engine maintains alignment with TypeScript implementation
+  - **Training infrastructure (2025-12-05):**
+    - **Model versioning:** `ModelVersionManager` with architecture version, checksum, and config validation
+    - **Training data registry:** `ai-service/TRAINING_DATA_REGISTRY.md` classifies DBs as canonical/legacy_noncanonical
+    - **Canonical parity gate:** `scripts/run_canonical_selfplay_parity_gate.py` validates self-play DBs
+    - **Dataset export:** `scripts/export_replay_dataset.py` for NPZ training data with rank-aware values
 
 - **TypeScript AI Boundary**
   - **Complete:** `AIServiceClient` and `AIEngine` with comprehensive error handling and fallbacks
