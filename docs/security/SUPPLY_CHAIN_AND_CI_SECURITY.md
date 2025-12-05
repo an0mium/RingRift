@@ -123,9 +123,9 @@ In addition, two separate scheduled workflows define nightly jobs:
   A separate nightly workflow, `ai-healthcheck-nightly.yml`, runs a deeper variant of the same profile (**"AI Self-Play Healthcheck (Nightly)" job**) with increased `RINGRIFT_AI_HEALTHCHECK_GAMES` and a higher `--max-moves` cap. Its summary JSON (`ai_healthcheck_nightly_summary.json`) is uploaded as a long‑retention artefact for trend analysis and regression mining.
 
   In addition to the CI jobs above, there is a **manual HTTP load/scale smoke harness** for orchestrator‑ON environments:
-
   - `npm run load:orchestrator:smoke` (see `scripts/orchestrator-load-smoke.ts` and `tests/README.md`) issues a small number of concurrent `/api/auth/register` and `/api/games` requests against a running backend under the orchestrator‑ON profile (`RINGRIFT_RULES_MODE=ts`, `ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`, `ORCHESTRATOR_SHADOW_MODE_ENABLED=false`) and samples `/metrics` for orchestrator rollout gauges. It is **not** a hard CI gate, but is recommended as a pre‑rollout / pre‑phase‑change smoke in staging, as referenced in `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md` and `CURRENT_STATE_ASSESSMENT.md`.
   - For a complementary **metrics & observability smoke**, the Playwright spec `tests/e2e/metrics.e2e.spec.ts` can be run via `npm run test:e2e -- tests/e2e/metrics.e2e.spec.ts` to assert that `/metrics` is reachable and that core orchestrator gauges (for example `ringrift_orchestrator_error_rate`, `ringrift_orchestrator_rollout_percentage`, `ringrift_orchestrator_circuit_breaker_state`) are present. This is intended as a fast, non‑gating verification of observability wiring before/after orchestrator‑related changes.
+
 - **Build & artefact packaging**
   - `build` (**"Build Application" job**) – `npm run build` for server and client, then archives `dist/` as an artefact.
 - **Node dependency & supply‑chain scans**
@@ -146,6 +146,7 @@ In addition, two separate scheduled workflows define nightly jobs:
     python -m pip install 'pip-audit>=2.7.0,<3.0.0'
     pip-audit -r requirements.txt --severity HIGH
     ```
+
 - **E2E/browser‐level tests (currently non‑gating)**
   - `e2e-tests` (**"Playwright E2E Tests" job**) – stand‑up of Postgres+Redis via CI services, then Playwright E2E tests (`npm run test:e2e`) against a locally built app. Marked `continue-on-error: true` while the full infra stack is still being hardened; artefacts (Playwright reports) are uploaded for inspection.
 

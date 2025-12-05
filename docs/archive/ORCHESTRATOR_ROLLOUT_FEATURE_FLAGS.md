@@ -2,6 +2,7 @@
 
 > **⚠️ HISTORICAL / IMPLEMENTED** – This design was implemented in November 2025. The orchestrator is now at 100% rollout.
 > For current feature flag documentation, see:
+>
 > - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
 > - `docs/ENVIRONMENT_VARIABLES.md` – Current environment variable reference
 

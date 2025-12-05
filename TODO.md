@@ -5,7 +5,7 @@
 > - Canonical high-level task/backlog tracker for near- and mid-term work.
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** December 3, 2025
+**Last Updated:** December 4, 2025
 
 This file is the canonical high-level task tracker for the project.
 When it disagrees with older planning docs (for example files under
@@ -68,9 +68,9 @@ This phase consolidated the rules engine architecture across 4 sub-phases:
 
 **Documentation produced:**
 
-- [`docs/drafts/PHASE1_REMEDIATION_PLAN.md`](docs/drafts/PHASE1_REMEDIATION_PLAN.md)
+- [`archive/PHASE1_REMEDIATION_PLAN.md`](archive/PHASE1_REMEDIATION_PLAN.md)
 - [`docs/drafts/PHASE3_ADAPTER_MIGRATION_REPORT.md`](docs/drafts/PHASE3_ADAPTER_MIGRATION_REPORT.md)
-- [`docs/drafts/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md`](docs/drafts/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md)
+- [`archive/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md`](archive/PHASE4_PYTHON_CONTRACT_TEST_REPORT.md)
 - [`src/shared/engine/orchestration/README.md`](src/shared/engine/orchestration/README.md)
 
 ---
@@ -281,6 +281,26 @@ Planned work:
 ### P0.5 – Python AI-service rules engine parity (P0) ✅
 
 **Note:** Phase 4 of the Architecture Remediation added contract tests that validate cross-language parity. The Python engine now passes 100% of contract test vectors with TS engine output.
+
+**December 4, 2025 – Hash Parity Infrastructure:**
+
+- Unified hash format between Python and TypeScript (fingerprint-based `simpleHash()`)
+- New parity tests added to `ai-service/tests/parity/`:
+  - `test_hash_parity.py` – Hash consistency and format validation (7 tests)
+  - `test_phase_transition_parity.py` – Phase transition and hash chain validation (3 tests)
+  - `test_differential_replay.py` – Python/TS replay comparison infrastructure
+- All 96 parity tests passing
+
+**December 4, 2025 – Recording Format Enhancements (Schema v6):**
+
+- Added `available_moves_json` column to `game_history_entries` for storing enumerated
+  legal moves at each state (useful for cross-engine parity debugging)
+- Added `available_moves_count` column for lightweight move counting without full enumeration
+- Added `engine_eval` and `engine_depth` columns to `game_history_entries` for storing
+  AI evaluation diagnostics alongside state snapshots
+- Updated `GameWriter.add_move()` and `GameRecorder.add_move()` to accept optional
+  `available_moves`, `available_moves_count`, `engine_eval`, and `engine_depth` parameters
+- All recording enhancements are backward-compatible (new columns are optional)
 
 - [x] Audit mismatches between Python [`GameEngine`](ai-service/app/game_engine.py) /
       [`BoardManager`](ai-service/app/board_manager.py) /
@@ -750,7 +770,7 @@ keep them green; treat regressions as P0 until resolved.
 ### Wave 10.2 – Database Integration
 
 - [ ] Add `games` and `moves` tables to Prisma schema
-- [ ] Create `GameRecordRepository` for CRUD operations
+- [x] Create `GameRecordRepository` for CRUD operations (`src/server/services/GameRecordRepository.ts`)
 - [ ] Wire game storage into online game completion
 - [ ] Wire game storage into self-play scripts (CMA-ES, soak tests)
 
@@ -1076,9 +1096,9 @@ latest project assessment. They should be kept in sync with
         GamePage HUD.
   - [ ] Plan a dedicated replay view powered by stored moves and backend
         `GameEngine` replays once the basics are stable.
-- [ ] Build initial stats/leaderboards once game results are reliable:
-  - [ ] Aggregate per-user stats (wins/losses, rating if enabled).
-  - [ ] Expose a minimal leaderboard view in the client.
+- [x] Build initial stats/leaderboards once game results are reliable:
+  - [x] Aggregate per-user stats (wins/losses, rating if enabled) - RatingService.ts
+  - [x] Expose a minimal leaderboard view in the client - LeaderboardPage.tsx
 
 ### Track 6 – Dev UX Evaluation & Dependency Modernization (P1)
 
@@ -1237,15 +1257,15 @@ Spec: [`ai-service/docs/GAME_RECORD_SPEC.md`](ai-service/docs/GAME_RECORD_SPEC.m
   - [x] Define database schema for game storage
 
 - [ ] **Core Implementation**:
-  - [ ] Create Python `GameRecord` types (`ai-service/app/models/game_record.py`)
-  - [ ] Create TypeScript `GameRecord` types (`src/shared/types/gameRecord.ts`)
+  - [x] Create Python `GameRecord` types (`ai-service/app/models/game_record.py`)
+  - [x] Create TypeScript `GameRecord` types (`src/shared/types/gameRecord.ts`)
   - [ ] Implement JSONL export format for training data
   - [ ] Implement algebraic notation generator/parser
   - [ ] Implement coordinate conversion utilities
 
 - [ ] **Database Integration**:
   - [ ] Add `games` and `moves` tables to database schema
-  - [ ] Create `GameRecordRepository` for CRUD operations
+  - [x] Create `GameRecordRepository` for CRUD operations (`src/server/services/GameRecordRepository.ts`)
   - [ ] Wire game storage into self-play scripts
   - [ ] Wire game storage into online game completion
   - [ ] Migration for existing games (if any)
@@ -1253,17 +1273,17 @@ Spec: [`ai-service/docs/GAME_RECORD_SPEC.md`](ai-service/docs/GAME_RECORD_SPEC.m
 ### Track 10 – Replay System
 
 - [ ] **State Reconstruction**:
-  - [ ] Implement `reconstructStateAtMove(gameRecord, moveIndex)`
+  - [x] Implement `reconstructStateAtMove(gameRecord, moveIndex)` (`src/shared/engine/replayHelpers.ts`)
   - [ ] Add checkpoint caching for efficient backward navigation
   - [ ] Validate state reconstruction matches original game
 
 - [ ] **Sandbox Integration**:
   - [ ] Create `GameReplayController` interface
-  - [ ] Implement forward/backward navigation (goToMove, nextMove, previousMove)
+  - [x] Implement forward/backward navigation (`ReplayPanel.tsx` has step forward/back)
   - [ ] Add game loading from database/file
-  - [ ] Create `ReplayControls` UI component
-  - [ ] Create `MoveList` display component
-  - [ ] Integrate replay into sandbox page
+  - [x] Create `ReplayControls` UI component (`src/client/components/ReplayPanel.tsx`)
+  - [x] Create `MoveList` display component (`src/client/components/MoveHistory.tsx`)
+  - [x] Integrate replay into sandbox page (via `SandboxGameHost.tsx`)
 
 - [ ] **Analysis Features** (future):
   - [ ] Position search/filter by criteria
@@ -1284,10 +1304,10 @@ Spec: [`ai-service/docs/GAME_RECORD_SPEC.md`](ai-service/docs/GAME_RECORD_SPEC.m
   - [ ] Record rich metadata (source, generation, candidate, board_type, num_players)
 
 - [ ] **Phase 2 – State Pool Export**:
-  - [ ] Create `scripts/export_state_pool.py` utility
+  - [x] Create `scripts/export_state_pool.py` utility (`ai-service/scripts/export_state_pool.py`)
   - [ ] Sample mid-game states at configurable intervals
   - [ ] Export to JSONL format for CMA-ES eval pools
-  - [ ] Create `scripts/merge_game_dbs.py` for hybrid storage
+  - [x] Create `scripts/merge_game_dbs.py` for hybrid storage (`ai-service/scripts/merge_game_dbs.py`)
 
 - [ ] **Phase 3 – Iterative Pipeline Integration**:
   - [ ] Update `run_iterative_cmaes.py` to pass recording config
@@ -1297,11 +1317,11 @@ Spec: [`ai-service/docs/GAME_RECORD_SPEC.md`](ai-service/docs/GAME_RECORD_SPEC.m
   - [ ] Add `RINGRIFT_RECORD_SELFPLAY_GAMES` env var
   - [ ] Add `RINGRIFT_SELFPLAY_DB_PATH` env var
 
-- [ ] **Phase 5 – Sandbox UI Integration (HIGH)**:
+- [x] **Phase 5 – Sandbox UI Integration (HIGH)**: ✅ COMPLETE
   - [x] Create `src/server/routes/selfplay.ts` API endpoints
   - [x] Create `src/server/services/SelfPlayGameService.ts`
   - [x] Create `src/client/components/SelfPlayBrowser.tsx` game browser
-  - [ ] Create `src/client/components/ReplayControls.tsx` playback controls
+  - [x] Create `src/client/components/ReplayControls.tsx` playback controls (implemented as `ReplayPanel.tsx`)
   - [x] Add a dedicated "Self-Play Games" section to the sandbox configuration panel (via `SandboxGameHost.tsx`) that opens the Self-Play Browser and bridges into ReplayPanel when possible.
   - [x] Add maintenance script `scripts/cleanup-empty-selfplay-dbs.ts` to
         remove 0-game SQLite databases from `data/games` and

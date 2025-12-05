@@ -2,6 +2,7 @@
 > **Role:** Historical consolidation design for the RingRift rules engine. **This work was completed in November 2025** – the orchestrator and adapters are now at 100% rollout.
 >
 > **For current documentation, see:**
+>
 > - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
 > - `docs/RULES_SSOT_MAP.md` – Current host integration and SSOT boundaries
 > - `RULES_ENGINE_ARCHITECTURE.md` – Current architecture overview

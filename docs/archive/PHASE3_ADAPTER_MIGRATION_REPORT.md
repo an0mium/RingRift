@@ -2,6 +2,7 @@
 
 > **⚠️ HISTORICAL / COMPLETED** – This migration was completed in November 2025. The orchestrator is now at 100% rollout.
 > For current status, see:
+>
 > - `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` – Production rollout status (Phase 4 complete)
 > - `CURRENT_STATE_ASSESSMENT.md` – Implementation status
 
