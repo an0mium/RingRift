@@ -81,7 +81,7 @@ Each reason code is intended to be stable across hosts (backend, sandbox, Python
 
 #### RWS‑001 ANM_MOVEMENT_FE_BLOCKED
 
-- **Description:** Current player has turn‑material (stacks and/or rings in hand) but **no legal placements, movements, or captures** in the movement family phases; forced elimination will remove caps until a legal move exists or stacks are gone.
+- **Description:** Current player has turn‑material (stacks and/or rings in hand) but **no legal placements, movements, or captures** in the movement family phases; forced elimination will remove caps until a legal move exists or stacks are gone. In canonical recordings this always appears as one or more explicit `forced_elimination` moves in the dedicated `forced_elimination` phase, not as a silent side effect.
 - **Rules references:**
   - [`RR‑CANON‑R072`](RULES_CANONICAL_SPEC.md:210) (forced‑elimination entry).
   - [`RR‑CANON‑R100`](RULES_CANONICAL_SPEC.md:443) (forced elimination when blocked).
@@ -108,7 +108,7 @@ Each reason code is intended to be stable across hosts (backend, sandbox, Python
 
 #### RWS‑004 FE_SEQUENCE_CURRENT_PLAYER
 
-- **Description:** A forced‑elimination **sequence** is removing caps from the **local player’s** stacks because they are repeatedly blocked on their turns.
+- **Description:** A forced‑elimination **sequence** is removing caps from the **local player’s** stacks because they are repeatedly blocked on their turns. In logs and parity tooling this corresponds to a run of `forced_elimination` moves in the `forced_elimination` phase between normal interactive turns.
 - **Rules references:**
   - [`RR‑CANON‑R100`](RULES_CANONICAL_SPEC.md:443) (forced elimination semantics).
   - [`RR‑CANON‑R205–R207`](RULES_CANONICAL_SPEC.md:290) (forced‑elimination taxonomy and progress).
@@ -431,6 +431,7 @@ Current TypeScript and Python engines already expose termination / weird‑state
   - `weird_state_banner_impression`,
   - `weird_state_details_open`,
   - `resign_after_weird_state`.
+- For the structured payload consumed by end-of-game UX surfaces, see [`UX_RULES_EXPLANATION_MODEL_SPEC.md`](docs/UX_RULES_EXPLANATION_MODEL_SPEC.md:1).
 - [`UX_RULES_TEACHING_SCENARIOS.md`](docs/UX_RULES_TEACHING_SCENARIOS.md:1) should reference the reason codes in §2 when defining flows that specifically demystify ANM/FE, structural stalemate, or LPS.
 
 Together, these documents give a complete blueprint for:

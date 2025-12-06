@@ -36,6 +36,12 @@ from ..utils.memory_config import MemoryConfig
 
 logger = logging.getLogger(__name__)
 
+# Maximum search depth to prevent stack overflow in degenerate cases (e.g.,
+# transposition table cycles or extremely long game sequences). When this
+# depth is reached, we return a heuristic evaluation instead of continuing
+# the descent.
+MAX_SEARCH_DEPTH = 500
+
 
 class NodeStatus(Enum):
     HEURISTIC = 0
@@ -406,13 +412,17 @@ class DescentAI(BaseAI):
         # return a heuristic value for the current node without further
         # descent or expansion.
         if deadline is not None and time.time() >= deadline:
-            if state.game_status == "finished":
+            if state.game_status == "completed":
                 return self._calculate_terminal_value(state, depth)
             return self.evaluate_position(state)
 
         # Check if terminal
-        if state.game_status == "finished":
+        if state.game_status == "completed":
             return self._calculate_terminal_value(state, depth)
+
+        # Depth guard to prevent stack overflow in degenerate cases
+        if depth >= MAX_SEARCH_DEPTH:
+            return self.evaluate_position(state)
 
         state_key = self._get_state_key(state)
 
@@ -513,7 +523,8 @@ class DescentAI(BaseAI):
             return new_best_val
 
         else:
-            # Expand node
+            # Expand node using host-level move generation (includes
+            # bookkeeping moves when required).
             valid_moves = self.rules_engine.get_valid_moves(
                 state,
                 state.current_player,
@@ -634,7 +645,7 @@ class DescentAI(BaseAI):
                     break
 
                 # Evaluate leaf
-                if next_state.game_status == "finished":
+                if next_state.game_status == "completed":
                     if next_state.winner == self.player_number:
                         val = 1.0
                     elif next_state.winner is not None:
@@ -702,6 +713,10 @@ class DescentAI(BaseAI):
         # Check if terminal
         if state.is_game_over():
             return self._calculate_terminal_value_mutable(state, depth)
+
+        # Depth guard to prevent stack overflow in degenerate cases
+        if depth >= MAX_SEARCH_DEPTH:
+            return self._evaluate_mutable(state)
 
         state_key = state.zobrist_hash
 

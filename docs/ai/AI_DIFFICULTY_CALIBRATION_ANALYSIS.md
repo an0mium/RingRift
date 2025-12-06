@@ -14,7 +14,7 @@ This document complements:
 
 It is **analysis/process-level only**. No ladder configs, models, or UI are changed directly here.
 
----
+## For step-by-step operational instructions on running a calibration cycle, see [`AI_CALIBRATION_RUNBOOK.md`](docs/ai/AI_CALIBRATION_RUNBOOK.md:1).
 
 ## 1. Scope and Objectives
 

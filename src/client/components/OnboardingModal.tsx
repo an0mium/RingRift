@@ -1,4 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
+import type { BoardType } from '../../shared/types/game';
+import {
+  ONBOARDING_COPY,
+  logHelpOpenEvent,
+  newHelpSessionId,
+  sendRulesUxEvent,
+} from '../utils/rulesUxTelemetry';
 
 interface OnboardingModalProps {
   isOpen: boolean;
@@ -8,6 +15,15 @@ interface OnboardingModalProps {
 
 const FOCUSABLE_SELECTORS =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
+interface StepProps {
+  onVictoryConceptClick?: (conceptId: string) => void;
+}
+
+const ONBOARDING_BOARD_TYPE: BoardType = 'square8';
+const ONBOARDING_NUM_PLAYERS = 2;
+const ONBOARDING_RULES_CONCEPT = 'board_intro_square8';
+const ONBOARDING_TOPIC = 'onboarding';
 
 /**
  * Step indicator for the onboarding flow
@@ -30,14 +46,13 @@ function StepIndicator({ currentStep, totalSteps }: { currentStep: number; total
 /**
  * Welcome step content
  */
-function WelcomeStep() {
+function WelcomeStep(_: StepProps) {
+  const { title, body } = ONBOARDING_COPY.intro;
   return (
     <div className="text-center space-y-4">
       <div className="text-6xl mb-4">🎮</div>
-      <h2 className="text-2xl font-bold text-slate-100">Welcome to RingRift!</h2>
-      <p className="text-slate-300 max-w-md mx-auto">
-        A strategic board game where you place rings, build stacks, and compete for territory.
-      </p>
+      <h2 className="text-2xl font-bold text-slate-100">{title}</h2>
+      <p className="text-slate-300 max-w-md mx-auto">{body}</p>
     </div>
   );
 }
@@ -45,23 +60,32 @@ function WelcomeStep() {
 /**
  * Game phases overview step
  */
-function PhasesStep() {
-  const phases = [
-    { icon: '🎯', name: 'Ring Placement', desc: 'Place rings on the board to control territory' },
-    { icon: '⚡', name: 'Movement', desc: 'Move your stacks based on their height' },
-    { icon: '⚔️', name: 'Capture', desc: 'Land on opponents to capture their rings' },
-  ];
+function PhasesStep(_: StepProps) {
+  const phases = ONBOARDING_COPY.phases;
+
+  const getPhaseIcon = (id: string) => {
+    switch (id) {
+      case 'sandbox.phase.ring_placement':
+        return '🎯';
+      case 'sandbox.phase.movement':
+        return '⚡';
+      case 'sandbox.phase.capture':
+        return '⚔️';
+      default:
+        return '⬤';
+    }
+  };
 
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold text-slate-100 text-center">Three Simple Phases</h2>
       <div className="space-y-3">
         {phases.map((phase) => (
-          <div key={phase.name} className="flex items-center gap-3 bg-slate-800/50 rounded-lg p-3">
-            <span className="text-2xl">{phase.icon}</span>
+          <div key={phase.id} className="flex items-center gap-3 bg-slate-800/50 rounded-lg p-3">
+            <span className="text-2xl">{getPhaseIcon(phase.id)}</span>
             <div>
-              <div className="font-semibold text-slate-100">{phase.name}</div>
-              <div className="text-sm text-slate-400">{phase.desc}</div>
+              <div className="font-semibold text-slate-100">{phase.title}</div>
+              <div className="text-sm text-slate-400">{phase.body}</div>
             </div>
           </div>
         ))}
@@ -73,36 +97,39 @@ function PhasesStep() {
 /**
  * Victory conditions step
  */
-function VictoryStep() {
-  const conditions = [
-    {
-      icon: '💎',
-      name: 'Ring Elimination',
-      desc: 'Win by eliminating more than half of all rings in the game – not just one opponent.',
-    },
-    {
-      icon: '🏰',
-      name: 'Territory Control',
-      desc: 'Control more than half the board spaces as Territory',
-    },
-    { icon: '👑', name: 'Last Standing', desc: 'Be the only player who can still make real moves' },
-  ];
+function VictoryStep({ onVictoryConceptClick }: StepProps) {
+  const concepts = ONBOARDING_COPY.victoryConcepts;
+
+  const getConceptIcon = (id: string) => {
+    switch (id) {
+      case 'onboarding.victory.elimination':
+        return '💎';
+      case 'onboarding.victory.territory':
+        return '🏰';
+      case 'onboarding.victory.lps':
+        return '👑';
+      default:
+        return '⭐';
+    }
+  };
 
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold text-slate-100 text-center">Ways to Win</h2>
       <div className="space-y-3">
-        {conditions.map((condition) => (
-          <div
-            key={condition.name}
-            className="flex items-center gap-3 bg-slate-800/50 rounded-lg p-3"
+        {concepts.map((concept) => (
+          <button
+            key={concept.id}
+            type="button"
+            onClick={() => onVictoryConceptClick?.(concept.id)}
+            className="w-full flex items-center gap-3 bg-slate-800/50 rounded-lg p-3 text-left hover:bg-slate-800/80 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-900"
           >
-            <span className="text-2xl">{condition.icon}</span>
+            <span className="text-2xl">{getConceptIcon(concept.id)}</span>
             <div>
-              <div className="font-semibold text-slate-100">{condition.name}</div>
-              <div className="text-sm text-slate-400">{condition.desc}</div>
+              <div className="font-semibold text-slate-100">{concept.title}</div>
+              <div className="text-sm text-slate-400">{concept.body}</div>
             </div>
-          </div>
+          </button>
         ))}
       </div>
     </div>
@@ -112,7 +139,7 @@ function VictoryStep() {
 /**
  * Ready to play step
  */
-function ReadyStep() {
+function ReadyStep(_: StepProps) {
   return (
     <div className="text-center space-y-4">
       <div className="text-6xl mb-4">🚀</div>
@@ -133,7 +160,12 @@ function ReadyStep() {
   );
 }
 
-const STEPS = [WelcomeStep, PhasesStep, VictoryStep, ReadyStep];
+const STEPS: Array<(props: StepProps) => React.ReactElement> = [
+  WelcomeStep,
+  PhasesStep,
+  VictoryStep,
+  ReadyStep,
+];
 
 /**
  * Onboarding Modal for first-time players
@@ -147,6 +179,85 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
 
   const isLastStep = currentStep === STEPS.length - 1;
   const isFirstStep = currentStep === 0;
+
+  const helpSessionIdRef = useRef<string | null>(null);
+  const openedAtRef = useRef<number | null>(null);
+  const prevIsOpenRef = useRef(false);
+
+  // Emit rules-UX telemetry when the onboarding modal is opened/closed.
+  useEffect(() => {
+    const prev = prevIsOpenRef.current;
+    prevIsOpenRef.current = isOpen;
+
+    if (isOpen && !prev) {
+      openedAtRef.current = Date.now();
+      if (!helpSessionIdRef.current) {
+        helpSessionIdRef.current = newHelpSessionId();
+      }
+      const helpSessionId = helpSessionIdRef.current;
+      const boardType = ONBOARDING_BOARD_TYPE;
+      const numPlayers = ONBOARDING_NUM_PLAYERS;
+
+      const baseEvent = {
+        boardType,
+        numPlayers,
+        aiDifficulty: undefined,
+        topic: ONBOARDING_TOPIC,
+        rulesConcept: ONBOARDING_RULES_CONCEPT,
+        scenarioId: undefined,
+        isSandbox: true,
+      } as const;
+
+      void logHelpOpenEvent({
+        boardType,
+        numPlayers,
+        aiDifficulty: undefined,
+        difficulty: 'tutorial',
+        rulesContext: undefined,
+        rulesConcept: ONBOARDING_RULES_CONCEPT,
+        topic: ONBOARDING_TOPIC,
+        scenarioId: undefined,
+        source: 'sandbox',
+        entrypoint: 'sandbox_toolbar_help',
+        gameId: undefined,
+        isRanked: false,
+        isCalibrationGame: false,
+        isSandbox: true,
+        seatIndex: undefined,
+        perspectivePlayerCount: undefined,
+        helpSessionId,
+      });
+
+      void sendRulesUxEvent({
+        type: 'rules_help_open',
+        ...baseEvent,
+      });
+    } else if (!isOpen && prev && openedAtRef.current != null) {
+      const openedAt = openedAtRef.current;
+      openedAtRef.current = null;
+      const msSinceOpen = Date.now() - openedAt;
+      const boardType = ONBOARDING_BOARD_TYPE;
+      const numPlayers = ONBOARDING_NUM_PLAYERS;
+      const helpSessionId = helpSessionIdRef.current ?? newHelpSessionId();
+      helpSessionIdRef.current = helpSessionId;
+
+      void sendRulesUxEvent({
+        type: 'help_topic_view',
+        boardType,
+        numPlayers,
+        aiDifficulty: undefined,
+        topic: ONBOARDING_TOPIC,
+        rulesConcept: ONBOARDING_RULES_CONCEPT,
+        scenarioId: undefined,
+        isSandbox: true,
+        helpSessionId,
+        payload: {
+          topic_id: 'onboarding.summary',
+          ms_since_help_open: msSinceOpen,
+        },
+      });
+    }
+  }, [isOpen]);
 
   // Reset step when modal opens
   useEffect(() => {
@@ -221,6 +332,37 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
     };
   }, [isOpen]);
 
+  const handleVictoryConceptClick = (conceptId: string) => {
+    const boardType = ONBOARDING_BOARD_TYPE;
+    const numPlayers = ONBOARDING_NUM_PLAYERS;
+    const helpSessionId = helpSessionIdRef.current ?? newHelpSessionId();
+    helpSessionIdRef.current = helpSessionId;
+
+    const openedAt = openedAtRef.current;
+    const msSinceHelpOpen =
+      typeof openedAt === 'number' ? Math.max(0, Date.now() - openedAt) : undefined;
+
+    const payload: Record<string, unknown> = {
+      topic_id: conceptId,
+    };
+    if (msSinceHelpOpen !== undefined) {
+      payload.ms_since_help_open = msSinceHelpOpen;
+    }
+
+    void sendRulesUxEvent({
+      type: 'help_topic_view',
+      boardType,
+      numPlayers,
+      aiDifficulty: undefined,
+      topic: ONBOARDING_TOPIC,
+      rulesConcept: ONBOARDING_RULES_CONCEPT,
+      scenarioId: undefined,
+      isSandbox: true,
+      helpSessionId,
+      payload,
+    });
+  };
+
   if (!isOpen) return null;
 
   const CurrentStepComponent = STEPS[currentStep];
@@ -234,7 +376,7 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
   return (
     <div
       ref={dialogRef}
-      className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 backdrop-blur-sm"
+      className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify	center z-50 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"
@@ -252,7 +394,7 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
 
         {/* Content */}
         <div className="min-h-[280px] flex flex-col justify-center py-4">
-          <CurrentStepComponent />
+          <CurrentStepComponent onVictoryConceptClick={handleVictoryConceptClick} />
         </div>
 
         {/* Step indicator */}

@@ -27,6 +27,8 @@ This index catalogs all project documentation organized by topic and location.
 - [CURRENT_STATE_ASSESSMENT.md](CURRENT_STATE_ASSESSMENT.md) - Implementation status snapshot relative to the goals in PROJECT_GOALS; does not define new goals
 - [STRATEGIC_ROADMAP.md](STRATEGIC_ROADMAP.md) - Phased roadmap & SLOs that operationalise the goals in PROJECT_GOALS
 - [PROJECT_GOALS.md](PROJECT_GOALS.md) - Canonical project goals, v1.0 success criteria, and scope boundaries (authoritative source for goals/scope)
+- [WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md](WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md) - Canonical weakest-aspect & hardest-problem assessment snapshot (answer artifact for original assessment)
+- [NEXT_WAVE_REMEDIATION_PLAN.md](NEXT_WAVE_REMEDIATION_PLAN.md) - Next-wave remediation plan derived from weakest-aspect / hardest-problem assessment
 
 ### Rules & Game Design
 
@@ -167,15 +169,16 @@ Active planning and roadmap documents.
 
 Reference documentation kept at docs/ root.
 
-| Document                                                                                                                  | Purpose                                              |
-| ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| [GAME_COMPARISON_ANALYSIS.md](docs/GAME_COMPARISON_ANALYSIS.md)                                                           | Game comparison studies                              |
-| [UX_RULES_COPY_SPEC.md](docs/UX_RULES_COPY_SPEC.md)                                                                       | UX copy for rules display                            |
-| [UX_RULES_TELEMETRY_SPEC.md](docs/UX_RULES_TELEMETRY_SPEC.md)                                                             | Rules UX telemetry schema and hotspot metrics        |
-| [UX_RULES_WEIRD_STATES_SPEC.md](docs/UX_RULES_WEIRD_STATES_SPEC.md)                                                       | Weird-state rules UX reason codes and copy mapping   |
-| [UX_RULES_TEACHING_SCENARIOS.md](docs/UX_RULES_TEACHING_SCENARIOS.md)                                                     | Scenario-driven teaching flows for complex mechanics |
-| [UX_RULES_IMPROVEMENT_LOOP.md](docs/UX_RULES_IMPROVEMENT_LOOP.md)                                                         | Telemetry-driven rules UX improvement process        |
-| [archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md](docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md) | GameReplayDB ↔ /sandbox replay integration           |
+| Document                                                                                                                  | Purpose                                               |
+| ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| [ACCESSIBILITY.md](docs/ACCESSIBILITY.md)                                                                                 | Accessibility guide (keyboard, screen reader, visual) |
+| [GAME_COMPARISON_ANALYSIS.md](docs/GAME_COMPARISON_ANALYSIS.md)                                                           | Game comparison studies                               |
+| [UX_RULES_COPY_SPEC.md](docs/UX_RULES_COPY_SPEC.md)                                                                       | UX copy for rules display                             |
+| [UX_RULES_TELEMETRY_SPEC.md](docs/UX_RULES_TELEMETRY_SPEC.md)                                                             | Rules UX telemetry schema and hotspot metrics         |
+| [UX_RULES_WEIRD_STATES_SPEC.md](docs/UX_RULES_WEIRD_STATES_SPEC.md)                                                       | Weird-state rules UX reason codes and copy mapping    |
+| [UX_RULES_TEACHING_SCENARIOS.md](docs/UX_RULES_TEACHING_SCENARIOS.md)                                                     | Scenario-driven teaching flows for complex mechanics  |
+| [UX_RULES_IMPROVEMENT_LOOP.md](docs/UX_RULES_IMPROVEMENT_LOOP.md)                                                         | Telemetry-driven rules UX improvement process         |
+| [archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md](docs/archive/plans/GAME_REPLAY_DB_SANDBOX_INTEGRATION_PLAN.md) | GameReplayDB ↔ /sandbox replay integration            |
 
 ### /docs/supplementary/
 
@@ -217,14 +220,15 @@ Completed planning documents and remediation reports.
 
 Key docs and tools for TS↔Python parity, replay analysis, and replay DB health.
 
-| Artifact                                                                                                     | Purpose                                                                                                          |
-| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-| [docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md](docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md) | Week 1–3 engine/tooling/parity research: parity surfaces, GameReplayDB schema v5, DB health, and replay tooling. |
-| [ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md](ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md)                 | GameReplayDB schema and API, including `metadata_json` and recording helpers.                                    |
-| [docs/testing/TEST_CATEGORIES.md](docs/testing/TEST_CATEGORIES.md)                                           | Test suite categories, including parity and replay-related suites.                                               |
-| `ai-service/scripts/check_ts_python_replay_parity.py`                                                        | TS↔Python replay parity checker for recorded games (CLI; see `--help` for usage).                                |
-| `ai-service/scripts/cleanup_useless_replay_dbs.py`                                                           | Replay DB health/cleanup script; emits JSON health summaries with `--summary-json`.                              |
-| `ai-service/tests/parity/test_differential_replay.py`                                                        | Differential replay tests, including optional golden-game strict parity via env configuration.                   |
+| Artifact                                                                                                     | Purpose                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md](docs/planning/ENGINE_TOOLING_PARITY_RESEARCH_PLAN.md) | Week 1–3 engine/tooling/parity research: parity surfaces, GameReplayDB schema v5, DB health, and replay tooling.                                                                                                 |
+| [ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md](ai-service/docs/GAME_REPLAY_DATABASE_SPEC.md)                 | GameReplayDB schema and API, including `metadata_json` and recording helpers.                                                                                                                                    |
+| [docs/testing/TEST_CATEGORIES.md](docs/testing/TEST_CATEGORIES.md)                                           | Test suite categories, including parity and replay-related suites.                                                                                                                                               |
+| `ai-service/scripts/check_ts_python_replay_parity.py`                                                        | TS↔Python replay parity checker for recorded games; supports emitting divergence fixtures (`--emit-fixtures-dir`) and rich TS/Python state bundles (`--emit-state-bundles-dir`) for the first semantic mismatch. |
+| `ai-service/scripts/diff_state_bundle.py`                                                                    | Offline inspector for a single `.state_bundle.json`: reconstructs Python/TS states at a chosen `ts_k` and prints a concise structural diff (players, stacks, collapsed).                                         |
+| `ai-service/scripts/cleanup_useless_replay_dbs.py`                                                           | Replay DB health/cleanup script; emits JSON health summaries with `--summary-json`.                                                                                                                              |
+| `ai-service/tests/parity/test_differential_replay.py`                                                        | Differential replay tests, including optional golden-game strict parity via env configuration.                                                                                                                   |
 
 ---
 

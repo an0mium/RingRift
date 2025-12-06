@@ -62,6 +62,10 @@ export function getWeirdStateBanner(
         return { type: 'active-no-moves-line', playerNumber: currentPlayer };
       case 'territory_processing':
         return { type: 'active-no-moves-territory', playerNumber: currentPlayer };
+      case 'forced_elimination':
+        // In forced_elimination phase, the player has forced_elimination moves
+        // available, so ANM should not occur. If it does, treat as movement-blocked.
+        return { type: 'active-no-moves-movement', playerNumber: currentPlayer };
       case 'movement':
       case 'capture':
       case 'chain_capture':

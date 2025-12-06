@@ -4,7 +4,7 @@
   "initialState": {
     "boardType": "square8",
     "id": "rules-parity-square8-2p",
-    "rngSeed": 1097836522,
+    "rngSeed": 857804475,
     "board": {
       "stacks": {},
       "markers": {},
@@ -84,8 +84,8 @@
       "increment": 5,
       "type": "blitz"
     },
-    "createdAt": "2025-11-29T18:07:48.149Z",
-    "lastMoveAt": "2025-11-29T18:07:48.149Z",
+    "createdAt": "2025-12-06T02:08:04.224Z",
+    "lastMoveAt": "2025-12-06T02:08:04.224Z",
     "isRated": false,
     "maxPlayers": 2,
     "totalRingsInPlay": 0,
@@ -164,10 +164,10 @@
       },
       "expected": {
         "tsValid": true,
-        "tsStateHash": "1:line_processing:waiting#1:18:0:0|2:18:0:0###0,0:1|0,1:1|0,2:1|0,3:1|0,4:1",
+        "tsStateHash": "1:line_processing:waiting#1:18:0:5|2:18:0:0###0,0:1|0,1:1|0,2:1|0,3:1|0,4:1",
         "tsS": 5
       },
-      "stateHash": "1:line_processing:waiting#1:18:0:0|2:18:0:0###0,0:1|0,1:1|0,2:1|0,3:1|0,4:1",
+      "stateHash": "1:line_processing:waiting#1:18:0:5|2:18:0:0###0,0:1|0,1:1|0,2:1|0,3:1|0,4:1",
       "sInvariant": 5
     }
   ]

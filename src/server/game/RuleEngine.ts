@@ -421,9 +421,30 @@ export class RuleEngine {
             // Return movement moves instead of placement/skip
             moves.push(...this.getValidStackMovements(currentPlayer, gameState));
             moves.push(...this.getValidCaptures(currentPlayer, gameState));
+            // If no movements or captures available, emit no_placement_action
+            if (moves.length === 0) {
+              moves.push({
+                id: `no_placement_action-${gameState.moveHistory.length + 1}`,
+                type: 'no_placement_action',
+                player: currentPlayer,
+                to: { x: 0, y: 0 },
+                timestamp: new Date(),
+                thinkTime: 0,
+                moveNumber: gameState.moveHistory.length + 1,
+              });
+            }
             break;
           }
-          // No stacks and no rings in hand - no valid moves
+          // No stacks and no rings in hand - emit no_placement_action per RR-CANON-R075
+          moves.push({
+            id: `no_placement_action-${gameState.moveHistory.length + 1}`,
+            type: 'no_placement_action',
+            player: currentPlayer,
+            to: { x: 0, y: 0 },
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber: gameState.moveHistory.length + 1,
+          });
           break;
         }
 
@@ -452,15 +473,43 @@ export class RuleEngine {
         if (this.validateSkipPlacement(skipMoveCandidate, gameState)) {
           moves.push(skipMoveCandidate);
         }
+
+        // If still no moves (no placements, no skip eligible), emit no_placement_action
+        // per RR-CANON-R075 to record that the phase was visited.
+        if (moves.length === 0) {
+          moves.push({
+            id: `no_placement_action-${gameState.moveHistory.length + 1}`,
+            type: 'no_placement_action',
+            player: currentPlayer,
+            to: { x: 0, y: 0 },
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber: gameState.moveHistory.length + 1,
+          });
+        }
         break;
       }
-      case 'movement':
+      case 'movement': {
         // During movement phase, expose both simple movements and
         // overtaking capture options so that an initial capture can be
         // chosen directly when legal.
         moves.push(...this.getValidStackMovements(currentPlayer, gameState));
         moves.push(...this.getValidCaptures(currentPlayer, gameState));
+        // If no movements or captures available, emit no_movement_action
+        // per RR-CANON-R075 to record that the phase was visited.
+        if (moves.length === 0) {
+          moves.push({
+            id: `no_movement_action-${gameState.moveHistory.length + 1}`,
+            type: 'no_movement_action',
+            player: currentPlayer,
+            to: { x: 0, y: 0 },
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber: gameState.moveHistory.length + 1,
+          });
+        }
         break;
+      }
       case 'capture':
         moves.push(...this.getValidCaptures(currentPlayer, gameState));
         break;
@@ -502,6 +551,13 @@ export class RuleEngine {
             moves.push(...info.availableContinuations);
           }
         }
+        break;
+      }
+      case 'forced_elimination': {
+        // In the forced_elimination phase (7th phase per RR-CANON-R070),
+        // the player must eliminate from one of their controlled stacks.
+        // Uses the same elimination decision moves as territory processing.
+        moves.push(...this.getValidEliminationDecisionMoves(gameState));
         break;
       }
     }

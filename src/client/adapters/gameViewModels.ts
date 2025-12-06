@@ -38,6 +38,7 @@ import type { ConnectionStatus } from '../domain/GameAPI';
 import { getChoiceViewModel, getChoiceViewModelForType } from './choiceViewModels';
 import type { ChoiceKind } from './choiceViewModels';
 import { getWeirdStateBanner, type WeirdStateBanner } from '../utils/gameStateWeirdness';
+import type { GameEndExplanation } from '../..//shared/engine/gameEndExplanation';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HUD View Model
@@ -283,6 +284,13 @@ export interface DecisionHighlight {
   positionKey: string;
   /** Visual intensity category for UI styling. */
   intensity: DecisionHighlightIntensity;
+  /**
+   * Optional grouping identifier used by some decision kinds (e.g., territory
+   * region order) to associate multiple highlighted cells with the same
+   * semantic region. UI layers may ignore this when they do not need
+   * per-region styling.
+   */
+  groupId?: string;
 }
 
 export interface BoardDecisionHighlightsViewModel {
@@ -493,6 +501,15 @@ const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
     actionHint: 'Choose which region to process first',
     spectatorHint: 'Player is resolving territory',
   },
+  forced_elimination: {
+    label: 'Forced Elimination',
+    description:
+      'Player has stacks but no legal placements, movements, or captures and must eliminate from a stack.',
+    colorClass: 'bg-red-600',
+    icon: '💥',
+    actionHint: 'Choose which stack to sacrifice when prompted',
+    spectatorHint: 'Player is paying a forced elimination cost',
+  },
 };
 
 function toPhaseViewModel(phase: GamePhase): PhaseViewModel {
@@ -651,6 +668,12 @@ export interface ToHUDViewModelOptions {
    * affect rules semantics or engine behaviour.
    */
   victoryState?: GameResult | null | undefined;
+  /**
+   * Optional canonical GameEndExplanation derived from the shared engine view.
+   * Used to surface concept-aligned banners (e.g. "Structural Stalemate") in
+   * the HUD when the game has ended.
+   */
+  gameEndExplanation?: GameEndExplanation | null | undefined;
 }
 
 /**
@@ -668,6 +691,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     choiceTimeRemainingMs,
     decisionIsServerCapped,
     victoryState,
+    gameEndExplanation,
   } = options;
 
   const HEARTBEAT_STALE_THRESHOLD_MS = 8000;
@@ -837,64 +861,92 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     };
   };
 
-  switch (weird.type) {
-    case 'active-no-moves-movement': {
-      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+  // If we have a canonical GameEndExplanation, use it to drive the weird-state
+  // banner for game-end scenarios (structural stalemate, etc.) preferentially.
+  if (gameEndExplanation?.uxCopy?.shortSummaryKey) {
+    const key = gameEndExplanation.uxCopy.shortSummaryKey;
+    if (key.startsWith('game_end.structural_stalemate')) {
       weirdState = {
-        type: weird.type,
-        title: isUser ? 'You have no legal moves this turn' : `${label} has no legal moves`,
-        body: isUser
-          ? 'You have no legal placements, movements, or captures this turn. Forced elimination will now resolve automatically according to the rulebook.'
-          : `${label} has no legal placements, movements, or captures this turn. Forced elimination will now resolve automatically according to the rulebook.`,
-        tone: 'warning',
-      };
-      break;
-    }
-    case 'active-no-moves-line': {
-      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
-      weirdState = {
-        type: weird.type,
-        title: isUser ? 'No legal line actions available' : `${label} has no line actions`,
-        body: 'No valid line actions are available. The game will auto-resolve this phase according to the rulebook.',
-        tone: 'info',
-      };
-      break;
-    }
-    case 'active-no-moves-territory': {
-      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
-      weirdState = {
-        type: weird.type,
-        title: isUser
-          ? 'No legal territory actions available'
-          : `${label} has no territory actions`,
-        body: 'No valid territory or self-elimination actions are available. The game will auto-resolve this phase according to the rulebook.',
-        tone: 'info',
-      };
-      break;
-    }
-    case 'forced-elimination': {
-      const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
-      weirdState = {
-        type: weird.type,
-        title: 'Forced Elimination',
-        body: isUser
-          ? 'You control stacks but have no legal placements, movements, or captures. A cap will be removed from one of your stacks until a legal move becomes available, following the forced-elimination rules.'
-          : `${label} controls stacks but has no legal placements, movements, or captures. A cap will be removed from one of their stacks until a legal move becomes available, following the forced-elimination rules.`,
-        tone: 'warning',
-      };
-      break;
-    }
-    case 'structural-stalemate': {
-      weirdState = {
-        type: weird.type,
+        type: 'structural-stalemate',
         title: 'Structural stalemate',
-        body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends and the final score is computed from territory and eliminated rings.',
+        body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends here and the final score is computed from territory and eliminated rings.',
         tone: 'critical',
       };
-      break;
+    } else if (key.startsWith('game_end.lps.with_anm_fe')) {
+      // For LPS involving ANM/FE, surface a banner explaining why the game ended
+      // even if it looks like players still have material.
+      weirdState = {
+        type: 'forced-elimination', // Reuse FE styling for LPS-FE endings
+        title: 'Last Player Standing (via Forced Elimination)',
+        body: 'The game ended because only one player could make real moves for a full round. Other players were blocked or forced to eliminate rings.',
+        tone: 'warning',
+      };
     }
-    default:
-      break;
+  }
+
+  // Fall back to legacy weird-state detection if no explanation-driven banner was set.
+  if (!weirdState) {
+    switch (weird.type) {
+      case 'active-no-moves-movement': {
+        const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+        weirdState = {
+          type: weird.type,
+          title: isUser ? 'You have no legal moves this turn' : `${label} has no legal moves`,
+          body: isUser
+            ? 'You control stacks but have no legal real moves this turn (no placements, movements, or captures). Because of that, the forced-elimination rule will remove caps from your stacks until a real move becomes available or your stacks run out.'
+            : `${label} controls stacks but has no legal real moves this turn (no placements, movements, or captures). Because of that, the forced-elimination rule will remove caps from their stacks until a real move becomes available or their stacks run out.`,
+          tone: 'warning',
+        };
+        break;
+      }
+      case 'active-no-moves-line': {
+        const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+        weirdState = {
+          type: weird.type,
+          title: isUser ? 'No legal line actions available' : `${label} has no line actions`,
+          body: 'There are no valid line actions to take. The game will auto-resolve this phase and move on according to the line-processing rules.',
+          tone: 'info',
+        };
+        break;
+      }
+      case 'active-no-moves-territory': {
+        const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+        weirdState = {
+          type: weird.type,
+          title: isUser
+            ? 'No legal territory actions available'
+            : `${label} has no territory actions`,
+          body: 'There are no valid territory or self-elimination actions to take. The game will auto-resolve this phase and move on according to the territory rules.',
+          tone: 'info',
+        };
+        break;
+      }
+      case 'forced-elimination': {
+        const { label, isUser } = resolvePlayerLabel(weird.playerNumber);
+        weirdState = {
+          type: weird.type,
+          title: isUser
+            ? 'Forced elimination is shrinking your stacks'
+            : 'Forced elimination is shrinking their stacks',
+          body: isUser
+            ? 'Because you control stacks but have no legal real moves on some of your turns (no placements, movements, or captures), forced elimination repeatedly removes caps from your stacks. Each removal permanently eliminates rings and counts toward Ring Elimination.'
+            : `Because ${label} controls stacks but has no legal real moves on some of their turns (no placements, movements, or captures), forced elimination repeatedly removes caps from their stacks. Each removal permanently eliminates rings and counts toward Ring Elimination.`,
+          tone: 'warning',
+        };
+        break;
+      }
+      case 'structural-stalemate': {
+        weirdState = {
+          type: weird.type,
+          title: 'Structural stalemate',
+          body: 'No legal placements, movements, captures, or forced eliminations remain for any player. The game ends here and the final score is computed from territory and eliminated rings.',
+          tone: 'critical',
+        };
+        break;
+      }
+      default:
+        break;
+    }
   }
 
   return {
@@ -1462,6 +1514,13 @@ function countPlayerMoves(playerNumber: number, gameState: GameState): number {
 export interface ToVictoryViewModelOptions {
   currentUserId?: string | undefined;
   isDismissed?: boolean | undefined;
+  /**
+   * Optional canonical GameEndExplanation used to refine the title/description
+   * copy. When provided, the adapter may select more specific wording based on
+   * uxCopy keys and concept ids while preserving existing behaviour as the
+   * fallback.
+   */
+  gameEndExplanation?: GameEndExplanation | null | undefined;
 }
 
 /**
@@ -1474,7 +1533,7 @@ export function toVictoryViewModel(
   gameState: GameState | undefined,
   options: ToVictoryViewModelOptions = {}
 ): VictoryViewModel | null {
-  const { currentUserId, isDismissed = false } = options;
+  const { currentUserId, isDismissed = false, gameEndExplanation } = options;
 
   if (!gameResult || isDismissed) {
     return null;
@@ -1503,7 +1562,8 @@ export function toVictoryViewModel(
     winner,
     userWon,
     userLost,
-    isDraw
+    isDraw,
+    gameEndExplanation ?? null
   );
 
   // Build final stats
@@ -1571,7 +1631,8 @@ function getVictoryMessage(
   winner: Player | undefined,
   userWon: boolean,
   userLost: boolean,
-  isDraw: boolean
+  isDraw: boolean,
+  explanation: GameEndExplanation | null
 ): { title: string; description: string; titleColorClass: string } {
   const titleColorClass = userWon ? 'text-green-400' : userLost ? 'text-red-400' : 'text-slate-100';
 
@@ -1585,17 +1646,51 @@ function getVictoryMessage(
 
   const winnerName = winner?.username || `Player ${winner?.playerNumber || '?'}`;
 
+  const key = explanation?.uxCopy?.detailedSummaryKey ?? explanation?.uxCopy?.shortSummaryKey ?? '';
+
+  // Prefer more specific copy variants based on uxCopy keys when available.
+  // These keys follow patterns documented in UX_RULES_EXPLANATION_MODEL_SPEC
+  // (e.g., game_end.lps.with_anm_fe.detailed, game_end.structural_stalemate.tiebreak.detailed).
+  if (key.startsWith('game_end.lps.')) {
+    const subject = userWon ? 'You' : winnerName;
+    const verb = userWon ? 'were' : 'was';
+    return {
+      title: '👑 Last Player Standing',
+      description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns. The other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
+      titleColorClass,
+    };
+  }
+
+  if (key.startsWith('game_end.structural_stalemate.')) {
+    return {
+      title: '🧱 Structural Stalemate',
+      description:
+        'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder of territory and eliminated rings.',
+      titleColorClass,
+    };
+  }
+
+  if (key.startsWith('game_end.territory_mini_region')) {
+    return {
+      title: `🏰 ${winnerName} Wins!`,
+      description:
+        'Victory by territory after resolving the final disconnected mini-region. Once no further placements, movements, captures, or territory actions were possible, the rules compared Territory spaces, eliminated rings (including rings in hand), and markers to break the tie.',
+      titleColorClass,
+    };
+  }
+
+  // Fallback to legacy reason-based copy when no specific uxCopy key is recognised.
   switch (gameResult.reason) {
     case 'ring_elimination':
       return {
         title: `🏆 ${winnerName} Wins!`,
-        description: 'Victory by eliminating more than half of all rings in play',
+        description: 'Victory by eliminating more than half of all rings in play.',
         titleColorClass,
       };
     case 'territory_control':
       return {
         title: `🏰 ${winnerName} Wins!`,
-        description: 'Victory by controlling the majority of territory',
+        description: 'Victory by controlling the majority of territory.',
         titleColorClass,
       };
     case 'last_player_standing': {
@@ -1603,7 +1698,7 @@ function getVictoryMessage(
       const verb = userWon ? 'were' : 'was';
       return {
         title: '👑 Last Player Standing',
-        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns.`,
+        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns. The other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
         titleColorClass,
       };
     }
@@ -1611,7 +1706,7 @@ function getVictoryMessage(
       return {
         title: '🧱 Structural Stalemate',
         description:
-          'No players had any legal placements, movements, captures, or forced eliminations left. The board reached a stable plateau and the final score was computed from territory and eliminated rings.',
+          'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder of territory and eliminated rings.',
         titleColorClass,
       };
     case 'timeout':

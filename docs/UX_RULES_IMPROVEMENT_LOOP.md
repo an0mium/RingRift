@@ -37,7 +37,7 @@ Strong recommendation:
 
 ### 1.2 Core Inputs
 
-Each iteration uses three classes of inputs:
+Each iteration uses four classes of inputs:
 
 1. **Quantitative telemetry** (W‑UX‑1)
 
@@ -65,6 +65,10 @@ Each iteration uses three classes of inputs:
      - [`docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md`](docs/supplementary/RULES_CONSISTENCY_EDGE_CASES.md:361).
      - [`archive/RULES_DYNAMIC_VERIFICATION.md`](archive/RULES_DYNAMIC_VERIFICATION.md:665).
    - These do **not** directly drive UX changes, but ensure that UX proposals do not contradict canonical behaviour.
+
+4. **Rules concepts index**
+   - Consolidated high‑risk concepts in [`UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:1), aligning rules semantics, UX surfaces, teaching flows, and telemetry/tests.
+   - When selecting targets for each iteration, consult this index to focus work on the most fragile rules concepts and to reuse existing mappings instead of rediscovering them ad‑hoc.
 
 ---
 
@@ -210,6 +214,7 @@ For example:
 
 - `docs/ux/rules_iterations/ITERATION_20251205_fe_and_stalemate.md`
 - `docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md` (first full telemetry-driven iteration focusing on ANM/FE, structural stalemate, and mini-regions)
+- Iteration 0002 (hotspot-driven, GameEndExplanation-based) is specified in [`UX_RULES_IMPROVEMENT_ITERATION_0002.md`](docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md:1).
 
 ### 3.1 Suggested File Structure
 

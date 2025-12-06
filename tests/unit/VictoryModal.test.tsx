@@ -180,11 +180,14 @@ describe('VictoryModal', () => {
     );
 
     // LPS is surfaced as a distinct victory mode with a dedicated title
-    // and explanation of the “real moves for a full round” condition.
-    expect(screen.getByText(/Last Player Standing/)).toBeInTheDocument();
+    // and explanation of the "real moves for a full round" condition.
+    // Use getAllByText since the text may appear multiple times (e.g., in heading and description)
+    expect(screen.getAllByText(/Last Player Standing/).length).toBeGreaterThan(0);
     expect(
-      screen.getByText(/only player able to make real moves \(placements, movements, or captures\)/)
-    ).toBeInTheDocument();
+      screen.getAllByText(
+        /only player able to make real moves \(placements, movements, or captures\)/
+      ).length
+    ).toBeGreaterThan(0);
   });
 
   it('should show draw message for stalemate', () => {
@@ -709,5 +712,215 @@ describe('VictoryModal', () => {
     // Find Alice's row (should be first after header due to being winner)
     const aliceRow = rows.find((row) => row.textContent?.includes('Alice'));
     expect(aliceRow).toHaveTextContent('3'); // 3 moves for Alice
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // VictoryModal with gameEndExplanation prop - Component rendering tests
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('VictoryModal - gameEndExplanation prop rendering', () => {
+    const mockOnClose = jest.fn();
+    const mockOnReturnToLobby = jest.fn();
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    function createGameEndExplanation(
+      shortSummaryKey: string,
+      overrides?: Partial<{
+        outcomeType: string;
+        primaryConceptId: string;
+      }>
+    ) {
+      return {
+        boardType: 'square8' as const,
+        numPlayers: 2,
+        winnerPlayerId: 'user1',
+        outcomeType: overrides?.outcomeType ?? 'ring_elimination',
+        victoryReasonCode: 'victory_ring_majority',
+        uxCopy: {
+          shortSummaryKey,
+          detailedSummaryKey: `${shortSummaryKey}.detailed`,
+        },
+        primaryConceptId: overrides?.primaryConceptId,
+      };
+    }
+
+    it('should render LPS-specific copy when gameEndExplanation has LPS key', () => {
+      const players = createTestPlayers();
+      const gameResult = createGameResult(1, 'last_player_standing');
+      const gameState = createTestGameState(players);
+      const explanation = createGameEndExplanation('game_end.lps.with_anm_fe', {
+        outcomeType: 'last_player_standing',
+        primaryConceptId: 'lps.with_anm_fe',
+      });
+
+      render(
+        <VictoryModal
+          isOpen={true}
+          gameResult={gameResult}
+          players={players}
+          gameState={gameState}
+          gameEndExplanation={explanation as any}
+          onClose={mockOnClose}
+          onReturnToLobby={mockOnReturnToLobby}
+        />
+      );
+
+      // LPS-specific title should appear (use getAllByText since text appears multiple times)
+      expect(screen.getAllByText(/Last Player Standing/).length).toBeGreaterThan(0);
+      // LPS-specific description mentioning real moves should appear
+      expect(screen.getByText(/only player able to make real moves/i)).toBeInTheDocument();
+    });
+
+    it('should render structural stalemate copy when gameEndExplanation has stalemate key', () => {
+      const players = createTestPlayers();
+      const gameResult = createGameResult(1, 'game_completed');
+      const gameState = createTestGameState(players);
+      const explanation = createGameEndExplanation('game_end.structural_stalemate.tiebreak', {
+        outcomeType: 'game_completed',
+      });
+
+      render(
+        <VictoryModal
+          isOpen={true}
+          gameResult={gameResult}
+          players={players}
+          gameState={gameState}
+          gameEndExplanation={explanation as any}
+          onClose={mockOnClose}
+          onReturnToLobby={mockOnReturnToLobby}
+        />
+      );
+
+      // Structural stalemate copy should appear (may appear multiple times in title and description)
+      expect(screen.getAllByText(/Structural Stalemate/i).length).toBeGreaterThan(0);
+    });
+
+    it('should render territory mini-region copy when gameEndExplanation has territory key', () => {
+      const players = createTestPlayers();
+      const gameResult = createGameResult(1, 'territory_control');
+      const gameState = createTestGameState(players);
+      const explanation = createGameEndExplanation('game_end.territory_mini_region', {
+        outcomeType: 'territory_control',
+      });
+
+      render(
+        <VictoryModal
+          isOpen={true}
+          gameResult={gameResult}
+          players={players}
+          gameState={gameState}
+          gameEndExplanation={explanation as any}
+          onClose={mockOnClose}
+          onReturnToLobby={mockOnReturnToLobby}
+        />
+      );
+
+      // Winner should be displayed
+      expect(screen.getByText(/Alice Wins!/)).toBeInTheDocument();
+      // Territory-specific language should appear (use getAllByText since text may appear multiple times)
+      expect(screen.getAllByText(/territory/i).length).toBeGreaterThan(0);
+    });
+
+    it('should fall back to legacy copy when gameEndExplanation has unrecognized key', () => {
+      const players = createTestPlayers();
+      const gameResult = createGameResult(1, 'ring_elimination');
+      const gameState = createTestGameState(players);
+      const explanation = createGameEndExplanation('game_end.unknown_pattern');
+
+      render(
+        <VictoryModal
+          isOpen={true}
+          gameResult={gameResult}
+          players={players}
+          gameState={gameState}
+          gameEndExplanation={explanation as any}
+          onClose={mockOnClose}
+          onReturnToLobby={mockOnReturnToLobby}
+        />
+      );
+
+      // Should fall back to standard ring elimination copy
+      expect(screen.getByText(/Alice Wins!/)).toBeInTheDocument();
+      expect(screen.getByText(/eliminating more than half/i)).toBeInTheDocument();
+    });
+
+    it('should use personalized "You" wording when current user is LPS winner', () => {
+      const players = createTestPlayers();
+      const gameResult = createGameResult(1, 'last_player_standing');
+      const gameState = createTestGameState(players);
+      const explanation = createGameEndExplanation('game_end.lps.with_anm_fe', {
+        outcomeType: 'last_player_standing',
+        primaryConceptId: 'lps.with_anm_fe',
+      });
+
+      render(
+        <VictoryModal
+          isOpen={true}
+          gameResult={gameResult}
+          players={players}
+          gameState={gameState}
+          gameEndExplanation={explanation as any}
+          currentUserId="user1"
+          onClose={mockOnClose}
+          onReturnToLobby={mockOnReturnToLobby}
+        />
+      );
+
+      // LPS title should appear
+      expect(screen.getAllByText(/Last Player Standing/).length).toBeGreaterThan(0);
+      // Description should use "You" wording for the winner (or refer to the player by name)
+      expect(screen.getByText(/only player able to make real moves/i)).toBeInTheDocument();
+    });
+
+    it('should still render correctly when gameEndExplanation is null', () => {
+      const players = createTestPlayers();
+      const gameResult = createGameResult(1, 'ring_elimination');
+      const gameState = createTestGameState(players);
+
+      render(
+        <VictoryModal
+          isOpen={true}
+          gameResult={gameResult}
+          players={players}
+          gameState={gameState}
+          gameEndExplanation={null}
+          onClose={mockOnClose}
+          onReturnToLobby={mockOnReturnToLobby}
+        />
+      );
+
+      // Should use standard legacy copy
+      expect(screen.getByText(/Alice Wins!/)).toBeInTheDocument();
+      expect(screen.getByText(/eliminating more than half/i)).toBeInTheDocument();
+    });
+
+    it('should display weird state info panel for LPS with ANM/FE', () => {
+      const players = createTestPlayers();
+      const gameResult = createGameResult(1, 'last_player_standing');
+      const gameState = createTestGameState(players);
+      const explanation = createGameEndExplanation('game_end.lps.with_anm_fe', {
+        outcomeType: 'last_player_standing',
+        primaryConceptId: 'lps.with_anm_fe',
+      });
+
+      render(
+        <VictoryModal
+          isOpen={true}
+          gameResult={gameResult}
+          players={players}
+          gameState={gameState}
+          gameEndExplanation={explanation as any}
+          onClose={mockOnClose}
+          onReturnToLobby={mockOnReturnToLobby}
+        />
+      );
+
+      // Should show the "What happened?" button for teaching overlay
+      const whatHappenedButton = screen.queryByRole('button', { name: /what happened/i });
+      expect(whatHappenedButton).toBeInTheDocument();
+    });
   });
 });

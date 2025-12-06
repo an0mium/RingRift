@@ -28,6 +28,10 @@ export interface DecisionCountdownState {
    * and decision UI. When a matching timeout warning is present,
    * this will never exceed either the client baseline or the
    * server-reported remainingMs, and is clamped to >= 0.
+   *
+   * Note: this is a display-only value. Authoritative expiry of a
+   * decision is driven by game state updates (for example, the
+   * pending choice disappearing), not by this value crossing zero.
    */
   effectiveTimeRemainingMs: number | null;
   /**
@@ -45,6 +49,15 @@ export interface DecisionCountdownState {
   isServerCapped: boolean;
 }
 
+/**
+ * Normalize a millisecond countdown value from various sources into a
+ * non-negative number for display/merging, or null when the input is
+ * absent or invalid.
+ *
+ * This helper never interprets the resulting value as an authoritative
+ * expiry; it is purely used to derive a consistent ms-based view for
+ * the client HUD and related UI.
+ */
 function normalizeMs(value: number | null | undefined): number | null {
   if (typeof value !== 'number' || Number.isNaN(value)) return null;
   return value >= 0 ? value : 0;

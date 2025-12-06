@@ -78,7 +78,12 @@ export function determineNextPhase(
 
     case 'territory_processing':
       // After territory, turn ends - this triggers advanceTurnAndPhase
+      // unless forced_elimination is required (handled by orchestrator)
       return 'territory_processing'; // Will be handled by turn advance
+
+    case 'forced_elimination':
+      // After forced elimination, turn ends
+      return 'forced_elimination'; // Will be handled by turn advance
 
     default:
       return currentPhase;
@@ -176,6 +181,10 @@ export function phaseRequiresDecision(phase: GamePhase, context: PhaseContext): 
       // Chain capture may require direction choice
       return context.chainCaptureOptionsCount > 1;
 
+    case 'forced_elimination':
+      // Forced elimination may require target choice if multiple stacks
+      return context.forcedEliminationOptionsCount > 1;
+
     default:
       return false;
   }
@@ -188,6 +197,8 @@ export interface PhaseContext {
   pendingLineCount: number;
   pendingRegionCount: number;
   chainCaptureOptionsCount: number;
+  /** Number of stacks the player controls (for forced elimination target choice) */
+  forcedEliminationOptionsCount: number;
 }
 
 /**
@@ -208,6 +219,10 @@ export function shouldAutoAdvancePhase(phase: GamePhase, context: PhaseContext):
     case 'chain_capture':
       // Auto-advance if only 1 capture option (mandatory)
       return context.chainCaptureOptionsCount === 1;
+
+    case 'forced_elimination':
+      // Auto-advance if only 1 stack to eliminate from
+      return context.forcedEliminationOptionsCount === 1;
 
     default:
       return false;
@@ -371,6 +386,7 @@ export function createTurnProcessingState(gameState: GameState, move: Move): Tur
       mustMoveFromStackKey: undefined,
       eliminationRewardPending: false,
       eliminationRewardCount: 0,
+      hadActionThisTurn: false,
     },
     pendingLines: [],
     pendingRegions: [],

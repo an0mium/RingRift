@@ -1344,6 +1344,6 @@ src/shared/engine/
 
 When making future changes:
 
-- Treat **helpers → aggregates → orchestrator → contracts** as the rules SSoT.
+- Treat **helpers → aggregates → orchestrator → contracts** as the canonical executable rules surface derived from the written rules SSoT (`RULES_CANONICAL_SPEC.md` plus the Complete/Compact rules docs).
 - Use this document to reason about **where responsibilities should live** inside aggregates.
 - Use `docs/MODULE_RESPONSIBILITIES.md` and `docs/CANONICAL_ENGINE_API.md` to understand the **current implemented surface and lifecycles**.

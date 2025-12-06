@@ -6,7 +6,7 @@
   "state": {
     "boardType": "hexagonal",
     "id": "rules-parity-hexagonal-2p-v2",
-    "rngSeed": 270663714,
+    "rngSeed": 1353681029,
     "board": {
       "stacks": {},
       "markers": {},
@@ -146,8 +146,8 @@
       "increment": 5,
       "type": "blitz"
     },
-    "createdAt": "2025-11-29T18:07:48.163Z",
-    "lastMoveAt": "2025-11-29T18:07:48.163Z",
+    "createdAt": "2025-12-06T02:08:04.231Z",
+    "lastMoveAt": "2025-12-06T02:08:04.231Z",
     "isRated": false,
     "maxPlayers": 2,
     "totalRingsInPlay": 0,
@@ -218,7 +218,7 @@
       "collapsed": 4,
       "eliminated": 0,
       "S": 4,
-      "stateHash": "1:line_processing:waiting#1:36:0:0|2:36:0:0###0,1,-1:1|1,0,-1:1|2,-1,-1:1|3,-2,-1:1"
+      "stateHash": "1:line_processing:waiting#1:36:0:4|2:36:0:0###0,1,-1:1|1,0,-1:1|2,-1,-1:1|3,-2,-1:1"
     }
   }
 }

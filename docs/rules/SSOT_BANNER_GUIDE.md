@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This guide is a derived meta‑doc over the existing SSoT layers:
 >
-> - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `ringrift_compact_rules.md`, and the shared TS rules engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`.
+> - **Rules/invariants semantics SSoT:** `RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` and `ringrift_compact_rules.md` as the normative rules spec, and the shared TS rules engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**` as its primary executable implementation.
 > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 > - **TS↔Python parity & determinism SSoT:** `docs/PYTHON_PARITY_REQUIREMENTS.md` plus the TS and Python parity/determinism test suites.
 > - **AI/training SSoT:** `AI_ARCHITECTURE.md` and the executable training stack under `ai-service/app/training/**`.
@@ -159,7 +159,7 @@ Use this pattern for any doc that explains or catalogues rules behaviour but is 
 - `docs/AI_TRAINING_PREPARATION_GUIDE.md`
 - `docs/AI_TRAINING_ASSESSMENT_FINAL.md`
 
-**Required snippet for architecture doc:** `rules semantics SSoT` (to emphasise that AI hosts sit on top of the rules semantics SSoT).
+**Required snippet for architecture doc:** `rules semantics SSoT` (to emphasise that AI hosts sit on top of the canonical rules spec + shared TS rules implementation).
 
 **Banner template for `AI_ARCHITECTURE.md`:**
 
@@ -169,7 +169,7 @@ Use this pattern for any doc that explains or catalogues rules behaviour but is 
 >
 > **SSoT alignment:** This document is a derived architecture over:
 >
-> - The **rules semantics SSoT** (shared TS rules engine + contract vectors) for game behaviour.
+> - The **rules semantics SSoT** (canonical rules spec plus shared TS rules engine + contract vectors) for game behaviour.
 > - The AI/training implementation SSoT under `ai-service/app/ai/**` and `ai-service/app/training/**`, plus their tests.
 >
 > **Precedence:** If this document ever conflicts with the shared TS rules engine, contract vectors, or the executable AI/training code and tests, **those executable artefacts win** and this document must be updated.
@@ -230,7 +230,7 @@ Other operational docs should:
 >
 > **SSoT alignment:** This document is a derived architectural analysis over:
 >
-> - The rules semantics SSoT (`src/shared/engine/**` + contract vectors).
+> - The rules semantics SSoT (canonical rules spec + shared TS rules engine under `src/shared/engine/**` + contract vectors).
 > - The lifecycle/API SSoT (`docs/CANONICAL_ENGINE_API.md` + shared types/schemas).
 > - The operational SSoTs for CI, deployment, and monitoring.
 >

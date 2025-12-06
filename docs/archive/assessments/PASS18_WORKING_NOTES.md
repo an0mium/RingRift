@@ -95,7 +95,7 @@ Current leaning: **H1+H2 together** describe the hardest outstanding problem: ex
   - Recommendation (PASS18): update Known Issues summary to reference open advanced-phase/parity issues (e.g. capture sequence enumeration, some territory disconnection scenarios, RNG parity flakes), and cross-link to [KNOWN_ISSUES.md](KNOWN_ISSUES.md:1) and PASS18 report once written.
 
 - **[AI_ARCHITECTURE.md](AI_ARCHITECTURE.md:1)**
-  - Largely **current and internally consistent**: correctly positions TS rules SSoT, AI difficulty ladder, RNG determinism, and training pipelines.
+  - Largely **current and internally consistent**: correctly positions the canonical rules SSoT (rules spec + shared TS implementation), AI difficulty ladder, RNG determinism, and training pipelines.
   - Section "Rules Completeness in AI Service" still describes some Python simplifications (auto-collapsing lines, simplified territory claim). Newer parity/equivalence tests in [ai-service/tests](ai-service/tests/test_engine_correctness.py:1) and [ai-service/AI_IMPROVEMENT_PLAN.md](ai-service/AI_IMPROVEMENT_PLAN.md:1) suggest some of these gaps have been reduced.
   - Recommendation: in PASS18 follow-up, re-audit Python rules completeness vs TS orchestrator using parity suites; if lines/territory are now fully parity-validated, soften or retire language that treats those simplifications as current behaviour.
 
@@ -107,7 +107,7 @@ Current leaning: **H1+H2 together** describe the hardest outstanding problem: ex
 
 - **[RULES_ENGINE_ARCHITECTURE.md](RULES_ENGINE_ARCHITECTURE.md:1)**
   - Appears **up-to-date** with shared TS engine, orchestrator, adapters, and Python parity mapping.
-  - Explicitly frames Python as a host/adapter over TS rules SSoT and describes current contract/parity suites accurately.
+  - Explicitly frames Python as a host/adapter over the canonical rules SSoT (rules spec + shared TS implementation) and describes current contract/parity suites accurately.
   - No obvious contradictions with current code/tests; keep as-is, but reference PASS18 report for updated weakest-aspect and rollout-status commentary.
 
 ## 6. Test health snapshot (TS & Python – qualitative)

@@ -23,7 +23,7 @@ os.environ.setdefault("MKL_NUM_THREADS", "1")
 from app.training.env import TrainingEnvConfig, make_env
 from app.ai.random_ai import RandomAI
 from app.models import AIConfig, BoardType
-from app.db import get_or_create_db, record_completed_game
+from app.db import get_or_create_db, record_completed_game_with_parity_check, ParityValidationError
 
 
 def run_single_game(env, num_players: int, max_moves: int, seed: int):
@@ -133,16 +133,26 @@ def main():
         stats["total_moves"] += result["move_count"]
 
         # Record to database if enabled
+        # Use final_state.move_history instead of the AI-selected moves list
+        # because move_history includes auto-generated no-action moves
+        # (NO_LINE_ACTION, NO_TERRITORY_ACTION) that satisfy RR-CANON-R075.
         if replay_db:
             try:
-                game_id = record_completed_game(
+                game_id = record_completed_game_with_parity_check(
                     db=replay_db,
                     initial_state=initial_state,
                     final_state=final_state,
-                    moves=moves,
+                    moves=final_state.move_history,
                     metadata={"source": "minimal_selfplay"},
                 )
                 stats["recorded"] += 1
+            except ParityValidationError as pve:
+                print(
+                    f"[PARITY ERROR] Game diverged at k={pve.divergence.move_index}:\n"
+                    f"  Bundle: {pve.divergence.bundle_path or 'N/A'}",
+                    file=sys.stderr,
+                )
+                raise
             except Exception as e:
                 print(f"    Recording failed: {e}", file=sys.stderr)
 

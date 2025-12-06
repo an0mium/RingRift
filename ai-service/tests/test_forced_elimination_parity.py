@@ -113,7 +113,8 @@ def _build_mixed_caps_forced_elimination_state() -> Tuple[
     """
     state = _make_base_game_state()
     state.game_status = GameStatus.ACTIVE
-    state.current_phase = GamePhase.MOVEMENT
+    # Use FORCED_ELIMINATION phase per RR-CANON-R070 - FE is its own phase
+    state.current_phase = GamePhase.FORCED_ELIMINATION
     state.current_player = 1
 
     # Remove placements for player 1.
@@ -176,7 +177,8 @@ def _build_all_zero_caps_forced_elimination_state() -> Tuple[
     """
     state = _make_base_game_state()
     state.game_status = GameStatus.ACTIVE
-    state.current_phase = GamePhase.MOVEMENT
+    # Use FORCED_ELIMINATION phase per RR-CANON-R070 - FE is its own phase
+    state.current_phase = GamePhase.FORCED_ELIMINATION
     state.current_player = 1
 
     p1 = next(p for p in state.players if p.player_number == 1)
@@ -240,8 +242,13 @@ def test_forced_elimination_mixed_caps_enumeration_and_selection() -> None:
         assert cap_height == stack.cap_height
         assert stack_height == stack.stack_height
 
-    # get_valid_moves should surface only FORCED_ELIMINATION actions.
-    moves = GameEngine.get_valid_moves(state, player)
+    # get_valid_moves should surface FORCED_ELIMINATION actions (plus no-action markers).
+    # Filter out no-action bookkeeping moves to check only FE moves.
+    all_moves = GameEngine.get_valid_moves(state, player)
+    moves = [m for m in all_moves if m.type not in (
+        MoveType.NO_MOVEMENT_ACTION,
+        MoveType.NO_PLACEMENT_ACTION,
+    )]
     assert moves, "Expected forced-elimination moves for blocked player"
     assert all(m.type == MoveType.FORCED_ELIMINATION for m in moves)
 
@@ -289,6 +296,7 @@ def test_forced_elimination_not_available_when_global_actions_exist() -> None:
     """Negative FE case: stacks plus placements/moves ⇒ no FE."""
     state = _make_base_game_state()
     state.game_status = GameStatus.ACTIVE
+    # Use MOVEMENT phase to check for normal moves
     state.current_phase = GamePhase.MOVEMENT
     state.current_player = 1
 
@@ -313,10 +321,13 @@ def test_forced_elimination_not_available_when_global_actions_exist() -> None:
 
     # Preconditions: player has turn material and at least one legal action.
     assert ga.has_turn_material(state, 1) is True
-    assert GameEngine.get_valid_moves(
-        state,
-        1,
-    ), "Expected at least one legal move"
+    moves = GameEngine.get_valid_moves(state, 1)
+    # Should have real moves (not just no-action markers) since player has a movable stack
+    real_moves = [m for m in moves if m.type not in (
+        MoveType.NO_MOVEMENT_ACTION,
+        MoveType.NO_PLACEMENT_ACTION,
+    )]
+    assert real_moves, "Expected at least one legal move"
 
     # Under R072/R100/R205, forced elimination must not be available here.
     assert ga.has_forced_elimination_action(state, 1) is False

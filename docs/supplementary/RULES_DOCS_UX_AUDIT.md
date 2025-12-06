@@ -12,6 +12,8 @@ This audit compares the current documentation and user experience text against t
 
 As of 2025‑12‑05, dedicated rules‑UX specs have been added under `docs/` (see §3.6) and partially wired into the client, telemetry, and teaching surfaces. Future remediation work for the findings below SHOULD treat those specs as the canonical contract for copy, weird‑state handling, and teaching scenarios.
 
+See also the consolidated rules concepts index in [`docs/UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:1) for up‑to‑date mappings between rules semantics, UX surfaces, teaching flows, and telemetry/tests.
+
 **Headline Findings:**
 
 1.  **Critical UX Mismatch on Chain Captures:** The GameHUD explicitly tells players they can "end your turn" during chain captures, but RR‑CANON-R103 mandates **mandatory continuation** if any capture is available. This is a high-severity rule misstatement in the UI.

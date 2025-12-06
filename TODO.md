@@ -3,9 +3,37 @@
 > **Doc Status (2025-11-30): Active (execution/backlog tracker)**
 >
 > - Canonical high-level task/backlog tracker for near- and mid-term work.
-> - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
+> - Not a rules or lifecycle SSoT; for rules semantics defer to the canonical rules spec (`RULES_CANONICAL_SPEC.md` plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its shared TS engine implementation, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Last Updated:** December 5, 2025
+**Last Updated:** December 5, 2025 (Engine Architecture Review)
+
+## Quick Status Summary (Dec 2025)
+
+| Wave    | Name                                 | Status                                                                |
+| ------- | ------------------------------------ | --------------------------------------------------------------------- |
+| Wave 5  | Orchestrator Production Rollout      | ✅ COMPLETE                                                           |
+| Wave 6  | Observability & Production Readiness | ✅ COMPLETE                                                           |
+| Wave 7  | Production Validation & Scaling      | ✅ COMPLETE                                                           |
+| Wave 8  | Player Experience & UX Polish        | ✅ COMPLETE                                                           |
+| Wave 9  | AI Strength & Optimization           | ✅ COMPLETE                                                           |
+| Wave 10 | Game Records & Training Data         | ✅ SUBSTANTIALLY COMPLETE                                             |
+| Wave 11 | Test Hardening & Golden Replays      | ✅ SUBSTANTIALLY COMPLETE (29 game candidates across all board types) |
+| Wave 12 | Matchmaking & Ratings                | ✅ COMPLETE                                                           |
+| Wave 13 | Multi-Player (3-4 Players)           | ✅ COMPLETE                                                           |
+| Wave 14 | Accessibility & Code Quality         | ✅ COMPLETE                                                           |
+
+**Engine Architecture Status (A-/A Grade):**
+
+- TypeScript: 6 domain aggregates, canonical orchestrator at 100%, 54 contract vectors
+- Python: 3-layer design, explicit SSoT policy, 836 tests passing
+- Cross-engine parity: 0 mismatches on contract vectors
+
+**Engine Refactoring Status (Dec 5, 2025):**
+
+- LineAggregate (1199 lines) and TerritoryAggregate (1194 lines) were analyzed for potential splitting
+- Both are well-organized with clear functional sections (Types, Detection, Validation, Enumeration, Mutation)
+- Follow DDD aggregate pattern - consolidating related domain logic is intentional
+- **Conclusion:** No urgent refactoring needed; aggregates are appropriately sized and structured
 
 This file is the canonical high-level task tracker for the project.
 When it disagrees with older planning docs (for example files under
@@ -627,11 +655,11 @@ keep them green; treat regressions as P0 until resolved.
 
 ---
 
-## Wave 8 – Player Experience & UX Polish (P1 - IN PROGRESS)
+## Wave 8 – Player Experience & UX Polish (P1) - ✅ COMPLETE
 
 > **Goal:** Transform developer-oriented UI into player-friendly experience suitable for public release.
 >
-> **Status:** 🔄 IN PROGRESS (Waves 8.1, 8.3, 8.4 Complete; 8.2 Mostly Complete)
+> **Status:** ✅ COMPLETE (Dec 4, 2025)
 > **Spec:** [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) §Wave 8
 
 ### Wave 8.1 – First-Time Player Experience ✅ COMPLETE (Dec 4, 2025)
@@ -693,20 +721,22 @@ keep them green; treat regressions as P0 until resolved.
 - [ ] Touch-optimized controls for stack selection and movement
 - [ ] Simplified mobile HUD layout
 
-### Wave 8.6 – Accessibility
+### Wave 8.6 – Accessibility ✅ COMPLETE (Dec 5, 2025)
 
-- [ ] Keyboard navigation for all game actions
-- [ ] Screen reader support for game state announcements
-- [ ] High-contrast mode option
-- [ ] Colorblind-friendly player color palette
+> **Note:** Accessibility features were implemented in Wave 14.5. See [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) for the full guide.
+
+- [x] Keyboard navigation for all game actions (`useKeyboardNavigation` hook)
+- [x] Screen reader support for game state announcements (`ScreenReaderAnnouncer` component)
+- [x] High-contrast mode option (`AccessibilitySettingsPanel`)
+- [x] Colorblind-friendly player color palette (deuteranopia, protanopia, tritanopia modes via `AccessibilityContext`)
 
 ---
 
-## Wave 9 – AI Strength & Optimization (P1 - PLANNED)
+## Wave 9 – AI Strength & Optimization (P1) - ✅ COMPLETE
 
 > **Goal:** Provide challenging AI opponents across all skill levels, from beginner to expert.
 >
-> **Status:** 📋 PLANNED
+> **Status:** ✅ COMPLETE (Dec 4, 2025)
 > **Spec:** [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) §Wave 9
 
 ### Wave 9.1 – Production AI Ladder
@@ -752,11 +782,11 @@ keep them green; treat regressions as P0 until resolved.
 
 ---
 
-## Wave 10 – Game Records & Training Data (P2 - PLANNED)
+## Wave 10 – Game Records & Training Data (P2) - ✅ SUBSTANTIALLY COMPLETE
 
 > **Goal:** Comprehensive game storage, notation, and replay system for analysis, training, and competitive features.
 >
-> **Status:** 📋 PLANNED
+> **Status:** ✅ SUBSTANTIALLY COMPLETE (Dec 4, 2025)
 > **Spec:** [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) §Wave 10
 
 ### Wave 10.1 – Game Record Types

@@ -180,14 +180,18 @@ class TestForcedEliminationStackSelection:
 class TestForcedEliminationMultiPlayer:
     """Tests for multi-player forced elimination rotation."""
 
-    def test_skip_fully_eliminated_player_in_rotation(self) -> None:
-        """Turn rotation should skip players with no turn material."""
+    def test_fully_eliminated_player_gets_turn_for_no_action_markers(self) -> None:
+        """Per RR-CANON-R074/R075, players with no material still get their turn.
+
+        They will emit no-action markers (no_placement_action, no_movement_action)
+        to record that each phase was visited, maintaining the phase recording invariant.
+        """
         state = _make_multiplayer_game_state(3)
         state.current_player = 1
 
-        # P1: has stack (will trigger FE)
-        # P2: no stacks, no rings (fully eliminated - should be skipped)
-        # P3: has rings in hand (should get turn)
+        # P1: has stack (will trigger FE based on conditions)
+        # P2: no stacks, no rings (fully eliminated - gets turn for no-action markers)
+        # P3: has rings in hand
 
         pos1 = Position(x=0, y=0)
         state.board.stacks[pos1.to_key()] = RingStack(
@@ -206,9 +210,10 @@ class TestForcedEliminationMultiPlayer:
         # Run end turn from P1
         GameEngine._end_turn(state)
 
-        # Should have skipped P2 and gone to P3
-        assert state.current_player == 3, (
-            f"Expected P3, got P{state.current_player}"
+        # Per RR-CANON-R074/R075, P2 gets their turn (to emit no-action markers)
+        # They are NOT skipped; they traverse all phases and emit no-action moves
+        assert state.current_player == 2, (
+            f"Expected P2 (for no-action markers), got P{state.current_player}"
         )
 
     def test_forced_elimination_chain_terminates(self) -> None:
@@ -326,7 +331,7 @@ class TestForcedEliminationPhaseTransitions:
         # Verify victory conditions
         total_eliminated = state.board.eliminated_rings.get("1", 0)
         if total_eliminated >= state.victory_threshold:
-            assert state.game_status == GameStatus.FINISHED
+            assert state.game_status == GameStatus.COMPLETED
             assert state.winner == 1
 
 
@@ -387,15 +392,24 @@ class TestForcedEliminationPreconditions:
                 adj_pos = Position(x=3 + dx, y=3 + dy)
                 state.board.collapsed_spaces[adj_pos.to_key()] = 2  # Enemy territory
 
-        # No normal moves (movement/capture) should be available
+        # In MOVEMENT phase with no valid moves, we get NO_MOVEMENT_ACTION per RR-CANON-R075
         all_moves = GameEngine.get_valid_moves(state, 1)
-        normal_moves = [m for m in all_moves if m.type != MoveType.FORCED_ELIMINATION]
+        normal_moves = [m for m in all_moves if m.type not in (
+            MoveType.FORCED_ELIMINATION,
+            MoveType.NO_MOVEMENT_ACTION,
+            MoveType.NO_PLACEMENT_ACTION,
+        )]
         assert len(normal_moves) == 0, "Should have no normal moves (movement/capture)"
 
-        # But FE should be available (and should be included in get_valid_moves)
+        # has_forced_elimination_action should still detect the FE condition
         assert ga.has_forced_elimination_action(state, 1)
-        fe_moves = [m for m in all_moves if m.type == MoveType.FORCED_ELIMINATION]
-        assert len(fe_moves) > 0, "FE moves should be included in get_valid_moves when blocked"
+
+        # FE moves are returned when in FORCED_ELIMINATION phase (per RR-CANON-R070)
+        state.current_phase = GamePhase.FORCED_ELIMINATION
+        GameEngine.clear_cache()
+        fe_moves = GameEngine.get_valid_moves(state, 1)
+        assert len(fe_moves) > 0, "FE moves should be returned in FORCED_ELIMINATION phase"
+        assert all(m.type == MoveType.FORCED_ELIMINATION for m in fe_moves)
 
 
 class TestForcedEliminationCounting:

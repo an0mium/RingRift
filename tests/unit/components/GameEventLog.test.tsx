@@ -198,9 +198,7 @@ describe('GameEventLog', () => {
 
       render(<GameEventLog history={history} />);
       expect(
-        screen.getByText(
-          '#3 — P2 invoked the pie rule and swapped colours with P1',
-        ),
+        screen.getByText('#3 — P2 invoked the pie rule and swapped colours with P1')
       ).toBeInTheDocument();
     });
 
@@ -323,7 +321,8 @@ describe('GameEventLog', () => {
         }),
       ];
       render(<GameEventLog history={history} />);
-      expect(screen.getByText(/P1 processed 1 line/)).toBeInTheDocument();
+      // The format includes move number and [Line order] prefix, e.g. "#1 — P1 [Line order] processed 1 line"
+      expect(screen.getByText(/\[Line order\] processed 1 line/)).toBeInTheDocument();
     });
 
     it('formats territory processing moves correctly', () => {

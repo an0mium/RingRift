@@ -4,7 +4,7 @@
 >
 > **Role:** High-level guide to the RingRift TS+Python test suites: how they are structured, how to run them in different profiles (core/diagnostics/CI), and where to start when adding or debugging tests. This doc is a **test/meta reference only** – it explains how tests are organised and which commands/environments to use; it does **not** define game rules or lifecycle semantics.
 >
-> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the shared TypeScript rules engine and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) together with the written rules and lifecycle docs (`RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md`, `docs/CANONICAL_ENGINE_API.md`). When this guide refers to “canonical semantics” or “authoritative tests”, it is pointing back to those SSoTs and to the rules-level suites that exercise them.
+> **Not a semantics SSoT:** Canonical rules and lifecycle semantics are owned by the rules specification (`RULES_CANONICAL_SPEC.md` plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its shared TypeScript engine implementation and contracts/vectors (`src/shared/engine/**`, `src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), together with the lifecycle docs (`docs/CANONICAL_ENGINE_API.md`). When this guide refers to “canonical semantics” or “authoritative tests”, it is pointing back to those SSoTs and to the rules-level suites that exercise them.
 >
 > **Related docs:** `tests/TEST_LAYERS.md`, `tests/TEST_SUITE_PARITY_PLAN.md`, `docs/PARITY_SEED_TRIAGE.md`, `RULES_SCENARIO_MATRIX.md`, `RULES_ENGINE_ARCHITECTURE.md`, `AI_ARCHITECTURE.md`, and `DOCUMENTATION_INDEX.md`.
 
@@ -975,10 +975,13 @@ For cross‑host parity suites:
 
 ### Traces are derived artifacts (seed‑14 precedent)
 
-Recorded traces are **derived artifacts**, not ground truth. The canonical rules are:
+Recorded traces are **derived artifacts**, not ground truth. The canonical rules SSoT is:
 
-- The implementation in `src/shared/engine/` (types, validators, mutators, `GameEngine`).
-- The written rules in `ringrift_complete_rules.md`.
+- The written rules in `RULES_CANONICAL_SPEC.md` (together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`).
+
+The shared TS engine implementation in `src/shared/engine/` (types, validators, mutators, `GameEngine`) is the
+**primary executable derivation** of that spec. When there is a disagreement between the written rules and the
+shared engine, the rules spec wins and the engine must be updated to match.
 
 When a trace-based parity test fails:
 

@@ -15,6 +15,7 @@
 
 import type { GameState, Move, GameResult } from '../../shared/engine';
 import { hashGameState } from '../../shared/engine';
+import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
 import {
   processTurn,
   validateMove,
@@ -109,6 +110,13 @@ export interface SandboxMoveResult {
 
   /** Victory result if the game ended */
   victoryResult?: GameResult | undefined;
+
+  /**
+   * Canonical explanation for why the game ended, when available. Derived
+   * from the shared orchestrator's VictoryState.gameEndExplanation and
+   * threaded through to sandbox hosts for HUD/Victory surfaces.
+   */
+  gameEndExplanation?: GameEndExplanation | undefined;
 
   /** Error message if move failed */
   error?: string | undefined;
@@ -275,6 +283,65 @@ export class SandboxOrchestratorAdapter {
           break;
         }
 
+        // RR-CANON-R076: Handle required no-action decisions from core layer.
+        // These are returned when a phase has no available actions.
+        // - In replay/traceMode: break and let the caller apply explicit moves
+        // - In live play: auto-apply the single no-action option for UX convenience
+        if (
+          decision.type === 'no_line_action_required' ||
+          decision.type === 'no_territory_action_required' ||
+          decision.type === 'no_movement_action_required' ||
+          decision.type === 'no_placement_action_required'
+        ) {
+          if (this.skipTerritoryAutoResolve) {
+            // Replay/traceMode: require explicit move from recording
+            break;
+          }
+          // Live play: synthesize and auto-apply the required no-action move
+          const stateForMove = this.stateAccessor.getGameState();
+          const moveNumber = stateForMove.moveHistory.length + 1;
+
+          let moveType: Move['type'];
+          switch (decision.type) {
+            case 'no_line_action_required':
+              moveType = 'no_line_action';
+              break;
+            case 'no_territory_action_required':
+              moveType = 'no_territory_action';
+              break;
+            case 'no_movement_action_required':
+              moveType = 'no_movement_action';
+              break;
+            case 'no_placement_action_required':
+              moveType = 'no_placement_action';
+              break;
+            default:
+              // Should be unreachable given the guard above.
+              break;
+          }
+
+          // If for some reason we did not recognise the decision type, fall
+          // back to letting the normal decision flow handle it.
+          if (!moveType) {
+            break;
+          }
+
+          const noActionMove: Move = {
+            id: `auto-${moveType}-${moveNumber}`,
+            type: moveType,
+            player: decision.player,
+            to: { x: 0, y: 0 },
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber,
+          };
+
+          result = runProcessTurn(workingState, noActionMove);
+          workingState = result.nextState;
+          this.stateAccessor.updateGameState(workingState);
+          continue;
+        }
+
         // For all other decision types, mirror processTurnAsync semantics:
         // emit a decision_required event, delegate to the decision handler,
         // then emit decision_resolved and continue processing.
@@ -312,11 +379,14 @@ export class SandboxOrchestratorAdapter {
       if (result.victoryResult?.isGameOver && result.victoryResult.winner !== undefined) {
         victoryResult = this.convertVictoryResult(result);
       }
+      const gameEndExplanation: GameEndExplanation | undefined =
+        result.victoryResult?.gameEndExplanation;
 
       const moveResult: SandboxMoveResult = {
         success: true,
         nextState: workingState,
         victoryResult,
+        gameEndExplanation,
         metadata: {
           hashBefore,
           hashAfter,
@@ -393,11 +463,14 @@ export class SandboxOrchestratorAdapter {
       if (result.victoryResult?.isGameOver && result.victoryResult.winner !== undefined) {
         victoryResult = this.convertVictoryResult(result);
       }
+      const gameEndExplanation: GameEndExplanation | undefined =
+        result.victoryResult?.gameEndExplanation;
 
       return {
         success: true,
         nextState: result.nextState,
         victoryResult,
+        gameEndExplanation,
         metadata: {
           hashBefore,
           hashAfter,

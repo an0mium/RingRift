@@ -39,8 +39,16 @@ import {
   type SandboxConfig,
   type SandboxInteractionHandler,
 } from '../src/client/sandbox/ClientSandboxEngine';
-import type { BoardType, GameState, Move, Position } from '../src/shared/types/game';
+import type {
+  BoardType,
+  GameState,
+  Move,
+  Position,
+  Player,
+  TimeControl,
+} from '../src/shared/types/game';
 import { hashGameStateSHA256, getEffectiveLineLengthThreshold } from '../src/shared/engine';
+import { createInitialGameState } from '../src/shared/engine/initialState';
 import { serializeGameState } from '../src/shared/engine/contracts/serialization';
 import { connectDatabase, disconnectDatabase } from '../src/server/database/connection';
 import type { PrismaClient } from '@prisma/client';
@@ -320,13 +328,57 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
   // Sanitize initial state in the same way SelfPlayBrowser does before
   // passing it into /sandbox, so this script matches sandbox behaviour.
+  // If there's no initial state (e.g., GameRecord format imports from soaks),
+  // create a fresh initial state using the board type and player count.
+  let sanitizedState: any;
   const rawState = detail.initialState as any;
-  const sanitizedState = rawState && typeof rawState === 'object' ? { ...rawState } : rawState;
-  if (sanitizedState && Array.isArray(sanitizedState.moveHistory)) {
-    sanitizedState.moveHistory = [];
-  }
-  if (sanitizedState && Array.isArray(sanitizedState.history)) {
-    sanitizedState.history = [];
+
+  if (rawState && typeof rawState === 'object') {
+    sanitizedState = { ...rawState };
+    if (Array.isArray(sanitizedState.moveHistory)) {
+      sanitizedState.moveHistory = [];
+    }
+    if (Array.isArray(sanitizedState.history)) {
+      sanitizedState.history = [];
+    }
+  } else {
+    // No initial state - create a fresh one for the board type and player count.
+    // This handles GameRecord format imports (golden games, soak exports) which
+    // record games from a standard empty board without explicit initial state.
+    console.error(
+      `[selfplay-db-ts-replay] No initial state found for ${gameId}; creating fresh state for ${detail.boardType} with ${detail.numPlayers} players`
+    );
+
+    const timeControl: TimeControl = {
+      type: 'rapid',
+      initialTime: 600,
+      increment: 0,
+    };
+
+    const players: Player[] = [];
+    for (let i = 0; i < detail.numPlayers; i += 1) {
+      const playerNumber = i + 1;
+      players.push({
+        id: `player-${playerNumber}`,
+        username: `Player ${playerNumber}`,
+        type: 'ai',
+        playerNumber,
+        isReady: true,
+        timeRemaining: timeControl.initialTime * 1000,
+        ringsInHand: 0,
+        eliminatedRings: 0,
+        territorySpaces: 0,
+      });
+    }
+
+    const freshState = createInitialGameState(
+      gameId,
+      detail.boardType as BoardType,
+      players,
+      timeControl,
+      false
+    );
+    sanitizedState = serializeGameState(freshState);
   }
 
   const config: SandboxConfig = {

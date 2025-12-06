@@ -8,7 +8,11 @@ import {
   type TeachingScenarioMetadata,
 } from '../../shared/teaching/teachingScenarios';
 import { getRulesUxContextForTeachingScenario } from '../../shared/teaching/scenarioTelemetry';
-import { logRulesUxEvent, newTeachingFlowId } from '../utils/rulesUxTelemetry';
+import {
+  logRulesUxEvent,
+  newTeachingFlowId,
+  TEACHING_TOPICS_COPY,
+} from '../utils/rulesUxTelemetry';
 
 export type TeachingTopic =
   | 'ring_placement'
@@ -33,10 +37,10 @@ export interface TeachingContent {
 
 const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
   ring_placement: {
-    title: 'Ring Placement',
+    title: TEACHING_TOPICS_COPY.ring_placement.heading,
     icon: '◯',
-    description:
-      'Players take turns placing rings from their hand onto empty board spaces. Rings stack on top of any existing rings at that position.',
+    // Canonical description from UX_RULES_COPY_SPEC.md §2 / placement overview
+    description: TEACHING_TOPICS_COPY.ring_placement.body,
     tips: [
       'Placing adjacent to your existing rings helps build territory',
       'Stacking on opponents can set up future captures',
@@ -45,10 +49,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     relatedPhases: ['ring_placement'],
   },
   stack_movement: {
-    title: 'Stack Movement',
+    title: TEACHING_TOPICS_COPY.stack_movement.heading,
     icon: '→',
-    description:
-      'Move a stack you control (your ring on top) in a straight line at least as many spaces as the stack’s height. You can go farther if the path has no stacks or territory spaces blocking you; markers are allowed and may eliminate your top ring when you land on them.',
+    // UX_RULES_COPY_SPEC.md §4 – Stack Movement description
+    description: TEACHING_TOPICS_COPY.stack_movement.body,
     tips: [
       'Taller stacks can threaten long moves and future captures',
       'You cannot move through other stacks or territory spaces',
@@ -57,10 +61,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     relatedPhases: ['movement'],
   },
   capturing: {
-    title: 'Capturing',
+    title: TEACHING_TOPICS_COPY.capturing.heading,
     icon: '×',
-    description:
-      'To capture, jump over an adjacent opponent stack in a straight line and land on the empty or marker space just beyond it. You take the top ring from the jumped stack and add it to the bottom of your own stack – captured rings stay in play.',
+    // UX_RULES_COPY_SPEC.md §5 – Capturing description
+    description: TEACHING_TOPICS_COPY.capturing.body,
     tips: [
       'Captures move rings into your stacks; only later eliminations remove rings from the game',
       'Your stack’s cap height must be at least as high as the stack you jump over',
@@ -69,10 +73,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     relatedPhases: ['capture'],
   },
   chain_capture: {
-    title: 'Chain Capture',
+    title: TEACHING_TOPICS_COPY.chain_capture.heading,
     icon: '⇉',
-    description:
-      'After an overtaking capture, if your new stack can capture again, you are in a chain capture. Starting the first capture is optional, but once the chain begins you must keep capturing while any capture exists, choosing which target to jump over each time.',
+    // UX_RULES_COPY_SPEC.md §5 – Chain Capture description
+    description: TEACHING_TOPICS_COPY.chain_capture.body,
     tips: [
       'Plan chain captures to traverse multiple enemy stacks in a single turn',
       'You choose which capture to take when several are available, but you cannot stop early while any capture remains',
@@ -81,10 +85,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     relatedPhases: ['chain_capture'],
   },
   line_bonus: {
-    title: 'Line Bonus',
+    title: TEACHING_TOPICS_COPY.line_bonus.heading,
     icon: '═',
-    description:
-      'Lines are built from your markers. When a straight line of your markers reaches the minimum scoring length for this board, it becomes a scoring line: you collapse markers in that line into permanent Territory and, on many boards, must pay a ring-elimination cost from a stack you control.',
+    // UX_RULES_COPY_SPEC.md §6 – Lines description
+    description: TEACHING_TOPICS_COPY.line_bonus.body,
     tips: [
       'Lines are formed from markers, not rings – horizontal, vertical, and diagonal lines all count.',
       'Exact-length lines always collapse fully into Territory and usually require you to eliminate a ring from one of your stacks.',
@@ -93,10 +97,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     relatedPhases: ['line_processing'],
   },
   territory: {
-    title: 'Territory Control',
+    title: TEACHING_TOPICS_COPY.territory.heading,
     icon: '▣',
-    description:
-      'Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, often at the cost of eliminating a ring from one of your other stacks. If your Territory passes more than half of the board, you win immediately.',
+    // UX_RULES_COPY_SPEC.md §7 – Territory description
+    description: TEACHING_TOPICS_COPY.territory.body,
     tips: [
       'Territory comes from collapsing marker lines and resolving disconnected regions.',
       'Once a space becomes Territory it cannot be captured back or undone.',
@@ -105,10 +109,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     relatedPhases: ['territory_processing'],
   },
   active_no_moves: {
-    title: 'When you have no legal moves',
+    title: TEACHING_TOPICS_COPY.active_no_moves.heading,
     icon: '⛔',
-    description:
-      'Sometimes it is your turn but there are no legal placements, movements, or captures available. This is an Active–No–Moves state: the rules engine will either trigger forced elimination of your stacks, or, if no eliminations are possible, treat you as structurally stuck for Last Player Standing and plateau detection.',
+    // UX_RULES_COPY_SPEC.md §10.4 – teaching.active_no_moves description
+    description: TEACHING_TOPICS_COPY.active_no_moves.body,
     tips: [
       'Active–No–Moves only looks at real moves: placements, movements, and captures. Forced elimination and automatic line/territory processing do not count as real moves for Last Player Standing.',
       'If you still control stacks but have no placements or movements, the game applies forced elimination caps until a real move becomes available or your stacks are exhausted.',
@@ -117,22 +121,22 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     relatedPhases: ['movement', 'line_processing', 'territory_processing'],
   },
   forced_elimination: {
-    title: 'Forced Elimination (FE)',
+    title: TEACHING_TOPICS_COPY.forced_elimination.heading,
     icon: '💥',
-    description:
-      'Forced Elimination happens when you control stacks but have no legal placements, movements, or captures. Caps are removed from your stacks automatically until either a real move becomes available or your stacks are gone. These eliminations are mandatory and follow the rules, not player choice.',
+    // UX_RULES_COPY_SPEC.md §10.4 – teaching.forced_elimination description
+    description: TEACHING_TOPICS_COPY.forced_elimination.body,
     tips: [
       'Rings removed by forced elimination are permanently eliminated and count toward global Ring Elimination victory, just like eliminations from movement onto markers, line rewards, or territory processing.',
-      'Forced elimination does not count as a “real move” for Last Player Standing – it is an automatic clean‑up step the engine applies when you are blocked but still have material.',
-      'You cannot skip forced elimination when its conditions are met; the sequence and which caps are removed are fully determined by the rules.',
+      'Forced elimination does not count as a “real move” for Last Player Standing, even though each step is recorded as a forced_elimination move in its own phase.',
+      'You cannot skip forced elimination when its conditions are met; the rules may let you choose the stack, but some legal forced_elimination move must be recorded.',
     ],
-    relatedPhases: ['movement', 'territory_processing'],
+    relatedPhases: ['movement', 'territory_processing', 'forced_elimination'],
   },
   victory_elimination: {
-    title: 'Victory: Elimination',
+    title: TEACHING_TOPICS_COPY.victory_elimination.heading,
     icon: '💎',
-    description:
-      'Win by eliminating more than half of all rings in the game – not just one opponent’s set. Eliminated rings are permanently removed; captured rings you carry in stacks do not count toward this threshold.',
+    // UX_RULES_COPY_SPEC.md §3.1 – TeachingOverlay victory topic – elimination
+    description: TEACHING_TOPICS_COPY.victory_elimination.body,
     tips: [
       'Track eliminated rings globally, across all players',
       'Eliminations come from movement onto markers, line rewards, territory processing, and forced eliminations',
@@ -140,10 +144,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     ],
   },
   victory_territory: {
-    title: 'Victory: Territory',
+    title: TEACHING_TOPICS_COPY.victory_territory.heading,
     icon: '🏰',
-    description:
-      'Win by owning more than half of all board spaces as Territory. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
+    // UX_RULES_COPY_SPEC.md §3.2 – TeachingOverlay victory topic – territory
+    description: TEACHING_TOPICS_COPY.victory_territory.body,
     tips: [
       'Territory is permanent: once claimed, those spaces never return to neutral.',
       'On an 8×8 board, you need at least 33 Territory spaces to win.',
@@ -151,10 +155,10 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     ],
   },
   victory_stalemate: {
-    title: 'Victory: Last Player Standing',
+    title: TEACHING_TOPICS_COPY.victory_stalemate.heading,
     icon: '👑',
-    description:
-      'Last Player Standing happens when, after a full round of turns, you are the only player who can still make real moves (placements, movements, or captures). Forced eliminations and automatic territory processing do not prevent LPS.',
+    // UX_RULES_COPY_SPEC.md §3.3 – TeachingOverlay victory topic – stalemate / LPS
+    description: TEACHING_TOPICS_COPY.victory_stalemate.body,
     tips: [
       'Real moves are placements, movements, and captures; forced eliminations do not count.',
       'Opponents who are out of real moves for a full round are considered out for LPS.',
@@ -171,6 +175,7 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
 const TOPIC_RULES_CONCEPTS: Partial<Record<TeachingTopic, RulesConcept[]>> = {
   active_no_moves: ['anm_forced_elimination'],
   forced_elimination: ['anm_forced_elimination'],
+  territory: ['territory_mini_region'],
   victory_stalemate: ['structural_stalemate', 'last_player_standing'],
 };
 
@@ -603,6 +608,8 @@ export function getTeachingTopicForMove(move: Move): TeachingTopic | null {
     case 'eliminate_rings_from_stack':
     case 'skip_territory_processing':
       return 'territory';
+    case 'forced_elimination':
+      return 'forced_elimination';
     default:
       return null;
   }

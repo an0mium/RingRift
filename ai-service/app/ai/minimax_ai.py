@@ -326,7 +326,7 @@ class MinimaxAI(HeuristicAI):
         current_player_num = game_state.current_player
 
         # Check if game is over
-        if game_state.game_status == "finished":
+        if game_state.game_status == "completed":
             # If I won, return huge score. If I lost, return huge negative.
             if game_state.winner == self.player_number:
                 return 100000.0 + depth  # Prefer faster wins
@@ -335,6 +335,9 @@ class MinimaxAI(HeuristicAI):
             else:
                 return 0.0  # Draw
 
+        # Use the host-level RulesEngine surface so that when there are no
+        # interactive moves but a bookkeeping move is required, it is still
+        # surfaced as a legal action.
         valid_moves = self.rules_engine.get_valid_moves(
             game_state,
             current_player_num,

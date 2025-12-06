@@ -36,6 +36,8 @@ function getMoveTypeLabel(phase: GamePhase): string {
       return 'Line Bonus';
     case 'territory_processing':
       return 'Territory';
+    case 'forced_elimination':
+      return 'Forced Elim';
     default:
       return phase;
   }

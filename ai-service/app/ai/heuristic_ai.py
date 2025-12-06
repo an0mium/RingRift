@@ -892,7 +892,7 @@ class HeuristicAI(BaseAI):
             Evaluation score (positive = good for this AI)
         """
         # Check for game over first
-        if game_state.game_status == "finished":
+        if game_state.game_status == "completed":
             if game_state.winner == self.player_number:
                 return 100000.0
             elif game_state.winner is not None:

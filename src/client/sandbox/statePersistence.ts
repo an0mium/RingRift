@@ -52,7 +52,12 @@ function inferCategoryFromPhase(phase: string): ScenarioCategory {
     case 'choose_line_reward':
       return 'line_processing';
     case 'process_territory_region':
+    case 'territory_processing':
       return 'territory_processing';
+    case 'forced_elimination':
+      // Forced elimination is a special 7th phase (RR-CANON-R070) that doesn't
+      // map to existing scenario categories; treat as custom for now.
+      return 'custom';
     default:
       return 'custom';
   }

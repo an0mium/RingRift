@@ -113,7 +113,7 @@ Other previously weak areas have improved markedly since earlier passes:
 
 - **DevOps/CI enforcement** – [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:578) identified non-blocking ESLint and E2E jobs as the weakest area in Pass 7. These are now corrected; lint and Playwright suites are CI-blocking, and the Python core tests are included via dedicated jobs.
 - **Shared rules helpers and parity** – The P0 movement/placement/capture helper gaps noted in mid-phase consolidation passes have been closed: movement, capture, and placement all share canonical helpers and aggregates, and contract-based TS↔Python parity suites are green.
-- **Rules documentation and SSOT discipline** – [`CURRENT_RULES_STATE.md`](CURRENT_RULES_STATE.md:1) and [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:1) accurately track rules SSoTs and test harnesses, with SSOT checks like [`rules-ssot-check.ts`](scripts/ssot/rules-ssot-check.ts:1) enforcing consistency.
+- **Rules documentation and SSOT discipline** – [`CURRENT_RULES_STATE.md`](CURRENT_RULES_STATE.md:1) and [`RULES_IMPLEMENTATION_MAPPING.md`](RULES_IMPLEMENTATION_MAPPING.md:1) accurately track the canonical rules SSoT (rules spec + shared TS engine) and test harnesses, with SSOT checks like [`rules-ssot-check.ts`](scripts/ssot/rules-ssot-check.ts:1) enforcing consistency.
 
 By contrast, the **frontend host architecture** still carries:
 
@@ -208,7 +208,7 @@ Spot-checks focused on documents either not deeply audited in earlier passes or 
 - **Findings:**
   - [`docs/TOPOLOGY_MODES.md`](docs/TOPOLOGY_MODES.md:1) correctly describes supported board topologies and references geometry helpers consistent with engine implementation and tests.
   - Runbooks such as [`docs/runbooks/RULES_PARITY.md`](docs/runbooks/RULES_PARITY.md:1), [`docs/runbooks/AI_ERRORS.md`](docs/runbooks/AI_ERRORS.md:1), [`docs/runbooks/AI_FALLBACK.md`](docs/runbooks/AI_FALLBACK.md:1), [`docs/runbooks/AI_SERVICE_DOWN.md`](docs/runbooks/AI_SERVICE_DOWN.md:1), [`docs/runbooks/GAME_HEALTH.md`](docs/runbooks/GAME_HEALTH.md:1), and [`docs/runbooks/GAME_PERFORMANCE.md`](docs/runbooks/GAME_PERFORMANCE.md:1) now explicitly:
-    - Treat the shared TS engine + orchestrator as the rules SSoT.
+    - Treat the canonical rules spec plus shared TS engine + orchestrator as the rules SSoT.
     - Document orchestrator flags (`ORCHESTRATOR_ADAPTER_ENABLED`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE`, `ORCHESTRATOR_SHADOW_MODE_ENABLED`, `RINGRIFT_RULES_MODE`) and when **not** to change them in response to AI or infra-only incidents.
     - Cross-link to `AI_ARCHITECTURE.md` §0 (AI incident overview) and `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` for Safe rollback.
 - **Recommendation:** Keep these as **active operational references**; future changes to rules or rollout strategy should update `ORCHESTRATOR_ROLLOUT_PLAN` first and then keep these runbooks in sync.
@@ -217,7 +217,7 @@ Spot-checks focused on documents either not deeply audited in earlier passes or 
 
 - **Status:** _Accurate and recently updated_
 - **Findings:**
-  - [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1) now incorporates the current TS rules SSoT and orchestrator-first lifecycle, as well as detailed descriptions of the AI difficulty ladder, RNG determinism, and training pipelines.
+  - [`AI_ARCHITECTURE.md`](AI_ARCHITECTURE.md:1) now incorporates the current canonical rules SSoT (rules spec + shared TS engine) and orchestrator-first lifecycle, as well as detailed descriptions of the AI difficulty ladder, RNG determinism, and training pipelines.
   - New sections on pre-training preparation, `MemoryConfig`, and evaluation tooling match code in `ai-service/app/utils/memory_config.py`, training modules under `ai-service/app/training/**`, and tests such as [`test_multi_start_evaluation.py`](ai-service/tests/test_multi_start_evaluation.py:1).
 - **Recommendation:** Treat this as the SSoT for AI architecture, with `AI_IMPROVEMENT_BACKLOG` reserved for task-level planning.
 

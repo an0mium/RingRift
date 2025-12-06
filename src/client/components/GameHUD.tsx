@@ -258,6 +258,13 @@ function getPhaseInfo(phase: GamePhase): PhaseInfo {
         color: 'bg-pink-500',
         icon: '🏰',
       };
+    case 'forced_elimination':
+      return {
+        label: 'Forced Elimination',
+        description: 'No legal moves available – you must eliminate from one of your stacks.',
+        color: 'bg-red-600',
+        icon: '💥',
+      };
     default:
       return {
         label: 'Unknown Phase',

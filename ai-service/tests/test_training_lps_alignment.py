@@ -98,7 +98,7 @@ class TestLPSRewardHandling(unittest.TestCase):
     def test_lps_victory_gives_winner_positive_reward(self) -> None:
         """Verify that an LPS victory gives +1 reward to the winner."""
         state = _make_two_player_state()
-        state.game_status = GameStatus.FINISHED
+        state.game_status = GameStatus.COMPLETED
         state.winner = 1
         state.lps_exclusive_player_for_completed_round = 1
 
@@ -117,7 +117,7 @@ class TestLPSRewardHandling(unittest.TestCase):
     def test_lps_victory_gives_loser_negative_reward(self) -> None:
         """Verify that an LPS victory gives -1 reward to the loser."""
         state = _make_two_player_state()
-        state.game_status = GameStatus.FINISHED
+        state.game_status = GameStatus.COMPLETED
         state.winner = 1
         state.lps_exclusive_player_for_completed_round = 1
 
@@ -139,7 +139,7 @@ class TestVictoryReasonInference(unittest.TestCase):
     def test_infer_elimination_victory(self) -> None:
         """Verify elimination victory is correctly inferred."""
         state = _make_two_player_state()
-        state.game_status = GameStatus.FINISHED
+        state.game_status = GameStatus.COMPLETED
         state.winner = 1
         # Player 1 reached the victory threshold
         state.board.eliminated_rings["1"] = state.victory_threshold
@@ -150,7 +150,7 @@ class TestVictoryReasonInference(unittest.TestCase):
     def test_infer_territory_victory(self) -> None:
         """Verify territory victory is correctly inferred."""
         state = _make_two_player_state()
-        state.game_status = GameStatus.FINISHED
+        state.game_status = GameStatus.COMPLETED
         state.winner = 1
 
         # Player 1 reached the territory victory threshold
@@ -163,7 +163,7 @@ class TestVictoryReasonInference(unittest.TestCase):
     def test_infer_lps_victory(self) -> None:
         """Verify LPS (R172) victory is correctly inferred."""
         state = _make_two_player_state()
-        state.game_status = GameStatus.FINISHED
+        state.game_status = GameStatus.COMPLETED
         state.winner = 1
         state.lps_exclusive_player_for_completed_round = 1
         # Add a stack so it's not structural termination
@@ -183,7 +183,7 @@ class TestVictoryReasonInference(unittest.TestCase):
     def test_infer_structural_victory(self) -> None:
         """Verify structural termination is correctly inferred."""
         state = _make_two_player_state()
-        state.game_status = GameStatus.FINISHED
+        state.game_status = GameStatus.COMPLETED
         state.winner = 1
         # No stacks = structural termination
         state.board.stacks = {}
@@ -280,13 +280,13 @@ class TestRingRiftEnvRewards(unittest.TestCase):
         state = env.reset(seed=42)
         self.assertIsNotNone(state)
 
-        # Manually set game to finished state with LPS victory
-        state.game_status = GameStatus.FINISHED
+        # Manually set game to completed state with LPS victory
+        state.game_status = GameStatus.COMPLETED
         state.winner = 1
         state.lps_exclusive_player_for_completed_round = 1
 
         # Verify state is correctly set
-        self.assertEqual(state.game_status, GameStatus.FINISHED)
+        self.assertEqual(state.game_status, GameStatus.COMPLETED)
         self.assertEqual(state.winner, 1)
 
         # Verify victory reason inference works

@@ -881,7 +881,7 @@ def generate_dataset(
             if not move:
                 # No moves available, current player loses
                 state.winner = 2 if current_player == 1 else 1
-                state.game_status = GameStatus.FINISHED
+                state.game_status = GameStatus.COMPLETED
                 break
 
             # Encode state and action based on engine type for this player
@@ -1077,7 +1077,15 @@ def generate_dataset(
             # Track move for DB recording before applying
             moves_for_db.append(move)
 
-            state, _, done, _ = env.step(move)
+            state, _, done, step_info = env.step(move)
+
+            # Include any auto-generated moves (e.g., no_territory_action) that
+            # the engine appended internally per RR-CANON-R075. These are
+            # critical for TS↔Python replay parity.
+            auto_moves = step_info.get("auto_generated_moves", [])
+            if auto_moves:
+                moves_for_db.extend(auto_moves)
+
             move_count += 1
 
             if move_count % 10 == 0:

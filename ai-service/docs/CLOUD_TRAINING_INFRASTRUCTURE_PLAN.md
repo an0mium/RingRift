@@ -1392,7 +1392,7 @@ python scripts/run_full_training_matrix.py \
    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
    # Mixed precision training
-   scaler = torch.cuda.amp.GradScaler()
+   scaler = torch.amp.GradScaler('cuda')
 
    # DataLoader with multiple workers
    train_loader = DataLoader(

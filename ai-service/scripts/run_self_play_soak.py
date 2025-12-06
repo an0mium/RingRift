@@ -19,6 +19,15 @@ Key properties
   the current player, mirroring the shared TS TurnLogic contract.
 - Writes a JSONL log of per-game summaries (status, reason, length),
   plus an optional aggregate JSON summary.
+- Supports on-the-fly parity validation against the TS canonical engine:
+
+    RINGRIFT_PARITY_VALIDATION=strict  # or "warn" or "off" (default)
+    RINGRIFT_PARITY_DUMP_DIR=/tmp/parity-bundles
+
+  When enabled, each recorded game is replayed through the TS engine
+  after recording. If divergence is detected:
+  - "warn" mode: logs a warning but continues
+  - "strict" mode: dumps diagnostic state bundles and halts the soak
 
 Example usage
 -------------
@@ -92,7 +101,11 @@ from app.metrics import (  # type: ignore  # noqa: E402
 from app.rules.core import compute_progress_snapshot  # noqa: E402
 from app.rules import global_actions as ga  # type: ignore  # noqa: E402
 from app.utils.progress_reporter import SoakProgressReporter  # noqa: E402
-from app.db import get_or_create_db, record_completed_game  # noqa: E402
+from app.db import (  # noqa: E402
+    get_or_create_db,
+    record_completed_game_with_parity_check,
+    ParityValidationError,
+)
 
 
 VIOLATION_TYPE_TO_INVARIANT_ID: Dict[str, str] = {
@@ -566,13 +579,19 @@ def run_self_play_soak(
                 try:
                     if profile_timing:
                         t_step_start = time.time()
-                    state, _reward, done, _info = env.step(move)
+                    state, _reward, done, step_info = env.step(move)
                     if profile_timing:
                         timing_totals["env_step"] += time.time() - t_step_start
                     last_move = move
-                    # Collect move for game recording
+                    # Collect move for game recording.
+                    # Also include any auto-generated moves (e.g., no_territory_action)
+                    # that the engine appended internally per RR-CANON-R075. These
+                    # are critical for TS↔Python replay parity.
                     if replay_db:
                         game_moves_for_recording.append(move)
+                        auto_moves = step_info.get("auto_generated_moves", [])
+                        if auto_moves:
+                            game_moves_for_recording.extend(auto_moves)
                 except Exception as exc:  # pragma: no cover - defensive
                     termination_reason = f"step_exception:{type(exc).__name__}"
                     state = state  # keep last known state
@@ -849,7 +868,7 @@ def run_self_play_soak(
                 try:
                     if profile_timing:
                         t_db_start = time.time()
-                    game_id = record_completed_game(
+                    game_id = record_completed_game_with_parity_check(
                         db=replay_db,
                         initial_state=initial_state_for_recording,
                         final_state=state,
@@ -873,6 +892,17 @@ def run_self_play_soak(
                     if profile_timing:
                         timing_totals["db_record"] += time.time() - t_db_start
                     games_recorded += 1
+                except ParityValidationError as pve:
+                    # Parity validation failed - this is a critical error in strict mode.
+                    # The parity validator has already dumped diagnostic bundles.
+                    print(
+                        f"[PARITY ERROR] Game {game_idx} diverged from TS engine at k={pve.divergence.move_index}:\n"
+                        f"  Python phase: {pve.divergence.python_phase}, TS phase: {pve.divergence.ts_phase}\n"
+                        f"  Bundle dumped to: {pve.divergence.bundle_path or 'N/A'}",
+                        file=sys.stderr,
+                    )
+                    # Re-raise to halt the soak - parity divergence should stop immediately
+                    raise
                 except Exception as exc:  # pragma: no cover - defensive
                     # DB recording must never break the soak loop
                     print(

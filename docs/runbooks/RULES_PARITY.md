@@ -397,4 +397,4 @@ Before considering a rules-parity incident resolved:
   - `docs/AI_TRAINING_PREPARATION_GUIDE.md`
   - `docs/AI_TRAINING_ASSESSMENT_FINAL.md`
 
-Use this runbook as a **playbook for investigation and coordination**; always defer to the rules SSoT, monitoring configs, and parity tests for the ground truth of what “correct” means.
+Use this runbook as a **playbook for investigation and coordination**; always defer to the canonical rules SSoT (rules spec + shared TS engine), monitoring configs, and parity tests for the ground truth of what “correct” means.

@@ -26,13 +26,17 @@ class LightweightBoardType(Enum):
 
 
 class LightweightPhase(Enum):
-    """Game phase for lightweight state."""
+    """Game phase for lightweight state - 7 canonical phases per RR-CANON-R070."""
     RING_PLACEMENT = "ring_placement"
     MOVEMENT = "movement"
     CAPTURE = "capture"
     CHAIN_CAPTURE = "chain_capture"
     LINE_PROCESSING = "line_processing"
     TERRITORY_PROCESSING = "territory_processing"
+    # Final phase: entered only when player had no actions in all prior phases
+    # but still controls stacks. Records forced_elimination move then advances
+    # to next player. See RR-CANON-R100, RR-CANON-R204.
+    FORCED_ELIMINATION = "forced_elimination"
 
 
 @dataclass(slots=True)

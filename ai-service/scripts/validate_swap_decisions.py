@@ -259,7 +259,7 @@ def play_game_from_state(
 
         move = current_ai.select_move(game_state)
         if not move:
-            game_state.game_status = GameStatus.FINISHED
+            game_state.game_status = GameStatus.COMPLETED
             game_state.winner = 2 if current_player == 1 else 1
             break
 

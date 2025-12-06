@@ -3,22 +3,76 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import '@testing-library/jest-dom';
 import { ReplayPanel } from '../../../src/client/components/ReplayPanel';
 
-// Mock the ReplayService
-const mockListGames = jest.fn();
-const mockGetGame = jest.fn();
-const mockGetStateAtMove = jest.fn();
-const mockGetMoves = jest.fn();
+// ─────────────────────────────────────────────────────────────────────────────
+// Mocks
+// ─────────────────────────────────────────────────────────────────────────────
 
-jest.mock('../../../src/client/services/ReplayService', () => ({
-  getReplayService: () => ({
-    listGames: mockListGames,
-    getGame: mockGetGame,
-    getStateAtMove: mockGetStateAtMove,
-    getMoves: mockGetMoves,
+const mockGetUserGames = jest.fn();
+const mockGetGameHistory = jest.fn();
+const mockGetGameDetails = jest.fn();
+const mockAdaptHistoryToGameRecord = jest.fn();
+const mockReconstructStateAtMove = jest.fn();
+
+// AuthContext: always provide a logged-in user so ReplayPanel will attempt to
+// load backend games via /api/games/user/:id.
+jest.mock('../../../src/client/contexts/AuthContext', () => ({
+  useAuth: () => ({
+    user: {
+      id: 'user-1',
+      username: 'TestUser',
+      email: 'test@example.com',
+      role: 'player',
+      rating: 1500,
+      gamesPlayed: 10,
+      gamesWon: 5,
+      createdAt: new Date(),
+      lastActive: new Date(),
+      status: 'online',
+      avatar: null,
+      preferences: {
+        boardTheme: 'classic',
+        pieceStyle: 'traditional',
+        soundEnabled: true,
+        animationsEnabled: true,
+        autoPromoteQueen: true,
+        showCoordinates: true,
+        highlightLastMove: true,
+        confirmMoves: false,
+        timeZone: 'UTC',
+        language: 'en',
+      },
+    },
+    isLoading: false,
+    login: jest.fn(),
+    register: jest.fn(),
+    logout: jest.fn(),
+    updateUser: jest.fn(),
   }),
 }));
 
-// Mock MoveHistory component - use require('react').createElement to avoid JSX hoisting issues
+// Backend Game API used by ReplayPanel for multi-game backend replay.
+jest.mock('../../../src/client/services/api', () => ({
+  gameApi: {
+    getUserGames: (...args: any[]) => mockGetUserGames(...args),
+    getGameHistory: (...args: any[]) => mockGetGameHistory(...args),
+    getGameDetails: (...args: any[]) => mockGetGameDetails(...args),
+  },
+}));
+
+// Shared adapter that projects backend history+details into canonical GameRecord
+// + Move[] for replay. We stub this so tests don't depend on its internal mapping.
+jest.mock('../../../src/client/services/ReplayService', () => ({
+  adaptHistoryToGameRecord: (...args: any[]) => mockAdaptHistoryToGameRecord(...args),
+}));
+
+// Canonical replay helper; for ReplayPanel tests we don't care about the exact
+// GameState shape, only that callbacks are invoked, so we stub this as well.
+jest.mock('../../../src/shared/engine/replayHelpers', () => ({
+  reconstructStateAtMove: (...args: any[]) => mockReconstructStateAtMove(...args),
+}));
+
+// Mock MoveHistory component - keep the contract (moves + onMoveClick) but
+// render a simple button list so we can trigger jump-to-move behaviour.
 jest.mock('../../../src/client/components/MoveHistory', () => ({
   MoveHistory: function MockMoveHistory(props: {
     moves: any[];
@@ -36,14 +90,28 @@ jest.mock('../../../src/client/components/MoveHistory', () => ({
             'data-testid': `move-${i}`,
             onClick: () => props.onMoveClick?.(i),
           },
-          `Move ${i}`
+          `Move ${i + 1}`
         )
       )
     );
   },
 }));
 
-describe('ReplayPanel', () => {
+// Capture GameList props so tests can assert on passed games and invoke
+// onSelectGame directly without depending on its internal markup.
+const mockGameListProps = jest.fn();
+
+jest.mock('../../../src/client/components/ReplayPanel/GameList', () => ({
+  GameList: function MockGameList(props: any) {
+    mockGameListProps(props);
+
+    const React = require('react');
+    // We don't render individual game rows here; tests interact via props.
+    return React.createElement('div', { 'data-testid': 'game-list' });
+  },
+}));
+
+describe('ReplayPanel (backend multi-game replay browser)', () => {
   const mockOnStateChange = jest.fn();
   const mockOnReplayModeChange = jest.fn();
   const mockOnForkFromPosition = jest.fn();
@@ -56,314 +124,265 @@ describe('ReplayPanel', () => {
     onAnimationChange: mockOnAnimationChange,
   };
 
-  const mockGames = [
-    {
-      gameId: 'game-1',
-      boardType: 'square8',
-      numPlayers: 2,
-      winner: 1,
-      totalMoves: 50,
-      source: 'cmaes',
-      createdAt: '2025-01-01T00:00:00Z',
-    },
-    {
-      gameId: 'game-2',
-      boardType: 'hex',
-      numPlayers: 3,
-      winner: null,
-      totalMoves: 75,
-      source: 'self-play',
-      createdAt: '2025-01-02T00:00:00Z',
-    },
-  ];
-
-  const mockGameState = {
-    id: 'state-1',
-    players: [],
-    board: { type: 'square8', cells: {} },
-    currentTurn: 1,
-    phase: 'movement',
-  };
-
-  const mockMoves = [
-    {
-      moveNumber: 1,
-      player: 1,
-      moveType: 'movement',
-      move: { from: { x: 0, y: 0 }, to: { x: 1, y: 0 } },
-    },
-    {
-      moveNumber: 2,
-      player: 2,
-      moveType: 'movement',
-      move: { from: { x: 7, y: 7 }, to: { x: 6, y: 7 } },
-    },
-  ];
-
   beforeEach(() => {
     jest.clearAllMocks();
 
-    mockListGames.mockResolvedValue({ games: mockGames, total: 2, hasMore: false });
-    mockGetGame.mockResolvedValue({
+    // Stub backend user-games response
+    mockGetUserGames.mockResolvedValue({
+      games: [
+        {
+          id: 'game-1',
+          boardType: 'square8',
+          status: 'completed',
+          playerCount: 2,
+          maxPlayers: 2,
+          winnerId: 'user-1',
+          winnerName: 'TestUser',
+          createdAt: '2025-01-01T00:00:00Z',
+          endedAt: '2025-01-01T00:30:00Z',
+          moveCount: 2,
+          numPlayers: 2,
+          isRated: true,
+          source: 'online_game',
+          outcome: 'ring_elimination',
+          resultReason: 'ring_elimination',
+        },
+        {
+          id: 'game-2',
+          boardType: 'hexagonal',
+          status: 'completed',
+          playerCount: 3,
+          maxPlayers: 3,
+          winnerId: null,
+          winnerName: null,
+          createdAt: '2025-01-02T00:00:00Z',
+          endedAt: '2025-01-02T00:30:00Z',
+          moveCount: 3,
+          numPlayers: 3,
+          isRated: false,
+          source: 'self_play',
+          outcome: 'timeout',
+          resultReason: 'timeout',
+        },
+      ],
+      pagination: {
+        total: 2,
+        limit: 100,
+        offset: 0,
+        hasMore: false,
+      },
+    });
+
+    // Stub history/details; ReplayPanel will call these but we delegate projection
+    // to adaptHistoryToGameRecord, which we also stub.
+    mockGetGameHistory.mockResolvedValue({
       gameId: 'game-1',
+      moves: [
+        {
+          moveNumber: 1,
+          playerId: 'p1',
+          playerName: 'P1',
+          moveType: 'place_ring',
+          moveData: { to: { x: 0, y: 0 } },
+          timestamp: '2025-01-01T00:00:01Z',
+        },
+        {
+          moveNumber: 2,
+          playerId: 'p2',
+          playerName: 'P2',
+          moveType: 'place_ring',
+          moveData: { to: { x: 1, y: 0 } },
+          timestamp: '2025-01-01T00:00:05Z',
+        },
+      ],
+      totalMoves: 2,
+      result: {
+        reason: 'ring_elimination',
+        winner: 1,
+      },
+    });
+
+    mockGetGameDetails.mockResolvedValue({
+      id: 'game-1',
+      status: 'completed',
+      boardType: 'square8',
+      maxPlayers: 2,
+      isRated: true,
+      allowSpectators: true,
+      players: [
+        { id: 'p1', username: 'P1', rating: 1500 },
+        { id: 'p2', username: 'P2', rating: 1500 },
+      ],
+      winner: { id: 'p1', username: 'P1' },
+      createdAt: '2025-01-01T00:00:00Z',
+      updatedAt: '2025-01-01T00:30:00Z',
+      startedAt: '2025-01-01T00:00:00Z',
+      endedAt: '2025-01-01T00:30:00Z',
+      moveCount: 2,
+    });
+
+    const mockRecord = {
+      id: 'game-1',
       boardType: 'square8',
       numPlayers: 2,
+      isRated: true,
+      players: [
+        { playerNumber: 1, userId: 'p1', username: 'P1', rating: 1500 },
+        { playerNumber: 2, userId: 'p2', username: 'P2', rating: 1500 },
+      ],
       winner: 1,
-      totalMoves: 50,
-      source: 'cmaes',
+      outcome: 'ring_elimination',
+      finalScore: {
+        ringsEliminated: { 1: 3, 2: 0 },
+        territorySpaces: { 1: 0, 2: 0 },
+        ringsRemaining: { 1: 15, 2: 18 },
+      },
+      startedAt: '2025-01-01T00:00:00Z',
+      endedAt: '2025-01-01T00:30:00Z',
+      totalMoves: 2,
+      totalDurationMs: 1000,
+      moves: [
+        {
+          player: 1,
+          type: 'place_ring',
+          to: { x: 0, y: 0 },
+          placementCount: 1,
+        },
+        {
+          player: 2,
+          type: 'place_ring',
+          to: { x: 1, y: 0 },
+          placementCount: 1,
+        },
+      ],
+      metadata: {
+        recordVersion: 'test',
+        createdAt: '2025-01-01T00:30:00Z',
+        source: 'online_game',
+        sourceId: 'game-1',
+        tags: [],
+      },
+    };
+
+    const mockMovesForDisplay = [
+      {
+        id: 'm1',
+        type: 'place_ring',
+        player: 1,
+        to: { x: 0, y: 0 },
+        placementCount: 1,
+        timestamp: new Date('2025-01-01T00:00:01Z'),
+        thinkTime: 0,
+        moveNumber: 1,
+      },
+      {
+        id: 'm2',
+        type: 'place_ring',
+        player: 2,
+        to: { x: 1, y: 0 },
+        placementCount: 1,
+        timestamp: new Date('2025-01-01T00:00:05Z'),
+        thinkTime: 0,
+        moveNumber: 2,
+      },
+    ];
+
+    mockAdaptHistoryToGameRecord.mockReturnValue({
+      record: mockRecord,
+      movesForDisplay: mockMovesForDisplay,
     });
-    mockGetStateAtMove.mockResolvedValue({ gameState: mockGameState });
-    mockGetMoves.mockResolvedValue({ moves: mockMoves });
+
+    // For these tests, we don't care about the exact GameState shape; just
+    // return a simple object to satisfy callbacks.
+    mockReconstructStateAtMove.mockReturnValue({} as any);
   });
 
   it('renders collapsed by default with header button', () => {
     render(<ReplayPanel {...defaultProps} />);
 
     expect(screen.getByText('Game Replay')).toBeInTheDocument();
-    expect(screen.queryByText('Browse Recorded Games')).not.toBeInTheDocument();
+    // Content should be hidden while collapsed
+    expect(
+      screen.queryByText(/Browse and replay your completed backend games/i)
+    ).not.toBeInTheDocument();
   });
 
-  it('expands on click and shows browse button', async () => {
-    render(<ReplayPanel {...defaultProps} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /game replay/i }));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Browse Recorded Games')).toBeInTheDocument();
-    });
-  });
-
-  it('renders expanded when defaultCollapsed is false', () => {
+  it('loads and displays user games when expanded by default', async () => {
     render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
 
-    expect(screen.getByText('Browse Recorded Games')).toBeInTheDocument();
-  });
-
-  it('loads games when Browse Recorded Games is clicked', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
+    // Should request the logged-in user's completed games
+    await waitFor(() => {
+      expect(mockGetUserGames).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ status: 'completed' })
+      );
     });
 
+    // GameList should be rendered with some games prop
     await waitFor(() => {
-      expect(mockListGames).toHaveBeenCalled();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/square8 • 2p/)).toBeInTheDocument();
+      expect(mockGameListProps).toHaveBeenCalled();
     });
   });
 
-  it('shows loading state while fetching games', async () => {
-    mockListGames.mockImplementation(() => new Promise(() => {})); // Never resolves
-
+  it('selecting a game loads replay data and enters replay mode', async () => {
     render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
 
+    // Wait for GameList to receive games
+    await waitFor(() => {
+      expect(mockGameListProps).toHaveBeenCalled();
+    });
+
+    const latestCall = mockGameListProps.mock.calls[mockGameListProps.mock.calls.length - 1][0] as {
+      onSelectGame: (gameId: string) => void;
+    };
+
+    // Simulate selecting game-1 via GameList's onSelectGame callback
     await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
+      latestCall.onSelectGame('game-1');
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Loading games...')).toBeInTheDocument();
-    });
-  });
-
-  it('shows error state when game loading fails', async () => {
-    // Mock listGames to reject immediately
-    mockListGames.mockRejectedValueOnce(new Error('Network error'));
-
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    // Wait for the error to appear
-    await waitFor(() => {
-      expect(screen.getByText('Network error')).toBeInTheDocument();
-    });
-
-    expect(screen.getByText('Retry')).toBeInTheDocument();
-  });
-
-  it('loads a game when selected from list', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    // Open game picker and wait for games to load
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/square8 • 2p/)).toBeInTheDocument();
-    });
-
-    // Click the first game
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => {
-      expect(mockGetGame).toHaveBeenCalledWith('game-1');
-      expect(mockGetMoves).toHaveBeenCalledWith('game-1', 0, undefined, 1000);
-      expect(mockGetStateAtMove).toHaveBeenCalledWith('game-1', 0);
+      expect(mockGetGameHistory).toHaveBeenCalledWith('game-1');
+      expect(mockGetGameDetails).toHaveBeenCalledWith('game-1');
+      expect(mockAdaptHistoryToGameRecord).toHaveBeenCalled();
     });
 
     await waitFor(() => {
       expect(mockOnReplayModeChange).toHaveBeenCalledWith(true);
-      expect(mockOnStateChange).toHaveBeenCalled();
+    });
+
+    // Playback controls should be visible (speed buttons, etc.)
+    await waitFor(() => {
+      expect(screen.getByText('Speed:')).toBeInTheDocument();
     });
   });
 
-  it('shows playback controls when a game is loaded', async () => {
+  it('exits replay mode when Exit Replay is clicked', async () => {
     render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
 
-    // Load a game
+    // Load games and get GameList props
+    await waitFor(() => {
+      expect(mockGameListProps).toHaveBeenCalled();
+    });
+
+    const latestCall = mockGameListProps.mock.calls[mockGameListProps.mock.calls.length - 1][0] as {
+      onSelectGame: (gameId: string) => void;
+    };
+
+    // Enter replay mode by selecting game-1
     await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
+      latestCall.onSelectGame('game-1');
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/square8 • 2p/)).toBeInTheDocument();
+      expect(mockOnReplayModeChange).toHaveBeenCalledWith(true);
     });
 
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
+    // Clear previous state-change notifications
+    mockOnReplayModeChange.mockClear();
+    mockOnStateChange.mockClear();
 
-    await waitFor(() => {
-      // Use exact aria-label match to distinguish from header button
-      expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /step forward/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /step back/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /go to start/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /go to end/i })).toBeInTheDocument();
-    });
-  });
-
-  it('shows Active badge when in replay mode', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('Active')).toBeInTheDocument();
-    });
-  });
-
-  it('shows scrubber with correct move range', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => {
-      const scrubber = screen.getByRole('slider', { name: /move scrubber/i });
-      expect(scrubber).toHaveAttribute('min', '0');
-      expect(scrubber).toHaveAttribute('max', '50');
-    });
-  });
-
-  it('shows speed control buttons', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText('0.5x')).toBeInTheDocument();
-      expect(screen.getByText('1x')).toBeInTheDocument();
-      expect(screen.getByText('2x')).toBeInTheDocument();
-      expect(screen.getByText('4x')).toBeInTheDocument();
-    });
-  });
-
-  it('steps forward when step forward button is clicked', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => screen.getByRole('button', { name: /step forward/i }));
-
-    mockGetStateAtMove.mockClear();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /step forward/i }));
-    });
-
-    await waitFor(() => {
-      expect(mockGetStateAtMove).toHaveBeenCalledWith('game-1', 1);
-    });
-  });
-
-  it('calls onForkFromPosition when Fork button is clicked', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => screen.getByText('Fork'));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Fork'));
-    });
-
-    expect(mockOnForkFromPosition).toHaveBeenCalled();
-  });
-
-  it('exits replay mode when Exit Replay button is clicked', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
+    // Click Exit Replay
     await waitFor(() => screen.getByText('Exit Replay'));
 
     await act(async () => {
@@ -374,191 +393,38 @@ describe('ReplayPanel', () => {
     expect(mockOnStateChange).toHaveBeenCalledWith(null);
   });
 
-  it('responds to keyboard shortcuts in replay mode', async () => {
+  it('clicking a move in MoveHistory jumps to that move index (via MoveInfo)', async () => {
     render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
 
-    // Load a game
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => screen.getByRole('button', { name: /step forward/i }));
-
-    mockGetStateAtMove.mockClear();
-
-    // Arrow keys for stepping
-    await act(async () => {
-      fireEvent.keyDown(window, { key: 'ArrowRight' });
-    });
-
+    // Load games and get GameList props
     await waitFor(() => {
-      expect(mockGetStateAtMove).toHaveBeenCalledWith('game-1', 1);
+      expect(mockGameListProps).toHaveBeenCalled();
     });
 
-    // Navigate to move 1 first, then test ArrowLeft
-    mockGetStateAtMove.mockClear();
+    const latestCall = mockGameListProps.mock.calls[mockGameListProps.mock.calls.length - 1][0] as {
+      onSelectGame: (gameId: string) => void;
+    };
 
+    // Enter replay mode by selecting game-1
     await act(async () => {
-      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      latestCall.onSelectGame('game-1');
     });
 
+    // Initial move index should be at end (2), reflected in MoveInfo header
     await waitFor(() => {
-      expect(mockGetStateAtMove).toHaveBeenCalledWith('game-1', 0);
+      expect(screen.getAllByText(/Move 2/i).length).toBeGreaterThan(0);
     });
-  });
 
-  it('exits replay on Escape key', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
+    // Click first move in mocked MoveHistory (index 0 → move number 1)
+    await waitFor(() => screen.getByTestId('move-0'));
 
     await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
+      fireEvent.click(screen.getByTestId('move-0'));
     });
 
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => screen.getByText('Exit Replay'));
-
-    mockOnReplayModeChange.mockClear();
-
-    await act(async () => {
-      fireEvent.keyDown(window, { key: 'Escape' });
-    });
-
-    expect(mockOnReplayModeChange).toHaveBeenCalledWith(false);
-  });
-
-  it('ignores keyboard shortcuts when focus is on input', async () => {
-    render(
-      <div>
-        <input data-testid="text-input" />
-        <ReplayPanel {...defaultProps} defaultCollapsed={false} />
-      </div>
-    );
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => screen.getByRole('button', { name: /step forward/i }));
-
-    mockGetStateAtMove.mockClear();
-
-    const input = screen.getByTestId('text-input');
-    input.focus();
-
-    await act(async () => {
-      fireEvent.keyDown(input, { key: 'ArrowRight' });
-    });
-
-    // Should not have stepped forward because focus was on input
-    expect(mockGetStateAtMove).not.toHaveBeenCalled();
-  });
-
-  it('shows keyboard hints in replay mode', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
+    // MoveInfo should now show Move 1 as the current move
     await waitFor(() => {
-      // Keyboard hints div exists with these text fragments
-      expect(screen.getByText('Space')).toBeInTheDocument();
-      expect(screen.getByText('Esc')).toBeInTheDocument();
-    });
-  });
-
-  it('displays game metadata when loaded', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => {
-      // Game info section
-      expect(screen.getByText(/P1 won/)).toBeInTheDocument();
-      expect(screen.getByText(/cmaes/)).toBeInTheDocument();
-    });
-  });
-
-  it('changes speed when speed button is clicked', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => screen.getByText('2x'));
-
-    // Click 2x speed button
-    await act(async () => {
-      fireEvent.click(screen.getByText('2x'));
-    });
-
-    // The 2x button should now be pressed
-    expect(screen.getByText('2x')).toHaveAttribute('aria-pressed', 'true');
-  });
-
-  it('seeks to move when scrubber is changed', async () => {
-    render(<ReplayPanel {...defaultProps} defaultCollapsed={false} />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByText('Browse Recorded Games'));
-    });
-
-    await waitFor(() => screen.getByText(/square8 • 2p/));
-
-    await act(async () => {
-      fireEvent.click(screen.getByText(/square8 • 2p/));
-    });
-
-    await waitFor(() => screen.getByRole('slider', { name: /move scrubber/i }));
-
-    mockGetStateAtMove.mockClear();
-
-    const scrubber = screen.getByRole('slider', { name: /move scrubber/i });
-
-    await act(async () => {
-      fireEvent.change(scrubber, { target: { value: '25' } });
-    });
-
-    await waitFor(() => {
-      expect(mockGetStateAtMove).toHaveBeenCalledWith('game-1', 25);
+      expect(screen.getAllByText(/Move 1/i).length).toBeGreaterThan(0);
     });
   });
 });

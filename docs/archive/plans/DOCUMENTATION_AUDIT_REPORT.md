@@ -483,7 +483,7 @@ Following the recommendations above will result in:
 
 ## 2025-11-26 AI/Python Parity & Training Docs Alignment
 
-This vertical focused on aligning AI/Python parity and training documentation with the settled rules SSoT (shared TS engine + v2 contract vectors + CANONICAL_ENGINE_API) and with the current test/CI topology.
+This vertical focused on aligning AI/Python parity and training documentation with the settled rules SSoT (canonical rules spec in `RULES_CANONICAL_SPEC.md` + `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) and its executable implementation (shared TS engine + v2 contract vectors + `docs/CANONICAL_ENGINE_API.md`) and with the current test/CI topology.
 
 ### Scope
 
@@ -507,7 +507,7 @@ Status before:
 Key changes:
 
 - Added an explicit **rules SSoT + contracts** status preamble:
-  - Canonical rules semantics = helpers → aggregates → orchestrator under `src/shared/engine/` + v2 contract vectors under `tests/fixtures/contract-vectors/v2/` and schemas/serialization under `src/shared/engine/contracts/**`.
+  - Canonical rules semantics = the written rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`), with helpers → aggregates → orchestrator under `src/shared/engine/` plus v2 contract vectors under `tests/fixtures/contract-vectors/v2/` and schemas/serialization under `src/shared/engine/contracts/**` as the primary executable implementation.
   - TS `validators/*` and `mutators/*` names in the matrix are now described as **semantic anchors**, not a literal file inventory; only `validators/PlacementValidator.ts` and a subset of `mutators/*Mutator.ts` exist in TS.
 - New subsection **1.3 Canonical Move Lifecycle & SSoT References**:
   - Defer all Move/decision/WebSocket lifecycle semantics to `docs/CANONICAL_ENGINE_API.md` and the shared TS type files:
@@ -529,7 +529,7 @@ Key changes:
 Net effect:
 
 - The doc is now an accurate, SSoT-aligned reference for TS↔Python rules parity:
-  - Rules semantics SSoT = TS helpers + aggregates + orchestrator + contracts.
+  - Rules semantics SSoT = canonical rules spec (`RULES_CANONICAL_SPEC.md` + complete/compact rules) together with its shared TS helpers + aggregates + orchestrator + contracts implementation.
   - Parity SSoT = v2 contract vectors + contract runners + parity/plateau/invariant suites.
   - Trace fixtures & seed tests are positioned correctly as secondary diagnostics.
 
@@ -565,13 +565,13 @@ Net effect:
 Status before:
 
 - Already described the territory/combined-margin dataset generator and training flows in detail, but did not:
-  - Explicitly position the TS shared engine + contract vectors as the rules SSoT.
+- Explicitly position the canonical rules spec plus shared TS engine + contract vectors as the rules SSoT and its executable implementation.
   - Tie the training code’s rules semantics back to the orchestrator + contracts parity backbone.
 
 Key changes:
 
 - Added a **Rules SSoT and parity safeguards** block right after the component list:
-  - Canonical rules semantics = TS shared engine (`src/shared/engine/**`) + v2 contract vectors (`tests/fixtures/contract-vectors/v2/**`).
+  - Canonical rules semantics = canonical rules spec (`RULES_CANONICAL_SPEC.md` + `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) with the TS shared engine (`src/shared/engine/**`) + v2 contract vectors (`tests/fixtures/contract-vectors/v2/**`) as its primary executable implementation.
   - Python `GameEngine` + `BoardManager` + `DefaultRulesEngine` + `TerritoryMutator` are **host/adapter** implementations validated by:
     - Contract-vector tests (`tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`).
     - Parity/plateau suites under `tests/unit/*Parity*` and `ai-service/tests/parity/`.
@@ -580,7 +580,7 @@ Key changes:
 
 Net effect:
 
-- Training/docs clearly state that Python training flows **consume and respect** the TS rules SSoT and contract vectors instead of acting as a separate rules spec.
+- Training/docs clearly state that Python training flows **consume and respect** the canonical rules SSoT (rules spec + shared TS engine + contract vectors) instead of acting as a separate rules spec.
 
 #### 3.2 `docs/AI_TRAINING_PREPARATION_GUIDE.md`
 
@@ -638,7 +638,7 @@ This closes the loop on the requested vertical: AI/Python parity and training do
 
 ## 2025-11-26 Architecture & Engine-Topology Docs Alignment
 
-This follow-on vertical focused on aligning the higher-level architecture/topology docs with the settled rules SSoT (shared TS engine helpers → aggregates → orchestrator → contracts) and the canonical Move/decision/WebSocket lifecycle SSoT (`docs/CANONICAL_ENGINE_API.md`).
+This follow-on vertical focused on aligning the higher-level architecture/topology docs with the settled rules SSoT (canonical rules spec + shared TS engine helpers → aggregates → orchestrator → contracts) and the canonical Move/decision/WebSocket lifecycle SSoT (`docs/CANONICAL_ENGINE_API.md`).
 
 ### Scope
 
@@ -659,10 +659,10 @@ Status before:
 Key changes:
 
 - Added a **Doc Status (2025-11-26): Active (with historical/aspirational content)** block at the top that:
-  - Declares the rules semantics SSoT as the shared TS engine under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts + v2 contract vectors).
+  - Declares the rules semantics SSoT as the canonical rules spec plus its shared TS engine implementation under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts + v2 contract vectors).
   - Declares the lifecycle SSoT as `docs/CANONICAL_ENGINE_API.md` + the shared TS/WebSocket types.
   - States explicitly that backend (`GameEngine` + `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine` + `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this SSoT, not independent rules engines.
-  - Marks the Python mutator-first refactor and rollout phases as **aspirational design** layered on top of the TS rules SSoT.
+- Marks the Python mutator-first refactor and rollout phases as **aspirational design** layered on top of the canonical rules SSoT (rules spec + shared TS implementation).
 - Tightened the intro paragraph to say the Python architecture is a **parity-validated host over the canonical TS engine** in online validation flows, instead of an alternative SSoT.
 - After the Contract Testing bullet list, added a clarifying paragraph:
   - The canonical Move/decision/WebSocket lifecycle and engine decision surfaces are documented in `docs/CANONICAL_ENGINE_API.md`.
@@ -687,7 +687,7 @@ Status before:
 Key changes:
 
 - Added a **Doc Status (2025-11-26): Active (with historical/diagnostic analysis)** header that:
-  - Declares the rules semantics SSoT as the shared TS engine under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts).
+  - Declares the rules semantics SSoT as the canonical rules spec plus its shared TS engine implementation under `src/shared/engine/` (helpers → aggregates → orchestrator → contracts).
   - Declares the lifecycle semantics SSoT as `docs/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types.
   - Treats backend, sandbox, and Python as **hosts/adapters** over the shared engine, emphasising that this audit views them as consumers, not SSoTs.
   - Flags the fully-populated TS `validators/*` / `mutators/*` tree in some diagrams as a **semantic boundary diagram** and partially historical – the implemented canonical surface is helpers + aggregates + orchestrator + contracts.
@@ -725,7 +725,7 @@ Net effect:
 
 With these edits, the architecture/topology docs are now consistent with the SSoT decisions established earlier in this audit:
 
-- Rules semantics SSoT = shared TS engine helpers → aggregates → orchestrator → contracts (+ v2 contract vectors).
+- Rules semantics SSoT = canonical rules spec plus its shared TS engine helpers → aggregates → orchestrator → contracts implementation (+ v2 contract vectors).
 - Lifecycle semantics SSoT = `docs/CANONICAL_ENGINE_API.md` + shared TS/WebSocket types.
 - Backend, sandbox, and Python engines = **hosts/adapters** that must remain parity-validated but are not new sources of truth.
 
@@ -805,7 +805,7 @@ This closes the loop on the architecture/topology documentation vertical and mak
 * - The doc already had an SSoT alignment banner tying it to the rules SSoT and AI/training SSoT; this pass confirmed that banner still matches `docs/SSOT_BANNER_GUIDE.md` and doesn’t introduce new broken links.
     +- `docs/AI_TRAINING_ASSESSMENT_FINAL.md`:
 * - Added an explicit **Doc Status / SSoT alignment** block at the top, marking it as a **derived assessment** over:
-* - Rules semantics SSoT (shared TS engine + v2 contract vectors + `docs/CANONICAL_ENGINE_API.md`).
+* - Rules semantics SSoT (canonical rules spec + shared TS engine + v2 contract vectors + `docs/CANONICAL_ENGINE_API.md`).
 * - AI/training SSoT (Python AI and training modules + their tests).
 * - Ensured that references to MemoryConfig, bounded transposition tables, hex augmentation, self-play generation, and the training pipeline match the actual code locations and test coverage. All code links are now repo-root-correct and pass `docs-link-ssot`.
 * - Clarified that training recommendations and CMA-ES/NN results in this report are **interpretive** and must defer to code/tests on any conflict.
@@ -916,7 +916,7 @@ The check is intentionally conservative: if either the generic banner or the req
 
 - **`RULES_ENGINE_ARCHITECTURE.md`**
   - Confirmed presence of an **SSoT alignment banner** referencing the **Rules/invariants semantics SSoT** (shared TS engine under `src/shared/engine/**` + contract vectors under `tests/fixtures/contract-vectors/v2/**`) and the lifecycle/API SSoT (`docs/CANONICAL_ENGINE_API.md` + shared types/schemas).
-  - Banner now explicitly states that backend, sandbox, and Python engines are **hosts/adapters** over the shared TS rules SSoT, not independent SSoTs.
+  - Banner now explicitly states that backend, sandbox, and Python engines are **hosts/adapters** over the canonical rules SSoT (rules spec + shared TS implementation), not independent SSoTs.
 - **`RULES_IMPLEMENTATION_MAPPING.md`**
   - Verified and retained an SSoT alignment banner that:
     - Anchors the mapping to the **Rules/invariants semantics SSoT** (RR‑CANON spec + shared TS engine).

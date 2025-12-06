@@ -14,7 +14,9 @@ import { BoardControlsOverlay } from '../components/BoardControlsOverlay';
 import { ResignButton } from '../components/ResignButton';
 import {
   ScreenReaderAnnouncer,
-  useScreenReaderAnnouncement,
+  useGameAnnouncements,
+  useGameStateAnnouncements,
+  GameAnnouncements,
 } from '../components/ScreenReaderAnnouncer';
 import { gameApi } from '../services/api';
 import {
@@ -36,6 +38,15 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { useGame } from '../contexts/GameContext';
 import { getGameOverBannerText } from '../utils/gameCopy';
+import {
+  buildGameEndExplanationFromEngineView,
+  type GameEndEngineView,
+  type GameEndExplanation,
+  type GameEndPlayerScoreBreakdown,
+  type GameEndRulesContextTag,
+  type GameEndWeirdStateContext,
+} from '../../shared/engine/gameEndExplanation';
+import { getWeirdStateReasonForGameResult } from '../../shared/engine/weirdStateReasons';
 import { useGameState } from '../hooks/useGameState';
 import { getWeirdStateBanner } from '../utils/gameStateWeirdness';
 import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
@@ -554,108 +565,51 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   const chatMessages = backendChatMessages;
   const [chatInput, setChatInput] = useState('');
 
-  // Screen reader announcements for accessibility
-  const { message: srMessage, announce: srAnnounce } = useScreenReaderAnnouncement();
-  const prevTurnPlayerRef = useRef<number | null>(null);
-  const prevPhaseRef = useRef<string | null>(null);
-  const prevVictoryRef = useRef<boolean>(false);
+  // Screen reader announcements for accessibility - using priority queue
+  const { queue: announcementQueue, announce, removeAnnouncement } = useGameAnnouncements();
 
-  // Announce turn and phase changes to screen readers
-  useEffect(() => {
-    if (!gameState) return;
+  // Derive current player info for announcements
+  const currentPlayerForAnnouncements = gameState?.players.find(
+    (p) => p.playerNumber === gameState.currentPlayer
+  );
+  const currentPlayerName =
+    currentPlayerForAnnouncements?.username || `Player ${gameState?.currentPlayer ?? 1}`;
+  const isLocalPlayerTurn = currentPlayerForAnnouncements?.id === user?.id;
 
-    const currentTurnPlayer = gameState.currentPlayer;
-    const currentPhase = gameState.currentPhase;
-    const currentPlayerInfo = gameState.players.find((p) => p.playerNumber === currentTurnPlayer);
-    const playerName = currentPlayerInfo?.username || `Player ${currentTurnPlayer}`;
-
-    // Announce turn changes
-    if (prevTurnPlayerRef.current !== null && prevTurnPlayerRef.current !== currentTurnPlayer) {
-      srAnnounce(`${playerName}'s turn`);
+  // Map victory reason to the type expected by GameAnnouncements
+  const mapVictoryCondition = (
+    reason: string | undefined
+  ): 'elimination' | 'territory' | 'last_player_standing' => {
+    switch (reason) {
+      case 'ring_elimination':
+        return 'elimination';
+      case 'territory_control':
+        return 'territory';
+      default:
+        return 'last_player_standing';
     }
-    prevTurnPlayerRef.current = currentTurnPlayer;
+  };
 
-    // Announce significant phase changes (skip if also announcing turn)
-    if (prevPhaseRef.current !== null && prevPhaseRef.current !== currentPhase) {
-      const phaseLabels: Record<string, string> = {
-        ring_placement: 'Ring placement phase',
-        movement: 'Movement phase',
-        capture: 'Capture phase',
-        chain_capture: 'Chain capture phase',
-        line_processing: 'Line processing phase',
-        territory_processing: 'Territory processing phase',
-      };
-      const phaseLabel = phaseLabels[currentPhase] || currentPhase;
-      // Only announce phase if it wasn't just a turn change announcement
-      if (prevTurnPlayerRef.current === currentTurnPlayer) {
-        srAnnounce(phaseLabel);
-      }
-    }
-    prevPhaseRef.current = currentPhase;
-  }, [gameState, srAnnounce]);
-
-  // Announce victory
-  useEffect(() => {
-    if (victoryState && !prevVictoryRef.current) {
-      const winnerInfo =
-        victoryState.winner !== undefined
-          ? gameState?.players.find((p) => p.playerNumber === victoryState.winner)
-          : null;
-      const winnerName =
-        winnerInfo?.username ||
-        (victoryState.winner !== undefined ? `Player ${victoryState.winner}` : '');
-
-      let announcement: string;
-
-      if (victoryState.winner === undefined) {
-        // No explicit winner – draw or abandoned game.
-        switch (victoryState.reason) {
-          case 'draw':
-            announcement = 'Game over. The game ended in a draw.';
-            break;
-          case 'abandonment':
-            announcement = 'Game over. The game was abandoned.';
-            break;
-          default:
-            announcement = 'Game over.';
-            break;
-        }
-      } else {
-        let reasonLabel = '';
-        switch (victoryState.reason) {
-          case 'ring_elimination':
-            reasonLabel = 'by elimination';
-            break;
-          case 'territory_control':
-            reasonLabel = 'by territory control';
-            break;
-          case 'last_player_standing':
-            reasonLabel = 'as the last player standing';
-            break;
-          case 'timeout':
-            reasonLabel = 'on time';
-            break;
-          case 'resignation':
-            reasonLabel = 'by resignation';
-            break;
-          case 'abandonment':
-            reasonLabel = 'after the game was abandoned';
-            break;
-          default:
-            reasonLabel = '';
-            break;
-        }
-
-        const suffix = reasonLabel ? ` ${reasonLabel}` : '';
-        announcement = `Game over. ${winnerName} wins${suffix}.`;
-      }
-
-      srAnnounce(announcement.trim());
-      prevVictoryRef.current = true;
-    } else if (!victoryState) {
-      prevVictoryRef.current = false;
-    }
-  }, [victoryState, gameState?.players, srAnnounce]);
+  // Use the automatic game state announcements hook
+  useGameStateAnnouncements({
+    currentPlayerName,
+    isYourTurn: isLocalPlayerTurn,
+    phase: gameState?.currentPhase,
+    previousPhase: undefined, // Let the hook track this internally
+    phaseDescription: undefined,
+    timeRemaining: reconciledDecisionTimeRemainingMs,
+    isGameOver: !!victoryState,
+    winnerName:
+      victoryState?.winner !== undefined
+        ? gameState?.players.find((p) => p.playerNumber === victoryState.winner)?.username ||
+          `Player ${victoryState.winner}`
+        : undefined,
+    victoryCondition: victoryState ? mapVictoryCondition(victoryState.reason) : undefined,
+    isWinner:
+      victoryState?.winner !== undefined &&
+      gameState?.players.find((p) => p.playerNumber === victoryState.winner)?.id === user?.id,
+    announce,
+  });
 
   // Derived HUD state
   const currentPlayer = gameState?.players.find((p) => p.playerNumber === gameState.currentPlayer);
@@ -711,6 +665,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
         return 'Line processing – choose how to resolve your completed line.';
       case 'territory_processing':
         return 'Territory processing – resolve disconnected regions.';
+      case 'forced_elimination':
+        return 'No legal moves available – select a stack to eliminate from.';
       default:
         return 'Make your move.';
     }
@@ -1477,9 +1433,126 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     }
   }
 
+  const gameEndExplanation: GameEndExplanation | null = useMemo(() => {
+    if (!victoryState || !gameState) {
+      return null;
+    }
+
+    const mapOutcomeType = (reason: GameResult['reason']) => {
+      switch (reason) {
+        case 'ring_elimination':
+          return 'ring_elimination' as const;
+        case 'territory_control':
+          return 'territory_control' as const;
+        case 'last_player_standing':
+          return 'last_player_standing' as const;
+        case 'game_completed':
+          return 'structural_stalemate' as const;
+        case 'timeout':
+          return 'timeout' as const;
+        case 'resignation':
+          return 'resignation' as const;
+        case 'abandonment':
+          return 'abandonment' as const;
+        default:
+          return null;
+      }
+    };
+
+    const mapVictoryReasonCode = (reason: GameResult['reason']) => {
+      switch (reason) {
+        case 'ring_elimination':
+          return 'victory_ring_majority' as const;
+        case 'territory_control':
+          return 'victory_territory_majority' as const;
+        case 'last_player_standing':
+          return 'victory_last_player_standing' as const;
+        case 'game_completed':
+          return 'victory_structural_stalemate_tiebreak' as const;
+        case 'timeout':
+          return 'victory_timeout' as const;
+        case 'resignation':
+          return 'victory_resignation' as const;
+        case 'abandonment':
+          return 'victory_abandonment' as const;
+        default:
+          return null;
+      }
+    };
+
+    const outcomeType = mapOutcomeType(victoryState.reason);
+    const victoryReasonCode = mapVictoryReasonCode(victoryState.reason);
+    if (!outcomeType || !victoryReasonCode) {
+      return null;
+    }
+
+    // Map numeric winner → player id (or null for draws/abandonment).
+    const winnerPlayerId =
+      victoryState.winner !== undefined
+        ? (gameState.players.find((p) => p.playerNumber === victoryState.winner)?.id ?? null)
+        : null;
+
+    // Build per-player score breakdown from finalScore + board markers.
+    const markersByPlayerNumber: Record<number, number> = {};
+    for (const marker of gameState.board.markers.values()) {
+      const key = marker.player;
+      markersByPlayerNumber[key] = (markersByPlayerNumber[key] ?? 0) + 1;
+    }
+
+    const scoreBreakdown: Record<string, GameEndPlayerScoreBreakdown> = {};
+    for (const player of gameState.players) {
+      const num = player.playerNumber;
+      const playerId = player.id;
+      scoreBreakdown[playerId] = {
+        playerId,
+        eliminatedRings: victoryState.finalScore.ringsEliminated[num] ?? 0,
+        territorySpaces: victoryState.finalScore.territorySpaces[num] ?? 0,
+        markers: markersByPlayerNumber[num] ?? 0,
+      };
+    }
+
+    // Derive weird-state context and rules-context tags using shared helpers.
+    const weirdInfo = getWeirdStateReasonForGameResult(victoryState);
+    let weirdStateContext: GameEndWeirdStateContext | undefined;
+    let telemetryTags: GameEndRulesContextTag[] | undefined;
+
+    if (weirdInfo) {
+      weirdStateContext = {
+        reasonCodes: [weirdInfo.reasonCode],
+        primaryReasonCode: weirdInfo.reasonCode,
+        rulesContextTags: [weirdInfo.rulesContext],
+      };
+      telemetryTags = [weirdInfo.rulesContext];
+    }
+
+    const engineView: GameEndEngineView = {
+      gameId,
+      boardType: gameState.boardType,
+      numPlayers: gameState.players.length,
+      winnerPlayerId,
+      outcomeType,
+      victoryReasonCode,
+      scoreBreakdown,
+    };
+
+    if (weirdStateContext) {
+      engineView.weirdStateContext = weirdStateContext;
+    }
+
+    return buildGameEndExplanationFromEngineView(engineView, {
+      teaching: undefined,
+      telemetryTags,
+      uxCopy: {
+        shortSummaryKey: `game_end.${victoryState.reason}.short`,
+        detailedSummaryKey: undefined,
+      },
+    });
+  }, [victoryState, gameState, gameId]);
+
   const victoryViewModel = toVictoryViewModel(victoryState, gameState.players, gameState, {
     currentUserId: user?.id,
     isDismissed: isVictoryModalDismissed,
+    gameEndExplanation,
   });
 
   const rematchStatus: RematchStatus | undefined = useMemo(() => {
@@ -1528,7 +1601,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   return (
     <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
       {/* Screen reader live region for game announcements */}
-      <ScreenReaderAnnouncer message={srMessage} />
+      <ScreenReaderAnnouncer queue={announcementQueue} onAnnouncementSpoken={removeAnnouncement} />
 
       {reconnectionBanner}
 
@@ -1628,6 +1701,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
       <VictoryModal
         isOpen={!!victoryState && !isVictoryModalDismissed}
         viewModel={victoryViewModel}
+        gameEndExplanation={gameEndExplanation}
         onClose={() => {
           setIsVictoryModalDismissed(true);
         }}

@@ -91,7 +91,7 @@ def run_benchmark(num_games=10):
                 print(f"  No move found for P{current_player} (Phase: {state.current_phase}, MustMove: {state.must_move_from_stack_key})", flush=True)
                 # If no move found, current player loses
                 state.winner = 2 if current_player == 1 else 1
-                state.game_status = GameStatus.FINISHED
+                state.game_status = GameStatus.COMPLETED
                 break
 
             # state = GameEngine.apply_move(state, move)

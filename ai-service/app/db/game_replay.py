@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterator, List, Optional, Tuple
 
 from app.models import BoardType, GameState, Move
+from app.rules.history_contract import validate_canonical_move
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,21 @@ def _serialize_state(state: GameState) -> str:
 
 def _deserialize_state(json_str: str) -> GameState:
     """Deserialize JSON string to GameState."""
-    return GameState.model_validate_json(json_str)
+    # Normalize legacy status values before validation. Older recordings may
+    # use "finished" as the terminal status; the canonical value is now
+    # "completed" (mirroring the shared TS engine and canonical rules doc).
+    try:
+        data = json.loads(json_str)
+    except Exception:
+        # Fall back to the raw path if JSON is unexpectedly malformed; this
+        # preserves previous behaviour for debugging while surfacing an error.
+        return GameState.model_validate_json(json_str)
+
+    status = data.get("gameStatus")
+    if status == "finished":
+        data["gameStatus"] = "completed"
+
+    return GameState.model_validate(data)
 
 
 def _serialize_move(move: Move) -> str:
@@ -486,6 +501,7 @@ class GameReplayDB:
         self,
         db_path: str,
         snapshot_interval: int = DEFAULT_SNAPSHOT_INTERVAL,
+        enforce_canonical_history: bool = True,
     ):
         """Initialize database connection.
 
@@ -495,6 +511,11 @@ class GameReplayDB:
         """
         self._db_path = Path(db_path)
         self._snapshot_interval = snapshot_interval
+        # When True, every recorded move must satisfy the canonical
+        # phase↔MoveType contract encoded in app.rules.history_contract.
+        # This is the default for new DBs so that self‑play/training
+        # pipelines cannot silently write non‑canonical histories.
+        self._enforce_canonical_history = enforce_canonical_history
 
         # Ensure parent directory exists
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1669,6 +1690,19 @@ class GameReplayDB:
             engine_pv: Principal variation as list of move strings (v2)
             engine_time_ms: Time spent computing this move in ms (v2)
         """
+        # Enforce canonical (phase, move_type) contract at write time for
+        # all new recordings, unless explicitly disabled for legacy/fixture
+        # migrations. The phase column is currently left empty and inferred
+        # from move.type; this still guarantees that only canonical MoveType
+        # values are written for production self‑play DBs.
+        if self._enforce_canonical_history:
+            check = validate_canonical_move("", move.type.value)
+            if not check.ok and check.reason:
+                raise ValueError(
+                    f"Attempted to record non-canonical move "
+                    f"in GameReplayDB {self._db_path}: {check.reason}"
+                )
+
         conn.execute(
             """
             INSERT INTO game_moves

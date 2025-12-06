@@ -103,10 +103,11 @@ from app.utils.progress_reporter import (  # noqa: E402
     ProgressReporter,
 )
 from app.db.recording import (  # noqa: E402
-    record_completed_game,
+    record_completed_game_with_parity_check,
     get_or_create_db,
     should_record_games,
 )
+from app.db import ParityValidationError  # noqa: E402
 from app.db import GameReplayDB  # noqa: E402
 
 # Distributed evaluation imports (optional - only needed for --distributed mode)
@@ -387,7 +388,7 @@ def play_single_game_from_state(
         move = current_ai.select_move(game_state)
         if not move:
             # No valid moves - opponent wins
-            game_state.game_status = GameStatus.FINISHED
+            game_state.game_status = GameStatus.COMPLETED
             game_state.winner = 2 if current_player == 1 else 1
             break
 
@@ -405,18 +406,26 @@ def play_single_game_from_state(
     # Record game to database if enabled
     if game_db is not None:
         try:
-            record_completed_game(
+            record_completed_game_with_parity_check(
                 db=game_db,
                 initial_state=initial_state,
                 final_state=game_state,
                 moves=moves_played,
                 metadata=game_metadata,
             )
+        except ParityValidationError as pve:
+            # Parity error is critical - re-raise to halt optimization
+            print(
+                f"[PARITY ERROR] Game diverged from TS at k={pve.divergence.move_index}:\n"
+                f"  Bundle: {pve.divergence.bundle_path or 'N/A'}",
+                file=sys.stderr,
+            )
+            raise
         except Exception as e:
             # Log but don't fail the evaluation if recording fails
             print(f"WARNING: Failed to record game: {e}")
 
-    if game_state.game_status != GameStatus.FINISHED:
+    if game_state.game_status != GameStatus.COMPLETED:
         # Draw due to move limit
         return (0, move_count)
 
@@ -1106,7 +1115,7 @@ def evaluate_fitness_multiplayer(
             if not move:
                 # No move found; treat as loss for the acting player and
                 # end the game.
-                game_state.game_status = GameStatus.FINISHED
+                game_state.game_status = GameStatus.COMPLETED
                 game_state.winner = None
                 break
 
@@ -1140,13 +1149,21 @@ def evaluate_fitness_multiplayer(
                 }
                 if recording_context:
                     metadata.update(recording_context)
-                record_completed_game(
+                record_completed_game_with_parity_check(
                     db=game_db,
                     initial_state=initial_state,
                     final_state=game_state,
                     moves=moves_list,
                     metadata=metadata,
                 )
+            except ParityValidationError as pve:
+                # Parity error is critical - re-raise
+                print(
+                    f"[PARITY ERROR] Multiplayer game diverged at k={pve.divergence.move_index}:\n"
+                    f"  Bundle: {pve.divergence.bundle_path or 'N/A'}",
+                    file=sys.stderr,
+                )
+                raise
             except Exception as e:
                 # Don't fail evaluation if recording fails
                 import logging

@@ -38,9 +38,9 @@ describe('EvaluationPanel', () => {
     expect(screen.getByText(/AI Evaluation/i)).toBeInTheDocument();
     expect(screen.getByText(/Move 10/i)).toBeInTheDocument();
 
-    // Player names should appear
-    expect(screen.getByText('Alice')).toBeInTheDocument();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
+    // Player names should appear (may be in multiple places like summary and legend)
+    expect(screen.getAllByText('Alice').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Bob').length).toBeGreaterThan(0);
 
     // Advantage for the leading player should be rendered with sign.
     expect(screen.getByText(/\+3\.2/)).toBeInTheDocument();
@@ -68,7 +68,8 @@ describe('EvaluationPanel', () => {
 
     // Only the player with an evaluation entry should appear.
     expect(screen.queryByText('Alice')).toBeNull();
-    expect(screen.getByText('Bob')).toBeInTheDocument();
+    // Bob may appear in multiple places (summary and legend)
+    expect(screen.getAllByText('Bob').length).toBeGreaterThan(0);
   });
 
   it('falls back to generic player labels and default color for unknown player numbers', () => {
@@ -82,8 +83,8 @@ describe('EvaluationPanel', () => {
     // No matching Player entries; labels and colors should fall back.
     const { container } = render(<EvaluationPanel evaluationHistory={[snapshot]} players={[]} />);
 
-    // Name should default to P5
-    expect(screen.getByText('P5')).toBeInTheDocument();
+    // Name should default to P5 (may appear in multiple places like legend and tooltip)
+    expect(screen.getAllByText('P5').length).toBeGreaterThan(0);
 
     // The color dot should use the default bg-slate-300 class from the fallback colors.
     const dots = container.querySelectorAll('span.inline-block.w-2.h-2.rounded-full');

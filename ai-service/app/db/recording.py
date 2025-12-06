@@ -279,3 +279,70 @@ def should_record_games(cli_no_record: bool = False) -> bool:
     if cli_no_record:
         return False
     return is_recording_enabled()
+
+
+def record_completed_game_with_parity_check(
+    db: GameReplayDB,
+    initial_state: GameState,
+    final_state: GameState,
+    moves: List[Move],
+    metadata: Optional[Dict[str, Any]] = None,
+    game_id: Optional[str] = None,
+    parity_mode: Optional[str] = None,
+) -> str:
+    """Record a completed game and optionally validate parity with TS engine.
+
+    This is the same as record_completed_game but adds on-the-fly parity
+    validation after recording. The parity check is controlled by the
+    RINGRIFT_PARITY_VALIDATION environment variable or the parity_mode argument.
+
+    Args:
+        db: The GameReplayDB instance
+        initial_state: GameState at the start of the game
+        final_state: GameState at the end of the game
+        moves: List of all moves in the game
+        metadata: Optional metadata dict (source, difficulty, etc.)
+        game_id: Optional custom game ID
+        parity_mode: Override parity validation mode:
+            - None: use RINGRIFT_PARITY_VALIDATION env var
+            - "off": skip parity validation
+            - "warn": log warnings on divergence
+            - "strict": raise exception on divergence
+
+    Returns:
+        The game ID that was stored
+
+    Raises:
+        ParityValidationError: If parity_mode is 'strict' and divergence is found
+    """
+    # First record the game
+    gid = record_completed_game(
+        db=db,
+        initial_state=initial_state,
+        final_state=final_state,
+        moves=moves,
+        metadata=metadata,
+        game_id=game_id,
+    )
+
+    # Then validate parity if enabled
+    from app.db.parity_validator import (
+        validate_game_parity,
+        is_parity_validation_enabled,
+        get_parity_mode,
+        ParityMode,
+    )
+
+    effective_mode = parity_mode or get_parity_mode()
+    if effective_mode == ParityMode.OFF:
+        return gid
+
+    # Get the db path from the instance
+    db_path = getattr(db, 'db_path', None) or getattr(db, '_db_path', None)
+    if db_path is None:
+        return gid
+
+    # Run parity validation (will raise on strict mode with divergence)
+    validate_game_parity(str(db_path), gid, mode=effective_mode)
+
+    return gid

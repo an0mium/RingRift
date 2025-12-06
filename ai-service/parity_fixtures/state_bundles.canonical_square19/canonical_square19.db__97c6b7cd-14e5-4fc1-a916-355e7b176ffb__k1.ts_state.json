@@ -1,0 +1,77 @@
+{
+  "gameId": "",
+  "board": {
+    "type": "square19",
+    "size": 19,
+    "stacks": {
+      "8,0": {
+        "position": {
+          "x": 8,
+          "y": 0,
+          "z": null
+        },
+        "rings": [1, 1],
+        "stackHeight": 2,
+        "capHeight": 2,
+        "controllingPlayer": 1
+      }
+    },
+    "markers": {},
+    "collapsedSpaces": {},
+    "eliminatedRings": {},
+    "formedLines": []
+  },
+  "players": [
+    {
+      "playerNumber": 1,
+      "ringsInHand": 34,
+      "eliminatedRings": 0,
+      "territorySpaces": 0,
+      "isActive": true
+    },
+    {
+      "playerNumber": 2,
+      "ringsInHand": 36,
+      "eliminatedRings": 0,
+      "territorySpaces": 0,
+      "isActive": true
+    }
+  ],
+  "currentPlayer": 1,
+  "currentPhase": "movement",
+  "turnNumber": 2,
+  "moveHistory": [
+    {
+      "id": "simulated",
+      "type": "place_ring",
+      "player": 1,
+      "to": {
+        "x": 8,
+        "y": 0,
+        "z": null
+      },
+      "captureTarget": null,
+      "capturedStacks": null,
+      "captureChain": null,
+      "overtakenRings": null,
+      "placedOnStack": false,
+      "placementCount": 2,
+      "stackMoved": null,
+      "minimumDistance": null,
+      "actualDistance": null,
+      "markerLeft": null,
+      "formedLines": null,
+      "collapsedMarkers": null,
+      "claimedTerritory": null,
+      "disconnectedRegions": null,
+      "eliminatedRings": null,
+      "timestamp": "2025-12-06T02:12:45.409Z",
+      "thinkTime": 0,
+      "moveNumber": 1
+    }
+  ],
+  "gameStatus": "active",
+  "victoryThreshold": 37,
+  "territoryVictoryThreshold": 181,
+  "totalRingsEliminated": 0
+}

@@ -132,27 +132,46 @@ def load_calibration_aggregates(path: str) -> CalibrationAggregateRoot:
 
     file_path = Path(path)
     if not file_path.exists():
-        raise CalibrationInputError(f"Calibration aggregates file not found: {file_path}")
+        raise CalibrationInputError(
+            "Calibration aggregates file not found: "
+            f"{file_path}"
+        )
 
     try:
         payload = _load_json_file(file_path)
     except json.JSONDecodeError as exc:
-        raise CalibrationInputError(f"Failed to parse calibration aggregates JSON: {exc}") from exc
+        raise CalibrationInputError(
+            "Failed to parse calibration aggregates JSON: "
+            f"{exc}"
+        ) from exc
 
     if not isinstance(payload, dict):
-        raise CalibrationInputError("Calibration aggregates root must be a JSON object.")
-
-    board = payload.get("board")
-    num_players = payload.get("num_players")
-    if board != "square8" or int(num_players) != 2:
         raise CalibrationInputError(
-            "Calibration aggregates must be for board='square8', num_players=2;"
-            f" got board={board!r}, num_players={num_players!r}."
+            "Calibration aggregates root must be a JSON object."
         )
+
+    board_val = payload.get("board")
+    num_players_val = payload.get("num_players")
+    invalid_board = board_val != "square8"
+    invalid_players = (
+        not isinstance(num_players_val, int) or num_players_val != 2
+    )
+    if invalid_board or invalid_players:
+        raise CalibrationInputError(
+            "Calibration aggregates must be for board='square8', "
+            "num_players=2; "
+            f"got board={board_val!r}, num_players={num_players_val!r}."
+        )
+    # At this point inputs are validated and we only support the canonical
+    # Square-8 2-player configuration.
+    board = "square8"
+    num_players = 2
 
     window = payload.get("window") or {}
     if not isinstance(window, dict):
-        raise CalibrationInputError("window must be an object with 'start'/'end' fields.")
+        raise CalibrationInputError(
+            "window must be an object with 'start'/'end' fields."
+        )
 
     raw_tiers = payload.get("tiers") or []
     if not isinstance(raw_tiers, list):
@@ -161,36 +180,56 @@ def load_calibration_aggregates(path: str) -> CalibrationAggregateRoot:
     tiers: List[CalibrationTierAggregate] = []
     for entry in raw_tiers:
         if not isinstance(entry, dict):
-            raise CalibrationInputError("Each tier entry must be an object.")
+            raise CalibrationInputError(
+                "Each tier entry must be an object."
+            )
         tier_name = str(entry.get("tier", "")).upper()
         if tier_name not in ALLOWED_SQUARE8_2P_TIERS:
+            allowed = sorted(ALLOWED_SQUARE8_2P_TIERS)
             raise CalibrationInputError(
-                f"Unsupported tier {tier_name!r}; expected one of {sorted(ALLOWED_SQUARE8_2P_TIERS)}."
+                f"Unsupported tier {tier_name!r}; expected one of "
+                f"{allowed}."
             )
         difficulty = int(entry.get("difficulty", 0))
-        if difficulty != int(tier_name[1:]):
+        expected_difficulty = int(tier_name[1:])
+        if difficulty != expected_difficulty:
             raise CalibrationInputError(
-                f"Tier {tier_name!r} has mismatched difficulty={difficulty}; expected {int(tier_name[1:])}."
+                f"Tier {tier_name!r} has mismatched difficulty="
+                f"{difficulty}; expected {expected_difficulty}."
             )
 
         raw_segments = entry.get("segments") or []
         if not isinstance(raw_segments, list):
-            raise CalibrationInputError(f"segments for tier {tier_name} must be a list.")
+            raise CalibrationInputError(
+                f"segments for tier {tier_name} must be a list."
+            )
 
         segments: List[CalibrationSegmentAggregate] = []
         for seg in raw_segments:
             if not isinstance(seg, dict):
-                raise CalibrationInputError("Each segment entry must be an object.")
+                raise CalibrationInputError(
+                    "Each segment entry must be an object."
+                )
             segment_name = str(seg.get("segment", ""))
             n_games = int(seg.get("n_games", 0))
             human_win_rate = float(seg.get("human_win_rate", 0.0))
             if n_games < 0:
                 raise CalibrationInputError(
-                    f"Segment {segment_name!r} in tier {tier_name} has negative n_games={n_games}."
+                    "Segment {segment!r} in tier {tier} has negative "
+                    "n_games={n_games}.".format(
+                        segment=segment_name,
+                        tier=tier_name,
+                        n_games=n_games,
+                    )
                 )
             if not (0.0 <= human_win_rate <= 1.0):
                 raise CalibrationInputError(
-                    f"Segment {segment_name!r} in tier {tier_name} has invalid human_win_rate={human_win_rate}."
+                    "Segment {segment!r} in tier {tier} has invalid "
+                    "human_win_rate={win_rate}.".format(
+                        segment=segment_name,
+                        tier=tier_name,
+                        win_rate=human_win_rate,
+                    )
                 )
 
             difficulty_mean = float(seg.get("difficulty_mean", 0.0))
@@ -218,7 +257,7 @@ def load_calibration_aggregates(path: str) -> CalibrationAggregateRoot:
 
     return CalibrationAggregateRoot(
         board=board,
-        num_players=int(num_players),
+        num_players=num_players,
         window=window,
         tiers=tiers,
     )
@@ -245,15 +284,19 @@ def _classify_segment(
     win = segment.human_win_rate
     mean = segment.difficulty_mean
 
-    # Too easy: human win rate well above target band and low perceived difficulty.
+    # Too easy: human win rate well above target band and
+    # low perceived difficulty.
     if win >= thresholds.too_easy_win and mean <= thresholds.easy_mean_max:
         return True, "too_easy"
 
-    # Too hard: human win rate well below target band and high perceived difficulty.
+    # Too hard: human win rate well below target band and
+    # high perceived difficulty.
     if win <= thresholds.too_hard_win and mean >= thresholds.hard_mean_min:
         return True, "too_hard"
 
-    if thresholds.target_low <= win <= thresholds.target_high and 2.5 <= mean <= 3.5:
+    in_band_win = thresholds.target_low <= win <= thresholds.target_high
+    in_band_mean = 2.5 <= mean <= 3.5
+    if in_band_win and in_band_mean:
         return True, "in_band"
 
     # Data is mixed or only weakly indicative.
@@ -261,9 +304,10 @@ def _classify_segment(
 
 
 def _build_ladder_view(cfg: LadderTierConfig) -> Dict[str, Any]:
-    ai_type_value = (
-        cfg.ai_type.value if isinstance(cfg.ai_type, AIType) else str(cfg.ai_type)
-    )
+    if isinstance(cfg.ai_type, AIType):
+        ai_type_value = cfg.ai_type.value
+    else:
+        ai_type_value = str(cfg.ai_type)
     return {
         "model_id": cfg.model_id,
         "ai_type": ai_type_value,
@@ -276,7 +320,7 @@ def _select_latest_promoted_candidate(
     ladder_model_id: Optional[str],
     registry: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
-    """Find the most recent gated_promote candidate matching the ladder model."""
+    """Return the most recent gated_promote candidate for the ladder model."""
 
     tiers = registry.get("tiers") or {}
     tier_block = tiers.get(tier_name)
@@ -287,7 +331,8 @@ def _select_latest_promoted_candidate(
     if not isinstance(candidates, list):
         return None
 
-    # registry helpers append candidates, so iterate from the end for "most recent".
+    # registry helpers append candidates, so iterate from the end
+    # for "most recent".
     for entry in reversed(candidates):
         if not isinstance(entry, dict):
             continue
@@ -300,8 +345,10 @@ def _select_latest_promoted_candidate(
     return None
 
 
-def _load_eval_and_perf_for_candidate(run_dir: Path) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    """Best-effort loading of tier_eval_result.json and tier_perf_report.json."""
+def _load_eval_and_perf_for_candidate(
+    run_dir: Path,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Best-effort loading of tier_eval_result.json and perf reports."""
 
     eval_payload: Optional[Dict[str, Any]] = None
     perf_payload: Optional[Dict[str, Any]] = None
@@ -312,7 +359,8 @@ def _load_eval_and_perf_for_candidate(run_dir: Path) -> Tuple[Optional[Dict[str,
             eval_payload = _load_json_file(eval_path)
         except Exception as exc:  # pragma: no cover - defensive
             print(
-                f"Warning: failed to load tier evaluation result from {eval_path}: {exc}",
+                "Warning: failed to load tier evaluation result from "
+                f"{eval_path}: {exc}",
                 file=sys.stderr,
             )
     else:
@@ -327,7 +375,8 @@ def _load_eval_and_perf_for_candidate(run_dir: Path) -> Tuple[Optional[Dict[str,
             perf_payload = _load_json_file(perf_path)
         except Exception as exc:  # pragma: no cover - defensive
             print(
-                f"Warning: failed to load tier perf report from {perf_path}: {exc}",
+                "Warning: failed to load tier perf report from "
+                f"{perf_path}: {exc}",
                 file=sys.stderr,
             )
     else:
@@ -350,7 +399,9 @@ def _load_eval_and_perf_for_candidate(run_dir: Path) -> Tuple[Optional[Dict[str,
     return eval_payload, perf_payload
 
 
-def _build_evaluation_view(eval_payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _build_evaluation_view(
+    eval_payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     if not eval_payload:
         return None
 
@@ -367,7 +418,9 @@ def _build_evaluation_view(eval_payload: Optional[Dict[str, Any]]) -> Optional[D
     }
 
 
-def _build_perf_view(perf_payload: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+def _build_perf_view(
+    perf_payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
     if not perf_payload:
         return None
 
@@ -455,7 +508,9 @@ def _summarise_tier(
 
     # Overall calibration status per tier.
     overall_status: str
-    if not tier_agg.segments or all(not e["sample_ok"] for e in segment_entries):
+    if not tier_agg.segments or all(
+        not entry["sample_ok"] for entry in segment_entries
+    ):
         overall_status = "inconclusive"
     elif too_easy_segments and not too_hard_segments:
         overall_status = "too_easy"
@@ -482,10 +537,13 @@ def _summarise_tier(
     if not notes_parts:
         if overall_status == "inconclusive":
             notes_parts.append(
-                f"Insufficient or mixed data for tier {tier_name}; treat as inconclusive."
+                "Insufficient or mixed data for tier "
+                f"{tier_name}; treat as inconclusive."
             )
         else:
-            notes_parts.append("Calibration status derived from current aggregates.")
+            notes_parts.append(
+                "Calibration status derived from current aggregates."
+            )
 
     calibration_block = {
         "segments": segment_entries,
@@ -596,7 +654,8 @@ def build_markdown_report(summary: Dict[str, Any]) -> str:
         ai_type = ladder.get("ai_type") or "N/A"
         heuristic_profile_id = ladder.get("heuristic_profile_id") or "N/A"
         lines.append(
-            f"**Ladder model:** {model_id} ({ai_type}, {heuristic_profile_id})  "
+            "**Ladder model:** "
+            f"{model_id} ({ai_type}, {heuristic_profile_id})  "
         )
 
         evaluation = tier.get("evaluation") or {}
@@ -625,10 +684,12 @@ def build_markdown_report(summary: Dict[str, Any]) -> str:
 
         # Segment table.
         lines.append(
-            "| Segment | n_games | human_win_rate | diff_mean | p10 | p90 | sample_ok | status |"
+            "| Segment | n_games | human_win_rate | diff_mean | p10 | "
+            "p90 | sample_ok | status |"
         )
         lines.append(
-            "|---------|---------|----------------|-----------|-----|-----|-----------|--------|"
+            "|---------|---------|----------------|-----------|-----|"
+            "-----|-----------|--------|"
         )
         for seg in (tier.get("calibration") or {}).get("segments", []):
             segment_name = seg.get("segment")
@@ -639,10 +700,12 @@ def build_markdown_report(summary: Dict[str, Any]) -> str:
             p90 = seg.get("difficulty_p90")
             sample_ok = "yes" if seg.get("sample_ok") else "no"
             status = seg.get("status") or "inconclusive"
-            lines.append(
-                f"| {segment_name} | {n_games} | {win_rate:.2f} | {diff_mean:.2f} | "
-                f"{p10:.2f} | {p90:.2f} | {sample_ok} | {status} |"
+            row = (
+                f"| {segment_name} | {n_games} | {win_rate:.2f} | "
+                f"{diff_mean:.2f} | {p10:.2f} | {p90:.2f} | "
+                f"{sample_ok} | {status} |"
             )
+            lines.append(row)
 
         lines.append("")
         calibration = tier.get("calibration") or {}
@@ -750,7 +813,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     except Exception as exc:  # pragma: no cover - defensive
-        print(f"Unexpected error while loading calibration aggregates: {exc}", file=sys.stderr)
+        print(
+            "Unexpected error while loading calibration aggregates: "
+            f"{exc}",
+            file=sys.stderr,
+        )
         return 1
 
     registry = load_square8_two_player_registry(path=args.registry_path)
@@ -764,27 +831,35 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     # Write JSON summary.
     json_path = Path(args.output_json)
-    json_path = json_path if json_path.is_absolute() else Path.cwd() / json_path
+    if not json_path.is_absolute():
+        json_path = Path.cwd() / json_path
     try:
         _ensure_parent_dir(json_path)
         with json_path.open("w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, sort_keys=True)
         print(f"Calibration summary JSON written to: {json_path}")
     except Exception as exc:  # pragma: no cover - defensive
-        print(f"Error writing JSON summary to {json_path}: {exc}", file=sys.stderr)
+        print(
+            f"Error writing JSON summary to {json_path}: {exc}",
+            file=sys.stderr,
+        )
         return 1
 
     # Write Markdown summary if a path is provided.
     if args.output_md:
         md_path = Path(args.output_md)
-        md_path = md_path if md_path.is_absolute() else Path.cwd() / md_path
+        if not md_path.is_absolute():
+            md_path = Path.cwd() / md_path
         try:
             _ensure_parent_dir(md_path)
             markdown = build_markdown_report(summary)
             md_path.write_text(markdown, encoding="utf-8")
             print(f"Calibration summary Markdown written to: {md_path}")
         except Exception as exc:  # pragma: no cover - defensive
-            print(f"Error writing Markdown summary to {md_path}: {exc}", file=sys.stderr)
+            print(
+                f"Error writing Markdown summary to {md_path}: {exc}",
+                file=sys.stderr,
+            )
             return 1
 
     return 0

@@ -205,6 +205,7 @@ export function checkPhaseValid(state: GameState, moveIndex: number): InvariantV
     'chain_capture',
     'line_processing',
     'territory_processing',
+    'forced_elimination', // 7th phase per RR-CANON-R070
   ];
 
   if (!validPhases.includes(state.currentPhase)) {

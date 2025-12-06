@@ -248,7 +248,7 @@ class RingCapAndLPSTests(unittest.TestCase):
             )  # type: ignore[attr-defined]
             GameEngine._check_victory(state)
 
-            self.assertEqual(state.game_status, GameStatus.FINISHED)
+            self.assertEqual(state.game_status, GameStatus.COMPLETED)
             self.assertEqual(state.winner, 1)
         finally:
             GameEngine._has_real_action_for_player = original
@@ -299,7 +299,7 @@ class RingCapAndLPSTests(unittest.TestCase):
             )  # type: ignore[attr-defined]
             GameEngine._check_victory(state)
 
-            self.assertEqual(state.game_status, GameStatus.FINISHED)
+            self.assertEqual(state.game_status, GameStatus.COMPLETED)
             self.assertEqual(state.winner, 1)
         finally:
             GameEngine._has_real_action_for_player = original

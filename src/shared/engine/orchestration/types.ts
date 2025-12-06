@@ -7,6 +7,7 @@
  */
 
 import type { GameState, Position, Move, BoardType, Territory } from '../../types/game';
+import type { GameEndExplanation } from '../gameEndExplanation';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PROCESS TURN TYPES
@@ -54,6 +55,10 @@ export interface PendingDecision {
 
 /**
  * Types of decisions that may be pending.
+ *
+ * Per RR-CANON-R075, when a phase has no actions, the core rules layer returns
+ * a pending decision requiring an explicit no-action move. The host layer can
+ * auto-fill these for live play UX or wait for explicit moves during replay.
  */
 export type DecisionType =
   | 'line_order'
@@ -61,7 +66,12 @@ export type DecisionType =
   | 'region_order'
   | 'elimination_target'
   | 'capture_direction'
-  | 'chain_capture';
+  | 'chain_capture'
+  // RR-CANON-R075: Required no-action moves when a phase has no available actions
+  | 'no_line_action_required'
+  | 'no_territory_action_required'
+  | 'no_movement_action_required'
+  | 'no_placement_action_required';
 
 /**
  * Context information for rendering a decision UI.
@@ -303,6 +313,15 @@ export interface VictoryState {
 
   /** Tie-breaking information (undefined if no tie) */
   tieBreaker: TieBreaker | undefined;
+
+  /**
+   * Optional structured explanation of how and why the game ended.
+   *
+   * This is a shared-engine-only projection built from GameState at the
+   * point victory is detected. Hosts may choose to surface this in UI
+   * or telemetry without affecting core rules semantics.
+   */
+  gameEndExplanation?: GameEndExplanation;
 }
 
 export type VictoryReason =
@@ -389,4 +408,12 @@ export interface PerTurnFlags {
 
   /** Number of elimination rewards pending */
   eliminationRewardCount: number;
+
+  /**
+   * Whether the player performed any meaningful action this turn.
+   * This tracks actions across all phases (placement, movement, capture,
+   * line processing, territory processing). Used to determine if the
+   * forced_elimination phase should be entered per RR-CANON-R070/R204.
+   */
+  hadActionThisTurn: boolean;
 }

@@ -3,12 +3,12 @@
 > **Doc Status (2025-11-27): Active (test meta-doc, non-semantics)**
 >
 > - Tracks **Backend ↔ Sandbox semantic trace parity divergences** for selected seeded AI games and documents which trace-based suites remain diagnostic vs gating.
-> - Treats **shared TS orchestrator + contracts + contract vectors** as the rules SSoT:
+> - Treats the **canonical rules spec plus shared TS orchestrator + contracts + contract vectors** as the executable rules SSoT:
 >   - Orchestrator + aggregates: `src/shared/engine/orchestration/turnOrchestrator.ts`, `src/shared/engine/aggregates/*.ts`.
 >   - Contracts & vectors: `src/shared/engine/contracts/*`, `tests/fixtures/contract-vectors/v2/*.json`.
 >   - TS runner: `tests/contracts/contractVectorRunner.test.ts`.
 >   - Python runner & parity: `ai-service/tests/contracts/test_contract_vectors.py`, `ai-service/tests/parity/*.py`.
-> - Seeded `Backend_vs_Sandbox.*` and related parity suites referenced here are **host/adapter diagnostics** over GameEngine / ClientSandboxEngine / BoardManager and Python hosts; they are not a separate rules SSoT and must yield to the shared TS engine + contract vectors + rules docs when they disagree.
+> - Seeded `Backend_vs_Sandbox.*` and related parity suites referenced here are **host/adapter diagnostics** over GameEngine / ClientSandboxEngine / BoardManager and Python hosts; they are not a separate rules SSoT and must yield to the canonical rules spec plus shared TS engine + contract vectors when they disagree.
 > - For rules semantics and lifecycle SSoT, see:
 >   - [`RULES_CANONICAL_SPEC.md`](../RULES_CANONICAL_SPEC.md) (RR-CANON-RXXX rules).
 >   - [`ringrift_complete_rules.md`](../ringrift_complete_rules.md) and the scenario index in [`RULES_SCENARIO_MATRIX.md`](../RULES_SCENARIO_MATRIX.md).

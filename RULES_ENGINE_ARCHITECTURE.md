@@ -2,21 +2,25 @@
 
 > **SSoT alignment:** This document is a derived architectural view over the following canonical sources:
 >
-> - **Rules semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md` / `ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers → aggregates → orchestrator → contracts plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`). This is the **Rules/invariants semantics SSoT** for RingRift.
+> - **Single Source of Truth (SSoT):** The canonical rules defined in `RULES_CANONICAL_SPEC.md` (together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) are the **ultimate authority** for RingRift game semantics. All implementations must derive from and faithfully implement these canonical rules.
+> - **Implementation hierarchy:**
+>   - **TS shared engine** (`src/shared/engine/**`) is the _primary executable derivation_ of the canonical rules spec. If the TS engine and the canonical rules document disagree, that is a bug in the TS engine.
+>   - **Python AI service** (`ai-service/app/**`) is a _host adapter_ that must mirror the canonical rules. If Python disagrees with the canonical rules or the validated TS engine behaviour, Python must be updated—never the other way around.
+>   - **Backend, sandbox, replay** and other hosts similarly derive from the canonical rules via the shared engine; they must not introduce independent rules semantics.
 > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` together with the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`) define the executable Move + orchestrator + WebSocket lifecycle that this doc describes.
-> - **Precedence:** Backend (`GameEngine`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over those SSoTs. If this document ever conflicts with the shared TS engine, orchestrator/contracts, WebSocket schemas, or tests, **code + tests win** and this document must be updated to match them.
+> - **Precedence:** If this document ever conflicts with the canonical rules spec or with the shared TS engine + orchestrator/contracts that faithfully implement it, **the canonical rules + tests win** and this document must be updated to match them.
 >
-> In other words, this file explains how hosts are wired around the TS rules SSoT; it does not introduce a separate semantics SSoT.
+> In other words, this file explains how hosts are wired around the canonical rules SSoT and its shared TS implementation; it does not introduce a separate semantics SSoT.
 
-**Last Updated:** November 26, 2025
+**Last Updated:** December 06, 2025
 **Scope:** Python Rules Engine, TypeScript Parity, Canonical Orchestrator, and Rollout Plan
 
 **Doc Status (2025-11-26): Active (with historical/aspirational content)**
 
-- Canonical rules semantics SSoT is the **shared TypeScript engine** under `src/shared/engine/`, specifically: helpers → domain aggregates → turn orchestrator → contracts (`schemas.ts`, `serialization.ts`, `testVectorGenerator.ts` + v2 vectors under `tests/fixtures/contract-vectors/v2/`).
+- Canonical rules semantics SSoT is the written spec in `RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`. The **shared TypeScript engine** under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts: `schemas.ts`, `serialization.ts`, `testVectorGenerator.ts` + v2 vectors under `tests/fixtures/contract-vectors/v2/`) is the primary executable derivation of that spec and must be kept in lockstep with the canonical rules.
 - Move/decision/WebSocket lifecycle semantics are documented in `docs/CANONICAL_ENGINE_API.md` and the shared TS/WebSocket types (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
-- Backend (`GameEngine`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this SSoT; they must remain parity-validated but are not independent sources of rules semantics.
-- Sections describing Python mutator-first refactors and future rollout phases should be read as **aspirational design** layered on top of the TS rules SSoT.
+- Backend (`GameEngine`, `TurnEngineAdapter`), client sandbox (`ClientSandboxEngine`, `SandboxOrchestratorAdapter`), and Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/*`) are **hosts/adapters** over this rules SSoT; they must remain parity-validated against the canonical rules spec + shared engine but are not independent sources of rules semantics.
+- Sections describing Python mutator-first refactors and future rollout phases should be read as **aspirational design** layered on top of the canonical rules SSoT (canonical rules spec plus shared TS engine), not as a redefinition of rules semantics.
 
 This document defines the architecture of the Python rules engine within the AI service, its relationship to the canonical TypeScript engine, and the strategy for rolling it out as a parity-validated host over the canonical TypeScript engine in online validation flows.
 
@@ -32,11 +36,13 @@ RingRift maintains two implementations of the game rules with a new canonical or
 2.  **Canonical Turn Orchestrator (NEW):** Located in `src/shared/engine/orchestration/`. Provides a single entry point (`processTurn()`) that orchestrates all domain aggregates in a deterministic sequence. Backend and sandbox adapters delegate to this layer.
 3.  **Python Engine (AI/Shadow):** Located in `ai-service/app/game_engine.py`. Used for AI search/evaluation and currently being rolled out as a shadow validator for the backend. Contract tests ensure cross-language parity.
 
-### Shared Rules Engine as Single Source of Truth
+### Shared Rules Implementation
 
-The canonical RingRift rules live in the shared TypeScript engine under
-[`src/shared/engine`](src/shared/engine/types.ts:1). These modules are pure,
-deterministic helpers that operate on shared `GameState` / `BoardState` types
+The canonical RingRift rules are implemented in the shared TypeScript engine under
+[`src/shared/engine`](src/shared/engine/types.ts:1) as the primary executable
+derivation of the canonical rules specification (`RULES_CANONICAL_SPEC.md` together
+with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`). These modules are
+pure, deterministic helpers that operate on shared `GameState` / `BoardState` types
 and are reused by every host (backend, sandbox, tests, Python parity). The most
 important groups are:
 
@@ -240,7 +246,16 @@ truth:
 
 ### Python Engine Structure
 
-- [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py:1): Core orchestration, move generation, state transitions, and turn logic.
+- [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py:1): Core host adapter exposing:
+  - `get_valid_moves(state, player)` – **interactive-only** legal moves for the current phase (no auto `NO_*_ACTION` or forced-elimination moves).
+  - `get_phase_requirement(state, player)` – phase-level requirements when no interactive moves exist (e.g., `NO_*_ACTION_REQUIRED`, `FORCED_ELIMINATION_REQUIRED`).
+  - `synthesize_bookkeeping_move(requirement, state)` – host-level helper to construct canonical `NO_*_ACTION` / `FORCED_ELIMINATION` moves from a `PhaseRequirement`.
+  - `apply_move(state, move, trace_mode=False)` – move application + phase transitions, delegating phase logic to the dedicated phase machine.
+- [`ai-service/app/rules/phase_machine.py`](ai-service/app/rules/phase_machine.py:1): Phase/turn state machine:
+  - Pure phase + turn transitions (no board/player mutation, no move fabrication).
+  - Mirrors TS `phaseStateMachine.ts` / `turnOrchestrator.processPostMovePhases` for:
+    - `ring_placement → movement → capture/chain_capture → line_processing → territory_processing → forced_elimination → rotation`.
+    - `NO_*_ACTION` transitions between decision phases.
 - [`ai-service/app/board_manager.py`](ai-service/app/board_manager.py:1): Board-level utilities (hashing, S-invariant, line detection, Territory regions).
 - [`ai-service/app/rules/default_engine.py`](ai-service/app/rules/default_engine.py:1): Adapter that delegates to `GameEngine` while routing key move types through dedicated mutators under _shadow contracts_.
 - [`ai-service/app/models/`](ai-service/app/models/__init__.py:1): Pydantic models mirroring the TypeScript shared engine types.
@@ -280,7 +295,7 @@ To ensure the Python engine behaves exactly like the TypeScript engine:
 
 ### 2.1 Multi-phase turn vectors and phase sequencing
 
-The canonical **multi-phase turn sequence** (movement / capture → chain_capture → line_processing → territory_processing) is encoded and exercised in three layers:
+The canonical **multi-phase turn sequence** (ring_placement → movement / capture → chain_capture → line_processing → territory_processing → forced_elimination) is encoded and exercised in three layers:
 
 - **Contract vectors (TS SSoT for phase sequences).**
   - `tests/fixtures/contract-vectors/v2/multi_phase_turn.vectors.json` contains v2 test vectors such as:
@@ -342,7 +357,7 @@ The canonical **multi-phase turn sequence** (movement / capture → chain_captur
       - `_update_phase` / `_advance_to_line_processing` / `_end_turn`:
         - Implement the phase transitions described by RR‑CANON‑R208/R209:
           - `movement` / `capture` → `chain_capture` (when continuation exists).
-          - `chain_capture` → `line_processing` → `territory_processing` (when applicable) → next `ring_placement` or victory.
+          - `chain_capture` → `line_processing` → `territory_processing` (when applicable) → `forced_elimination` (if blocked) → next `ring_placement` / `movement` or victory.
     - Python parity tests treat these helpers as **host wiring** and assert that they reproduce the TS contract vectors and snapshots exactly; they are not independent semantics SSoTs.
 
 ### DefaultRulesEngine ↔ GameEngine Equivalence Coverage
@@ -514,7 +529,7 @@ The rollout is controlled by the `RINGRIFT_RULES_MODE` environment variable.
   - If Python rejects the move, it is rejected.
   - If Python accepts, the move is applied (currently via TS engine in "reverse shadow" for safety, eventually by trusting Python state).
 - **Fallback:** On Python service failure, fall back to TS engine and log `backend_fallback`.
-- **Goal:** Make the Python engine the **primary online validation host over the canonical TS orchestrator + contracts**, enabling advanced AI features that rely on precise rule simulation while keeping the TS shared engine as the rules SSoT.
+- **Goal:** Make the Python engine the **primary online validation host over the canonical TS orchestrator + contracts**, enabling advanced AI features that rely on precise rule simulation while keeping the written canonical rules spec as the rules SSoT and the TS shared engine as its primary executable implementation.
 
 ### Acceptance Criteria for Phase 2
 

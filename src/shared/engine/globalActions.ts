@@ -196,6 +196,15 @@ export function hasPhaseLocalInteractiveMove(state: GameState, player: number): 
       return regionMoves.length > 0 || elimMoves.length > 0;
     }
 
+    case 'forced_elimination': {
+      // Forced elimination is the 7th phase entered when a player has stacks
+      // but no legal placement, movement, or capture actions. The player
+      // MUST eliminate from one of their controlled stacks - this is not
+      // optional, so it's "interactive" only in the sense of choosing which
+      // stack. Returns true if there are elimination options available.
+      return hasForcedEliminationAction(state, player);
+    }
+
     default:
       return false;
   }

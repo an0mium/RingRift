@@ -203,5 +203,48 @@ describe('GameEnd UX regression – VictoryModal & banners', () => {
       expect(dialog).toHaveTextContent(pattern);
       expect(bannerText).toMatch(pattern);
     });
+
+    const modalText = dialog.textContent || '';
+
+    // Structural-stalemate explanation should enumerate the four-step tiebreak ladder:
+    // 1) Territory spaces, 2) eliminated rings (including rings in hand),
+    // 3) markers, 4) last real action.
+    expect(modalText).toMatch(/total Territory spaces/i);
+    expect(modalText).toMatch(/eliminated rings \(including rings in hand\)/i);
+    expect(modalText).toMatch(/markers/i);
+    expect(modalText).toMatch(/last real action/i);
+  });
+
+  it('explains Last Player Standing using real-move vs forced-elimination semantics', () => {
+    const players = createPlayers();
+    const gameState = createGameState(players);
+    const lpsResult = createGameResult('last_player_standing', 1);
+
+    const viewModel = toVictoryViewModel(lpsResult, players, gameState, {
+      currentUserId: players[0].id,
+      isDismissed: false,
+    });
+
+    expect(viewModel).not.toBeNull();
+    if (!viewModel) return;
+
+    render(
+      <VictoryModal
+        isOpen={true}
+        viewModel={viewModel}
+        onClose={() => {}}
+        onReturnToLobby={() => {}}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    const text = dialog.textContent || '';
+
+    expect(text).toMatch(
+      /only player able to make real moves \(placements, movements, or captures\) for a full round of turns/i
+    );
+    expect(text).toMatch(
+      /forced eliminations?, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings/i
+    );
   });
 });

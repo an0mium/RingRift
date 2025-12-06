@@ -271,13 +271,13 @@ def play_single_game(
 
         move = current_ai.select_move(game_state)
         if not move:
-            game_state.game_status = GameStatus.FINISHED
+            game_state.game_status = GameStatus.COMPLETED
             game_state.winner = 2 if current_player_num == 1 else 1
             break
 
         game_state = rules_engine.apply_move(game_state, move)
 
-        if game_state.game_status == GameStatus.FINISHED:
+        if game_state.game_status == GameStatus.COMPLETED:
             break
 
         move_count += 1

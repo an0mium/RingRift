@@ -29,7 +29,7 @@ from app.models import (
 from app.ai.heuristic_ai import HeuristicAI
 from app.ai.heuristic_weights import BASE_V1_BALANCED_WEIGHTS, HEURISTIC_WEIGHT_KEYS
 from app.rules.default_engine import DefaultRulesEngine
-from app.db import GameReplayDB, get_or_create_db, record_completed_game
+from app.db import GameReplayDB, get_or_create_db, record_completed_game_with_parity_check, ParityValidationError
 from app.training.env import get_theoretical_max_moves
 
 
@@ -381,7 +381,7 @@ def run_sensitivity_test(
             # Record game to database if enabled
             if replay_db is not None and game_result is not None:
                 try:
-                    record_completed_game(
+                    record_completed_game_with_parity_check(
                         db=replay_db,
                         initial_state=game_result.initial_state,
                         final_state=game_result.final_state,
@@ -395,6 +395,13 @@ def run_sensitivity_test(
                         },
                     )
                     games_recorded += 1
+                except ParityValidationError as pve:
+                    print(
+                        f"[PARITY ERROR] Game diverged at k={pve.divergence.move_index}:\n"
+                        f"  Bundle: {pve.divergence.bundle_path or 'N/A'}",
+                        file=sys.stderr,
+                    )
+                    raise
                 except Exception as exc:
                     print(
                         f"    [record-db] Failed to record game: "

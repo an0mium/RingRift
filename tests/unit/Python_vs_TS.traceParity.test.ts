@@ -6,6 +6,42 @@ import { BoardManager } from '../../src/server/game/BoardManager';
 import { ClientSandboxEngine } from '../../src/client/sandbox/ClientSandboxEngine';
 import { computeProgressSnapshot, hashGameState } from '../../src/shared/engine/core';
 
+/**
+ * Canonicalize a hash string from old fixture format to new canonical format.
+ * Old fixtures may have:
+ *   - 'finished' status instead of 'completed'
+ *   - Non-zero currentPlayer for terminal states
+ *   - Non-'movement' phase for terminal states
+ * This matches the canonicalization in TS fingerprintGameState and Python hash_game_state.
+ */
+function canonicalizeFixtureHash(hash: string): string {
+  // Hash format: "player:phase:status#...rest"
+  const parts = hash.split('#');
+  if (parts.length === 0) return hash;
+
+  const meta = parts[0];
+  const rest = parts.slice(1).join('#');
+  const metaParts = meta.split(':');
+  if (metaParts.length < 3) return hash;
+
+  let [player, phase, status] = metaParts;
+
+  // Canonicalize status: 'finished' -> 'completed'
+  if (status === 'finished') {
+    status = 'completed';
+  }
+
+  // For terminal states, canonicalize player to 0 and phase to 'movement'
+  const isTerminal = status === 'completed' || status === 'abandoned';
+  if (isTerminal) {
+    player = '0';
+    phase = 'movement';
+  }
+
+  const canonicalMeta = `${player}:${phase}:${status}`;
+  return rest ? `${canonicalMeta}#${rest}` : canonicalMeta;
+}
+
 // Mock interaction handler
 const mockInteractionHandler = {
   requestChoice: async (choice: any) => {
@@ -232,7 +268,10 @@ describe('Python vs TS Trace Parity', () => {
         const tsHash = hashGameState(stateAfter);
 
         if (step.stateHash) {
-          expect(tsHash).toBe(step.stateHash);
+          // Canonicalize fixture hash to handle old format with 'finished' status
+          // and non-canonical terminal state metadata
+          const expectedHash = canonicalizeFixtureHash(step.stateHash);
+          expect(tsHash).toBe(expectedHash);
         }
       }
     });

@@ -50,7 +50,7 @@ A web-based multiplayer implementation of the RingRift strategy game supporting 
 - ✅ **Hexagonal board support** - Full 331-space board validated
 - ✅ **Client-local sandbox engine** - `/sandbox` uses `ClientSandboxEngine` plus `sandboxMovement.ts`, `sandboxCaptures.ts`, `sandboxTerritory.ts`, and `sandboxVictory.ts` (with line and territory processing now wired directly to shared helpers) to run full games in the browser (movement, captures, lines, territory, and ring/territory victories) with dedicated Jest suites under `tests/unit/ClientSandboxEngine.*.test.ts`.
 - ✅ **Orchestrator at 100%** - Shared turn orchestrator handles all turn processing; legacy paths deprecated
-- ✅ **Accessibility foundations** - 55 ARIA/role attributes across 12 components (dialogs, grids, live regions)
+- ✅ **Accessibility features (Wave 14.5)** – Keyboard navigation for board and dialogs, screen reader announcements via `ScreenReaderAnnouncer`, high-contrast and colorblind-friendly themes via `AccessibilitySettingsPanel` / `AccessibilityContext`, reduced-motion support, and over 50 ARIA/role attributes across core UI surfaces; see [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) for details.
 - ✅ **Move history panel** - `GameHistoryPanel` integrated into backend games with expandable move details
 
 ### ⚠️ Remaining Gaps (UX Polish)
@@ -616,7 +616,7 @@ npm run test:ts-parity          # Trace/host parity and RNG-oriented suites (dia
 npm run test:ts-integration     # Integration suites (WebSocket, routes, full game flows)
 
 # Single-source-of-truth (SSoT) guardrails
-npm run ssot-check              # Docs/env/CI/rules SSoT checks and legacy-path fences
+npm run ssot-check              # Docs/env/CI/rules SSoT checks against the canonical rules spec + shared TS engine, and legacy-path fences
 
 # Orchestrator invariant soaks (TS shared engine, backend host)
 npm run soak:orchestrator       # Multi-game invariant soak (S, structure, ACTIVE-no-move)

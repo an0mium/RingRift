@@ -4,7 +4,7 @@
 >
 > - Defines patterns for host components, presentational components, and adapters/hooks in the game client.
 > - Documents how frontend hosts integrate with the shared TypeScript orchestrator **indirectly** via backend and sandbox adapters.
-> - Not a rules or lifecycle single source of truth. Rules semantics SSoT is [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1) plus the shared TS engine under `src/shared/engine/**` as catalogued in [`CANONICAL_ENGINE_API.md`](docs/CANONICAL_ENGINE_API.md:1) and [`MODULE_RESPONSIBILITIES.md`](docs/MODULE_RESPONSIBILITIES.md:1). Lifecycle and WebSocket contracts are owned by shared types and schemas under `src/shared/types/**` and `src/shared/validation/**`.
+> - Not a rules or lifecycle single source of truth. Rules semantics SSoT is [`RULES_CANONICAL_SPEC.md`](RULES_CANONICAL_SPEC.md:1), with the shared TS engine under `src/shared/engine/**` serving as the primary executable implementation of that spec as catalogued in [`CANONICAL_ENGINE_API.md`](docs/CANONICAL_ENGINE_API.md:1) and [`MODULE_RESPONSIBILITIES.md`](docs/MODULE_RESPONSIBILITIES.md:1). Lifecycle and WebSocket contracts are owned by shared types and schemas under `src/shared/types/**` and `src/shared/validation/**`.
 > - Orchestrator rollout, SLOs, and incident posture are owned by [`ORCHESTRATOR_ROLLOUT_PLAN.md`](docs/ORCHESTRATOR_ROLLOUT_PLAN.md:1) and [`STRICT_INVARIANT_SOAKS.md`](docs/STRICT_INVARIANT_SOAKS.md:1).
 
 This document is an **implementation guide for frontend developers**. It explains:

@@ -14,6 +14,15 @@ import { debugLog, flagEnabled } from '../utils/envFlags';
 /**
  * Shared, browser-safe core helpers for RingRift engine logic.
  *
+ * **SSoT (Single Source of Truth):** This file is part of the TypeScript
+ * shared engine (`src/shared/engine/**`), which is the *primary executable
+ * derivation* of the canonical rules defined in `RULES_CANONICAL_SPEC.md`.
+ *
+ * All implementations—Python AI service, client sandbox, backend hosts, and
+ * replay systems—must derive from and faithfully mirror the behaviour of this
+ * shared engine. If any implementation disagrees with this code, that
+ * implementation must be updated to match—not the other way around.
+ *
  * These functions are intentionally pure and depend only on shared
  * types so they can be used by both the Node.js GameEngine wrapper
  * and any future client-side/local-engine harnesses.

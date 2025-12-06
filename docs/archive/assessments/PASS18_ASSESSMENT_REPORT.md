@@ -111,7 +111,7 @@ Moving from "design complete" to "production reality" for the orchestrator-first
     - Point to this PASS18 report and [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:1) for the **current** weakest aspect and hardest problem.
 
 - **`AI_ARCHITECTURE.md` and `RULES_ENGINE_ARCHITECTURE.md`:**
-  - Both remain largely accurate regarding TS rules SSoT, orchestrator design, Python adapter role, and parity and testing strategy.
+  - Both remain largely accurate regarding the canonical rules SSoT (rules spec + shared TS engine), orchestrator design, Python adapter role, and parity and testing strategy.
   - **Recommended action:** after PASS18, re-check any sections that still describe Python rules as permanently simplifying line or territory behaviour and ensure they either match reality or are clearly marked as historical limitations.
 
 ### 5.2 Frontend UX Mismatches

@@ -99,7 +99,9 @@ class HexStateEncoder:
         9: Opponent line potential
 
     Global Features (10 dims):
-        0-4: One-hot game phase encoding
+        0-4: Compressed one-hot game phase encoding
+             (ring_placement, movement, capture, line_processing,
+              territory_processing + forced_elimination)
         5: Current player rings in hand (normalized)
         6: Opponent rings in hand (normalized)
         7: Current player eliminated rings (normalized)
@@ -387,19 +389,24 @@ class HexStateEncoder:
         # Global features
         globals_vec = np.zeros(self.NUM_GLOBAL_FEATURES, dtype=np.float32)
 
-        # Phase one-hot (indices 0-4)
-        phases = [
-            GamePhase.RING_PLACEMENT,
-            GamePhase.MOVEMENT,
-            GamePhase.CAPTURE,
-            GamePhase.LINE_PROCESSING,
-            GamePhase.TERRITORY_PROCESSING,
-        ]
-        try:
-            phase_idx = phases.index(state.current_phase)
+        # Phase one-hot (indices 0-4).
+        # We currently encode the 7 canonical phases into 5 slots by
+        # compressing `forced_elimination` into the same slot as
+        # `territory_processing`. This keeps the global feature size
+        # stable for existing models while still distinguishing the
+        # territory/cleanup portion of the turn from placement/movement/
+        # capture phases.
+        phase_index_map = {
+            GamePhase.RING_PLACEMENT: 0,
+            GamePhase.MOVEMENT: 1,
+            GamePhase.CAPTURE: 2,
+            GamePhase.LINE_PROCESSING: 3,
+            GamePhase.TERRITORY_PROCESSING: 4,
+            GamePhase.FORCED_ELIMINATION: 4,
+        }
+        phase_idx = phase_index_map.get(state.current_phase)
+        if phase_idx is not None and 0 <= phase_idx < 5:
             globals_vec[phase_idx] = 1.0
-        except ValueError:
-            pass
 
         # Rings info (indices 5-8)
         my_player = next(

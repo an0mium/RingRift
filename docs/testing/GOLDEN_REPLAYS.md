@@ -52,8 +52,8 @@ Each reconstructed move step is validated against six structural invariants (see
 ### INV-PHASE-VALID
 
 - `currentPhase` is one of the canonical `GamePhase` values from `src/shared/types/game.ts`:
-  - `ring_placement`, `movement`, `capture`, `chain_capture`, `line_processing`, `territory_processing`.
-- Higher‑level multi‑phase sequencing (movement → capture → chain_capture → line_processing → territory_processing) is validated by contract vectors and snapshot parity tests rather than this structural check.
+  - `ring_placement`, `movement`, `capture`, `chain_capture`, `line_processing`, `territory_processing`, `forced_elimination`.
+- Higher‑level multi‑phase sequencing (movement → capture → chain_capture → line_processing → territory_processing → forced_elimination) is validated by contract vectors and snapshot parity tests rather than this structural check.
 
 ### INV-ACTIVE-PLAYER
 
@@ -255,12 +255,39 @@ python -m pytest tests/golden/ -m "not slow"
 
 The test suite tracks coverage across:
 
-| Category      | Target | Description                                                                                                      |
-| ------------- | ------ | ---------------------------------------------------------------------------------------------------------------- |
-| Board Types   | All    | `square8`, `square19`, `hexagonal`                                                                               |
-| Player Counts | All    | 2, 3, 4 players                                                                                                  |
-| Victory Types | All    | `ring_elimination`, `territory_control`, `last_player_standing`, `timeout`, `resignation`, `draw`, `abandonment` |
-| Edge Cases    | 80%+   | chain captures, territory splits, forced eliminations                                                            |
+| Category      | Target | Current Status | Description                                                              |
+| ------------- | ------ | -------------- | ------------------------------------------------------------------------ |
+| Board Types   | All    | ✅ Complete    | `square8` ✅, `square19` ✅, `hexagonal` ✅                              |
+| Player Counts | All    | ✅ Complete    | 2-player ✅, 3-player ✅, 4-player ✅                                    |
+| Victory Types | All    | ⚠️ Partial     | `ring_elimination` ✅, `territory_control` ⚠️, `last_player_standing` ⚠️ |
+| Edge Cases    | 80%+   | ⚠️ Unknown     | chain captures, territory splits, forced eliminations (need analysis)    |
+
+### Current Golden Fixture Status (Dec 2025)
+
+**Available candidates (from `find_golden_candidates.py`):** 29 total candidates
+
+| Board Type | Players | Source DB             | Games | Finished Games        |
+| ---------- | ------- | --------------------- | ----- | --------------------- |
+| square19   | 2       | canonical_square19.db | 2     | 2 (with winners)      |
+| square8    | 2       | selfplay.db           | 1     | 0                     |
+| hexagonal  | 2       | golden_hexagonal.db   | 10    | 0 (max moves reached) |
+| square8    | 3       | golden_3player.db     | 8     | 2 (with winners)      |
+| square8    | 4       | golden_4player.db     | 8     | 0 (max moves reached) |
+
+**Coverage status:**
+
+- ✅ Hexagonal board games (10 games generated via minimal selfplay)
+- ✅ 3-player games (8 games, 2 with winners)
+- ✅ 4-player games (8 games)
+- ⚠️ Territory control victories (not yet verified)
+- ⚠️ Last player standing victories (not yet verified)
+- ❌ Pie rule / swap sides games
+
+**Next steps:**
+
+1. Export selected candidates to golden fixture format using `extract_golden_games.py`
+2. Run games with higher max_moves or heuristic AI to get more decisive endings
+3. Verify victory type coverage in promoted fixtures
 
 ## Troubleshooting
 

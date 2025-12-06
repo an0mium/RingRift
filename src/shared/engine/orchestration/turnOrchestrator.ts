@@ -8,14 +8,42 @@
  * domain aggregates for actual logic.
  */
 
-import type { GameState, GamePhase, Move, Territory, Position } from '../../types/game';
+import type {
+  GameState,
+  GamePhase,
+  Move,
+  Territory,
+  Position,
+  MoveType,
+  GameResult,
+} from '../../types/game';
 import { positionToString } from '../../types/game';
+import type {
+  GameEndExplanation,
+  GameEndEngineView,
+  GameEndOutcomeType,
+  GameEndPlayerScoreBreakdown,
+  GameEndRulesContextTag,
+  GameEndTeachingLink,
+  GameEndTiebreakStep,
+  GameEndUxCopyKeys,
+  GameEndVictoryReasonCode,
+  GameEndWeirdStateContext,
+} from '../gameEndExplanation';
+import { buildGameEndExplanationFromEngineView } from '../gameEndExplanation';
+import {
+  getWeirdStateReasonForType,
+  getWeirdStateReasonForGameResult,
+  getTeachingTopicForReason,
+} from '../weirdStateReasons';
+import type { VictoryResult as AggregateVictoryResult } from '../aggregates/VictoryAggregate';
 
 import { hashGameState, computeProgressSnapshot } from '../core';
 import {
   isANMState,
   applyForcedEliminationForPlayer,
   computeGlobalLegalActionsSummary,
+  enumerateForcedEliminationOptions,
 } from '../globalActions';
 
 import type {
@@ -25,6 +53,7 @@ import type {
   ProcessingMetadata,
   VictoryState,
   DetectedLineInfo,
+  PlayerScore,
 } from './types';
 
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
@@ -163,12 +192,16 @@ function resolveANMForCurrentPlayer(state: GameState): {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Convert evaluateVictory result to VictoryState for the orchestrator.
+ * Convert evaluateVictory result to VictoryState for the orchestrator and, when
+ * the game has ended, attach a structured GameEndExplanation.
+ *
+ * Note: Exported primarily for internal/testing use; hosts should continue to
+ * prefer processTurn / processTurnAsync as the main entrypoints.
  */
-function toVictoryState(state: GameState): VictoryState {
-  const result = evaluateVictory(state);
+export function toVictoryState(state: GameState): VictoryState {
+  const result: AggregateVictoryResult = evaluateVictory(state);
 
-  const scores = state.players.map((p) => ({
+  const scores: PlayerScore[] = state.players.map((p) => ({
     player: p.playerNumber,
     eliminatedRings: p.eliminatedRings,
     territorySpaces: p.territorySpaces,
@@ -191,13 +224,280 @@ function toVictoryState(state: GameState): VictoryState {
     score.isEliminated = score.ringsOnBoard === 0 && score.ringsInHand === 0;
   }
 
-  return {
+  const victoryState: VictoryState = {
     isGameOver: result.isGameOver,
     winner: result.winner,
     reason: result.reason as VictoryState['reason'],
     scores,
     tieBreaker: undefined,
   };
+
+  if (victoryState.isGameOver && result.reason) {
+    const explanation = buildGameEndExplanationForVictory(state, victoryState, result, scores);
+    if (explanation) {
+      victoryState.gameEndExplanation = explanation;
+    }
+  }
+
+  return victoryState;
+}
+
+/**
+ * Test-only wrapper that exposes the internal victory conversion logic without
+ * requiring a full processTurn invocation. This is not part of the public
+ * engine API and should only be used in unit tests.
+ */
+export function __test_only_toVictoryState(state: GameState): VictoryState {
+  return toVictoryState(state);
+}
+
+/**
+ * Build a minimal GameEndExplanation from the current GameState and VictoryState.
+ *
+ * This keeps the explanation logic close to the canonical victory evaluation
+ * while remaining side-effect free.
+ */
+function buildGameEndExplanationForVictory(
+  state: GameState,
+  victoryState: VictoryState,
+  aggregate: AggregateVictoryResult,
+  scores: PlayerScore[]
+): GameEndExplanation | undefined {
+  const players = state.players;
+  if (!players || players.length === 0) {
+    return undefined;
+  }
+
+  const winnerNumber = victoryState.winner;
+  const winnerPlayerId = typeof winnerNumber === 'number' ? toPlayerId(winnerNumber) : null;
+
+  let outcomeType: GameEndOutcomeType | undefined;
+  let victoryReasonCode: GameEndVictoryReasonCode | undefined;
+  let primaryConceptId: string | undefined;
+  let tiebreakSteps: GameEndTiebreakStep[] | undefined;
+  let weirdStateContext: GameEndWeirdStateContext | undefined;
+  let telemetryTags: GameEndRulesContextTag[] | undefined;
+  let teaching: GameEndTeachingLink | undefined;
+
+  const primaryRingWinner = players.find((p) => p.eliminatedRings >= state.victoryThreshold);
+  const primaryTerritoryWinner = players.find(
+    (p) => p.territorySpaces >= state.territoryVictoryThreshold
+  );
+  const noStacksLeft = state.board.stacks.size === 0;
+
+  const aggReason = aggregate.reason;
+
+  if (!aggReason) {
+    return undefined;
+  }
+
+  if (aggReason === 'ring_elimination') {
+    if (primaryRingWinner && !noStacksLeft) {
+      // Standard ring-majority threshold victory.
+      outcomeType = 'ring_elimination';
+      victoryReasonCode = 'victory_ring_majority';
+    } else if (noStacksLeft && !primaryRingWinner) {
+      // Bare-board stalemate ladder resolved via eliminated-rings tiebreak.
+      outcomeType = 'structural_stalemate';
+      victoryReasonCode = 'victory_structural_stalemate_tiebreak';
+      primaryConceptId = 'structural_stalemate';
+
+      const treatHandAsEliminated = !!aggregate.handCountsAsEliminated;
+      const valuesByPlayer: Record<string, number> = {};
+      for (const p of players) {
+        const pid = toPlayerId(p.playerNumber);
+        const eliminationScore = p.eliminatedRings + (treatHandAsEliminated ? p.ringsInHand : 0);
+        valuesByPlayer[pid] = eliminationScore;
+      }
+      tiebreakSteps = [
+        {
+          kind: 'eliminated_rings',
+          winnerPlayerId,
+          valuesByPlayer,
+        },
+      ];
+
+      const info = getWeirdStateReasonForType('structural-stalemate');
+      weirdStateContext = {
+        reasonCodes: [info.reasonCode],
+        primaryReasonCode: info.reasonCode,
+        rulesContextTags: [info.rulesContext],
+      };
+      teaching = {
+        teachingTopics: [getTeachingTopicForReason(info.reasonCode)],
+      };
+      telemetryTags = [info.rulesContext];
+    } else {
+      // Fallback: treat as standard ring-elimination.
+      outcomeType = 'ring_elimination';
+      victoryReasonCode = 'victory_ring_majority';
+    }
+  } else if (aggReason === 'territory_control') {
+    if (primaryTerritoryWinner && !noStacksLeft) {
+      outcomeType = 'territory_control';
+      victoryReasonCode = 'victory_territory_majority';
+    } else if (noStacksLeft && !primaryTerritoryWinner) {
+      // Bare-board structural stalemate resolved via territory tiebreak.
+      outcomeType = 'structural_stalemate';
+      victoryReasonCode = 'victory_structural_stalemate_tiebreak';
+      primaryConceptId = 'structural_stalemate';
+
+      const valuesByPlayer: Record<string, number> = {};
+      for (const p of players) {
+        const pid = toPlayerId(p.playerNumber);
+        valuesByPlayer[pid] = p.territorySpaces;
+      }
+      tiebreakSteps = [
+        {
+          kind: 'territory_spaces',
+          winnerPlayerId,
+          valuesByPlayer,
+        },
+      ];
+
+      const info = getWeirdStateReasonForType('structural-stalemate');
+      weirdStateContext = {
+        reasonCodes: [info.reasonCode],
+        primaryReasonCode: info.reasonCode,
+        rulesContextTags: [info.rulesContext],
+      };
+      teaching = {
+        teachingTopics: [getTeachingTopicForReason(info.reasonCode)],
+      };
+      telemetryTags = [info.rulesContext];
+    } else {
+      outcomeType = 'territory_control';
+      victoryReasonCode = 'victory_territory_majority';
+    }
+  } else if (aggReason === 'last_player_standing') {
+    outcomeType = 'last_player_standing';
+    victoryReasonCode = 'victory_last_player_standing';
+    primaryConceptId = 'lps_real_actions';
+
+    // Use existing weird-state mapping for LPS endings.
+    const lpsWeird = getWeirdStateReasonForGameResult({
+      winner: aggregate.winner,
+      reason: 'last_player_standing',
+      finalScore: {
+        ringsEliminated: {},
+        territorySpaces: {},
+        ringsRemaining: {},
+      },
+    } as GameResult);
+    if (lpsWeird) {
+      weirdStateContext = {
+        reasonCodes: [lpsWeird.reasonCode],
+        primaryReasonCode: lpsWeird.reasonCode,
+        rulesContextTags: [lpsWeird.rulesContext],
+        teachingTopicIds: [getTeachingTopicForReason(lpsWeird.reasonCode)],
+      };
+      telemetryTags = [lpsWeird.rulesContext];
+    }
+  } else if (aggReason === 'game_completed') {
+    // Fallback structural stalemate with no clear winner.
+    outcomeType = 'structural_stalemate';
+    victoryReasonCode = 'victory_structural_stalemate_tiebreak';
+    primaryConceptId = 'structural_stalemate';
+
+    const info = getWeirdStateReasonForType('structural-stalemate');
+    weirdStateContext = {
+      reasonCodes: [info.reasonCode],
+      primaryReasonCode: info.reasonCode,
+      rulesContextTags: [info.rulesContext],
+    };
+    teaching = {
+      teachingTopics: [getTeachingTopicForReason(info.reasonCode)],
+    };
+    telemetryTags = [info.rulesContext];
+  } else {
+    return undefined;
+  }
+
+  if (!outcomeType || !victoryReasonCode) {
+    return undefined;
+  }
+
+  const scoreBreakdown = createScoreBreakdown(scores);
+
+  const view: GameEndEngineView = {
+    gameId: state.id,
+    boardType: state.boardType,
+    numPlayers: players.length,
+    winnerPlayerId,
+    outcomeType,
+    victoryReasonCode,
+  };
+
+  if (Object.keys(scoreBreakdown).length > 0) {
+    view.scoreBreakdown = scoreBreakdown;
+  }
+  if (tiebreakSteps && tiebreakSteps.length > 0) {
+    view.tiebreakSteps = tiebreakSteps;
+  }
+  if (primaryConceptId) {
+    view.primaryConceptId = primaryConceptId;
+  }
+  if (weirdStateContext) {
+    view.weirdStateContext = weirdStateContext;
+  }
+
+  const uxCopy: GameEndUxCopyKeys = {
+    shortSummaryKey: deriveShortSummaryKey(outcomeType, primaryConceptId),
+  };
+
+  const extra: {
+    teaching?: GameEndTeachingLink;
+    telemetryTags?: GameEndRulesContextTag[];
+    uxCopy: GameEndUxCopyKeys;
+  } = { uxCopy };
+
+  if (telemetryTags && telemetryTags.length > 0) {
+    extra.telemetryTags = telemetryTags;
+  }
+  if (teaching) {
+    extra.teaching = teaching;
+  }
+
+  const explanation = buildGameEndExplanationFromEngineView(view, extra);
+
+  return explanation;
+}
+
+function toPlayerId(playerNumber: number): string {
+  return `P${playerNumber}`;
+}
+
+function createScoreBreakdown(scores: PlayerScore[]): Record<string, GameEndPlayerScoreBreakdown> {
+  const breakdown: Record<string, GameEndPlayerScoreBreakdown> = {};
+  for (const score of scores) {
+    const playerId = toPlayerId(score.player);
+    breakdown[playerId] = {
+      playerId,
+      eliminatedRings: score.eliminatedRings,
+      territorySpaces: score.territorySpaces,
+      markers: score.markerCount,
+    };
+  }
+  return breakdown;
+}
+
+function deriveShortSummaryKey(outcomeType: GameEndOutcomeType, primaryConceptId?: string): string {
+  if (outcomeType === 'ring_elimination') {
+    return 'game_end.ring_elimination.short';
+  }
+  if (outcomeType === 'territory_control') {
+    if (primaryConceptId === 'territory_mini_regions') {
+      return 'game_end.territory_mini_region.short';
+    }
+    return 'game_end.territory_control.short';
+  }
+  if (outcomeType === 'last_player_standing') {
+    return 'game_end.last_player_standing.short';
+  }
+  if (outcomeType === 'structural_stalemate') {
+    return 'game_end.structural_stalemate.short';
+  }
+  return 'game_end.generic.short';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -265,8 +565,10 @@ function createRegionOrderDecision(state: GameState, regions: Territory[]): Pend
  * player is blocked with stacks but has no legal placement, movement,
  * or capture actions (RR-CANON-R072/R100/R206).
  *
- * The options are `eliminate_rings_from_stack` Moves, one per eligible
+ * The options are `forced_elimination` Moves, one per eligible
  * stack/standalone ring controlled by the current player.
+ * This is distinct from `eliminate_rings_from_stack` which is used
+ * during line/territory processing.
  */
 function createForcedEliminationDecision(state: GameState): PendingDecision | undefined {
   const player = state.currentPlayer;
@@ -282,9 +584,11 @@ function createForcedEliminationDecision(state: GameState): PendingDecision | un
       typeof stack.capHeight === 'number' && stack.capHeight > 0 ? stack.capHeight : 0;
     const count = Math.max(1, capHeight || 0);
 
+    // Use 'forced_elimination' move type for the forced_elimination phase
+    // per RR-CANON-R070/R100/R205.
     const move: Move = {
       id: `forced-elim-${positionToString(stack.position)}`,
-      type: 'eliminate_rings_from_stack',
+      type: 'forced_elimination',
       player,
       to: stack.position,
       eliminatedRings: [{ player, count }],
@@ -391,6 +695,11 @@ export function processTurn(
   move: Move,
   options?: ProcessTurnOptions
 ): ProcessTurnResult {
+  // Enforce canonical phase→MoveType mapping for ACTIVE states. This ensures
+  // that every visited phase is represented by an explicit action, skip, or
+  // no-action move per RR-CANON-R075.
+  assertPhaseMoveInvariant(state, move);
+
   const sInvariantBefore = computeSInvariant(state);
   const startTime = Date.now();
   const stateMachine = new PhaseStateMachine(createTurnProcessingState(state, move));
@@ -487,6 +796,10 @@ export function processTurn(
   // that action as an explicit decision rather than applying a hidden
   // host-level tie-breaker. This implements RR-CANON-R206 for hosts that
   // drive decisions via PendingDecision/Move.
+  //
+  // Per the 7-phase model (RR-CANON-R070), forced_elimination is a distinct
+  // phase entered only when the player had no actions in prior phases but
+  // still controls stacks.
   if (finalStatus === 'complete' && finalState.gameStatus === 'active') {
     const player = finalState.currentPlayer;
     const summary = computeGlobalLegalActionsSummary(finalState, player);
@@ -499,6 +812,11 @@ export function processTurn(
     ) {
       const forcedDecision = createForcedEliminationDecision(finalState);
       if (forcedDecision && forcedDecision.options.length > 0) {
+        // Transition to forced_elimination phase (7th phase in the state machine)
+        finalState = {
+          ...finalState,
+          currentPhase: 'forced_elimination' as GamePhase,
+        };
         finalPendingDecision = forcedDecision;
         finalStatus = 'awaiting_decision';
       }
@@ -569,6 +887,18 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       };
     }
 
+    case 'no_placement_action': {
+      // Explicit forced no-op in ring_placement when the player has no legal
+      // placement anywhere (RR-CANON-R075). State is unchanged; advance to
+      // movement so that the rest of the turn can proceed.
+      return {
+        nextState: {
+          ...state,
+          currentPhase: 'movement' as GamePhase,
+        },
+      };
+    }
+
     case 'skip_capture': {
       // RR-CANON-R070: Skip optional capture after movement, proceed to line processing
       return {
@@ -590,6 +920,13 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
         player: move.player,
       });
       return { nextState: outcome.nextState };
+    }
+
+    case 'no_movement_action': {
+      // Explicit forced no-op in movement phase when the player has no legal
+      // movement or capture anywhere (RR-CANON-R075). State is unchanged;
+      // post-move phase logic will advance to line_processing.
+      return { nextState: state };
     }
 
     case 'overtaking_capture':
@@ -634,10 +971,110 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       return { nextState: outcome.nextState };
     }
 
+    case 'forced_elimination': {
+      // Per RR-CANON-R070, forced_elimination is the 7th phase. The player
+      // must eliminate a ring from one of their stacks when they have no
+      // other valid actions. Uses the same elimination logic as territory
+      // processing but recorded as a distinct move type for replay clarity.
+      const outcome = applyEliminateRingsFromStackDecision(state, move);
+      return { nextState: outcome.nextState };
+    }
+
     default: {
       // For unsupported move types, return state unchanged
       return { nextState: state };
     }
+  }
+}
+
+/**
+ * Enforce the canonical phase→MoveType mapping for ACTIVE states.
+ *
+ * For any call to processTurn, the incoming Move must be appropriate
+ * for the currentPhase of the provided state:
+ *
+ * - ring_placement:
+ *     place_ring, skip_placement, no_placement_action
+ * - movement:
+ *     move_stack, move_ring, overtaking_capture,
+ *     continue_capture_segment, no_movement_action
+ * - capture:
+ *     overtaking_capture, continue_capture_segment, skip_capture
+ * - chain_capture:
+ *     overtaking_capture, continue_capture_segment
+ * - line_processing:
+ *     process_line, choose_line_reward, no_line_action
+ * - territory_processing:
+ *     process_territory_region, eliminate_rings_from_stack,
+ *     skip_territory_processing, no_territory_action
+ * - forced_elimination:
+ *     forced_elimination
+ *
+ * swap_sides is permitted in any phase as a meta-move. Legacy move
+ * types (line_formation, territory_claim) are accepted for historical
+ * recordings but should be treated as non-canonical by hosts.
+ */
+function assertPhaseMoveInvariant(state: GameState, move: Move): void {
+  const phase = state.currentPhase;
+  const type = move.type;
+
+  // Meta-move allowed in any phase
+  if (type === 'swap_sides') {
+    return;
+  }
+
+  // Legacy / experimental – allow to avoid breaking historical logs,
+  // but these recordings should not be considered canonical.
+  if (type === 'line_formation' || type === 'territory_claim') {
+    return;
+  }
+
+  let allowed: Set<MoveType>;
+
+  switch (phase) {
+    case 'ring_placement':
+      allowed = new Set<MoveType>(['place_ring', 'skip_placement', 'no_placement_action']);
+      break;
+    case 'movement':
+      allowed = new Set<MoveType>([
+        'move_stack',
+        'move_ring',
+        'overtaking_capture',
+        'continue_capture_segment',
+        'no_movement_action',
+      ]);
+      break;
+    case 'capture':
+      allowed = new Set<MoveType>([
+        'overtaking_capture',
+        'continue_capture_segment',
+        'skip_capture',
+      ]);
+      break;
+    case 'chain_capture':
+      allowed = new Set<MoveType>(['overtaking_capture', 'continue_capture_segment']);
+      break;
+    case 'line_processing':
+      allowed = new Set<MoveType>(['process_line', 'choose_line_reward', 'no_line_action']);
+      break;
+    case 'territory_processing':
+      allowed = new Set<MoveType>([
+        'process_territory_region',
+        'eliminate_rings_from_stack',
+        'skip_territory_processing',
+        'no_territory_action',
+      ]);
+      break;
+    case 'forced_elimination':
+      allowed = new Set<MoveType>(['forced_elimination']);
+      break;
+    default:
+      // Unknown phase: do not enforce
+      return;
+  }
+
+  if (!allowed.has(type as MoveType)) {
+    throw new Error(`[PHASE_MOVE_INVARIANT] Cannot apply move type '${type}' in phase '${phase}'`);
   }
 }
 
@@ -653,6 +1090,45 @@ function processPostMovePhases(
 } {
   const state = stateMachine.gameState;
   const originalMoveType = stateMachine.processingState.originalMove.type;
+
+  // Handle elimination phase completion - skip straight to victory check
+  // and turn rotation since the elimination is the final action in the player's turn.
+  // Per RR-CANON-R070, forced_elimination is the 7th and final phase.
+  // Also handle eliminate_rings_from_stack during territory_processing - this is
+  // the elimination that follows territory collapse (Q23 precondition).
+  if (
+    originalMoveType === 'forced_elimination' ||
+    originalMoveType === 'eliminate_rings_from_stack'
+  ) {
+    // Check victory first
+    const victoryResult = toVictoryState(stateMachine.gameState);
+    if (victoryResult.isGameOver) {
+      stateMachine.updateGameState({
+        ...stateMachine.gameState,
+        gameStatus: 'completed',
+        winner: victoryResult.winner,
+      });
+      return { victoryResult };
+    }
+
+    // Rotate to next player
+    const currentState = stateMachine.gameState;
+    const players = currentState.players;
+    const currentPlayerIndex = players.findIndex(
+      (p) => p.playerNumber === currentState.currentPlayer
+    );
+    const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
+    const nextPlayer = players[nextPlayerIndex].playerNumber;
+    const nextPhase: GamePhase = 'ring_placement';
+
+    stateMachine.updateGameState({
+      ...currentState,
+      currentPlayer: nextPlayer,
+      currentPhase: nextPhase,
+    });
+
+    return {};
+  }
 
   // Check for chain capture continuation first
   if (stateMachine.processingState.chainCaptureInProgress) {
@@ -709,9 +1185,12 @@ function processPostMovePhases(
   // Transition to line processing phase
   // Note: Also transition from 'ring_placement' when a movement move was made
   // (this happens when ringsInHand == 0 per RR-CANON-R204)
+  // Also transition from 'chain_capture' when the capture chain has ended
+  // (no more continuation captures available per RR-CANON-R073).
   if (
     state.currentPhase === 'movement' ||
     state.currentPhase === 'capture' ||
+    state.currentPhase === 'chain_capture' ||
     state.currentPhase === 'ring_placement'
   ) {
     stateMachine.transitionTo('line_processing');
@@ -722,10 +1201,10 @@ function processPostMovePhases(
     const lines = findAllLines(state.board).filter((l) => l.player === state.currentPlayer);
 
     if (lines.length > 0) {
-      // At least one line exists. When skipAutoLineProcessing is enabled
-      // (e.g. replay/trace contexts), always surface a line_order decision
-      // so hosts can apply explicit process_line / choose_line_reward moves
-      // based on the recorded sequence instead of auto-resolving lines.
+      // Core rules: never auto-generate or auto-apply process_line moves.
+      // Surface a line_order decision so hosts can construct and apply
+      // explicit process_line / choose_line_reward moves that will be
+      // recorded in canonical history (RR-CANON-R075/R076).
       const detectedLines = lines.map((l) => ({
         positions: l.positions,
         player: l.player,
@@ -734,46 +1213,32 @@ function processPostMovePhases(
         collapseOptions: [],
       }));
       stateMachine.setPendingLines(detectedLines);
-      if (options?.skipAutoLineProcessing) {
-        return {
-          pendingDecision: createLineOrderDecision(state, detectedLines),
-        };
-      }
-
-      if (lines.length > 1) {
-        // Multiple lines: player must choose order
-        return {
-          pendingDecision: createLineOrderDecision(state, detectedLines),
-        };
-      }
-
-      // Single line and auto-processing allowed: preserve legacy behaviour
-      // of collapsing the exact-length line immediately and then checking
-      // for any mandatory elimination decision.
-      const line = lines[0];
-      const move: Move = {
-        id: `auto-process-line`,
-        type: 'process_line',
-        player: state.currentPlayer,
-        to: line.positions[0],
-        formedLines: [line],
-        timestamp: new Date(),
-        thinkTime: 0,
-        moveNumber: state.moveHistory.length + 1,
+      return {
+        pendingDecision: createLineOrderDecision(state, detectedLines),
       };
-      const outcome = applyProcessLineDecision(state, move);
-      stateMachine.updateGameState(outcome.nextState);
-
-      // Check if line reward decision is needed
-      if (outcome.pendingLineRewardElimination) {
-        // Need elimination decision
-        return {
-          pendingDecision: createEliminationDecision(stateMachine.gameState),
-        };
-      }
     }
 
-    // No lines or lines processed, continue to territory
+    // No lines exist for the current player. If the original move was not
+    // already a line-phase move, surface a required no_line_action decision
+    // so hosts can emit an explicit no_line_action bookkeeping move.
+    const isLinePhaseMove =
+      originalMoveType === 'no_line_action' ||
+      originalMoveType === 'process_line' ||
+      originalMoveType === 'choose_line_reward';
+    if (!isLinePhaseMove) {
+      return {
+        pendingDecision: {
+          type: 'no_line_action_required',
+          player: state.currentPlayer,
+          options: [],
+          context: {
+            description: 'No lines to process - explicit no_line_action required per RR-CANON-R075',
+          },
+        },
+      };
+    }
+
+    // Line phase move was applied and no more lines, continue to territory.
     stateMachine.transitionTo('territory_processing');
   }
 
@@ -788,38 +1253,43 @@ function processPostMovePhases(
       });
 
       if (regions.length > 1) {
-        // Multiple regions: player must choose order
+        // Multiple regions: player must choose order via explicit
+        // process_territory_region moves constructed by the host.
         return {
           pendingDecision: createRegionOrderDecision(state, regions),
         };
       } else if (regions.length === 1) {
-        // Single region: in replay mode, return decision so explicit move is used
-        if (options?.skipSingleTerritoryAutoProcess) {
-          return {
-            pendingDecision: createRegionOrderDecision(state, regions),
-          };
-        }
-        // Single region: process automatically
-        const region = regions[0];
-        const move: Move = {
-          id: `auto-process-region`,
-          type: 'process_territory_region',
-          player: state.currentPlayer,
-          to: region.spaces[0],
-          disconnectedRegions: [region],
-          timestamp: new Date(),
-          thinkTime: 0,
-          moveNumber: state.moveHistory.length + 1,
+        // Single region: per RR-CANON-R075/R076, the core rules layer does
+        // not auto-apply PROCESS_TERRITORY_REGION. Surface a region_order
+        // decision even when there is only one region; hosts may auto-select
+        // the only option for live UX but must still emit the explicit move.
+        return {
+          pendingDecision: createRegionOrderDecision(state, regions),
         };
-        const outcome = applyProcessTerritoryRegionDecision(state, move);
-        stateMachine.updateGameState(outcome.nextState);
-
-        // Check if elimination decision is needed
-        if (outcome.pendingSelfElimination) {
+      } else {
+        // regions.length === 0: No regions to process.
+        // Per RR-CANON-R075/R076, return a pending decision requiring an explicit
+        // no_territory_action move. The core rules layer does NOT auto-generate moves.
+        // EXCEPTION: If the original move was already a territory-related move
+        // (no_territory_action or process_territory_region), we don't need to return
+        // another pending decision - that move IS the territory phase action.
+        const isTerritoryPhaseMove =
+          originalMoveType === 'no_territory_action' ||
+          originalMoveType === 'process_territory_region';
+        if (!isTerritoryPhaseMove) {
           return {
-            pendingDecision: createEliminationDecision(stateMachine.gameState),
+            pendingDecision: {
+              type: 'no_territory_action_required',
+              player: state.currentPlayer,
+              options: [],
+              context: {
+                description:
+                  'No territory regions to process - explicit no_territory_action required per RR-CANON-R075',
+              },
+            },
           };
         }
+        // Territory phase move was applied and no more regions, proceed to victory/turn advancement.
       }
     }
   }
@@ -843,12 +1313,9 @@ function processPostMovePhases(
   );
   const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
   const nextPlayer = players[nextPlayerIndex].playerNumber;
-
-  // Determine the starting phase for the next player based on their material:
-  // - If they have rings in hand, start in ring_placement
-  // - If they have no rings but control stacks, start in movement (RR-CANON-R204)
-  const nextPlayerObj = players[nextPlayerIndex];
-  const nextPhase: GamePhase = nextPlayerObj.ringsInHand > 0 ? 'ring_placement' : 'movement';
+  // Always begin the next turn in ring_placement; when no legal placements
+  // exist, getValidMoves will emit a no_placement_action bookkeeping move.
+  const nextPhase: GamePhase = 'ring_placement';
 
   stateMachine.updateGameState({
     ...currentState,
@@ -940,6 +1407,14 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
       return { valid: result.eligible };
     }
 
+    case 'no_placement_action': {
+      // Forced no-op in ring_placement when the player has no legal
+      // placement anywhere. Hosts should only emit this in GamePhase
+      // 'ring_placement'; the engine treats it as always valid in
+      // canonical recordings.
+      return { valid: true };
+    }
+
     case 'move_stack':
     case 'move_ring': {
       if (!move.from) {
@@ -969,6 +1444,14 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
       return validateCapture(state, action);
     }
 
+    case 'no_movement_action': {
+      // Forced no-op in movement phase when the player has no legal
+      // movement or capture anywhere. Hosts are responsible for only
+      // emitting this in GamePhase 'movement'; the engine treats it
+      // as always valid for canonical recordings.
+      return { valid: true };
+    }
+
     default:
       return { valid: true };
   }
@@ -986,28 +1469,37 @@ export function getValidMoves(state: GameState): Move[] {
     case 'ring_placement': {
       const playerObj = state.players.find((p) => p.playerNumber === player);
 
-      // RR-CANON-R204 / compact rules §2.1: When ringsInHand == 0 (placement forbidden)
-      // but the player controls stacks, enumerate movement moves instead.
-      if (playerObj && playerObj.ringsInHand === 0) {
-        // Check if player has any controlled stacks
-        let hasControlledStack = false;
-        for (const stack of state.board.stacks.values()) {
-          if (stack.controllingPlayer === player && stack.stackHeight > 0) {
-            hasControlledStack = true;
-            break;
-          }
-        }
-        if (hasControlledStack) {
-          // Return movement moves instead of placement/skip
-          const movements = enumerateSimpleMovesForPlayer(state, player);
-          const captures = enumerateAllCaptureMoves(state, player);
-          return [...movements, ...captures];
-        }
-        // No stacks and no rings in hand - no valid moves
-        return [];
+      // If the player has no rings in hand at all, or no legal placements
+      // exist (no positions allowed by no-dead-placement / caps), emit a
+      // forced no-op placement move so that the ring_placement phase is
+      // always recorded explicitly in canonical history.
+      if (!playerObj || playerObj.ringsInHand === 0) {
+        const move: Move = {
+          id: `no-placement-action-${moveNumber}`,
+          type: 'no_placement_action',
+          player,
+          to: { x: 0, y: 0 },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber,
+        } as Move;
+        return [move];
       }
 
       const positions = enumeratePlacementPositions(state, player);
+      if (positions.length === 0) {
+        const move: Move = {
+          id: `no-placement-action-${moveNumber}`,
+          type: 'no_placement_action',
+          player,
+          to: { x: 0, y: 0 },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber,
+        } as Move;
+        return [move];
+      }
+
       const moves: Move[] = positions.map((pos) => ({
         id: `place-${positionToString(pos)}-${moveNumber}`,
         type: 'place_ring',
@@ -1038,6 +1530,22 @@ export function getValidMoves(state: GameState): Move[] {
     case 'movement': {
       const movements = enumerateSimpleMovesForPlayer(state, player);
       const captures = enumerateAllCaptureMoves(state, player);
+      if (movements.length === 0 && captures.length === 0) {
+        // No legal movement or capture anywhere. Surface an explicit
+        // no_movement_action move so that the movement phase is recorded in
+        // canonical history even when the player has no material at all
+        // (RR-CANON-R075: even eliminated players must record no-action).
+        const move: Move = {
+          id: `no-movement-action-${moveNumber}`,
+          type: 'no_movement_action',
+          player,
+          to: { x: 0, y: 0 },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber,
+        } as Move;
+        return [move];
+      }
       return [...movements, ...captures];
     }
 
@@ -1112,6 +1620,34 @@ export function getValidMoves(state: GameState): Move[] {
         } as Move);
       }
 
+      return moves;
+    }
+
+    case 'forced_elimination': {
+      // Enumerate canonical forced-elimination options for the blocked
+      // player. Each option becomes a `forced_elimination` Move whose
+      // underlying elimination semantics are handled by
+      // applyEliminateRingsFromStackDecision in applyMoveWithChainInfo.
+      const options = enumerateForcedEliminationOptions(state, player);
+      const moves: Move[] = options.map((opt) => {
+        const capHeight = typeof opt.capHeight === 'number' ? opt.capHeight : 0;
+        const count = Math.max(1, capHeight || 0);
+        return {
+          id: opt.moveId,
+          type: 'forced_elimination',
+          player,
+          to: opt.position,
+          eliminatedRings: [{ player, count }],
+          eliminationFromStack: {
+            position: opt.position,
+            capHeight,
+            totalHeight: opt.stackHeight,
+          },
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber,
+        } as Move;
+      });
       return moves;
     }
 

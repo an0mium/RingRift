@@ -1,20 +1,37 @@
 """Core game engine for the RingRift AI service.
 
+**SSoT (Single Source of Truth) Policy:**
+
+The canonical rules defined in ``RULES_CANONICAL_SPEC.md`` (together with
+``ringrift_complete_rules.md`` / ``ringrift_compact_rules.md``) are the
+**ultimate authority** for RingRift game semantics. All implementations
+must derive from and faithfully implement these canonical rules.
+
+**Implementation Hierarchy:**
+
+1. **Canonical rules** (written specification) are the ultimate SSoT.
+2. **TS shared engine** (``src/shared/engine/**``) is the *primary
+   executable derivation* of the canonical rules spec.
+3. **This Python module** is a *host adapter* that must mirror the
+   canonical rules. If this code disagrees with the canonical rules
+   or the validated TS engine behaviour, this code must be updated—
+   never the other way around.
+
 This module provides a lightweight, Python-hosted view of the RingRift
 rules sufficient for AI search, evaluation, and TS↔Python contract tests.
-It mirrors the shared TypeScript engine semantics where required for
-parity, but should be treated as a *host adapter* rather than an
-independent rules SSoT.
+When divergence is detected (via parity tests or replay verification),
+the Python code is considered incorrect and must be fixed to match the
+canonical rules and TS reference implementation.
 
 For which modules are allowed to encode rules semantics vs. which must
-act as adapters over the shared engine, see the “Rules Entry Surfaces /
-SSoT checklist” in ``docs/RULES_ENGINE_SURFACE_AUDIT.md``. When in
-doubt, the TS shared engine and rules documentation win and this module
-should be updated to match them.
+act as adapters over the shared engine, see the "Rules Entry Surfaces /
+SSoT checklist" in ``docs/RULES_ENGINE_SURFACE_AUDIT.md``.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 from typing import List, Optional
 import sys
 import os
@@ -25,6 +42,44 @@ from .models import (
     GameStatus, MoveType, BoardState
 )
 from .board_manager import BoardManager
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PHASE REQUIREMENT TYPES (RR-CANON-R074/R075/R076)
+# ═══════════════════════════════════════════════════════════════════════════
+# Per RR-CANON-R076, the core rules layer MUST NOT auto-generate moves
+# (including no-action moves). Instead, it surfaces "phase requirements"
+# that tell hosts what bookkeeping move they must emit. Hosts are responsible
+# for constructing and applying the actual Move objects.
+
+
+class PhaseRequirementType(Enum):
+    """Types of phase requirements that hosts must handle."""
+    NO_PLACEMENT_ACTION_REQUIRED = "no_placement_action_required"
+    NO_MOVEMENT_ACTION_REQUIRED = "no_movement_action_required"
+    NO_LINE_ACTION_REQUIRED = "no_line_action_required"
+    NO_TERRITORY_ACTION_REQUIRED = "no_territory_action_required"
+    FORCED_ELIMINATION_REQUIRED = "forced_elimination_required"
+
+
+@dataclass
+class PhaseRequirement:
+    """
+    Structural data telling hosts what bookkeeping move is required.
+
+    When get_valid_moves returns an empty list but the game is still ACTIVE,
+    hosts should call get_phase_requirement to determine what no-action or
+    forced-elimination move must be emitted to satisfy canonical phase rules.
+
+    Attributes:
+        type: The type of phase requirement.
+        player: The player who must emit the bookkeeping move.
+        eligible_positions: For FORCED_ELIMINATION_REQUIRED, the stack
+            positions the player can eliminate from. Empty for no-action types.
+    """
+    type: PhaseRequirementType
+    player: int
+    eligible_positions: List[Position]
 from .ai.zobrist import ZobristHash
 from .rules.geometry import BoardGeometry
 from .rules.core import count_rings_in_play_for_player, get_line_length_for_board, get_effective_line_length
@@ -47,6 +102,12 @@ def _debug(msg: str) -> None:
 class GameEngine:
     """Python GameEngine used by the AI service.
 
+    **SSoT Policy:** This is a *host adapter*, NOT a rules SSoT. The
+    canonical rules in ``RULES_CANONICAL_SPEC.md`` are the ultimate
+    authority. The TS shared engine is the primary executable derivation.
+    If this code disagrees with either, THIS CODE IS WRONG and must be
+    fixed to match.
+
     This engine:
 
     - Mirrors the shared TS engine semantics closely enough for AI search,
@@ -56,9 +117,6 @@ class GameEngine:
     - Maintains a small in‑memory move cache keyed by a canonical
       `hash_game_state` string to avoid recomputing legal moves for
       identical positions.
-
-    It is *not* a separate rules SSoT; when in doubt the TS engine and
-    rules documentation win and this module should be updated to match.
     """
 
     # Cache for valid moves: key = f"{state_hash}:{player_number}"
@@ -100,10 +158,16 @@ class GameEngine:
         phase = game_state.current_phase
         moves: List[Move] = []
 
+        # ═══════════════════════════════════════════════════════════════════
+        # STRICT R076: Core rules MUST NOT auto-generate bookkeeping moves.
+        # get_valid_moves returns ONLY interactive moves. When there are no
+        # interactive moves, hosts must call get_phase_requirement() to learn
+        # what bookkeeping move (NO_*_ACTION or FORCED_ELIMINATION) they need
+        # to construct and apply.
+        # ═══════════════════════════════════════════════════════════════════
+
         if phase == GamePhase.RING_PLACEMENT:
-            # TS-aligned ring placement phase:
-            # - Expose legal PLACE_RING moves.
-            # - When placement is optional, also expose SKIP_PLACEMENT.
+            # Core: only interactive placement/skip options.
             placement_moves = GameEngine._get_ring_placement_moves(
                 game_state, player_number
             )
@@ -111,24 +175,10 @@ class GameEngine:
                 game_state, player_number
             )
             moves = placement_moves + skip_moves
-
-            # When player has 0 rings in hand, placement isn't possible and
-            # skip_placement isn't exposed (it requires rings_in_hand > 0).
-            # In this case, expose movement/capture moves directly so the
-            # player can continue. This matches TS behaviour where the turn
-            # auto-advances to movement when placement isn't possible.
-            if not moves:
-                movement_moves = GameEngine._get_movement_moves(
-                    game_state, player_number
-                )
-                capture_moves = GameEngine._get_capture_moves(
-                    game_state, player_number
-                )
-                moves = movement_moves + capture_moves
+            # NO auto NO_PLACEMENT_ACTION - hosts use get_phase_requirement()
 
         elif phase == GamePhase.MOVEMENT:
-            # In the movement phase, TS exposes both non-capture moves and
-            # initial overtaking captures together. Mirror that here.
+            # Core: only interactive movement/capture options.
             movement_moves = GameEngine._get_movement_moves(
                 game_state, player_number
             )
@@ -136,17 +186,33 @@ class GameEngine:
                 game_state, player_number
             )
             moves = movement_moves + capture_moves
+            # NO auto NO_MOVEMENT_ACTION - hosts use get_phase_requirement()
+
         elif phase == GamePhase.CAPTURE:
             moves = GameEngine._get_capture_moves(game_state, player_number)
+
         elif phase == GamePhase.CHAIN_CAPTURE:
-            # Support for canonical chain capture phase
             moves = GameEngine._get_capture_moves(game_state, player_number)
+
         elif phase == GamePhase.LINE_PROCESSING:
+            # Core: only interactive line-processing decisions.
             moves = GameEngine._get_line_processing_moves(
                 game_state, player_number
             )
+            # NO auto NO_LINE_ACTION - hosts use get_phase_requirement()
+
         elif phase == GamePhase.TERRITORY_PROCESSING:
+            # Core: only interactive territory-processing decisions.
             moves = GameEngine._get_territory_processing_moves(
+                game_state, player_number
+            )
+            # NO auto NO_TERRITORY_ACTION - hosts use get_phase_requirement()
+
+        elif phase == GamePhase.FORCED_ELIMINATION:
+            # In the forced_elimination phase (7th and final phase per
+            # RR-CANON-R070), enumerate explicit FORCED_ELIMINATION moves for
+            # the blocked player.
+            moves = GameEngine._get_forced_elimination_moves(
                 game_state, player_number
             )
 
@@ -168,15 +234,11 @@ class GameEngine:
                 )
                 moves.append(swap_move)
 
-        # RR-CANON-R072/R100/R205: When no placement/movement/capture is available
-        # but the player controls stacks, expose forced elimination as a first-class
-        # action so both AI and human players can choose which stack to eliminate from.
-        if not moves:
-            fe_moves = GameEngine._get_forced_elimination_moves(
-                game_state, player_number
-            )
-            if fe_moves:
-                moves = fe_moves
+        # RR-CANON-R072/R100/R205: When no placement/movement/capture is
+        # available but the player controls stacks, forced elimination must be
+        # surfaced as an explicit interactive decision. The core rules layer
+        # exposes FE via dedicated phase logic; it does not auto-fallback to
+        # FORCED_ELIMINATION moves from get_valid_moves (RR-CANON-R076).
 
         # Cache result
         GameEngine._move_cache[cache_key] = moves
@@ -188,6 +250,192 @@ class GameEngine:
         GameEngine._move_cache.clear()
         GameEngine._cache_hits = 0
         GameEngine._cache_misses = 0
+
+    @staticmethod
+    def get_phase_requirement(
+        game_state: GameState, player_number: int
+    ) -> Optional[PhaseRequirement]:
+        """
+        Return the phase requirement when no interactive moves exist.
+
+        Per RR-CANON-R076, the core rules layer MUST NOT auto-generate moves.
+        When get_valid_moves returns an empty list, hosts should call this
+        method to learn what bookkeeping move they must construct and apply.
+
+        Args:
+            game_state: The current game state.
+            player_number: The player to check (must be current_player).
+
+        Returns:
+            PhaseRequirement if a bookkeeping move is required, None otherwise.
+            Returns None if:
+            - It's not this player's turn
+            - Game is not active
+            - Interactive moves are available
+        """
+        if game_state.current_player != player_number:
+            return None
+
+        # Check game status
+        game_status = game_state.game_status
+        status_str = game_status.value if hasattr(game_status, 'value') else str(game_status)
+        if status_str != "active":
+            return None
+
+        # First check if there are interactive moves available
+        interactive_moves = GameEngine.get_valid_moves(game_state, player_number)
+        if interactive_moves:
+            return None  # No requirement - interactive moves exist
+
+        # No interactive moves - determine what no-action move is required
+        phase = game_state.current_phase
+
+        if phase == GamePhase.RING_PLACEMENT:
+            return PhaseRequirement(
+                type=PhaseRequirementType.NO_PLACEMENT_ACTION_REQUIRED,
+                player=player_number,
+                eligible_positions=[],
+            )
+
+        elif phase == GamePhase.MOVEMENT:
+            # Check if forced elimination is applicable (player has stacks
+            # but no placement/movement/capture)
+            fe_moves = GameEngine._get_forced_elimination_moves(
+                game_state, player_number
+            )
+            if fe_moves:
+                # Extract eligible positions from FE moves
+                eligible = [m.to for m in fe_moves if m.to is not None]
+                return PhaseRequirement(
+                    type=PhaseRequirementType.FORCED_ELIMINATION_REQUIRED,
+                    player=player_number,
+                    eligible_positions=eligible,
+                )
+            return PhaseRequirement(
+                type=PhaseRequirementType.NO_MOVEMENT_ACTION_REQUIRED,
+                player=player_number,
+                eligible_positions=[],
+            )
+
+        elif phase == GamePhase.LINE_PROCESSING:
+            return PhaseRequirement(
+                type=PhaseRequirementType.NO_LINE_ACTION_REQUIRED,
+                player=player_number,
+                eligible_positions=[],
+            )
+
+        elif phase == GamePhase.TERRITORY_PROCESSING:
+            return PhaseRequirement(
+                type=PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED,
+                player=player_number,
+                eligible_positions=[],
+            )
+
+        elif phase == GamePhase.FORCED_ELIMINATION:
+            # In FE phase, enumerate available FE moves
+            fe_moves = GameEngine._get_forced_elimination_moves(
+                game_state, player_number
+            )
+            eligible = [m.to for m in fe_moves if m.to is not None]
+            return PhaseRequirement(
+                type=PhaseRequirementType.FORCED_ELIMINATION_REQUIRED,
+                player=player_number,
+                eligible_positions=eligible,
+            )
+
+        return None
+
+    @staticmethod
+    def synthesize_bookkeeping_move(
+        requirement: PhaseRequirement,
+        game_state: GameState,
+    ) -> Move:
+        """
+        Synthesize a canonical bookkeeping move from a phase requirement.
+
+        This is a HOST-LEVEL helper, not part of the core rules layer.
+        Per RR-CANON-R076, hosts are responsible for constructing and
+        applying bookkeeping moves (no_*_action, forced_elimination)
+        when the core layer returns a phase requirement.
+
+        Args:
+            requirement: The phase requirement from get_phase_requirement().
+            game_state: The current game state.
+
+        Returns:
+            A canonical Move object that satisfies the phase requirement.
+
+        Raises:
+            ValueError: If forced elimination is required but no eligible
+                positions are available.
+        """
+        from datetime import datetime
+
+        move_number = len(game_state.move_history) + 1
+        player = requirement.player
+
+        if requirement.type == PhaseRequirementType.NO_PLACEMENT_ACTION_REQUIRED:
+            return Move(
+                id=f"no-placement-action-{move_number}",
+                type=MoveType.NO_PLACEMENT_ACTION,
+                player=player,
+                to=Position(x=0, y=0),
+                timestamp=datetime.now(),
+                thinkTime=0,
+                moveNumber=move_number,
+            )
+
+        elif requirement.type == PhaseRequirementType.NO_MOVEMENT_ACTION_REQUIRED:
+            return Move(
+                id=f"no-movement-action-{move_number}",
+                type=MoveType.NO_MOVEMENT_ACTION,
+                player=player,
+                to=Position(x=0, y=0),
+                timestamp=datetime.now(),
+                thinkTime=0,
+                moveNumber=move_number,
+            )
+
+        elif requirement.type == PhaseRequirementType.NO_LINE_ACTION_REQUIRED:
+            return Move(
+                id=f"no-line-action-{move_number}",
+                type=MoveType.NO_LINE_ACTION,
+                player=player,
+                to=Position(x=0, y=0),
+                timestamp=datetime.now(),
+                thinkTime=0,
+                moveNumber=move_number,
+            )
+
+        elif requirement.type == PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED:
+            return Move(
+                id=f"no-territory-action-{move_number}",
+                type=MoveType.NO_TERRITORY_ACTION,
+                player=player,
+                to=Position(x=0, y=0),
+                timestamp=datetime.now(),
+                thinkTime=0,
+                moveNumber=move_number,
+            )
+
+        elif requirement.type == PhaseRequirementType.FORCED_ELIMINATION_REQUIRED:
+            if not requirement.eligible_positions:
+                raise ValueError(
+                    "FORCED_ELIMINATION_REQUIRED but no eligible positions"
+                )
+            # Select the first eligible position (host may choose differently)
+            target = requirement.eligible_positions[0]
+            return Move(
+                id=f"forced-elimination-{move_number}",
+                type=MoveType.FORCED_ELIMINATION,
+                player=player,
+                to=target,
+                timestamp=datetime.now(),
+                thinkTime=0,
+                moveNumber=move_number,
+            )
+
+        raise ValueError(f"Unknown requirement type: {requirement.type}")
 
     @staticmethod
     def apply_move(
@@ -206,6 +454,12 @@ class GameEngine:
         """
         # Optimization: Manual shallow copy of GameState and BoardState
         # We only deep copy mutable structures that we intend to modify
+
+        # Strict phase/move invariant: ensure that the incoming move is
+        # appropriate for the current phase. This enforces the canonical
+        # per-phase move taxonomy (action / skip / no-action) and will
+        # raise immediately on any recording that violates it.
+        GameEngine._assert_phase_move_invariant(game_state, move)
 
         # 1. Create new BoardState (shallow copy first)
         new_board = game_state.board.model_copy()
@@ -258,6 +512,26 @@ class GameEngine:
             GameEngine._apply_place_ring(new_state, move)
         elif move.type == MoveType.SKIP_PLACEMENT:
             # No board change; phase update will advance the turn.
+            pass
+        elif move.type == MoveType.NO_PLACEMENT_ACTION:
+            # Explicit forced no-op in RING_PLACEMENT when the player has no
+            # legal placement anywhere. State is unchanged; phase update will
+            # advance to MOVEMENT.
+            pass
+        elif move.type == MoveType.NO_MOVEMENT_ACTION:
+            # Explicit forced no-op in MOVEMENT when the player has no legal
+            # movement or capture anywhere. State is unchanged; phase update
+            # will advance to line_processing per RR-CANON-R075.
+            pass
+        elif move.type == MoveType.NO_LINE_ACTION:
+            # Explicit forced no-op in LINE_PROCESSING when there are no lines
+            # to process. State is unchanged; phase update will advance to
+            # territory_processing per RR-CANON-R075.
+            pass
+        elif move.type == MoveType.NO_TERRITORY_ACTION:
+            # Explicit forced no-op in TERRITORY_PROCESSING when there are no
+            # territories to process. State is unchanged; phase update will
+            # end the turn per RR-CANON-R075.
             pass
         elif move.type == MoveType.MOVE_STACK:
             GameEngine._apply_move_stack(new_state, move)
@@ -352,6 +626,109 @@ class GameEngine:
             GameEngine._assert_active_player_has_legal_action(new_state, move)
 
         return new_state
+
+    @staticmethod
+    def _assert_phase_move_invariant(
+        game_state: GameState,
+        move: Move,
+    ) -> None:
+        """
+        Enforce the canonical phase→MoveType mapping for ACTIVE states.
+
+        For any move applied via GameEngine.apply_move, the move.type must
+        be one of the allowed types for game_state.current_phase:
+
+        - RING_PLACEMENT:
+            PLACE_RING, SKIP_PLACEMENT, NO_PLACEMENT_ACTION
+        - MOVEMENT:
+            MOVE_STACK, MOVE_RING, OVERTAKING_CAPTURE,
+            CONTINUE_CAPTURE_SEGMENT, NO_MOVEMENT_ACTION
+        - CAPTURE:
+            OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT
+        - CHAIN_CAPTURE:
+            OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT
+        - LINE_PROCESSING:
+            PROCESS_LINE, CHOOSE_LINE_REWARD, NO_LINE_ACTION
+        - TERRITORY_PROCESSING:
+            PROCESS_TERRITORY_REGION, ELIMINATE_RINGS_FROM_STACK,
+            SKIP_TERRITORY_PROCESSING, NO_TERRITORY_ACTION
+        - FORCED_ELIMINATION:
+            FORCED_ELIMINATION
+
+        SWAP_SIDES is permitted in any phase as a meta-move. Legacy move
+        types (LINE_FORMATION, TERRITORY_CLAIM, CHAIN_CAPTURE) are also
+        accepted to avoid breaking historical tests; canonical recordings
+        should avoid them.
+        """
+        phase = game_state.current_phase
+        mtype = move.type
+
+        # Meta-move allowed in any phase
+        if mtype == MoveType.SWAP_SIDES:
+            return
+
+        # Legacy/experimental move types – accept for now, but callers
+        # should treat recordings containing them as non-canonical.
+        if mtype in (
+            MoveType.LINE_FORMATION,
+            MoveType.TERRITORY_CLAIM,
+            MoveType.CHAIN_CAPTURE,
+        ):
+            return
+
+        allowed: set[MoveType]
+        if phase == GamePhase.RING_PLACEMENT:
+            allowed = {
+                MoveType.PLACE_RING,
+                MoveType.SKIP_PLACEMENT,
+                MoveType.NO_PLACEMENT_ACTION,
+            }
+        elif phase == GamePhase.MOVEMENT:
+            allowed = {
+                MoveType.MOVE_STACK,
+                MoveType.MOVE_RING,
+                MoveType.OVERTAKING_CAPTURE,
+                MoveType.CONTINUE_CAPTURE_SEGMENT,
+                MoveType.NO_MOVEMENT_ACTION,
+            }
+        elif phase == GamePhase.CAPTURE:
+            # CAPTURE phase only supports actual capture moves - there is no
+            # skip/no-op for captures since they are initiated by movement.
+            allowed = {
+                MoveType.OVERTAKING_CAPTURE,
+                MoveType.CONTINUE_CAPTURE_SEGMENT,
+            }
+        elif phase == GamePhase.CHAIN_CAPTURE:
+            allowed = {
+                MoveType.OVERTAKING_CAPTURE,
+                MoveType.CONTINUE_CAPTURE_SEGMENT,
+            }
+        elif phase == GamePhase.LINE_PROCESSING:
+            allowed = {
+                MoveType.PROCESS_LINE,
+                MoveType.CHOOSE_LINE_REWARD,
+                MoveType.NO_LINE_ACTION,
+            }
+        elif phase == GamePhase.TERRITORY_PROCESSING:
+            allowed = {
+                MoveType.PROCESS_TERRITORY_REGION,
+                MoveType.ELIMINATE_RINGS_FROM_STACK,
+                MoveType.SKIP_TERRITORY_PROCESSING,
+                MoveType.NO_TERRITORY_ACTION,
+            }
+        elif phase == GamePhase.FORCED_ELIMINATION:
+            allowed = {
+                MoveType.FORCED_ELIMINATION,
+            }
+        else:
+            # Unknown phase – do not enforce
+            return
+
+        if mtype not in allowed:
+            raise RuntimeError(
+                f"Phase/move invariant violated: cannot apply move type "
+                f"{mtype.value} in phase {phase.value}"
+            )
 
     @staticmethod
     def _apply_swap_sides(game_state: GameState, move: Move) -> None:
@@ -471,15 +848,16 @@ class GameEngine:
             return
 
         # 1. Ring Elimination Victory
-        # Check total eliminated rings for each player
-        # Note: game_state.players might not be up to date with
-        # board.eliminated_rings. We should sync them or check
-        # board.eliminated_rings directly
-
-        for p_id_str, count in game_state.board.eliminated_rings.items():
-            if count >= game_state.victory_threshold:
-                game_state.game_status = GameStatus.FINISHED
-                game_state.winner = int(p_id_str)
+        # Check player.eliminated_rings which tracks "rings credited to this
+        # player" (i.e. rings they caused to be eliminated from any opponent).
+        # This matches TypeScript VictoryAggregate.checkScoreThreshold() which
+        # uses `player.eliminatedRings >= victoryThreshold` per RR-CANON-R061.
+        # Note: board.eliminated_rings has different semantics (rings belonging
+        # to player X that were eliminated, keyed by victim, not by causer).
+        for p in game_state.players:
+            if p.eliminated_rings >= game_state.victory_threshold:
+                game_state.game_status = GameStatus.COMPLETED
+                game_state.winner = p.player_number
                 return
 
         # 2. Territory Victory
@@ -491,7 +869,7 @@ class GameEngine:
 
         for p_id, count in territory_counts.items():
             if count >= game_state.territory_victory_threshold:
-                game_state.game_status = GameStatus.FINISHED
+                game_state.game_status = GameStatus.COMPLETED
                 game_state.winner = p_id
                 return
 
@@ -522,7 +900,7 @@ class GameEngine:
 
             # If no other player with material has any real action, candidate wins.
             if not others_have_actions:
-                game_state.game_status = GameStatus.FINISHED
+                game_state.game_status = GameStatus.COMPLETED
                 game_state.winner = candidate
                 return
 
@@ -566,7 +944,7 @@ class GameEngine:
                     hand_counts_as_eliminated = True
 
         if should_apply_stalemate:
-            game_state.game_status = GameStatus.FINISHED
+            game_state.game_status = GameStatus.COMPLETED
 
             # Tie-breaker logic:
             # 1. Most collapsed spaces
@@ -663,168 +1041,20 @@ class GameEngine:
         game_state: GameState, last_move: Move, *, trace_mode: bool = False
     ):
         """
-        Advance phase after a move, partially mirroring TS TurnEngine semantics.
+        Advance phase after a move using the dedicated phase state machine.
 
-        Key behaviours:
-
-        - After FORCED_ELIMINATION, re-check whether the same player now has
-          any legal placement/movement/capture actions:
-          * If yes, keep the same player and start an interactive turn in the
-            MOVEMENT phase.
-          * If no, end the turn and rotate to the next player.
-        - Other move types retain the existing phase transitions for now.
-
-        Args:
-            game_state: The game state to update.
-            last_move: The move that was just applied.
-            trace_mode: When True, passed to _end_turn to disable automatic
-                forced elimination during turn rotation (for replay parity).
+        This is a thin wrapper around :mod:`app.rules.phase_machine`, which
+        centralises all phase/turn transitions. It mutates ``game_state``
+        in-place and does not return a value.
         """
-        current_player = game_state.current_player
+        from app.rules.phase_machine import PhaseTransitionInput, advance_phases
 
-        # Forced elimination is *not* a player-exposed Move in the TS engine;
-        # it is applied automatically after the territory_processing phase when
-        # the next player has stacks but no valid actions. The legacy Python
-        # FORCED_ELIMINATION move type is therefore treated as internal-only.
-        if last_move.type == MoveType.FORCED_ELIMINATION:
-            if trace_mode:
-                # In trace_mode, we're replaying recorded moves where
-                # forced_elimination is explicit. Match TS sandbox behavior:
-                # set phase to territory_processing and DON'T rotate player.
-                # The recorded move sequence handles turn transitions.
-                game_state.current_phase = GamePhase.TERRITORY_PROCESSING
-            else:
-                # Legacy path retained for backwards compatibility with any tests
-                # that still construct explicit FORCED_ELIMINATION moves. After
-                # such a move, mirror the TS TurnEngine semantics: re-check whether
-                # the same player now has any valid actions; if so, continue their
-                # turn in MOVEMENT, otherwise end the turn.
-                if GameEngine._has_valid_actions(game_state, current_player):
-                    game_state.current_phase = GamePhase.MOVEMENT
-                else:
-                    GameEngine._end_turn(game_state, trace_mode=trace_mode)
-
-        elif last_move.type == MoveType.PLACE_RING:
-            # After placement, decide whether to enter movement or, if no
-            # movement/capture is available, advance directly to line
-            # processing. Mirrors TurnEngine.advanceGameForCurrentPlayer.
-            has_moves = GameEngine._has_valid_movements(
-                game_state,
-                current_player,
-            )
-            has_captures = GameEngine._has_valid_captures(
-                game_state,
-                current_player,
-            )
-            if has_moves or has_captures:
-                game_state.current_phase = GamePhase.MOVEMENT
-            else:
-                GameEngine._advance_to_line_processing(
-                    game_state, trace_mode=trace_mode
-                )
-
-        elif last_move.type == MoveType.SKIP_PLACEMENT:
-            # Skipping placement is only allowed when movement or capture is
-            # already available. After a legal skip, always enter movement.
-            game_state.current_phase = GamePhase.MOVEMENT
-
-        elif last_move.type == MoveType.MOVE_STACK:
-            # After movement, check for captures from the landing position.
-            # Per RR-CANON-R093, post-movement captures are only available
-            # from the stack that just moved, at its landing position.
-            # Clear any stale chain_capture_state from previous turns to
-            # ensure the first capture is OVERTAKING_CAPTURE (initial), not
-            # CONTINUE_CAPTURE_SEGMENT (continuation).
-            game_state.chain_capture_state = None
-            capture_moves = GameEngine._get_capture_moves(
-                game_state, current_player
-            )
-            if capture_moves:
-                game_state.current_phase = GamePhase.CAPTURE
-            else:
-                # No captures, go to line processing
-                GameEngine._advance_to_line_processing(
-                    game_state, trace_mode=trace_mode
-                )
-
-        elif (
-            last_move.type == MoveType.OVERTAKING_CAPTURE
-            or last_move.type == MoveType.CHAIN_CAPTURE
-            or last_move.type == MoveType.CONTINUE_CAPTURE_SEGMENT
-        ):
-            # Check for more captures (chain)
-            capture_moves = GameEngine._get_capture_moves(
-                game_state,
-                current_player,
-            )
-            if capture_moves:
-                # After the first capture, subsequent captures are chain captures
-                game_state.current_phase = GamePhase.CHAIN_CAPTURE
-            else:
-                # End of chain
-                GameEngine._advance_to_line_processing(
-                    game_state, trace_mode=trace_mode
-                )
-
-        elif last_move.type in (
-            MoveType.PROCESS_LINE,
-            MoveType.CHOOSE_LINE_REWARD,
-            MoveType.LINE_FORMATION,
-            MoveType.CHOOSE_LINE_OPTION,
-        ):
-            # After processing a line decision, check if there are more lines
-            # for the current player to process. If not, advance to territory
-            # processing (which may end the turn if no territories either).
-            # This mirrors the TS TurnEngine behaviour where line_processing
-            # automatically advances when no further decisions remain.
-            remaining_lines = GameEngine._get_line_processing_moves(
-                game_state,
-                current_player,
-            )
-            if not remaining_lines:
-                GameEngine._advance_to_territory_processing(
-                    game_state, trace_mode=trace_mode
-                )
-
-        elif last_move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
-            # After ELIMINATE_RINGS_FROM_STACK, check if the game will end:
-            # - Terminal: no stacks left AND no player has rings in hand
-            #   → stay on current player, set phase to territory_processing
-            # - Non-terminal: rotate to next player, set phase to ring_placement
-            no_stacks_left = not game_state.board.stacks
-            any_rings_in_hand = any(
-                p.rings_in_hand > 0 for p in game_state.players
-            )
-
-            if no_stacks_left and not any_rings_in_hand:
-                # Terminal case: game will end, preserve current player
-                # and set phase to territory_processing (game over state)
-                game_state.current_phase = GamePhase.TERRITORY_PROCESSING
-                game_state.must_move_from_stack_key = None
-            else:
-                # Non-terminal case: rotate to next active player, skipping
-                # players who have no material (no stacks and no rings in hand).
-                # This mirrors TS turnLogic.advanceTurnAndPhase behaviour.
-                GameEngine._rotate_to_next_active_player(game_state)
-
-        elif last_move.type == MoveType.PROCESS_TERRITORY_REGION:
-            # After processing a disconnected territory region via an explicit
-            # PROCESS_TERRITORY_REGION decision, rotate to the next seat and
-            # start them in the ring_placement phase without applying forced
-            # elimination gating. This mirrors the TS orchestrator behaviour
-            # exercised by the v2 territory_processing contract vectors.
-            # Note: We still need to skip players who are fully eliminated
-            # (no stacks and no rings in hand) even though we don't apply
-            # forced elimination for this transition.
-            GameEngine._rotate_to_next_active_player(game_state)
-
-        elif last_move.type in (
-            MoveType.TERRITORY_CLAIM,
-            MoveType.CHOOSE_TERRITORY_OPTION,
-        ):
-            # Territory option choices are phase-preserving; explicit turn
-            # rotation is driven by PROCESS_TERRITORY_REGION / elimination.
-            pass
+        inp = PhaseTransitionInput(
+            game_state=game_state,
+            last_move=last_move,
+            trace_mode=trace_mode,
+        )
+        advance_phases(inp)
 
     @staticmethod
     def _advance_to_line_processing(
@@ -835,51 +1065,30 @@ class GameEngine:
         # MOVE_STACK) will be correctly classified as OVERTAKING_CAPTURE.
         game_state.chain_capture_state = None
 
-        line_moves = GameEngine._get_line_processing_moves(
-            game_state, game_state.current_player
-        )
-        if line_moves:
-            game_state.current_phase = GamePhase.LINE_PROCESSING
-        else:
-            GameEngine._advance_to_territory_processing(
-                game_state, trace_mode=trace_mode
-            )
+        # Always enter LINE_PROCESSING phase. Per RR-CANON-R075, all phases
+        # must be explicitly visited. When there are no lines to process,
+        # the AI/player must select NO_LINE_ACTION which then advances to
+        # territory_processing. There is no silent skipping of phases.
+        game_state.current_phase = GamePhase.LINE_PROCESSING
 
     @staticmethod
     def _advance_to_territory_processing(
         game_state: GameState, *, trace_mode: bool = False
     ):
-        """Advance from movement/capture into territory processing.
+        """Advance from line processing into territory processing.
 
-        Mirrors the minimal TS shared GameEngine semantics used after
-        MOVE_STACK and capture actions:
+        Always enter TERRITORY_PROCESSING as a distinct phase. If there are no
+        eligible regions, the AI must explicitly select NO_TERRITORY_ACTION via
+        get_valid_moves per RR-CANON-R075 to record that the phase was visited.
 
-        - If the current player has at least one disconnected region that can
-          be processed, enter TERRITORY_PROCESSING.
-        - Otherwise, end the turn and rotate to the next player.
+        Do NOT auto-generate moves here - that would cause replay parity issues.
+        The AI/player selects the appropriate move which is then applied.
 
         Explicit territory decision moves (PROCESS_TERRITORY_REGION,
         ELIMINATE_RINGS_FROM_STACK, etc.) are handled separately in
         _update_phase and are treated as phase-preserving.
         """
-        board = game_state.board
-        player = game_state.current_player
-
-        regions = BoardManager.find_disconnected_regions(board, player)
-        eligible = [
-            region
-            for region in (regions or [])
-            if GameEngine._can_process_disconnected_region(
-                game_state,
-                region,
-                player,
-            )
-        ]
-
-        if eligible:
-            game_state.current_phase = GamePhase.TERRITORY_PROCESSING
-        else:
-            GameEngine._end_turn(game_state, trace_mode=trace_mode)
+        game_state.current_phase = GamePhase.TERRITORY_PROCESSING
 
     @staticmethod
     def _rotate_to_next_active_player(game_state: GameState) -> None:
@@ -915,40 +1124,28 @@ class GameEngine:
 
         while skips < max_skips:
             candidate = players[idx]
-            stacks_for_candidate = BoardManager.get_player_stacks(
-                game_state.board,
-                candidate.player_number,
-            )
-            has_stacks = bool(stacks_for_candidate)
-            has_rings_in_hand = candidate.rings_in_hand > 0
 
-            if not has_stacks and not has_rings_in_hand:
-                # This player currently has no material (no stacks, no rings
-                # in hand); skip them for this turn rotation. They may regain
-                # control of stacks through capture or territory mechanics and
-                # will be re-checked on subsequent turn rotations.
-                skips += 1
-                idx = (idx + 1) % num_players
-                continue
-
-            # Found an active player
+            # Found the next seat in turn order; do not skip fully-eliminated
+            # players. Even players with no stacks and no rings in hand must
+            # still traverse all phases and record no-action moves per
+            # RR-CANON-R075.
             game_state.current_player = candidate.player_number
             game_state.must_move_from_stack_key = None
 
-            # Starting phase: ring_placement if they have rings, else movement
-            if has_rings_in_hand:
-                game_state.current_phase = GamePhase.RING_PLACEMENT
-            else:
-                game_state.current_phase = GamePhase.MOVEMENT
+            # Always start a new turn in RING_PLACEMENT. When no legal
+            # placements exist, get_valid_moves will emit a NO_PLACEMENT_ACTION
+            # bookkeeping move and then advance to MOVEMENT.
+            game_state.current_phase = GamePhase.RING_PLACEMENT
 
             GameEngine._update_lps_round_tracking_for_current_player(
                 game_state,
             )
             return
 
-        # All players exhausted; keep current_player and set phase to MOVEMENT
-        # to allow _check_victory to resolve the global stalemate.
-        game_state.current_phase = GamePhase.MOVEMENT
+        # All players exhausted; keep current_player and set phase to
+        # RING_PLACEMENT to allow _check_victory to resolve the global
+        # stalemate via canonical no-action moves.
+        game_state.current_phase = GamePhase.RING_PLACEMENT
         game_state.must_move_from_stack_key = None
 
     @staticmethod
@@ -1010,77 +1207,56 @@ class GameEngine:
             has_stacks = bool(stacks_for_candidate)
             has_rings_in_hand = candidate.rings_in_hand > 0
 
-            if not has_stacks and not has_rings_in_hand:
-                # This player has no rings on the board and none in hand;
-                # they can never act again in this game, so skip them.
-                skips += 1
-                idx = (idx + 1) % num_players
-                continue
+            # Do not skip fully-eliminated players; even seats with no stacks
+            # and no rings in hand must still traverse all phases and record
+            # no-action moves. Forced elimination only applies when the player
+            # controls stacks.
 
-            # Forced-elimination check (TS TurnEngine.processForcedElimination):
-            # if this player controls at least one stack but has no legal
-            # placement, movement, or capture actions, we must eliminate a cap
-            # before starting their interactive turn.
+            # Forced-elimination gating (RR-CANON-R070/R072/R100/R204):
             #
-            # In trace_mode, we skip this: forced elimination will arrive as
-            # an explicit `forced_elimination` move in the recorded sequence.
-            if not trace_mode and has_stacks and not GameEngine._has_valid_actions(
+            # If this player controls at least one stack but has NO legal
+            # placement, movement, or capture action, their next interaction
+            # must be a canonical forced_elimination decision in the dedicated
+            # `forced_elimination` phase (7th phase in RR-CANON-R070).
+            #
+            # In trace_mode, we do not auto-enter forced_elimination here:
+            # replays are expected to contain an explicit `forced_elimination`
+            # move (or to surface the ANM shape as an invariant failure).
+            if has_stacks and not GameEngine._has_valid_actions(
                 game_state,
                 candidate.player_number,
             ):
-                GameEngine._perform_forced_elimination_for_player(
-                    game_state,
-                    candidate.player_number,
-                )
-                # Forced elimination may immediately end the game via victory
-                # conditions.
-                if game_state.game_status != GameStatus.ACTIVE:
-                    return
-
-                # Re-check material after forced elimination. If the player's
-                # cap was their only control over their last stack, forced
-                # elimination flips control to the opponent. In this case the
-                # player now has no stacks and no rings in hand (they are
-                # "temporarily inactive" per §7.3) and should be skipped.
-                stacks_after_fe = BoardManager.get_player_stacks(
-                    game_state.board,
-                    candidate.player_number,
-                )
-                has_stacks_after_fe = bool(stacks_after_fe)
-                has_rings_after_fe = candidate.rings_in_hand > 0
-
-                if not has_stacks_after_fe and not has_rings_after_fe:
-                    # Player lost all material due to forced elimination;
-                    # skip them and try the next player.
+                if trace_mode:
+                    # Leave ANM handling to the replay/parity caller; do not
+                    # change player/phase silently in trace_mode.
                     skips += 1
                     idx = (idx + 1) % num_players
                     continue
 
-                # Player still has material after forced elimination.
-                # Keep this player active and begin their turn in MOVEMENT.
+                # Enter the explicit forced_elimination phase for this player.
+                # get_valid_moves will then surface `FORCED_ELIMINATION` moves
+                # via _get_forced_elimination_moves, and hosts must record a
+                # concrete Move in the canonical history (RR-CANON-R075).
                 game_state.current_player = candidate.player_number
-                game_state.current_phase = GamePhase.MOVEMENT
+                game_state.current_phase = GamePhase.FORCED_ELIMINATION
                 game_state.must_move_from_stack_key = None
                 GameEngine._update_lps_round_tracking_for_current_player(
                     game_state,
                 )
                 return
 
-            # Found the next active player with some material and at least one
-            # legal action.
+            # Found the next active player with some material and, if needed,
+            # a pending no-action or forced-elimination requirement that hosts
+            # must resolve via explicit moves.
             game_state.current_player = candidate.player_number
             game_state.must_move_from_stack_key = None
 
-            # Starting phase selection:
-            # - If the player has any rings in hand, begin in RING_PLACEMENT
-            #   (placement may be mandatory or optional depending on their
-            #   stacks and future move availability).
-            # - If they have no rings in hand but do have stacks, begin in
-            #   MOVEMENT.
-            if has_rings_in_hand:
-                game_state.current_phase = GamePhase.RING_PLACEMENT
-            else:
-                game_state.current_phase = GamePhase.MOVEMENT
+            # Always begin the next turn in RING_PLACEMENT. When no legal
+            # placements exist (including rings_in_hand == 0), hosts must
+            # emit a NO_PLACEMENT_ACTION bookkeeping move based on the phase
+            # requirements rather than relying on get_valid_moves to
+            # synthesize it.
+            game_state.current_phase = GamePhase.RING_PLACEMENT
 
             GameEngine._update_lps_round_tracking_for_current_player(
                 game_state,
@@ -1089,9 +1265,9 @@ class GameEngine:
 
         # If we exhaust all players without finding any with material, then
         # no-one can act any longer. Leave current_player unchanged and keep
-        # the phase in MOVEMENT; _check_victory will detect the global
+        # the phase in RING_PLACEMENT; _check_victory will detect the global
         # stalemate (no stacks) and apply the tie-breaking rules.
-        game_state.current_phase = GamePhase.MOVEMENT
+        game_state.current_phase = GamePhase.RING_PLACEMENT
         game_state.must_move_from_stack_key = None
 
     @staticmethod
@@ -1101,21 +1277,24 @@ class GameEngine:
     ) -> None:
         """Enforce the strict no-move invariant for ACTIVE states.
 
-        When STRICT_NO_MOVE_INVARIANT is enabled, any ACTIVE state must satisfy
-        the RR-CANON R2xx / INV-ACTIVE-NO-MOVES contract for
-        ``current_player``:
+        When ``STRICT_NO_MOVE_INVARIANT`` is enabled, any ACTIVE state must
+        expose at least one legal action for ``current_player`` via the
+        canonical ``get_valid_moves`` surface, after accounting for the
+        defensive rotation used for fully-eliminated players.
 
-        - the player has turn-material (RR-CANON-R201), and
-        - the global action surface G(state, P) is non-empty (RR-CANON-R200):
-          * at least one global placement; or
-          * at least one phase-local interactive move; or
-          * a host-level forced-elimination action while they still control
-            stacks.
-
-        For fully eliminated players (no stacks and no rings in hand) we first
-        attempt a defensive ``_end_turn`` rotation before declaring an
-        invariant failure, mirroring the TS turn orchestrator and
-        INV-ANM-TURN-MATERIAL-SKIP.
+        Concretely:
+        - Fully eliminated players (no stacks and no rings in hand) are
+          rotated away via ``_end_turn`` before we consider the state a
+          violation (INV-ANM-TURN-MATERIAL-SKIP).
+        - For the resulting ``current_player``, if
+          ``GameEngine.get_valid_moves(game_state, current_player)`` returns
+          at least one move (including forced no-op bookkeeping moves such as
+          ``NO_PLACEMENT_ACTION`` / ``NO_MOVEMENT_ACTION`` /
+          ``NO_LINE_ACTION`` / ``NO_TERRITORY_ACTION`` or explicit
+          ``FORCED_ELIMINATION``), the invariant holds.
+        - Only when the canonical move generator reports *no* legal moves do
+          we treat the state as an INV-ACTIVE-NO-MOVES / ANM violation and
+          raise.
         """
         if game_state.game_status != GameStatus.ACTIVE:
             return
@@ -1142,27 +1321,35 @@ class GameEngine:
             # If we advanced to a different player who now has turn-material and
             # is not in an ANM state, the invariant holds.
             if game_state.current_player != previous_player:
-                new_player = game_state.current_player
-                if ga.has_turn_material(game_state, new_player) and not ga.is_anm_state(
+                rotated_player = game_state.current_player
+                # If rotation found a player with material and the resulting
+                # state is not ANM, accept it without further checks.
+                if ga.has_turn_material(game_state, rotated_player) and not ga.is_anm_state(
                     game_state
                 ):
                     return
-            # Fall through to snapshot + raise handling below; at this point we
-            # are in an ACTIVE state whose current_player either still has no
-            # material or remains in an ANM shape.
 
-        # At this point, either:
-        # - current_player has turn-material, or
-        # - a defensive rotation failed to find any non-ANM player.
-        #
-        # If ANM(state, current_player) is false, the invariant holds.
-        if not ga.is_anm_state(game_state):
+        # Re-evaluate the (possibly rotated) current player and consult the
+        # canonical move generator. If any interactive move exists for this
+        # player, or if a phase-level no-action / forced-elimination
+        # requirement is pending, the strict invariant is satisfied.
+        current_player = game_state.current_player
+        try:
+            legal_moves = GameEngine.get_valid_moves(game_state, current_player)
+        except Exception:
+            # If move generation itself fails, treat this conservatively as
+            # "no moves"; the snapshot + raise logic below will surface the
+            # underlying issue.
+            legal_moves = []
+
+        if legal_moves:
             return
 
         # We now have an ACTIVE state whose current_player satisfies
-        # ANM(state, P): they have turn-material but no placements, movements,
-        # captures, territory/line decisions, or forced eliminations available.
-        # Capture a diagnostic snapshot and raise.
+        # ANM-style conditions from the invariant's perspective: the canonical
+        # move generator reports no legal actions for the active player even
+        # after a defensive rotation for fully eliminated seats. Capture a
+        # diagnostic snapshot and raise.
         try:
             failure_dir = os.path.abspath(
                 os.path.join(
@@ -2456,7 +2643,21 @@ class GameEngine:
         player_lines = [line for line in lines if line.player == player_number]
 
         if not player_lines:
-            return []
+            # No lines to process; per RR-CANON-R075 all phases must be visited
+            # with explicit moves. Return a NO_LINE_ACTION move so the player
+            # can explicitly advance through line_processing phase.
+            move_number = len(game_state.move_history) + 1
+            return [
+                Move(
+                    id=f"no-line-action-{move_number}",
+                    type=MoveType.NO_LINE_ACTION,
+                    player=player_number,
+                    to=Position(x=0, y=0),  # Placeholder position
+                    timestamp=game_state.last_move_at,
+                    thinkTime=0,
+                    moveNumber=move_number,
+                )
+            ]
 
         required_len = get_effective_line_length(game_state.board.type, num_players)
         moves: List[Move] = []
@@ -2583,7 +2784,21 @@ class GameEngine:
         # No eligible regions – enumerate explicit elimination decisions.
         player_stacks = BoardManager.get_player_stacks(board, player_number)
         if not player_stacks:
-            return moves
+            # No stacks for this player in territory_processing; per RR-CANON-R075
+            # all phases must be visited with explicit moves. Return a
+            # NO_TERRITORY_ACTION move so the player can explicitly advance.
+            move_number = len(game_state.move_history) + 1
+            return [
+                Move(
+                    id=f"no-territory-action-{move_number}",
+                    type=MoveType.NO_TERRITORY_ACTION,
+                    player=player_number,
+                    to=Position(x=0, y=0),  # Placeholder position
+                    timestamp=game_state.last_move_at,
+                    thinkTime=0,
+                    moveNumber=move_number,
+                )
+            ]
 
         for stack in player_stacks:
             cap_height = stack.cap_height
@@ -3326,7 +3541,8 @@ class GameEngine:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
             collapsed_count += 1
 
-        # Update the moving player's territory_spaces to match TS LineAggregate
+        # Update the player's territory_spaces to reflect newly collapsed spaces.
+        # Territory increases when spaces collapse during line processing.
         if collapsed_count > 0:
             for player_state in game_state.players:
                 if player_state.player_number == move.player:

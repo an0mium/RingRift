@@ -1,3 +1,14 @@
+"""Board-level helpers for the RingRift AI service.
+
+**SSoT (Single Source of Truth) Policy:**
+
+The canonical rules defined in ``RULES_CANONICAL_SPEC.md`` are the ultimate
+authority for RingRift game semantics. The TS shared engine
+(``src/shared/engine/**``) is the primary executable derivation. This Python
+module is a *host adapter* that must mirror the canonical rules. If this code
+disagrees with the canonical rules or the validated TS engine behaviour, this
+code must be updated—never the other way around.
+"""
 from __future__ import annotations
 
 import os
@@ -7,14 +18,33 @@ from .models import (
     ProgressSnapshot, GameState
 )
 
-# Environment flag to use fast territory detection
-# Fast territory detection using pre-computed geometry and NumPy arrays.
-# Tested for parity with original implementation - safe to enable by default.
-USE_FAST_TERRITORY = os.getenv('RINGRIFT_USE_FAST_TERRITORY', 'true').lower() == 'true'
+# Environment flag to use fast territory detection.
+#
+# Fast territory detection (app.ai.territory_cache.find_disconnected_regions_fast)
+# is an optimisation layer over the canonical BoardManager implementation. It
+# must exactly match the shared TS engine's territoryDetection helpers; any
+# deviation is a *bug in the fast path*, not in the rules spec.
+#
+# Recent parity investigations have found corner‑case mismatches on square19
+# endgames when the fast path is enabled. Until those are fully resolved and
+# covered by contract vectors, the canonical behaviour is the slow path and
+# the fast implementation is considered experimental.
+#
+# For correctness:
+#   - Default to the slow path (USE_FAST_TERRITORY = False).
+#   - Callers may opt in to the fast path by explicitly setting
+#     RINGRIFT_USE_FAST_TERRITORY=true once they have validated parity for
+#     their workloads.
+USE_FAST_TERRITORY = os.getenv('RINGRIFT_USE_FAST_TERRITORY', 'false').lower() == 'true'
 
 
 class BoardManager:
     """Helper for board‑level operations in the AI service.
+
+    **SSoT Policy:** This is a *host adapter*, NOT a rules SSoT. The canonical
+    rules in ``RULES_CANONICAL_SPEC.md`` are the ultimate authority. If this
+    code disagrees with the canonical rules or the validated TS engine
+    behaviour, THIS CODE IS WRONG and must be fixed to match.
 
     This class mirrors the behaviour of the TypeScript ``BoardManager``
     used by the shared engine and backend host, providing:
@@ -248,9 +278,8 @@ class BoardManager:
                         and abs(y) <= radius
                         and abs(z) <= radius
                     ):
-                        # NOTE: Don't include z in Position to ensure to_key()
-                        # returns 'x,y' format matching how stacks are stored.
-                        positions.append(Position(x=x, y=y))
+                        # Include z for hexagonal boards - stacks/markers use "x,y,z" keys
+                        positions.append(Position(x=x, y=y, z=z))
         return positions
 
     @staticmethod

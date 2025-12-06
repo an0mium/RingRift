@@ -503,7 +503,7 @@ class TestChainCaptureParity:
 
         # Should trigger victory (3 eliminated rings)
         assert state_after.board.eliminated_rings.get("1", 0) >= 3
-        assert state_after.game_status == GameStatus.FINISHED
+        assert state_after.game_status == GameStatus.COMPLETED
         assert state_after.winner == 1
 
     def test_chain_no_valid_targets_parity(self) -> None:

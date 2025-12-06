@@ -334,8 +334,8 @@ describe('GameHUD – view-model props', () => {
       ...baseVm,
       weirdState: {
         type: 'forced-elimination',
-        title: 'Forced Elimination',
-        body: 'You control stacks but have no legal moves; caps will be removed automatically.',
+        title: 'Forced elimination is shrinking your stacks',
+        body: 'Because you control stacks but have no legal real moves on some of your turns (no placements, movements, or captures), forced elimination repeatedly removes caps from your stacks.',
         tone: 'warning',
       },
     };
@@ -349,8 +349,8 @@ describe('GameHUD – view-model props', () => {
 
     const banner = screen.getByTestId('hud-weird-state-banner');
     expect(banner).toBeInTheDocument();
-    expect(banner).toHaveTextContent('Forced Elimination');
-    expect(banner).toHaveTextContent('You control stacks but have no legal moves');
+    expect(banner).toHaveTextContent(/Forced elimination is shrinking your stacks/i);
+    expect(banner).toHaveTextContent(/no legal real moves/i);
   });
 
   it('does not render a weird-state banner when HUDViewModel.weirdState is undefined', () => {

@@ -62,6 +62,8 @@ function getMoveAnnotation(move: Move, playerNumber: number): string {
       return `P${playerNumber} claimed line bonus`;
     case 'territory_processing':
       return `P${playerNumber} processed territory`;
+    case 'forced_elimination':
+      return `P${playerNumber} forced to eliminate`;
     default:
       return `P${playerNumber} made a move`;
   }

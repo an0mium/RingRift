@@ -25,11 +25,10 @@ class RandomAI(BaseAI):
         Returns:
             A random valid :class:`Move` or ``None`` if no legal moves exist.
         """
-        # Get all valid moves using the canonical rules engine
-        valid_moves = self.rules_engine.get_valid_moves(
-            game_state,
-            self.player_number,
-        )
+        # Get all legal moves using the canonical RulesEngine host, which
+        # includes both interactive moves and required bookkeeping moves
+        # (no_*_action / forced_elimination) when applicable.
+        valid_moves = self.get_valid_moves(game_state)
 
         if not valid_moves:
             return None

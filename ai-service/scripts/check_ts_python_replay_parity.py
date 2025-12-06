@@ -37,6 +37,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from app.db.game_replay import GameReplayDB, _compute_state_hash
+from app.training.generate_data import create_initial_state
+from app.game_engine import BoardType
+from app.rules.serialization import serialize_game_state
+from app.rules.history_validation import validate_canonical_history_for_game
 
 
 @dataclass
@@ -68,6 +72,20 @@ class GameParityResult:
     # differences). These are insignificant for training purposes as no AI decisions
     # are made based on the divergent state.
     is_end_of_game_only: bool = False
+
+
+def _canonicalize_status(status: str | None) -> str:
+    """Normalize status strings so 'finished' and 'completed' compare equal.
+
+    The canonical terminal value is 'completed'; legacy 'finished' values from
+    older TS/PT traces are treated as aliases for comparison purposes.
+    """
+    if status is None:
+        return "active"
+    s = str(status)
+    if s == "finished":
+        return "completed"
+    return s
 
 
 def repo_root() -> Path:
@@ -130,6 +148,7 @@ def import_json_to_temp_db(json_path: str) -> Tuple[Path, str]:
         data = json.load(f)
 
     # Detect format and extract fields
+    players: list = []  # For GameRecord format
     if data.get("kind") == "ringrift_sandbox_fixture_v1":
         # Sandbox fixture format
         game_id = data.get("id") or str(uuid.uuid4())
@@ -155,6 +174,7 @@ def import_json_to_temp_db(json_path: str) -> Tuple[Path, str]:
         board_type = data.get("boardType", "square8")
         num_players = data.get("numPlayers", 2)
         moves = data.get("moves", [])
+        players = data.get("players", [])
         # No initial state - use empty dict to signal fresh game
         state_json = {}
     else:
@@ -166,7 +186,7 @@ def import_json_to_temp_db(json_path: str) -> Tuple[Path, str]:
     conn = sqlite3.connect(str(temp_db_path))
     cur = conn.cursor()
 
-    # Create minimal schema (version 6 to match current GameReplayDB)
+    # Create full schema (version 6) to match GameReplayDB and TS replay expectations
     cur.executescript("""
         CREATE TABLE IF NOT EXISTS schema_metadata (
             key TEXT PRIMARY KEY,
@@ -188,7 +208,25 @@ def import_json_to_temp_db(json_path: str) -> Tuple[Path, str]:
             total_turns INTEGER NOT NULL,
             duration_ms INTEGER,
             source TEXT,
-            schema_version INTEGER NOT NULL
+            schema_version INTEGER NOT NULL,
+            time_control_type TEXT DEFAULT 'none',
+            initial_time_ms INTEGER,
+            time_increment_ms INTEGER,
+            metadata_json TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS game_players (
+            game_id TEXT NOT NULL,
+            player_number INTEGER NOT NULL,
+            player_type TEXT NOT NULL,
+            ai_type TEXT,
+            ai_difficulty INTEGER,
+            ai_profile_id TEXT,
+            final_eliminated_rings INTEGER,
+            final_territory_spaces INTEGER,
+            final_rings_in_hand INTEGER,
+            PRIMARY KEY (game_id, player_number),
+            FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS game_initial_state (
@@ -208,7 +246,47 @@ def import_json_to_temp_db(json_path: str) -> Tuple[Path, str]:
             move_json TEXT NOT NULL,
             timestamp TEXT,
             think_time_ms INTEGER,
-            engine_eval TEXT,
+            time_remaining_ms INTEGER,
+            engine_eval REAL,
+            engine_eval_type TEXT,
+            engine_depth INTEGER,
+            engine_nodes INTEGER,
+            engine_pv TEXT,
+            engine_time_ms INTEGER,
+            PRIMARY KEY (game_id, move_number),
+            FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS game_state_snapshots (
+            game_id TEXT NOT NULL,
+            move_number INTEGER NOT NULL,
+            state_json TEXT NOT NULL,
+            compressed INTEGER DEFAULT 0,
+            state_hash TEXT,
+            PRIMARY KEY (game_id, move_number),
+            FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS game_choices (
+            game_id TEXT NOT NULL,
+            move_number INTEGER NOT NULL,
+            choice_type TEXT NOT NULL,
+            player INTEGER NOT NULL,
+            options_json TEXT NOT NULL,
+            selected_option_json TEXT NOT NULL,
+            ai_reasoning TEXT,
+            PRIMARY KEY (game_id, move_number, choice_type),
+            FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS game_history_entries (
+            game_id TEXT NOT NULL,
+            move_number INTEGER NOT NULL,
+            player INTEGER NOT NULL,
+            phase_before TEXT NOT NULL,
+            phase_after TEXT NOT NULL,
+            status_before TEXT NOT NULL,
+            status_after TEXT NOT NULL,
             PRIMARY KEY (game_id, move_number),
             FOREIGN KEY (game_id) REFERENCES games(game_id) ON DELETE CASCADE
         );
@@ -221,6 +299,25 @@ def import_json_to_temp_db(json_path: str) -> Tuple[Path, str]:
                           total_moves, total_turns, source, schema_version)
         VALUES (?, ?, ?, ?, 'completed', ?, ?, 'json_import', 6)
     """, (game_id, board_type, num_players, now, len(moves), len(moves)))
+
+    # Insert player records (GameRecord format has players, others generate defaults)
+    if players:
+        for p in players:
+            player_num = p.get("playerNumber", 1)
+            player_type = p.get("playerType", "ai")
+            ai_type = p.get("aiType")
+            ai_difficulty = p.get("aiDifficulty")
+            cur.execute("""
+                INSERT INTO game_players (game_id, player_number, player_type, ai_type, ai_difficulty)
+                VALUES (?, ?, ?, ?, ?)
+            """, (game_id, player_num, player_type, ai_type, ai_difficulty))
+    else:
+        # Create default player entries for formats without explicit players
+        for i in range(num_players):
+            cur.execute("""
+                INSERT INTO game_players (game_id, player_number, player_type)
+                VALUES (?, ?, 'ai')
+            """, (game_id, i + 1))
 
     # Insert initial state only if we have one (GameRecord format has empty state_json)
     if state_json:
@@ -259,27 +356,52 @@ def summarize_python_state(db: GameReplayDB, game_id: str, move_index: int) -> S
         current_phase=state.current_phase.value
         if hasattr(state.current_phase, "value")
         else str(state.current_phase),
-        game_status=state.game_status.value
-        if hasattr(state.game_status, "value")
-        else str(state.game_status),
+        game_status=_canonicalize_status(
+            state.game_status.value
+            if hasattr(state.game_status, "value")
+            else str(state.game_status)
+        ),
         state_hash=_compute_state_hash(state),
     )
+
+
+def _parse_board_type(board_type_str: str) -> BoardType:
+    """Parse a board type string into a BoardType enum value."""
+    mapping = {
+        "square8": BoardType.SQUARE8,
+        "square19": BoardType.SQUARE19,
+        "hexagonal": BoardType.HEXAGONAL,
+    }
+    return mapping.get(board_type_str.lower(), BoardType.SQUARE8)
 
 
 def summarize_python_initial_state(db: GameReplayDB, game_id: str) -> StateSummary:
     """Summarize the initial state BEFORE any moves are applied."""
     state = db.get_initial_state(game_id)
     if state is None:
-        raise RuntimeError(f"Python get_initial_state returned None for {game_id}")
+        # No initial_state record - create a fresh initial state from game metadata.
+        # This handles GameRecord format imports (golden games, soak exports) which
+        # record games from a standard empty board without explicit initial state.
+        metadata = db.get_game_metadata(game_id)
+        if metadata is None:
+            raise RuntimeError(f"Python get_initial_state returned None and no game metadata for {game_id}")
+
+        board_type_str = metadata.get("board_type", "square8")
+        num_players = metadata.get("num_players", 2)
+        board_type = _parse_board_type(board_type_str)
+        state = create_initial_state(board_type=board_type, num_players=num_players)
+
     return StateSummary(
         move_index=0,
         current_player=state.current_player,
         current_phase=state.current_phase.value
         if hasattr(state.current_phase, "value")
         else str(state.current_phase),
-        game_status=state.game_status.value
-        if hasattr(state.game_status, "value")
-        else str(state.game_status),
+        game_status=_canonicalize_status(
+            state.game_status.value
+            if hasattr(state.game_status, "value")
+            else str(state.game_status)
+        ),
         state_hash=_compute_state_hash(state),
     )
 
@@ -329,6 +451,35 @@ def classify_game_structure(db: GameReplayDB, game_id: str) -> Tuple[str, str]:
         return "invalid", "get_state_at_move(0) returned None"
 
     return "good", ""
+
+
+def _get_python_state_for_ts_k(
+    db: GameReplayDB,
+    game_id: str,
+    ts_k: int,
+    total_moves_py: int,
+):
+    """Return the Python GameState corresponding to TS step k, or None if unavailable."""
+    if ts_k <= 0:
+        state = db.get_initial_state(game_id)
+        if state is None:
+            metadata = db.get_game_metadata(game_id)
+            if metadata is None:
+                raise RuntimeError(
+                    f"Python get_initial_state returned None and no game metadata for {game_id}"
+                )
+            board_type_str = metadata.get("board_type", "square8")
+            num_players = metadata.get("num_players", 2)
+            board_type = _parse_board_type(board_type_str)
+            state = create_initial_state(board_type=board_type, num_players=num_players)
+        return state
+
+    py_index = ts_k - 1
+    if py_index < 0 or py_index >= total_moves_py:
+        return None
+
+    state = db.get_state_at_move(game_id, py_index)
+    return state
 
 
 def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSummary]]:
@@ -388,7 +539,7 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
                 move_index=0,
                 current_player=summary.get("currentPlayer"),
                 current_phase=summary.get("currentPhase"),
-                game_status=summary.get("gameStatus"),
+                game_status=_canonicalize_status(summary.get("gameStatus")),
                 state_hash=summary.get("stateHash"),
             )
         elif kind == "ts-replay-step":
@@ -398,7 +549,7 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
                 move_index=k,
                 current_player=summary.get("currentPlayer"),
                 current_phase=summary.get("currentPhase"),
-                game_status=summary.get("gameStatus"),
+                game_status=_canonicalize_status(summary.get("gameStatus")),
                 state_hash=summary.get("stateHash"),
             )
         elif kind == "ts-replay-final":
@@ -406,6 +557,125 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
             pass
 
     return total_ts_moves, summaries
+
+
+def _dump_ts_states_for_ks(
+    db_path: Path,
+    game_id: str,
+    ks: List[int],
+    dump_dir: Path,
+) -> None:
+    """Invoke the TS replay harness to dump TS GameState JSON at the requested k values."""
+    if not ks:
+        return
+
+    root = repo_root()
+    env = os.environ.copy()
+    env.setdefault("TS_NODE_PROJECT", "tsconfig.server.json")
+    env["RINGRIFT_TS_REPLAY_DUMP_DIR"] = str(dump_dir)
+
+    unique_sorted = sorted(set(ks))
+    dump_arg = ",".join(str(k) for k in unique_sorted)
+
+    cmd = [
+        "npx",
+        "ts-node",
+        "-T",
+        "scripts/selfplay-db-ts-replay.ts",
+        "--db",
+        str(db_path),
+        "--game",
+        game_id,
+        "--dump-state-at",
+        dump_arg,
+    ]
+
+    proc = subprocess.run(
+        cmd,
+        cwd=str(root),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"TS replay state dump failed for {db_path} / {game_id} ks={unique_sorted} "
+            f"with code {proc.returncode}: {proc.stderr.strip()}"
+        )
+
+
+def dump_state_bundle(
+    db: GameReplayDB,
+    db_path: Path,
+    game_id: str,
+    result: GameParityResult,
+    state_bundles_dir: Path,
+) -> None:
+    """Emit a rich TS+Python state bundle around the first divergence for faster debugging."""
+    if result.diverged_at is None:
+        return
+
+    div_k = result.diverged_at
+    if div_k <= 0:
+        ks = [0]
+    else:
+        before_k = max(0, div_k - 1)
+        ks = [before_k, div_k] if div_k != before_k else [div_k]
+
+    py_states: Dict[int, Dict[str, object]] = {}
+    ts_states: Dict[int, Dict[str, object]] = {}
+
+    for ts_k in ks:
+        state = _get_python_state_for_ts_k(db, game_id, ts_k, result.total_moves_python)
+        if state is not None:
+            try:
+                py_states[ts_k] = serialize_game_state(state)  # type: ignore[arg-type]
+            except Exception:
+                continue
+
+    try:
+        _dump_ts_states_for_ks(db_path, game_id, ks, state_bundles_dir)
+    except Exception:
+        pass
+
+    for ts_k in ks:
+        file_name = f"{db_path.name}__{game_id}__k{ts_k}.ts_state.json"
+        ts_path = state_bundles_dir / file_name
+        if not ts_path.exists():
+            continue
+        try:
+            with ts_path.open("r", encoding="utf-8") as f:
+                ts_states[ts_k] = json.load(f)
+        except Exception:
+            continue
+
+    safe_game_id = game_id.replace("/", "_")
+    diverged_label = str(result.diverged_at)
+    bundle_path = (
+        state_bundles_dir
+        / f"{Path(db_path).stem}__{safe_game_id}__k{diverged_label}.state_bundle.json"
+    )
+
+    bundle = {
+        "db_path": str(db_path),
+        "game_id": game_id,
+        "diverged_at": result.diverged_at,
+        "mismatch_kinds": list(result.mismatch_kinds or []),
+        "mismatch_context": result.mismatch_context,
+        "total_moves_python": result.total_moves_python,
+        "total_moves_ts": result.total_moves_ts,
+        "ts_k_values": ks,
+        "python_states": {str(k): py_states.get(k) for k in ks},
+        "ts_states": {str(k): ts_states.get(k) for k in ks},
+    }
+
+    try:
+        state_bundles_dir.mkdir(parents=True, exist_ok=True)
+        with bundle_path.open("w", encoding="utf-8") as f:
+            json.dump(bundle, f, indent=2, sort_keys=True)
+    except Exception:
+        return
 
 
 def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
@@ -416,6 +686,29 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
 
     structure, structure_reason = classify_game_structure(db, game_id)
     total_moves_py = int(meta["total_moves"])
+
+    # Pre-flight canonical history check: if the recorded (phase, move_type)
+    # pairs do not match the canonical contract, treat the game as a
+    # structural/non-canonical recording and skip TS replay. This keeps
+    # parity runs focused on games that at least agree on phase semantics
+    # per RR-CANON-R070/R075.
+    canonical_report = validate_canonical_history_for_game(db, game_id)
+    if not canonical_report.is_canonical:
+        reasons = sorted({issue.reason for issue in canonical_report.issues})
+        reason_str = ";".join(reasons) if reasons else "non_canonical_history"
+        return GameParityResult(
+            db_path=str(db_path),
+            game_id=game_id,
+            structure="non_canonical_history",
+            structure_reason=reason_str,
+            total_moves_python=total_moves_py,
+            total_moves_ts=0,
+            diverged_at=None,
+            python_summary=None,
+            ts_summary=None,
+            mismatch_kinds=["non_canonical_history"],
+            mismatch_context="recording",
+        )
 
     # For invalid games (missing data) we don't attempt TS replay.
     # mid_snapshot games (CMA-ES multi-start) ARE valid for parity testing
@@ -750,6 +1043,16 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--emit-state-bundles-dir",
+        type=str,
+        default=None,
+        help=(
+            "If set, write TS+Python state bundles for each semantic divergence into this directory. "
+            "Each bundle captures full serialized GameState JSON for TS and Python at the step "
+            "immediately before and at the first divergence."
+        ),
+    )
+    parser.add_argument(
         "--trace-game",
         type=str,
         default=None,
@@ -818,6 +1121,12 @@ def main() -> None:
     if fixtures_dir is not None:
         fixtures_dir.mkdir(parents=True, exist_ok=True)
 
+    state_bundles_dir: Optional[Path] = (
+        Path(args.emit_state_bundles_dir).resolve() if args.emit_state_bundles_dir else None
+    )
+    if state_bundles_dir is not None:
+        state_bundles_dir.mkdir(parents=True, exist_ok=True)
+
     for db_path in db_paths:
         db = GameReplayDB(str(db_path))
         games = db.query_games(limit=100000)
@@ -843,10 +1152,12 @@ def main() -> None:
                 total_structural_issues += 1
                 continue
 
-            # Only skip truly invalid games. mid_snapshot games (CMA-ES multi-start,
-            # soak test games, etc.) are valid for parity testing since the TS replay
-            # script loads the initial state from game_initial_state table.
-            if result.structure == "invalid":
+            # Treat any non-"good"/"mid_snapshot" structure as a structural issue
+            # (e.g., invalid initial_state, non-canonical history). mid_snapshot
+            # games (CMA-ES multi-start, soak test games, etc.) are valid for
+            # parity testing since the TS replay script loads the initial state
+            # from game_initial_state table.
+            if result.structure not in ("good", "mid_snapshot"):
                 total_structural_issues += 1
                 structural_issues.append(
                     {
@@ -928,6 +1239,18 @@ def main() -> None:
                     fixture_path = fixtures_dir / f"{Path(db_path).stem}__{safe_game_id}__k{diverged_label}.json"
                     with open(fixture_path, "w", encoding="utf-8") as f:
                         json.dump(fixture, f, indent=2, sort_keys=True)
+
+                if state_bundles_dir is not None and result.diverged_at is not None:
+                    try:
+                        dump_state_bundle(
+                            db=db,
+                            db_path=Path(db_path),
+                            game_id=game_id,
+                            result=result,
+                            state_bundles_dir=state_bundles_dir,
+                        )
+                    except Exception:
+                        pass
 
     if args.compact:
         # Compact mode: emit one line per semantic divergence, skip structural issues.

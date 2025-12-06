@@ -59,6 +59,31 @@ RULES_PARITY_V1_DIR = os.path.join(RULES_PARITY_BASE_DIR, "v1")
 RULES_PARITY_V2_DIR = os.path.join(RULES_PARITY_BASE_DIR, "v2")
 
 
+def _convert_ts_state_to_python(state_dict: dict) -> dict:
+    """Convert TS GameState JSON to Python representation.
+
+    TS and Python have different ring array conventions:
+      - TS: rings array is [top to bottom], rings[0] is controlling
+      - Python: rings array is [bottom to top], rings[-1] is controlling
+
+    This function reverses the rings array in each stack to match
+    Python's internal representation.
+    """
+    import copy
+    result = copy.deepcopy(state_dict)
+
+    # Handle stacks in board.stacks (may be dict keyed by "x,y")
+    board = result.get("board", {})
+    stacks = board.get("stacks", {})
+
+    if isinstance(stacks, dict):
+        for key, stack in stacks.items():
+            if isinstance(stack, dict) and "rings" in stack:
+                stack["rings"] = list(reversed(stack["rings"]))
+
+    return result
+
+
 def _normalise_hash_for_ts_comparison(raw_hash: str) -> str:
     """Normalise Python/TS hashes before comparison.
 
@@ -120,7 +145,8 @@ def test_load_ts_initial_state_fixture() -> None:
 
     # Pydantic will handle alias-based field mapping (createdAt → created_at,
     # etc.) thanks to populate_by_name=True in the models.
-    state = GameState(**state_dict)
+    # Convert TS ring array format to Python format
+    state = GameState(**_convert_ts_state_to_python(state_dict))
 
     # Basic invariants
     assert state.board_type == BoardType.SQUARE8
@@ -164,7 +190,7 @@ def test_state_action_parity(fixture_path: str) -> None:
     move_dict = payload["move"]
     expected = payload["expected"]
 
-    state = GameState(**state_dict)
+    state = GameState(**_convert_ts_state_to_python(state_dict))
     move = Move(**move_dict)
 
     engine = DefaultRulesEngine()
@@ -230,10 +256,13 @@ def test_state_action_http_parity(fixture_path: str) -> None:
 
     ts_valid = expected["tsValid"]
 
+    # Convert TS ring array format to Python format before sending to API
+    converted_state = _convert_ts_state_to_python(state_dict)
+
     response = client.post(
         "/rules/evaluate_move",
         json={
-            "game_state": state_dict,
+            "game_state": converted_state,
             "move": move_dict,
         },
     )
@@ -354,7 +383,7 @@ def test_replay_ts_trace_fixtures_and_assert_python_state_parity() -> None:
         initial_state_dict = payload["initialState"]
         steps = payload.get("steps", [])
 
-        state = GameState(**initial_state_dict)
+        state = GameState(**_convert_ts_state_to_python(initial_state_dict))
 
         # Light sanity check that fixture boardType matches Python state.
         if board_type is not None:
@@ -448,8 +477,9 @@ def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
         initial_state_dict = payload["initialState"]
         steps = payload.get("steps", [])
 
-        engine_state = GameState(**initial_state_dict)
-        rules_state = GameState(**initial_state_dict)
+        converted_state = _convert_ts_state_to_python(initial_state_dict)
+        engine_state = GameState(**converted_state)
+        rules_state = GameState(**converted_state)
 
         for idx, step in enumerate(steps):
             move_dict = step["move"]
@@ -569,8 +599,9 @@ def test_default_engine_mutator_first_matches_game_engine_on_ts_traces() -> None
         initial_state_dict = payload["initialState"]
         steps = payload.get("steps", [])
 
-        engine_state = GameState(**initial_state_dict)
-        rules_state = GameState(**initial_state_dict)
+        converted_state = _convert_ts_state_to_python(initial_state_dict)
+        engine_state = GameState(**converted_state)
+        rules_state = GameState(**converted_state)
 
         for idx, step in enumerate(steps):
             move_dict = step["move"]

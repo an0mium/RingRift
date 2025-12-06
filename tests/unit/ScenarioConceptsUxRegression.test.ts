@@ -5,6 +5,8 @@ import type {
   LoadableScenario,
 } from '../../src/client/sandbox/scenarioTypes';
 import { RulesUxPhrases } from './rulesUxExpectations.testutil';
+import { TEACHING_SCENARIOS } from '../../src/shared/teaching/teachingScenarios';
+import { getRulesUxContextForTeachingScenario } from '../../src/shared/teaching/scenarioTelemetry';
 
 const bundle = curatedBundle as unknown as CuratedScenarioBundle;
 const scenarios: LoadableScenario[] = bundle.scenarios;
@@ -89,6 +91,22 @@ describe('Curated scenario rulesConcept - UX copy alignment', () => {
       if (typeof scenario.matrixScenarioId === 'string') {
         expect(scenario.matrixScenarioId).toMatch(/Q23/i);
       }
+    }
+  });
+
+  it('maps mini-region teaching steps to rulesContext=territory_mini_region for telemetry', () => {
+    const miniRegionTeaching = TEACHING_SCENARIOS.filter(
+      (scenario) => scenario.rulesConcept === 'territory_mini_region'
+    );
+
+    if (miniRegionTeaching.length === 0) {
+      // No mini-region teaching flows yet; this test becomes a no-op until such steps are added.
+      return;
+    }
+
+    for (const scenario of miniRegionTeaching) {
+      const ctx = getRulesUxContextForTeachingScenario(scenario);
+      expect(ctx).toBe('territory_mini_region');
     }
   });
 });

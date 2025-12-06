@@ -147,4 +147,80 @@ describe('TeachingOverlay teaching flows – step navigation & telemetry', () =>
       })
     );
   });
+
+  it('surfaces the multi-turn forced-elimination loop step and emits telemetry with the correct flow metadata', async () => {
+    render(
+      <TeachingOverlay
+        topic="forced_elimination"
+        isOpen={true}
+        onClose={() => {}}
+        position="center"
+      />
+    );
+
+    const stepButtons = await screen.findAllByTestId('teaching-related-step');
+
+    // Click all related steps once so any fe_loop_intro step with the highest
+    // index (our multi-turn FE loop) has a chance to emit telemetry. We avoid
+    // depending on the exact rendered label text here and instead assert via
+    // the telemetry payload.
+    stepButtons.forEach((button) => {
+      fireEvent.click(button);
+    });
+
+    await waitFor(() => {
+      const events = mockLogRulesUxEvent.mock.calls
+        .map(([arg]) => arg as any)
+        .filter((e) => e.type === 'teaching_step_started');
+      expect(events.length).toBeGreaterThanOrEqual(1);
+    });
+
+    const events = mockLogRulesUxEvent.mock.calls
+      .map(([arg]) => arg as any)
+      .filter((e) => e.type === 'teaching_step_started');
+
+    const feLoopStep4Events = events.filter(
+      (event) =>
+        event.rulesConcept === 'anm_forced_elimination' &&
+        event.payload &&
+        event.payload.flowId === 'fe_loop_intro' &&
+        event.payload.stepIndex === 4 &&
+        event.payload.topic === 'forced_elimination'
+    );
+
+    expect(feLoopStep4Events.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('surfaces a structural stalemate teaching step for the victory_stalemate topic', async () => {
+    render(
+      <TeachingOverlay
+        topic="victory_stalemate"
+        isOpen={true}
+        onClose={() => {}}
+        position="center"
+      />
+    );
+
+    const stepButtons = await screen.findAllByTestId('teaching-related-step');
+    const hasStructuralStalemateStep = stepButtons.some((button) => {
+      const text = (button.textContent || '').replace(/\s+/g, ' ');
+      return text.includes('structural_stalemate_intro');
+    });
+
+    expect(hasStructuralStalemateStep).toBe(true);
+  });
+
+  it('surfaces mini-region intro teaching steps for the territory topic', async () => {
+    render(
+      <TeachingOverlay topic="territory" isOpen={true} onClose={() => {}} position="center" />
+    );
+
+    const stepButtons = await screen.findAllByTestId('teaching-related-step');
+    const hasMiniRegionStep = stepButtons.some((button) => {
+      const text = (button.textContent || '').replace(/\s+/g, ' ');
+      return text.includes('mini_region_intro');
+    });
+
+    expect(hasMiniRegionStep).toBe(true);
+  });
 });

@@ -420,27 +420,42 @@ class RingRiftEnv:
     def legal_moves(self) -> List[Move]:
         """Return legal moves for the current player.
 
-        This is a thin wrapper around the canonical Python rules engine:
-
-        * When ``use_default_rules_engine`` is True, this method
-          delegates to :class:`DefaultRulesEngine.get_valid_moves`,
-          which in turn uses :class:`GameEngine` under the hood.
-        * Otherwise it calls :func:`GameEngine.get_valid_moves`
-          directly.
+        Per RR-CANON-R076, the core rules layer (GameEngine.get_valid_moves)
+        returns ONLY interactive moves. When there are no interactive moves,
+        this host-level method checks for phase requirements and synthesizes
+        the appropriate bookkeeping move (no_*_action, forced_elimination).
 
         The returned list contains fully-specified :class:`Move`
         instances and matches the behaviour of the TypeScript shared
         engine for the same state.
         """
+        # Get interactive moves from the core rules layer
         if self._rules_engine is not None:
-            return self._rules_engine.get_valid_moves(
+            moves = self._rules_engine.get_valid_moves(
                 self.state,
                 self.state.current_player,
             )
-        return GameEngine.get_valid_moves(
-            self.state,
-            self.state.current_player,
-        )
+        else:
+            moves = GameEngine.get_valid_moves(
+                self.state,
+                self.state.current_player,
+            )
+
+        # If no interactive moves, check for phase requirements (R076)
+        if not moves:
+            requirement = GameEngine.get_phase_requirement(
+                self.state,
+                self.state.current_player,
+            )
+            if requirement is not None:
+                # Host synthesizes the bookkeeping move
+                bookkeeping_move = GameEngine.synthesize_bookkeeping_move(
+                    requirement,
+                    self.state,
+                )
+                moves = [bookkeeping_move]
+
+        return moves
 
     def _infer_canonical_victory_reason(
         self,
@@ -499,6 +514,10 @@ class RingRiftEnv:
             A dictionary with episode metadata; see class docstring for
             the stable fields.
         """
+        # Track move_history length to detect auto-generated moves (e.g.,
+        # no_territory_action) that apply_move appends internally.
+        prev_history_len = len(self._state.move_history) if self._state.move_history else 0
+
         # Apply move via the canonical Python rules engine.
         if self._rules_engine is not None:
             self._state = self._rules_engine.apply_move(self.state, move)
@@ -506,6 +525,20 @@ class RingRiftEnv:
             self._state = GameEngine.apply_move(self.state, move)
 
         self._move_count += 1
+
+        # Detect any auto-generated moves appended by apply_move beyond the
+        # caller's move. These are moves like no_territory_action that the
+        # engine generates internally per RR-CANON-R075 but are not explicitly
+        # chosen by the AI. Callers recording games should include these.
+        auto_generated_moves = []
+        if self._state.move_history:
+            new_history_len = len(self._state.move_history)
+            # The caller's move should be at index prev_history_len.
+            # Any moves after that are auto-generated.
+            if new_history_len > prev_history_len + 1:
+                auto_generated_moves = list(
+                    self._state.move_history[prev_history_len + 1 :]
+                )
 
         terminated_by_rules = self._state.game_status != GameStatus.ACTIVE
         terminated_by_budget = self._move_count >= self.max_moves
@@ -515,6 +548,7 @@ class RingRiftEnv:
         info: Dict[str, Any] = {
             "winner": self._state.winner,
             "move_count": self._move_count,
+            "auto_generated_moves": auto_generated_moves,
         }
 
         # Log warning/error for games that hit max_moves without a winner.

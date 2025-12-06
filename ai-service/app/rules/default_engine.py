@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import List, Mapping
 
-from app.models import GameState, Move, MoveType
+from app.models import GameState, GameStatus, Move, MoveType
 
 from .interfaces import RulesEngine, Validator, Mutator
 from .validators.placement import PlacementValidator
@@ -121,12 +121,49 @@ class DefaultRulesEngine(RulesEngine):
     def get_valid_moves(self, state: GameState, player: int) -> List[Move]:
         """Return all legal moves for ``player`` in ``state``.
 
-        We delegate directly to :class:`GameEngine` to preserve canonical
-        semantics and caching behaviour.
+        This is a **host-level** helper over the core GameEngine:
+
+        - Delegates to :meth:`GameEngine.get_valid_moves` for interactive
+          moves (placements, movements/captures, line/territory decisions,
+          forced_elimination in the FE phase).
+        - When no interactive moves exist for an ACTIVE state where
+          ``player`` is the current player, calls
+          :meth:`GameEngine.get_phase_requirement` and
+          :meth:`GameEngine.synthesize_bookkeeping_move` to surface the
+          required bookkeeping move (``NO_*_ACTION`` or
+          ``FORCED_ELIMINATION``) as a single legal :class:`Move`.
+
+        This mirrors the behaviour of the TS hosts and keeps the core
+        rules layer free of auto-generated moves per RR-CANON-R076.
         """
         from app.game_engine import GameEngine
 
-        return GameEngine.get_valid_moves(state, player)
+        # Interactive moves from the core engine (no bookkeeping moves).
+        moves = GameEngine.get_valid_moves(state, player)
+        if moves:
+            return moves
+
+        # No interactive moves – only attempt to synthesize bookkeeping
+        # moves when this player is actually on turn in an ACTIVE game.
+        if state.current_player != player:
+            return moves
+
+        game_status = state.game_status
+        status_str = (
+            game_status.value if hasattr(game_status, "value") else str(game_status)
+        )
+        if status_str != GameStatus.ACTIVE.value:
+            return moves
+
+        requirement = GameEngine.get_phase_requirement(state, player)
+        if requirement is None:
+            return moves
+
+        bookkeeping_move = GameEngine.synthesize_bookkeeping_move(
+            requirement,
+            state,
+        )
+        return [bookkeeping_move]
 
     def validate_move(self, state: GameState, move: Move) -> bool:
         """Validate if a specific move is legal in the current state.
@@ -149,6 +186,25 @@ class DefaultRulesEngine(RulesEngine):
                 m.type == MoveType.SWAP_SIDES and m.player == move.player
                 for m in legal
             )
+
+        # Forced no-op placement action is an internal bookkeeping move that
+        # may appear in canonical recordings when a player enters
+        # RING_PLACEMENT but has no legal placement anywhere. Treat it as
+        # valid without additional validation.
+        if move.type == MoveType.NO_PLACEMENT_ACTION:
+            return True
+
+        # Forced no-op line action is an internal bookkeeping move emitted by
+        # GameEngine when entering LINE_PROCESSING with no lines available.
+        # It is always considered valid when present in a canonical recording.
+        if move.type == MoveType.NO_LINE_ACTION:
+            return True
+
+        # Forced no-op movement action is an internal bookkeeping move that
+        # may appear in canonical recordings when a player enters MOVEMENT
+        # but has no legal movement or capture anywhere. Treat it as valid.
+        if move.type == MoveType.NO_MOVEMENT_ACTION:
+            return True
 
         # Dispatch based on move type for all other moves
         if move.type in (MoveType.PLACE_RING, MoveType.SKIP_PLACEMENT):

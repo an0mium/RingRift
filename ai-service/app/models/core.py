@@ -17,20 +17,23 @@ class BoardType(str, Enum):
 
 
 class GamePhase(str, Enum):
-    """Game phase enumeration"""
+    """Game phase enumeration - 7 canonical phases per RR-CANON-R070."""
     RING_PLACEMENT = "ring_placement"
     MOVEMENT = "movement"
     CAPTURE = "capture"
     CHAIN_CAPTURE = "chain_capture"
     LINE_PROCESSING = "line_processing"
     TERRITORY_PROCESSING = "territory_processing"
+    # Final phase: entered only when player had no actions in all prior phases
+    # but still controls stacks. Records forced_elimination move then advances
+    # to next player. See RR-CANON-R100, RR-CANON-R204.
+    FORCED_ELIMINATION = "forced_elimination"
 
 
 class GameStatus(str, Enum):
-    """Game status enumeration"""
+    """Game status enumeration - aligned with TypeScript semantics"""
     WAITING = "waiting"
     ACTIVE = "active"
-    FINISHED = "finished"
     PAUSED = "paused"
     ABANDONED = "abandoned"
     COMPLETED = "completed"
@@ -43,11 +46,20 @@ class MoveType(str, Enum):
     # Ring Placement
     PLACE_RING = "place_ring"
     SKIP_PLACEMENT = "skip_placement"
+    # Forced no-op: player entered RING_PLACEMENT but had no legal placement
+    # anywhere (e.g. rings_in_hand == 0 or no positions allowed by caps /
+    # no-dead-placement). Mirrors TS MoveType 'no_placement_action' and
+    # RR-CANON-R075.
+    NO_PLACEMENT_ACTION = "no_placement_action"
 
     # Movement
     MOVE_STACK = "move_stack"
     MOVE_RING = "move_ring"  # Legacy alias
     BUILD_STACK = "build_stack"
+    # Forced no-op in movement: player entered MOVEMENT but had no legal
+    # movement or capture anywhere. Mirrors TS MoveType 'no_movement_action'
+    # and RR-CANON-R075.
+    NO_MOVEMENT_ACTION = "no_movement_action"
 
     # Capture
     OVERTAKING_CAPTURE = "overtaking_capture"
@@ -61,16 +73,29 @@ class MoveType(str, Enum):
     # Line Processing
     PROCESS_LINE = "process_line"
     CHOOSE_LINE_REWARD = "choose_line_reward"
+    # Forced no-op: player entered line_processing but had no lines or line
+    # rewards. Mirrors TS MoveType 'no_line_action' and RR-CANON-R075.
+    NO_LINE_ACTION = "no_line_action"
 
     # Territory Processing
     PROCESS_TERRITORY_REGION = "process_territory_region"
+    # Voluntary skip: player has eligible regions but chooses not to process them.
+    SKIP_TERRITORY_PROCESSING = "skip_territory_processing"
+    # Forced no-op: player entered territory_processing but has no eligible regions.
+    # Semantically distinct from SKIP_TERRITORY_PROCESSING per RR-CANON-R075.
+    NO_TERRITORY_ACTION = "no_territory_action"
     ELIMINATE_RINGS_FROM_STACK = "eliminate_rings_from_stack"
 
     # Legacy / Experimental (to be phased out or kept for compatibility)
     LINE_FORMATION = "line_formation"
     TERRITORY_CLAIM = "territory_claim"
     CHAIN_CAPTURE = "chain_capture"
-    FORCED_ELIMINATION = "forced_elimination"  # Python-specific legacy
+    # Canonical forced-elimination move in the dedicated forced_elimination
+    # phase (RR-CANON-R070, RR-CANON-R072, RR-CANON-R100). Hosts may continue
+    # to express the underlying ring removal via ELIMINATE_RINGS_FROM_STACK
+    # for now; this discriminant exists so parity tooling and DBs can record
+    # the final turn phase explicitly.
+    FORCED_ELIMINATION = "forced_elimination"
 
     # Canonical choice moves
     CHOOSE_LINE_OPTION = "choose_line_option"

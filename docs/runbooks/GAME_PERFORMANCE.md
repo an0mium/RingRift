@@ -250,7 +250,7 @@ When AI or other services are clearly slow:
    - Database / Redis performance runbooks if those alerts are firing.
 2. **Ensure clean fallback behaviour:**
    - Confirm `AIEngine` and `AIInteractionHandler` route through local heuristic fallbacks when the AI service is degraded, so move processing does not simply stall.
-   - Verify that these fallbacks still respect the rules SSoT (shared TS engine + orchestrator) and do not change rules semantics.
+   - Verify that these fallbacks still respect the canonical rules SSoT (canonical rules spec plus shared TS engine/orchestrator) and do not change rules semantics.
 
 ### 4.2 If rules / engine code is CPU‑bound
 

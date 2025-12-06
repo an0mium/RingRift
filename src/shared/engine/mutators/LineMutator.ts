@@ -108,6 +108,13 @@ function executeCollapse(
     newState.board.collapsedSpaces.set(key, newState.currentPlayer);
   }
 
+  // Update the player's territorySpaces to reflect newly collapsed spaces.
+  // Per canonical rules, when a turn action causes collapse, that territory
+  // is credited to the player taking the action.
+  if (positionsToCollapse.length > 0) {
+    player.territorySpaces += positionsToCollapse.length;
+  }
+
   // 2. Handle Elimination Reward (Option 1 only)
   // If we collapsed MORE than the minimum (i.e. the whole line, and it was > min), we get to eliminate a ring?
   // Rule 12.1 Option 1: "Collapse the entire line... In addition, you may choose one of your opponent's rings... and eliminate it."

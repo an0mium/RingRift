@@ -150,7 +150,7 @@ def run_game(
             return None, {"error": str(e)}
 
         if not move:
-            game_state.game_status = GameStatus.FINISHED
+            game_state.game_status = GameStatus.COMPLETED
             # Player with no moves loses - next player wins (simplified)
             game_state.winner = (current_player_num % num_players) + 1
             break
@@ -163,7 +163,7 @@ def run_game(
             print(f"Error applying move: {e}")
             return None, {"error": str(e)}
 
-        if game_state.game_status == GameStatus.FINISHED:
+        if game_state.game_status == GameStatus.COMPLETED:
             break
 
         move_count += 1

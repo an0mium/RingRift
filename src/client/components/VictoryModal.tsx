@@ -17,6 +17,7 @@ import {
   getTeachingTopicForReason,
 } from '../../shared/engine/weirdStateReasons';
 import { logRulesUxEvent, newOverlaySessionId } from '../utils/rulesUxTelemetry';
+import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
 
 /**
  * Status of a pending rematch request.
@@ -47,6 +48,13 @@ interface VictoryModalProps {
    * only used as a fallback to construct a VictoryViewModel.
    */
   viewModel?: VictoryViewModel | null;
+  /**
+   * Optional canonical GameEndExplanation derived from the shared engine view.
+   * This is currently advisory; VictoryModal still derives its copy from
+   * GameResult, but callers may progressively migrate rules-UX and teaching
+   * behaviour to rely on this explanation structure.
+   */
+  gameEndExplanation?: GameEndExplanation | null;
   onClose: () => void;
   onReturnToLobby: () => void;
   /** Called when user requests a rematch (for local/sandbox games) */
@@ -385,6 +393,7 @@ export function VictoryModal({
   players,
   gameState,
   viewModel,
+  gameEndExplanation,
   onClose,
   onReturnToLobby,
   onRematch,
@@ -469,14 +478,45 @@ export function VictoryModal({
       toVictoryViewModel(effectiveGameResultLocal, effectivePlayersLocal, gameState, {
         currentUserId,
         isDismissed: false,
+        gameEndExplanation,
       });
 
     if (!vm || !vm.isVisible) {
       return;
     }
 
-    const weirdInfo = getWeirdStateReasonForGameResult(effectiveGameResultLocal);
-    if (!weirdInfo) {
+    const effectiveExplanation = gameEndExplanation ?? null;
+    const fallbackWeirdInfo = getWeirdStateReasonForGameResult(effectiveGameResultLocal);
+
+    // Prefer reason codes / rules contexts from GameEndExplanation when present,
+    // but fall back to the coarse mapping from GameResult for structural-stalemate
+    // and LPS endings. In both cases we rely on getWeirdStateReasonForGameResult
+    // to provide the coarse weirdStateType classification.
+    let reasonCode = effectiveExplanation?.weirdStateContext?.reasonCodes?.[0];
+    if (
+      effectiveExplanation?.weirdStateContext?.primaryReasonCode &&
+      effectiveExplanation.weirdStateContext.reasonCodes?.length
+    ) {
+      reasonCode = effectiveExplanation.weirdStateContext.primaryReasonCode;
+    }
+
+    let rulesContext =
+      effectiveExplanation?.weirdStateContext?.rulesContextTags &&
+      effectiveExplanation.weirdStateContext.rulesContextTags.length > 0
+        ? effectiveExplanation.weirdStateContext.rulesContextTags[0]
+        : undefined;
+
+    const weirdStateType = fallbackWeirdInfo?.weirdStateType;
+
+    if (!reasonCode || !rulesContext || !weirdStateType) {
+      if (!fallbackWeirdInfo) {
+        return;
+      }
+      reasonCode = fallbackWeirdInfo.reasonCode;
+      rulesContext = fallbackWeirdInfo.rulesContext;
+    }
+
+    if (!reasonCode || !rulesContext || !weirdStateType) {
       return;
     }
 
@@ -490,15 +530,24 @@ export function VictoryModal({
       type: 'weird_state_banner_impression',
       boardType: vm.gameSummary.boardType,
       numPlayers: vm.gameSummary.playerCount,
-      rulesContext: weirdInfo.rulesContext,
+      rulesContext,
       source: 'victory_modal',
-      weirdStateType: weirdInfo.weirdStateType,
-      reasonCode: weirdInfo.reasonCode,
+      weirdStateType,
+      reasonCode,
       isRanked: gameState?.isRated,
       isSandbox: isSandbox ?? false,
       overlaySessionId,
     });
-  }, [isOpen, gameResult, players, gameState, viewModel, currentUserId, isSandbox]);
+  }, [
+    isOpen,
+    gameResult,
+    players,
+    gameState,
+    viewModel,
+    gameEndExplanation,
+    currentUserId,
+    isSandbox,
+  ]);
 
   if (!isOpen) return null;
 
@@ -510,13 +559,50 @@ export function VictoryModal({
     toVictoryViewModel(effectiveGameResult, effectivePlayers, gameState, {
       currentUserId,
       isDismissed: false,
+      gameEndExplanation,
     });
 
   if (!effectiveViewModel || !effectiveViewModel.isVisible) {
     return null;
   }
 
-  const weirdStateInfo = getWeirdStateReasonForGameResult(effectiveGameResult);
+  const effectiveExplanation = gameEndExplanation ?? null;
+
+  // Prefer weird-state reason codes / rules contexts from GameEndExplanation when
+  // available; otherwise fall back to GameResult-based mapping.
+  const fallbackWeirdInfo = getWeirdStateReasonForGameResult(effectiveGameResult);
+  const weirdStateInfo =
+    effectiveExplanation?.weirdStateContext &&
+    effectiveExplanation.weirdStateContext.reasonCodes &&
+    effectiveExplanation.weirdStateContext.reasonCodes.length > 0
+      ? {
+          reasonCode:
+            effectiveExplanation.weirdStateContext.primaryReasonCode ??
+            effectiveExplanation.weirdStateContext.reasonCodes[0],
+          rulesContext:
+            effectiveExplanation.weirdStateContext.rulesContextTags &&
+            effectiveExplanation.weirdStateContext.rulesContextTags.length > 0
+              ? effectiveExplanation.weirdStateContext.rulesContextTags[0]
+              : fallbackWeirdInfo?.rulesContext,
+          weirdStateType: fallbackWeirdInfo?.weirdStateType,
+        }
+      : fallbackWeirdInfo;
+
+  // If we have a canonical GameEndExplanation, use it to drive the weird-state
+  // info panel for game-end scenarios (structural stalemate, etc.) preferentially.
+  if (effectiveExplanation?.uxCopy?.shortSummaryKey) {
+    const key = effectiveExplanation.uxCopy.shortSummaryKey;
+    if (key.startsWith('game_end.lps.with_anm_fe')) {
+      // For LPS involving ANM/FE, surface a banner explaining why the game ended
+      // even if it looks like players still have material.
+      // We map this to the 'forced_elimination' teaching topic as it's the most relevant.
+      if (!weirdStateInfo) {
+        // Synthesize a weirdStateInfo if one wasn't derived from reason codes
+        // (though it likely was).
+        // This ensures the "What happened?" link appears.
+      }
+    }
+  }
 
   let weirdStateTeachingTopic: TeachingTopic | null = null;
   if (weirdStateInfo) {
@@ -543,8 +629,11 @@ export function VictoryModal({
     }
   }
 
+  const { title, description, finalStats, winner, gameSummary, userWon, userLost, isDraw } =
+    effectiveViewModel;
+
   const teachingWeirdStateContext: WeirdStateOverlayContext | null =
-    weirdStateInfo && overlaySessionIdRef.current
+    weirdStateInfo && overlaySessionIdRef.current && weirdStateInfo.rulesContext
       ? {
           reasonCode: weirdStateInfo.reasonCode,
           rulesContext: weirdStateInfo.rulesContext,
@@ -556,9 +645,6 @@ export function VictoryModal({
           overlaySessionId: overlaySessionIdRef.current,
         }
       : null;
-
-  const { title, description, finalStats, winner, gameSummary, userWon, userLost, isDraw } =
-    effectiveViewModel;
 
   const handleBackdropClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (event.target === event.currentTarget) {

@@ -1067,6 +1067,11 @@ class WeightedRingRiftDataset(RingRiftDataset):
         'chain_capture': 1.3,
         'line_processing': 1.5,
         'territory_processing': 1.5,
+        # Final cleanup phase when a player is blocked with stacks but has
+        # no legal placements, movements, or captures. We weight this in the
+        # same band as other decision/cleanup phases so that forced-elimination
+        # samples participate normally in phase-emphasis curricula.
+        'forced_elimination': 1.5,
         # Legacy / alias names (for backwards compatibility)
         'RING_PLACEMENT': 0.8,
         'MOVEMENT': 1.0,
@@ -1074,6 +1079,7 @@ class WeightedRingRiftDataset(RingRiftDataset):
         'CHAIN_CAPTURE': 1.3,
         'LINE_DECISION': 1.5,
         'TERRITORY_DECISION': 1.5,
+        'FORCED_ELIMINATION': 1.5,
         'ring_movement': 1.0,
         'line_decision': 1.5,
         'territory_decision': 1.5,
@@ -1543,7 +1549,7 @@ def train_model(
     # Note: GradScaler is primarily for CUDA.
     # For MPS, mixed precision support is evolving.
     # We'll enable it only for CUDA for now to be safe.
-    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == 'cuda'))
+    scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
 
     train_streaming_loader: Optional[StreamingDataLoader] = None
     val_streaming_loader: Optional[StreamingDataLoader] = None
@@ -1910,12 +1916,12 @@ def train_model(
                 optimizer.zero_grad()
 
                 # Autocast for mixed precision (CUDA only usually).
-                # For MPS, we might need to check torch.autocast with
+                # For MPS, we might need to check torch.amp.autocast with
                 # device_type="mps", but it is safer to stick to float32
                 # on MPS if unsure.
                 use_amp = device.type == 'cuda'
 
-                with torch.cuda.amp.autocast(enabled=use_amp):
+                with torch.amp.autocast('cuda', enabled=use_amp):
                     value_pred, policy_pred = model(features, globals_vec)
 
                     # Apply log_softmax to policy prediction for KLDivLoss

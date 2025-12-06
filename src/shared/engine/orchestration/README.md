@@ -97,7 +97,15 @@ const result = await processTurnAsync(gameState, move, delegates);
 ```typescript
 import { getValidMoves, validateMove } from './orchestration/turnOrchestrator';
 
-// Get all valid moves for current player and phase
+// Get legal moves for the current player/phase.
+// - In decision phases (line/territory), this is **interactive moves only**;
+//   when a phase has no interactive actions, the orchestrator instead
+//   returns a PendingDecision of type `no_*_action_required` and hosts
+//   must construct/apply the corresponding `no_*_action` Move.
+// - In ring_placement/movement, the current implementation still surfaces
+//   canonical `no_placement_action` / `no_movement_action` bookkeeping
+//   moves when no interactive actions exist; these are being migrated
+//   toward the same PendingDecision pattern (RR-CANON-R075/R076).
 const validMoves = getValidMoves(gameState);
 
 // Validate a specific move
@@ -137,12 +145,27 @@ When the orchestrator encounters a situation requiring player choice, it returns
 ```typescript
 interface PendingDecision {
   // Type of decision needed
-  type: 'line_order' | 'region_order' | 'elimination_target' | 'chain_capture';
+  type:
+    | 'line_order'
+    | 'line_reward'
+    | 'region_order'
+    | 'elimination_target'
+    | 'capture_direction'
+    | 'chain_capture'
+    // RR-CANON-R075/R076: required no-action bookkeeping when a phase has
+    // no interactive moves; hosts must synthesize the corresponding
+    // `no_*_action` Move and apply it via the public API.
+    | 'no_line_action_required'
+    | 'no_territory_action_required'
+    | 'no_movement_action_required'
+    | 'no_placement_action_required';
 
   // Which player needs to decide
   player: number;
 
-  // Available options (as Move objects)
+  // Available options (as Move objects). For `no_*_action_required`
+  // decision types this array is intentionally empty; hosts must build
+  // the appropriate `no_*_action` Move themselves.
   options: Move[];
 
   // Context for UI presentation
@@ -155,10 +178,16 @@ interface PendingDecision {
 
 ### Decision Types
 
-1. **line_order** - Multiple lines detected, player chooses which to process first
-2. **region_order** - Multiple disconnected territory regions, player chooses order
-3. **elimination_target** - Player earned elimination and must choose target stack
-4. **chain_capture** - Chain capture in progress, player chooses next capture
+1. **line_order** – Multiple lines detected, player chooses which to process first.
+2. **line_reward** – A processed line grants a reward; player chooses which reward option to take.
+3. **region_order** – Multiple disconnected Territory regions, player chooses processing order.
+4. **elimination_target** – Player earned elimination and must choose target stack.
+5. **capture_direction** – (When surfaced) player chooses among multiple capture directions.
+6. **chain_capture** – Chain capture in progress, player chooses next capture segment.
+7. **no_line_action_required** – No line decisions exist; host must emit an explicit `no_line_action` move to record the phase.
+8. **no_territory_action_required** – No Territory decisions exist; host must emit an explicit `no_territory_action` move.
+9. **no_movement_action_required** – No legal movement/capture exists; host must emit `no_movement_action`.
+10. **no_placement_action_required** – No legal placements exist; host must emit `no_placement_action`.
 
 ## Creating TurnProcessingDelegates from Aggregates
 

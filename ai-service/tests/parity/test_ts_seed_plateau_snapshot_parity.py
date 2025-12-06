@@ -82,9 +82,11 @@ def _build_board_from_snapshot(snapshot: Dict[str, Any]) -> BoardState:
         else:
             raise AssertionError(f"Unexpected stack key format: {key}")
 
+        # TS uses [top→bottom] ring order, Python uses [bottom→top]
+        # Reverse the rings array during fixture loading
         stack = RingStack(
             position=pos,
-            rings=list(entry["rings"]),
+            rings=list(reversed(entry["rings"])),
             stack_height=entry["stackHeight"],
             cap_height=entry["capHeight"],
             controlling_player=entry["controllingPlayer"],
@@ -223,13 +225,15 @@ def _python_comparable_snapshot(label: str, state: GameState) -> Dict[str, Any]:
 
     stacks: List[Dict[str, Any]] = []
     for key, stack in state.board.stacks.items():
+        # Python uses [bottom→top] ring order, TS uses [top→bottom]
+        # Reverse when generating TS-comparable snapshot
         stacks.append(
             {
                 "key": key,
                 "controllingPlayer": stack.controlling_player,
                 "stackHeight": stack.stack_height,
                 "capHeight": stack.cap_height,
-                "rings": list(stack.rings),
+                "rings": list(reversed(stack.rings)),
             }
         )
     stacks.sort(key=lambda s: s["key"])

@@ -56,7 +56,11 @@ export type GamePhase =
   | 'capture'
   | 'chain_capture'
   | 'line_processing'
-  | 'territory_processing';
+  | 'territory_processing'
+  // Final phase: entered only when player had no actions in all prior phases
+  // but still controls stacks. Records forced_elimination move then advances
+  // to next player. See RR-CANON-R070, RR-CANON-R100, RR-CANON-R204.
+  | 'forced_elimination';
 export type GameStatus = 'waiting' | 'active' | 'finished' | 'paused' | 'abandoned' | 'completed';
 export type MarkerType = 'regular' | 'collapsed';
 /**
@@ -89,10 +93,31 @@ export type MoveType =
   | 'choose_line_reward'
   // Territory-processing decisions (see GamePhase 'territory_processing').
   | 'process_territory_region'
+  // Voluntary skip: player has eligible regions but chooses not to process them.
   | 'skip_territory_processing'
+  // Forced no-op: player entered territory_processing but has no eligible regions.
+  // Semantically distinct from skip_territory_processing per RR-CANON-R075.
+  | 'no_territory_action'
+  // Forced no-op in movement: player entered movement but has no legal
+  // movement or capture anywhere. Per RR-CANON-R075 this records that the
+  // movement phase was visited even though no action was available.
+  | 'no_movement_action'
+  // Forced no-op in ring_placement: player entered ring_placement but had no
+  // legal placement (e.g. ringsInHand == 0 or no positions allowed by
+  // no-dead-placement). Per RR-CANON-R075 this records that the placement
+  // phase was visited even though no action was available.
+  | 'no_placement_action'
+  // Forced no-op: player entered line_processing but has no lines to process
+  // and no line rewards to choose. Per RR-CANON-R075 this records that the
+  // phase was visited even though no action was available.
+  | 'no_line_action'
   | 'eliminate_rings_from_stack'
   // Capture phase skip: decline optional capture after movement (RR-CANON-R070).
   | 'skip_capture'
+  // Forced elimination: player had no actions in all prior phases but still
+  // controls stacks. Eliminates entire cap of a controlled stack. Only valid
+  // in 'forced_elimination' phase. See RR-CANON-R100, RR-CANON-R204.
+  | 'forced_elimination'
   // Legacy / experimental move types (not used by the unified Move model).
   | 'line_formation'
   | 'territory_claim'

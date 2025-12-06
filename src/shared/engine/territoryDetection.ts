@@ -53,6 +53,13 @@ export function findDisconnectedRegions(board: BoardState): Territory[] {
     }
   }
 
+  // PARITY FIX: If there is only one or zero active players, there is no
+  // meaningful notion of disconnection. One player cannot be "cut off" from
+  // themselves. This matches Python's find_disconnected_regions behavior.
+  if (activePlayers.size <= 1) {
+    return [];
+  }
+
   // Get all marker colors present on board
   const markerColors = new Set<number>();
   for (const [, marker] of board.markers) {

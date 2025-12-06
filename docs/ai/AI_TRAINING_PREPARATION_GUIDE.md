@@ -3,12 +3,12 @@
 > **Doc Status (2025-11-26): Active (training infrastructure checklist)**
 >
 > - Canonical pre-flight checklist for AI weight initialization, training infrastructure, and operational safeguards for the Python AI service under `ai-service/`.
-> - Assumes the **rules SSoT** is the shared TypeScript engine (helpers → aggregates → orchestrator → contracts) under `src/shared/engine/`, with v2 contract vectors under `tests/fixtures/contract-vectors/v2/`.
+> - Assumes the **rules SSoT** is the canonical rules spec (`RULES_CANONICAL_SPEC.md` plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) together with its shared TypeScript engine implementation (helpers → aggregates → orchestrator → contracts) under `src/shared/engine/`, with v2 contract vectors under `tests/fixtures/contract-vectors/v2/`.
 > - For Move/decision/WebSocket lifecycle semantics and canonical types, defer to [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md); for TS↔Python rules parity specifics, defer to [`docs/rules/PYTHON_PARITY_REQUIREMENTS.md`](../rules/PYTHON_PARITY_REQUIREMENTS.md) and [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md).
 >
 > **SSoT alignment:** This guide is a derived pre-flight and training-infrastructure checklist over:
 >
-> - The **rules semantics SSoT** (shared TS rules engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`).
+> - The **rules semantics SSoT** (canonical rules spec plus shared TS rules engine under `src/shared/engine/**` plus v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`).
 > - The AI/training implementation SSoT under `ai-service/app/ai/**` and `ai-service/app/training/**` together with their tests (for example `ai-service/tests/test_memory_config.py`, `ai-service/tests/test_bounded_transposition_table.py`, `ai-service/tests/test_hex_augmentation.py`, `ai-service/tests/test_hex_training.py`, `ai-service/tests/test_training_pipeline_e2e.py`).
 >
 > If this guide ever conflicts with those executable artefacts or the canonical lifecycle/parity docs it references, **code + tests + canonical rules/lifecycle docs win**, and this guide must be updated to match.

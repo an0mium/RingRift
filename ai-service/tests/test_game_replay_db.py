@@ -155,7 +155,7 @@ class TestGameReplayDBBasic:
         final_state = create_test_state(game_id)
         final_state = final_state.model_copy(
             update={
-                "game_status": GameStatus.FINISHED,
+                "game_status": GameStatus.COMPLETED,
                 "winner": 1,
             }
         )
@@ -218,7 +218,7 @@ class TestGameReplayDBBasic:
             initial_state = create_test_state(game_id)
             final_state = initial_state.model_copy(
                 update={
-                    "game_status": GameStatus.FINISHED,
+                    "game_status": GameStatus.COMPLETED,
                     "winner": (i % 2) + 1,
                 }
             )
@@ -251,7 +251,7 @@ class TestGameReplayDBBasic:
         game_id = "stats-test"
         initial_state = create_test_state(game_id)
         final_state = initial_state.model_copy(
-            update={"game_status": GameStatus.FINISHED, "winner": 1}
+            update={"game_status": GameStatus.COMPLETED, "winner": 1}
         )
         moves = [create_test_move(1, i) for i in range(5)]
 
@@ -293,7 +293,7 @@ class TestGameWriter:
         # Finalize
         final_state = initial_state.model_copy(
             update={
-                "game_status": GameStatus.FINISHED,
+                "game_status": GameStatus.COMPLETED,
                 "winner": 1,
             }
         )
@@ -335,7 +335,7 @@ class TestStateReconstruction:
         initial_state = create_test_state(game_id)
         final_state = initial_state.model_copy(
             update={
-                "game_status": GameStatus.FINISHED,
+                "game_status": GameStatus.COMPLETED,
                 "winner": 1,
                 "total_rings_eliminated": 10,
             }
@@ -354,7 +354,7 @@ class TestStateReconstruction:
         state = db.get_state_at_move(game_id, 0)
         assert state is not None
         # The snapshot is the final state
-        assert state.game_status == GameStatus.FINISHED
+        assert state.game_status == GameStatus.COMPLETED
 
 
 class TestChoices:
@@ -373,7 +373,7 @@ class TestChoices:
 
         initial_state = create_test_state(game_id)
         final_state = initial_state.model_copy(
-            update={"game_status": GameStatus.FINISHED, "winner": 1}
+            update={"game_status": GameStatus.COMPLETED, "winner": 1}
         )
         moves = [create_test_move(1, 0)]
 

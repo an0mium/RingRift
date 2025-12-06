@@ -134,6 +134,51 @@ export class TurnEngineAdapter {
     // Create delegates that route decisions to players
     const delegates: TurnProcessingDelegates = {
       resolveDecision: async (decision: PendingDecision): Promise<Move> => {
+        // Core may surface required no-action decisions when a phase has no
+        // interactive moves (RR-CANON-R075/R076). These are non-interactive
+        // bookkeeping steps; hosts are responsible for constructing the
+        // corresponding no_*_action Move and applying it via the normal API.
+        if (
+          decision.type === 'no_line_action_required' ||
+          decision.type === 'no_territory_action_required' ||
+          decision.type === 'no_movement_action_required' ||
+          decision.type === 'no_placement_action_required'
+        ) {
+          const currentState = stateAccessor.getGameState();
+          const moveNumber = currentState.moveHistory.length + 1;
+
+          let moveType: Move['type'] | undefined;
+          switch (decision.type) {
+            case 'no_line_action_required':
+              moveType = 'no_line_action';
+              break;
+            case 'no_territory_action_required':
+              moveType = 'no_territory_action';
+              break;
+            case 'no_movement_action_required':
+              moveType = 'no_movement_action';
+              break;
+            case 'no_placement_action_required':
+              moveType = 'no_placement_action';
+              break;
+          }
+
+          if (!moveType) {
+            throw new Error(`Unhandled no-action decision type: ${decision.type}`);
+          }
+
+          const noActionMove: Move = {
+            id: `auto-${moveType}-${moveNumber}`,
+            type: moveType,
+            player: decision.player,
+            to: { x: 0, y: 0 },
+            timestamp: new Date(),
+            thinkTime: 0,
+            moveNumber,
+          };
+          return noActionMove;
+        }
+
         const playerInfo = stateAccessor.getPlayerInfo(decision.player);
 
         // For AI players, auto-select first option

@@ -5,7 +5,7 @@
 **Doc Status:** Active (developer quickstart)
 
 - Step-by-step setup and deployment guide for the TS backend, React client, and Python AI service.
-- Not a rules or lifecycle SSoT; for rules semantics defer to `RULES_CANONICAL_SPEC.md` + shared TS engine (`src/shared/engine/**`), and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
+- Not a rules or lifecycle SSoT; for rules semantics defer to `RULES_CANONICAL_SPEC.md` (canonical rules spec, single source of truth) and its shared TS engine implementation under `src/shared/engine/**`, and for lifecycle semantics defer to `docs/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
 ## Understanding the Game HUD
 

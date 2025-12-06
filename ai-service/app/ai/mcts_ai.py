@@ -34,6 +34,18 @@ from ..utils.memory_config import MemoryConfig
 logger = logging.getLogger(__name__)
 
 
+def _moves_match(m1: Move, m2: Move) -> bool:
+    """Check if two moves match by type and position.
+
+    Handles moves with to=None (e.g. NO_LINE_ACTION, NO_TERRITORY_ACTION).
+    """
+    if m1.type != m2.type:
+        return False
+    if m1.to is None or m2.to is None:
+        return m1.to is None and m2.to is None
+    return m1.to.x == m2.to.x and m1.to.y == m2.to.y
+
+
 class MCTSNode:
     """MCTS tree node for legacy (immutable) search.
 
@@ -123,14 +135,8 @@ class MCTSNode:
         if played_moves and self.move:
             # Update AMAF stats if this node's move was played in the
             # simulation. Check if self.move is in played_moves.
-            # Move equality check might need to be robust.
-            # For simplicity, check type and to/from.
             for m in played_moves:
-                if (
-                    m.type == self.move.type
-                    and m.to.x == self.move.to.x
-                    and m.to.y == self.move.to.y
-                ):
+                if _moves_match(m, self.move):
                     self.amaf_visits += 1
                     self.amaf_wins += result
                     break
@@ -226,11 +232,7 @@ class MCTSNodeLite:
 
         if played_moves and self.move:
             for m in played_moves:
-                if (
-                    m.type == self.move.type
-                    and m.to.x == self.move.to.x
-                    and m.to.y == self.move.to.y
-                ):
+                if _moves_match(m, self.move):
                     self.amaf_visits += 1
                     self.amaf_wins += result
                     break
@@ -665,11 +667,7 @@ class MCTSAI(HeuristicAI):
             if game_state.move_history:
                 last_move = game_state.move_history[-1]
                 for child in self.last_root.children:
-                    if (
-                        child.move.type == last_move.type
-                        and child.move.to.x == last_move.to.x
-                        and child.move.to.y == last_move.to.y
-                    ):
+                    if _moves_match(child.move, last_move):
                         root = child
                         root.parent = None
                         break
@@ -874,6 +872,8 @@ class MCTSAI(HeuristicAI):
         use_hex_nn: bool,
     ) -> None:
         """Update node policy priors from neural network output."""
+        # Use the host-level RulesEngine surface so that bookkeeping moves
+        # (no_*_action / forced_elimination) are surfaced when required.
         valid_moves_state = self.rules_engine.get_valid_moves(
             state,
             state.current_player,
@@ -912,7 +912,7 @@ class MCTSAI(HeuristicAI):
         rollout_state = state
 
         for _ in range(rollout_depth):
-            if rollout_state.game_status == "finished":
+            if rollout_state.game_status == "completed":
                 break
 
             moves = self.rules_engine.get_valid_moves(
@@ -1017,11 +1017,7 @@ class MCTSAI(HeuristicAI):
             if game_state.move_history:
                 last_move = game_state.move_history[-1]
                 for child in self.last_root_lite.children:
-                    if child.move is not None and (
-                        child.move.type == last_move.type
-                        and child.move.to.x == last_move.to.x
-                        and child.move.to.y == last_move.to.y
-                    ):
+                    if child.move is not None and _moves_match(child.move, last_move):
                         root = child
                         root.parent = None
                         break

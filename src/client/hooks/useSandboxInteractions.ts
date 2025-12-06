@@ -286,32 +286,17 @@ export function useSandboxInteractions({
     const phaseBefore = stateBefore.currentPhase;
     const board = stateBefore.board;
 
-    // Ring-placement phase: a single click attempts a 1-ring placement
-    // via the engine. On success, we immediately highlight the legal
-    // movement targets for the newly placed/updated stack, and the
-    // human must then move that stack; the AI will respond only after
-    // the movement step completes.
+    // Ring-placement phase: a single click is treated as a pure selection
+    // of the stack/cell under the cursor. Actual placement is triggered
+    // via double-click (2-ring on empties, 1-ring on stacks) or the
+    // context menu flow; this keeps the first click from immediately
+    // placing a ring.
     if (phaseBefore === 'ring_placement') {
-      void (async () => {
-        const validMoves = engine.getValidMoves(stateBefore.currentPlayer);
-        const placed = await engine.tryPlaceRings(pos, 1);
-        if (!placed) {
-          const reason = analyzeInvalidMove(stateBefore, pos, {
-            isPlayer: true,
-            isMyTurn: true,
-            isConnected: true,
-            selectedPosition: null,
-            validMoves,
-          });
-          triggerInvalidMove(pos, reason);
-          return;
-        }
-
-        setSelected(pos);
-        const targets = engine.getValidLandingPositionsForCurrentPlayer(pos);
-        setValidTargets(targets);
-        setSandboxTurn((t) => t + 1);
-      })();
+      setSelected(pos);
+      setValidTargets([]);
+      // Keep the engine's internal selection in sync so any downstream
+      // helpers that rely on _selectedStackKey see the same focus.
+      engine.handleHumanCellClick(pos);
       return;
     }
 

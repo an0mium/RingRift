@@ -566,6 +566,58 @@ set to “golden”, we typically:
 
 ---
 
+### Parity & Debugging Tooling
+
+On top of structural health, we use a TS↔Python replay parity harness and
+debug helpers to validate that engines agree on the canonical rules sequence
+for a given `GameReplayDB`.
+
+Key entrypoints:
+
+- `scripts/check_ts_python_replay_parity.py`
+  - Compares Python `GameReplayDB.get_state_at_move` against the TS sandbox
+    replay path (`scripts/selfplay-db-ts-replay.ts`) for each game.
+  - Important flags:
+    - `--db <path>` – restrict to a single DB.
+    - `--compact` – emit one-line `SEMANTIC …` entries for divergences
+      (greppable, no JSON summary).
+    - `--emit-fixtures-dir <dir>` – write a compact JSON fixture per semantic
+      divergence (db, game_id, diverged_at, summaries, canonical move). These
+      fixtures are consumed by `tests/parity/test_replay_parity_fixtures_regression.py`.
+    - `--emit-state-bundles-dir <dir>` – write a richer **state bundle** per
+      semantic divergence, capturing full serialized TS and Python `GameState`
+      JSON immediately before and at the first divergent step.
+
+- `scripts/selfplay-db-ts-replay.ts`
+  - Node/TS harness that replays a single DB game into `ClientSandboxEngine`
+    with `traceMode=true` and prints per-step summaries.
+  - Supports `--dump-state-at k1,k2,…` (or `RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K`)
+    to dump TS `GameState` JSON snapshots to `RINGRIFT_TS_REPLAY_DUMP_DIR` (or
+    `./ts-replay-dumps` by default). This is what the parity harness uses under
+    the hood when emitting state bundles.
+
+- `ai-service/scripts/diff_state_bundle.py`
+  - Convenience CLI for inspecting a single `.state_bundle.json` emitted by
+    the parity harness:
+    - Reconstructs the Python `GameState` via `deserialize_game_state`.
+    - Compares players, stacks, and collapsed territory against the TS state
+      (reusing the same summarizers as `debug_ts_python_state_diff.py`).
+    - Prints a concise structural diff summary plus per-player eliminations /
+      territory / rings-in-hand.
+  - Typical usage:
+
+    ```bash
+    cd ai-service
+
+    # After running check_ts_python_replay_parity with --emit-state-bundles-dir
+    PYTHONPATH=. python scripts/diff_state_bundle.py \
+      --bundle parity_fixtures/state_bundles/selfplay_square19_parity__<gameId>__k142.state_bundle.json
+    ```
+
+This tooling is intended to make it easy to go from “parity summary says
+there is a semantic divergence” to a concrete, inspectable pair of TS and
+Python states (and the move that caused them) with a single CLI call.
+
 ## Replay Navigation in Sandbox
 
 The sandbox UI supports game replay with these controls:

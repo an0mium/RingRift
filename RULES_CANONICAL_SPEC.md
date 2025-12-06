@@ -2,14 +2,17 @@
 
 > **Doc Status (2025-11-26): Active**
 >
-> - This document is the **rules-level canonical spec** for RingRift semantics. It normalizes the narrative sources into precise, implementation-ready constraints.
+> - This document is the **rules-level canonical spec** for RingRift semantics and the single source of truth for rules behaviour. It normalizes the narrative sources into precise, implementation-ready constraints.
 > - It defines **RR-CANON-RXXX** rule IDs for core invariants, resources, turn/phase structure, line/territory semantics, and victory conditions.
 > - It intentionally **does not** re-specify the engine API or Move/decision/WebSocket lifecycle. For those, see:
 >   - [`docs/CANONICAL_ENGINE_API.md` §3.9–3.10](docs/CANONICAL_ENGINE_API.md) for `Move`, `PendingDecision`, `PlayerChoice*`, WebSocket payloads, and the orchestrator-backed decision loop.
 >   - `src/shared/types/game.ts` and `src/shared/engine/orchestration/types.ts` for the canonical type definitions.
-> - Engine implementations in TS and Python must:
->   - Treat `src/shared/engine/` (**helpers → aggregates → orchestrator → contracts**) as the SSoT for rules behavior.
->   - Treat this file as the **rules invariant SSoT** whenever the prose sources diverge.
+> - **Single Source of Truth (SSoT):** The canonical rules defined in this document are the **ultimate authority** for RingRift game semantics. All implementations—TypeScript shared engine, Python AI service, client sandbox, replay systems, and any future engines—must derive from and faithfully implement these canonical rules.
+> - **Implementation hierarchy:**
+>   - **This file** (`RULES_CANONICAL_SPEC.md`) is the _normative_ rules SSoT: when behaviour is in doubt, the RR‑CANON‑RXXX rules here win.
+>   - **TS shared engine** (`src/shared/engine/**`) is the _primary executable derivation_ of this spec. If the TS engine and this document ever disagree, that is a bug and the TS engine code must be updated to match the canonical rules described here.
+>   - **Python AI service** (`ai-service/app/**`) is a _host adapter_ that must mirror the canonical rules. If Python disagrees with the canonical rules or the validated TS engine behaviour, Python must be updated—never the other way around.
+>   - **Client sandbox, replay, and other hosts** similarly derive from the canonical rules via the shared engine; they must not introduce independent rules semantics.
 >
 > **Purpose.** This document is a normalization of the RingRift rules for engine/AI implementation and verification. It reconciles [`ringrift_complete_rules.md`](ringrift_complete_rules.md) ("Complete Rules") and [`ringrift_compact_rules.md`](ringrift_compact_rules.md) ("Compact Spec") into a single canonical, implementation-ready ruleset.
 
@@ -130,6 +133,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 - **[RR-CANON-R041] Territory counts.**
   - Each player `P` has an integer `territorySpaces[P]` = number of collapsed spaces whose owner is `P`.
   - This is used for Territory-victory and stalemate tiebreaks.
+  - **Crediting rule:** Whenever any turn action causes a space to collapse (via marker path processing, line processing, or territory region processing), the acting player's `territorySpaces` must be incremented by the number of newly collapsed spaces.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §§1.3, 7.2, 7.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§11–13.2, 13.4.
 
 ---
@@ -152,7 +156,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - `ringsInHand`.
       - `eliminatedRings` (credited to that player).
       - `territorySpaces`.
-    - Turn/phase: `currentPlayer`, `currentPhase` ∈ { `ring_placement`, `movement`, `capture`, `chain_capture`, `line_processing`, `territory_processing` }.
+    - Turn/phase: `currentPlayer`, `currentPhase` ∈ { `ring_placement`, `movement`, `capture`, `chain_capture`, `line_processing`, `territory_processing`, `forced_elimination` }.
     - Victory metadata: `totalRingsInPlay`, `totalRingsEliminated`, `victoryThreshold`, `territoryVictoryThreshold`.
     - History: `moveHistory` (implementation-defined structure).
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §1.3, §2, §7; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4, 13, 15.2.
@@ -199,7 +203,8 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     3. Optional start of **overtaking capture from the moved stack's landing position only** (see RR-CANON-R093), then mandatory chain continuation while legal.
     4. **Line processing** (zero or more lines).
     5. **Territory disconnection processing** (zero or more regions).
-    6. **Victory / termination check**.
+    6. **Forced elimination** (conditional): entered only if P had no actions available in all prior phases (placement, movement, capture, line processing, territory processing) but still controls at least one stack. P must eliminate the entire cap of one controlled stack per RR-CANON-R100.
+    7. **Victory / termination check**.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4, 11–13, 15.2.
 
 - **[RR-CANON-R071] Phase progression is deterministic.**
@@ -222,10 +227,12 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - **capture → line_processing:** After executing an `overtaking_capture` segment where no chain continuation is required (no further captures from landing), `currentPhase` MUST change to `line_processing`.
     - **movement → line_processing:** After a non-capture movement where no capture segments exist from the landing position, `currentPhase` MUST change to `line_processing`.
     - **line_processing → territory_processing:** After all lines for the current player are processed (or none existed), `currentPhase` MUST change to `territory_processing`.
-    - **territory_processing → ring_placement/movement:** After all territory regions are processed (or none existed) and victory checks pass, the turn ends and the next player's `currentPhase` is set to `ring_placement` (if `ringsInHand > 0`) or `movement` (if `ringsInHand == 0` but stacks exist).
+    - **territory_processing → forced_elimination:** After all territory regions are processed (or none existed), if P had no actions available in any prior phase (no placement, no movement, no capture, no line processing, no territory processing) but P still controls at least one stack, `currentPhase` MUST change to `forced_elimination`.
+    - **territory_processing → ring_placement/movement (next player):** After all territory regions are processed (or none existed), if P performed at least one action in any prior phase OR P has no controlled stacks, the turn ends and the next player's `currentPhase` is set to `ring_placement` (if `ringsInHand > 0`) or `movement` (if `ringsInHand == 0` but stacks exist).
+    - **forced_elimination → ring_placement/movement (next player):** After P executes the `forced_elimination` move, victory checks are performed and the turn ends.
   - These transitions are not optional; any engine implementation that does not perform them violates the canonical rules.
   - Note: The `skip_capture` move type exists for cases where a player declines an optional capture opportunity; it explicitly transitions from `capture` to `line_processing` without executing a capture.
-  - References: RR-CANON-R070, RR-CANON-R093, RR-CANON-R103; TS `turnOrchestrator.ts` `processPostMovePhases` and `phaseStateMachine.ts`.
+  - References: RR-CANON-R070, RR-CANON-R093, RR-CANON-R100, RR-CANON-R103; TS `turnOrchestrator.ts` `processPostMovePhases` and `phaseStateMachine.ts`.
 
 - **[RR-CANON-R074] Explicit recording of all turn actions and voluntary skips.**
   - At the rules level, a **turn action** for player P is any state change that:
@@ -245,6 +252,13 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 
 - **[RR-CANON-R075] Canonical replay and between-move semantics.**
   - Canonical recordings (for example, GameReplayDBs used for AI training and TS↔Python parity) are sequences of explicit moves and decisions. For such recordings:
+    - **Every phase must be visited and every phase transition must produce a recorded action.** When a turn advances through any phase (`ring_placement`, `movement`, `capture`, `line_processing`, `territory_processing`, `forced_elimination`), the canonical move history must contain an explicit move for that phase—even if no actions are possible. Phase transitions MUST NOT occur silently without a corresponding move in the canonical history.
+    - **All players must visit all phases:** Even players who are eliminated, have no material, or otherwise have no chance of making a turn action must still traverse each phase and record the appropriate "no action" move. This ensures replay consistency and enables deterministic state reconstruction from move history alone.
+    - **Recording requirements—distinguishing "no action possible" from "voluntary skip":**
+      - **No actions possible (forced no-op):** When a player enters a phase with no possible actions (e.g., no regions eligible for processing in `territory_processing`, no lines formed in `line_processing`, no legal moves in `movement`), the canonical history must record a distinct "no action" move type such as `no_territory_action`, `no_line_action`, `no_movement_action`, etc. This semantically indicates the player had no choice.
+      - **Voluntary skip when choices exist:** When a player has one or more available actions but chooses to skip (e.g., `skip_placement` when ring placement is legal, `skip_capture` when an optional capture exists, `skip_territory_processing` when regions could be processed), the voluntary skip must be recorded as a distinct "skip" move type. This semantically indicates the player made an active choice to forgo available actions.
+      - **Single choice available:** When a player has exactly one legal action in a phase (e.g., one region to process, one line to collapse, one legal movement), that action must still be recorded as an explicit move in the canonical history. The presence of only one choice does not permit omitting the move record. UX conveniences that auto-select the only option are permitted **only if** they also emit the corresponding canonical move.
+      - **No implicit phase advancement:** Silent advancement through phases without recording a move violates canonical replay semantics and will cause parity divergence between engine implementations.
     - **No additional line-processing, Territory-processing, or ring elimination may occur "between moves".** Every collapse, elimination, or region/line resolution step must be attributable to a specific, explicit move in the record:
       - `place_ring`, `skip_placement`,
       - `move_stack` / `move_ring`,
@@ -255,6 +269,27 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - a host-level `forced_elimination` action modelled as an explicit move.
     - Replay engines MUST NOT inject extra collapses, region resolutions, or forced eliminations solely as a consequence of "advancing phases" or "resolving ANM" when consuming a canonical recording; if such work is required by the rules, it must appear as explicit moves/choices in the recording itself.
   - Hosts are free to implement richer UX flows (for example, auto-processing a single exact-length line for a human player) **so long as** those flows still emit the corresponding canonical moves into history. Canonical replay and parity tooling must treat the move history as the sole source of truth for state changes.
+
+- **[RR-CANON-R076] Implementation architecture: core rules layer vs host layer.**
+  - All implementations of the rules engine MUST separate concerns into two layers:
+    - **Core Rules Layer** (shared engine, Python GameEngine, turn orchestrator):
+      - MUST enforce strict no-skipping semantics for all phases per RR-CANON-R075.
+      - MUST NOT auto-generate moves of any kind, including no-action moves.
+      - When a phase has no available actions, MUST return a "pending decision" requiring an explicit no-action move (e.g., `no_line_action`, `no_territory_action`, `no_movement_action`).
+      - Phase transitions occur ONLY in response to explicit moves applied via the public API.
+      - This layer is the single source of truth for rules correctness and cross-engine parity.
+    - **Host/Adapter Layer** (ClientSandboxEngine, backend game host, AI agents):
+      - For **live play UX**: MAY auto-fill required no-action moves when the core layer returns `no_X_action_required` pending decisions. This is a UX convenience that streamlines gameplay by not requiring player input when no choices exist.
+      - For **replay/trace mode**: MUST apply explicit moves from the recorded sequence without auto-filling. The recorded history is the authoritative move sequence.
+      - Auto-generated moves MUST be added to the canonical history via the standard move-apply API so they are recorded and replayable.
+  - This separation ensures:
+    - **Parity**: Core rules implementations in TS and Python produce identical state transitions for identical move sequences.
+    - **Testability**: Core rules can be tested in isolation without UX concerns.
+    - **Correctness**: Silent phase skipping bugs cannot occur in the core layer.
+  - Implementation references:
+    - TS shared orchestrator: `src/shared/engine/orchestration/turnOrchestrator.ts` returns `PendingDecision` values, including `DecisionType` variants such as `'no_line_action_required'` / `'no_territory_action_required'` for decision phases. For these decision types, `PendingDecision.options` is intentionally empty and hosts must synthesize and apply the corresponding `no_*_action` bookkeeping moves via the public API. Ring‑placement and movement phases currently still surface canonical `no_placement_action` / `no_movement_action` moves directly from `getValidMoves` and are being migrated toward the same PendingDecision pattern to fully satisfy this rule.
+    - Python GameEngine: `ai-service/app/game_engine.py` exposes `get_valid_moves(state, player)` for **interactive-only** legal moves in the current phase, and a separate `get_phase_requirement(state, player)` / `synthesize_bookkeeping_move(requirement, state)` pair for required `NO_*_ACTION` / `FORCED_ELIMINATION` bookkeeping moves. This keeps the core rules layer free of move fabrication while still making canonical bookkeeping moves host-accessible.
+    - Host layer: `src/client/sandbox/ClientSandboxEngine.ts`, `src/server/game/turn/TurnEngineAdapter.ts`, and `ai-service/app/training/env.py` consume these pending-decision / phase-requirement surfaces, auto-filling bookkeeping moves for live play and self-play while replay/trace paths apply only the recorded explicit moves.
 
 ---
 
@@ -306,9 +341,13 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - It is illegal to leave the game in `gameStatus == ACTIVE` and `currentPhase == line_processing` with `ANM(state, P) == true`.
     - **Territory-processing exit.**
       - If `currentPhase == territory_processing` and P has no legal Territory decisions (no `process_territory_region`, `choose_territory_option`, or `eliminate_rings_from_stack` moves), the engine must:
-        - either apply forced elimination for P if they still control stacks but have no other legal actions (RR-CANON-R072/RR-CANON-R100); or
+        - transition to `forced_elimination` phase if P had no actions in all prior phases (placement, movement, capture, line, territory) but still controls at least one stack; or
         - call end-of-turn, rotate `currentPlayer` to the next player with turn-material (RR-CANON-R201), and evaluate victory per RR-CANON-R170–R173.
       - It is illegal to leave the game in `gameStatus == ACTIVE` and `currentPhase == territory_processing` with `ANM(state, P) == true`.
+    - **Forced-elimination phase.**
+      - Entered only when P had no actions in all prior phases but still controls stacks.
+      - P must execute a `forced_elimination` move that eliminates the entire cap of one controlled stack per RR-CANON-R100.
+      - After the `forced_elimination` move, the engine evaluates victory and rotates to the next player.
     - **Other phases.**
       - For `ring_placement`, `movement`, `capture`, and `chain_capture`, ANM avoidance is already enforced by RR-CANON-R070–R072, RR-CANON-R080–R082, and RR-CANON-R090–R103:
         - If P has rings in hand but no legal placements, P must effectively skip placement and proceed to movement.
@@ -318,11 +357,12 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 
 - **[RR-CANON-R205] Forced-elimination action taxonomy.**
   - Forced elimination appears in two distinct but related forms:
-    - **Host-level forced elimination.**
-      - Triggered when a player P is **blocked** at the start of their action (RR-CANON-R072): P controls at least one stack but has no legal placement, movement, or capture.
-      - The engine must apply a `forced_elimination` action that eliminates the entire cap of some P-controlled stack per RR-CANON-R100.
-      - Host-level forced elimination is treated as a **global legal action** for ANM purposes (RR-CANON-R200–R203) but is **not** a "real action" for Last-Player-Standing under RR-CANON-R172.
-    - **Explicit elimination decisions.**
+    - **Phase-level forced elimination (`forced_elimination` phase).**
+      - Triggered when player P traverses all turn phases (placement, movement, capture, line, territory) with no available actions but still controls at least one stack.
+      - The engine transitions to the `forced_elimination` phase and P must execute a `forced_elimination` move that eliminates the entire cap of some P-controlled stack per RR-CANON-R100.
+      - Phase-level forced elimination is treated as a **global legal action** for ANM purposes (RR-CANON-R200–R203) but is **not** a "real action" for Last-Player-Standing under RR-CANON-R172.
+      - The `forced_elimination` phase is the canonical location for recording this action, ensuring clear phase semantics and replay consistency.
+    - **Explicit elimination decisions (during other phases).**
       - During line processing (RR-CANON-R120–R122), elimination of a ring or cap as a line reward is represented as an explicit decision (`eliminate_rings_from_stack`) tied to the processed line.
       - During Territory processing (RR-CANON-R140–R145), mandatory self-elimination from a stack outside the processed region is likewise represented as an explicit `eliminate_rings_from_stack` decision.
       - These explicit elimination moves are phase-local **interactive actions** for P and therefore count as global legal actions under RR-CANON-R200.

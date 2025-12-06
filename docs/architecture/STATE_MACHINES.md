@@ -4,7 +4,7 @@
 > Overview of the shared state machines used to orchestrate game sessions, AI requests, player choices, and WebSocket connections. These machines are **derived lifecycle views** over the canonical rules and lifecycle SSoTs; they do not redefine rules semantics or transport contracts.
 >
 > **Upstream SSoTs:**  
-> • **Rules semantics SSoT:** shared TS engine under `src/shared/engine/**` + contracts and vectors (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`).  
+> • **Rules semantics SSoT:** canonical rules spec (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) as the single source of truth for rules semantics, with the shared TS engine under `src/shared/engine/**` + contracts and vectors (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) as its primary executable implementation.  
 > • **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` + shared types and schemas (`src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, `src/shared/validation/websocketSchemas.ts`).
 >
 > **Role of this doc:** explain how the shared state machines in `src/shared/stateMachines/**` project these SSoTs into small, explicit lifecycle models that are used by hosts/adapters (backend, client sandbox, Python AI service) and tests.
@@ -251,7 +251,7 @@ Invariants and semantics:
   - Verifying that service + local fallback rejection yields `kind === 'failed'` with `code === 'AI_SERVICE_OVERLOADED'` and an `aiErrorType`.
 - `tests/unit/AIServiceClient.concurrency.test.ts` and `tests/unit/AIWebSocketResilience.test.ts` exercise how AI requests behave under concurrency, timeouts, and service failures.
 
-> The AI request machine is **downstream of** the rules SSoT: it never changes which moves are legal, only how the host behaves when orchestrating AI turns (timeouts, fallbacks, metrics).
+> The AI request machine is **downstream of** the canonical rules SSoT: it never changes which moves are legal, only how the host behaves when orchestrating AI turns (timeouts, fallbacks, metrics).
 
 ### 3.4 Timeouts & Cancellation integration
 

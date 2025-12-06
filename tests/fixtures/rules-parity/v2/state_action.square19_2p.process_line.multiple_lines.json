@@ -6,7 +6,7 @@
   "state": {
     "boardType": "square19",
     "id": "rules-parity-square19-2p-v2",
-    "rngSeed": 575325823,
+    "rngSeed": 1883725888,
     "board": {
       "stacks": {},
       "markers": {},
@@ -134,8 +134,8 @@
       "increment": 5,
       "type": "blitz"
     },
-    "createdAt": "2025-11-29T18:07:48.163Z",
-    "lastMoveAt": "2025-11-29T18:07:48.163Z",
+    "createdAt": "2025-12-06T02:08:04.231Z",
+    "lastMoveAt": "2025-12-06T02:08:04.231Z",
     "isRated": false,
     "maxPlayers": 2,
     "totalRingsInPlay": 0,
@@ -201,7 +201,7 @@
       "collapsed": 4,
       "eliminated": 0,
       "S": 4,
-      "stateHash": "1:line_processing:waiting#1:36:0:0|2:36:0:0###9,10:1|9,11:1|9,8:1|9,9:1"
+      "stateHash": "1:line_processing:waiting#1:36:0:4|2:36:0:0###9,10:1|9,11:1|9,8:1|9,9:1"
     }
   }
 }

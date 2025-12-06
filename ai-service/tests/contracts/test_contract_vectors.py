@@ -190,11 +190,9 @@ def validate_assertions(
 
     # Game status assertion
     if assertions.game_status is not None:
-        # Normalize Python enum values to TS contract strings:
-        # - The Python engine uses "finished" for terminal states; TS
-        #   contracts encode this as "completed".
-        raw_status = result_state.game_status.value
-        actual = "completed" if raw_status == "finished" else raw_status
+        # Python now uses "completed" as canonical terminal status,
+        # matching TS contracts.
+        actual = result_state.game_status.value
         expected = assertions.game_status
         if actual != expected:
             validation.add_failure(

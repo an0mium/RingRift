@@ -217,7 +217,7 @@ If you suspect a rules bug or insufficient stalemate handling:
 
 ## 4. Remediation
 
-> Goal: Reduce the prevalence of pathological long games while preserving valid strategic depth and respecting rules SSoT.
+> Goal: Reduce the prevalence of pathological long games while preserving valid strategic depth and respecting the canonical rules SSoT.
 
 ### 4.1 Fix lifecycle and cleanup issues
 

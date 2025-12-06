@@ -328,3 +328,171 @@ export async function logHelpOpenEvent(options: HelpOpenEventOptions): Promise<v
 
   await sendRulesUxEvent(event);
 }
+
+/**
+ * Canonical UX rules copy blocks used by onboarding and teaching surfaces.
+ * The wording for these blocks is copied from docs/UX_RULES_COPY_SPEC.md and
+ * must remain aligned with that spec (see inline section references).
+ *
+ * These structures are intentionally lightweight and UI-agnostic so multiple
+ * components (OnboardingModal, TeachingOverlay, Sandbox overlays, etc.) can
+ * consume the same canonical strings without duplicating literals.
+ */
+export interface RulesCopyBlock {
+  id: string;
+  title: string;
+  body: string;
+}
+
+/**
+ * Canonical onboarding copy for first-time players.
+ */
+export interface OnboardingCopy {
+  /** High-level introduction to RingRift. */
+  intro: RulesCopyBlock;
+  /** Short phase overview cards shown in onboarding. */
+  phases: RulesCopyBlock[];
+  /** Victory condition summary cards. */
+  victoryConcepts: RulesCopyBlock[];
+}
+
+/**
+ * Canonical TeachingOverlay topic copy keyed by topic id.
+ *
+ * topicId is designed to line up with TeachingOverlay's TeachingTopic union
+ * (e.g. "stack_movement", "capturing", "victory_elimination").
+ */
+export interface TeachingTopicCopy {
+  topicId: string;
+  heading: string;
+  body: string;
+}
+
+/**
+ * Canonical onboarding copy; see UX_RULES_COPY_SPEC.md §3 (victory) and §8
+ * (sandbox phase‑copy summary). Non-rulesy intro text is kept short and
+ * UI-specific but centralised here to avoid ad-hoc duplication.
+ */
+export const ONBOARDING_COPY: OnboardingCopy = {
+  intro: {
+    id: 'onboarding.intro',
+    title: 'Welcome to RingRift!',
+    body: 'A strategic board game where you place rings, build stacks, and compete for territory.',
+  },
+  phases: [
+    {
+      id: 'sandbox.phase.ring_placement',
+      title: 'Ring Placement',
+      // UX_RULES_COPY_SPEC.md §8 – Ring Placement summary
+      body: 'Place new rings or add to existing stacks while keeping at least one real move available for your next turn.',
+    },
+    {
+      id: 'sandbox.phase.movement',
+      title: 'Movement',
+      // UX_RULES_COPY_SPEC.md §8 – Movement summary
+      body: 'Pick a stack and move it in a straight line at least as far as its height, and farther if the path stays clear (stacks and territory block; markers do not).',
+    },
+    {
+      id: 'sandbox.phase.capture',
+      title: 'Capture',
+      // UX_RULES_COPY_SPEC.md §8 – Capture summary
+      body: 'Start an overtaking capture by jumping over an adjacent stack and landing on an empty or marker space beyond it.',
+    },
+  ],
+  victoryConcepts: [
+    {
+      id: 'onboarding.victory.elimination',
+      title: 'Ring Elimination',
+      // UX_RULES_COPY_SPEC.md §3.1 – TeachingOverlay victory topic – elimination
+      body: 'Win by eliminating more than half of all rings in the game – not just one opponent’s set. Eliminated rings are permanently removed; captured rings you carry in stacks do not count toward this threshold.',
+    },
+    {
+      id: 'onboarding.victory.territory',
+      title: 'Territory Control',
+      // UX_RULES_COPY_SPEC.md §3.2 – TeachingOverlay victory topic – territory
+      body: 'Win by owning more than half of all board spaces as Territory. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
+    },
+    {
+      id: 'onboarding.victory.lps',
+      title: 'Last Player Standing',
+      // UX_RULES_COPY_SPEC.md §3.3 – TeachingOverlay victory topic – stalemate / LPS
+      body: 'Last Player Standing happens when, after a full round of turns, you are the only player who can still make real moves (placements, movements, or captures). Forced eliminations and automatic territory processing do not prevent LPS.',
+    },
+  ],
+};
+
+/**
+ * Canonical body copy for TeachingOverlay topics. Titles/headings and tips
+ * may still be tailored per surface, but the long-form explanation for each
+ * topic lives here and is shared across HUD, Victory surfaces, and Sandbox
+ * teaching flows.
+ */
+export const TEACHING_TOPICS_COPY: Record<string, TeachingTopicCopy> = {
+  ring_placement: {
+    topicId: 'ring_placement',
+    heading: 'Ring Placement',
+    // Derived from ring placement rules in ringrift_complete_rules.md; keep
+    // this aligned with the canonical rules docs.
+    body: 'Players take turns placing rings from their hand onto empty board spaces or on top of existing stacks. Placement sets up future movement, captures, and territory – but you must keep at least one real move available for your next turn.',
+  },
+  stack_movement: {
+    topicId: 'stack_movement',
+    heading: 'Stack Movement',
+    // UX_RULES_COPY_SPEC.md §4 – TeachingOverlay – Stack Movement description
+    body: 'Move a stack you control (your ring on top) in a straight line at least as many spaces as the stack’s height. You can keep going farther as long as the path has no stacks or territory spaces blocking you; markers are allowed and may eliminate your top ring when you land on them.',
+  },
+  capturing: {
+    topicId: 'capturing',
+    heading: 'Capturing',
+    // UX_RULES_COPY_SPEC.md §5 – TeachingOverlay – Capturing description
+    body: 'To capture, jump over an adjacent opponent stack in a straight line and land on the empty space just beyond it. You take the top ring from the jumped stack and add it to the bottom of your own stack. Captured rings stay in play – only later eliminations move rings out of the game.',
+  },
+  chain_capture: {
+    topicId: 'chain_capture',
+    heading: 'Chain Capture',
+    // UX_RULES_COPY_SPEC.md §5 – TeachingOverlay – Chain Capture description
+    body: 'If your capturing stack can jump again after a capture, you are in a chain capture. Starting the first capture is optional, but once the chain begins you must keep capturing as long as any capture is available. When several jumps exist, you choose which target to take next.',
+  },
+  line_bonus: {
+    topicId: 'line_bonus',
+    heading: 'Lines and Rewards',
+    // UX_RULES_COPY_SPEC.md §6 – TeachingOverlay – Lines description
+    body: 'Lines are built from your markers. When a straight line of your markers reaches the minimum length for this board, it becomes a scoring line: you collapse markers in that line into permanent Territory and, on many boards, must pay a ring elimination cost from a stack you control.',
+  },
+  territory: {
+    topicId: 'territory',
+    heading: 'Territory',
+    // UX_RULES_COPY_SPEC.md §7 – TeachingOverlay – Territory description
+    body: 'Territory spaces are collapsed cells that you permanently own. When a disconnected region of your pieces is processed, all of its spaces become your Territory and its rings are eliminated, often at the cost of eliminating a ring from one of your other stacks. If your Territory passes more than half of the board, you win immediately.',
+  },
+  active_no_moves: {
+    topicId: 'active_no_moves',
+    heading: 'When you have no legal moves',
+    // UX_RULES_COPY_SPEC.md §10.4 – teaching.active_no_moves description
+    body: 'Sometimes it is your turn but there are no legal placements, movements, or captures available. This is an Active–No–Moves state: the rules engine will either trigger forced elimination of your stacks, or, if no eliminations are possible, treat you as structurally stuck for Last Player Standing and plateau detection.',
+  },
+  forced_elimination: {
+    topicId: 'forced_elimination',
+    heading: 'Forced Elimination (FE)',
+    // UX_RULES_COPY_SPEC.md §10.4 – teaching.forced_elimination description
+    body: 'Forced Elimination happens when you control stacks but have no legal placements, movements, or captures. Caps are removed from your stacks automatically until either a real move becomes available or your stacks are gone. These eliminations are mandatory and follow the rules, not player choice.',
+  },
+  victory_elimination: {
+    topicId: 'victory_elimination',
+    heading: 'Victory: Elimination',
+    // UX_RULES_COPY_SPEC.md §3.1 – TeachingOverlay victory topic – elimination
+    body: 'Win by eliminating more than half of all rings in the game – not just one opponent’s set. Eliminated rings are permanently removed; captured rings you carry in stacks do not count toward this threshold.',
+  },
+  victory_territory: {
+    topicId: 'victory_territory',
+    heading: 'Victory: Territory',
+    // UX_RULES_COPY_SPEC.md §3.2 – TeachingOverlay victory topic – territory
+    body: 'Win by owning more than half of all board spaces as Territory. Territory comes from collapsing marker lines and resolving disconnected regions, and once a space becomes Territory it can’t be captured back.',
+  },
+  victory_stalemate: {
+    topicId: 'victory_stalemate',
+    heading: 'Victory: Last Player Standing',
+    // UX_RULES_COPY_SPEC.md §3.3 – TeachingOverlay victory topic – stalemate / LPS
+    body: 'Last Player Standing happens when, after a full round of turns, you are the only player who can still make real moves (placements, movements, or captures). Forced eliminations and automatic territory processing do not prevent LPS.',
+  },
+};

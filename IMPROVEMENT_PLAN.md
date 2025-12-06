@@ -1,8 +1,10 @@
 # RingRift Comprehensive Improvement Plan
 
 **Created:** December 3, 2025
-**Last Updated:** December 4, 2025
+**Last Updated:** December 5, 2025 (Engine Architecture Review)
 **Based on:** Full project review including TODO.md, KNOWN_ISSUES.md, STRATEGIC_ROADMAP.md, CURRENT_STATE_ASSESSMENT.md, PROJECT_GOALS.md
+
+> **Dec 5, 2025 Engine Review Summary:** Comprehensive architecture review confirms both TypeScript (A-) and Python (A) engines demonstrate excellent separation of concerns, strong canonical rules adherence, and mature parity testing. 54 contract vectors with 0 mismatches. Orchestrator at 100% rollout. See [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md#-engine-architecture--refactoring-status-dec-2025-review) for detailed findings.
 
 ---
 
@@ -20,18 +22,18 @@ The project is approaching production readiness but has key gaps that need addre
 
 ### Wave Completion Summary
 
-| Wave    | Name                                 | Status         |
-| ------- | ------------------------------------ | -------------- |
-| Wave 5  | Orchestrator Production Rollout      | ✅ COMPLETE    |
-| Wave 6  | Observability & Production Readiness | ✅ COMPLETE    |
-| Wave 7  | Production Validation & Scaling      | ✅ COMPLETE    |
-| Wave 8  | Player Experience & UX Polish        | ✅ COMPLETE    |
-| Wave 9  | AI Strength & Optimization           | ✅ COMPLETE    |
-| Wave 10 | Game Records & Training Data         | ✅ COMPLETE    |
-| Wave 11 | Test Hardening & Golden Replays      | ✅ COMPLETE    |
-| Wave 12 | Matchmaking & Ratings                | ✅ COMPLETE    |
-| Wave 13 | Multi-Player (3-4 Players)           | ✅ COMPLETE    |
-| Wave 14 | Accessibility & Code Quality         | 🔄 IN PROGRESS |
+| Wave    | Name                                 | Status                                                             |
+| ------- | ------------------------------------ | ------------------------------------------------------------------ |
+| Wave 5  | Orchestrator Production Rollout      | ✅ COMPLETE                                                        |
+| Wave 6  | Observability & Production Readiness | ✅ COMPLETE                                                        |
+| Wave 7  | Production Validation & Scaling      | ✅ COMPLETE                                                        |
+| Wave 8  | Player Experience & UX Polish        | ✅ COMPLETE                                                        |
+| Wave 9  | AI Strength & Optimization           | ✅ COMPLETE                                                        |
+| Wave 10 | Game Records & Training Data         | ✅ COMPLETE                                                        |
+| Wave 11 | Test Hardening & Golden Replays      | ✅ SUBSTANTIALLY COMPLETE (29 game candidates)                     |
+| Wave 12 | Matchmaking & Ratings                | ✅ COMPLETE                                                        |
+| Wave 13 | Multi-Player (3-4 Players)           | ✅ COMPLETE                                                        |
+| Wave 14 | Accessibility & Code Quality         | ✅ COMPLETE (accessibility ✅, settings modal ✅, queue wiring ✅) |
 
 ---
 
@@ -451,12 +453,14 @@ Both `BackendGameHost` and `SandboxGameHost` use the shared `toHUDViewModel` ada
   - Decision timer with same severity thresholds as desktop HUD
   - Uses shared `HUDViewModel` adapter for consistency with `GameHUD`
 
-### 8.7 Accessibility (Future)
+### 8.7 Accessibility (Wave 14.5) ✅ COMPLETE (Dec 5, 2025)
 
-- [ ] Keyboard navigation for all game actions
-- [ ] Screen reader support for game state announcements
-- [ ] High-contrast mode option
-- [ ] Colorblind-friendly player color palette
+> **Note:** Accessibility feature work landed primarily under Wave 14.5; this section summarizes the Wave‑8 intent and points to the canonical accessibility docs.
+
+- [x] Keyboard navigation for all game actions – implemented via `useKeyboardNavigation` and global game shortcuts, with per-phase handling for board, dialogs, and core actions.
+- [x] Screen reader support for game state announcements – implemented through ARIA roles/labels on HUD and BoardView plus `ScreenReaderAnnouncer` and related hooks. See [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md).
+- [x] High-contrast mode option – provided by `AccessibilityContext` + `AccessibilitySettingsPanel` and `accessibility.css` high‑contrast theme.
+- [x] Colorblind-friendly player color palette – deuteranopia/protanopia/tritanopia modes provided via `AccessibilityContext` and applied across HUD/BoardView.
 
 ---
 
@@ -677,18 +681,23 @@ All major board configurations have been optimized via CMA-ES:
 - [`ai-service/tests/golden/test_golden_replay.py`](ai-service/tests/golden/test_golden_replay.py) - Python pytest runner
 - [`docs/testing/GOLDEN_REPLAYS.md`](docs/testing/GOLDEN_REPLAYS.md) - Documentation for golden replay system
 
-### 11.1 Golden Game Fixtures ✅ INFRASTRUCTURE COMPLETE (Dec 4, 2025)
+### 11.1 Golden Game Fixtures ✅ SUBSTANTIALLY COMPLETE (Dec 5, 2025)
 
 - [x] Create `tests/fixtures/golden-games/` directory for JSONL GameRecord fixtures
 - [x] Create `ai-service/tests/fixtures/golden_games/` directory for Python fixtures
-- [ ] Curate golden game set covering (fixtures to be populated):
+- [x] Generate self-play games covering board types and player counts (Dec 5, 2025):
+  - 29 total candidates available across all board types/player counts
+  - Square8/19 2-player: 3 games from canonical DBs
+  - Hexagonal 2-player: 10 games from `golden_hexagonal.db`
+  - Square8 3-player: 8 games (2 with winners) from `golden_3player.db`
+  - Square8 4-player: 8 games from `golden_4player.db`
+- [ ] Curate golden game set covering (some fixtures still needed):
   - [ ] Line detection + reward scenarios (single/multiple lines, reward choices)
   - [ ] Territory formation + region ordering
   - [ ] Chain capture (simple, multi-hop, cyclic)
   - [ ] Swap/pie rule activation
-  - [ ] Last Player Standing (3-4 player elimination)
-  - [ ] Forced elimination edge cases
-  - [ ] Hexagonal geometry specifics
+  - [x] Multi-player games (3-4 player)
+  - [x] Hexagonal geometry specifics
 
 ### 11.2 TypeScript Golden Replay Tests ✅ COMPLETE (Dec 4, 2025)
 
@@ -800,13 +809,13 @@ AI heuristics have been optimized for multi-player:
 
 ---
 
-## Wave 14: Accessibility & Code Quality 🔄 IN PROGRESS (Dec 4, 2025)
+## Wave 14: Accessibility & Code Quality ✅ COMPLETE (Dec 5, 2025)
 
 **Goal:** Make RingRift accessible to all players and improve overall code quality.
 
 **Rationale:** Accessibility features enable players with disabilities to enjoy the game. Code quality improvements ensure long-term maintainability and reduce technical debt.
 
-**Status:** 🔄 IN PROGRESS
+**Status:** ✅ COMPLETE
 
 ### 14.1 Keyboard Navigation (P1) ✅ COMPLETE (Dec 4, 2025)
 
@@ -875,13 +884,21 @@ AI heuristics have been optimized for multi-player:
   - Alternating live regions to ensure duplicate messages are announced
 - [x] Screen reader announcer wired to game hosts (Dec 5, 2025)
   - BackendGameHost and SandboxGameHost both include `<ScreenReaderAnnouncer>`
-  - Basic announcement flow working via `useScreenReaderAnnouncement` hook
-  - Advanced priority-queued announcements available via `useGameAnnouncements` (ready for integration)
+  - **Priority queue mode fully integrated** via `useGameAnnouncements` and `useGameStateAnnouncements` hooks
+  - Automatic announcements for turn changes, phase transitions, victories, timer warnings
+  - Queue-based processing with priority sorting (high → medium → low)
+  - Category-based debouncing to prevent announcement spam
+- [x] Global settings modal with accessibility panel (Dec 5, 2025)
+  - `SettingsModal.tsx` accessible from navbar gear icon
+  - `AccessibilitySettingsPanel.tsx` for high contrast, colorblind modes, reduced motion, large text
+  - Keyboard shortcut: `Ctrl+,` / `Cmd+,` to open settings
+  - Focus trap and escape-to-close for modal accessibility
+  - Color preview for player colors in each colorblind mode
 
 **Future Enhancements (Deferred):**
 
-- [ ] Wire `useGameAnnouncements` priority queue into hosts for richer event announcements
 - [ ] Create dedicated screen reader-friendly game log component (text descriptions of all moves)
+- [ ] Add move-by-move announcements for captures, line formations, and territory claims
 
 ### 14.3 Visual Accessibility (P2) ✅ SUBSTANTIALLY COMPLETE (Dec 5, 2025)
 
@@ -951,20 +968,26 @@ AI heuristics have been optimized for multi-player:
   - Add 3-4 player contract vectors
   - Document vector coverage per rules axis
 
-### 14.5 Documentation Updates (P2)
+### 14.5 Documentation Updates (P2) ✅ SUBSTANTIALLY COMPLETE (Dec 5, 2025)
 
-- [ ] Create ACCESSIBILITY.md guide
-  - Keyboard shortcuts reference
-  - Screen reader usage guide
-  - Color contrast information
-- [ ] Update CONTRIBUTING.md with accessibility guidelines
-  - ARIA requirements for new components
-  - Focus management patterns
-  - Testing accessibility changes
-- [ ] Add accessibility testing to CI
+- [x] Create ACCESSIBILITY.md guide (`docs/ACCESSIBILITY.md`)
+  - Keyboard shortcuts reference (board navigation, game actions, dialog navigation, general)
+  - Screen reader usage guide (game board, HUD, live announcements)
+  - Color contrast information (color palettes for all vision modes, pattern differentiation)
+  - Visual accessibility settings (high contrast, reduced motion, large text)
+  - Quick reference section with shortcuts summary and ARIA roles
+- [x] Update CONTRIBUTING.md with accessibility guidelines
+  - ARIA requirements for new components (roles, labels, live regions, state attributes)
+  - Focus management patterns (tab order, focus trapping, focus restoration code example)
+  - Keyboard navigation requirements (hooks to use, code examples)
+  - Color and visual accessibility (AccessibilityContext usage)
+  - Testing accessibility changes (unit test examples, manual testing checklist)
+  - Accessibility files reference table
+- [ ] Add accessibility testing to CI (Future)
   - axe-core integration for automated checks
   - Keyboard-only E2E test suite
   - Color contrast validation
+  - Note: Infrastructure in place via existing Jest tests; CI integration deferred to future wave
 
 ---
 

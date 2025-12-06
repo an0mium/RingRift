@@ -425,7 +425,7 @@ describe('useSandboxInteractions', () => {
     });
 
     describe('ring_placement phase', () => {
-      it('should try to place rings during placement phase', async () => {
+      it('should select cell without placing rings on single click', async () => {
         const placementState = createTestGameState({
           currentPhase: 'ring_placement',
           currentPlayer: 1,
@@ -436,31 +436,6 @@ describe('useSandboxInteractions', () => {
           gameState: placementState,
           validLandingPositions: [pos(1, 1), pos(2, 2)],
         });
-        mockContext = createMockSandboxContext(mockEngine);
-        (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
-
-        render(<TestHarness />);
-
-        await act(async () => {
-          screen.getByTestId('click-0-0').click();
-          await Promise.resolve();
-        });
-
-        expect(mockEngine.tryPlaceRings).toHaveBeenCalledWith(pos(0, 0), 1);
-      });
-
-      it('should set selected and valid targets after successful placement', async () => {
-        const placementState = createTestGameState({
-          currentPhase: 'ring_placement',
-          currentPlayer: 1,
-          gameStatus: 'active',
-        });
-
-        mockEngine = createMockEngine({
-          gameState: placementState,
-          validLandingPositions: [pos(1, 1), pos(2, 2)],
-        });
-        mockEngine.tryPlaceRings.mockResolvedValue(true);
         mockContext = createMockSandboxContext(mockEngine);
         (SandboxContextModule.useSandbox as jest.Mock).mockReturnValue(mockContext);
 
@@ -474,9 +449,11 @@ describe('useSandboxInteractions', () => {
         await waitFor(() => {
           expect(screen.getByTestId('selected').textContent).toBe('0,0');
         });
+
+        expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
       });
 
-      it('should not set selection if placement fails', async () => {
+      it('should not change selection when clicking again on same cell (no placement)', async () => {
         const placementState = createTestGameState({
           currentPhase: 'ring_placement',
           currentPlayer: 1,
@@ -491,11 +468,15 @@ describe('useSandboxInteractions', () => {
         render(<TestHarness />);
 
         await act(async () => {
-          screen.getByTestId('click-0-0').click();
+          const cell = screen.getByTestId('click-0-0');
+          cell.click();
+          cell.click();
           await Promise.resolve();
         });
 
-        expect(screen.getByTestId('selected').textContent).toBe('none');
+        // Selection should still be on the same cell; no placement attempted.
+        expect(screen.getByTestId('selected').textContent).toBe('0,0');
+        expect(mockEngine.tryPlaceRings).not.toHaveBeenCalled();
       });
     });
 

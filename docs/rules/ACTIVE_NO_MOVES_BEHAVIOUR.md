@@ -197,6 +197,7 @@ The scenarios below capture concrete shapes that have historically exercised the
 - `INV-TERMINATION` and the S-invariant [`RR-CANON-R191`](RULES_CANONICAL_SPEC.md:476) rely on forced elimination and Territory/line processing always increasing eliminated rings or Territory; repeated ANM patterns must always consume some finite resource (e.g. caps) so that play cannot continue forever.
 - `PARITY-TS-PY-ACTIVE-NO-MOVES` and related parity IDs require TS and Python to agree on which states are ANM-free; the snapshots in `ai-service/tests/invariants/test_active_no_moves_*.py` and `ai-service/tests/parity/test_active_no_moves_line_processing_regression.py` serve as concrete anchors.
 - Future formal work (ANM-03-ARCH) will lift these behavioural scenarios into explicit progress measures and machine-checkable invariants over the shared TS engine and Python mirror, using the R2xx rules as the semantic backbone.
+- Host-level decision-phase, move-clock, and reconnect-window timeout behaviour (including canonical millisecond units and advisory HUD countdown semantics) is specified in [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md:125) and summarised for the client in [`CURRENT_RULES_STATE.md`](CURRENT_RULES_STATE.md:1).
 
 In addition to the scenario-specific suites above, some rules-level property-based
 tests exercise ANM-related behaviour more generically:

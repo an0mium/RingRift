@@ -61,6 +61,9 @@ export const ZodMoveTypeSchema = z.enum([
   'choose_line_reward',
   'process_territory_region',
   'eliminate_rings_from_stack',
+  'forced_elimination',
+  'no_territory_action',
+  'no_line_action',
   'line_formation',
   'territory_claim',
 ]);
@@ -294,7 +297,7 @@ export const ZodGamePhaseSchema = z.enum([
   'chain_capture',
   'line_processing',
   'territory_processing',
-  'game_over',
+  'forced_elimination',
 ]);
 
 export type ZodGamePhase = z.infer<typeof ZodGamePhaseSchema>;

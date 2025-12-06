@@ -7,10 +7,10 @@ import { isTestEnvironment, flagEnabled, debugLog } from '../utils/envFlags';
  * This module centralises the minimal state machine that decides:
  *
  * - How phases advance within a player's turn
- *   (ring_placement → movement/capture → chain_capture → line_processing → territory_processing).
+ *   (ring_placement → movement/capture → chain_capture → line_processing → territory_processing → forced_elimination).
  * - When the active player changes and which phase the next player starts in.
  * - When forced elimination is triggered for a player who controls stacks but has
- *   no legal placement / movement / capture actions.
+ *   no legal placement / movement / capture actions (7th phase per RR-CANON-R070).
  *
  * The concrete rules for:
  * - Which placements / movements / captures are legal,
@@ -157,12 +157,11 @@ export function advanceTurnAndPhase(
 
   switch (state.currentPhase) {
     case 'ring_placement': {
-      const player = state.currentPlayer;
-      const canMove = delegates.hasAnyMovement(state, player, turn);
-      const canCapture = delegates.hasAnyCapture(state, player, turn);
-
-      const nextPhase: GamePhase = canMove || canCapture ? 'movement' : 'line_processing';
-      nextState = cloneState({ currentPhase: nextPhase });
+      // Per RR-CANON-R075: All phases must be visited with explicit moves.
+      // Always enter movement phase - if no moves exist, the player must
+      // emit no_movement_action which then advances to line_processing.
+      // No silent phase skipping is permitted.
+      nextState = cloneState({ currentPhase: 'movement' });
       break;
     }
 

@@ -175,15 +175,23 @@ def summarize_board(board: BoardState) -> Dict[str, List[str]]:
 def compute_progress_snapshot(state: GameState) -> Dict[str, int]:
     """
     Compute the canonical S-invariant snapshot for a given GameState.
-    Mirrors core.ts:computeProgressSnapshot
+
+    Mirrors src/shared/engine/core.ts:computeProgressSnapshot:
+
+      S = M + C + E
+        - M = markers.size
+        - C = collapsedSpaces.size
+        - E = totalRingsEliminated, falling back to the sum of
+          board.eliminatedRings when needed.
     """
     markers = len(state.board.markers)
     collapsed = len(state.board.collapsed_spaces)
 
-    # In the Python GameState model, total_rings_eliminated is required,
-    # so we use it directly to match the primary logic of the TS
-    # implementation.
-    eliminated = state.total_rings_eliminated
+    # Align with the TS implementation: prefer the aggregated
+    # total_rings_eliminated field when it is present, but fall back
+    # to the board-level eliminated_rings summary when it is not.
+    eliminated_from_board = sum(state.board.eliminated_rings.values())
+    eliminated = state.total_rings_eliminated if state.total_rings_eliminated is not None else eliminated_from_board
 
     S = markers + collapsed + eliminated
     return {
@@ -249,13 +257,6 @@ def hash_game_state(state: GameState) -> str:
         if hasattr(state.game_status, "value")
         else state.game_status
     )
-
-    # Canonicalise terminal status strings so that legacy 'finished'
-    # and newer 'completed' values hash identically. This avoids
-    # treating purely naming-level differences between equivalent
-    # terminal states as semantic divergences in parity checks.
-    if game_status == GameStatus.FINISHED.value:
-        game_status = GameStatus.COMPLETED.value
 
     # For terminal states, currentPlayer/currentPhase are host-local
     # metadata and not semantically meaningful. Canonicalise them so

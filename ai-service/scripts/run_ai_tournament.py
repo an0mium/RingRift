@@ -151,7 +151,7 @@ def run_game(p1_ai, p2_ai, board_type: str) -> int:
 
         if not move:
             print(f"No valid moves for Player {current_player_num}. Game Over.")
-            game_state.game_status = GameStatus.FINISHED
+            game_state.game_status = GameStatus.COMPLETED
             game_state.winner = 2 if current_player_num == 1 else 1
             break
 
@@ -165,7 +165,7 @@ def run_game(p1_ai, p2_ai, board_type: str) -> int:
             return 2 if current_player_num == 1 else 1
 
         # Check victory
-        if game_state.game_status == GameStatus.FINISHED:
+        if game_state.game_status == GameStatus.COMPLETED:
             break
 
         move_count += 1

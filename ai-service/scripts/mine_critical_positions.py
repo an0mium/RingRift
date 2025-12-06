@@ -215,7 +215,7 @@ def play_game_with_trajectory(
     trajectory.total_moves = move_count
     trajectory.winner = state.winner if state.winner is not None else 0
 
-    if state.game_status == GameStatus.FINISHED:
+    if state.game_status == GameStatus.COMPLETED:
         # Determine termination reason from final state
         p1 = state.players[0]
         p2 = state.players[1]

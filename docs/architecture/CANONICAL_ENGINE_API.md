@@ -131,7 +131,7 @@ integrating with the engine:
 
 ```text
 GamePhase:
-  'ring_placement' | 'movement' | 'capture' | 'chain_capture' | 'line_processing' | 'territory_processing'
+  'ring_placement' | 'movement' | 'capture' | 'chain_capture' | 'line_processing' | 'territory_processing' | 'forced_elimination'
 
 MoveType:
   'place_ring' | 'move_ring' | 'build_stack' | 'move_stack' |
@@ -139,6 +139,7 @@ MoveType:
   'swap_sides' |
   'process_line' | 'choose_line_reward' |
   'process_territory_region' | 'skip_territory_processing' | 'eliminate_rings_from_stack' |
+  'forced_elimination' |
   'line_formation' | 'territory_claim' | 'skip_placement'
 ```
 
@@ -614,7 +615,19 @@ processTurnAsync(
 type ValidationResult = { valid: boolean; reason?: string };
 
 validateMove(state: GameState, move: Move): ValidationResult;
+
+// Legal moves for the current player/phase.
+// - For decision phases (line/territory), this is **interactive moves only**;
+//   required `no_*_action` bookkeeping is surfaced via PendingDecision types
+//   such as 'no_line_action_required', and hosts must construct/apply the
+//   corresponding `no_*_action` Move (RR-CANON-R075/R076).
+// - For ring_placement/movement, the surface currently still includes
+//   canonical `no_placement_action` / `no_movement_action` bookkeeping
+//   moves when no interactive actions exist; these paths are being
+//   migrated toward the same PendingDecision pattern.
 getValidMoves(state: GameState): Move[];
+
+// Convenience wrapper around getValidMoves(state).length > 0
 hasValidMoves(state: GameState): boolean;
 ```
 
@@ -644,7 +657,14 @@ type DecisionType =
   | 'region_order'
   | 'elimination_target'
   | 'capture_direction'
-  | 'chain_capture';
+  | 'chain_capture'
+  // RR-CANON-R075/R076: required no-action bookkeeping when a phase has
+  // no interactive moves; hosts must synthesize the corresponding
+  // `no_*_action` Move and apply it via the public API.
+  | 'no_line_action_required'
+  | 'no_territory_action_required'
+  | 'no_movement_action_required'
+  | 'no_placement_action_required';
 
 interface PendingDecision {
   /** What kind of decision is being requested */
@@ -653,7 +673,12 @@ interface PendingDecision {
   /** Player who must make the decision */
   player: number;
 
-  /** Canonical Move options for this decision */
+  /**
+   * Canonical Move options for this decision.
+   * For `no_*_action_required` decision types this array is intentionally
+   * empty; hosts must synthesize the appropriate `no_*_action` Move and
+   * feed it back into `processTurn` / `processTurnAsync`.
+   */
   options: Move[];
 
   /** Optional timeout hint (enforced by adapters, not the engine) */

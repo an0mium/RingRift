@@ -64,7 +64,7 @@ class TestRingRiftEnv(unittest.TestCase):
         # We'll manually set the winner on the internal state to simulate end
         # of game. This is a bit hacky but avoids playing a full game
         if env._state:
-            env._state.game_status = GameStatus.FINISHED
+            env._state.game_status = GameStatus.COMPLETED
             env._state.winner = 1
 
         # Create a dummy move from player 1 (winner)
@@ -87,7 +87,7 @@ class TestRingRiftEnv(unittest.TestCase):
         # automatically, even if assertions fail.
         def mock_apply_win(game_state, move):
             new_state = game_state.model_copy(deep=True)
-            new_state.game_status = GameStatus.FINISHED
+            new_state.game_status = GameStatus.COMPLETED
             new_state.winner = 1
             return new_state
 

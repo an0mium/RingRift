@@ -55,7 +55,7 @@ def infer_victory_reason(game_state: GameState) -> str:
     Returns:
         One of the VICTORY_REASONS strings.
     """
-    if game_state.game_status != GameStatus.FINISHED:
+    if game_state.game_status != GameStatus.COMPLETED:
         return "unknown"
 
     winner = game_state.winner
@@ -243,7 +243,7 @@ class Tournament:
             if not move:
                 # No moves available, current player loses
                 state.winner = 2 if current_player == 1 else 1
-                state.game_status = GameStatus.FINISHED
+                state.game_status = GameStatus.COMPLETED
                 break
 
             state = GameEngine.apply_move(state, move)

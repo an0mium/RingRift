@@ -58,7 +58,8 @@ class BoardGeometryCache:
                 for y in range(-radius, radius + 1):
                     z = -x - y
                     if abs(x) <= radius and abs(y) <= radius and abs(z) <= radius:
-                        positions.append(f"{x},{y}")
+                        # Use "x,y,z" format to match how board.stacks/markers store hex positions
+                        positions.append(f"{x},{y},{z}")
         else:
             # Square board
             board_size = 8 if self.board_type == "square8" else 19
@@ -70,19 +71,30 @@ class BoardGeometryCache:
         self.position_to_idx = {pos: idx for idx, pos in enumerate(positions)}
         self.num_positions = len(positions)
 
-        # Build neighbor arrays
+        # Build neighbor arrays for territory adjacency.
+        # Canonical rules (and TS BOARD_CONFIGS) use:
+        # - hexagonal: 6-direction hex adjacency in cube coords (x,y,z)
+        # - square8/square19: von Neumann (4-direction) adjacency
         if self.board_type == "hexagonal":
-            # 6 hex directions
-            directions = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+            # 6 hex directions in cube coordinates, mirroring TS getNeighbors
+            directions_3d = [
+                (1, 0, -1),
+                (1, -1, 0),
+                (0, -1, 1),
+                (-1, 0, 1),
+                (-1, 1, 0),
+                (0, 1, -1),
+            ]
             max_neighbors = 6
         else:
-            # 8 square directions (including diagonals for territory)
-            directions = [
-                (-1, -1), (0, -1), (1, -1),
-                (-1, 0),          (1, 0),
-                (-1, 1),  (0, 1), (1, 1),
+            # 4-direction von Neumann adjacency for square boards
+            directions_3d = [
+                (-1, 0, None),
+                (1, 0, None),
+                (0, -1, None),
+                (0, 1, None),
             ]
-            max_neighbors = 8
+            max_neighbors = 4
 
         self.neighbors = np.full((self.num_positions, max_neighbors), -1, dtype=np.int32)
         self.num_neighbors = np.zeros(self.num_positions, dtype=np.int8)
@@ -90,11 +102,19 @@ class BoardGeometryCache:
         for pos_key, idx in self.position_to_idx.items():
             parts = pos_key.split(",")
             x, y = int(parts[0]), int(parts[1])
+            z = int(parts[2]) if len(parts) > 2 else 0
 
             neighbor_count = 0
-            for dx, dy in directions:
-                nx, ny = x + dx, y + dy
-                neighbor_key = f"{nx},{ny}"
+            for dx, dy, dz in directions_3d:
+                nx = x + dx
+                ny = y + dy
+                # For square boards dz is None and we emit "x,y"; for hex we
+                # emit full "x,y,z" to match the keys above.
+                if dz is None:
+                    neighbor_key = f"{nx},{ny}"
+                else:
+                    nz = z + dz
+                    neighbor_key = f"{nx},{ny},{nz}"
 
                 if neighbor_key in self.position_to_idx:
                     neighbor_idx = self.position_to_idx[neighbor_key]
@@ -369,16 +389,28 @@ def _find_regions_without_marker_border_fast(
                     players_in_region.add(stack_at[idx])
 
             if players_in_region and players_in_region < active_players:
-                # Additional check: must be bordered by collapsed only
+                # Additional check: region must be bordered only by collapsed
+                # spaces or edges, mirroring TS isRegionBorderedByCollapsedOnly.
                 is_valid = True
                 for idx in region:
                     for n in range(geo.num_neighbors[idx]):
                         neighbor_idx = geo.neighbors[idx, n]
-                        if neighbor_idx >= 0 and neighbor_idx not in region:
-                            if neighbor_idx not in collapsed:
-                                # Neighbor is not collapsed and not in region
-                                # This means it's an edge or something else
-                                pass
+                        if neighbor_idx < 0:
+                            # Outside canonical grid (edge) is an acceptable border.
+                            continue
+                        if neighbor_idx in region:
+                            # Interior neighbor is fine.
+                            continue
+                        if neighbor_idx in collapsed:
+                            # Collapsed space is an acceptable border.
+                            continue
+                        # Any non-collapsed neighbor outside the region
+                        # (empty, stack, or marker) breaks the collapsed-only
+                        # border requirement.
+                        is_valid = False
+                        break
+                    if not is_valid:
+                        break
 
                 if is_valid:
                     regions.append(region)
@@ -398,7 +430,9 @@ def _create_territory(
         pos_key = geo.idx_to_position[idx]
         parts = pos_key.split(",")
         x, y = int(parts[0]), int(parts[1])
-        positions.append(Position(x=x, y=y))
+        # Handle "x,y,z" format for hexagonal boards
+        z = int(parts[2]) if len(parts) > 2 else None
+        positions.append(Position(x=x, y=y, z=z))
 
     return Territory(
         spaces=positions,

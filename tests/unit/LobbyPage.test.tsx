@@ -66,7 +66,10 @@ describe('LobbyPage', () => {
   describe('Game Display', () => {
     it('should display available games', async () => {
       const games = [
-        createMockGame({ id: 'game-1', player1: { id: 'user-1', username: 'Alice', rating: 1500 } }),
+        createMockGame({
+          id: 'game-1',
+          player1: { id: 'user-1', username: 'Alice', rating: 1500 },
+        }),
         createMockGame({ id: 'game-2', player1: { id: 'user-2', username: 'Bob', rating: 1600 } }),
       ];
 
@@ -117,8 +120,16 @@ describe('LobbyPage', () => {
   describe('Filtering', () => {
     it('should filter games by board type', async () => {
       const games = [
-        createMockGame({ id: 'game-1', boardType: 'square8', player1: { id: 'u1', username: 'Alice' } }),
-        createMockGame({ id: 'game-2', boardType: 'hexagonal', player1: { id: 'u2', username: 'Bob' } }),
+        createMockGame({
+          id: 'game-1',
+          boardType: 'square8',
+          player1: { id: 'u1', username: 'Alice' },
+        }),
+        createMockGame({
+          id: 'game-2',
+          boardType: 'hexagonal',
+          player1: { id: 'u2', username: 'Bob' },
+        }),
       ];
 
       (gameApi.getAvailableGames as jest.Mock).mockResolvedValue({ games });
@@ -202,8 +213,16 @@ describe('LobbyPage', () => {
 
     it('should clear all filters', async () => {
       const games = [
-        createMockGame({ id: 'game-1', boardType: 'square8', player1: { id: 'u1', username: 'Alice' } }),
-        createMockGame({ id: 'game-2', boardType: 'hexagonal', player1: { id: 'u2', username: 'Bob' } }),
+        createMockGame({
+          id: 'game-1',
+          boardType: 'square8',
+          player1: { id: 'u1', username: 'Alice' },
+        }),
+        createMockGame({
+          id: 'game-2',
+          boardType: 'hexagonal',
+          player1: { id: 'u2', username: 'Bob' },
+        }),
       ];
 
       (gameApi.getAvailableGames as jest.Mock).mockResolvedValue({ games });
@@ -268,8 +287,16 @@ describe('LobbyPage', () => {
 
     it('should sort games by board type', async () => {
       const games = [
-        createMockGame({ id: 'game-1', boardType: 'square8', player1: { id: 'u1', username: 'Alice' } }),
-        createMockGame({ id: 'game-2', boardType: 'hexagonal', player1: { id: 'u2', username: 'Bob' } }),
+        createMockGame({
+          id: 'game-1',
+          boardType: 'square8',
+          player1: { id: 'u1', username: 'Alice' },
+        }),
+        createMockGame({
+          id: 'game-2',
+          boardType: 'hexagonal',
+          player1: { id: 'u2', username: 'Bob' },
+        }),
       ];
 
       (gameApi.getAvailableGames as jest.Mock).mockResolvedValue({ games });
@@ -335,9 +362,14 @@ describe('LobbyPage', () => {
       });
 
       // Simulate WebSocket event
-      const onHandler = mockSocket.on.mock.calls.find(call => call[0] === 'lobby:game_created')?.[1];
+      const onHandler = mockSocket.on.mock.calls.find(
+        (call) => call[0] === 'lobby:game_created'
+      )?.[1];
       if (onHandler) {
-        const newGame = createMockGame({ id: 'new-game', player1: { id: 'u1', username: 'NewPlayer' } });
+        const newGame = createMockGame({
+          id: 'new-game',
+          player1: { id: 'u1', username: 'NewPlayer' },
+        });
         onHandler(newGame);
       }
 
@@ -361,7 +393,9 @@ describe('LobbyPage', () => {
       });
 
       // Simulate game started event
-      const onHandler = mockSocket.on.mock.calls.find(call => call[0] === 'lobby:game_started')?.[1];
+      const onHandler = mockSocket.on.mock.calls.find(
+        (call) => call[0] === 'lobby:game_started'
+      )?.[1];
       if (onHandler) {
         onHandler({ gameId: 'game-1' });
       }
@@ -391,7 +425,9 @@ describe('LobbyPage', () => {
 
   describe('Game Actions', () => {
     it('should join game when join button is clicked', async () => {
-      const games = [createMockGame({ id: 'game-1', player1: { id: 'other-user', username: 'Alice' } })];
+      const games = [
+        createMockGame({ id: 'game-1', player1: { id: 'other-user', username: 'Alice' } }),
+      ];
       (gameApi.getAvailableGames as jest.Mock).mockResolvedValue({ games });
       (gameApi.joinGame as jest.Mock).mockResolvedValue({});
 
@@ -402,9 +438,7 @@ describe('LobbyPage', () => {
       );
 
       await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /Join Game/i })
-        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Join Game/i })).toBeInTheDocument();
       });
 
       const joinButton = screen.getByRole('button', { name: /Join Game/i });
@@ -434,7 +468,7 @@ describe('LobbyPage', () => {
       fireEvent.click(spectateButton);
 
       await waitFor(() => {
-        expect(mockNavigate).toHaveBeenCalledWith('/game/game-1');
+        expect(mockNavigate).toHaveBeenCalledWith('/spectate/game-1');
       });
     });
 
@@ -450,9 +484,7 @@ describe('LobbyPage', () => {
       );
 
       await waitFor(() => {
-        expect(
-          screen.getByRole('button', { name: /Join Game/i })
-        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /Join Game/i })).toBeInTheDocument();
       });
 
       const joinButton = screen.getByRole('button', { name: /Join Game/i });
@@ -466,7 +498,9 @@ describe('LobbyPage', () => {
 
   describe('Empty States', () => {
     it('should show filtered empty state with clear filters button', async () => {
-      const games = [createMockGame({ boardType: 'square8', player1: { id: 'u1', username: 'Alice' } })];
+      const games = [
+        createMockGame({ boardType: 'square8', player1: { id: 'u1', username: 'Alice' } }),
+      ];
       (gameApi.getAvailableGames as jest.Mock).mockResolvedValue({ games });
 
       render(
@@ -503,14 +537,10 @@ describe('LobbyPage', () => {
 
         // Scope the query to the empty-lobby prompt so we don't fail when
         // multiple "Create Game" buttons exist (e.g. header + empty state).
-        const emptyPrompt = screen
-          .getByText(/Be the first to create a game!/i)
-          .closest('div');
+        const emptyPrompt = screen.getByText(/Be the first to create a game!/i).closest('div');
 
         expect(emptyPrompt).not.toBeNull();
-        expect(
-          within(emptyPrompt as HTMLElement).getByText(/Create Game/i)
-        ).toBeInTheDocument();
+        expect(within(emptyPrompt as HTMLElement).getByText(/Create Game/i)).toBeInTheDocument();
       });
     });
   });

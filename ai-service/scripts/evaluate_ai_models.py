@@ -430,7 +430,7 @@ def determine_victory_type(game_state: GameState) -> Optional[str]:
     Returns:
         Victory type string or None
     """
-    if game_state.game_status != GameStatus.FINISHED:
+    if game_state.game_status != GameStatus.COMPLETED:
         return None
 
     if game_state.winner is None:
@@ -509,7 +509,7 @@ def play_single_game(
 
             if move is None:
                 # No valid move - current player loses
-                game_state.game_status = GameStatus.FINISHED
+                game_state.game_status = GameStatus.COMPLETED
                 game_state.winner = 2 if current_player == 1 else 1
                 break
 

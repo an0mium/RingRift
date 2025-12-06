@@ -690,6 +690,189 @@ Description of how to fix
 
 ---
 
+## ♿ Accessibility Guidelines
+
+RingRift is committed to being accessible to all players. When contributing UI components, follow these guidelines. For the full accessibility feature documentation, see [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md).
+
+### ARIA Requirements for New Components
+
+**All interactive elements must include:**
+
+1. **Appropriate ARIA roles:**
+   - Use `role="button"` for clickable non-button elements
+   - Use `role="grid"` and `role="gridcell"` for game boards
+   - Use `role="status"` for live state indicators (phase, turn, timers)
+   - Use `role="dialog"` with `aria-modal="true"` for modal dialogs
+
+2. **Descriptive labels:**
+
+   ```tsx
+   // ✅ Good - descriptive label
+   <button aria-label="Place ring at position A3">
+
+   // ❌ Bad - no accessible name
+   <button onClick={handleClick}>
+   ```
+
+3. **Live regions for dynamic content:**
+
+   ```tsx
+   // Use aria-live for announcements
+   <div aria-live="polite">  // Non-urgent updates
+   <div aria-live="assertive">  // Time-critical alerts (e.g., decision timer)
+   ```
+
+4. **Proper state attributes:**
+   ```tsx
+   aria-selected={isSelected}
+   aria-disabled={isDisabled}
+   aria-expanded={isOpen}
+   aria-pressed={isToggled}
+   ```
+
+### Focus Management Patterns
+
+**Focus must be visible and logical:**
+
+1. **Tab order:** Ensure logical tab order follows visual layout
+2. **Focus trapping:** Modal dialogs must trap focus within
+3. **Focus restoration:** Return focus to trigger element when closing dialogs
+4. **Skip links:** Provide "skip to main content" for navigation-heavy pages
+
+**Example focus trap pattern:**
+
+```tsx
+useEffect(() => {
+  if (!isOpen) return;
+
+  const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  const first = focusable?.[0];
+  const last = focusable?.[focusable.length - 1];
+
+  first?.focus();
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Tab' && e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last?.focus();
+    } else if (e.key === 'Tab' && !e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first?.focus();
+    }
+  };
+
+  document.addEventListener('keydown', handleKeyDown);
+  return () => document.removeEventListener('keydown', handleKeyDown);
+}, [isOpen]);
+```
+
+### Keyboard Navigation
+
+**All functionality must be keyboard-accessible:**
+
+1. **Game board navigation:** Arrow keys, Enter/Space for selection, Escape to cancel
+2. **Dialog navigation:** Tab for focus, Enter to confirm, Escape to close
+3. **Global shortcuts:** Use `useGlobalGameShortcuts` hook for consistent behavior
+
+**Existing hooks to use:**
+
+- `useKeyboardNavigation` - Board cell navigation with arrow keys
+- `useGlobalGameShortcuts` - Game-wide shortcuts (?, R, M, F, Ctrl+Z)
+
+```tsx
+import { useKeyboardNavigation, useGlobalGameShortcuts } from '@/hooks';
+
+const nav = useKeyboardNavigation({
+  boardType: 'square8',
+  size: 8,
+  onSelect: handleCellClick,
+  onClear: handleClear,
+});
+
+useGlobalGameShortcuts({
+  onShowHelp: () => setHelpOpen(true),
+  onResign: () => setResignConfirmOpen(true),
+});
+```
+
+### Color and Visual Accessibility
+
+**Don't rely on color alone:**
+
+1. **Use `AccessibilityContext` for player colors:**
+
+   ```tsx
+   const { getPlayerColorClass, getPlayerColor } = useAccessibility();
+
+   // Get Tailwind class for current color vision mode
+   const bgClass = getPlayerColorClass(playerIndex, 'bg');
+
+   // Get hex color for SVG/canvas
+   const hexColor = getPlayerColor(playerIndex);
+   ```
+
+2. **Add secondary indicators:**
+   - Icons or shapes alongside color
+   - Patterns for colorblind modes (applied automatically via CSS)
+   - Text labels for critical information
+
+3. **Respect user preferences:**
+
+   ```tsx
+   const { effectiveReducedMotion, highContrastMode } = useAccessibility();
+
+   // Skip animations if user prefers reduced motion
+   const animation = effectiveReducedMotion ? 'none' : 'pulse';
+   ```
+
+### Testing Accessibility Changes
+
+**Required tests for accessibility PRs:**
+
+1. **Unit tests for ARIA attributes:**
+
+   ```tsx
+   it('has accessible role and label', () => {
+     render(<MyComponent />);
+     expect(screen.getByRole('button', { name: /place ring/i })).toBeInTheDocument();
+   });
+   ```
+
+2. **Keyboard navigation tests:**
+
+   ```tsx
+   it('responds to keyboard navigation', async () => {
+     render(<BoardView {...props} />);
+     await userEvent.tab();
+     expect(screen.getByTestId('cell-0-0')).toHaveFocus();
+     await userEvent.keyboard('{ArrowRight}');
+     expect(screen.getByTestId('cell-1-0')).toHaveFocus();
+   });
+   ```
+
+3. **Manual testing checklist:**
+   - [ ] Navigate entire component with keyboard only
+   - [ ] Test with screen reader (VoiceOver/NVDA)
+   - [ ] Verify focus indicators are visible
+   - [ ] Check color contrast (minimum 4.5:1 for text)
+   - [ ] Test at 200% zoom
+   - [ ] Test with `prefers-reduced-motion: reduce`
+
+### Accessibility Files Reference
+
+| File                                              | Purpose                     |
+| ------------------------------------------------- | --------------------------- |
+| `src/client/contexts/AccessibilityContext.tsx`    | User preferences management |
+| `src/client/hooks/useKeyboardNavigation.ts`       | Board keyboard navigation   |
+| `src/client/components/ScreenReaderAnnouncer.tsx` | Live region announcements   |
+| `src/client/components/KeyboardShortcutsHelp.tsx` | Shortcuts help dialog       |
+| `src/client/styles/accessibility.css`             | Accessibility CSS utilities |
+| `docs/ACCESSIBILITY.md`                           | Full accessibility guide    |
+
+---
+
 ## 🤝 Getting Help
 
 ### Questions?

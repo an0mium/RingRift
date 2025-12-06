@@ -1,13 +1,31 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { GameState, Move, BoardType } from '../../shared/types/game';
 import type { MoveAnimationData } from './BoardView';
-import type { ReplayGameMetadata, ReplayPlaybackState, PlaybackSpeed } from '../types/replay';
-import { getReplayService } from '../services/ReplayService';
 import { MoveHistory } from './MoveHistory';
+import { GameFilters } from './ReplayPanel/GameFilters';
+import { GameList } from './ReplayPanel/GameList';
+import { PlaybackControls } from './ReplayPanel/PlaybackControls';
+import { MoveInfo } from './ReplayPanel/MoveInfo';
+import { useAuth } from '../contexts/AuthContext';
+import {
+  gameApi,
+  type GameSummary,
+  type GameHistoryResponse,
+  type GameDetailsResponse,
+} from '../services/api';
+import { adaptHistoryToGameRecord } from '../services/ReplayService';
+import { reconstructStateAtMove } from '../../shared/engine/replayHelpers';
+import type { GameRecord } from '../../shared/types/gameRecord';
+import type {
+  ReplayGameQueryParams,
+  ReplayGameMetadata,
+  ReplayMoveRecord,
+  PlaybackSpeed,
+} from '../types/replay';
 
-// ═══════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 // Types
-// ═══════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 
 export interface ReplayPanelProps {
   /** Callback when replay state changes (pass null when exiting replay) */
@@ -24,300 +42,157 @@ export interface ReplayPanelProps {
   className?: string;
 }
 
-// Available playback speeds
-const PLAYBACK_SPEEDS: PlaybackSpeed[] = [0.5, 1, 2, 4];
+// Number of games to show per page in the list
+const DEFAULT_PAGE_SIZE = 10;
 
 // Base delay between moves (ms) - divided by playback speed
 const BASE_DELAY_MS = 1000;
+// Minimum delay to keep animations readable at high speeds
+const MIN_DELAY_MS = 200;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Sub-components
-// ═══════════════════════════════════════════════════════════════════════════
-
-interface PlaybackControlsProps {
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-  onStepBack: () => void;
-  onStepForward: () => void;
-  onGoToStart: () => void;
-  onGoToEnd: () => void;
-  canStepBack: boolean;
-  canStepForward: boolean;
-}
-
-function PlaybackControls({
-  isPlaying,
-  onTogglePlay,
-  onStepBack,
-  onStepForward,
-  onGoToStart,
-  onGoToEnd,
-  canStepBack,
-  canStepForward,
-}: PlaybackControlsProps) {
-  return (
-    <div className="flex items-center justify-center gap-1">
-      <button
-        type="button"
-        onClick={onGoToStart}
-        disabled={!canStepBack}
-        className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        title="Go to start (Home)"
-        aria-label="Go to start"
-      >
-        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            d="M4 5a1 1 0 011-1h1a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm5 0a1 1 0 011-1h4.586a1 1 0 01.707.293l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-.707.293H10a1 1 0 01-1-1V5z"
-            transform="scale(-1,1) translate(-20,0)"
-          />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        onClick={onStepBack}
-        disabled={!canStepBack}
-        className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        title="Step back (Left arrow)"
-        aria-label="Step back"
-      >
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-            clipRule="evenodd"
-          />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        onClick={onTogglePlay}
-        disabled={!canStepForward && !isPlaying}
-        className="p-2 rounded-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
-        aria-label={isPlaying ? 'Pause' : 'Play'}
-      >
-        {isPlaying ? (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z"
-              clipRule="evenodd"
-            />
-          </svg>
-        ) : (
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
-              clipRule="evenodd"
-            />
-          </svg>
-        )}
-      </button>
-
-      <button
-        type="button"
-        onClick={onStepForward}
-        disabled={!canStepForward}
-        className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        title="Step forward (Right arrow)"
-        aria-label="Step forward"
-      >
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path
-            fillRule="evenodd"
-            d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z"
-            clipRule="evenodd"
-          />
-        </svg>
-      </button>
-
-      <button
-        type="button"
-        onClick={onGoToEnd}
-        disabled={!canStepForward}
-        className="p-1.5 rounded hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        title="Go to end (End)"
-        aria-label="Go to end"
-      >
-        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M4 5a1 1 0 011-1h1a1 1 0 011 1v10a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm5 0a1 1 0 011-1h4.586a1 1 0 01.707.293l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-.707.293H10a1 1 0 01-1-1V5z" />
-        </svg>
-      </button>
-    </div>
-  );
-}
-
-interface SpeedControlProps {
-  currentSpeed: PlaybackSpeed;
-  onSpeedChange: (speed: PlaybackSpeed) => void;
-}
-
-function SpeedControl({ currentSpeed, onSpeedChange }: SpeedControlProps) {
-  return (
-    <div className="flex items-center gap-1">
-      <span className="text-xs text-slate-400 mr-1">Speed:</span>
-      <div className="flex rounded overflow-hidden border border-slate-600">
-        {PLAYBACK_SPEEDS.map((speed) => (
-          <button
-            key={speed}
-            type="button"
-            onClick={() => onSpeedChange(speed)}
-            className={`px-2 py-0.5 text-xs transition-colors ${
-              currentSpeed === speed
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-            title={`${speed}x speed`}
-            aria-pressed={currentSpeed === speed}
-          >
-            {speed}x
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface ScrubberProps {
-  currentMove: number;
-  totalMoves: number;
-  onSeek: (moveIndex: number) => void;
-}
-
-function Scrubber({ currentMove, totalMoves, onSeek }: ScrubberProps) {
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onSeek(parseInt(e.target.value, 10));
-  };
-
-  return (
-    <div className="flex items-center gap-2 w-full">
-      <span className="text-xs text-slate-400 min-w-[2.5rem] text-right">{currentMove}</span>
-      <input
-        type="range"
-        min={0}
-        max={totalMoves}
-        value={currentMove}
-        onChange={handleChange}
-        className="flex-1 h-2 rounded-lg appearance-none cursor-pointer bg-slate-700
-                   [&::-webkit-slider-thumb]:appearance-none
-                   [&::-webkit-slider-thumb]:w-4
-                   [&::-webkit-slider-thumb]:h-4
-                   [&::-webkit-slider-thumb]:rounded-full
-                   [&::-webkit-slider-thumb]:bg-emerald-500
-                   [&::-webkit-slider-thumb]:cursor-pointer
-                   [&::-webkit-slider-thumb]:hover:bg-emerald-400
-                   [&::-moz-range-thumb]:w-4
-                   [&::-moz-range-thumb]:h-4
-                   [&::-moz-range-thumb]:rounded-full
-                   [&::-moz-range-thumb]:bg-emerald-500
-                   [&::-moz-range-thumb]:cursor-pointer
-                   [&::-moz-range-thumb]:border-0"
-        aria-label="Move scrubber"
-      />
-      <span className="text-xs text-slate-400 min-w-[2.5rem]">{totalMoves}</span>
-    </div>
-  );
-}
-
-interface GameSelectorProps {
-  games: ReplayGameMetadata[];
-  isLoading: boolean;
-  error: string | null;
-  selectedGameId: string | null;
-  onSelectGame: (gameId: string) => void;
-  onRefresh: () => void;
-}
-
-function GameSelector({
-  games,
-  isLoading,
-  error,
-  selectedGameId,
-  onSelectGame,
-  onRefresh,
-}: GameSelectorProps) {
-  if (isLoading) {
-    return <div className="text-center py-4 text-slate-400 text-xs">Loading games...</div>;
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-4">
-        <p className="text-red-400 text-xs mb-2">{error}</p>
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  if (games.length === 0) {
-    return (
-      <div className="text-center py-4 text-slate-400 text-xs">
-        No recorded games found.
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="block mx-auto mt-2 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600"
-        >
-          Refresh
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1 max-h-32 overflow-y-auto">
-      {games.slice(0, 10).map((game) => (
-        <button
-          key={game.gameId}
-          type="button"
-          onClick={() => onSelectGame(game.gameId)}
-          className={`w-full text-left px-2 py-1.5 rounded text-xs transition-colors ${
-            selectedGameId === game.gameId
-              ? 'bg-emerald-900/50 border border-emerald-600'
-              : 'bg-slate-800/50 hover:bg-slate-700/50 border border-transparent'
-          }`}
-        >
-          <div className="flex justify-between items-center">
-            <span className="font-medium truncate">
-              {game.boardType} • {game.numPlayers}p
-            </span>
-            <span className="text-slate-400 ml-2">{game.totalMoves} moves</span>
-          </div>
-          <div className="text-slate-500 text-[10px] truncate">
-            {game.source ?? 'unknown'} • {game.winner ? `P${game.winner} won` : 'draw'}
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Main Component
-// ═══════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
+// Helpers
+// ═════════════════════════════════════════════════════════════════════════════
 
 /**
- * ReplayPanel Component
+ * Map a backend GameSummary into the generic ReplayGameMetadata shape expected by
+ * the shared GameList component.
  *
- * Self-contained panel for browsing and replaying recorded games.
- * Manages its own state and communicates back to parent via callbacks.
+ * Only a subset of fields are populated; others are left null/undefined.
+ */
+function mapSummaryToReplayMetadata(summary: GameSummary): ReplayGameMetadata {
+  const numPlayers = summary.numPlayers ?? summary.playerCount;
+  const terminationReason =
+    (summary.outcome as string | undefined) ?? (summary.resultReason as string | undefined) ?? null;
+
+  return {
+    gameId: summary.id,
+    boardType: summary.boardType as BoardType,
+    numPlayers,
+    winner: null, // Seat index is not cheaply available from the summary alone
+    terminationReason,
+    totalMoves: summary.moveCount,
+    totalTurns: summary.moveCount,
+    createdAt: summary.createdAt,
+    completedAt: summary.endedAt ?? null,
+    durationMs: null,
+    source: summary.source ?? null,
+    // Optional v2 fields left undefined for backend games
+    timeControlType: undefined,
+    initialTimeMs: undefined,
+    timeIncrementMs: undefined,
+    players: undefined,
+  };
+}
+
+/**
+ * Apply simple client-side filters over the user's games. This keeps the backend
+ * route cheap (status + pagination only) while giving a useful browsing UX.
+ */
+function applyFilters(games: GameSummary[], filters: ReplayGameQueryParams): GameSummary[] {
+  return games.filter((game) => {
+    if (filters.board_type && game.boardType !== filters.board_type) {
+      return false;
+    }
+
+    const numPlayers = game.numPlayers ?? game.playerCount;
+    if (filters.num_players && numPlayers !== filters.num_players) {
+      return false;
+    }
+
+    const outcome: string | null =
+      (game.outcome as string | undefined) ?? (game.resultReason as string | undefined) ?? null;
+
+    if (filters.termination_reason && outcome !== filters.termination_reason) {
+      return false;
+    }
+
+    if (filters.source && game.source !== filters.source) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+/**
+ * Build lightweight ReplayMoveRecord entries for MoveInfo from the canonical
+ * GameRecord + backend GameHistoryResponse.
  *
- * Features:
- * - Collapsible panel UI
- * - Game browser with recent games
- * - Full playback controls (play/pause, step, scrubber)
- * - Speed control (0.5x to 4x)
- * - Click-to-jump move history
- * - Fork from position
+ * We rely on the canonical seat mapping from GameRecord.moves[*].player rather
+ * than re-deriving it from history/details a second time.
+ */
+function buildReplayMoveRecords(
+  record: GameRecord,
+  history: GameHistoryResponse
+): ReplayMoveRecord[] {
+  const length = Math.min(record.moves.length, history.moves.length);
+  const result: ReplayMoveRecord[] = [];
+
+  for (let i = 0; i < length; i += 1) {
+    const rec = record.moves[i] as any;
+    const hist = history.moves[i];
+
+    const metadata = (rec && typeof rec === 'object' && rec.metadata) || {};
+    const thinkTimeMs: number | null =
+      typeof metadata.thinkTimeMs === 'number'
+        ? metadata.thinkTimeMs
+        : typeof (hist as any).thinkTimeMs === 'number'
+          ? (hist as any).thinkTimeMs
+          : null;
+
+    result.push({
+      moveNumber: hist.moveNumber,
+      turnNumber: hist.moveNumber,
+      player: rec.player ?? 0,
+      phase: (metadata.phase as string) ?? 'main',
+      moveType: hist.moveType,
+      move: hist.moveData,
+      timestamp: hist.timestamp ?? null,
+      thinkTimeMs,
+      timeRemainingMs: undefined,
+      engineEval: undefined,
+      engineEvalType: undefined,
+      engineDepth: undefined,
+      engineNodes: undefined,
+      enginePV: undefined,
+      engineTimeMs: undefined,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Determine animation type from a canonical Move.
+ */
+function getAnimationTypeFromMove(move: Move): MoveAnimationData['type'] {
+  switch (move.type) {
+    case 'place_ring':
+      return 'place';
+    case 'overtaking_capture':
+      return 'capture';
+    case 'continue_capture_segment':
+      return 'chain_capture';
+    default:
+      return 'move';
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Main Component
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * ReplayPanel Component (backend multi-game replay browser)
+ *
+ * This panel lets the logged-in user:
+ * - Browse their completed backend games (including imported self-play)
+ * - Filter by board, players, outcome, and source
+ * - Select a game and replay it using canonical GameRecord + reconstructStateAtMove
+ *
+ * The panel is read-only: it never submits moves, only drives the board via
+ * onStateChange callbacks as the user scrubs through recorded moves.
  */
 export function ReplayPanel({
   onStateChange,
@@ -327,301 +202,310 @@ export function ReplayPanel({
   defaultCollapsed = true,
   className = '',
 }: ReplayPanelProps) {
+  const { user } = useAuth();
+
   // UI state
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
-  const [showGamePicker, setShowGamePicker] = useState(false);
 
-  // Game browser state
-  const [availableGames, setAvailableGames] = useState<ReplayGameMetadata[]>([]);
+  // Game browser state (backend /api/games/user/:id)
+  const [filters, setFilters] = useState<ReplayGameQueryParams>({
+    limit: DEFAULT_PAGE_SIZE,
+    offset: 0,
+  });
+  const [userGames, setUserGames] = useState<GameSummary[]>([]);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
   const [gamesError, setGamesError] = useState<string | null>(null);
 
-  // Playback state
-  const [playbackState, setPlaybackState] = useState<ReplayPlaybackState>({
-    gameId: null,
-    metadata: null,
-    currentMoveNumber: 0,
-    totalMoves: 0,
-    currentState: null,
-    isPlaying: false,
-    playbackSpeed: 1,
-    isLoading: false,
-    error: null,
-    moves: [],
-  });
+  // Selected game for replay
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [selectedGameSource, setSelectedGameSource] = useState<string | undefined>(undefined);
+  const [selectedGameHistory, setSelectedGameHistory] = useState<GameHistoryResponse | null>(null);
 
-  // Track when state reconstruction fails (diverges from backend)
-  const [divergedAtMove, setDivergedAtMove] = useState<number | null>(null);
+  // Backend replay state (canonical record + local reconstruction)
+  const [record, setRecord] = useState<GameRecord | null>(null);
+  const [movesForDisplay, setMovesForDisplay] = useState<Move[]>([]);
+  const [replayMoves, setReplayMoves] = useState<ReplayMoveRecord[]>([]);
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
+  const [currentState, setCurrentState] = useState<GameState | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState<PlaybackSpeed>(1);
+  const [isLoadingReplay, setIsLoadingReplay] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
 
-  // Refs
+  // Timer for auto-play
   const playTimerRef = useRef<number | null>(null);
-  const replayServiceRef = useRef(getReplayService());
 
   // Derived state
-  const inReplayMode = playbackState.gameId !== null;
-  const canStepBack = playbackState.currentMoveNumber > 0;
-  const canStepForward = playbackState.currentMoveNumber < playbackState.totalMoves;
+  const inReplayMode = record !== null;
+  const totalMoves = record?.moves.length ?? 0;
+  const canStepBack = currentMoveIndex > 0;
+  const canStepForward = currentMoveIndex < totalMoves;
 
-  // Load available games
-  const loadGames = useCallback(async () => {
-    setIsLoadingGames(true);
-    setGamesError(null);
-    try {
-      const response = await replayServiceRef.current.listGames({ limit: 20 });
-      setAvailableGames(response.games);
-    } catch (err) {
-      setGamesError(err instanceof Error ? err.message : 'Failed to load games');
-    } finally {
-      setIsLoadingGames(false);
-    }
-  }, []);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Data loading
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  // Load games on mount when expanded
+  // Load user's completed games when panel is expanded.
   useEffect(() => {
-    if (!isCollapsed && availableGames.length === 0 && !isLoadingGames) {
-      loadGames();
-    }
-  }, [isCollapsed, availableGames.length, isLoadingGames, loadGames]);
+    if (isCollapsed) return;
+    if (!user) return;
+    if (userGames.length > 0 || isLoadingGames) return;
 
-  // Fetch state at specific move
-  const fetchStateAtMove = useCallback(async (gameId: string, moveNumber: number) => {
-    try {
-      const response = await replayServiceRef.current.getStateAtMove(gameId, moveNumber);
-      return response.gameState;
-    } catch (err) {
-      console.error('Failed to fetch state at move', err);
-      return null;
-    }
-  }, []);
+    const userId = user.id;
+    let cancelled = false;
 
-  // Seek to specific move
-  const seekToMove = useCallback(
-    async (moveNumber: number) => {
-      if (!playbackState.gameId) return;
-
-      const clampedMove = Math.max(0, Math.min(moveNumber, playbackState.totalMoves));
-
-      setPlaybackState((prev) => ({ ...prev, isLoading: true }));
-
-      const state = await fetchStateAtMove(playbackState.gameId, clampedMove);
-
-      setPlaybackState((prev) => ({
-        ...prev,
-        currentMoveNumber: clampedMove,
-        currentState: state,
-        isLoading: false,
-      }));
-
-      if (state) {
-        onStateChange(state);
-
-        // Generate animation if we have move data
-        if (clampedMove > 0 && playbackState.moves.length > 0) {
-          const moveRecord = playbackState.moves[clampedMove - 1];
-          if (moveRecord && onAnimationChange) {
-            // Extract animation data from move
-            const moveData = moveRecord.move as {
-              from?: { x: number; y: number };
-              to?: { x: number; y: number };
-            };
-            if (moveData.from && moveData.to) {
-              onAnimationChange({
-                fromPosition: moveData.from,
-                toPosition: moveData.to,
-                playerNumber: moveRecord.player,
-              });
-            }
-          }
-        }
-
-        // Clear divergence if we successfully got state
-        if (divergedAtMove !== null && clampedMove < divergedAtMove) {
-          setDivergedAtMove(null);
-        }
-      } else {
-        // State reconstruction failed - track where it diverged
-        if (divergedAtMove === null || clampedMove < divergedAtMove) {
-          setDivergedAtMove(clampedMove);
-        }
-      }
-    },
-    [
-      playbackState.gameId,
-      playbackState.totalMoves,
-      playbackState.moves,
-      fetchStateAtMove,
-      onStateChange,
-      onAnimationChange,
-      divergedAtMove,
-    ]
-  );
-
-  // Load a game for replay
-  const loadGame = useCallback(
-    async (gameId: string) => {
-      setPlaybackState((prev) => ({ ...prev, isLoading: true, error: null }));
-      setDivergedAtMove(null); // Clear any previous divergence
-
+    async function loadUserGames() {
       try {
-        // Fetch game metadata
-        const metadata = await replayServiceRef.current.getGame(gameId);
+        setIsLoadingGames(true);
+        setGamesError(null);
 
-        // Fetch all moves
-        const movesResponse = await replayServiceRef.current.getMoves(gameId, 0, undefined, 1000);
-
-        // Fetch initial state
-        const initialState = await fetchStateAtMove(gameId, 0);
-
-        setPlaybackState({
-          gameId,
-          metadata,
-          currentMoveNumber: 0,
-          totalMoves: metadata.totalMoves,
-          currentState: initialState,
-          isPlaying: false,
-          playbackSpeed: 1,
-          isLoading: false,
-          error: null,
-          moves: movesResponse.moves,
+        const response = await gameApi.getUserGames(userId, {
+          limit: 100,
+          offset: 0,
+          status: 'completed',
         });
 
-        onStateChange(initialState);
-        onReplayModeChange(true);
-        setShowGamePicker(false);
+        if (!cancelled) {
+          setUserGames(response.games);
+        }
       } catch (err) {
-        setPlaybackState((prev) => ({
-          ...prev,
-          isLoading: false,
-          error: err instanceof Error ? err.message : 'Failed to load game',
-        }));
+        if (!cancelled) {
+          const message =
+            err instanceof Error ? err.message : 'Failed to load your completed games';
+          setGamesError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingGames(false);
+        }
       }
-    },
-    [fetchStateAtMove, onStateChange, onReplayModeChange]
-  );
-
-  // Exit replay mode
-  const exitReplay = useCallback(() => {
-    // Stop playback
-    if (playTimerRef.current) {
-      window.clearInterval(playTimerRef.current);
-      playTimerRef.current = null;
     }
 
-    setPlaybackState({
-      gameId: null,
-      metadata: null,
-      currentMoveNumber: 0,
-      totalMoves: 0,
-      currentState: null,
-      isPlaying: false,
-      playbackSpeed: 1,
-      isLoading: false,
-      error: null,
-      moves: [],
-    });
+    loadUserGames();
 
-    setDivergedAtMove(null);
+    return () => {
+      cancelled = true;
+    };
+  }, [isCollapsed, user, userGames.length, isLoadingGames]);
+
+  // Update parent with current GameState when it changes.
+  useEffect(() => {
+    onStateChange(currentState);
+  }, [currentState, onStateChange]);
+
+  // Notify parent when entering/exiting replay mode.
+  useEffect(() => {
+    onReplayModeChange(inReplayMode);
+  }, [inReplayMode, onReplayModeChange]);
+
+  // Clean up timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (playTimerRef.current !== null) {
+        window.clearTimeout(playTimerRef.current);
+        playTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Replay helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const clearPlaybackTimer = useCallback(() => {
+    if (playTimerRef.current !== null) {
+      window.clearTimeout(playTimerRef.current);
+      playTimerRef.current = null;
+    }
+  }, []);
+
+  const exitReplay = useCallback(() => {
+    clearPlaybackTimer();
+
+    setRecord(null);
+    setMovesForDisplay([]);
+    setReplayMoves([]);
+    setSelectedGameHistory(null);
+    setCurrentMoveIndex(0);
+    setCurrentState(null);
+    setIsPlaying(false);
+    setPlaybackSpeed(1);
+    setIsLoadingReplay(false);
+    setReplayError(null);
+
     onStateChange(null);
     onReplayModeChange(false);
     onAnimationChange?.(null);
-  }, [onStateChange, onReplayModeChange, onAnimationChange]);
+  }, [clearPlaybackTimer, onStateChange, onReplayModeChange, onAnimationChange]);
 
-  // Toggle play/pause
-  const togglePlay = useCallback(() => {
-    setPlaybackState((prev) => {
-      if (prev.isPlaying) {
-        // Stop playback
-        if (playTimerRef.current) {
-          window.clearInterval(playTimerRef.current);
-          playTimerRef.current = null;
-        }
-        return { ...prev, isPlaying: false };
-      } else {
-        // Start playback (only if we can step forward)
-        if (prev.currentMoveNumber >= prev.totalMoves) {
-          return prev;
-        }
-        return { ...prev, isPlaying: true };
-      }
-    });
-  }, []);
+  /**
+   * Recompute GameState for a given move index using canonical replay helper.
+   */
+  const updateStateForIndex = useCallback((nextRecord: GameRecord, targetIndex: number) => {
+    const clamped = Math.max(0, Math.min(targetIndex, nextRecord.moves.length));
+    try {
+      const nextState = reconstructStateAtMove(nextRecord, clamped);
+      setCurrentState(nextState);
+      setReplayError(null);
+    } catch (err) {
+      // Log for developers and surface a compact error to the user.
 
-  // Change playback speed
-  const changeSpeed = useCallback((speed: PlaybackSpeed) => {
-    setPlaybackState((prev) => ({ ...prev, playbackSpeed: speed }));
-  }, []);
-
-  // Step handlers
-  const stepBack = useCallback(() => {
-    if (canStepBack) {
-      seekToMove(playbackState.currentMoveNumber - 1);
+      console.error('ReplayPanel: failed to reconstruct state from GameRecord', err);
+      setCurrentState(null);
+      setReplayError('Failed to reconstruct game state for this replay.');
     }
-  }, [canStepBack, playbackState.currentMoveNumber, seekToMove]);
+  }, []);
+
+  /**
+   * Trigger a simple move animation based on the canonical Move[] used for
+   * MoveHistory. This keeps replay animations consistent with sandbox board
+   * animations without depending on the AI replay database.
+   */
+  const triggerAnimationForIndex = useCallback(
+    (targetIndex: number) => {
+      if (!onAnimationChange) return;
+
+      if (targetIndex <= 0 || targetIndex > movesForDisplay.length) {
+        onAnimationChange(null);
+        return;
+      }
+
+      const move = movesForDisplay[targetIndex - 1] as Move;
+      const from = move.from;
+      const to = move.to;
+
+      if (!to) {
+        onAnimationChange(null);
+        return;
+      }
+
+      const animation: MoveAnimationData = {
+        type: getAnimationTypeFromMove(move),
+        ...(from ? { from } : {}),
+        to,
+        playerNumber: move.player,
+        id: `backend-replay-${targetIndex}`,
+      };
+
+      onAnimationChange(animation);
+    },
+    [movesForDisplay, onAnimationChange]
+  );
+
+  /**
+   * Jump to a specific move index (0..totalMoves) and recompute state/animation.
+   */
+  const jumpToMove = useCallback(
+    (target: number) => {
+      if (!record) return;
+
+      const clamped = Math.max(0, Math.min(target, record.moves.length));
+      setCurrentMoveIndex(clamped);
+      updateStateForIndex(record, clamped);
+      triggerAnimationForIndex(clamped);
+    },
+    [record, updateStateForIndex, triggerAnimationForIndex]
+  );
+
+  const stepBack = useCallback(() => {
+    if (!record) return;
+    if (currentMoveIndex <= 0) return;
+    jumpToMove(currentMoveIndex - 1);
+  }, [record, currentMoveIndex, jumpToMove]);
 
   const stepForward = useCallback(() => {
-    if (canStepForward) {
-      seekToMove(playbackState.currentMoveNumber + 1);
-    }
-  }, [canStepForward, playbackState.currentMoveNumber, seekToMove]);
+    if (!record) return;
+    if (currentMoveIndex >= record.moves.length) return;
+    jumpToMove(currentMoveIndex + 1);
+  }, [record, currentMoveIndex, jumpToMove]);
 
   const goToStart = useCallback(() => {
-    seekToMove(0);
-  }, [seekToMove]);
+    if (!record) return;
+    jumpToMove(0);
+  }, [record, jumpToMove]);
 
   const goToEnd = useCallback(() => {
-    seekToMove(playbackState.totalMoves);
-  }, [playbackState.totalMoves, seekToMove]);
+    if (!record) return;
+    jumpToMove(record.moves.length);
+  }, [record, jumpToMove]);
 
-  // Fork from current position
-  const handleFork = useCallback(() => {
-    if (playbackState.currentState) {
-      onForkFromPosition(playbackState.currentState);
-    }
-  }, [playbackState.currentState, onForkFromPosition]);
+  const changeSpeed = useCallback((speed: PlaybackSpeed) => {
+    setPlaybackSpeed(speed);
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    if (!record) return;
+
+    setIsPlaying((prev) => {
+      const next = !prev;
+
+      if (!next) {
+        // Turning off playback
+        clearPlaybackTimer();
+        return false;
+      }
+
+      // Starting playback from the beginning if at the end
+      if (currentMoveIndex >= record.moves.length) {
+        jumpToMove(0);
+      }
+
+      return true;
+    });
+  }, [record, currentMoveIndex, clearPlaybackTimer, jumpToMove]);
 
   // Auto-play timer
   useEffect(() => {
-    if (playbackState.isPlaying && inReplayMode) {
-      const delay = BASE_DELAY_MS / playbackState.playbackSpeed;
-
-      playTimerRef.current = window.setInterval(() => {
-        setPlaybackState((prev) => {
-          if (prev.currentMoveNumber >= prev.totalMoves) {
-            // Reached end - stop playback
-            if (playTimerRef.current) {
-              window.clearInterval(playTimerRef.current);
-              playTimerRef.current = null;
-            }
-            return { ...prev, isPlaying: false };
-          }
-          return prev;
-        });
-
-        // Advance to next move
-        seekToMove(playbackState.currentMoveNumber + 1);
-      }, delay);
-
-      return () => {
-        if (playTimerRef.current) {
-          window.clearInterval(playTimerRef.current);
-          playTimerRef.current = null;
-        }
-      };
+    if (!isPlaying || !record) {
+      return;
     }
+
+    if (currentMoveIndex >= record.moves.length) {
+      setIsPlaying(false);
+      return;
+    }
+
+    const delay = Math.max(MIN_DELAY_MS, BASE_DELAY_MS / playbackSpeed);
+
+    const timer = window.setTimeout(() => {
+      if (!record) return;
+
+      const nextIndex = Math.min(currentMoveIndex + 1, record.moves.length);
+      setCurrentMoveIndex(nextIndex);
+      updateStateForIndex(record, nextIndex);
+      triggerAnimationForIndex(nextIndex);
+
+      if (nextIndex >= record.moves.length) {
+        setIsPlaying(false);
+      }
+    }, delay);
+
+    playTimerRef.current = timer;
+
+    return () => {
+      window.clearTimeout(timer);
+      if (playTimerRef.current === timer) {
+        playTimerRef.current = null;
+      }
+    };
   }, [
-    playbackState.isPlaying,
-    playbackState.playbackSpeed,
-    playbackState.currentMoveNumber,
-    inReplayMode,
-    seekToMove,
+    isPlaying,
+    playbackSpeed,
+    currentMoveIndex,
+    record,
+    updateStateForIndex,
+    triggerAnimationForIndex,
   ]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (only when a replay is active)
   useEffect(() => {
     if (!inReplayMode) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return;
       }
 
@@ -657,14 +541,117 @@ export function ReplayPanel({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [inReplayMode, stepBack, stepForward, togglePlay, goToStart, goToEnd, exitReplay]);
 
-  // Convert ReplayMoveRecord to Move for MoveHistory
-  const movesForHistory: Move[] = playbackState.moves.map((m) => ({
-    type: m.moveType as Move['type'],
-    playerNumber: m.player,
-    ...(m.move as Record<string, unknown>),
-  })) as Move[];
+  /**
+   * Load a specific game for replay by fetching history + details and projecting
+   * them into the canonical GameRecord + Move[] that the shared replay engine
+   * understands.
+   */
+  const loadReplayForGame = useCallback(
+    async (gameId: string) => {
+      clearPlaybackTimer();
 
+      setIsLoadingReplay(true);
+      setReplayError(null);
+
+      try {
+        const [history, details]: [GameHistoryResponse, GameDetailsResponse] = await Promise.all([
+          gameApi.getGameHistory(gameId),
+          gameApi.getGameDetails(gameId),
+        ]);
+
+        const { record: nextRecord, movesForDisplay: nextMoves } = adaptHistoryToGameRecord(
+          history,
+          details
+        );
+        const replayMoveRecords = buildReplayMoveRecords(nextRecord, history);
+
+        setSelectedGameHistory(history);
+        setRecord(nextRecord);
+        setMovesForDisplay(nextMoves);
+        setReplayMoves(replayMoveRecords);
+
+        const initialIndex = nextRecord.moves.length;
+        setCurrentMoveIndex(initialIndex);
+        updateStateForIndex(nextRecord, initialIndex);
+        triggerAnimationForIndex(initialIndex);
+        setIsPlaying(false);
+
+        onReplayModeChange(true);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to load replay data for this game.';
+        setReplayError(message);
+        setRecord(null);
+        setMovesForDisplay([]);
+        setReplayMoves([]);
+        setSelectedGameHistory(null);
+        setCurrentState(null);
+        onStateChange(null);
+        onReplayModeChange(false);
+      } finally {
+        setIsLoadingReplay(false);
+      }
+    },
+    [
+      clearPlaybackTimer,
+      updateStateForIndex,
+      triggerAnimationForIndex,
+      onReplayModeChange,
+      onStateChange,
+    ]
+  );
+
+  // Select a game from the list
+  const handleSelectGame = useCallback(
+    (gameId: string) => {
+      setSelectedGameId(gameId);
+      const meta = userGames.find((g) => g.id === gameId);
+      setSelectedGameSource(meta?.source);
+      void loadReplayForGame(gameId);
+    },
+    [userGames, loadReplayForGame]
+  );
+
+  // Pagination handler for the local filtered list.
+  const handlePageChange = useCallback((newOffset: number) => {
+    setFilters((prev) => ({
+      ...prev,
+      offset: Math.max(0, newOffset),
+    }));
+  }, []);
+
+  // Fork from current position into a new sandbox game.
+  const handleFork = useCallback(() => {
+    if (currentState) {
+      onForkFromPosition(currentState);
+    }
+  }, [currentState, onForkFromPosition]);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Derived collections for GameList & MoveInfo
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const filteredGames = applyFilters(userGames, filters);
+  const totalFiltered = filteredGames.length;
+  const pageLimit = filters.limit ?? DEFAULT_PAGE_SIZE;
+  const pageOffset = filters.offset ?? 0;
+  const pageGames = filteredGames.slice(pageOffset, pageOffset + pageLimit);
+  const hasMore = pageOffset + pageLimit < totalFiltered;
+
+  const listGames: ReplayGameMetadata[] = pageGames.map(mapSummaryToReplayMetadata);
+
+  const currentReplayMove: ReplayMoveRecord | null =
+    currentMoveIndex > 0 && replayMoves.length >= currentMoveIndex
+      ? replayMoves[currentMoveIndex - 1]
+      : null;
+
+  // Convert canonical Move list into the compact MoveHistory surface.
+  const movesForHistory: Move[] = movesForDisplay;
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Render
+  // ═══════════════════════════════════════════════════════════════════════════
+
   return (
     <div
       className={`border border-slate-700 rounded-2xl bg-slate-900/60 overflow-hidden ${className}`}
@@ -708,145 +695,142 @@ export function ReplayPanel({
       {!isCollapsed && (
         <div className="px-3 pb-3 space-y-3">
           {!inReplayMode ? (
-            // Game selector mode
+            // Browse mode - user game list
             <>
               <p className="text-xs text-slate-400">
-                Browse and replay recorded games from AI training sessions.
+                Browse and replay your completed backend games, including imported self-play
+                records.
               </p>
 
-              {showGamePicker ? (
-                <GameSelector
-                  games={availableGames}
-                  isLoading={isLoadingGames}
-                  error={gamesError}
-                  selectedGameId={null}
-                  onSelectGame={loadGame}
-                  onRefresh={loadGames}
-                />
+              {!user ? (
+                <div className="text-xs text-slate-400 bg-slate-800/60 rounded px-2 py-2">
+                  Log in to view and replay your completed games.
+                </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowGamePicker(true);
-                    if (availableGames.length === 0) {
-                      loadGames();
-                    }
-                  }}
-                  className="w-full px-3 py-2 rounded-lg bg-emerald-900/40 hover:bg-emerald-800/50 border border-emerald-700/50 text-sm text-emerald-200 transition-colors"
-                >
-                  Browse Recorded Games
-                </button>
+                <>
+                  {/* Filters */}
+                  <GameFilters filters={filters} onFilterChange={setFilters} className="mt-1" />
+
+                  {/* Game list */}
+                  <GameList
+                    games={listGames}
+                    selectedGameId={selectedGameId}
+                    onSelectGame={handleSelectGame}
+                    isLoading={isLoadingGames}
+                    error={gamesError}
+                    total={totalFiltered}
+                    offset={pageOffset}
+                    limit={pageLimit}
+                    hasMore={hasMore}
+                    onPageChange={handlePageChange}
+                  />
+                </>
               )}
             </>
           ) : (
             // Replay mode - playback controls
             <>
               {/* Game info */}
-              {playbackState.metadata && (
+              {record && (
                 <div className="text-xs text-slate-400 bg-slate-800/50 rounded px-2 py-1.5">
                   <span className="font-medium text-slate-200">
-                    {playbackState.metadata.boardType} • {playbackState.metadata.numPlayers}p
+                    {record.boardType} • {record.numPlayers}p
                   </span>
                   <span className="mx-2">|</span>
-                  <span>
-                    {playbackState.metadata.winner
-                      ? `P${playbackState.metadata.winner} won`
-                      : 'draw'}
-                  </span>
+                  <span>{record.winner ? `P${record.winner} won` : 'draw'}</span>
                   <span className="mx-2">|</span>
-                  <span>{playbackState.metadata.source ?? 'unknown'}</span>
+                  <span>{selectedGameSource ?? 'online_game'}</span>
                 </div>
               )}
 
-              {/* State reconstruction failure warning */}
-              {divergedAtMove !== null && (
-                <div className="text-xs bg-amber-900/30 border border-amber-700/50 rounded px-2 py-1.5 text-amber-200">
-                  <span className="font-medium">Replay diverged at move {divergedAtMove}</span>
-                  <span className="text-amber-300/70">
-                    {' '}
-                    — unable to reconstruct further states. Board may be stale.
-                  </span>
+              {/* Replay loading / error state */}
+              {isLoadingReplay && (
+                <div className="text-xs text-slate-400 bg-slate-900/60 rounded px-2 py-1.5">
+                  Preparing replay…
                 </div>
               )}
 
-              {/* Scrubber */}
-              <Scrubber
-                currentMove={playbackState.currentMoveNumber}
-                totalMoves={playbackState.totalMoves}
-                onSeek={seekToMove}
-              />
+              {replayError && !isLoadingReplay && (
+                <div className="text-xs text-red-400 bg-red-900/30 border border-red-700/50 rounded px-2 py-1.5">
+                  Replay unavailable: {replayError}
+                </div>
+              )}
 
               {/* Playback controls */}
-              <PlaybackControls
-                isPlaying={playbackState.isPlaying}
-                onTogglePlay={togglePlay}
-                onStepBack={stepBack}
-                onStepForward={stepForward}
-                onGoToStart={goToStart}
-                onGoToEnd={goToEnd}
-                canStepBack={canStepBack}
-                canStepForward={canStepForward}
-              />
+              {record && !isLoadingReplay && !replayError && (
+                <>
+                  <PlaybackControls
+                    currentMove={currentMoveIndex}
+                    totalMoves={totalMoves}
+                    isPlaying={isPlaying}
+                    playbackSpeed={playbackSpeed}
+                    isLoading={false}
+                    canStepForward={canStepForward}
+                    canStepBackward={canStepBack}
+                    onStepForward={stepForward}
+                    onStepBackward={stepBack}
+                    onJumpToStart={goToStart}
+                    onJumpToEnd={goToEnd}
+                    onJumpToMove={jumpToMove}
+                    onTogglePlay={togglePlay}
+                    onSetSpeed={changeSpeed}
+                    className="mt-1"
+                  />
 
-              {/* Speed control */}
-              <div className="flex justify-center">
-                <SpeedControl
-                  currentSpeed={playbackState.playbackSpeed}
-                  onSpeedChange={changeSpeed}
-                />
-              </div>
+                  {/* Current move info */}
+                  <div className="p-2 rounded-lg bg-slate-800/60 border border-slate-700">
+                    <MoveInfo move={currentReplayMove} moveNumber={currentMoveIndex} />
+                  </div>
 
-              {/* Move history */}
-              {movesForHistory.length > 0 && playbackState.metadata && (
-                <MoveHistory
-                  moves={movesForHistory}
-                  boardType={playbackState.metadata.boardType as BoardType}
-                  currentMoveIndex={
-                    playbackState.currentMoveNumber > 0
-                      ? playbackState.currentMoveNumber - 1
-                      : undefined
-                  }
-                  onMoveClick={(index) => seekToMove(index + 1)}
-                  maxHeight="max-h-32"
-                />
-              )}
-
-              {/* Action buttons */}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleFork}
-                  disabled={!playbackState.currentState}
-                  className="flex-1 text-xs px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-1"
-                  title="Start playing from this position"
-                >
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
-                      clipRule="evenodd"
+                  {/* Move history */}
+                  {movesForHistory.length > 0 && (
+                    <MoveHistory
+                      moves={movesForHistory}
+                      boardType={record.boardType as BoardType}
+                      currentMoveIndex={currentMoveIndex > 0 ? currentMoveIndex - 1 : undefined}
+                      onMoveClick={(index) => jumpToMove(index + 1)}
+                      maxHeight="max-h-32"
                     />
-                  </svg>
-                  Fork
-                </button>
-                <button
-                  type="button"
-                  onClick={exitReplay}
-                  className="flex-1 text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
-                >
-                  Exit Replay
-                </button>
-              </div>
+                  )}
 
-              {/* Keyboard hints */}
-              <div className="text-[10px] text-slate-500 text-center">
-                <kbd className="px-1 py-0.5 bg-slate-800 rounded">Space</kbd> play/pause
-                <span className="mx-1">|</span>
-                <kbd className="px-1 py-0.5 bg-slate-800 rounded">←</kbd>{' '}
-                <kbd className="px-1 py-0.5 bg-slate-800 rounded">→</kbd> step
-                <span className="mx-1">|</span>
-                <kbd className="px-1 py-0.5 bg-slate-800 rounded">Esc</kbd> exit
-              </div>
+                  {/* Action buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFork}
+                      disabled={!currentState}
+                      className="flex-1 text-xs px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors flex items-center justify-center gap-1"
+                      title="Start playing from this position"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                        <path
+                          fillRule="evenodd"
+                          d="M7.707 3.293a1 1 0 010 1.414L5.414 7H11a7 7 0 017 7v2a1 1 0 11-2 0v-2a5 5 0 00-5-5H5.414l2.293 2.293a1 1 0 11-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      Fork
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exitReplay}
+                      className="flex-1 text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                    >
+                      Exit Replay
+                    </button>
+                  </div>
+
+                  {/* Keyboard hints */}
+                  <div className="text-[10px] text-slate-500 text-center">
+                    <kbd className="px-1 py-0.5 bg-slate-800 rounded">Space</kbd> play/pause
+                    <span className="mx-1">|</span>
+                    <kbd className="px-1 py-0.5 bg-slate-800 rounded">←</kbd>{' '}
+                    <kbd className="px-1 py-0.5 bg-slate-800 rounded">→</kbd> step
+                    <span className="mx-1">|</span>
+                    <kbd className="px-1 py-0.5 bg-slate-800 rounded">Esc</kbd> exit
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>

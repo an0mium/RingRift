@@ -263,14 +263,14 @@ def play_single_game_pair(
         move = current_ai.select_move(game_state)
         if not move:
             # No valid moves - opponent wins
-            game_state.game_status = GameStatus.FINISHED
+            game_state.game_status = GameStatus.COMPLETED
             game_state.winner = 2 if current_player == 1 else 1
             break
 
         game_state = rules_engine.apply_move(game_state, move)
         move_count += 1
 
-    if game_state.game_status != GameStatus.FINISHED:
+    if game_state.game_status != GameStatus.COMPLETED:
         # Draw due to move limit
         return 0, move_count
 

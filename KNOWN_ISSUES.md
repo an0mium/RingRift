@@ -132,7 +132,11 @@ especially in less-tested corners of the rules.
 
 - **DIV-001 (Seed 5 Capture Enumeration):** **RESOLVED** – Both backend and sandbox now use the unified `enumerateCaptureMoves()` function from `captureLogic.ts`.
 - **DIV-002 (Seed 5 Territory Processing):** **RESOLVED** – Territory region detection and processing aligned via shared helpers.
-- **DIV-008 (Late-game Phase/Player Tracking):** **DEFERRED** – Minor divergence in late-game phase/player tracking is within tolerance and does not affect gameplay correctness.
+- **DIV-008 (Late-game Phase/Player Tracking):** **DEFERRED** – Divergence in late-game phase/player tracking is **within tolerance only if ALL of the following hold**:
+  1. **No board state changes** between divergence and game end: rings, stacks, markers, and collapsed spaces must remain identical in both TS and Python from the divergence point to the final state.
+  2. **Identical game outcome**: same winner, same victory reason (ring elimination, territory, or LPS tiebreaker), and same numerical basis (identical eliminated ring counts or territory counts that determined victory, or identical LPS positions if LPS was the deciding factor).
+
+  If any of these conditions is violated—for example, if the engines produce different final board states or different winners/victory reasons—the divergence is **NOT within tolerance** and must be investigated and fixed.
 
 **What's implemented and working:**
 
@@ -443,7 +447,7 @@ work (stronger heuristics, search/ML) plus potentially additional endpoints.
 
 - Until those tests are updated, the failing **aiSimulation** cases should be interpreted as a **known, expected discrepancy in test semantics**, not as an engine correctness failure.
 
-In particular, for the historically problematic square8/2‑AI plateau around seed 1, treat the following suites as the **current, canonical diagnostics** for sandbox AI plateau/stall behaviour (anchored to the shared S‑invariant and rules SSoTs):
+In particular, for the historically problematic square8/2‑AI plateau around seed 1, treat the following suites as the **current, canonical diagnostics** for sandbox AI plateau/stall behaviour (anchored to the shared S‑invariant and the canonical rules SSoT: `RULES_CANONICAL_SPEC.md` plus its shared TS engine implementation):
 
 - `tests/unit/ClientSandboxEngine.aiSimulation.test.ts`
 - `tests/utils/aiSeedSnapshots.ts`

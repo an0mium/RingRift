@@ -191,8 +191,8 @@ def check_game_status(state: Dict[str, Any], move_index: int) -> List[InvariantV
     status = state.get("gameStatus", "")
     
     if winner is not None:
-        terminal_statuses = ["finished", "completed"]
-        if status not in terminal_statuses:
+        # Canonical terminal status is "completed"
+        if status != "completed":
             violations.append(InvariantViolation(
                 "INV-GAME-STATUS",
                 move_index,

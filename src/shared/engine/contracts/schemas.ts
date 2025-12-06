@@ -54,6 +54,9 @@ export const MoveTypeSchema = {
     'choose_line_reward',
     'process_territory_region',
     'eliminate_rings_from_stack',
+    'forced_elimination',
+    'no_territory_action',
+    'no_line_action',
     'pass',
     'resign',
   ],
@@ -189,7 +192,7 @@ export const GamePhaseSchema = {
     'chain_capture',
     'line_processing',
     'territory_processing',
-    'game_over',
+    'forced_elimination',
   ],
 } as const;
 

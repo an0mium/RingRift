@@ -44,7 +44,9 @@ import { GameHUD, VictoryConditionsPanel } from '../components/GameHUD';
 import { MobileGameHUD } from '../components/MobileGameHUD';
 import {
   ScreenReaderAnnouncer,
-  useScreenReaderAnnouncement,
+  useGameAnnouncements,
+  useGameStateAnnouncements,
+  GameAnnouncements,
 } from '../components/ScreenReaderAnnouncer';
 import { gameApi } from '../services/api';
 import { getReplayService } from '../services/ReplayService';
@@ -369,11 +371,8 @@ export const SandboxGameHost: React.FC = () => {
   const gameSavedRef = useRef(false);
   const lastEvaluatedMoveRef = useRef<number | null>(null);
 
-  // Screen reader announcements for accessibility (mirrors BackendGameHost)
-  const { message: srMessage, announce: srAnnounce } = useScreenReaderAnnouncement();
-  const prevTurnPlayerRef = useRef<number | null>(null);
-  const prevPhaseRef = useRef<string | null>(null);
-  const prevVictoryRef = useRef<boolean>(false);
+  // Screen reader announcements for accessibility - using priority queue (mirrors BackendGameHost)
+  const { queue: announcementQueue, announce, removeAnnouncement } = useGameAnnouncements();
 
   // Show/hide advanced options - collapsed by default for first-time players
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(!isFirstTimePlayer);
@@ -1106,90 +1105,56 @@ export const SandboxGameHost: React.FC = () => {
   // Game view once configured (local sandbox)
   const sandboxGameState: GameState | null = sandboxEngine ? sandboxEngine.getGameState() : null;
   const sandboxVictoryResult = sandboxEngine ? sandboxEngine.getVictoryResult() : null;
+  const sandboxGameEndExplanation = sandboxEngine ? sandboxEngine.getGameEndExplanation() : null;
 
-  // Announce turn and phase changes to screen readers (mirrors BackendGameHost)
-  useEffect(() => {
-    if (!sandboxGameState) return;
+  // Derive current player info for announcements
+  const currentPlayerForAnnouncements = sandboxGameState?.players.find(
+    (p) => p.playerNumber === sandboxGameState.currentPlayer
+  );
+  const currentPlayerName =
+    currentPlayerForAnnouncements?.username || `Player ${sandboxGameState?.currentPlayer ?? 1}`;
+  // In sandbox, player 1 is typically the local human player
+  const isLocalPlayerTurn = sandboxGameState?.currentPlayer === 1;
 
-    const currentTurnPlayer = sandboxGameState.currentPlayer;
-    const currentPhase = sandboxGameState.currentPhase;
-    const currentPlayerInfo = sandboxGameState.players.find(
-      (p) => p.playerNumber === currentTurnPlayer
-    );
-    const playerName = currentPlayerInfo?.username || `Player ${currentTurnPlayer}`;
-
-    // Announce turn changes
-    if (prevTurnPlayerRef.current !== null && prevTurnPlayerRef.current !== currentTurnPlayer) {
-      srAnnounce(`${playerName}'s turn`);
+  // Map victory reason to the type expected by GameAnnouncements
+  const mapVictoryCondition = (
+    reason: string | undefined
+  ): 'elimination' | 'territory' | 'last_player_standing' => {
+    switch (reason) {
+      case 'ring_elimination':
+        return 'elimination';
+      case 'territory_control':
+        return 'territory';
+      default:
+        return 'last_player_standing';
     }
-    prevTurnPlayerRef.current = currentTurnPlayer;
+  };
 
-    // Announce significant phase changes (skip if also announcing turn)
-    if (prevPhaseRef.current !== null && prevPhaseRef.current !== currentPhase) {
-      const phaseLabels: Record<string, string> = {
-        ring_placement: 'Ring placement phase',
-        movement: 'Movement phase',
-        capture: 'Capture phase',
-        chain_capture: 'Chain capture phase',
-        line_processing: 'Line processing phase',
-        territory_processing: 'Territory processing phase',
-      };
-      const phaseLabel = phaseLabels[currentPhase] || currentPhase;
-      // Only announce phase if it wasn't just a turn change announcement
-      if (prevTurnPlayerRef.current === currentTurnPlayer) {
-        srAnnounce(phaseLabel);
-      }
-    }
-    prevPhaseRef.current = currentPhase;
-  }, [sandboxGameState, srAnnounce]);
+  // Use the automatic game state announcements hook
+  useGameStateAnnouncements({
+    currentPlayerName,
+    isYourTurn: isLocalPlayerTurn,
+    phase: sandboxGameState?.currentPhase,
+    previousPhase: undefined, // Let the hook track this internally
+    phaseDescription: undefined,
+    timeRemaining: null,
+    isGameOver: !!sandboxVictoryResult,
+    winnerName:
+      sandboxVictoryResult?.winner !== undefined
+        ? sandboxGameState?.players.find((p) => p.playerNumber === sandboxVictoryResult.winner)
+            ?.username || `Player ${sandboxVictoryResult.winner}`
+        : undefined,
+    victoryCondition: sandboxVictoryResult
+      ? mapVictoryCondition(sandboxVictoryResult.reason)
+      : undefined,
+    isWinner: sandboxVictoryResult?.winner === 1, // Player 1 is typically local human
+    announce,
+  });
 
-  // Announce victory to screen readers and emit sandbox scenario completion telemetry.
+  // Track victory for onboarding and telemetry (separate from announcements)
+  const prevVictoryRef = useRef<boolean>(false);
   useEffect(() => {
     if (sandboxVictoryResult && !prevVictoryRef.current) {
-      const winnerInfo =
-        sandboxVictoryResult.winner !== undefined
-          ? sandboxGameState?.players.find((p) => p.playerNumber === sandboxVictoryResult.winner)
-          : null;
-      const winnerName =
-        winnerInfo?.username ||
-        (sandboxVictoryResult.winner !== undefined ? `Player ${sandboxVictoryResult.winner}` : '');
-
-      let announcement: string;
-
-      if (sandboxVictoryResult.winner === undefined) {
-        // No explicit winner – draw or abandoned game.
-        switch (sandboxVictoryResult.reason) {
-          case 'draw':
-            announcement = 'Game over. The game ended in a draw.';
-            break;
-          case 'abandonment':
-            announcement = 'Game over. The game was abandoned.';
-            break;
-          default:
-            announcement = 'Game over.';
-            break;
-        }
-      } else {
-        let reasonLabel = '';
-        switch (sandboxVictoryResult.reason) {
-          case 'ring_elimination':
-            reasonLabel = 'by elimination';
-            break;
-          case 'territory_control':
-            reasonLabel = 'by territory control';
-            break;
-          case 'last_player_standing':
-            reasonLabel = 'as the last player standing';
-            break;
-          default:
-            reasonLabel = '';
-            break;
-        }
-
-        announcement = `Game over. ${winnerName} wins${reasonLabel ? ` ${reasonLabel}` : ''}.`;
-      }
-
-      srAnnounce(announcement);
       prevVictoryRef.current = true;
 
       // Mark first game completed for onboarding tracking
@@ -1208,7 +1173,7 @@ export const SandboxGameHost: React.FC = () => {
     if (!sandboxVictoryResult && prevVictoryRef.current) {
       prevVictoryRef.current = false;
     }
-  }, [sandboxVictoryResult, sandboxGameState, srAnnounce, markGameCompleted, lastLoadedScenario]);
+  }, [sandboxVictoryResult, markGameCompleted, lastLoadedScenario]);
 
   // Get historical state when viewing history (for fixture/scenario playback)
   const historyState: GameState | null =
@@ -1575,6 +1540,7 @@ export const SandboxGameHost: React.FC = () => {
         {
           currentUserId: user?.id,
           isDismissed: isSandboxVictoryModalDismissed,
+          gameEndExplanation: sandboxGameEndExplanation,
         }
       )
     : null;
@@ -1599,6 +1565,8 @@ export const SandboxGameHost: React.FC = () => {
         pendingChoice: activePendingChoice,
         choiceDeadline: null,
         choiceTimeRemainingMs: sandboxDecisionTimeRemainingMs,
+        victoryState: sandboxVictoryResult,
+        gameEndExplanation: sandboxGameEndExplanation,
       })
     : null;
 
@@ -2234,7 +2202,10 @@ export const SandboxGameHost: React.FC = () => {
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="container mx-auto px-2 sm:px-4 py-4 sm:py-8 space-y-3 sm:space-y-4">
         {/* Screen reader live region for game announcements (accessibility parity with BackendGameHost) */}
-        <ScreenReaderAnnouncer message={srMessage} />
+        <ScreenReaderAnnouncer
+          queue={announcementQueue}
+          onAnnouncementSpoken={removeAnnouncement}
+        />
 
         {sandboxStallWarning && (
           <div className="p-3 rounded-xl border border-amber-500/70 bg-amber-900/40 text-amber-100 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -2270,6 +2241,7 @@ export const SandboxGameHost: React.FC = () => {
           <VictoryModal
             isOpen={!!sandboxVictoryResult && !isSandboxVictoryModalDismissed}
             viewModel={sandboxVictoryViewModel}
+            gameEndExplanation={sandboxGameEndExplanation}
             isSandbox
             onClose={() => {
               setIsSandboxVictoryModalDismissed(true);
@@ -2400,6 +2372,19 @@ export const SandboxGameHost: React.FC = () => {
                             >
                               Copy Test Fixture
                             </button>
+                            {sandboxGameEndExplanation && (
+                              <details
+                                className="absolute top-full right-0 mt-2 w-96 p-4 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 text-xs font-mono overflow-auto max-h-96"
+                                data-testid="sandbox-game-end-explanation-debug"
+                              >
+                                <summary className="cursor-pointer text-slate-400 hover:text-slate-200 mb-2">
+                                  Debug: GameEndExplanation
+                                </summary>
+                                <pre className="whitespace-pre-wrap text-emerald-300">
+                                  {JSON.stringify(sandboxGameEndExplanation, null, 2)}
+                                </pre>
+                              </details>
+                            )}
                           </>
                         )}
                         <button

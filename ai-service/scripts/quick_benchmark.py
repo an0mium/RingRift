@@ -147,7 +147,7 @@ def run_benchmark(board_type, board_size, num_games=3, max_moves=30):
             # Apply move
             state = engine.apply_move(state, move)
 
-            if state.game_status == GameStatus.FINISHED:
+            if state.game_status == GameStatus.COMPLETED:
                 break
 
     moves_per_sec = total_moves / total_time if total_time > 0 else 0

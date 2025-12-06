@@ -4,24 +4,24 @@ This document tracks the provenance and canonical status of all self-play databa
 
 ## Data Classification
 
-| Status                  | Meaning                                                                   |
-| ----------------------- | ------------------------------------------------------------------------- |
-| **canonical**           | Passes `run_canonical_selfplay_parity_gate.py`; safe for training         |
-| **legacy_noncanonical** | Pre-dates line-length/territory/parity fixes; DO NOT use for new training |
-| **pending_gate**        | Not yet validated; requires parity gate before training use               |
+| Status                  | Meaning                                                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **canonical**           | Generated and gated via `scripts/generate_canonical_selfplay.py` (parity gate **and** canonical history OK) |
+| **legacy_noncanonical** | Pre-dates 7-phase/FE/canonical-history fixes; **DO NOT** use for new training                               |
+| **pending_gate**        | Not yet validated; requires `generate_canonical_selfplay.py` (or equivalent gate) before any training use   |
 
 ---
 
 ## Game Replay Databases
 
-### Canonical (Parity-Gated)
+### Canonical (Parity + Canonical-History Gated)
 
-| Database                | Board Type | Players | Status           | Gate Summary                          | Notes                                                                                                                                                                                                                                                                         |
-| ----------------------- | ---------- | ------- | ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical_square8.db`  | square8    | 2       | **canonical**    | parity_summary.canonical_square8.json | Fresh canonical self-play; **parity currently shows 0 semantic divergences and 1 end-of-game-only divergence (phase/player/status only with identical final state hash). Safe for training and evaluation, subject to re-running the gate script when regenerating this DB.** |
-| `canonical_square19.db` | square19   | 2       | **pending_gate** | N/A                                   | Placeholder DB (no games recorded yet)                                                                                                                                                                                                                                        |
-| `canonical_hex.db`      | hexagonal  | 2       | **pending_gate** | N/A                                   | Placeholder DB (no games recorded yet)                                                                                                                                                                                                                                        |
-| `golden.db`             | mixed      | mixed   | **canonical**    | N/A                                   | Hand-curated golden games                                                                                                                                                                                                                                                     |
+| Database                | Board Type | Players | Status           | Gate Summary                                      | Notes                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------- | ---------- | ------- | ---------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_square8.db`  | square8    | 2       | **canonical**    | parity_summary.canonical_square8.json (v1 parity) | Fresh canonical-oriented self-play; **parity currently shows 0 semantic divergences and 1 end-of-game-only divergence (phase/player/status only with identical final state hash). Canonical-phase history validated via `scripts/check_canonical_phase_history.py` (no violations). Future regenerations SHOULD use `generate_canonical_selfplay.py` so both parity and canonical-history gates are enforced by default.**      |
+| `canonical_square19.db` | square19   | 2       | **pending_gate** | db_health.canonical_square19.json                 | Generated via `scripts/generate_canonical_selfplay.py` (8 games); **currently fails the canonical gate**: parity shows 2 semantic divergences at move 2 (current_phase/current_player/state_hash), and `scripts/check_canonical_phase_history.py` reports non-canonical `no_line_action` moves recorded in `territory_processing`. **DO NOT use for training until the engine/parity bug is fixed and this DB is regenerated.** |
+| `canonical_hex.db`      | hexagonal  | 2       | **pending_gate** | N/A                                               | Placeholder DB (no canonical self-play recorded yet under the new 7-phase / forced-elimination model)                                                                                                                                                                                                                                                                                                                           |
+| `golden.db`             | mixed      | mixed   | **canonical**    | N/A                                               | Hand-curated golden games (small fixed set, inspected manually)                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### Legacy / Non-Canonical
 
@@ -83,16 +83,25 @@ Once canonical self-play DBs are generated and exported, retrain these models:
 
 2. **To add a new DB to the canonical allowlist:**
 
-   ```bash
-   # Run the parity gate
-   PYTHONPATH=. python scripts/run_canonical_selfplay_parity_gate.py \
-     --board-type <board> \
-     --num-games 20 \
-     --db data/games/<new_db>.db \
-     --summary parity_gate.<board>.json
+   Use the unified canonical generator + gate:
 
-   # If passed_canonical_parity_gate: true, add to this registry
+   ```bash
+   cd ai-service
+   PYTHONPATH=. python scripts/generate_canonical_selfplay.py \
+     --board-type <board> \
+     --num-games 32 \
+     --db data/games/canonical_<board>.db \
+     --summary db_health.canonical_<board>.json
    ```
+
+   A DB is eligible for `Status = canonical` **only if**:
+   - `canonical_ok` in the generated summary is `true`, and
+   - `parity_gate.passed_canonical_parity_gate` is `true`, and
+   - `canonical_history.non_canonical_games == 0`.
+
+   Older flows that called `run_canonical_selfplay_parity_gate.py` directly are
+   considered **v1 gating** and SHOULD be migrated to the new script the next
+   time those DBs are regenerated.
 
 3. **Legacy DBs** may be used for:
    - Historical comparison experiments
@@ -161,6 +170,43 @@ Each gate summary contains:
   "passed_canonical_parity_gate": true
 }
 ```
+
+For DBs that **fail** the gate (structural issues or semantic divergence), it is
+often useful to also persist:
+
+- Parity fixtures:
+
+  ```bash
+  cd ai-service
+  PYTHONPATH=. python scripts/check_ts_python_replay_parity.py \
+    --db data/games/<db>.db \
+    --emit-fixtures-dir parity_fixtures
+  ```
+
+  which writes one compact JSON fixture per divergent `(db, game_id)` under
+  `parity_fixtures/`.
+
+- Rich state bundles:
+
+  ```bash
+  cd ai-service
+  PYTHONPATH=. python scripts/check_ts_python_replay_parity.py \
+    --db data/games/<db>.db \
+    --emit-state-bundles-dir parity_fixtures/state_bundles
+  ```
+
+  which write `.state_bundle.json` files containing full TS and Python
+  `GameState` JSON immediately before and at the first divergent step for each
+  game. These can be inspected with:
+
+  ```bash
+  PYTHONPATH=. python scripts/diff_state_bundle.py \
+    --bundle parity_fixtures/state_bundles/<bundle>.state_bundle.json
+  ```
+
+Capturing these artefacts alongside `parity_gate.*.json` and
+`parity_summary.*.json` makes it much faster to diagnose and fix any remaining
+parity issues before promoting a DB to the canonical training allowlist.
 
 ---
 

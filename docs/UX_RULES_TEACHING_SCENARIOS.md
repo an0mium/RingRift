@@ -28,7 +28,7 @@ Code‑mode tasks will:
 - Hook them into the existing scenario loader and TeachingOverlay.
 - Wire telemetry using [`UX_RULES_TELEMETRY_SPEC.md`](docs/UX_RULES_TELEMETRY_SPEC.md:172).
 
----
+## Teaching topics referenced from the game-end explanation model are defined in this document; see [`UX_RULES_EXPLANATION_MODEL_SPEC.md`](docs/UX_RULES_EXPLANATION_MODEL_SPEC.md:1) for how they are used.
 
 ## 1. Prioritized Rules Concepts for Teaching
 

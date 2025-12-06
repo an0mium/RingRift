@@ -5,7 +5,10 @@
 
 > **SSoT alignment:** This document is a derived view over the following canonical sources:
 >
-> - **Rules semantics SSoT:** `RULES_CANONICAL_SPEC.md`, `ringrift_complete_rules.md` / `ringrift_compact_rules.md`, and the shared TypeScript rules engine under `src/shared/engine/**` (helpers, mutators, aggregates, orchestrator, and v2 contract vectors in `tests/fixtures/contract-vectors/v2/**`). This shared TS engine is the **rules semantics SSoT** for RingRift.
+> - **Single Source of Truth (SSoT):** The canonical rules defined in `RULES_CANONICAL_SPEC.md` (plus `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) are the **ultimate authority** for RingRift game semantics. All implementations must derive from and faithfully implement these canonical rules.
+> - **Implementation hierarchy:**
+>   - **TS shared engine** (`src/shared/engine/**`) is the _primary executable derivation_ of the canonical rules spec. If the TS engine and the canonical rules document disagree, that is a bug in the TS engine.
+>   - **Python AI service** (`ai-service/app/**`) is a _host adapter_ that must mirror the canonical rules. If Python disagrees with the canonical rules or the validated TS engine behaviour, Python must be updated—never the other way around.
 > - **Lifecycle/API SSoT:** `docs/architecture/CANONICAL_ENGINE_API.md`, `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts` for the Move/orchestrator/WebSocket lifecycle that AI integrates with.
 > - **AI/Training SSoT:** Executable Python AI service code under `ai-service/app/**` and its tests under `ai-service/tests/**`, plus CI workflows (`.github/workflows/ci.yml`) that build and validate the AI service.
 >   - Offline optimisation & evaluation harnesses: `ai-service/scripts/run_cmaes_optimization.py`, `ai-service/scripts/run_genetic_heuristic_search.py`, and their associated tests (`ai-service/tests/test_heuristic_training_evaluation.py`, `ai-service/tests/test_multi_start_evaluation.py`) are treated as **sanity/diagnostic tooling** over the shared rules SSoT rather than independent sources of semantics.
@@ -16,7 +19,7 @@
 > - Canonical reference for the **current AI architecture and integration**: Python AI service, TS AI boundary, RNG/determinism, neural nets, training pipeline, and resilience/fallback behaviour.
 > - As of Dec 2025, end‑to‑end GameRecord flow is implemented: online games populate canonical GameRecords via `GameRecordRepository`, and both Python self‑play (`generate_data.py --game-records-jsonl`) and Node (`scripts/export-game-records-jsonl.ts`) can export training‑ready `GameRecord` JSONL datasets.
 > - References several historical deep-dive/assessment docs (under `archive/` and `deprecated/`); those are explicitly called out as historical snapshots and should be read as background only.
-> - For the canonical rules engine and Move lifecycle, defer to `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, and `docs/CANONICAL_ENGINE_API.md` (Move + orchestrator + hosts), which this document assumes as its rules SSoT.
+> - For the canonical rules engine and Move lifecycle, defer to `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, `RULES_CANONICAL_SPEC.md`, and `docs/CANONICAL_ENGINE_API.md` (Move + orchestrator + hosts), which this document assumes as its rules SSoT.
 >
 > This document consolidates the architectural overview, technical assessment, and improvement plans for the RingRift AI system. It serves as the **canonical, current** reference for AI behaviour and design.
 
@@ -1195,7 +1198,8 @@ Operationally, two complementary optimisation harnesses exercise these invariant
 
 Both harnesses are intentionally kept **behind test and documentation guardrails** rather than the production AI
 API surface; they exist to explore the heuristic landscape and to diagnose plateau behaviour without compromising
-the deterministic, orchestrator-aligned rules SSoT.
+the deterministic, orchestrator-aligned canonical rules SSoT (the written rules spec), or its primary executable
+derivation in the shared TS engine/orchestrator.
 
 #### 5.6.1 Multi-start Evaluation & State Pools
 

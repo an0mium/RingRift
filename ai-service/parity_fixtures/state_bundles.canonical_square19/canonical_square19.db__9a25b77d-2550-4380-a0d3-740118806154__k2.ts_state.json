@@ -1,0 +1,144 @@
+{
+  "gameId": "",
+  "board": {
+    "type": "square19",
+    "size": 19,
+    "stacks": {
+      "12,8": {
+        "position": {
+          "x": 12,
+          "y": 8,
+          "z": null
+        },
+        "rings": [1, 1, 1],
+        "stackHeight": 3,
+        "capHeight": 3,
+        "controllingPlayer": 1
+      }
+    },
+    "markers": {
+      "9,8": {
+        "position": {
+          "x": 9,
+          "y": 8,
+          "z": null
+        },
+        "player": 1,
+        "type": "regular"
+      }
+    },
+    "collapsedSpaces": {},
+    "eliminatedRings": {},
+    "formedLines": []
+  },
+  "players": [
+    {
+      "playerNumber": 1,
+      "ringsInHand": 33,
+      "eliminatedRings": 0,
+      "territorySpaces": 0,
+      "isActive": true
+    },
+    {
+      "playerNumber": 2,
+      "ringsInHand": 36,
+      "eliminatedRings": 0,
+      "territorySpaces": 0,
+      "isActive": true
+    }
+  ],
+  "currentPlayer": 2,
+  "currentPhase": "ring_placement",
+  "turnNumber": 5,
+  "moveHistory": [
+    {
+      "id": "simulated",
+      "type": "place_ring",
+      "player": 1,
+      "to": {
+        "x": 9,
+        "y": 8,
+        "z": null
+      },
+      "captureTarget": null,
+      "capturedStacks": null,
+      "captureChain": null,
+      "overtakenRings": null,
+      "placedOnStack": false,
+      "placementCount": 3,
+      "stackMoved": null,
+      "minimumDistance": null,
+      "actualDistance": null,
+      "markerLeft": null,
+      "formedLines": null,
+      "collapsedMarkers": null,
+      "claimedTerritory": null,
+      "disconnectedRegions": null,
+      "eliminatedRings": null,
+      "timestamp": "2025-12-06T02:12:45.409Z",
+      "thinkTime": 0,
+      "moveNumber": 1
+    },
+    {
+      "id": "auto-no-line-action-2",
+      "type": "no_line_action",
+      "player": 1,
+      "to": {
+        "x": 0,
+        "y": 0
+      },
+      "timestamp": "2025-12-06T02:35:50.993Z",
+      "thinkTime": 0,
+      "moveNumber": 2
+    },
+    {
+      "id": "auto-no-territory-action-2",
+      "type": "no_territory_action",
+      "player": 1,
+      "to": {
+        "x": 0,
+        "y": 0
+      },
+      "timestamp": "2025-12-06T02:35:50.993Z",
+      "thinkTime": 0,
+      "moveNumber": 2
+    },
+    {
+      "id": "simulated",
+      "type": "move_stack",
+      "player": 1,
+      "from": {
+        "x": 9,
+        "y": 8,
+        "z": null
+      },
+      "to": {
+        "x": 12,
+        "y": 8,
+        "z": null
+      },
+      "captureTarget": null,
+      "capturedStacks": null,
+      "captureChain": null,
+      "overtakenRings": null,
+      "placedOnStack": null,
+      "placementCount": null,
+      "stackMoved": null,
+      "minimumDistance": null,
+      "actualDistance": null,
+      "markerLeft": null,
+      "formedLines": null,
+      "collapsedMarkers": null,
+      "claimedTerritory": null,
+      "disconnectedRegions": null,
+      "eliminatedRings": null,
+      "timestamp": "2025-12-06T02:12:45.409Z",
+      "thinkTime": 0,
+      "moveNumber": 2
+    }
+  ],
+  "gameStatus": "active",
+  "victoryThreshold": 37,
+  "territoryVictoryThreshold": 181,
+  "totalRingsEliminated": 0
+}

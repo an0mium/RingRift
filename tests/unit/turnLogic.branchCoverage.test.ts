@@ -3,7 +3,7 @@
  *
  * Branch coverage tests for turnLogic.ts targeting uncovered branches:
  * - Game status check (not active early return)
- * - Phase switch cases (ring_placement, movement, capture, chain_capture, line_processing, territory_processing, default)
+ * - Phase switch cases (ring_placement, movement, capture, chain_capture, line_processing, territory_processing, forced_elimination, default)
  * - ring_placement: canMove || canCapture ternary
  * - territory_processing: forced elimination, game ended after elimination, player skip loop, starting phase determination
  */

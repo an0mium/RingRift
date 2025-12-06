@@ -1609,10 +1609,10 @@ export const BoardView: React.FC<BoardViewProps> = ({
           ...territoryRegionClasses,
           effectiveIsSelected ? 'ring-2 ring-emerald-400 ring-offset-2 ring-offset-slate-950' : '',
           // Valid target highlighting on square boards: thin, bright-green inset
-          // ring plus a light near-white emerald tint that reads clearly even
-          // over the dark board container background. Also apply subtle pulse animation.
+          // ring plus a deeper emerald tint that reads clearly even over the
+          // dark board container background. Also apply noticeable pulse animation.
           effectiveIsValid
-            ? 'outline outline-[2px] outline-emerald-300/90 outline-offset-[-4px] bg-emerald-50 valid-move-cell'
+            ? 'outline outline-[2px] outline-emerald-400/95 outline-offset-[-4px] bg-emerald-100/90 valid-move-cell valid-move-cell-square'
             : '',
           // Invalid move shake animation
           isShaking ? 'invalid-move-shake' : '',

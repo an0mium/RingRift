@@ -7,7 +7,7 @@ A central navigation guide for developers to quickly locate all rules-related do
 > **Doc Status (2025-12-01): Active (with historical appendix)**
 > Index and navigation guide to rules specifications, implementation mapping, and verification/audit docs. This file is **not** a rules semantics SSoT; it points to the true SSoTs and their verification harnesses.
 >
-> - **Rules semantics SSoT:** Shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts) plus cross-language contracts and vectors (`src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `RULES_SCENARIO_MATRIX.md`, `docs/STRICT_INVARIANT_SOAKS.md`).
+> - **Rules semantics SSoT:** The canonical rules documents (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) are the **single source of truth** for RingRift game semantics. The shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts), cross-language contracts and vectors (`src/shared/engine/contracts/**`, `tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`), and rules docs (`RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`, `RULES_SCENARIO_MATRIX.md`, `docs/STRICT_INVARIANT_SOAKS.md`) describe and validate the primary executable implementation of that spec.
 > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/game.ts`, `src/shared/engine/orchestration/types.ts`, `src/shared/types/websocket.ts`, and `src/shared/validation/websocketSchemas.ts`.
 > - Some linked documents (especially under `archive/` and older UX/audit reports) are **partially historical**; this file is kept current but intentionally points at both active and archived material.
 > - For high-level architecture/topology, see `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, and `DOCUMENTATION_INDEX.md`.
@@ -74,6 +74,29 @@ Additional rules‑UX and onboarding specs:
 | Document                                                             | Description                | When to Use                                     |
 | -------------------------------------------------------------------- | -------------------------- | ----------------------------------------------- |
 | [docs/AI_TRAINING_AND_DATASETS.md](docs/AI_TRAINING_AND_DATASETS.md) | AI alignment documentation | Training AI or ensuring rules consistency in AI |
+
+#### Decision timers and countdowns
+
+- **Canonical units (host):** All host-side timeouts are expressed in milliseconds (`ms`), including:
+  - Decision-phase deadlines configured via `config.decisionPhaseTimeouts.defaultTimeoutMs` and warnings via `warningBeforeTimeoutMs`, plus the `remainingMs` field in `decision_phase_timeout_warning` events (see [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md:125)).
+  - Transport-level `PlayerChoice` deadlines (`timeoutMs` / `deadlineAt`) and per-player move clocks (`timeRemaining`).
+  - Reconnect windows (`RECONNECTION_TIMEOUT_MS`) and any move-clock-style inactivity timers on the host.
+- **Client countdown state (ms):** Client HUD timers are also stored in ms.
+  - Hooks such as [`useDecisionCountdown()`](../../src/client/hooks/useDecisionCountdown.ts:66) accept `baseTimeRemainingMs` (derived from host deadlines) and optional server overrides (`timeoutWarning.data.remainingMs`) and compute an `effectiveTimeRemainingMs` that is always `>= 0`.
+  - Internally, helper [`normalizeMs()`](../../src/client/hooks/useDecisionCountdown.ts:61) treats non-numeric inputs as `null` and clamps negative values to `0` for display/merging; these values are never interpreted as an authoritative expiry.
+- **Display semantics (seconds):** Visible countdown numbers in the HUD and dialogs are whole seconds computed from ms via [`msToDisplaySeconds()`](../../src/client/utils/countdown.ts:43):
+  - Nullish or non-finite inputs return `null` (no countdown rendered).
+  - `timeRemainingMs <= 0` displays as `0` seconds.
+  - For `timeRemainingMs > 0`, the UI shows `Math.ceil(timeRemainingMs / 1000)`, so `1..1000ms → 1s`, `1001..2000ms → 2s`, etc. This avoids showing `0s` while strictly positive time remains.
+- **Severity and styling:** The HUD uses [`getCountdownSeverity()`](../../src/client/utils/countdown.ts:12) directly on the ms value to choose styling buckets:
+  - `normal` when `timeRemainingMs > 10_000`.
+  - `warning` when `3_000 < timeRemainingMs <= 10_000`.
+  - `critical` when `timeRemainingMs <= 3_000` (including `0` and negative values).
+  - The combination of `effectiveTimeRemainingMs` (ms), [`msToDisplaySeconds()`](../../src/client/utils/countdown.ts:43) for numeric display, and [`getCountdownSeverity()`](../../src/client/utils/countdown.ts:12) for styling is the canonical pattern for decision timers and related UI.
+- **Authority and expiry:** Countdown UI is advisory:
+  - Actual expiry of decisions and timeouts is governed by host logic and `GameState`, per [`P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md:125) (for example, decision-phase timeout handlers and reconnect windows).
+  - UI components MUST NOT treat a client-side `0s` display as proof that a decision has expired; they should instead react to changes such as the pending decision disappearing or a `decision_phase_timed_out` / `game_state` update.
+  - This aligns with ANM and timeout handling catalogued in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](ACTIVE_NO_MOVES_BEHAVIOUR.md:1).
 
 #### Pie rule / `swap_sides` status
 

@@ -1,7 +1,7 @@
 # RingRift Current State Assessment
 
-**Assessment Date:** 2025-12-05 (Post-PASS20-21, Training Data Hygiene)
-**Last CI Test Runs:** 2025-12-01 (TypeScript CI-gated suites: 2,987 passed, 0 failing; Python: 836 passing)
+**Assessment Date:** 2025-12-05 (Post-Wave 14, Engine Refactoring Review)
+**Last CI Test Runs:** 2025-12-05 (TypeScript CI-gated suites: 2,987 passed, 0 failing; Python: 836 passing)
 **Last Full Jest Snapshot:** See `jest-results.json` and [`docs/archive/assessments/PASS20_ASSESSMENT.md`](docs/archive/assessments/PASS20_ASSESSMENT.md) for extended/diagnostic profile analysis
 **Assessor:** Code + Test Review + CI Analysis
 **Purpose:** Factual status of the codebase as it exists today
@@ -19,7 +19,7 @@
 > **Doc Status (2025-12-04): Active**
 > Current high-level snapshot of implementation status across backend, client, shared engine, Python AI service, and tests. This document is **not** a rules or lifecycle SSoT; it reports factual status against the canonical semantics and lifecycle sources of truth.
 >
-> - **Rules semantics SSoT:** Shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts) plus contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and rules docs (`RULES_CANONICAL_SPEC.md`, `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, `docs/RULES_ENGINE_SURFACE_AUDIT.md`).
+> - **Rules semantics SSoT:** The canonical rules documents (`RULES_CANONICAL_SPEC.md` together with `ringrift_complete_rules.md` / `ringrift_compact_rules.md`) are the **single source of truth** for RingRift game semantics. The shared TypeScript engine under `src/shared/engine/` (helpers → domain aggregates → turn orchestrator → contracts) is the primary executable derivation of that spec, validated by contract vectors and runners (`tests/fixtures/contract-vectors/v2/**`, `tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`) and mapped in `RULES_ENGINE_ARCHITECTURE.md`, `RULES_IMPLEMENTATION_MAPPING.md`, and `docs/RULES_ENGINE_SURFACE_AUDIT.md`. Implementations must be kept in lockstep with the canonical rules spec.
 > - **Lifecycle/API SSoT:** `docs/CANONICAL_ENGINE_API.md` and shared types/schemas under `src/shared/types/**`, `src/shared/engine/orchestration/types.ts`, and `src/shared/validation/websocketSchemas.ts` (plus `docs/API_REFERENCE.md` for transport details).
 > - Historical architecture or remediation context lives in `ARCHITECTURE_ASSESSMENT.md`, `ARCHITECTURE_REMEDIATION_PLAN.md`, and archived reports; this file should remain narrowly focused on **current factual status**.
 > - **Relationship to goals:** For the canonical statement of RingRift’s product/technical goals, v1.0 success criteria, and scope boundaries, see [`PROJECT_GOALS.md`](PROJECT_GOALS.md:1). This document reports the **current factual status** of the implementation and tests relative to those goals and to the phased roadmap in [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:1); it does not define new goals.
@@ -185,6 +185,15 @@ A reasonable label for the current state is: **stable beta with consolidated arc
   - **GamePage:** Unified interface for both backend and sandbox games with `BoardView`, `GameHUD`, `ChoiceDialog`
   - **Sandbox:** Full `/sandbox` route with rules-complete client-local engine
   - **Victory:** `VictoryModal` with proper game completion flows
+
+- **Accessibility Features (Wave 14.5)**
+  - **Complete:** `AccessibilityContext` provides user preference management
+  - **Keyboard navigation:** `useKeyboardNavigation` hook for board-level interactions (arrow keys, Enter, Escape, Tab)
+  - **Screen reader support:** `ScreenReaderAnnouncer` component for live game state announcements
+  - **Visual accessibility:** `AccessibilitySettingsPanel` with colorblind-friendly modes (deuteranopia, protanopia, tritanopia)
+  - **High-contrast mode:** Available via AccessibilitySettingsPanel
+  - **Reduced motion:** Respects `prefers-reduced-motion` OS setting
+  - **Documentation:** Comprehensive [`docs/ACCESSIBILITY.md`](docs/ACCESSIBILITY.md) guide
 
 - **Player Choice System**
   - **Complete:** `ChoiceDialog` renders all PlayerChoice variants (line rewards, elimination, region order, capture direction)
@@ -479,3 +488,140 @@ The project has reached a mature beta state with consolidated architecture. PASS
 | **Backend API**              | 4.2/5 |   ➔   | Solid routes, session management robust                  |
 | **AI Service**               | 4.0/5 |   ➔   | Heuristic functional, training infra exists              |
 | **DevOps/CI**                | 4.0/5 |   ➔   | CI jobs wired, diagnostic suites documented              |
+
+---
+
+## 🏗️ Engine Architecture & Refactoring Status (Dec 2025 Review)
+
+### TypeScript Engine Architecture (Grade: A-)
+
+The TypeScript rules engine demonstrates excellent domain-driven design with clear separation of concerns:
+
+**Architecture Layers:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ HOSTS (Backend GameEngine, Client Sandbox, Python AI)       │
+├─────────────────────────────────────────────────────────────┤
+│ ADAPTERS (TurnEngineAdapter, SandboxOrchestratorAdapter)    │
+├─────────────────────────────────────────────────────────────┤
+│ ORCHESTRATOR (turnOrchestrator.ts, phaseStateMachine.ts)    │
+├─────────────────────────────────────────────────────────────┤
+│ DOMAIN AGGREGATES (6 primary aggregates)                     │
+├─────────────────────────────────────────────────────────────┤
+│ SHARED HELPERS (63 files, ~22K LOC, pure functions)         │
+├─────────────────────────────────────────────────────────────┤
+│ CONTRACTS (schemas, serialization, validators, vectors)     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Domain Aggregates (5,553 LOC total):**
+| Aggregate | LOC | Responsibility | Status |
+|-----------|-----|----------------|--------|
+| PlacementAggregate | 769 | Ring placement, validation, no-dead-placement | Complete |
+| MovementAggregate | 739 | Non-capturing movement, reachability | Complete |
+| CaptureAggregate | 918 | Overtaking captures, chain continuation | Complete |
+| LineAggregate | 1199 | Line detection, collapse decisions | Complete |
+| TerritoryAggregate | 1194 | Region detection, processing, elimination | Complete |
+| VictoryAggregate | 734 | Victory evaluation, scoring, tiebreakers | Complete |
+
+**Strengths:**
+
+- ✅ Clear SSoT positioning with explicit documentation in every module
+- ✅ All functions pure with no side effects; state immutable
+- ✅ Full TypeScript typing with discriminated move types
+- ✅ Runtime validation via Zod schemas
+- ✅ No circular dependencies; clean dependency flow
+- ✅ Single orchestrator entry point eliminates logic duplication
+
+**Minor Improvement Opportunities:**
+
+- Three files over 1000 LOC (turnOrchestrator, LineAggregate, TerritoryAggregate)
+- Could split large aggregates into internal submodules for maintainability
+
+### Python Engine Architecture (Grade: A)
+
+The Python rules engine implements a well-architected 3-layer design:
+
+**Architecture Layers:**
+
+```
+Layer 1: Core Models (app/models/core.py - 686 lines)
+    │   Pydantic models mirroring TypeScript types
+    │   Enums for GamePhase, MoveType, BoardType, AIType
+    ↓
+Layer 2: Board Management (app/board_manager.py - 854 lines)
+    │   Static utilities for board-level queries
+    │   Flood-fill for territory, line detection
+    ↓
+Layer 3: Game Engine (app/game_engine.py - 3843 lines)
+    │   Move generation and validation
+    │   Phase transitions via phase_machine.py
+    └── Host adapter over canonical TS semantics
+```
+
+**Rules Engine Components:**
+
+- **DefaultRulesEngine** (1064 lines): Delegates to GameEngine with shadow contract validation
+- **Phase Machine** (224 lines): Pure phase + turn transitions mirroring TS phaseStateMachine
+- **Validators** (5 files): PlacementValidator, MovementValidator, CaptureValidator, LineValidator, TerritoryValidator
+- **Mutators** (6 files): Thin wrappers delegating to GameEngine methods
+
+**Strengths:**
+
+- ✅ Explicit SSoT policy in every module header
+- ✅ Heavy use of Pydantic with frozen models and Protocol interfaces
+- ✅ 120 test files (836 tests) covering unit/parity/invariants
+- ✅ Shadow contract validation (mutator vs GameEngine comparison)
+- ✅ Conservative defaults (slow territory path, mutators shadow-only)
+- ✅ Environment flags for performance tuning (RINGRIFT_SKIP_SHADOW_CONTRACTS)
+
+**Key Architectural Decisions:**
+
+- Python is explicitly a **host adapter**, not an independent rules SSoT
+- All rules semantics must match canonical TS engine exactly
+- Zobrist hashing integrated for transposition tables and parity verification
+
+### Cross-Engine Parity Status
+
+**Contract Testing:** 54 vectors with 0 mismatches across:
+
+- Placement, movement, capture, chain_capture
+- Line detection, territory processing
+- Forced elimination, hex edge cases
+- Meta moves (swap_sides, multi-phase turns)
+
+**Parity Test Infrastructure:**
+
+- `tests/parity/` (TS): Backend vs Sandbox comparison
+- `ai-service/tests/parity/` (Python): 16 test files for TS↔Python equivalence
+- Replay-level parity via `selfplay-db-ts-replay.ts` and `check_ts_python_replay_parity.py`
+- Golden replay framework in `tests/golden/` and `ai-service/tests/golden/`
+
+### Canonical Rules Adherence
+
+Both engines implement all major RR-CANON rules:
+
+- **RR-CANON-R001-R003**: Board types, coordinates, adjacency
+- **RR-CANON-R070-R076**: Turn phases and transitions
+- **RR-CANON-R080-R103**: Placement, movement, capture semantics
+- **RR-CANON-R120-R145**: Line and territory processing
+- **RR-CANON-R170-R173**: Victory conditions
+- **RR-CANON-R200-R209**: Active-no-moves and forced elimination
+
+### Refactoring Recommendations
+
+**Completed Refactoring:**
+
+- ✅ Domain aggregate consolidation (6 aggregates)
+- ✅ Canonical orchestrator implementation (100% rollout)
+- ✅ Contract schema and serialization framework
+- ✅ Adapter pattern for all hosts
+- ✅ Legacy code removal (~1,176 lines in PASS20)
+
+**Future Opportunities (Low Priority):**
+
+1. Split large aggregates internally (LineAggregate, TerritoryAggregate)
+2. Extract ANM resolution from turnOrchestrator to dedicated module
+3. Consolidate Python phase transition logic into phase_machine.py
+4. Document mutator-first mode decision criteria
