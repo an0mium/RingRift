@@ -12,6 +12,14 @@ import { computeBoardMovementGrid } from '../utils/boardMovementGrid';
 import type { MovementGrid } from '../utils/boardMovementGrid';
 import type { BoardViewModel, CellViewModel, StackViewModel } from '../adapters/gameViewModels';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Touch Gesture Support
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Touch timing constants - per RR-CANON-R076, this is a Host/Adapter Layer UX concern
+const LONG_PRESS_DELAY_MS = 500;
+const DOUBLE_TAP_DELAY_MS = 300;
+
 // Keyboard navigation helpers
 interface FocusableCell {
   position: Position;
@@ -246,17 +254,18 @@ const StackWidget: React.FC<{
   // and hex cells, leaving room for tall stacks while keeping labels legible.
   const verticalOffsetClasses = 'translate-y-[3px] md:translate-y-[4px]';
 
+  // Mobile-responsive ring sizing for W3-12 (44px mobile cells)
   const ringSizeClasses = isSquare8
-    ? 'w-7 md:w-8 h-[5px] md:h-[6px]'
+    ? 'w-5 sm:w-6 md:w-8 h-[4px] sm:h-[5px] md:h-[6px]'
     : isHex
       ? 'w-5 md:w-6 h-[3px] md:h-[4px]'
-      : 'w-6 md:w-7 h-[4px] md:h-[5px]';
+      : 'w-5 sm:w-6 md:w-7 h-[4px] sm:h-[4px] md:h-[5px]';
 
   const labelTextClasses = isSquare8
-    ? 'text-[9px] md:text-[10px]'
+    ? 'text-[8px] sm:text-[9px] md:text-[10px]'
     : isHex
       ? 'text-[7px] md:text-[8px]'
-      : 'text-[8px] md:text-[9px]';
+      : 'text-[7px] sm:text-[8px] md:text-[9px]';
 
   // Selection pulse classes: when selected, apply player-specific pulse animation
   const selectionClasses =
@@ -309,17 +318,18 @@ const StackFromViewModel: React.FC<{
 
   const verticalOffsetClasses = 'translate-y-[3px] md:translate-y-[4px]';
 
+  // Mobile-responsive ring sizing for W3-12 (44px mobile cells)
   const ringSizeClasses = isSquare8
-    ? 'w-7 md:w-8 h-[5px] md:h-[6px]'
+    ? 'w-5 sm:w-6 md:w-8 h-[4px] sm:h-[5px] md:h-[6px]'
     : isHex
       ? 'w-5 md:w-6 h-[3px] md:h-[4px]'
-      : 'w-6 md:w-7 h-[4px] md:h-[5px]';
+      : 'w-5 sm:w-6 md:w-7 h-[4px] sm:h-[4px] md:h-[5px]';
 
   const labelTextClasses = isSquare8
-    ? 'text-[9px] md:text-[10px]'
+    ? 'text-[8px] sm:text-[9px] md:text-[10px]'
     : isHex
       ? 'text-[7px] md:text-[8px]'
-      : 'text-[8px] md:text-[9px]';
+      : 'text-[7px] sm:text-[8px] md:text-[9px]';
 
   const selectionClasses =
     isSelected && ownerPlayerId
@@ -555,6 +565,15 @@ export const BoardView: React.FC<BoardViewProps> = ({
   // that the SVG overlay is absolutely positioned inside of).
   const boardGeometryRef = useRef<HTMLDivElement | null>(null);
   const cellRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+
+  // Touch gesture state - persists across renders for double-tap detection
+  // Per RR-CANON-R076, this is a Host/Adapter Layer UX concern
+  const touchStateRef = useRef<{
+    lastTapKey: string | null;
+    lastTapTime: number;
+    longPressTimer: ReturnType<typeof setTimeout> | null;
+    activeKey: string | null;
+  }>({ lastTapKey: null, lastTapTime: 0, longPressTimer: null, activeKey: null });
 
   // Screen reader announcements
   const [announcement, setAnnouncement] = useState<string>('');
@@ -1497,11 +1516,14 @@ export const BoardView: React.FC<BoardViewProps> = ({
 
   const renderSquareBoard = (size: number) => {
     const rows: React.ReactNode[] = [];
-    // Cell sizing: make 8x8 squares roughly 2x the original size, and
-    // 19x19 squares ~30% larger, so stacks up to height 10 remain legible
-    // without overwhelming the viewport.
+    // Cell sizing: mobile-first responsive sizing for 375px-768px viewports.
+    // Square8: 44px cells fit 8 columns in 375px (8×44 + 7×2 gaps = 366px)
+    // Square19: 44px minimum for touch targets; uses horizontal scroll on mobile.
+    // Touch target minimum: 44px (WCAG 2.1 AAA recommendation)
     const squareCellSizeClasses =
-      boardType === 'square8' ? 'w-16 h-16 md:w-20 md:h-20' : 'w-11 h-11 md:w-14 md:h-14';
+      boardType === 'square8'
+        ? 'w-11 h-11 sm:w-14 sm:h-14 md:w-20 md:h-20' // 44px → 56px → 80px
+        : 'w-11 h-11 md:w-14 md:h-14'; // 44px minimum for touch, 56px on desktop
 
     for (let y = 0; y < size; y++) {
       const cells: React.ReactNode[] = [];
@@ -1659,8 +1681,9 @@ export const BoardView: React.FC<BoardViewProps> = ({
           cellVM?.marker?.colorClass ??
           (hasMarkerBoard && marker ? getPlayerColors(marker.player).marker : null);
 
+        // Mobile-responsive marker sizing for W3-12 (44px mobile cells)
         const markerOuterSizeClasses =
-          boardType === 'square8' ? 'w-6 h-6 md:w-7 md:h-7' : 'w-5 h-5 md:w-6 md:h-6';
+          boardType === 'square8' ? 'w-5 h-5 sm:w-6 sm:h-6 md:w-7 md:h-7' : 'w-5 h-5 md:w-6 md:h-6';
 
         // Check if this cell is keyboard-focused (different from selected)
         const isFocused = focusedPosition && positionsEqual(focusedPosition, pos);
@@ -1744,6 +1767,54 @@ export const BoardView: React.FC<BoardViewProps> = ({
               !isSpectator && onCellContextMenu?.(pos);
             }}
             onFocus={() => setFocusedPosition(pos)}
+            onTouchStart={(e) => {
+              if (isSpectator || e.touches.length !== 1) return;
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) clearTimeout(ts.longPressTimer);
+              ts.activeKey = key;
+              ts.longPressTimer = setTimeout(() => {
+                if (ts.activeKey === key) {
+                  ts.activeKey = null;
+                  onCellContextMenu?.(pos);
+                }
+              }, LONG_PRESS_DELAY_MS);
+            }}
+            onTouchEnd={(e) => {
+              if (isSpectator) return;
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) {
+                clearTimeout(ts.longPressTimer);
+                ts.longPressTimer = null;
+              }
+              if (ts.activeKey !== key) return;
+              ts.activeKey = null;
+              const now = Date.now();
+              if (ts.lastTapKey === key && now - ts.lastTapTime < DOUBLE_TAP_DELAY_MS) {
+                e.preventDefault();
+                ts.lastTapKey = null;
+                ts.lastTapTime = 0;
+                onCellDoubleClick?.(pos);
+              } else {
+                ts.lastTapKey = key;
+                ts.lastTapTime = now;
+              }
+            }}
+            onTouchMove={() => {
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) {
+                clearTimeout(ts.longPressTimer);
+                ts.longPressTimer = null;
+              }
+              ts.activeKey = null;
+            }}
+            onTouchCancel={() => {
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) {
+                clearTimeout(ts.longPressTimer);
+                ts.longPressTimer = null;
+              }
+              ts.activeKey = null;
+            }}
             className={`${cellClasses} ${focusClasses} ${isSpectator ? 'cursor-default' : 'cursor-pointer'}`}
             disabled={isSpectator}
             tabIndex={0}
@@ -2081,6 +2152,54 @@ export const BoardView: React.FC<BoardViewProps> = ({
               !isSpectator && onCellContextMenu?.(pos);
             }}
             onFocus={() => setFocusedPosition(pos)}
+            onTouchStart={(e) => {
+              if (isSpectator || e.touches.length !== 1) return;
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) clearTimeout(ts.longPressTimer);
+              ts.activeKey = key;
+              ts.longPressTimer = setTimeout(() => {
+                if (ts.activeKey === key) {
+                  ts.activeKey = null;
+                  onCellContextMenu?.(pos);
+                }
+              }, LONG_PRESS_DELAY_MS);
+            }}
+            onTouchEnd={(e) => {
+              if (isSpectator) return;
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) {
+                clearTimeout(ts.longPressTimer);
+                ts.longPressTimer = null;
+              }
+              if (ts.activeKey !== key) return;
+              ts.activeKey = null;
+              const now = Date.now();
+              if (ts.lastTapKey === key && now - ts.lastTapTime < DOUBLE_TAP_DELAY_MS) {
+                e.preventDefault();
+                ts.lastTapKey = null;
+                ts.lastTapTime = 0;
+                onCellDoubleClick?.(pos);
+              } else {
+                ts.lastTapKey = key;
+                ts.lastTapTime = now;
+              }
+            }}
+            onTouchMove={() => {
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) {
+                clearTimeout(ts.longPressTimer);
+                ts.longPressTimer = null;
+              }
+              ts.activeKey = null;
+            }}
+            onTouchCancel={() => {
+              const ts = touchStateRef.current;
+              if (ts.longPressTimer) {
+                clearTimeout(ts.longPressTimer);
+                ts.longPressTimer = null;
+              }
+              ts.activeKey = null;
+            }}
             className={`${cellClasses} ${focusClasses} ${isSpectator ? 'cursor-default' : 'cursor-pointer'}`}
             disabled={isSpectator}
             tabIndex={0}
@@ -2188,10 +2307,17 @@ export const BoardView: React.FC<BoardViewProps> = ({
     return null;
   };
 
+  // Mobile viewport scroll handling (W3-12):
+  // - Square8: 8×44px cells + 7×2px gaps = 366px fits in 375px viewport
+  // - Square19: 19×44px + 18×2px = 872px requires horizontal scroll
+  // - board-scroll-container provides touch-friendly scrolling for oversized boards
+  // - board-container prevents text selection during drag
+  const needsScroll = effectiveBoardType === 'square19' || effectiveBoardType === 'hexagonal';
+
   return (
     <div
       ref={boardContainerRef}
-      className="inline-block"
+      className={`inline-block board-container ${needsScroll ? 'board-scroll-container' : ''}`}
       data-testid="board-view"
       tabIndex={0}
       onKeyDown={handleKeyDown}

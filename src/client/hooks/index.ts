@@ -112,6 +112,20 @@ export {
 } from './useIsMobile';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Touch Gesture Hooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  // Touch gesture detection
+  useTouchGestures,
+  useCellTouchGestures,
+  // Types
+  type TouchGestureOptions,
+  type TouchGestureCallbacks,
+  type TouchGestureHandlers,
+} from './useTouchGestures';
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Keyboard Navigation Hooks
 // ═══════════════════════════════════════════════════════════════════════════
 

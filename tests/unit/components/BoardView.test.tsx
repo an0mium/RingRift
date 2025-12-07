@@ -171,8 +171,8 @@ describe('BoardView', () => {
         <BoardView boardType="square8" board={board} validTargets={validTargets} />
       );
 
-      // Check that valid targets have outline styling
-      const highlightedCells = container.querySelectorAll('.outline-emerald-300\\/90');
+      // Check that valid targets have outline styling (square8 uses emerald-400/95)
+      const highlightedCells = container.querySelectorAll('.outline-emerald-400\\/95');
       expect(highlightedCells.length).toBeGreaterThanOrEqual(2);
     });
   });
