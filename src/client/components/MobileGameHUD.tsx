@@ -409,10 +409,10 @@ export function MobileGameHUD({
     const baseEvent = {
       boardType: rulesUxBoardType,
       numPlayers: rulesUxNumPlayers,
-      aiDifficulty: rulesUxAiDifficulty,
       topic: currentTopic,
-      rulesConcept: rulesUxRulesConcept,
-      scenarioId: rulesUxScenarioId,
+      ...(rulesUxAiDifficulty !== undefined ? { aiDifficulty: rulesUxAiDifficulty } : {}),
+      ...(rulesUxRulesConcept ? { rulesConcept: rulesUxRulesConcept } : {}),
+      ...(rulesUxScenarioId ? { scenarioId: rulesUxScenarioId } : {}),
     } as const;
 
     void sendRulesUxEvent({
@@ -494,11 +494,11 @@ export function MobileGameHUD({
       type: 'rules_weird_state_help',
       boardType: rulesUxBoardType,
       numPlayers: rulesUxNumPlayers,
-      aiDifficulty: rulesUxAiDifficulty,
       weirdStateType,
       topic,
-      rulesConcept: rulesUxRulesConcept,
-      scenarioId: rulesUxScenarioId,
+      ...(rulesUxAiDifficulty !== undefined ? { aiDifficulty: rulesUxAiDifficulty } : {}),
+      ...(rulesUxRulesConcept ? { rulesConcept: rulesUxRulesConcept } : {}),
+      ...(rulesUxScenarioId ? { scenarioId: rulesUxScenarioId } : {}),
     });
   }, [
     rulesUxAiDifficulty,
@@ -581,7 +581,7 @@ export function MobileGameHUD({
             </span>
             <MobileDecisionTimer
               timeRemainingMs={decisionPhase.timeRemainingMs}
-              isServerCapped={decisionPhase.isServerCapped}
+              {...(decisionPhase.isServerCapped ? { isServerCapped: true } : {})}
             />
           </div>
         )}

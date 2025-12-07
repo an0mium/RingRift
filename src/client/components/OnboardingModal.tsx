@@ -201,30 +201,22 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
       const baseEvent = {
         boardType,
         numPlayers,
-        aiDifficulty: undefined,
         topic: ONBOARDING_TOPIC,
         rulesConcept: ONBOARDING_RULES_CONCEPT,
-        scenarioId: undefined,
         isSandbox: true,
       } as const;
 
       void logHelpOpenEvent({
         boardType,
         numPlayers,
-        aiDifficulty: undefined,
         difficulty: 'tutorial',
-        rulesContext: undefined,
         rulesConcept: ONBOARDING_RULES_CONCEPT,
         topic: ONBOARDING_TOPIC,
-        scenarioId: undefined,
         source: 'sandbox',
         entrypoint: 'sandbox_toolbar_help',
-        gameId: undefined,
         isRanked: false,
         isCalibrationGame: false,
         isSandbox: true,
-        seatIndex: undefined,
-        perspectivePlayerCount: undefined,
         helpSessionId,
       });
 
@@ -245,10 +237,8 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
         type: 'help_topic_view',
         boardType,
         numPlayers,
-        aiDifficulty: undefined,
         topic: ONBOARDING_TOPIC,
         rulesConcept: ONBOARDING_RULES_CONCEPT,
-        scenarioId: undefined,
         isSandbox: true,
         helpSessionId,
         payload: {
@@ -353,10 +343,8 @@ export function OnboardingModal({ isOpen, onClose, onStartTutorial }: Onboarding
       type: 'help_topic_view',
       boardType,
       numPlayers,
-      aiDifficulty: undefined,
       topic: ONBOARDING_TOPIC,
       rulesConcept: ONBOARDING_RULES_CONCEPT,
-      scenarioId: undefined,
       isSandbox: true,
       helpSessionId,
       payload,

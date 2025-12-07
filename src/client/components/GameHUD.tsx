@@ -1432,9 +1432,9 @@ function GameHUDFromViewModel({
       source: 'hud',
       weirdStateType,
       reasonCode,
-      rulesConcept: rulesUxRulesConcept,
-      scenarioId: rulesUxScenarioId,
       overlaySessionId,
+      ...(rulesUxRulesConcept ? { rulesConcept: rulesUxRulesConcept } : {}),
+      ...(rulesUxScenarioId ? { scenarioId: rulesUxScenarioId } : {}),
       ...(rulesUxAiDifficulty !== undefined ? { aiDifficulty: rulesUxAiDifficulty } : {}),
     });
   }, [
@@ -1494,10 +1494,10 @@ function GameHUDFromViewModel({
       source: 'hud',
       weirdStateType,
       reasonCode,
-      rulesConcept: rulesUxRulesConcept,
-      scenarioId: rulesUxScenarioId,
       overlaySessionId,
       topic,
+      ...(rulesUxRulesConcept ? { rulesConcept: rulesUxRulesConcept } : {}),
+      ...(rulesUxScenarioId ? { scenarioId: rulesUxScenarioId } : {}),
       ...(rulesUxAiDifficulty !== undefined ? { aiDifficulty: rulesUxAiDifficulty } : {}),
     });
 
@@ -1508,8 +1508,8 @@ function GameHUDFromViewModel({
       numPlayers: rulesUxNumPlayers,
       weirdStateType,
       topic,
-      rulesConcept: rulesUxRulesConcept,
-      scenarioId: rulesUxScenarioId,
+      ...(rulesUxRulesConcept ? { rulesConcept: rulesUxRulesConcept } : {}),
+      ...(rulesUxScenarioId ? { scenarioId: rulesUxScenarioId } : {}),
       ...(rulesUxAiDifficulty !== undefined ? { aiDifficulty: rulesUxAiDifficulty } : {}),
     });
 

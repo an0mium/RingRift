@@ -2,7 +2,6 @@
  * MoveInfo - Display details about the current move in replay.
  */
 
-import React from 'react';
 import type { ReplayMoveRecord } from '../../types/replay';
 
 export interface MoveInfoProps {

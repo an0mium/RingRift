@@ -3703,6 +3703,17 @@ export class ClientSandboxEngine {
         }
       }
 
+      // Align terminal metadata with backend: when the game ends, advance the
+      // current player to the next turn holder so game_over snapshots match
+      // Python’s post-advance semantics used in parity harnesses.
+      if (this.gameState.gameStatus !== 'active' && this.gameState.currentPhase === 'game_over') {
+        const nextPlayer = this.getNextPlayerNumber(move.player);
+        this.gameState = {
+          ...this.gameState,
+          currentPlayer: nextPlayer,
+        };
+      }
+
       this.appendHistoryEntry(beforeStateForHistory, move);
     } else {
       // No semantic change, but we still want a stable history step for
@@ -3781,6 +3792,14 @@ export class ClientSandboxEngine {
             iterations += 1;
           }
         }
+      }
+
+      if (this.gameState.gameStatus !== 'active' && this.gameState.currentPhase === 'game_over') {
+        const nextPlayer = this.getNextPlayerNumber(move.player);
+        this.gameState = {
+          ...this.gameState,
+          currentPlayer: nextPlayer,
+        };
       }
 
       this.appendHistoryEntry(beforeStateForHistory, move);
