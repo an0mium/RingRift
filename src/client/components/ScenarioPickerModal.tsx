@@ -159,11 +159,11 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
 
   const onboardingScenarios =
     activeTab === 'curated'
-      ? filteredScenarios.filter((scenario) => (scenario as any).onboarding)
+      ? filteredScenarios.filter((scenario) => scenario.onboarding)
       : [];
   const nonOnboardingScenarios =
     activeTab === 'curated'
-      ? filteredScenarios.filter((scenario) => !(scenario as any).onboarding)
+      ? filteredScenarios.filter((scenario) => !scenario.onboarding)
       : filteredScenarios;
 
   return (
@@ -305,7 +305,7 @@ export const ScenarioPickerModal: React.FC<ScenarioPickerModalProps> = ({
                           onClose();
                         }}
                         developerToolsEnabled={developerToolsEnabled}
-                        showRulesSnippet={!!(scenario as any).rulesSnippet}
+                        showRulesSnippet={!!scenario.rulesSnippet}
                       />
                     ))}
                   </div>
@@ -373,10 +373,10 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({
       <div className="flex-1 min-w-0">
         <h3 className="font-medium text-white truncate">{scenario.name}</h3>
         <p className="text-sm text-slate-400 line-clamp-2 mt-1">{scenario.description}</p>
-        {showRulesSnippet && (scenario as any).rulesSnippet && (
+        {showRulesSnippet && scenario.rulesSnippet && (
           <div className="mt-2 px-3 py-2 rounded-lg bg-emerald-900/40 border border-emerald-700/60 text-[11px] text-emerald-100">
             <span className="font-semibold">Rules context:</span>{' '}
-            <span>{(scenario as any).rulesSnippet}</span>
+            <span>{scenario.rulesSnippet}</span>
           </div>
         )}
         <div className="flex flex-wrap gap-1 mt-2">

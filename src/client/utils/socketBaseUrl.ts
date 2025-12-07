@@ -5,12 +5,17 @@
  * and the new SocketGameConnection service so that the URL selection
  * logic has a single source of truth.
  */
+/** Vite injects client env vars via a synthetic __VITE_ENV__ object on globalThis. */
+interface ViteEnvWindow {
+  __VITE_ENV__?: Record<string, string | undefined>;
+}
+
 export function getSocketBaseUrl(): string {
   // Vite exposes env variables on import.meta.env; in the bundled client this
   // is wired to globalThis.__VITE_ENV__ via vite.config.ts `define`.
   // Using the global avoids Jest parse issues with raw `import.meta` syntax.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const env: Record<string, string | undefined> = (globalThis as any).__VITE_ENV__ ?? {};
+  const viteGlobal = globalThis as unknown as ViteEnvWindow;
+  const env: Record<string, string | undefined> = viteGlobal.__VITE_ENV__ ?? {};
 
   const wsUrl = env.VITE_WS_URL as string | undefined;
   if (wsUrl) {

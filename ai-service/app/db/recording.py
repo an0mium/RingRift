@@ -343,6 +343,18 @@ def record_completed_game_with_parity_check(
         return gid
 
     # Run parity validation (will raise on strict mode with divergence)
-    validate_game_parity(str(db_path), gid, mode=effective_mode)
+    try:
+        validate_game_parity(str(db_path), gid, mode=effective_mode)
+    except ParityValidationError:
+        # Parity failure: remove the just-recorded game so it never lingers
+        # in the DB. This keeps canonical/self-play DBs clean while still
+        # allowing long soak runs to continue.
+        try:
+            db.delete_game(gid)
+        except Exception:
+            # Best-effort cleanup; swallow any deletion failure.
+            pass
+        # Re-raise so callers can decide whether to halt or skip.
+        raise
 
     return gid

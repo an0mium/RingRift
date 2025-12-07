@@ -452,7 +452,7 @@ export function getPlayerColors(playerNumber?: number) {
 // Phase Helpers
 // ═══════════════════════════════════════════════════════════════════════════
 
-const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
+export const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
   ring_placement: {
     label: 'Ring Placement',
     description: 'Place your rings on the board to build stacks',
@@ -509,6 +509,14 @@ const PHASE_INFO: Record<GamePhase, Omit<PhaseViewModel, 'phaseKey'>> = {
     icon: '💥',
     actionHint: 'Choose which stack to sacrifice when prompted',
     spectatorHint: 'Player is paying a forced elimination cost',
+  },
+  game_over: {
+    label: 'Game Over',
+    description: 'The game has ended.',
+    colorClass: 'bg-slate-600',
+    icon: '🏁',
+    actionHint: '',
+    spectatorHint: 'The game has concluded',
   },
 };
 
@@ -831,9 +839,9 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       // skip_territory_processing Move is selected via moveId.
       canSkip:
         vm.kind === 'territory_region_order' &&
-        Array.isArray((pendingChoice as any).options) &&
-        (pendingChoice as any).options.some(
-          (opt: { regionId?: string; size?: number } | null | undefined) =>
+        pendingChoice.type === 'region_order' &&
+        pendingChoice.options.some(
+          (opt) =>
             !!opt && (opt.regionId === 'skip' || (typeof opt.size === 'number' && opt.size <= 0))
         ),
     };

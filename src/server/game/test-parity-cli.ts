@@ -1,8 +1,18 @@
 import { RuleEngine } from './RuleEngine';
 import { BoardManager } from './BoardManager';
-import { GameState, Move } from '../../shared/types/game';
+import { GameState, Move, Position } from '../../shared/types/game';
 import { hashGameState } from '../../shared/engine/core';
 import { readFileSync } from 'fs';
+
+/** Position with optional nullable z from Python/JSON */
+type PositionWithNullableZ = Position & { z?: number | null };
+
+/** Clean up position z=null to undefined so it matches the TS Move model */
+function cleanNullZ(pos: PositionWithNullableZ | undefined): void {
+  if (pos && pos.z === null) {
+    delete pos.z;
+  }
+}
 
 async function main() {
   const inputFile = process.argv[2];
@@ -17,15 +27,9 @@ async function main() {
     const move = inputData.move as Move;
 
     // Clean up position z=null to undefined so it matches the TS Move model
-    if (move.to && (move.to as any).z === null) {
-      delete (move.to as any).z;
-    }
-    if (move.from && (move.from as any).z === null) {
-      delete (move.from as any).z;
-    }
-    if (move.captureTarget && (move.captureTarget as any).z === null) {
-      delete (move.captureTarget as any).z;
-    }
+    cleanNullZ(move.to as PositionWithNullableZ | undefined);
+    cleanNullZ(move.from as PositionWithNullableZ | undefined);
+    cleanNullZ(move.captureTarget as PositionWithNullableZ | undefined);
 
     // Map legacy/Python MoveTypes to canonical TS MoveTypes if needed
     // (Though Python should now be emitting canonical types)
@@ -57,20 +61,23 @@ async function main() {
 
     // Convert plain objects to Maps for board state, since the shared
     // engine helpers and RuleEngine expect Map-based collections.
+    // The board type is loosened here since we're handling raw JSON from Python
+    // where collections may be plain objects instead of Maps.
     if (gameState.board) {
-      const board: any = gameState.board as any;
+      // Cast through unknown since raw JSON has object-based collections, not Maps
+      const board = gameState.board as unknown as Record<string, unknown>;
 
       if (board.stacks && !(board.stacks instanceof Map)) {
-        board.stacks = new Map(Object.entries(board.stacks));
+        board.stacks = new Map(Object.entries(board.stacks as Record<string, unknown>));
       }
       if (board.markers && !(board.markers instanceof Map)) {
-        board.markers = new Map(Object.entries(board.markers));
+        board.markers = new Map(Object.entries(board.markers as Record<string, unknown>));
       }
       if (board.collapsedSpaces && !(board.collapsedSpaces instanceof Map)) {
-        board.collapsedSpaces = new Map(Object.entries(board.collapsedSpaces));
+        board.collapsedSpaces = new Map(Object.entries(board.collapsedSpaces as Record<string, unknown>));
       }
       if (board.territories && !(board.territories instanceof Map)) {
-        board.territories = new Map(Object.entries(board.territories));
+        board.territories = new Map(Object.entries(board.territories as Record<string, unknown>));
       }
     }
 

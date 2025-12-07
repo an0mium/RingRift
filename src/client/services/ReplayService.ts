@@ -353,12 +353,28 @@ export function adaptHistoryToGameRecord(
     }
   });
 
+  // Type for raw move data with optional fields
+  interface RawMoveData {
+    player?: number;
+    type?: string;
+    from?: unknown;
+    to?: unknown;
+    captureTarget?: unknown;
+    placementCount?: number;
+    placedOnStack?: boolean;
+    formedLines?: LineInfo[];
+    collapsedMarkers?: Position[];
+    disconnectedRegions?: Territory[];
+    eliminatedRings?: { player: number; count: number }[];
+    thinkTimeMs?: number;
+    thinkTime?: number;
+  }
+
   // Infer number of players from details first, then from history payload.
   const distinctSeatsFromHistory = new Set<number>();
   historyMoves.forEach((entry) => {
-    const raw = entry.moveData ?? {};
-    const seat =
-      typeof (raw as any).player === 'number' ? ((raw as any).player as number) : undefined;
+    const raw = (entry.moveData ?? {}) as RawMoveData;
+    const seat = typeof raw.player === 'number' ? raw.player : undefined;
     if (seat) distinctSeatsFromHistory.add(seat);
   });
 
@@ -380,9 +396,8 @@ export function adaptHistoryToGameRecord(
 
   // Helper to choose a player seat for a history entry.
   const inferPlayerSeat = (entry: GameHistoryMove): number => {
-    const raw = entry.moveData ?? {};
-    const seatFromMove =
-      typeof (raw as any).player === 'number' ? ((raw as any).player as number) : undefined;
+    const raw = (entry.moveData ?? {}) as RawMoveData;
+    const seatFromMove = typeof raw.player === 'number' ? raw.player : undefined;
     if (seatFromMove && seatFromMove >= 1 && seatFromMove <= numPlayers) {
       return seatFromMove;
     }
@@ -397,45 +412,39 @@ export function adaptHistoryToGameRecord(
   const movesForDisplay: Move[] = [];
 
   historyMoves.forEach((entry) => {
-    const raw = entry.moveData ?? {};
-    const type = ((raw as any).type ?? entry.moveType) as MoveRecord['type'];
+    const raw = (entry.moveData ?? {}) as RawMoveData;
+    const type = (raw.type ?? entry.moveType) as MoveRecord['type'];
 
-    const from = isPosition((raw as any).from) ? ((raw as any).from as Position) : undefined;
-    const to = isPosition((raw as any).to) ? ((raw as any).to as Position) : undefined;
-    const captureTarget = isPosition((raw as any).captureTarget)
-      ? ((raw as any).captureTarget as Position)
-      : undefined;
+    const from = isPosition(raw.from) ? (raw.from as Position) : undefined;
+    const to = isPosition(raw.to) ? (raw.to as Position) : undefined;
+    const captureTarget = isPosition(raw.captureTarget) ? (raw.captureTarget as Position) : undefined;
 
     const placementCount =
-      typeof (raw as any).placementCount === 'number'
-        ? ((raw as any).placementCount as number)
-        : undefined;
+      typeof raw.placementCount === 'number' ? raw.placementCount : undefined;
     const placedOnStack =
-      typeof (raw as any).placedOnStack === 'boolean'
-        ? ((raw as any).placedOnStack as boolean)
-        : undefined;
+      typeof raw.placedOnStack === 'boolean' ? raw.placedOnStack : undefined;
 
     const formedLines =
-      Array.isArray((raw as any).formedLines) && (raw as any).formedLines.length > 0
-        ? ((raw as any).formedLines as LineInfo[])
+      Array.isArray(raw.formedLines) && raw.formedLines.length > 0
+        ? raw.formedLines
         : undefined;
     const collapsedMarkers =
-      Array.isArray((raw as any).collapsedMarkers) && (raw as any).collapsedMarkers.length > 0
-        ? ((raw as any).collapsedMarkers as Position[])
+      Array.isArray(raw.collapsedMarkers) && raw.collapsedMarkers.length > 0
+        ? raw.collapsedMarkers
         : undefined;
     const disconnectedRegions =
-      Array.isArray((raw as any).disconnectedRegions) && (raw as any).disconnectedRegions.length > 0
-        ? ((raw as any).disconnectedRegions as Territory[])
+      Array.isArray(raw.disconnectedRegions) && raw.disconnectedRegions.length > 0
+        ? raw.disconnectedRegions
         : undefined;
     const eliminatedRings =
-      Array.isArray((raw as any).eliminatedRings) && (raw as any).eliminatedRings.length > 0
-        ? ((raw as any).eliminatedRings as { player: number; count: number }[])
+      Array.isArray(raw.eliminatedRings) && raw.eliminatedRings.length > 0
+        ? raw.eliminatedRings
         : undefined;
 
-    const thinkTimeCandidate = (raw as any).thinkTimeMs ?? (raw as any).thinkTime;
+    const thinkTimeCandidate = raw.thinkTimeMs ?? raw.thinkTime;
     const thinkTimeMs =
       typeof thinkTimeCandidate === 'number' && Number.isFinite(thinkTimeCandidate)
-        ? (thinkTimeCandidate as number)
+        ? thinkTimeCandidate
         : 0;
 
     const player = inferPlayerSeat(entry);

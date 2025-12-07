@@ -28,7 +28,6 @@ from .neural_net import (
     NeuralNetAI,
     INVALID_MOVE_INDEX,
     ActionEncoderHex,
-    HexNeuralNet,
 )
 from ..models import GameState, Move, AIConfig, BoardType
 from ..rules.mutable_state import MutableGameState
@@ -108,9 +107,11 @@ class DescentAI(BaseAI):
         )
 
         # Try to load neural net for evaluation when enabled.
+        # NeuralNetAI now uses lazy initialization to select the correct
+        # board-specific model (RingRiftCNN_MPS for square, HexNeuralNet for hex)
+        # when it first sees a game state.
         self.neural_net: Optional[NeuralNetAI]
         self.hex_encoder: Optional[ActionEncoderHex]
-        self.hex_model: Optional[HexNeuralNet]
 
         if self.use_neural_net:
             try:
@@ -127,21 +128,8 @@ class DescentAI(BaseAI):
         else:
             self.neural_net = None
 
-        # Optional hex-specific encoder and network (used for hex boards).
-        if self.neural_net is not None:
-            try:
-                # in_channels and global_features must match _extract_features.
-                self.hex_encoder = ActionEncoderHex()
-                self.hex_model = HexNeuralNet(
-                    in_channels=10,
-                    global_features=10,
-                )
-            except Exception:
-                self.hex_encoder = None
-                self.hex_model = None
-        else:
-            self.hex_encoder = None
-            self.hex_model = None
+        # Hex-specific action encoder (used for move index calculation on hex boards)
+        self.hex_encoder = ActionEncoderHex() if self.neural_net else None
 
         # Memory configuration for bounded structures
         self.memory_config = memory_config or MemoryConfig.from_env()
@@ -538,27 +526,29 @@ class DescentAI(BaseAI):
             if self.neural_net:
                 try:
                     # Decide whether to use the hex-specific network based on
-                    # the current board geometry.
+                    # the current board geometry. NeuralNetAI now lazily
+                    # initializes the correct model (HexNeuralNet for hex boards).
                     use_hex_nn = (
-                        self.hex_model is not None
-                        and self.hex_encoder is not None
+                        self.hex_encoder is not None
                         and state.board.type == BoardType.HEXAGONAL
                     )
 
                     if use_hex_nn:
-                        # Single-state batch for the hex model, reusing the
-                        # shared feature encoder from NeuralNetAI so that
-                        # square and hex paths stay in sync.
+                        # Single-state batch for the hex model. NeuralNetAI's
+                        # model will be HexNeuralNet after lazy initialization.
                         feats, globs = self.neural_net._extract_features(state)
                         tensor_input = torch.FloatTensor(
                             np.array([feats])
-                        )
+                        ).to(self.neural_net.device)
                         globals_input = torch.FloatTensor(
                             np.array([globs])
-                        )
+                        ).to(self.neural_net.device)
+
+                        # Ensure model is initialized for hex board type
+                        self.neural_net._ensure_model_initialized(state.board.type)
 
                         with torch.no_grad():
-                            _, policy_logits_tensor = self.hex_model(
+                            _, policy_logits_tensor = self.neural_net.model(
                                 tensor_input,
                                 globals_input,
                                 hex_mask=None,
@@ -834,29 +824,31 @@ class DescentAI(BaseAI):
             if self.neural_net:
                 try:
                     # Decide whether to use the hex-specific network based on
-                    # the current board geometry.
+                    # the current board geometry. NeuralNetAI now lazily
+                    # initializes the correct model (HexNeuralNet for hex boards).
                     use_hex_nn = (
-                        self.hex_model is not None
-                        and self.hex_encoder is not None
+                        self.hex_encoder is not None
                         and state.board_type == BoardType.HEXAGONAL
                     )
 
                     if use_hex_nn:
-                        # Single-state batch for the hex model, reusing the
-                        # shared feature encoder from NeuralNetAI so that
-                        # square and hex paths stay in sync.
+                        # Single-state batch for the hex model. NeuralNetAI's
+                        # model will be HexNeuralNet after lazy initialization.
                         feats, globs = self.neural_net._extract_features(
                             immutable
                         )
                         tensor_input = torch.FloatTensor(
                             np.array([feats])
-                        )
+                        ).to(self.neural_net.device)
                         globals_input = torch.FloatTensor(
                             np.array([globs])
-                        )
+                        ).to(self.neural_net.device)
+
+                        # Ensure model is initialized for hex board type
+                        self.neural_net._ensure_model_initialized(state.board_type)
 
                         with torch.no_grad():
-                            _, policy_logits_tensor = self.hex_model(
+                            _, policy_logits_tensor = self.neural_net.model(
                                 tensor_input,
                                 globals_input,
                                 hex_mask=None,

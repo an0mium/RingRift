@@ -13,10 +13,16 @@ import api from '../services/api';
  * - Swallows errors; telemetry must never affect UX flow.
  */
 
+/** Vite injects client env vars via a synthetic __VITE_ENV__ object on globalThis. */
+interface ViteEnvWindow {
+  __VITE_ENV__?: Record<string, string | undefined>;
+}
+
 function getEnv(): Record<string, string | undefined> {
   // Vite injects client env vars via a synthetic __VITE_ENV__ object on globalThis
   // (see rulesUxTelemetry.ts and errorReporting.ts for the same pattern).
-  return ((globalThis as any).__VITE_ENV__ as Record<string, string | undefined> | undefined) ?? {};
+  const viteGlobal = globalThis as unknown as ViteEnvWindow;
+  return viteGlobal.__VITE_ENV__ ?? {};
 }
 
 function isTelemetryEnabled(): boolean {

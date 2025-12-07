@@ -16,9 +16,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useGame } from '../contexts/GameContext';
 import { useAuth } from '../contexts/AuthContext';
-import type { Move, Position, PlayerChoice } from '../../shared/types/game';
+import type { Move, Position, PlayerChoice, GameState } from '../../shared/types/game';
 import { getChoiceViewModel } from '../adapters/choiceViewModels';
 import type { ChoiceViewModel } from '../adapters/choiceViewModels';
+
+/** Type guard to check if a player matches the authenticated user */
+function isUserPlayer(
+  gameState: GameState | null,
+  userId: string | undefined
+): boolean {
+  if (!gameState || !userId) return false;
+  const players = gameState.players;
+  if (!Array.isArray(players)) return false;
+  return players.some(
+    (p) => p.id === userId || (p as { userId?: string }).userId === userId
+  );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -164,12 +177,7 @@ export function useGameActions() {
         return;
       }
 
-      const isPlayer =
-        !!user &&
-        Array.isArray((gameState as any).players) &&
-        (gameState as any).players.some((p: any) => p.id === user.id || p.userId === user.id);
-
-      if (!isPlayer) {
+      if (!isUserPlayer(gameState, user?.id)) {
         console.warn('submitMove called by spectator – ignoring');
         return;
       }
@@ -204,12 +212,7 @@ export function useGameActions() {
         return;
       }
 
-      const isPlayer =
-        !!user &&
-        Array.isArray((gameState as any).players) &&
-        (gameState as any).players.some((p: any) => p.id === user.id || p.userId === user.id);
-
-      if (!isPlayer) {
+      if (!isUserPlayer(gameState, user?.id)) {
         console.warn('respondToChoice called by spectator – ignoring');
         return;
       }
@@ -259,12 +262,7 @@ export function useGameActions() {
 
     // Spectators are always read-only: they can observe clocks, phases, and
     // chat, but must never submit moves or decision responses.
-    const isPlayer =
-      !!user &&
-      Array.isArray((gameState as any).players) &&
-      (gameState as any).players.some((p: any) => p.id === user.id || p.userId === user.id);
-
-    if (!isPlayer) {
+    if (!isUserPlayer(gameState, user?.id)) {
       return {
         canSubmitMove: false,
         canRespondToChoice: false,

@@ -980,18 +980,17 @@ def create_model_for_board(
     board_size = get_spatial_size_for_board(board_type)
     policy_size = get_policy_size_for_board(board_type)
 
-    # Special case: hex boards use HexNeuralNet
+    # Hex boards ALWAYS use HexNeuralNet (designed for hexagonal coordinate system)
+    # RingRiftCNN uses rectangular convolutions which are inefficient for hex grids
     if board_type == BoardType.HEXAGONAL:
-        if model_class in ("HexNeuralNet", "auto"):
-            return HexNeuralNet(
-                in_channels=in_channels * (history_length + 1),
-                global_features=global_features,
-                num_res_blocks=num_res_blocks,
-                num_filters=num_filters,
-                board_size=board_size,
-                policy_size=policy_size,
-            )
-        # Fall through to use standard models for hex if explicitly requested
+        return HexNeuralNet(
+            in_channels=in_channels * (history_length + 1),
+            global_features=global_features,
+            num_res_blocks=num_res_blocks,
+            num_filters=num_filters,
+            board_size=board_size,
+            policy_size=policy_size,
+        )
 
     # Select model class
     if model_class == "RingRiftCNN_MultiPlayer_MPS" or (
@@ -1123,6 +1122,17 @@ class NeuralNetAI(BaseAI):
       for both training and inference and must match the value used when
       the checkpoint was trained.
 
+    Board-specific model selection:
+        The model architecture is automatically selected based on the board
+        type of the first game state processed:
+        - SQUARE8: RingRiftCNN_MPS (7K policy head)
+        - SQUARE19: RingRiftCNN_MPS (67K policy head)
+        - HEXAGONAL: HexNeuralNet (92K policy head, with D6 symmetry)
+
+        This is done via lazy initialization - the model is not created
+        until the first game state is seen. You can also pass board_type
+        to __init__ to force early initialization.
+
     Training vs inference:
         The class itself is agnostic to training vs inference. In
         production it is normally used in inference mode, with a
@@ -1132,7 +1142,12 @@ class NeuralNetAI(BaseAI):
         ``history_length + 1`` frames per game to bound memory usage.
     """
 
-    def __init__(self, player_number: int, config: Any):
+    def __init__(
+        self,
+        player_number: int,
+        config: Any,
+        board_type: Optional[BoardType] = None,
+    ):
         super().__init__(player_number, config)
         # Initialize model
         # Channels:
@@ -1155,6 +1170,9 @@ class NeuralNetAI(BaseAI):
         # Dict[str, List[np.ndarray]] - Keyed by game_id
         self.game_history = {}
 
+        # Track which board type we're initialized for
+        self._initialized_board_type: Optional[BoardType] = None
+
         # Device detection
         import os
 
@@ -1171,18 +1189,18 @@ class NeuralNetAI(BaseAI):
         # - "auto": Auto-select MPS architecture if MPS available (RECOMMENDED)
         # Default is "auto" to avoid AdaptiveAvgPool2d crashes on MPS for 19x19
         arch_type = os.environ.get("RINGRIFT_NN_ARCHITECTURE", "auto")
-        use_mps_arch = False
+        self._use_mps_arch = False
 
         if arch_type == "mps":
-            use_mps_arch = True
+            self._use_mps_arch = True
         elif arch_type == "auto":
             # Auto-select MPS architecture if MPS is available
             if (torch.backends.mps.is_available() and
                 not disable_mps and not force_cpu):
-                use_mps_arch = True
+                self._use_mps_arch = True
 
         # Device selection - prefer MPS when using MPS architecture
-        if use_mps_arch:
+        if self._use_mps_arch:
             if (torch.backends.mps.is_available() and
                 not disable_mps and not force_cpu):
                 self.device = torch.device("mps")
@@ -1213,70 +1231,131 @@ class NeuralNetAI(BaseAI):
                     )
 
         # Determine architecture type
-        self.architecture_type = "mps" if use_mps_arch else "default"
+        self.architecture_type = "mps" if self._use_mps_arch else "default"
 
-        # Resolve model path for cache key
-        # Use absolute path relative to this file. Go up 3 levels:
-        # neural_net.py -> ai/ -> app/ -> ai-service/
-        base_dir = os.path.dirname(
+        # Store base_dir for model path resolution
+        self._base_dir = os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         )
+
+        # Model will be lazily initialized when we see the first game state
+        # unless board_type is explicitly provided
+        self.model: Optional[nn.Module] = None
+
+        # If board_type is explicitly provided, initialize the model now
+        if board_type is not None:
+            self._ensure_model_initialized(board_type)
+
+    def _ensure_model_initialized(self, board_type: BoardType) -> None:
+        """Ensure the model is initialized for the given board type.
+
+        This method is called lazily when the first game state is processed,
+        or eagerly if board_type was passed to __init__.
+
+        Args:
+            board_type: The board type to initialize the model for.
+        """
+        # Already initialized for this board type?
+        if self._initialized_board_type == board_type and self.model is not None:
+            return
+
+        # Already initialized for a different board type? This is an error.
+        if self._initialized_board_type is not None:
+            raise RuntimeError(
+                f"NeuralNetAI was initialized for {self._initialized_board_type} "
+                f"but is now being used with {board_type}. Create a new instance "
+                f"for different board types."
+            )
+
+        import os
+
+        # Update board_size based on board_type
+        self.board_size = get_spatial_size_for_board(board_type)
 
         model_id = getattr(self.config, "nn_model_id", None)
         if not model_id:
             model_id = "ringrift_v1"
 
+        # Board-type-specific model path (e.g., ringrift_v1_hex_mps.pth)
+        board_suffix = ""
+        if board_type == BoardType.HEXAGONAL:
+            board_suffix = "_hex"
+        elif board_type == BoardType.SQUARE19:
+            board_suffix = "_19x19"
+        # SQUARE8 uses the base model name (legacy compatibility)
+
         # Architecture-specific checkpoint naming
-        # MPS checkpoints use "_mps" suffix (e.g., "ringrift_v1_mps.pth")
         if self.architecture_type == "mps":
-            model_filename = f"{model_id}_mps.pth"
+            model_filename = f"{model_id}{board_suffix}_mps.pth"
         else:
-            model_filename = f"{model_id}.pth"
+            model_filename = f"{model_id}{board_suffix}.pth"
 
-        model_path = os.path.join(base_dir, "models", model_filename)
+        model_path = os.path.join(self._base_dir, "models", model_filename)
 
-        # Build cache key
-        cache_key = (self.architecture_type, str(self.device), model_path)
+        # Build cache key including board_type
+        cache_key = (
+            self.architecture_type,
+            str(self.device),
+            model_path,
+            board_type.value if board_type else "unknown",
+        )
 
         # Check cache for existing model
         if cache_key in _MODEL_CACHE:
             self.model = _MODEL_CACHE[cache_key]
+            self._initialized_board_type = board_type
             logger.debug(
-                f"Reusing cached model: arch={self.architecture_type}, "
-                f"device={self.device}"
+                f"Reusing cached model: board={board_type}, "
+                f"arch={self.architecture_type}, device={self.device}"
             )
+            return
+
+        # Create new model using the factory function
+        self.model = create_model_for_board(
+            board_type=board_type,
+            model_class="auto",  # Let factory choose best class
+            use_mps=self._use_mps_arch,
+            in_channels=10,
+            global_features=10,
+            num_res_blocks=10,
+            num_filters=128,
+            history_length=self.history_length,
+        )
+        logger.info(
+            f"Initialized {type(self.model).__name__} for {board_type} "
+            f"(policy_size={self.model.policy_size})"
+        )
+
+        self.model.to(self.device)
+
+        # Load weights if available
+        if os.path.exists(model_path):
+            self._load_model_checkpoint(model_path)
         else:
-            # Create new model based on architecture selection
-            if use_mps_arch:
-                self.model = RingRiftCNN_MPS(
-                    board_size=self.board_size,
-                    in_channels=10,
-                    global_features=10,
-                    num_res_blocks=10,
-                    num_filters=128,
-                    history_length=self.history_length
-                )
-                logger.info("Initialized RingRiftCNN_MPS architecture")
-            else:
-                self.model = RingRiftCNN(
-                    board_size=self.board_size,
-                    in_channels=10,
-                    global_features=10,
-                    num_res_blocks=10,
-                    num_filters=128,
-                    history_length=self.history_length
-                )
-                logger.info("Initialized RingRiftCNN architecture")
+            # Try fallback to base model path without board suffix
+            fallback_filename = (
+                f"{model_id}_mps.pth"
+                if self.architecture_type == "mps"
+                else f"{model_id}.pth"
+            )
+            fallback_path = os.path.join(self._base_dir, "models", fallback_filename)
 
-            self.model.to(self.device)
-
-            # Load weights if available
-            if os.path.exists(model_path):
-                self._load_model_checkpoint(model_path)
+            if os.path.exists(fallback_path) and board_suffix:
+                logger.info(
+                    f"Board-specific model not found at {model_path}, "
+                    f"trying fallback at {fallback_path}"
+                )
+                # Note: This may fail if architecture differs significantly
+                try:
+                    self._load_model_checkpoint(fallback_path)
+                except RuntimeError as e:
+                    logger.warning(
+                        f"Fallback model incompatible: {e}. Using fresh weights."
+                    )
+                    self.model.eval()
             else:
                 # No model found - this is often a configuration error in production
-                # but may be intentional for training. Log at WARNING level so it's
-                # visible in logs but doesn't crash inference-only workloads.
+                # but may be intentional for training.
                 allow_fresh = getattr(self.config, "allow_fresh_weights", False)
                 if allow_fresh:
                     logger.info(
@@ -1291,12 +1370,13 @@ class NeuralNetAI(BaseAI):
                     )
                 self.model.eval()
 
-            # Cache the model for reuse
-            _MODEL_CACHE[cache_key] = self.model
-            logger.info(
-                f"Cached model: arch={self.architecture_type}, device={self.device} "
-                f"(total cached: {len(_MODEL_CACHE)})"
-            )
+        # Cache the model for reuse
+        _MODEL_CACHE[cache_key] = self.model
+        self._initialized_board_type = board_type
+        logger.info(
+            f"Cached model: board={board_type}, arch={self.architecture_type}, "
+            f"device={self.device} (total cached: {len(_MODEL_CACHE)})"
+        )
 
 
     def _load_model_checkpoint(self, model_path: str) -> None:
@@ -1440,6 +1520,9 @@ class NeuralNetAI(BaseAI):
         """
         Select the best move using neural network evaluation.
         """
+        # Ensure model is initialized for this board type (lazy initialization)
+        self._ensure_model_initialized(game_state.board.type)
+
         # Update history for the current game state
         current_features, _ = self._extract_features(game_state)
         game_id = game_state.id
@@ -1561,9 +1644,9 @@ class NeuralNetAI(BaseAI):
         violated.
         """
         if not game_states and tensor_input is None:
-            empty_policy = np.zeros(
-                (0, self.model.policy_size), dtype=np.float32
-            )
+            # Return empty batch - use default policy size if model not initialized
+            policy_size = self.model.policy_size if self.model else POLICY_SIZE_8x8
+            empty_policy = np.zeros((0, policy_size), dtype=np.float32)
             return [], empty_policy
 
         # Enforce homogeneous board geometry within a batch.
@@ -1582,6 +1665,10 @@ class NeuralNetAI(BaseAI):
                         f"board.size; got {first_type}/{first_size} and "
                         f"{state.board.type}/{state.board.size}."
                     )
+
+            # Ensure model is initialized for this board type (lazy initialization)
+            self._ensure_model_initialized(first_type)
+
             # Cache the canonical spatial dimension for downstream tools.
             self.board_size = _infer_board_size(first_board)
 

@@ -259,8 +259,8 @@ export class AIServiceClient {
   private static inFlightRequests = 0;
   // Max concurrent AI HTTP calls per Node instance.
   // Config-driven so operators can tune without code changes.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private static maxConcurrent: number = (config as any).aiService?.maxConcurrent ?? 16;
+  private static maxConcurrent: number =
+    (config as { aiService?: { maxConcurrent?: number } }).aiService?.maxConcurrent ?? 16;
 
   private static incrementConcurrency(): boolean {
     if (AIServiceClient.inFlightRequests >= AIServiceClient.maxConcurrent) {
@@ -307,8 +307,7 @@ export class AIServiceClient {
         const errorType = this.categorizeError(error);
         // Attach categorized error type so downstream callers (e.g. AIEngine)
         // can emit structured fallback metrics without depending on axios internals.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (error as any).aiErrorType = errorType;
+        (error as Error & { aiErrorType?: string }).aiErrorType = errorType;
 
         logger.error('AI Service error:', {
           type: errorType,

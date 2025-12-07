@@ -1397,7 +1397,9 @@ router.post(
     // gameApi.makeMove client helper can share this endpoint.
     const rawBody = req.body as unknown;
     const candidateMove =
-      rawBody && typeof rawBody === 'object' ? ((rawBody as any).move ?? rawBody) : rawBody;
+      rawBody && typeof rawBody === 'object'
+        ? ((rawBody as Record<string, unknown>).move ?? rawBody)
+        : rawBody;
 
     const moveResult = MoveSchema.safeParse(candidateMove);
     if (!moveResult.success) {
@@ -1892,12 +1894,19 @@ router.get(
       // Project a lightweight terminal result reason for completed/abandoned games,
       // mirroring the main /games listing behaviour.
       let resultReason: string | undefined;
+      // Access Prisma record fields using typed approach
+      const gameRecord = game as typeof game & {
+        finalState?: Prisma.JsonObject | null;
+        recordMetadata?: (Prisma.JsonObject & { source?: string }) | null;
+        outcome?: string | null;
+        isRated?: boolean;
+      };
       if (
         game.status === PrismaGameStatus.completed ||
         game.status === PrismaGameStatus.abandoned ||
         (game.status as string) === 'finished'
       ) {
-        const finalState = (game as any).finalState as Prisma.JsonObject | null | undefined;
+        const finalState = gameRecord.finalState;
         const gameResult = (finalState?.gameResult ?? null) as { reason?: string } | null;
         if (gameResult && typeof gameResult.reason === 'string') {
           resultReason = gameResult.reason;
@@ -1906,10 +1915,7 @@ router.get(
 
       // Surface recordMetadata.source when available so callers can distinguish
       // online games from imported self-play games and other record sources.
-      const recordMetadata = (game as any).recordMetadata as
-        | (Prisma.JsonObject & { source?: string })
-        | null
-        | undefined;
+      const recordMetadata = gameRecord.recordMetadata;
       const source =
         recordMetadata && typeof recordMetadata.source === 'string'
           ? recordMetadata.source
@@ -1917,7 +1923,7 @@ router.get(
 
       // Where available, prefer the canonical outcome column; otherwise fall back
       // to the projected resultReason derived from finalState.gameResult.
-      const rawOutcome = (game as any).outcome as string | null | undefined;
+      const rawOutcome = gameRecord.outcome;
       const outcome = typeof rawOutcome === 'string' ? rawOutcome : resultReason;
 
       return {
@@ -1935,7 +1941,7 @@ router.get(
         endedAt: game.endedAt?.toISOString() || null,
         moveCount: game._count.moves,
         // New fields for replay/profile consumers
-        isRated: (game as any).isRated === true,
+        isRated: gameRecord.isRated === true,
         source,
         ...(outcome && { outcome }),
         ...(resultReason && { resultReason }),

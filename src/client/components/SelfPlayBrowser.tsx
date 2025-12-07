@@ -73,13 +73,28 @@ export interface SelfPlayBrowserProps {
  * - Ensure timestamp is a Date instance.
  * - Provide a sane moveNumber/thinkTime when the recorder omitted them.
  */
+interface RawRecordedMove {
+  type?: string;
+  timestamp?: Date | string;
+  from?: unknown;
+  to?: unknown;
+  player?: number;
+  moveNumber?: number;
+  thinkTime?: number;
+  thinkTimeMs?: number;
+  [key: string]: unknown;
+}
+
 function normalizeRecordedMove(rawMove: Move, fallbackMoveNumber: number): Move {
-  const anyMove = rawMove as any;
+  // Cast to a raw format that allows loose property access for normalization
+  const recordedMove = rawMove as unknown as RawRecordedMove;
 
   const type: Move['type'] =
-    anyMove.type === 'forced_elimination' ? 'eliminate_rings_from_stack' : anyMove.type;
+    recordedMove.type === 'forced_elimination'
+      ? 'eliminate_rings_from_stack'
+      : (recordedMove.type as Move['type']);
 
-  const timestampRaw = anyMove.timestamp;
+  const timestampRaw = recordedMove.timestamp;
   const timestamp: Date =
     timestampRaw instanceof Date
       ? timestampRaw
@@ -88,22 +103,24 @@ function normalizeRecordedMove(rawMove: Move, fallbackMoveNumber: number): Move 
         : new Date();
 
   const from: Position | undefined =
-    anyMove.from && typeof anyMove.from === 'object' ? anyMove.from : undefined;
+    recordedMove.from && typeof recordedMove.from === 'object'
+      ? (recordedMove.from as Position)
+      : undefined;
 
   const moveNumber =
-    typeof anyMove.moveNumber === 'number' && Number.isFinite(anyMove.moveNumber)
-      ? anyMove.moveNumber
+    typeof recordedMove.moveNumber === 'number' && Number.isFinite(recordedMove.moveNumber)
+      ? recordedMove.moveNumber
       : fallbackMoveNumber;
 
   const thinkTime =
-    typeof anyMove.thinkTime === 'number'
-      ? anyMove.thinkTime
-      : typeof anyMove.thinkTimeMs === 'number'
-        ? anyMove.thinkTimeMs
+    typeof recordedMove.thinkTime === 'number'
+      ? recordedMove.thinkTime
+      : typeof recordedMove.thinkTimeMs === 'number'
+        ? recordedMove.thinkTimeMs
         : 0;
 
   return {
-    ...anyMove,
+    ...recordedMove,
     type,
     from,
     timestamp,
@@ -146,9 +163,9 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
           // Attempt to parse an error payload, but tolerate empty/non‑JSON bodies.
           let errorMessage = `Failed to load databases (HTTP ${response.status})`;
           try {
-            const data = await response.json();
+            const data: Record<string, unknown> = await response.json();
             if (data && typeof data === 'object' && 'error' in data && data.error) {
-              errorMessage = String((data as any).error);
+              errorMessage = String(data.error);
             }
           } catch {
             // Ignore JSON parse errors for non‑JSON error bodies.
@@ -199,9 +216,9 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
         if (!response.ok) {
           let errorMessage = `Failed to load games (HTTP ${response.status})`;
           try {
-            const data = await response.json();
+            const data: Record<string, unknown> = await response.json();
             if (data && typeof data === 'object' && 'error' in data && data.error) {
-              errorMessage = String((data as any).error);
+              errorMessage = String(data.error);
             }
           } catch {
             // Ignore JSON parse errors for non‑JSON error bodies.
@@ -284,14 +301,14 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
         if (!response.ok) {
           let errorMessage = `Failed to load game (HTTP ${response.status})`;
           try {
-            const maybeData = await response.json();
+            const maybeData: Record<string, unknown> = await response.json();
             if (
               maybeData &&
               typeof maybeData === 'object' &&
               'error' in maybeData &&
-              (maybeData as any).error
+              maybeData.error
             ) {
-              errorMessage = String((maybeData as any).error);
+              errorMessage = String(maybeData.error);
             }
           } catch {
             // Ignore JSON parse errors when the server returned a non‑JSON body.
@@ -321,9 +338,14 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
         // To avoid double-counting earlier moves, we drop any pre-populated
         // moveHistory/history from the serialized state here and treat the
         // DB's moves array as the complete canonical sequence for replay.
-        const rawState = detail.initialState as any;
-        const sanitizedState =
-          rawState && typeof rawState === 'object' ? { ...rawState } : rawState;
+        interface RawStateData {
+          moveHistory?: unknown[];
+          history?: unknown[];
+          [key: string]: unknown;
+        }
+        const rawState = detail.initialState as RawStateData | null | undefined;
+        const sanitizedState: RawStateData | null =
+          rawState && typeof rawState === 'object' ? { ...rawState } : null;
         if (sanitizedState && Array.isArray(sanitizedState.moveHistory)) {
           sanitizedState.moveHistory = [];
         }
@@ -346,7 +368,7 @@ export const SelfPlayBrowser: React.FC<SelfPlayBrowserProps> = ({
           playerCount: detail.numPlayers,
           createdAt: detail.createdAt,
           source: 'custom',
-          state: sanitizedState as LoadableScenario['state'],
+          state: (sanitizedState ?? rawState) as unknown as LoadableScenario['state'],
           selfPlayMeta: {
             dbPath: selectedDb,
             gameId: detail.gameId,

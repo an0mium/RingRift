@@ -618,29 +618,35 @@ export async function importSelfPlayGameAsGameRecord(
   try {
     const aiUser = await getOrCreateAIUser();
 
+    // Define a mutable move type for enrichment
+    type MutableMove = Move & {
+      moveNumber?: number;
+      thinkTime?: number;
+      timestamp?: Date | string;
+    };
+
     for (const m of detail.moves) {
-      const move = m.move as Move;
+      const move = m.move as MutableMove;
 
       if (typeof move.moveNumber !== 'number') {
-        (move as any).moveNumber = m.moveNumber;
+        move.moveNumber = m.moveNumber;
       }
       if (typeof move.thinkTime !== 'number') {
-        (move as any).thinkTime = m.thinkTimeMs ?? 0;
+        move.thinkTime = m.thinkTimeMs ?? 0;
       }
-      const rawTs = (move as any).timestamp;
-      if (!(rawTs instanceof Date)) {
-        (move as any).timestamp =
-          rawTs instanceof Date ? rawTs : typeof rawTs === 'string' ? new Date(rawTs) : createdAt;
+      const rawTs: Date | string | undefined = move.timestamp;
+      if (rawTs === undefined || typeof rawTs === 'string') {
+        move.timestamp = typeof rawTs === 'string' ? new Date(rawTs) : createdAt;
       }
       if (typeof move.player !== 'number') {
-        (move as any).player = m.player;
+        (move as Move & { player: number }).player = m.player;
       }
 
       await GamePersistenceService.saveMoveSync({
         gameId,
         playerId: aiUser.id,
-        moveNumber: (move as any).moveNumber as number,
-        move,
+        moveNumber: move.moveNumber as number,
+        move: move as Move,
       });
     }
   } catch (err) {

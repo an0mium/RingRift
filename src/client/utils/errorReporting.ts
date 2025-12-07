@@ -23,10 +23,16 @@ interface ClientErrorPayload extends NormalizedError {
   type: string;
 }
 
+/** Vite injects client env vars via a synthetic __VITE_ENV__ object on globalThis. */
+interface ViteEnvWindow {
+  __VITE_ENV__?: Record<string, string | undefined>;
+  MODE?: string;
+}
+
 // Vite exposes env variables on import.meta.env
 // Access via globalThis to avoid Jest parse errors with import.meta syntax
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const env: Record<string, string | undefined> = (globalThis as any).__VITE_ENV__ ?? {};
+const viteGlobal = globalThis as unknown as ViteEnvWindow;
+const env: Record<string, string | undefined> = viteGlobal.__VITE_ENV__ ?? {};
 
 const ERROR_REPORTING_ENABLED: boolean = env.VITE_ERROR_REPORTING_ENABLED === 'true';
 const ERROR_REPORTING_ENDPOINT: string =

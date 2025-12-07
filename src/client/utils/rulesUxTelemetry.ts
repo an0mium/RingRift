@@ -10,10 +10,15 @@ import api from '../services/api';
  * - Applies optional sampling for high-frequency help-open events.
  */
 
+/** Type for the Vite environment object injected at build time */
+interface ViteEnvWindow {
+  __VITE_ENV__?: Record<string, string | undefined>;
+}
+
 function getEnv(): Record<string, string | undefined> {
   // Vite injects client env vars via a synthetic __VITE_ENV__ object on globalThis
   // (see errorReporting.ts for the same pattern).
-  return ((globalThis as any).__VITE_ENV__ as Record<string, string | undefined> | undefined) ?? {};
+  return (globalThis as unknown as ViteEnvWindow).__VITE_ENV__ ?? {};
 }
 
 function isTelemetryEnabled(): boolean {
@@ -123,9 +128,8 @@ function getSessionId(): string {
   if (cachedSessionId) return cachedSessionId;
 
   try {
-    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
-    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
-      cachedSessionId = anyCrypto.randomUUID();
+    if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+      cachedSessionId = globalThis.crypto.randomUUID();
       return cachedSessionId;
     }
   } catch {
@@ -191,9 +195,8 @@ export async function logRulesUxEvent(event: RulesUxEventPayload): Promise<void>
  */
 export function newHelpSessionId(): string {
   try {
-    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
-    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
-      return anyCrypto.randomUUID();
+    if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
     }
   } catch {
     // Ignore and fall back to Math.random-based id.
@@ -209,9 +212,8 @@ export function newHelpSessionId(): string {
  */
 export function newOverlaySessionId(): string {
   try {
-    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
-    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
-      return anyCrypto.randomUUID();
+    if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
     }
   } catch {
     // Ignore and fall back to Math.random-based id.
@@ -227,9 +229,8 @@ export function newOverlaySessionId(): string {
  */
 export function newTeachingFlowId(): string {
   try {
-    const anyCrypto = (globalThis as any).crypto as Crypto | undefined;
-    if (anyCrypto && typeof anyCrypto.randomUUID === 'function') {
-      return anyCrypto.randomUUID();
+    if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
     }
   } catch {
     // Ignore and fall back to Math.random-based id.

@@ -1127,8 +1127,11 @@ export class WebSocketServer {
     return this.sessionManager.withGameLock(gameId, async () => {
       const session = await this.sessionManager.getOrCreateSession(gameId);
       // Type assertion needed: Zod-inferred types have subtle differences from
-      // GameSession's PlayerMoveData due to exactOptionalPropertyTypes setting.
-      return session.handlePlayerMoveFromHttp(userId, move as any);
+      // GameSession's PlayerMoveData due to exactOptionalPropertyTypes setting
+      return session.handlePlayerMoveFromHttp(
+        userId,
+        move as Parameters<typeof session.handlePlayerMoveFromHttp>[1]
+      );
     });
   }
 
@@ -1464,9 +1467,11 @@ export class WebSocketServer {
 
       for (const gameId of gameIds) {
         const session = this.sessionManager.getSession(gameId);
-        if (session && typeof (session as any).terminate === 'function') {
+        // Check if session has terminate method (not part of public interface)
+        const sessionWithTerminate = session as typeof session & { terminate?: (reason: string) => void };
+        if (sessionWithTerminate && typeof sessionWithTerminate.terminate === 'function') {
           try {
-            session.terminate('session_cleanup');
+            sessionWithTerminate.terminate('session_cleanup');
           } catch (err) {
             logger.warn('Failed to terminate GameSession during WebSocket session termination', {
               userId,
