@@ -1,8 +1,6 @@
 {
-  "board_type": "square8",
-  "db_path": "ai-service/data/games/canonical_square8.db",
+  "db_path": "ai-service/data/games/selfplay.db",
   "checked_at": "2025-12-07T19:30:00Z",
-  "note": "DB is empty - 0 games available for parity check",
   "parity_summary": {
     "end_of_game_only_divergences": [],
     "games_with_end_of_game_only_divergence": 0,
@@ -12,7 +10,7 @@
     "semantic_divergences": [],
     "structural_issues": [],
     "total_databases": 1,
-    "total_games_checked": 0
+    "total_games_checked": 7
   },
   "passed_parity_gate": true
 }
