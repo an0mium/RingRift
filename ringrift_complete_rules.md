@@ -1396,13 +1396,15 @@ Note: With more than 50% of territory required for victory, simultaneous victory
 
 - For at least one complete round of turns (each non-eliminated player taking exactly one turn in order), P has at least one legal real action available and has taken at least one such action during their own turn in that round, while in every other player's turns in that same round, those players have **no** legal real action available at the start of their turn (they may have only forced eliminations or no legal actions at all).
 - After after that first round completes (including all post-movement processing), on the following round, P remains the only player who has taken any legal real action in the the second round.
-- After after that second round completes (including all post-movement processing), P is thus declared the winner, by Last Player Standing. This is the case without regard to their relative position in terms of territory claimed, or rings eliminated.
+- After after that second round completes (including all post-movement processing), and after every other seat (including empty seats with no stacks and no rings) has recorded its required no-action or forced-elimination moves for that round, P is thus declared the winner, by Last Player Standing. This is the case without regard to their relative position in terms of territory claimed, or rings eliminated. This declaration happens before the first seat begins any action in a subsequent round.
 
 - **Temporarily inactive players:** A player is **temporarily inactive** on their own turns when:
 
 - They control no stacks on the board and have no legal placements (because they have no rings in hand or because all placements would be illegal), or
 - They do control stacks but have no legal placements, no legal moves or overtaking captures, and no other legal other turn actions at all, so their only possible turn action is forced elimination (Section 4.4).
   In this state the player has no real actions for Last Player Standing purposes, but this does **not** mean all of their rings have left the game. They may still have rings buried inside mixed-color stacks controlled by other players; those rings simply cannot act until exposed.
+
+• **Empty/temporarily inactive seats still act:** Seats with no stacks and no rings still take their turns and must record the canonical no-action/FE moves each round per the phase requirements (no skipping empty seats).
 
 • **Recovery:** A temporarily inactive player can return to full activity if they regain a real action, most commonly by gaining control of a multicolored stack through its top ring becoming their color, thereby regaining a controlled stack, or by reduction of the height of a stack they control so that it can move again. If any temporarily inactive player regains a real action **before** the full-round condition above has been satisfied, the Last Player Standing condition is not met.
 
