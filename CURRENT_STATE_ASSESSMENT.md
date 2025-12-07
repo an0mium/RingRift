@@ -44,7 +44,7 @@ The intent here is accuracy, not optimism. When in doubt, the **code and tests**
   - Canonical turn orchestrator in `src/shared/engine/orchestration/`
   - Backend adapter (`TurnEngineAdapter.ts`) and sandbox adapter (`SandboxOrchestratorAdapter.ts`)
   - Contract testing framework with 100% Python parity on **54 test vectors** (extended from 12 in P18.5-\*)
-  - **Orchestrator at Phase 4 (100% rollout):** All environments (dev, staging, CI, production-ready) configured with `ORCHESTRATOR_ADAPTER_ENABLED=true` and `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`. Soak tests show zero invariant violations across all board types (square8, square19, hexagonal).
+  - **Orchestrator at Phase 4 (hard-ON):** The orchestrator adapter is hardcoded to `true` in `EnvSchema` and the rollout-percentage flag was removed as part of the Phase 3 cleanup. All environments run the orchestrator as the authoritative path; soak tests show zero invariant violations across all board types (square8, square19, hexagonal).
 
 - **Rules Semantics & Training Data Hygiene (2025‑12‑05):**
   - Canonical rules spec tightened:

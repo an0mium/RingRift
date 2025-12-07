@@ -1,0 +1,21 @@
+# SSH Cluster Configuration
+# Copy this file to ssh-cluster.config and customize for your network
+#
+# This file is sourced by setup-ssh-cluster.sh
+
+# SSH username (defaults to current user if not set)
+SSH_USER="$(whoami)"
+
+# Path to SSH private key (will be created if it doesn't exist)
+SSH_KEY="~/.ssh/id_cluster"
+
+# Target hosts to configure
+# Format: "hostname|fallback_hostname|description"
+# The fallback hostname is optional (for IPv6 or alternate addresses)
+HOSTS=(
+    "example-host-1.local||Host 1 Description"
+    "example-host-2.local||Host 2 Description"
+    # Add more hosts as needed:
+    # "192.168.1.100||Server at fixed IP"
+    # "hostname.local||Another Mac"
+)

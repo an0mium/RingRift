@@ -580,7 +580,7 @@
           "moveHistory": [],
           "gameStatus": "active",
           "victoryThreshold": 19,
-          "territoryVictoryThreshold": 166,
+          "territoryVictoryThreshold": 235,
           "totalRingsEliminated": 0
         },
         "move": {

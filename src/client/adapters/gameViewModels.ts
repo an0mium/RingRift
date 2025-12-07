@@ -1656,7 +1656,7 @@ function getVictoryMessage(
     const verb = userWon ? 'were' : 'was';
     return {
       title: '👑 Last Player Standing',
-      description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns. The other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
+      description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for two consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
       titleColorClass,
     };
   }
@@ -1665,7 +1665,7 @@ function getVictoryMessage(
     return {
       title: '🧱 Structural Stalemate',
       description:
-        'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder of territory and eliminated rings.',
+        'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. The winner was chosen by the tiebreak ladder: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers, 4) Who made the last real action.',
       titleColorClass,
     };
   }
@@ -1674,7 +1674,7 @@ function getVictoryMessage(
     return {
       title: `🏰 ${winnerName} Wins!`,
       description:
-        'Victory by territory after resolving the final disconnected mini-region. Once no further placements, movements, captures, or territory actions were possible, the rules compared Territory spaces, eliminated rings (including rings in hand), and markers to break the tie.',
+        'Victory by Territory Control after resolving the final disconnected mini-region. Processing that region eliminated all interior rings, converted its spaces into the winner’s Territory, and pushed them over the Territory victory threshold.',
       titleColorClass,
     };
   }
@@ -1698,7 +1698,7 @@ function getVictoryMessage(
       const verb = userWon ? 'were' : 'was';
       return {
         title: '👑 Last Player Standing',
-        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for a full round of turns. The other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
+        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for two consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
         titleColorClass,
       };
     }
@@ -1706,7 +1706,7 @@ function getVictoryMessage(
       return {
         title: '🧱 Structural Stalemate',
         description:
-          'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. At that point the rules convert any rings in hand to eliminated rings and compute the final score in four steps: first by total Territory spaces, then by eliminated rings (including rings in hand), then by markers, and finally by who took the last real action. The winner is the player highest on this ladder of territory and eliminated rings.',
+          'The game reached a structural stalemate: no player had any legal placements, movements, captures, or forced eliminations left. The winner was chosen by the tiebreak ladder: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers, 4) Who made the last real action.',
         titleColorClass,
       };
     case 'timeout':

@@ -9,7 +9,7 @@ export function getGameOverBannerText(reason: GameResult['reason']): string {
     case 'last_player_standing':
       return 'Game over – victory by last player standing.';
     case 'game_completed':
-      return 'Game over – structural stalemate. Final score from territory and eliminated rings.';
+      return 'Game over – structural stalemate. Winner decided by tiebreak ladder: territory spaces, eliminated rings (including rings in hand), markers, then last real action.';
     case 'timeout':
       return 'Game over – victory on time.';
     case 'resignation':

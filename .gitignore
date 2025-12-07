@@ -97,6 +97,9 @@ results/ops/
 # Local cluster configuration (contains personal IPs)
 ai-service/scripts/cluster_workers.txt
 
+# SSH cluster configuration (contains personal hostnames)
+ssh-cluster.config
+
 # Distributed selfplay remote artifacts
 *.remote_*
 

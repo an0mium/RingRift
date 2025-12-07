@@ -84,6 +84,88 @@ describe('shared engine – GameEndExplanation wiring', () => {
     expect(telemetry.rulesContextTags).toEqual(expect.arrayContaining(['last_player_standing']));
   });
 
+  it('enriches LPS GameEndExplanation with ANM/FE context when forced_elimination moves occurred', () => {
+    const state = createTestGameState();
+
+    // Reuse the same bare-board LPS setup as the baseline test.
+    state.board.stacks.clear();
+    state.board.markers.clear();
+    state.players.forEach((p) => {
+      p.ringsInHand = 0;
+      p.territorySpaces = 0;
+      p.eliminatedRings = 2;
+    });
+
+    state.victoryThreshold = 1000;
+    state.territoryVictoryThreshold = 1000;
+
+    // Two markers for Player 1, one for Player 2 -> marker tiebreak → last_player_standing.
+    addMarker(state.board, { x: 0, y: 0 }, 1);
+    addMarker(state.board, { x: 1, y: 0 }, 1);
+    addMarker(state.board, { x: 0, y: 1 }, 2);
+
+    // Record at least one forced_elimination move in structured history so the
+    // explanation layer can classify this as an ANM/FE-heavy LPS sequence.
+    (state.history as any).push({
+      actor: 2,
+      action: { type: 'forced_elimination' },
+    } as any);
+
+    const victory = toVictoryState(state);
+
+    expect(victory.isGameOver).toBe(true);
+    expect(victory.reason).toBe('last_player_standing');
+    expect(victory.winner).toBe(1);
+    expect(victory.gameEndExplanation).toBeDefined();
+
+    const explanation = victory.gameEndExplanation!;
+
+    expect(explanation.outcomeType).toBe('last_player_standing');
+    expect(explanation.victoryReasonCode).toBe('victory_last_player_standing');
+    expect(explanation.primaryConceptId).toBe('lps_real_actions');
+
+    expect(explanation.weirdStateContext).toBeDefined();
+    const ctx = explanation.weirdStateContext!;
+
+    expect(new Set(ctx.reasonCodes)).toEqual(
+      new Set([
+        'LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS',
+        'ANM_MOVEMENT_FE_BLOCKED',
+        'FE_SEQUENCE_CURRENT_PLAYER',
+      ])
+    );
+    expect(ctx.primaryReasonCode).toBe('LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS');
+    expect(new Set(ctx.rulesContextTags ?? [])).toEqual(
+      new Set(['last_player_standing', 'anm_forced_elimination'])
+    );
+    expect(ctx.teachingTopicIds).toEqual(
+      expect.arrayContaining([
+        'teaching.victory_stalemate',
+        'teaching.active_no_moves',
+        'teaching.forced_elimination',
+      ])
+    );
+
+    expect(explanation.telemetry).toBeDefined();
+    const telemetry = explanation.telemetry!;
+
+    expect(new Set(telemetry.weirdStateReasonCodes ?? [])).toEqual(
+      new Set([
+        'LAST_PLAYER_STANDING_EXCLUSIVE_REAL_ACTIONS',
+        'ANM_MOVEMENT_FE_BLOCKED',
+        'FE_SEQUENCE_CURRENT_PLAYER',
+      ])
+    );
+    expect(new Set(telemetry.rulesContextTags ?? [])).toEqual(
+      new Set(['last_player_standing', 'anm_forced_elimination'])
+    );
+
+    // LPS + ANM/FE should use FE-heavy LPS copy keys so the UI can explain
+    // that forced elimination is recorded but does not count as a real move.
+    expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.lps.with_anm_fe.short');
+    expect(explanation.uxCopy.detailedSummaryKey).toBe('game_end.lps.with_anm_fe.detailed');
+  });
+
   it('attaches structural-stalemate GameEndExplanation with territory tiebreak details', () => {
     const state = createTestGameState();
 
@@ -133,10 +215,103 @@ describe('shared engine – GameEndExplanation wiring', () => {
     expect(ctx.reasonCodes).toContain('STRUCTURAL_STALEMATE_TIEBREAK');
     expect(ctx.rulesContextTags).toContain('structural_stalemate');
 
+    // Structural stalemate tiebreak endings should use the dedicated copy keys.
+    expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.structural_stalemate.short');
+    expect(explanation.uxCopy.detailedSummaryKey).toBe(
+      'game_end.structural_stalemate.tiebreak.detailed'
+    );
+
     expect(explanation.telemetry).toBeDefined();
     const telemetry = explanation.telemetry!;
     expect(telemetry.rulesContextTags).toEqual(['structural_stalemate']);
     expect(telemetry.weirdStateReasonCodes).toEqual(['STRUCTURAL_STALEMATE_TIEBREAK']);
+  });
+
+  it('enriches structural-stalemate explanation with ANM/FE context when forced_elimination moves occurred', () => {
+    const state = createTestGameState();
+
+    // Bare-board global stalemate with differing territory counts, mirroring
+    // the victory.shared territory tiebreak test.
+    state.board.stacks.clear();
+    state.players.forEach((p) => {
+      p.ringsInHand = 0;
+      p.territorySpaces = 0;
+      p.eliminatedRings = 0;
+    });
+
+    state.victoryThreshold = 1000;
+    state.territoryVictoryThreshold = 1000;
+
+    state.players[0].territorySpaces = 3;
+    state.players[1].territorySpaces = 1;
+
+    // Mark that at least one forced_elimination move occurred earlier in the
+    // game so the explanation layer can surface ANM/FE context alongside the
+    // structural stalemate tiebreak.
+    (state.history as any).push({
+      actor: 1,
+      action: { type: 'forced_elimination' },
+    } as any);
+
+    const victory = toVictoryState(state);
+
+    // Aggregate reason remains 'territory_control' but explanation should
+    // classify this as a structural stalemate tiebreak with ANM/FE details.
+    expect(victory.isGameOver).toBe(true);
+    expect(victory.reason).toBe('territory_control');
+    expect(victory.winner).toBe(1);
+    expect(victory.gameEndExplanation).toBeDefined();
+
+    const explanation = victory.gameEndExplanation!;
+
+    expect(explanation.outcomeType).toBe('structural_stalemate');
+    expect(explanation.victoryReasonCode).toBe('victory_structural_stalemate_tiebreak');
+    expect(explanation.primaryConceptId).toBe('structural_stalemate');
+
+    expect(explanation.tiebreakSteps).toBeDefined();
+    const steps = explanation.tiebreakSteps!;
+    expect(steps.length).toBeGreaterThanOrEqual(1);
+    expect(steps[0].kind).toBe('territory_spaces');
+
+    expect(explanation.weirdStateContext).toBeDefined();
+    const ctx = explanation.weirdStateContext!;
+
+    expect(new Set(ctx.reasonCodes)).toEqual(
+      new Set([
+        'STRUCTURAL_STALEMATE_TIEBREAK',
+        'ANM_MOVEMENT_FE_BLOCKED',
+        'FE_SEQUENCE_CURRENT_PLAYER',
+      ])
+    );
+    expect(ctx.primaryReasonCode).toBe('STRUCTURAL_STALEMATE_TIEBREAK');
+    expect(new Set(ctx.rulesContextTags ?? [])).toEqual(
+      new Set(['structural_stalemate', 'anm_forced_elimination'])
+    );
+    expect(ctx.teachingTopicIds).toEqual(
+      expect.arrayContaining([
+        'teaching.victory_stalemate',
+        'teaching.active_no_moves',
+        'teaching.forced_elimination',
+      ])
+    );
+
+    expect(explanation.telemetry).toBeDefined();
+    const telemetry = explanation.telemetry!;
+    expect(new Set(telemetry.weirdStateReasonCodes ?? [])).toEqual(
+      new Set([
+        'STRUCTURAL_STALEMATE_TIEBREAK',
+        'ANM_MOVEMENT_FE_BLOCKED',
+        'FE_SEQUENCE_CURRENT_PLAYER',
+      ])
+    );
+    expect(new Set(telemetry.rulesContextTags ?? [])).toEqual(
+      new Set(['structural_stalemate', 'anm_forced_elimination'])
+    );
+
+    expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.structural_stalemate.short');
+    expect(explanation.uxCopy.detailedSummaryKey).toBe(
+      'game_end.structural_stalemate.tiebreak.detailed'
+    );
   });
 
   describe('territory mini-region detection', () => {
@@ -201,6 +376,7 @@ describe('shared engine – GameEndExplanation wiring', () => {
 
       // Verify UX copy key is mini-region specific
       expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.territory_mini_region.short');
+      expect(explanation.uxCopy.detailedSummaryKey).toBe('game_end.territory_mini_region.detailed');
     });
 
     it('identifies territory_mini_regions when winner has a small isolated region (≤4 cells)', () => {
@@ -233,6 +409,7 @@ describe('shared engine – GameEndExplanation wiring', () => {
       // Should detect as mini-region because the single region is ≤4 cells
       expect(explanation.primaryConceptId).toBe('territory_mini_regions');
       expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.territory_mini_region.short');
+      expect(explanation.uxCopy.detailedSummaryKey).toBe('game_end.territory_mini_region.detailed');
     });
 
     it('does not flag mini-region when winner has single large contiguous territory', () => {
@@ -334,6 +511,7 @@ describe('shared engine – GameEndExplanation wiring', () => {
       expect(explanation.weirdStateContext).toBeDefined();
       expect(explanation.weirdStateContext!.rulesContextTags).toContain('territory_mini_region');
       expect(explanation.uxCopy.shortSummaryKey).toBe('game_end.territory_mini_region.short');
+      expect(explanation.uxCopy.detailedSummaryKey).toBe('game_end.territory_mini_region.detailed');
     });
   });
 });

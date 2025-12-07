@@ -1,0 +1,94 @@
+# AI Service Python project configuration
+# This file configures mypy for static type checking to maintain parity with
+# the TypeScript codebase.
+
+[project]
+name = "ringrift-ai-service"
+version = "0.1.0"
+description = "RingRift AI Service - Game analysis and self-play engine"
+requires-python = ">=3.10"
+
+[tool.mypy]
+# Start with a permissive configuration to establish baseline
+# These settings can be tightened as type coverage improves
+#
+# Current baseline (2025-12-06): 557 errors in 36 files
+# Strategy: Start with a passing config, then incrementally tighten:
+# 1. Enable mypy with relaxed settings (this config)
+# 2. Fix critical parity modules (board_manager, rules_engine, game_state)
+# 3. Gradually enable stricter checks per-module
+
+python_version = "3.10"
+
+# Module discovery
+files = ["app"]
+exclude = [
+    "tests",
+    "venv",
+    "__pycache__",
+    ".hypothesis",
+]
+
+# Error handling - very permissive for initial integration
+ignore_missing_imports = true  # Third-party libs without stubs
+warn_return_any = false        # Too noisy initially
+warn_unused_ignores = false    # Don't flag old type: ignore comments
+show_error_codes = true
+pretty = true
+
+# Note: mypy will emit [annotation-unchecked] notes for untyped functions.
+# These are informational and don't cause failure. Suppress with --no-error-summary
+# or ignore them during initial integration.
+
+# Type checking strictness - very relaxed for initial integration
+strict = false
+check_untyped_defs = false     # Don't check untyped function bodies yet
+disallow_untyped_decorators = false
+disallow_incomplete_defs = false
+disallow_untyped_defs = false
+
+# Suppress most error categories for initial integration
+# These will be enabled incrementally as type coverage improves
+disable_error_code = [
+    "import-untyped",  # Missing type stubs
+    "arg-type",        # 236 errors - enable after type annotations added
+    "call-arg",        # 119 errors - enable after type annotations added
+    "assignment",      # 57 errors - enable after type annotations added
+    "union-attr",      # 42 errors - enable after Optional handling improved
+    "attr-defined",    # 21 errors - enable after type stubs added
+    "dict-item",       # 12 errors - enable later
+    "valid-type",      # 10 errors - enable later
+    "no-redef",        # 10 errors - enable later
+    "list-item",       # 6 errors - enable later
+    "index",           # 6 errors - enable later
+    "var-annotated",   # 5 errors - enable later
+    "operator",        # 5 errors - enable later
+    "misc",            # 4 errors - enable later
+    "return-value",    # 3 errors - enable later
+    "type-var",        # 1 error - numpy shape inference issue
+]
+
+# Per-module overrides - stricter checking on critical parity modules
+# These modules must maintain type parity with TypeScript equivalents
+[[tool.mypy.overrides]]
+module = "app.board_manager"
+check_untyped_defs = true
+# Note: Still using disable_error_code from global; enable stricter
+# checks incrementally as types are added
+
+[[tool.mypy.overrides]]
+module = "app.rules_engine"
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "app.game_state"
+check_untyped_defs = true
+
+[tool.black]
+line-length = 120
+target-version = ["py310", "py311", "py312", "py313"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

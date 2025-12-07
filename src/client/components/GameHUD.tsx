@@ -1070,12 +1070,12 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
           <div className="flex-1">
             <div className="flex items-center gap-1">
               <span>
-                Last Player Standing – after a full round you are the only player able to make real
-                moves (placements, movements, or captures).
+                Last Player Standing – win when, for two full rounds, you are the only player with
+                any real moves (placements, movements, or captures).
               </span>
               <Tooltip
                 content={
-                  'After a full round of turns, any player with no legal moves (placements, movements, or captures) is treated as eliminated.\nIf you are the only player still able to make real moves for an entire round, you win by Last Player Standing.'
+                  'Real moves are placements, movements, and captures – forced elimination and automatic line/territory processing do not count.\nLast Player Standing requires two consecutive full rounds where you have and take at least one real action while all other players have none.\nIf any other player regains a real move before both rounds complete, the LPS condition resets and victory is not declared.'
                 }
               >
                 <span

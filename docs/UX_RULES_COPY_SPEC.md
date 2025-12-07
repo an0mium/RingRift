@@ -109,17 +109,18 @@ Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_territory`](src/
 
 **HUD one‑liner**
 
-- `"Win if, after a full round, you are the only player with any real moves (placements, movements, or captures)."`
+- `"Win when, for two full rounds, you are the only player with any real moves (placements, movements, or captures)."`
 
 **Tooltip (multi‑line)**
 
-- Line 1: `"Real moves are placements, movements, and captures – forced elimination does not count."`
-- Line 2: `"If for a full round only you have any real moves available, you win by Last Player Standing."`
+- Line 1: `"Real moves are placements, movements, and captures – forced elimination and automatic line/territory processing do not count."`
+- Line 2: `"Last Player Standing requires two consecutive full rounds where you have and take at least one real action while all other players have none."`
+- Line 3: `"If any other player regains a real move before both rounds complete, the LPS condition resets and victory is not declared."`
 
 **TeachingOverlay victory topic – stalemate / LPS**
 Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_stalemate`](src/client/components/TeachingOverlay.tsx:118)):
 
-- `"Last Player Standing happens when, after a full round of turns, you are the only player who can still make real moves (placements, movements, or captures). Forced eliminations and automatic territory processing do not prevent LPS."`
+- `"Last Player Standing happens when, for TWO consecutive complete rounds, you are the only player who can still make real moves (placements, movements, or captures). In the first round you must have and take at least one real action while all others have none; in the second round the condition must persist. Forced eliminations and automatic territory processing do not count as real actions for LPS."`
 
 ## 4. Movement semantics
 
@@ -421,19 +422,20 @@ HUD banner (when the game ends by plateau / structural stalemate):
 - **Title**
   `"Structural stalemate"`
 - **Body**
-  `"No legal placements, movements, captures, or forced eliminations remain for any player. The game ends and the final score is computed from territory and eliminated rings."`
+  `"No legal placements, movements, captures, or forced eliminations remain for any player. The game ends by structural stalemate and the winner is chosen by the tiebreak ladder: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers, 4) Who made the last real action."`
 
 Game‑over banner (host‑level banner after dismissing VictoryModal):
 
-- [`getGameOverBannerText()`](src/client/utils/gameCopy.ts:3) for `reason: 'game_completed'`:
-  - `"Game over – structural stalemate. Final score from territory and eliminated rings."`
+- **Game over banner copy**
+  - [`getGameOverBannerText()`](src/client/utils/gameCopy.ts:3) for `reason: 'game_completed'`:
+  - `"Game over – structural stalemate. Winner decided by tiebreak ladder: territory spaces, eliminated rings (including rings in hand), markers, then last real action."`
 
 VictoryModal description:
 
 - [`getVictoryMessage()`](src/client/adapters/gameViewModels.ts:1524) when `reason === 'game_completed'`:
   - Title: `"🧱 Structural Stalemate"`
   - Description:
-    `"No players had any legal placements, movements, captures, or forced eliminations left. The board reached a stable plateau and the final score was computed from territory and eliminated rings."`
+    `"No players had any legal placements, movements, captures, or forced eliminations left. The board reached a structural stalemate and the winner was chosen by the tiebreak ladder: 1) Territory spaces, 2) Eliminated rings (including rings in hand), 3) Markers, 4) Who made the last real action."`
 
 ### 10.4 TeachingOverlay topics for weird states
 

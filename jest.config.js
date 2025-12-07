@@ -92,6 +92,7 @@ const BASE_TEST_PATH_IGNORE_PATTERNS = [
   '/build/',
   '<rootDir>/tests/e2e/',
   '<rootDir>/tests/unit/archive/',
+  '<rootDir>/archive/',  // Root-level archive directory for deprecated tests
 ];
 
 // When collecting coverage, also ignore the heavy diagnostics suites to avoid

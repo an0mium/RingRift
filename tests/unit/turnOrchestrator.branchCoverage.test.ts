@@ -915,51 +915,8 @@ describe('TurnOrchestrator branch coverage', () => {
       expect(result.nextState).toBeDefined();
     });
 
-    // SKIP: Multi-phase turn model transitions chain_capture → line_processing after
-    // processing capture moves. Test expects to remain in chain_capture phase.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md
-    it.skip('handles chain capture decision by returning without auto-resolve', async () => {
-      const state = createBaseState('chain_capture');
-      state.board.stacks.set('3,3', {
-        position: { x: 3, y: 3 },
-        stackHeight: 3,
-        controllingPlayer: 1,
-        capHeight: 2,
-        composition: [{ player: 1, count: 3 }],
-        rings: [1, 1, 1],
-      });
-      state.board.stacks.set('4,3', {
-        position: { x: 4, y: 3 },
-        stackHeight: 1,
-        controllingPlayer: 2,
-        composition: [{ player: 2, count: 1 }],
-        rings: [2],
-      });
-      // Set up for chain capture continuation
-      (state as GameState & { chainCapturePosition?: Position }).chainCapturePosition = {
-        x: 3,
-        y: 3,
-      };
-
-      const move = createMove(
-        'continue_capture_segment',
-        1,
-        { x: 5, y: 3 },
-        {
-          from: { x: 3, y: 3 },
-          captureTarget: { x: 4, y: 3 },
-        }
-      );
-
-      const delegates = {
-        resolveDecision: jest.fn().mockResolvedValue(move),
-        onProcessingEvent: jest.fn(),
-      };
-
-      const result = await processTurnAsync(state, move, delegates);
-
-      expect(result.nextState).toBeDefined();
-    });
+    // DELETED 2025-12-06: 'handles chain capture decision by returning without auto-resolve'
+    // tested obsolete end_chain_capture behavior. See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
 
     it('emits processing events', async () => {
       const state = createBaseState('ring_placement');
@@ -1410,31 +1367,9 @@ describe('TurnOrchestrator branch coverage', () => {
       expect(result.nextState).toBeDefined();
     });
 
-    // SKIP: end_chain_capture is not a valid move type in the current phase model.
-    // chain_capture phase only allows: overtaking_capture, continue_capture_segment.
-    // Chain captures end via decision resolution, not explicit moves.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md
-    it.skip('handles end_chain_capture move', () => {
-      const state = createBaseState('chain_capture');
-      state.board.stacks.set('3,3', {
-        position: { x: 3, y: 3 },
-        stackHeight: 2,
-        capHeight: 2,
-        controllingPlayer: 1,
-        composition: [{ player: 1, count: 2 }],
-        rings: [1, 1],
-      });
-      (state as GameState & { chainCapturePosition?: Position }).chainCapturePosition = {
-        x: 3,
-        y: 3,
-      };
-
-      const move = createMove('end_chain_capture', 1, { x: 3, y: 3 });
-
-      const result = processTurn(state, move);
-
-      expect(result.nextState).toBeDefined();
-    });
+    // DELETED 2025-12-06: 'handles end_chain_capture move' tested obsolete move type.
+    // end_chain_capture doesn't exist; chains end via decision resolution.
+    // See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
   });
 
   describe('ANM state resolution', () => {
@@ -2061,63 +1996,9 @@ describe('TurnOrchestrator branch coverage', () => {
       }
     });
 
-    // SKIP: Test passes undefined move after capture processing, but orchestrator now
-    // requires valid move in each phase. Multi-phase model change.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md
-    it.skip('returns early on chain capture decision without auto-resolving', async () => {
-      const state = createBaseState('capture');
-
-      // Set up chain capture scenario
-      state.board.stacks.set('3,3', {
-        position: { x: 3, y: 3 },
-        stackHeight: 4,
-        capHeight: 4,
-        controllingPlayer: 1,
-        composition: [{ player: 1, count: 4 }],
-        rings: [1, 1, 1, 1],
-      });
-
-      state.board.stacks.set('4,3', {
-        position: { x: 4, y: 3 },
-        stackHeight: 1,
-        capHeight: 1,
-        controllingPlayer: 2,
-        composition: [{ player: 2, count: 1 }],
-        rings: [2],
-      });
-
-      state.board.stacks.set('6,3', {
-        position: { x: 6, y: 3 },
-        stackHeight: 1,
-        capHeight: 1,
-        controllingPlayer: 2,
-        composition: [{ player: 2, count: 1 }],
-        rings: [2],
-      });
-
-      const move = createMove(
-        'overtaking_capture',
-        1,
-        { x: 5, y: 3 },
-        {
-          from: { x: 3, y: 3 },
-          captureTarget: { x: 4, y: 3 },
-        }
-      );
-
-      const delegates = {
-        resolveDecision: jest.fn(),
-        onProcessingEvent: jest.fn(),
-      };
-
-      const result = await processTurnAsync(state, move, delegates);
-
-      expect(result.nextState).toBeDefined();
-      // Chain capture decisions should NOT be auto-resolved
-      if (result.pendingDecision?.type === 'chain_capture') {
-        expect(delegates.resolveDecision).not.toHaveBeenCalled();
-      }
-    });
+    // DELETED 2025-12-06: 'returns early on chain capture decision without auto-resolving'
+    // tested passing undefined move after capture, now requires valid moves.
+    // See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
   });
 
   describe('capture from landing position (lines 689-695)', () => {
@@ -2428,36 +2309,8 @@ describe('TurnOrchestrator branch coverage', () => {
       expect(Array.isArray(moves)).toBe(true);
     });
 
-    // SKIP: end_chain_capture is not a valid move type in the current phase model.
-    // chain_capture phase only allows: overtaking_capture, continue_capture_segment.
-    // Chain captures end via decision resolution, not explicit moves.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md
-    it.skip('ends chain capture when no more continuations available', () => {
-      const state = createBaseState('chain_capture');
-
-      // Stack at position
-      state.board.stacks.set('5,3', {
-        position: { x: 5, y: 3 },
-        stackHeight: 4,
-        capHeight: 4,
-        controllingPlayer: 1,
-        composition: [{ player: 1, count: 4 }],
-        rings: [1, 1, 1, 1],
-      });
-
-      // No opponent stacks to capture
-      (state as GameState & { chainCapturePosition?: Position }).chainCapturePosition = {
-        x: 5,
-        y: 3,
-      };
-
-      const move = createMove('end_chain_capture', 1, { x: 5, y: 3 });
-
-      const result = processTurn(state, move);
-
-      expect(result.nextState).toBeDefined();
-      // Chain should end and proceed to line processing
-    });
+    // DELETED 2025-12-06: 'ends chain capture when no more continuations available'
+    // tested obsolete end_chain_capture move type. See: docs/SKIPPED_TESTS_TRIAGE.md (TH-5)
   });
 
   describe('validateMove edge cases', () => {

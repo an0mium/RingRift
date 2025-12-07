@@ -253,7 +253,9 @@ describe('VictoryModal – GameEndExplanation-driven copy', () => {
 
     expect(screen.getByText('🏰 Alice Wins!')).toBeInTheDocument();
     expect(
-      screen.getByText(/Victory by territory after resolving the final disconnected mini-region/i)
+      screen.getByText(
+        /Victory by Territory Control after resolving the final disconnected mini-region/i
+      )
     ).toBeInTheDocument();
   });
 

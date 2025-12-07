@@ -126,7 +126,63 @@ function convertVectorMove(vectorMove: ContractTestVector['input']['move']): Mov
 }
 
 /**
+ * Create a NO_LINE_ACTION or NO_TERRITORY_ACTION move for auto-completing phases.
+ */
+function createAutoCompleteMove(phase: string, player: number): Move {
+  const moveType =
+    phase === 'line_processing'
+      ? 'no_line_action'
+      : phase === 'territory_processing'
+        ? 'no_territory_action'
+        : 'skip_placement'; // fallback
+
+  return {
+    type: moveType,
+    player,
+    position: { x: 0, y: 0 },
+    timestamp: new Date(),
+    thinkTime: 0,
+  } as Move;
+}
+
+/**
+ * Auto-complete a turn by processing through remaining phases until 'complete'.
+ * Used when vectors expect 'complete' but orchestrator returns 'awaiting_decision'.
+ * This handles the multi-phase turn model where movement/capture triggers
+ * line_processing and territory_processing phases.
+ */
+function autoCompleteTurn(
+  initialResult: ReturnType<typeof processTurn>,
+  maxIterations = 10
+): ReturnType<typeof processTurn> {
+  let result = initialResult;
+  let iterations = 0;
+
+  while (result.status === 'awaiting_decision' && iterations < maxIterations) {
+    const state = result.nextState;
+    const phase = state.currentPhase;
+
+    // Only auto-complete line_processing and territory_processing phases
+    if (phase !== 'line_processing' && phase !== 'territory_processing') {
+      // Can't auto-complete other phases (capture, chain_capture, etc.)
+      break;
+    }
+
+    const autoMove = createAutoCompleteMove(phase, state.currentPlayer);
+    result = processTurn(state, autoMove);
+    iterations++;
+  }
+
+  return result;
+}
+
+/**
  * Run a single test vector and return validation results.
+ *
+ * NOTE: When a vector expects status='complete' but the orchestrator returns
+ * 'awaiting_decision' (due to multi-phase turns), we auto-complete the turn
+ * by applying NO_LINE_ACTION and NO_TERRITORY_ACTION moves. This allows legacy
+ * vectors to work with the new multi-phase turn model without regeneration.
  */
 function runVector(vector: ContractTestVector): {
   passed: boolean;
@@ -163,7 +219,14 @@ function runVector(vector: ContractTestVector): {
     const move = convertVectorMove(vector.input.move);
 
     // Run through the actual orchestrator
-    const result = processTurn(inputState, move);
+    let result = processTurn(inputState, move);
+
+    // Auto-complete the turn if vector expects 'complete' but we got 'awaiting_decision'
+    // This handles the multi-phase turn model where movement/capture triggers
+    // line_processing and territory_processing phases automatically
+    if (vector.expectedOutput.status === 'complete' && result.status === 'awaiting_decision') {
+      result = autoCompleteTurn(result);
+    }
 
     // Validate assertions against the result state
     const validation = validateAgainstAssertions(
@@ -261,12 +324,10 @@ describe('Contract Test Vectors', () => {
       expect(vectors.every((v) => v.category === 'movement')).toBe(true);
     });
 
-    // SKIP: Movement vectors expect single-step completion (status='complete'), but
-    // the orchestrator now correctly implements multi-phase turns where movement
-    // triggers line_processing → territory_processing phases before completion.
-    // Vectors need regeneration with explicit decision paths.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
-    it.skip('should pass all movement vectors', () => {
+    // UNSKIPPED 2025-12-06: Auto-completion of multi-phase turns now handles this.
+    // The runVector function auto-completes line_processing and territory_processing
+    // phases when vectors expect 'complete' but orchestrator returns 'awaiting_decision'.
+    it('should pass all movement vectors', () => {
       for (const vector of vectors) {
         const result = runVector(vector);
         if (!result.passed) {
@@ -291,9 +352,8 @@ describe('Contract Test Vectors', () => {
       expect(vectors.every((v) => v.category === 'capture')).toBe(true);
     });
 
-    // SKIP: Capture vectors expect single-step completion. Multi-phase turn model
-    // requires explicit decision paths. See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
-    it.skip('should pass all capture vectors', () => {
+    // UNSKIPPED 2025-12-06: Auto-completion of multi-phase turns now handles this.
+    it('should pass all capture vectors', () => {
       for (const vector of vectors) {
         const result = runVector(vector);
         if (!result.passed) {
@@ -318,9 +378,8 @@ describe('Contract Test Vectors', () => {
       expect(vectors.every((v) => v.category === 'line_detection')).toBe(true);
     });
 
-    // SKIP: Line detection vectors expect single-step completion. Multi-phase turn model
-    // requires explicit decision paths. See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
-    it.skip('should pass all line detection vectors', () => {
+    // UNSKIPPED 2025-12-06: Auto-completion of multi-phase turns now handles this.
+    it('should pass all line detection vectors', () => {
       for (const vector of vectors) {
         const result = runVector(vector);
         if (!result.passed) {
@@ -345,8 +404,9 @@ describe('Contract Test Vectors', () => {
       expect(vectors.every((v) => v.category === 'territory')).toBe(true);
     });
 
-    // SKIP: Territory vectors expect single-step completion. Multi-phase turn model
-    // requires explicit decision paths. See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
+    // SKIP 2025-12-06: Territory vectors have phase/move mismatches (eliminate_rings_from_stack
+    // and process_territory_region moves in wrong phases). Vector data needs regeneration.
+    // See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
     it.skip('should pass all territory vectors', () => {
       for (const vector of vectors) {
         const result = runVector(vector);
@@ -366,10 +426,8 @@ describe('Contract Test Vectors', () => {
       expect(smokeVectors.length).toBeGreaterThan(0);
     });
 
-    // SKIP: Smoke vectors include movement/capture/line tests that expect single-step
-    // completion. Multi-phase turn model requires explicit decision paths.
-    // See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
-    it.skip('should pass all smoke vectors', () => {
+    // UNSKIPPED 2025-12-06: Auto-completion of multi-phase turns now handles this.
+    it('should pass all smoke vectors', () => {
       const vectors = loadAllVectors();
       const smokeVectors = vectors.filter((v) => v.tags.includes('smoke'));
 
@@ -398,12 +456,10 @@ describe('Contract Test Vectors', () => {
   });
 });
 
-// SKIP: Multi-step sequences were created with single-step phase expectations.
-// The orchestrator now correctly implements multi-phase turns where movement/capture
-// triggers line_processing → territory_processing phases. Sequences need regeneration
-// with explicit decision paths for each phase transition.
-// See: docs/SKIPPED_TESTS_TRIAGE.md, PA-1 task
-describe.skip('Multi-step contract sequences', () => {
+// Multi-step sequences test that chained game states are internally consistent.
+// Auto-complete logic handles multi-phase turns where movement/capture triggers
+// line_processing → territory_processing phases.
+describe('Multi-step contract sequences', () => {
   const allVectors = loadAllVectors();
   const sequences = groupVectorsBySequenceTag(allVectors);
   const sequenceEntries = Array.from(sequences.entries());
@@ -441,7 +497,12 @@ describe.skip('Multi-step contract sequences', () => {
         }
 
         const move = convertVectorMove(vector.input.move);
-        const result = processTurn(currentState, move);
+        let result = processTurn(currentState, move);
+
+        // Auto-complete multi-phase turns if vector expects 'complete' status
+        if (vector.expectedOutput.status === 'complete' && result.status === 'awaiting_decision') {
+          result = autoCompleteTurn(result);
+        }
 
         const validation = validateAgainstAssertions(
           result.nextState,

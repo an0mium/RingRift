@@ -1,7 +1,7 @@
 # Skipped Tests Triage Report
 
 > **Date:** 2025-12-06 (updated)
-> **Status:** Analysis Complete, **2 Category E tests fixed**, **22 contract vector tests + 4 chain capture tests skipped with documentation**
+> **Status:** Analysis Complete, **2 Category E tests fixed**, **4 TH-5 obsolete tests deleted**, **22 contract vector tests skipped with documentation**
 > **Priority:** Critical (per WAVE2_ASSESSMENT_REPORT.md)
 
 ---
@@ -10,11 +10,11 @@
 
 ### Total Skipped Tests Found
 
-| Language   | Count  | Notes                                              |
-| ---------- | ------ | -------------------------------------------------- |
-| TypeScript | 32     | Includes describe.skip, it.skip, test.skip         |
-| Python     | 19     | Includes @pytest.mark.skip and @pytest.mark.skipif |
-| **Total**  | **51** | Direct skip markers identified                     |
+| Language   | Count  | Notes                                                             |
+| ---------- | ------ | ----------------------------------------------------------------- |
+| TypeScript | 28     | Includes describe.skip, it.skip, test.skip (4 deleted 2025-12-06) |
+| Python     | 19     | Includes @pytest.mark.skip and @pytest.mark.skipif                |
+| **Total**  | **47** | Direct skip markers identified                                    |
 
 > **Note:** The Wave 2 assessment mentioned "160+ skipped tests". This higher number likely includes:
 >
@@ -137,11 +137,16 @@
 
 Contract vector tests in `tests/contracts/contractVectorRunner.test.ts` have been partially skipped due to a fundamental architectural change in the turn orchestrator.
 
-| Status      | Count | Notes                                                               |
-| ----------- | ----- | ------------------------------------------------------------------- |
-| **Passing** | 10    | Loading/structure tests + placement vectors                         |
-| **Skipped** | 22    | Movement, capture, line, territory, smoke, and multi-step sequences |
-| **Total**   | 32    |                                                                     |
+| Status      | Count | Notes                                                                                |
+| ----------- | ----- | ------------------------------------------------------------------------------------ |
+| **Passing** | 18    | Loading/structure, placement, movement, capture, line, smoke, 4 multi-step sequences |
+| **Skipped** | 14    | Territory vectors (data issues), 13 multi-step sequences (territory-related)         |
+| **Total**   | 32    |                                                                                      |
+
+**2025-12-06 Update:** Added `autoCompleteTurn()` function to handle multi-phase turns. This fixed 8 tests:
+
+- Single-vector: movement, capture, line detection, smoke
+- Multi-step: chain_capture.depth2.square19, chain_capture.depth3.linear.square8/19, hex_edge_case.edge_chain.hexagonal
 
 ### Root Cause
 
@@ -310,11 +315,24 @@ The Wave 2 assessment identified "160+ skipped tests". Our scan found 47 explici
 
 ## 7. Fix History
 
-| Date       | Test                                               | Fix Applied                                                                    | Verified           |
-| ---------- | -------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------ |
-| 2025-12-06 | `test_evaluate_fitness_zero_profile`               | Rewrote as wiring test (`test_evaluate_fitness_zero_profile_wiring_and_stats`) | ✅ Passes          |
-| 2025-12-06 | `test_overlength_line_option2_segments_exhaustive` | Already fixed with monkeypatch isolation                                       | ✅ 3/3 params pass |
+| Date       | Test                                                               | Fix Applied                                                                    | Verified              |
+| ---------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------ | --------------------- |
+| 2025-12-06 | `test_evaluate_fitness_zero_profile`                               | Rewrote as wiring test (`test_evaluate_fitness_zero_profile_wiring_and_stats`) | ✅ Passes             |
+| 2025-12-06 | `test_overlength_line_option2_segments_exhaustive`                 | Already fixed with monkeypatch isolation                                       | ✅ 3/3 params pass    |
+| 2025-12-06 | `handles chain capture decision by returning without auto-resolve` | DELETED - tested obsolete phase behavior                                       | ✅ Removed (TH-5)     |
+| 2025-12-06 | `handles end_chain_capture move`                                   | DELETED - end_chain_capture move type doesn't exist                            | ✅ Removed (TH-5)     |
+| 2025-12-06 | `returns early on chain capture decision without auto-resolving`   | DELETED - tested passing undefined moves                                       | ✅ Removed (TH-5)     |
+| 2025-12-06 | `ends chain capture when no more continuations available`          | DELETED - end_chain_capture move type doesn't exist                            | ✅ Removed (TH-5)     |
+| 2025-12-06 | `should pass all movement vectors`                                 | UNSKIPPED - runVector now auto-completes multi-phase turns                     | ✅ Passes (PA-1)      |
+| 2025-12-06 | `should pass all capture vectors`                                  | UNSKIPPED - runVector now auto-completes multi-phase turns                     | ✅ Passes (PA-1)      |
+| 2025-12-06 | `should pass all line detection vectors`                           | UNSKIPPED - runVector now auto-completes multi-phase turns                     | ✅ Passes (PA-1)      |
+| 2025-12-06 | `should pass all smoke vectors`                                    | UNSKIPPED - runVector now auto-completes multi-phase turns                     | ✅ Passes (PA-1)      |
+| 2025-12-06 | `sequence chain_capture.depth2.square19`                           | UNSKIPPED - multi-step sequences now use autoCompleteTurn                      | ✅ Passes (PA-1)      |
+| 2025-12-06 | `sequence chain_capture.depth3.linear.square8`                     | UNSKIPPED - multi-step sequences now use autoCompleteTurn                      | ✅ Passes (PA-1)      |
+| 2025-12-06 | `sequence chain_capture.depth3.linear.square19`                    | UNSKIPPED - multi-step sequences now use autoCompleteTurn                      | ✅ Passes (PA-1)      |
+| 2025-12-06 | `sequence hex_edge_case.edge_chain.hexagonal`                      | UNSKIPPED - multi-step sequences now use autoCompleteTurn                      | ✅ Passes (PA-1)      |
+| 2025-12-06 | `sequence chain_capture.depth3.linear.hexagonal`                   | SKIPPED - phase mismatch: continue_capture_segment in ring_placement           | ⏸️ Vector needs regen |
 
 ---
 
-_Last updated: 2025-12-06 (TH-4 Category E fixes)_
+_Last updated: 2025-12-06 (Multi-step sequence tests unskipped via autoCompleteTurn)_

@@ -23,7 +23,7 @@ describe('TeachingOverlay teaching flows – step navigation & telemetry', () =>
     mockLogRulesUxEvent.mockReset();
   });
 
-  it('renders canonical headings for key weird-state topics', () => {
+  it('renders canonical headings for key weird-state and victory topics', () => {
     const cases: Array<{ topic: any; expectedHeading: string }> = [
       { topic: 'active_no_moves', expectedHeading: TEACHING_TOPICS_COPY.active_no_moves.heading },
       {
@@ -35,6 +35,10 @@ describe('TeachingOverlay teaching flows – step navigation & telemetry', () =>
         expectedHeading: TEACHING_TOPICS_COPY.victory_stalemate.heading,
       },
       { topic: 'territory', expectedHeading: TEACHING_TOPICS_COPY.territory.heading },
+      {
+        topic: 'chain_capture',
+        expectedHeading: TEACHING_TOPICS_COPY.chain_capture.heading,
+      },
     ];
 
     for (const { topic, expectedHeading } of cases) {

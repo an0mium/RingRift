@@ -30,6 +30,7 @@ import type {
   GameEndUxCopyKeys,
   GameEndVictoryReasonCode,
   GameEndWeirdStateContext,
+  GameEndRulesWeirdStateReasonCode,
 } from '../gameEndExplanation';
 import { buildGameEndExplanationFromEngineView } from '../gameEndExplanation';
 import {
@@ -287,10 +288,11 @@ function buildGameEndExplanationForVictory(
   const noStacksLeft = state.board.stacks.size === 0;
 
   const aggReason = aggregate.reason;
-
   if (!aggReason) {
     return undefined;
   }
+
+  const hadForcedEliminationSequence = hasForcedEliminationMove(state);
 
   if (aggReason === 'ring_elimination') {
     if (primaryRingWinner && !noStacksLeft) {
@@ -319,15 +321,34 @@ function buildGameEndExplanationForVictory(
       ];
 
       const info = getWeirdStateReasonForType('structural-stalemate');
+      const reasonCodes: GameEndRulesWeirdStateReasonCode[] = [info.reasonCode];
+      const rulesContextTags: GameEndRulesContextTag[] = [info.rulesContext];
+      const teachingTopicIds: string[] = [getTeachingTopicForReason(info.reasonCode)];
+
+      if (hadForcedEliminationSequence) {
+        const anmInfo = getWeirdStateReasonForType('active-no-moves-movement');
+        const feInfo = getWeirdStateReasonForType('forced-elimination');
+        reasonCodes.push(anmInfo.reasonCode, feInfo.reasonCode);
+        rulesContextTags.push(anmInfo.rulesContext, feInfo.rulesContext);
+        teachingTopicIds.push(
+          getTeachingTopicForReason(anmInfo.reasonCode),
+          getTeachingTopicForReason(feInfo.reasonCode)
+        );
+      }
+
+      const dedupRulesContexts = Array.from(new Set(rulesContextTags));
+      const dedupTeaching = Array.from(new Set(teachingTopicIds));
+
       weirdStateContext = {
-        reasonCodes: [info.reasonCode],
+        reasonCodes,
         primaryReasonCode: info.reasonCode,
-        rulesContextTags: [info.rulesContext],
+        rulesContextTags: dedupRulesContexts,
+        teachingTopicIds: dedupTeaching,
       };
       teaching = {
-        teachingTopics: [getTeachingTopicForReason(info.reasonCode)],
+        teachingTopics: dedupTeaching,
       };
-      telemetryTags = [info.rulesContext];
+      telemetryTags = dedupRulesContexts;
     } else {
       // Fallback: treat as standard ring-elimination.
       outcomeType = 'ring_elimination';
@@ -373,15 +394,34 @@ function buildGameEndExplanationForVictory(
       ];
 
       const info = getWeirdStateReasonForType('structural-stalemate');
+      const reasonCodes: GameEndRulesWeirdStateReasonCode[] = [info.reasonCode];
+      const rulesContextTags: GameEndRulesContextTag[] = [info.rulesContext];
+      const teachingTopicIds: string[] = [getTeachingTopicForReason(info.reasonCode)];
+
+      if (hadForcedEliminationSequence) {
+        const anmInfo = getWeirdStateReasonForType('active-no-moves-movement');
+        const feInfo = getWeirdStateReasonForType('forced-elimination');
+        reasonCodes.push(anmInfo.reasonCode, feInfo.reasonCode);
+        rulesContextTags.push(anmInfo.rulesContext, feInfo.rulesContext);
+        teachingTopicIds.push(
+          getTeachingTopicForReason(anmInfo.reasonCode),
+          getTeachingTopicForReason(feInfo.reasonCode)
+        );
+      }
+
+      const dedupRulesContexts = Array.from(new Set(rulesContextTags));
+      const dedupTeaching = Array.from(new Set(teachingTopicIds));
+
       weirdStateContext = {
-        reasonCodes: [info.reasonCode],
+        reasonCodes,
         primaryReasonCode: info.reasonCode,
-        rulesContextTags: [info.rulesContext],
+        rulesContextTags: dedupRulesContexts,
+        teachingTopicIds: dedupTeaching,
       };
       teaching = {
-        teachingTopics: [getTeachingTopicForReason(info.reasonCode)],
+        teachingTopics: dedupTeaching,
       };
-      telemetryTags = [info.rulesContext];
+      telemetryTags = dedupRulesContexts;
     } else {
       outcomeType = 'territory_control';
       victoryReasonCode = 'victory_territory_majority';
@@ -391,7 +431,11 @@ function buildGameEndExplanationForVictory(
     victoryReasonCode = 'victory_last_player_standing';
     primaryConceptId = 'lps_real_actions';
 
-    // Use existing weird-state mapping for LPS endings.
+    const reasonCodes: GameEndRulesWeirdStateReasonCode[] = [];
+    const rulesContextTags: GameEndRulesContextTag[] = [];
+    const teachingTopicIds: string[] = [];
+
+    // Base LPS reason: exclusive real actions over full rounds.
     const lpsWeird = getWeirdStateReasonForGameResult({
       winner: aggregate.winner,
       reason: 'last_player_standing',
@@ -401,14 +445,50 @@ function buildGameEndExplanationForVictory(
         ringsRemaining: {},
       },
     } as GameResult);
+
     if (lpsWeird) {
-      weirdStateContext = {
-        reasonCodes: [lpsWeird.reasonCode],
-        primaryReasonCode: lpsWeird.reasonCode,
-        rulesContextTags: [lpsWeird.rulesContext],
-        teachingTopicIds: [getTeachingTopicForReason(lpsWeird.reasonCode)],
-      };
-      telemetryTags = [lpsWeird.rulesContext];
+      reasonCodes.push(lpsWeird.reasonCode);
+      rulesContextTags.push(lpsWeird.rulesContext);
+      teachingTopicIds.push(getTeachingTopicForReason(lpsWeird.reasonCode));
+    }
+
+    // Enrich LPS endings that involved ANM/FE sequences with additional
+    // weird-state reason codes so VictoryModal / TeachingOverlay can
+    // explain both the exclusive-real-actions condition and the role of
+    // forced elimination.
+    if (hadForcedEliminationSequence) {
+      const anmInfo = getWeirdStateReasonForType('active-no-moves-movement');
+      const feInfo = getWeirdStateReasonForType('forced-elimination');
+
+      reasonCodes.push(anmInfo.reasonCode, feInfo.reasonCode);
+      rulesContextTags.push(anmInfo.rulesContext, feInfo.rulesContext);
+      teachingTopicIds.push(
+        getTeachingTopicForReason(anmInfo.reasonCode),
+        getTeachingTopicForReason(feInfo.reasonCode)
+      );
+    }
+
+    if (reasonCodes.length > 0 || rulesContextTags.length > 0 || teachingTopicIds.length > 0) {
+      const dedupReasonCodes = Array.from(new Set(reasonCodes));
+      const dedupRulesContexts = Array.from(new Set(rulesContextTags));
+      const dedupTeaching = Array.from(new Set(teachingTopicIds));
+
+      // Choose a canonical primary reason code. Prefer the explicit LPS reason
+      // (exclusive real actions) when available, otherwise fall back to the
+      // first deduplicated reason code. This avoids assigning `undefined`
+      // under exactOptionalPropertyTypes while still reflecting the most
+      // important concept.
+      const primaryReasonCode = (lpsWeird && lpsWeird.reasonCode) || dedupReasonCodes[0];
+
+      if (primaryReasonCode) {
+        weirdStateContext = {
+          reasonCodes: dedupReasonCodes,
+          primaryReasonCode,
+          rulesContextTags: dedupRulesContexts,
+          teachingTopicIds: dedupTeaching,
+        };
+        telemetryTags = dedupRulesContexts;
+      }
     }
   } else if (aggReason === 'game_completed') {
     // Fallback structural stalemate with no clear winner.
@@ -417,15 +497,34 @@ function buildGameEndExplanationForVictory(
     primaryConceptId = 'structural_stalemate';
 
     const info = getWeirdStateReasonForType('structural-stalemate');
+    const reasonCodes: GameEndRulesWeirdStateReasonCode[] = [info.reasonCode];
+    const rulesContextTags: GameEndRulesContextTag[] = [info.rulesContext];
+    const teachingTopicIds: string[] = [getTeachingTopicForReason(info.reasonCode)];
+
+    if (hadForcedEliminationSequence) {
+      const anmInfo = getWeirdStateReasonForType('active-no-moves-movement');
+      const feInfo = getWeirdStateReasonForType('forced-elimination');
+      reasonCodes.push(anmInfo.reasonCode, feInfo.reasonCode);
+      rulesContextTags.push(anmInfo.rulesContext, feInfo.rulesContext);
+      teachingTopicIds.push(
+        getTeachingTopicForReason(anmInfo.reasonCode),
+        getTeachingTopicForReason(feInfo.reasonCode)
+      );
+    }
+
+    const dedupRulesContexts = Array.from(new Set(rulesContextTags));
+    const dedupTeaching = Array.from(new Set(teachingTopicIds));
+
     weirdStateContext = {
-      reasonCodes: [info.reasonCode],
+      reasonCodes,
       primaryReasonCode: info.reasonCode,
-      rulesContextTags: [info.rulesContext],
+      rulesContextTags: dedupRulesContexts,
+      teachingTopicIds: dedupTeaching,
     };
     teaching = {
-      teachingTopics: [getTeachingTopicForReason(info.reasonCode)],
+      teachingTopics: dedupTeaching,
     };
-    telemetryTags = [info.rulesContext];
+    telemetryTags = dedupRulesContexts;
   } else {
     return undefined;
   }
@@ -458,9 +557,12 @@ function buildGameEndExplanationForVictory(
     view.weirdStateContext = weirdStateContext;
   }
 
-  const uxCopy: GameEndUxCopyKeys = {
-    shortSummaryKey: deriveShortSummaryKey(outcomeType, primaryConceptId),
-  };
+  const uxCopy: GameEndUxCopyKeys = deriveUxCopyKeys(
+    outcomeType,
+    primaryConceptId,
+    aggReason,
+    hadForcedEliminationSequence
+  );
 
   const extra: {
     teaching?: GameEndTeachingLink;
@@ -509,12 +611,91 @@ function deriveShortSummaryKey(outcomeType: GameEndOutcomeType, primaryConceptId
     return 'game_end.territory_control.short';
   }
   if (outcomeType === 'last_player_standing') {
-    return 'game_end.last_player_standing.short';
+    // Generic LPS key; FE-heavy variants use game_end.lps.with_anm_fe.* via deriveUxCopyKeys.
+    return 'game_end.lps.short';
   }
   if (outcomeType === 'structural_stalemate') {
     return 'game_end.structural_stalemate.short';
   }
   return 'game_end.generic.short';
+}
+
+/**
+ * Derive UX copy keys (short + detailed) for complex endings.
+ *
+ * The shortSummaryKey drives compact HUD banners; detailedSummaryKey is used by
+ * VictoryModal / TeachingOverlay to select richer explanation copy. Keys are
+ * aligned with docs/UX_RULES_COPY_SPEC.md and
+ * docs/UX_RULES_EXPLANATION_MODEL_SPEC.md.
+ */
+function deriveUxCopyKeys(
+  outcomeType: GameEndOutcomeType,
+  primaryConceptId: string | undefined,
+  aggregateReason: AggregateVictoryResult['reason'],
+  hadForcedEliminationSequence: boolean
+): GameEndUxCopyKeys {
+  // Territory mini-region endings (Q23-style cascades / mini-regions).
+  if (outcomeType === 'territory_control' && primaryConceptId === 'territory_mini_regions') {
+    return {
+      shortSummaryKey: 'game_end.territory_mini_region.short',
+      detailedSummaryKey: 'game_end.territory_mini_region.detailed',
+    };
+  }
+
+  // Last-Player-Standing endings. Distinguish FE-heavy ANM/FE sequences from
+  // generic LPS endings via the presence of forced_elimination moves.
+  if (outcomeType === 'last_player_standing') {
+    if (hadForcedEliminationSequence) {
+      return {
+        shortSummaryKey: 'game_end.lps.with_anm_fe.short',
+        detailedSummaryKey: 'game_end.lps.with_anm_fe.detailed',
+      };
+    }
+    return {
+      shortSummaryKey: 'game_end.lps.short',
+      detailedSummaryKey: 'game_end.lps.detailed',
+    };
+  }
+
+  // Structural stalemate and tiebreak ladder. When aggregateReason is
+  // 'game_completed' we treat this as a plateau without a clear tiebreak
+  // winner; otherwise the ladder selected a winner via territory / rings /
+  // markers / last actor.
+  if (outcomeType === 'structural_stalemate') {
+    if (aggregateReason === 'game_completed') {
+      return {
+        shortSummaryKey: 'game_end.structural_stalemate.short',
+        detailedSummaryKey: 'game_end.structural_stalemate.detailed',
+      };
+    }
+    return {
+      shortSummaryKey: 'game_end.structural_stalemate.short',
+      detailedSummaryKey: 'game_end.structural_stalemate.tiebreak.detailed',
+    };
+  }
+
+  // Default mapping for simpler endings (ring / territory / generic).
+  return {
+    shortSummaryKey: deriveShortSummaryKey(outcomeType, primaryConceptId),
+  };
+}
+
+/**
+ * Detect whether the completed game involved at least one explicit
+ * forced_elimination move. This is a pure inspection helper used only for
+ * explanation/UX enrichment; it does not affect rules semantics or victory
+ * evaluation.
+ */
+function hasForcedEliminationMove(state: GameState): boolean {
+  // Prefer structured history when available.
+  if (state.history && state.history.length > 0) {
+    if (state.history.some((entry) => entry.action && entry.action.type === 'forced_elimination')) {
+      return true;
+    }
+  }
+
+  // Fallback to legacy moveHistory.
+  return state.moveHistory.some((move) => move.type === 'forced_elimination');
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -817,22 +998,6 @@ function createForcedEliminationDecision(state: GameState): PendingDecision | un
       extra: {
         reason: 'forced_elimination',
       },
-    },
-  };
-}
-
-/**
- * Create a pending decision for elimination target.
- */
-function createEliminationDecision(state: GameState): PendingDecision {
-  const moves = enumerateTerritoryEliminationMoves(state, state.currentPlayer);
-
-  return {
-    type: 'elimination_target',
-    player: state.currentPlayer,
-    options: moves,
-    context: {
-      description: 'Choose which stack to eliminate from',
     },
   };
 }
@@ -1282,7 +1447,7 @@ function assertPhaseMoveInvariant(state: GameState, move: Move): void {
  */
 function processPostMovePhases(
   stateMachine: PhaseStateMachine,
-  options?: ProcessTurnOptions
+  _options?: ProcessTurnOptions
 ): {
   pendingDecision?: PendingDecision;
   victoryResult?: VictoryState;

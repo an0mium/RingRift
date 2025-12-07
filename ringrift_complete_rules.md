@@ -249,7 +249,7 @@ The game's rich strategic depth, tension and drama emerge from the interplay bet
 | ------------------------ | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
 | Board Size               | 361 spaces (19×19)                           | 64 spaces (8×8)                              | 469 spaces (13 per side)                     |
 | Rings per Player         | 36 rings                                     | 18 rings                                     | 48 rings                                     |
-| Victory Threshold (3p)   | >54 rings                                    | >27 rings                                    | >54 rings                                    |
+| Victory Threshold (3p)   | >54 rings                                    | >27 rings                                    | >72 rings                                    |
 | Movement Adjacency       | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Line Formation Adjacency | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Territory Adjacency      | Von Neumann (4-direction)                    | Von Neumann (4-direction)                    | Hexagonal (6-direction)                      |
@@ -1364,7 +1364,7 @@ RingRift offers three distinct paths to victory, with clear resolution mechanics
 
 • Threshold:
 • A player wins by achieving more than 50% of the total rings in play as Eliminated rings
-• Threshold is >50% of the total rings initially in play for the chosen version and player count: - **8×8 Version:** >18 (2p), >27 (3p) - **19×19 / Hexagonal Versions:** >36 (2p), >54 (3p), >72 (4p)
+• Threshold is >50% of the total rings initially in play for the chosen version and player count: - **8×8 Version:** >18 (2p), >27 (3p) - **19×19 Version:** >36 (2p), >54 (3p), >72 (4p) - **Hexagonal Version:** >48 (2p), >72 (3p), >96 (4p)
 • What Counts Toward Victory:
 • Rings Self-Eliminated through line formations (your own rings removed when collapsing lines)
 • Rings Self-Eliminated through claiming disconnected territory (your own rings removed when claiming areas)
@@ -1902,7 +1902,8 @@ Both square versions use this dual adjacency system (Moore for movement/lines, V
 A21: The victory threshold is always set at more than 50% of the total rings in play, regardless of the number of players:
 
 • **8×8:** >18 (2p), >27 (3p)
-• **19×19 / Hexagonal:** >36 (2p), >54 (3p), >72 (4p)
+• **19×19:** >36 (2p), >54 (3p), >72 (4p)
+• **Hexagonal:** >48 (2p), >72 (3p), >96 (4p)
 
 Additionally, a player can win by claiming more than 50% of the board as collapsed territory, regardless of player count.
 
@@ -1948,7 +1949,7 @@ Note that by definition, any stack you control must have at least one ring of yo
 | ------------------------ | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
 | Board Size               | 361 spaces (19×19)                           | 64 spaces (8×8)                              | 469 spaces (13 per side)                     |
 | Rings per Player         | 36 rings                                     | 18 rings                                     | 48 rings                                     |
-| Victory Threshold (3p)   | >54 rings                                    | >27 rings                                    | >54 rings                                    |
+| Victory Threshold (3p)   | >54 rings                                    | >27 rings                                    | >72 rings                                    |
 | Movement Adjacency       | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Line Formation Adjacency | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Territory Adjacency      | Von Neumann (4-direction)                    | Von Neumann (4-direction)                    | Hexagonal (6-direction)                      |
@@ -1970,7 +1971,7 @@ Note that by definition, any stack you control must have at least one ring of yo
 
 **Victory Conditions:**
 
-- Eliminate >50% of total rings (>54 for 3 players in 19×19, >27 for 3 players in 8×8)
+- Eliminate >50% of total rings (>54 for 3 players in 19×19, >27 for 3 players in 8×8, >72 for 3 players in Hexagonal)
 - Control >50% of board as collapsed territory (>180 spaces in 19×19, >32 in 8×8)
 - Be the last player able to make legal moves
 
@@ -2132,7 +2133,7 @@ Below are the 19×19 full rules in comparison with the simplified 8×8 version.
 • Board: 19×19 intersections, with Moore adjacency for movement & lines of 4+, but Von Neumann adjacency for territory disconnection.
 • Movement: Minimum distance = stack height. Landing after markers allows landing on any valid space beyond them meeting the distance requirement (no mandatory stop at first).
 • Captures: "Overtaking" vs. "Elimination," as introduced, with partial ring capture.
-• Victory: Eliminate more than half of all rings (>54 for 3 players, >72 for 4 players), or last standing, or stalemate tiebreak.
+• Victory: Eliminate more than half of all rings (>54 for 3 players, >72 for 4 players on 19×19; >72 for 3 players, >96 for 4 players on Hex), or last standing, or stalemate tiebreak.
 
 #### 16.9.1 Major Differences from 8×8
 
