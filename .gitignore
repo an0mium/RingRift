@@ -96,6 +96,7 @@ results/ops/
 
 # Local cluster configuration (contains personal IPs)
 ai-service/scripts/cluster_workers.txt
+ai-service/config/distributed_hosts.yaml
 
 # SSH cluster configuration (contains personal hostnames)
 ssh-cluster.config
