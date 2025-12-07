@@ -527,64 +527,6 @@ class DefaultRulesEngine(RulesEngine):
         """
         from app.game_engine import GameEngine
 
-        actor_player = state.current_player
-
-        def _force_bookkeeping_for_actor(st: GameState) -> GameState:
-            """
-            Apply required bookkeeping moves (no_line_action / no_territory_action)
-            for the current actor while in line/territory phases. Returns the
-            updated state (may be unchanged if nothing to do).
-            """
-            cur = st
-            while (
-                cur.game_status == GameStatus.ACTIVE
-                and cur.current_player == actor_player
-                and cur.current_phase
-                in (
-                    GamePhase.LINE_PROCESSING,
-                    GamePhase.TERRITORY_PROCESSING,
-                )
-            ):
-                req = GameEngine.get_phase_requirement(cur, actor_player)
-                forced_move = None
-                if req and req.type in (
-                    PhaseRequirementType.NO_LINE_ACTION_REQUIRED,
-                    PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED,
-                ):
-                    forced_move = GameEngine.synthesize_bookkeeping_move(req, cur)
-                else:
-                    candidates = GameEngine.get_valid_moves(cur, actor_player)
-                    if not candidates:
-                        req_type = (
-                            PhaseRequirementType.NO_LINE_ACTION_REQUIRED
-                            if cur.current_phase == GamePhase.LINE_PROCESSING
-                            else PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED
-                        )
-                        req = GameEngine.PhaseRequirement(  # type: ignore[attr-defined]
-                            type=req_type,
-                            player=actor_player,
-                            eligible_positions=[],
-                        )
-                        forced_move = GameEngine.synthesize_bookkeeping_move(
-                            req,
-                            cur,
-                        )
-                    elif (
-                        len(candidates) == 1
-                        and candidates[0].type
-                        in (
-                            MoveType.NO_LINE_ACTION,
-                            MoveType.NO_TERRITORY_ACTION,
-                        )
-                    ):
-                        forced_move = candidates[0]
-
-                if forced_move is None:
-                    break
-
-                cur = GameEngine.apply_move(cur, forced_move)
-            return cur
-
         # Canonical result: always computed via GameEngine.apply_move.
         next_via_engine = GameEngine.apply_move(state, move)
 

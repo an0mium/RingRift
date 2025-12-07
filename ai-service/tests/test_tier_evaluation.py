@@ -344,13 +344,6 @@ def test_run_tier_gate_cli_smoke(monkeypatch, capsys) -> None:
     assert payload["tier_name"] == tier.name
     assert payload["games_played"] == 1
 
-@pytest.mark.skip(reason="Incomplete test - needs implementation")
-def test_run_tier_gate_cli_difficulty_smoke(tmp_path) -> None:
-    """Smoke test for difficulty-tier mode of run_tier_gate CLI."""
-    # TODO: Complete this test implementation
-    pass
-
-
 def test_run_tier_gate_cli_multiboard_sq19_smoke(tmp_path) -> None:
     """Smoke test multiboard difficulty-tier mode of run_tier_gate CLI."""
     output_path = tmp_path / "tier_gate_D2_SQ19_2P.json"

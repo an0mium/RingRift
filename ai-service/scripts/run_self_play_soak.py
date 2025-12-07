@@ -806,10 +806,12 @@ def run_self_play_soak(
                     )
                     break
 
-                # Guard against mis-attributed moves: actor must match
-                # the current player when the game is ACTIVE.
+                # Guard against mis-attributed moves: actor must match the
+                # current player when the game is ACTIVE. If an AI returns a
+                # move attributed to the wrong player, correct it at the host
+                # layer (to keep the trace canonical) while still recording
+                # the invariant violation for debugging.
                 if state.game_status == GameStatus.ACTIVE and move.player != current_player:
-                    termination_reason = "ai_move_player_mismatch"
                     _record_invariant_violation(
                         "ACTIVE_WRONG_PLAYER_MOVE",
                         state,
@@ -818,8 +820,7 @@ def run_self_play_soak(
                         per_game_violations,
                         invariant_violation_samples,
                     )
-                    skipped = True
-                    break
+                    move = move.model_copy(update={"player": current_player})
 
                 if move.type == MoveType.SWAP_SIDES:
                     swap_sides_moves_for_game += 1

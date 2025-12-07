@@ -1058,6 +1058,38 @@ export function processTurn(
   move: Move,
   options?: ProcessTurnOptions
 ): ProcessTurnResult {
+  // Replay-tolerance: when the recorded move type disagrees with the current
+  // phase (e.g., territory moves applied while state says forced_elimination),
+  // coerce the phase to the canonical phase for the move type. This keeps
+  // host-level bookkeeping explicit and avoids injecting forced_elimination
+  // into territory replay, matching RR-CANON-R075/R076.
+  if (
+    state.gameStatus === 'active' &&
+    state.currentPhase === 'forced_elimination' &&
+    (move.type === 'process_territory_region' ||
+      move.type === 'eliminate_rings_from_stack' ||
+      move.type === 'skip_territory_processing' ||
+      move.type === 'no_territory_action')
+  ) {
+    state = { ...state, currentPhase: 'territory_processing' as GamePhase };
+  } else if (
+    state.gameStatus === 'active' &&
+    state.currentPhase === 'forced_elimination' &&
+    (move.type === 'process_line' ||
+      move.type === 'choose_line_reward' ||
+      move.type === 'no_line_action')
+  ) {
+    state = { ...state, currentPhase: 'line_processing' as GamePhase };
+  } else if (
+    state.gameStatus === 'active' &&
+    state.currentPhase === 'forced_elimination' &&
+    (move.type === 'place_ring' ||
+      move.type === 'skip_placement' ||
+      move.type === 'no_placement_action')
+  ) {
+    state = { ...state, currentPhase: 'ring_placement' as GamePhase };
+  }
+
   // Enforce canonical phase→MoveType mapping for ACTIVE states. This ensures
   // that every visited phase is represented by an explicit action, skip, or
   // no-action move per RR-CANON-R075.
@@ -1166,6 +1198,12 @@ export function processTurn(
     ? 'awaiting_decision'
     : 'complete';
 
+  // Territory bookkeeping is fully explicit; do not surface forced elimination
+  // immediately after territory decisions. The next player must start in
+  // ring_placement and emit no_* actions as needed.
+  const suppressForcedEliminationForTerritory =
+    move.type === 'process_territory_region' || move.type === 'eliminate_rings_from_stack';
+
   // If the turn is otherwise complete but the current player is blocked
   // with stacks and only a forced-elimination action is available, surface
   // that action as an explicit decision rather than applying a hidden
@@ -1175,7 +1213,11 @@ export function processTurn(
   // Per the 7-phase model (RR-CANON-R070), forced_elimination is a distinct
   // phase entered only when the player had no actions in prior phases but
   // still controls stacks.
-  if (finalStatus === 'complete' && finalState.gameStatus === 'active') {
+  if (
+    finalStatus === 'complete' &&
+    finalState.gameStatus === 'active' &&
+    !suppressForcedEliminationForTerritory
+  ) {
     const player = finalState.currentPlayer;
     const summary = computeGlobalLegalActionsSummary(finalState, player);
 

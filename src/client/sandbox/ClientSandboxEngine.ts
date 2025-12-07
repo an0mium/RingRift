@@ -546,8 +546,9 @@ export class ClientSandboxEngine {
     const adapter = this.getOrchestratorAdapter();
 
     // Diagnostic logging for AI stall investigation
+    const stateBefore = adapter.getGameState();
+
     if (isTestEnvironment()) {
-      const stateBefore = adapter.getGameState();
       // eslint-disable-next-line no-console
       console.log('[processMoveViaAdapter] Before processMove:', {
         moveType: move.type,
@@ -557,6 +558,50 @@ export class ClientSandboxEngine {
         stateCurrentPlayer: stateBefore.currentPlayer,
         stateCurrentPhase: stateBefore.currentPhase,
         stateGameStatus: stateBefore.gameStatus,
+      });
+    }
+
+    // Replay-tolerance: if the recorded move type disagrees with the current
+    // phase (e.g., territory/placement/line moves while phase is forced_elimination),
+    // coerce the phase to the canonical phase for the move type before sending
+    // it through the adapter. This keeps forced_elimination out of explicit
+    // territory/placement replay paths and aligns with canonical 7-phase flow.
+    const coercedPhase = (() => {
+      if (
+        stateBefore.gameStatus === 'active' &&
+        stateBefore.currentPhase === 'forced_elimination' &&
+        (move.type === 'process_territory_region' ||
+          move.type === 'eliminate_rings_from_stack' ||
+          move.type === 'skip_territory_processing' ||
+          move.type === 'no_territory_action')
+      ) {
+        return 'territory_processing';
+      }
+      if (
+        stateBefore.gameStatus === 'active' &&
+        stateBefore.currentPhase === 'forced_elimination' &&
+        (move.type === 'process_line' ||
+          move.type === 'choose_line_reward' ||
+          move.type === 'no_line_action')
+      ) {
+        return 'line_processing';
+      }
+      if (
+        stateBefore.gameStatus === 'active' &&
+        stateBefore.currentPhase === 'forced_elimination' &&
+        (move.type === 'place_ring' ||
+          move.type === 'skip_placement' ||
+          move.type === 'no_placement_action')
+      ) {
+        return 'ring_placement';
+      }
+      return null;
+    })();
+
+    if (coercedPhase) {
+      this.stateAccessor.updateGameState({
+        ...this.stateAccessor.getGameState(),
+        currentPhase: coercedPhase,
       });
     }
 
@@ -3302,6 +3347,10 @@ export class ClientSandboxEngine {
       'choose_line_reward',
       'process_territory_region',
       'eliminate_rings_from_stack',
+      // Forced-elimination phase moves (canonical 7th phase). These are emitted
+      // by the shared orchestrator for players who are blocked with stacks but
+      // have no legal placement/movement/capture actions.
+      'forced_elimination',
       // Meta-move: pie rule (swap colours after Player 1's first turn).
       // Handled by the shared orchestrator via validateSwapSidesMove/applySwapSidesIdentitySwap.
       'swap_sides',
@@ -3405,6 +3454,10 @@ export class ClientSandboxEngine {
       'choose_line_reward',
       'process_territory_region',
       'eliminate_rings_from_stack',
+      // Forced-elimination phase moves (canonical 7th phase). These appear in
+      // canonical replay streams for blocked players and must be accepted by
+      // the sandbox replayer so TS↔Python parity holds.
+      'forced_elimination',
       // Meta-move: pie rule (swap colours after Player 1's first turn).
       // The shared orchestrator validates and applies this move.
       'swap_sides',

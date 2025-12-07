@@ -189,4 +189,22 @@ describe('AIServiceClient.getAIMove metrics integration', () => {
     expect(mockRecordAIRequestDuration).not.toHaveBeenCalled();
     expect(mockRecordAIRequestTimeout).not.toHaveBeenCalled();
   });
+
+  it('records error metrics (non-timeout) when service is unavailable', async () => {
+    const client = new AIServiceClient('http://ai.test');
+
+    const unavailableError = Object.assign(new Error('Service unavailable'), {
+      aiErrorType: 'service_unavailable',
+    });
+    mockAxiosPost.mockRejectedValue(unavailableError);
+
+    await expect(client.getAIMove(baseGameState, 1, 5)).rejects.toMatchObject({
+      code: 'AI_SERVICE_UNAVAILABLE',
+    });
+
+    expect(mockRecordAIRequest).toHaveBeenCalledWith('error');
+    expect(mockRecordAIRequestDuration).toHaveBeenCalledWith('python', '5', expect.any(Number));
+    expect(mockRecordAIRequestLatencyMs).toHaveBeenCalledWith(expect.any(Number), 'error');
+    expect(mockRecordAIRequestTimeout).not.toHaveBeenCalled();
+  });
 });

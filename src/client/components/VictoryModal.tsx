@@ -407,6 +407,7 @@ export function VictoryModal({
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
   const overlaySessionIdRef = useRef<string | null>(null);
+  const weirdStateImpressionLoggedRef = useRef<string | null>(null);
   const { currentTopic, isOpen: isTeachingOpen, showTopic, hideTopic } = useTeachingOverlay();
 
   // Keyboard navigation (Escape to close)
@@ -423,7 +424,10 @@ export function VictoryModal({
 
   // Focus trap within the modal and focus restoration
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      weirdStateImpressionLoggedRef.current = null;
+      return;
+    }
 
     const dialogEl = dialogRef.current;
     previouslyFocusedElementRef.current = (document.activeElement as HTMLElement | null) ?? null;
@@ -526,6 +530,10 @@ export function VictoryModal({
       overlaySessionIdRef.current = overlaySessionId;
     }
 
+    if (weirdStateImpressionLoggedRef.current === overlaySessionId) {
+      return;
+    }
+
     void logRulesUxEvent({
       type: 'weird_state_banner_impression',
       boardType: vm.gameSummary.boardType,
@@ -538,6 +546,7 @@ export function VictoryModal({
       isSandbox: isSandbox ?? false,
       overlaySessionId,
     });
+    weirdStateImpressionLoggedRef.current = overlaySessionId;
   }, [
     isOpen,
     gameResult,

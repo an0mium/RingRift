@@ -1,5 +1,4 @@
-import React from 'react';
-import type { Move, Player, GamePhase } from '../../shared/types/game';
+import type { Move, Player } from '../../shared/types/game';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
 import { PLAYER_COLORS } from '../adapters/gameViewModels';
 
@@ -22,24 +21,37 @@ export interface MoveAnalysisPanelProps {
 /**
  * Get a human-readable move type label
  */
-function getMoveTypeLabel(phase: GamePhase): string {
-  switch (phase) {
-    case 'ring_placement':
+function getMoveTypeLabel(move: Move): string {
+  switch (move.type) {
+    case 'place_ring':
       return 'Placement';
-    case 'movement':
+    case 'skip_placement':
+    case 'no_placement_action':
+      return 'Placement (no action)';
+    case 'move_stack':
+    case 'move_ring':
       return 'Movement';
-    case 'capturing':
+    case 'overtaking_capture':
+    case 'continue_capture_segment':
       return 'Capture';
-    case 'chain_capture':
-      return 'Chain Capture';
-    case 'line_processing':
-      return 'Line Bonus';
-    case 'territory_processing':
+    case 'skip_capture':
+      return 'Skip Capture';
+    case 'process_line':
+    case 'choose_line_reward':
+    case 'no_line_action':
+      return 'Line Processing';
+    case 'process_territory_region':
+    case 'skip_territory_processing':
+    case 'no_territory_action':
       return 'Territory';
+    case 'eliminate_rings_from_stack':
+      return 'Eliminate Rings';
     case 'forced_elimination':
       return 'Forced Elim';
+    case 'swap_sides':
+      return 'Swap Sides';
     default:
-      return phase;
+      return move.type.replace(/_/g, ' ');
   }
 }
 
@@ -167,7 +179,7 @@ export function MoveAnalysisPanel({ analysis, players, className = '' }: MoveAna
       {/* Move Type */}
       <div className="flex items-center gap-2 mb-3">
         <span className="text-xs text-slate-400">Type:</span>
-        <span className="text-xs text-slate-200 font-medium">{getMoveTypeLabel(move.phase)}</span>
+        <span className="text-xs text-slate-200 font-medium">{getMoveTypeLabel(move)}</span>
       </div>
 
       {/* Evaluation Details */}

@@ -203,7 +203,9 @@ def test_territory_processing_q23_region_property(
     assert len(board_after.collapsed_spaces) >= initial_collapsed
 
 
-@pytest.mark.skip(reason="Territory processing elimination surface changed - needs verification")
+@pytest.mark.skip(
+    reason="Obsolete: territory processing no longer surfaces ELIMINATE_RINGS_FROM_STACK moves when no regions exist. Consider deleting this test."
+)
 @given(
     cap_heights=st.lists(
         st.integers(min_value=0, max_value=4),
@@ -296,6 +298,9 @@ def _block_all_positions_except(
             board.collapsed_spaces[key] = 2
 
 
+@pytest.mark.skip(
+    reason="Obsolete: forced elimination triggers changed - blocked stacks no longer automatically get forced elimination moves. Consider deleting this test."
+)
 @given(
     cap_heights=st.lists(
         st.integers(min_value=1, max_value=4),
@@ -304,7 +309,6 @@ def _block_all_positions_except(
     )
 )
 @settings(max_examples=25)
-@pytest.mark.skip(reason="Forced elimination property logic changed - needs verification")
 def test_forced_elimination_min_cap_property(
     cap_heights: List[int],
 ) -> None:

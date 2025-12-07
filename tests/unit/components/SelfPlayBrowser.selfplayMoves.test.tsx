@@ -118,13 +118,13 @@ describe('SelfPlayBrowser – self-play move normalization', () => {
     const fetchMock = jest.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       if (url.startsWith('/api/selfplay/databases')) {
-        return { json: async () => databasesResponse } as any;
+        return { ok: true, status: 200, json: async () => databasesResponse } as any;
       }
       if (url.startsWith('/api/selfplay/games?')) {
-        return { json: async () => gamesResponse } as any;
+        return { ok: true, status: 200, json: async () => gamesResponse } as any;
       }
       if (url.startsWith('/api/selfplay/games/game-1')) {
-        return { json: async () => gameDetailResponse } as any;
+        return { ok: true, status: 200, json: async () => gameDetailResponse } as any;
       }
       throw new Error(`Unexpected fetch URL in SelfPlayBrowser test: ${url}`);
     });
