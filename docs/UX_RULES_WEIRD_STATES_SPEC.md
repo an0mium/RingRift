@@ -17,6 +17,7 @@
 > - Final audit [`archive/FINAL_RULES_AUDIT_REPORT.md`](archive/FINAL_RULES_AUDIT_REPORT.md:136).
 > - Canonical copy baselines in [`docs/UX_RULES_COPY_SPEC.md`](docs/UX_RULES_COPY_SPEC.md:331).
 > - Telemetry schema in [`docs/UX_RULES_TELEMETRY_SPEC.md`](docs/UX_RULES_TELEMETRY_SPEC.md:1).
+> - Concept navigation index in [`docs/UX_RULES_CONCEPTS_INDEX.md`](docs/UX_RULES_CONCEPTS_INDEX.md:1) to keep reason codes aligned with rules anchors, teaching topics, and telemetry labels.
 
 This spec is **semantics‑first**. It does not define UI layout or styling; instead, it pins:
 
@@ -106,6 +107,7 @@ Each reason code is intended to be stable across hosts (backend, sandbox, Python
   - [`RR‑CANON‑R204`](RULES_CANONICAL_SPEC.md:271) (line‑processing exit must not leave ANM states).
   - ANM‑SCEN‑05 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:121).
 - **Canonical `rules_context`:** `line_reward_exact` or `line_reward_overlength` (both map to this reason code).
+- **UX surface guidance:** Telemetry/debug only for the normal explicit `no_line_action` bookkeeping move. Do **not** show HUD/Victory banners for routine no‑line phases; reserve UI surfacing for anomalies (e.g., host surfaced a line banner but then offered zero options unexpectedly).
 
 #### RWS‑003 ANM_TERRITORY_NO_ACTIONS
 
@@ -115,6 +117,7 @@ Each reason code is intended to be stable across hosts (backend, sandbox, Python
   - [`RR‑CANON‑R204`](RULES_CANONICAL_SPEC.md:272) (territory‑processing exit rules).
   - ANM‑SCEN‑04 in [`ACTIVE_NO_MOVES_BEHAVIOUR.md`](docs/rules/ACTIVE_NO_MOVES_BEHAVIOUR.md:100).
 - **Canonical `rules_context`:** `territory_mini_region` or `territory_multi_region` (depending on geometry).
+- **UX surface guidance:** Telemetry/debug only for the normal explicit `no_territory_action` bookkeeping move. Do **not** show HUD/Victory banners for routine no‑territory phases; reserve UI surfacing for anomalies (e.g., host surfaced a territory banner but then offered zero options unexpectedly).
 
 #### RWS‑004 FE_SEQUENCE_CURRENT_PLAYER
 

@@ -111,6 +111,48 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
   });
 
   // ==========================================================================
+  // Mini-region elimination and disconnected region ordering
+  // ==========================================================================
+  describe('mini-region and region ordering branches', () => {
+    it('enforces elimination of interior rings in mini-region and allows region ordering', () => {
+      const state = createTestGameState();
+      state.currentPhase = 'territory_processing';
+      state.currentPlayer = 1;
+
+      // Build a 2x2 mini-region fully enclosed by player 1 markers
+      addMarker(state.board, { x: 0, y: 0 }, 1);
+      addMarker(state.board, { x: 1, y: 0 }, 1);
+      addMarker(state.board, { x: 0, y: 1 }, 1);
+      addMarker(state.board, { x: 1, y: 1 }, 1);
+
+      // Add two disconnected regions so ordering is needed
+      addTerritory(state.board, {
+        id: 'region-1',
+        spaces: [{ x: 0, y: 0 }],
+        player: 1,
+        isDisconnected: true,
+        borderMarkers: computeBorderMarkers(state.board, [{ x: 0, y: 0 }], 1),
+      });
+      addTerritory(state.board, {
+        id: 'region-2',
+        spaces: [{ x: 2, y: 2 }],
+        player: 2,
+        isDisconnected: true,
+        borderMarkers: computeBorderMarkers(state.board, [{ x: 2, y: 2 }], 2),
+      });
+
+      // Region ordering should surface two process_territory_region moves
+      const regionMoves = enumerateProcessTerritoryRegionMoves(state, 1);
+      expect(regionMoves.length).toBe(2);
+
+      // Add a ring inside region-1 to force elimination
+      addStack(state.board, { x: 0, y: 0 }, 1, 1, 1);
+      const elimMoves = enumerateTerritoryEliminationMoves(state, 1);
+      expect(elimMoves.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ==========================================================================
   // computeNextMoveNumber edge cases
   // ==========================================================================
   describe('computeNextMoveNumber branches', () => {

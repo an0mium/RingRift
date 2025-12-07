@@ -237,6 +237,25 @@ Operational drills completed:
 - [ ] Enhanced reconnection UX messaging
 - [ ] Multiplayer UX documentation improvements
 
+#### Canonical Move/Phase Fidelity & Replay Gate
+
+- [x] Enforce phase ↔ move whitelist in both TS and Python (`validate_canonical_move`, `phase_move_contract`) when adding phases/move types
+- [ ] Run parity + canonical history gates on any new/modified DBs (`ai-service/scripts/check_ts_python_replay_parity.py --emit-state-bundles-dir`, `ai-service/scripts/check_canonical_phase_history.py`)
+- [ ] Add and keep a small golden replay pack in CI that replays in TS + Python and fails on any semantic drift
+- [ ] Audit orchestrator/Python `game_engine.py` changes for silent transitions or forced elimination without recorded moves
+
+#### Orchestrator & Territory Branch Coverage Hardening
+
+- [ ] Add branch-coverage cases in `tests/unit/turnOrchestrator.core.branchCoverage.test.ts`:
+  - [x] Forced-elimination pending decisions when blocked with stacks
+  - [x] No-op phase transitions (`no_line_action_required`, `no_territory_action_required`)
+  - [ ] Chain → line → territory sequence coverage
+- [ ] Add branch-coverage cases in `tests/unit/TerritoryAggregate.advanced.branchCoverage.test.ts`:
+  - [x] Mini-region elimination / interior ring handling
+  - [x] Disconnected region ordering with multiple regions
+  - [ ] Multi-player tie-break ladders
+- [ ] Mirror high-risk TS cases in Python parity suites to keep contract expectations aligned
+
 ### 2.2 Active P1 Tasks
 
 #### Frontend UX Polish
@@ -246,6 +265,30 @@ Operational drills completed:
 - [ ] Simplified mobile HUD layout
 - [ ] Additional contextual tooltips for game mechanics
 - [ ] Key moments replay
+
+#### Rules UX Iteration 0002 (Hotspot-driven)
+
+- [x] Draft `docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md` with telemetry baselines/targets for ANM/FE loops, structural stalemate, and mini-regions
+- [x] Implement HUD/VictoryModal copy + prompts aligned to the iteration targets (FE/ANM messaging, stalemate clarity)
+- [x] Update sandbox/TeachingOverlay flows for the selected contexts and add focused unit tests per surface
+
+#### Structured End-Explanation Model
+
+- [x] Author `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md` defining the payload (outcome type, reason code, rules citations, teaching tags, telemetry)
+- [x] Implement mapping from engine outcomes + `weirdStateReasons` to the new payload in the shared layer with unit tests
+- [x] Wire `GameHUD` and `VictoryModal` to render the structured explanation and emit matching telemetry
+
+#### Rules Concepts Index & Teaching Coverage
+
+- [x] Create `docs/UX_RULES_CONCEPTS_INDEX.md` linking rules sections ↔ UX surfaces ↔ telemetry labels for ANM/FE, structural stalemate, mini-regions, capture chains, and LPS
+- [x] Cross-link the index from `docs/UX_RULES_TEACHING_SCENARIOS.md` and `docs/UX_RULES_WEIRD_STATES_SPEC.md`
+- [x] Audit high-risk teaching scenarios and add/flag gaps in `src/shared/teaching/teachingScenarios.ts` and `src/client/components/TeachingOverlay.tsx`
+
+#### Spectator/Replay Polish
+
+- [ ] Enhance spectator HUD (reconnection state, watcher counts, phase/choice banners) and validate via integration tests
+- [ ] Ensure move history lists all phase moves, including `no_*` and `forced_elimination`, and supports export/share
+- [ ] Add fast-forward/rewind affordances and keyboard bindings for replay; prefetch upcoming turns for smooth playback
 
 #### E2E Test Coverage
 
@@ -292,6 +335,12 @@ Operational drills completed:
 
 - [ ] Game lifecycle transitions in database
 - [ ] Move history/replay panel in GamePage
+
+#### AI Ladder Calibration & Eval
+
+- [ ] Run tiered training/promotion pipeline (`ai-service/scripts/run_tier_training_pipeline.py`, `ai-service/scripts/run_full_tier_gating.py`) and record outcomes in `ai-service/config/tier_candidate_registry.square8_2p.json`
+- [ ] Refresh eval pools (`ai-service/app/training/eval_pools.py`) and rerun difficulty calibration (`ai-service/scripts/analyze_difficulty_calibration.py`) against `docs/ai/AI_TIER_PERF_BUDGETS.md`
+- [ ] Keep large-board search parity tests (`ai-service/tests/test_search_board_parity.py`) and `ai-service/scripts/benchmark_search_board_large_board.py` perf budgets aligned; document deviations in results logs
 
 ### 2.4 Deferred Work
 
@@ -357,6 +406,10 @@ Operational drills completed:
 - [ ] `STRATEGIC_ROADMAP.md` – Phased roadmap
 - [ ] `KNOWN_ISSUES.md` – P0/P1 issues
 - [ ] `tests/README.md` – Test categories
+- [ ] `docs/UX_RULES_EXPLANATION_MODEL_SPEC.md` – Structured end-explanation model
+- [ ] `docs/UX_RULES_CONCEPTS_INDEX.md` – Rules concepts index and cross-links
+- [ ] `docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0002.md` – Telemetry-driven rules UX iteration spec
+- [ ] `ai-service/TRAINING_DATA_REGISTRY.md` – Canonical vs legacy DB status after new gates
 
 ### 4.2 CI/CD
 

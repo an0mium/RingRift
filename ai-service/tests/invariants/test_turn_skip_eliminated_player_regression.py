@@ -271,93 +271,18 @@ def test_turn_rotation_invariant_synthetic() -> None:
     assert len(p2_moves) > 0, "P2 should have valid moves"
 
 
-def test_fully_eliminated_player_not_left_as_current() -> None:
-    """Invariant test: ACTIVE state should never have a fully eliminated current_player.
-
-    This test verifies the core invariant that after any _end_turn call,
-    if the game is still ACTIVE, the current_player must have turn material
-    (stacks or rings in hand).
-    """
-    from datetime import datetime
-
-    # Create state where P1 is fully eliminated (no stacks, no rings)
-    board = BoardState(
-        type=BoardType.SQUARE8,
-        size=8,
-        stacks={
-            "2,2": RingStack(
-                position=Position(x=2, y=2),
-                controlling_player=2,
-                rings=[2, 2, 1, 1],  # P1 rings buried
-                stack_height=4,
-                cap_height=2,
-            ),
-        },
-        markers={},
-        collapsed_spaces={},
-        eliminated_rings={"1": 3, "2": 1},
-        formed_lines=[],
-        territories={},
-    )
-
-    players = [
-        Player(
-            id="p1", username="P1", type="ai", player_number=1,
-            is_ready=True, time_remaining=600000, ai_difficulty=5,
-            rings_in_hand=0, eliminated_rings=3, territory_spaces=0,
-        ),
-        Player(
-            id="p2", username="P2", type="ai", player_number=2,
-            is_ready=True, time_remaining=600000, ai_difficulty=5,
-            rings_in_hand=8, eliminated_rings=1, territory_spaces=0,
-        ),
-    ]
-
-    time_control = TimeControl(initial_time=600000, increment=0, type="standard")
-    now = datetime.now()
-
-    state = GameState(
-        id="invariant-test",
-        board_type=BoardType.SQUARE8,
-        rng_seed=42,
-        board=board,
-        players=players,
-        current_phase=GamePhase.MOVEMENT,
-        current_player=2,  # P2's turn
-        move_history=[],
-        time_control=time_control,
-        spectators=[],
-        game_status=GameStatus.ACTIVE,
-        winner=None,
-        created_at=now,
-        last_move_at=now,
-        is_rated=False,
-        max_players=2,
-        total_rings_in_play=36,
-        total_rings_eliminated=4,
-        victory_threshold=5,
-        territory_victory_threshold=15,
-        chain_capture_state=None,
-        must_move_from_stack_key=None,
-        zobrist_hash=None,
-        lps_round_index=0,
-        lps_current_round_actor_mask={},
-        lps_exclusive_player_for_completed_round=None,
-    )
-
-    # Call _end_turn multiple times - it should never leave P1 as current
-    for _ in range(10):  # Multiple rotations
-        test_state = state.model_copy(deep=True)
-        test_state.current_player = 2
-
-        GameEngine._end_turn(test_state)
-
-        if test_state.game_status == GameStatus.ACTIVE:
-            # Invariant: current_player must have turn material
-            curr_player = test_state.current_player
-            has_material = ga.has_turn_material(test_state, curr_player)
-
-            assert has_material, (
-                f"ACTIVE state has current_player={curr_player} without turn material. "
-                "Fully eliminated players must be skipped."
-            )
+# ARCHIVED TEST: test_fully_eliminated_player_not_left_as_current
+# Removed 2025-12-07
+#
+# This test expected _end_turn to skip players without turn material, but the
+# current (correct) behavior is that fully-eliminated players are NOT skipped.
+# Per the GameEngine._end_turn() documentation: "Do not skip fully-eliminated
+# players; even seats with no stacks and no rings in hand must still traverse
+# all phases and record no-action moves."
+#
+# The invariant being tested (ACTIVE state should never have a fully eliminated
+# current_player) is not enforced by _end_turn - instead, hosts must emit
+# NO_PLACEMENT_ACTION and other bookkeeping moves for players without material.
+# The _assert_active_player_has_legal_action invariant accounts for this by
+# checking for phase requirements (bookkeeping moves) in addition to interactive
+# moves.

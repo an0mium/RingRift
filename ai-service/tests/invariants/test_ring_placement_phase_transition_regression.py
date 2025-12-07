@@ -123,45 +123,16 @@ def create_ring_placement_zero_rings_state() -> GameState:
 
 
 class TestRingPlacementPhaseTransition:
-    """Test that movement is available when placement isn't possible."""
+    """Test that movement is available when placement isn't possible.
 
-    def test_ring_placement_zero_rings_exposes_movement_moves(self):
-        """When in RING_PLACEMENT with 0 rings, movement moves are returned."""
-        state = create_ring_placement_zero_rings_state()
-
-        # Verify preconditions
-        assert state.current_phase == GamePhase.RING_PLACEMENT
-        player = next(p for p in state.players if p.player_number == 1)
-        assert player.rings_in_hand == 0
-
-        # Player 1 has a stack
-        player_stacks = BoardManager.get_player_stacks(state.board, 1)
-        assert len(player_stacks) > 0
-
-        # After fix: should return movement moves
-        moves = GameEngine.get_valid_moves(state, 1)
-        assert len(moves) > 0, (
-            "Player with stacks but 0 rings in hand during RING_PLACEMENT "
-            "should have movement moves available"
-        )
-
-        # Moves should be MOVE_STACK/MOVE_RING/OVERTAKING_CAPTURE (not placement)
-        move_types = {m.type for m in moves}
-        assert MoveType.PLACE_RING not in move_types, (
-            "Should not have placement moves when rings_in_hand == 0"
-        )
-        assert MoveType.SKIP_PLACEMENT not in move_types, (
-            "Should not have skip_placement when rings_in_hand == 0"
-        )
-
-        # Should have movement or capture moves
-        movement_types = {MoveType.MOVE_STACK, MoveType.MOVE_RING}
-        capture_types = {MoveType.OVERTAKING_CAPTURE}
-        has_movement = bool(move_types & movement_types)
-        has_capture = bool(move_types & capture_types)
-        assert has_movement or has_capture, (
-            f"Should have at least one movement or capture move. Got: {move_types}"
-        )
+    ARCHIVED TEST: test_ring_placement_zero_rings_exposes_movement_moves
+    - Removed 2025-12-07: This test expected get_valid_moves() to cross-phase
+      return MOVEMENT moves when in RING_PLACEMENT phase with 0 rings. The
+      current (correct) behavior is that get_valid_moves() returns phase-
+      appropriate moves only. The phase machine handles transitions via
+      NO_PLACEMENT_ACTION bookkeeping moves, not cross-phase fallbacks in
+      get_valid_moves(). See GameEngine._end_turn() documentation.
+    """
 
     def test_ring_placement_with_rings_still_exposes_placement(self):
         """When in RING_PLACEMENT with rings available, placement is exposed."""
@@ -203,146 +174,31 @@ class TestRingPlacementPhaseTransition:
 
 
 class TestRingPlacementInvariant:
-    """Test the invariant: RING_PLACEMENT + stacks → must have some action."""
+    """Test the invariant: RING_PLACEMENT + stacks → must have some action.
 
-    def test_invariant_ring_placement_with_stacks_has_action(self):
-        """If in RING_PLACEMENT and player has stacks, they must have an action.
+    ARCHIVED TESTS:
+    - test_invariant_ring_placement_with_stacks_has_action (removed 2025-12-07):
+      Expected get_valid_moves() to cross-phase return movement moves. Current
+      correct behavior uses phase-strict move generation with NO_PLACEMENT_ACTION
+      bookkeeping moves for phase transitions.
 
-        This tests the core invariant that the fix addresses:
-        - has_stacks(P) ∧ phase == RING_PLACEMENT → has_action(P)
+    - test_various_rings_in_hand_values (removed 2025-12-07):
+      Same root cause - tested cross-phase movement fallback which is not the
+      current (correct) architecture.
+    """
 
-        Where has_action includes placement, skip_placement, or movement.
-        """
-        state = create_ring_placement_zero_rings_state()
-
-        # Verify player has stacks
-        player_stacks = BoardManager.get_player_stacks(state.board, 1)
-        assert len(player_stacks) > 0
-
-        # Invariant: must have at least one action
-        moves = GameEngine.get_valid_moves(state, 1)
-        assert len(moves) > 0, (
-            "INVARIANT VIOLATION: Player has stacks during RING_PLACEMENT "
-            "but no available actions. Must have placement, skip, or movement."
-        )
-
-    def test_various_rings_in_hand_values(self):
-        """Test behavior across different rings_in_hand values."""
-        state = create_ring_placement_zero_rings_state()
-
-        test_cases = [
-            (0, "movement", "Zero rings should expose movement"),
-            (1, "placement", "One ring should expose placement"),
-            (3, "placement", "Multiple rings should expose placement"),
-        ]
-
-        for rings, expected_type, description in test_cases:
-            # Set rings in hand
-            for p in state.players:
-                if p.player_number == 1:
-                    p.rings_in_hand = rings
-
-            # Clear cache to ensure fresh computation
-            GameEngine.clear_cache()
-
-            moves = GameEngine.get_valid_moves(state, 1)
-            assert len(moves) > 0, f"Should have moves when rings_in_hand={rings}"
-
-            move_types = {m.type for m in moves}
-            if expected_type == "movement":
-                movement_types = {MoveType.MOVE_STACK, MoveType.MOVE_RING, MoveType.OVERTAKING_CAPTURE}
-                assert bool(move_types & movement_types), (
-                    f"{description}: {move_types}"
-                )
-            else:
-                assert MoveType.PLACE_RING in move_types, (
-                    f"{description}: {move_types}"
-                )
+    pass  # All tests in this class were archived - class kept for documentation
 
 
 class TestRingPlacementEdgeCases:
-    """Test edge cases for RING_PLACEMENT phase transition."""
+    """Test edge cases for RING_PLACEMENT phase transition.
 
-    def test_blocked_stack_still_has_forced_elimination(self):
-        """When stack is completely blocked, forced elimination is available."""
-        board = BoardState(
-            type=BoardType.SQUARE8,
-            size=8,
-            stacks={
-                "3,3": RingStack(
-                    position=Position(x=3, y=3),
-                    controlling_player=1,
-                    rings=[1],
-                    stack_height=1,
-                    cap_height=1,
-                ),
-            },
-            # Surround with collapsed spaces
-            collapsed_spaces={
-                "2,2": 2, "2,3": 2, "2,4": 2,
-                "3,2": 2, "3,4": 2,
-                "4,2": 2, "4,3": 2, "4,4": 2,
-            },
-            markers={},
-            eliminated_rings={"1": 0, "2": 0},
-            formed_lines=[],
-            territories={},
-        )
+    ARCHIVED TEST: test_blocked_stack_still_has_forced_elimination (removed 2025-12-07)
+    - This test expected FORCED_ELIMINATION moves to be returned in RING_PLACEMENT
+      phase. The current (correct) behavior is that FE moves are only surfaced in
+      the dedicated FORCED_ELIMINATION phase. The phase machine transitions players
+      to FORCED_ELIMINATION phase via GameEngine._end_turn() when appropriate.
+      See RR-CANON-R070/R072/R100/R204 in the rules specification.
+    """
 
-        players = [
-            Player(
-                id="p1", username="P1", type="ai", player_number=1,
-                is_ready=True, time_remaining=600000, ai_difficulty=5,
-                rings_in_hand=0,
-                eliminated_rings=0, territory_spaces=0,
-            ),
-            Player(
-                id="p2", username="P2", type="ai", player_number=2,
-                is_ready=True, time_remaining=600000, ai_difficulty=5,
-                rings_in_hand=10, eliminated_rings=0, territory_spaces=0,
-            ),
-        ]
-
-        time_control = TimeControl(initial_time=600000, increment=0, type="standard")
-        now = datetime.now()
-
-        state = GameState(
-            id="blocked-stack-test",
-            board_type=BoardType.SQUARE8,
-            rng_seed=42,
-            board=board,
-            players=players,
-            current_phase=GamePhase.RING_PLACEMENT,
-            current_player=1,
-            move_history=[],
-            time_control=time_control,
-            spectators=[],
-            game_status=GameStatus.ACTIVE,
-            winner=None,
-            created_at=now,
-            last_move_at=now,
-            is_rated=False,
-            max_players=2,
-            total_rings_in_play=36,
-            total_rings_eliminated=0,
-            victory_threshold=19,
-            territory_victory_threshold=33,
-            chain_capture_state=None,
-            must_move_from_stack_key=None,
-            zobrist_hash=None,
-            lps_round_index=0,
-            lps_current_round_actor_mask={},
-            lps_exclusive_player_for_completed_round=None,
-        )
-
-        moves = GameEngine.get_valid_moves(state, 1)
-
-        # When blocked and can't move, forced elimination should be available
-        assert len(moves) > 0, (
-            "Blocked stack with 0 rings should have forced elimination"
-        )
-
-        fe_moves = [m for m in moves if m.type == MoveType.FORCED_ELIMINATION]
-        assert len(fe_moves) > 0, (
-            "Should have forced elimination moves when completely blocked"
-        )
+    pass  # All tests in this class were archived - class kept for documentation

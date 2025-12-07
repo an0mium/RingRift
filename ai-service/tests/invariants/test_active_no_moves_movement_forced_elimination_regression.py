@@ -55,15 +55,24 @@ SNAPSHOT_PATH = os.path.join(
 )
 
 
-@pytest.mark.slow
-@pytest.mark.skipif(
-    not os.path.exists(SNAPSHOT_PATH),
-    reason=(
-        "Invariant-failure snapshot not found; "
-        "run strict soak to regenerate"
-    ),
-)
-def test_movement_forced_elimination_invariant_regression(
+# ARCHIVED TEST: test_movement_forced_elimination_invariant_regression
+# Removed 2025-12-07
+#
+# This test depended on a legacy snapshot (active_no_moves_p1_1763999745.json)
+# that has phase=MOVEMENT with move.type=ELIMINATE_RINGS_FROM_STACK. The current
+# (correct) phase invariant requires ELIMINATE_RINGS_FROM_STACK to be applied
+# only in TERRITORY_PROCESSING phase. This snapshot predates the stricter
+# phase/move invariant enforcement and would need regeneration under the new
+# rules to be useful. The underlying invariant is now tested via the synthetic
+# tests in test_anm_and_termination_invariants.py.
+#
+# Original markers:
+# @pytest.mark.slow
+# @pytest.mark.skipif(not os.path.exists(SNAPSHOT_PATH), ...)
+# @pytest.mark.xfail(strict=True, ...)
+
+
+def _archived_test_movement_forced_elimination_invariant_regression(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Re-apply the recorded elimination/territory sequence under strict mode.

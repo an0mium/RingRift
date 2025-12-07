@@ -246,7 +246,7 @@ def _build_mixed_ai_pool(
     base_seed: Optional[int],
     board_type: BoardType,
     difficulty_band: str = "canonical",
-) -> Dict[int, Any]:
+) -> Tuple[Dict[int, Any], Dict[str, Any]]:
     """Construct per-player AI instances for a single game.
 
     For ``engine_mode == 'descent-only'`` we use DescentAI only.
@@ -261,9 +261,16 @@ def _build_mixed_ai_pool(
     ``TRAINING_HEURISTIC_EVAL_MODE_BY_BOARD`` to select the appropriate
     heuristic evaluation mode (``"full"`` vs ``"light"``) for any
     HeuristicAI instances in the pool.
+
+    Returns:
+        Tuple of (ai_by_player, ai_metadata) where:
+        - ai_by_player: Dict mapping player_number -> AI instance
+        - ai_metadata: Dict with per-player AI info for DB recording, e.g.:
+            player_{pnum}_ai_type, player_{pnum}_difficulty, player_{pnum}_profile_id
     """
 
     ai_by_player: Dict[int, Any] = {}
+    ai_metadata: Dict[str, Any] = {}
 
     if engine_mode == "descent-only":
         from app.ai.descent_ai import DescentAI  # type: ignore
@@ -283,7 +290,10 @@ def _build_mixed_ai_pool(
                 use_neural_net=False,
             )
             ai_by_player[pnum] = DescentAI(pnum, cfg)
-        return ai_by_player
+            # Record AI metadata for this player
+            ai_metadata[f"player_{pnum}_ai_type"] = "descent"
+            ai_metadata[f"player_{pnum}_difficulty"] = 5
+        return ai_by_player, ai_metadata
 
     # mixed mode
     if engine_mode != "mixed":
@@ -348,7 +358,13 @@ def _build_mixed_ai_pool(
         ai = _create_ai_instance(ai_type, pnum, cfg)
         ai_by_player[pnum] = ai
 
-    return ai_by_player
+        # Record AI metadata for this player
+        ai_metadata[f"player_{pnum}_ai_type"] = ai_type.value
+        ai_metadata[f"player_{pnum}_difficulty"] = difficulty
+        if heuristic_profile_id:
+            ai_metadata[f"player_{pnum}_profile_id"] = heuristic_profile_id
+
+    return ai_by_player, ai_metadata
 
 
 def _run_intra_game_gc(
@@ -587,7 +603,7 @@ def run_self_play_soak(
             player_numbers = [p.player_number for p in state.players]
             if profile_timing:
                 t_ai_start = time.time()
-            ai_by_player = _build_mixed_ai_pool(
+            ai_by_player, per_player_ai_metadata = _build_mixed_ai_pool(
                 game_idx,
                 player_numbers,
                 engine_mode,
@@ -983,6 +999,9 @@ def run_self_play_soak(
                             "invariant_violations_by_type": per_game_violations,
                             "swap_sides_moves": swap_sides_moves_for_game,
                             "used_pie_rule": swap_sides_moves_for_game > 0,
+                            # Per-player AI metadata for analysis and debugging:
+                            # keys like player_{pnum}_ai_type, player_{pnum}_difficulty
+                            **per_player_ai_metadata,
                         },
                     )
                     if profile_timing:

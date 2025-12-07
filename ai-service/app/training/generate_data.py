@@ -1128,6 +1128,11 @@ def generate_dataset(
         recorded_game_id: Optional[str] = None
         if replay_db is not None:
             try:
+                # Build per-player AI type metadata for DB schema compatibility
+                per_player_ai_meta = {}
+                for pnum, eng_type in player_engines.items():
+                    per_player_ai_meta[f"player_{pnum}_ai_type"] = eng_type
+
                 recorded_game_id = record_completed_game(
                     db=replay_db,
                     initial_state=initial_state,
@@ -1139,6 +1144,8 @@ def generate_dataset(
                         "player_engines": player_engines,
                         "seed": game_seed,
                         "source": "training_data_generation",
+                        # Per-player AI type keys for DB schema compatibility
+                        **per_player_ai_meta,
                     },
                 )
                 games_recorded += 1

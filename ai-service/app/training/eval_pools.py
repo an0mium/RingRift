@@ -14,6 +14,7 @@ diagnostics in the multi-board, multi-start regime:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 import argparse
 import json
@@ -48,23 +49,189 @@ from app.training.tournament import infer_victory_reason
 #
 # Multi-player state pools are kept separate via explicit pool_ids so that
 # callers must opt in to 3p/4p evaluation (for example,
-# ``square19_3p_pool_v1``; legacy ``hex_4p_pool_v1`` was removed), and
-# 2-player training code that passes the default pool_id="v1" will never see
-# those states.
+# ``square19_3p_pool_v1``), and 2-player training code that passes the default
+# pool_id="v1" will never see those states. Hex pools target the canonical
+# radius-12 geometry; see ``HEX_DATA_DEPRECATION_NOTICE.md`` for details and
+# generation commands.
 POOL_PATHS: Dict[Tuple[BoardType, str], str] = {
     # Canonical 2-player evaluation pools (mid/late-game heavy).
     (BoardType.SQUARE8, "v1"): "data/eval_pools/square8/pool_v1.jsonl",
     (BoardType.SQUARE19, "v1"): "data/eval_pools/square19/pool_v1.jsonl",
-    # Hex eval pools (v1/3p/4p) were generated on the old radius-10 geometry and
-    # have been removed. Regenerate for the radius-12 (469-cell) board before
-    # re-adding entries here.
+    (BoardType.HEXAGONAL, "v1"): "data/eval_pools/hex/pool_v1.jsonl",
     # 3-player evaluation pools.
     (BoardType.SQUARE8, "3p_v1"): "data/eval_pools/square8_3p/pool_v1.jsonl",
     (BoardType.SQUARE19, "3p_v1"): "data/eval_pools/square19_3p/pool_v1.jsonl",
+    (BoardType.HEXAGONAL, "3p_v1"): "data/eval_pools/hex_3p/pool_v1.jsonl",
     # 4-player evaluation pools.
     (BoardType.SQUARE8, "4p_v1"): "data/eval_pools/square8_4p/pool_v1.jsonl",
     (BoardType.SQUARE19, "4p_v1"): "data/eval_pools/square19_4p/pool_v1.jsonl",
+    (BoardType.HEXAGONAL, "4p_v1"): "data/eval_pools/hex_4p/pool_v1.jsonl",
 }
+
+
+@dataclass(frozen=True)
+class EvalPoolConfig:
+    """Logical configuration for a named evaluation pool.
+
+    This wraps the lower-level (BoardType, pool_id) mapping in
+    :data:`POOL_PATHS` and adds ``num_players`` so higher-level tooling
+    can refer to pools by a stable string id such as ``"square19_2p_core"``
+    or ``"square8_3p_baseline"``.
+    """
+
+    name: str
+    board_type: BoardType
+    num_players: int
+    pool_id: str
+
+
+@dataclass(frozen=True)
+class EvalScenario:
+    """Single evaluation scenario drawn from an eval pool.
+
+    Scenarios are thin wrappers over :class:`GameState` snapshots with a stable
+    identifier and a small metadata bag. The underlying JSONL files remain the
+    single source of truth for the actual positions.
+    """
+
+    id: str
+    board_type: BoardType
+    num_players: int
+    initial_state: GameState
+    metadata: Dict[str, Any]
+
+
+# Stable registry of named evaluation pools used by tournaments and evaluation
+# harnesses. This sits on top of :data:`POOL_PATHS` so that callers never need
+# to hard-code (BoardType, pool_id, num_players) triples.
+EVAL_POOLS: Dict[str, EvalPoolConfig] = {
+    # Square8 2-player canonical core pool (mid/late-game states).
+    "square8_2p_core": EvalPoolConfig(
+        name="square8_2p_core",
+        board_type=BoardType.SQUARE8,
+        num_players=2,
+        pool_id="v1",
+    ),
+    # Square19 2-player core pool.
+    "square19_2p_core": EvalPoolConfig(
+        name="square19_2p_core",
+        board_type=BoardType.SQUARE19,
+        num_players=2,
+        pool_id="v1",
+    ),
+    # Hexagonal 2-player core pool targeting the radius-12 geometry. The
+    # underlying JSONL file is not shipped in the repo yet; see
+    # ``HEX_DATA_DEPRECATION_NOTICE.md`` for generation commands.
+    "hex_2p_core": EvalPoolConfig(
+        name="hex_2p_core",
+        board_type=BoardType.HEXAGONAL,
+        num_players=2,
+        pool_id="v1",
+    ),
+    # Multiplayer Square8 pools.
+    "square8_3p_baseline": EvalPoolConfig(
+        name="square8_3p_baseline",
+        board_type=BoardType.SQUARE8,
+        num_players=3,
+        pool_id="3p_v1",
+    ),
+    "square8_4p_baseline": EvalPoolConfig(
+        name="square8_4p_baseline",
+        board_type=BoardType.SQUARE8,
+        num_players=4,
+        pool_id="4p_v1",
+    ),
+    # Multiplayer Square19 pools.
+    "square19_3p_baseline": EvalPoolConfig(
+        name="square19_3p_baseline",
+        board_type=BoardType.SQUARE19,
+        num_players=3,
+        pool_id="3p_v1",
+    ),
+    "square19_4p_baseline": EvalPoolConfig(
+        name="square19_4p_baseline",
+        board_type=BoardType.SQUARE19,
+        num_players=4,
+        pool_id="4p_v1",
+    ),
+    # Hexagonal multiplayer pools for the radius-12 geometry. As with
+    # ``hex_2p_core``, the JSONL files must be generated out-of-band
+    # before use.
+    "hex_3p_baseline": EvalPoolConfig(
+        name="hex_3p_baseline",
+        board_type=BoardType.HEXAGONAL,
+        num_players=3,
+        pool_id="3p_v1",
+    ),
+    "hex_4p_baseline": EvalPoolConfig(
+        name="hex_4p_baseline",
+        board_type=BoardType.HEXAGONAL,
+        num_players=4,
+        pool_id="4p_v1",
+    ),
+}
+
+
+def get_eval_pool_config(name: str) -> EvalPoolConfig:
+    """Return the :class:`EvalPoolConfig` for a named evaluation pool.
+
+    Raises
+    ------
+    KeyError
+        If the pool name is unknown.
+    """
+    try:
+        return EVAL_POOLS[name]
+    except KeyError as exc:  # pragma: no cover - defensive
+        available = ", ".join(sorted(EVAL_POOLS.keys()))
+        raise KeyError(
+            f"Unknown evaluation pool {name!r}. Available pools: {available}"
+        ) from exc
+
+
+def list_eval_pools() -> List[EvalPoolConfig]:
+    """Return all registered evaluation pools in a deterministic order."""
+    return sorted(
+        EVAL_POOLS.values(),
+        key=lambda cfg: (cfg.board_type.value, cfg.num_players, cfg.name),
+    )
+
+
+def load_eval_pool(
+    name: str,
+    max_scenarios: Optional[int] = None,
+) -> List[EvalScenario]:
+    """Load a named evaluation pool as a list of :class:`EvalScenario`.
+
+    This is a thin wrapper over :func:`load_state_pool` that resolves
+    board_type / pool_id / num_players from :data:`EVAL_POOLS` and assigns a
+    stable per-scenario id of the form ``"{name}:{index}"``.
+    """
+    cfg = get_eval_pool_config(name)
+    states = load_state_pool(
+        board_type=cfg.board_type,
+        pool_id=cfg.pool_id,
+        max_states=max_scenarios,
+        num_players=cfg.num_players,
+    )
+    scenarios: List[EvalScenario] = []
+    for index, state in enumerate(states):
+        scenario_id = f"{name}:{index}"
+        metadata: Dict[str, Any] = {
+            "pool_name": name,
+            "pool_id": cfg.pool_id,
+            "index": index,
+        }
+        scenarios.append(
+            EvalScenario(
+                id=scenario_id,
+                board_type=cfg.board_type,
+                num_players=cfg.num_players,
+                initial_state=state,
+                metadata=metadata,
+            )
+        )
+    return scenarios
 
 
 def load_state_pool(

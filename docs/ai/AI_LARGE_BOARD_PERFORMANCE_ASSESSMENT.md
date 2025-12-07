@@ -274,6 +274,48 @@ TRAINING_MAX_MOVES_BY_BOARD: Dict[BoardType, int] = {
 }
 ```
 
+### Evaluation pools and tournament harness (A4)
+
+For large‑board and multi‑player evaluation we use mid/late‑game
+**evaluation pools** under `ai-service/data/eval_pools/**` together
+with a small, config‑driven tournament harness:
+
+- Pool loader and registry live in
+  [`app.training.eval_pools`](ai-service/app/training/eval_pools.py).
+- Named pools such as:
+  - `square8_2p_core`, `square19_2p_core`
+  - `square8_3p_baseline`, `square8_4p_baseline`
+  - `square19_3p_baseline`, `square19_4p_baseline`
+- Hex 2p/3p/4p pools are wired in code for the **radius‑12** geometry
+  but the JSONL files must be regenerated; see
+  [`HEX_DATA_DEPRECATION_NOTICE.md`](ai-service/data/HEX_DATA_DEPRECATION_NOTICE.md).
+
+The tournament CLI is:
+
+```bash
+cd ai-service
+PYTHONPATH=. python scripts/run_eval_tournaments.py \
+  --pool square19_2p_core \
+  --tier D4 \
+  --opponent D2 \
+  --num-games 2 \
+  --run-dir logs/eval/square19_2p_D4_vs_D2_demo \
+  --demo
+```
+
+- `--pool` selects a named pool from the registry.
+- `--tier` / `--opponent` use the difficulty ladder where
+  available; `--engine` can be used instead for ad‑hoc engines
+  (random, heuristic, minimax, mcts, descent).
+- `--demo` keeps runs CI‑safe:
+  - caps games per scenario,
+  - forces small move budgets and `think_time=0`.
+
+For promotion decisions and long‑running studies, callers must use
+configs aligned with the tier gating and perf budgets described in
+[`AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md`](docs/ai/AI_TIER_TRAINING_AND_PROMOTION_PIPELINE.md)
+and **not** the lightweight `--demo` defaults above.
+
 ---
 
 ## 7. Related Documentation
