@@ -6,7 +6,7 @@ Provides AI move selection and position evaluation endpoints
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, TypedDict
+from typing import Optional, Dict, Any, TypedDict, NotRequired
 import logging
 import time
 import os
@@ -962,6 +962,7 @@ class DifficultyProfile(TypedDict):
     randomness: float
     think_time_ms: int
     profile_id: str
+    use_neural_net: NotRequired[bool]
 
 
 # v1 canonical ladder. The randomness values intentionally mirror the legacy
@@ -987,46 +988,52 @@ _CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         "profile_id": "v1-heuristic-2",
     },
     3: {
-        # Lower-mid: very low-depth, low-budget minimax
+        # Lower-mid: minimax with heuristic evaluation only (no neural net)
         "ai_type": AIType.MINIMAX,
-        "randomness": 0.2,
-        "think_time_ms": 1250,
+        "randomness": 0.15,
+        "think_time_ms": 1800,
         "profile_id": "v1-minimax-3",
+        "use_neural_net": False,
     },
     4: {
-        # Mid: minimax with slightly higher depth/budget
+        # Mid: minimax with NNUE neural evaluation
         "ai_type": AIType.MINIMAX,
-        "randomness": 0.1,
-        "think_time_ms": 2100,
-        "profile_id": "v1-minimax-4",
+        "randomness": 0.08,
+        "think_time_ms": 2800,
+        "profile_id": "v1-minimax-4-nnue",
+        "use_neural_net": True,
     },
     5: {
-        # Upper-mid: minimax with moderate depth/budget
-        "ai_type": AIType.MINIMAX,
+        # Upper-mid: MCTS with heuristic rollouts only (no neural net)
+        "ai_type": AIType.MCTS,
         "randomness": 0.05,
-        "think_time_ms": 3500,
-        "profile_id": "v1-minimax-5",
+        "think_time_ms": 4000,
+        "profile_id": "v1-mcts-5",
+        "use_neural_net": False,
     },
     6: {
-        # High: minimax with reduced randomness and higher budget
-        "ai_type": AIType.MINIMAX,
+        # High: MCTS with neural value/policy guidance
+        "ai_type": AIType.MCTS,
         "randomness": 0.02,
-        "think_time_ms": 4800,
-        "profile_id": "v1-minimax-6",
+        "think_time_ms": 5500,
+        "profile_id": "v1-mcts-6-neural",
+        "use_neural_net": True,
     },
     7: {
-        # Expert: MCTS with NN guidance where available
+        # Expert: MCTS with neural guidance and higher budget
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
-        "think_time_ms": 7000,
-        "profile_id": "v1-mcts-7",
+        "think_time_ms": 7500,
+        "profile_id": "v1-mcts-7-neural",
+        "use_neural_net": True,
     },
     8: {
-        # Strong expert: MCTS with larger search budget
+        # Strong expert: MCTS with neural guidance and large search budget
         "ai_type": AIType.MCTS,
         "randomness": 0.0,
         "think_time_ms": 9600,
-        "profile_id": "v1-mcts-8",
+        "profile_id": "v1-mcts-8-neural",
+        "use_neural_net": True,
     },
     9: {
         # Master: Descent/UBFM-style search with NN guidance

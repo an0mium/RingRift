@@ -156,8 +156,18 @@ export interface AiOpponentsConfig {
   difficulty: number[];
   /** Where the AI logic runs for these opponents. */
   mode?: AIControlMode | undefined;
-  /** Which tactical engine should be used for these opponents. */
+  /**
+   * Which tactical engine should be used for all AI opponents.
+   * This is a legacy field; prefer `aiTypes` for per-opponent configuration.
+   * When both are provided, `aiTypes` takes precedence.
+   */
   aiType?: AITacticType | undefined;
+  /**
+   * Per-opponent AI type array. When provided, each AI opponent uses
+   * the corresponding engine type from this array (indexed in the same
+   * order as `difficulty`). Falls back to `aiType` if not provided.
+   */
+  aiTypes?: AITacticType[] | undefined;
 }
 
 /**

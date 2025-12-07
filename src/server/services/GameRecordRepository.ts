@@ -75,6 +75,7 @@ interface GameWithRelations {
   createdAt: Date;
   startedAt: Date | null;
   endedAt: Date | null;
+  gameState: unknown;
   finalState: unknown;
   finalScore: unknown;
   outcome: string | null;
@@ -341,14 +342,39 @@ export class GameRecordRepository {
     const players: PlayerRecordInfo[] = [];
     const playerRefs = [game.player1, game.player2, game.player3, game.player4];
 
+    // Extract AI opponents config from gameState for populating AI player metadata
+    const gameStateRaw = game.gameState as Record<string, unknown> | null;
+    const aiOpponents = gameStateRaw?.aiOpponents as
+      | { count: number; difficulty: number[]; mode?: string; aiType?: string; aiTypes?: string[] }
+      | undefined;
+
+    // Track AI slot index for mapping to difficulty array
+    let aiSlotIndex = 0;
+
     for (let i = 0; i < game.maxPlayers; i++) {
       const user = playerRefs[i];
-      players.push({
-        playerNumber: i + 1,
-        username: user?.username ?? `AI Player ${i + 1}`,
-        playerType: user ? 'human' : 'ai',
-        ...(user && { ratingBefore: user.rating }),
-      });
+      if (user) {
+        // Human player
+        players.push({
+          playerNumber: i + 1,
+          username: user.username,
+          playerType: 'human',
+          ratingBefore: user.rating,
+        });
+      } else {
+        // AI player - extract difficulty and type from aiOpponents config
+        const aiDifficulty = aiOpponents?.difficulty?.[aiSlotIndex];
+        // Use per-player AI type from aiTypes array if available, falling back to shared aiType
+        const aiType = aiOpponents?.aiTypes?.[aiSlotIndex] ?? aiOpponents?.aiType;
+        players.push({
+          playerNumber: i + 1,
+          username: `AI Player ${i + 1}`,
+          playerType: 'ai',
+          ...(aiDifficulty !== undefined && { aiDifficulty }),
+          ...(aiType !== undefined && { aiType }),
+        });
+        aiSlotIndex++;
+      }
     }
 
     const moves: MoveRecord[] = game.moves.map((move) => {

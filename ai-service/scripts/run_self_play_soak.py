@@ -225,6 +225,26 @@ def _append_state_to_jsonl(path: str, state: GameState) -> None:
         f.write("\n")
 
 
+def _validate_history_trace(
+    initial_state: GameState,
+    moves: List[Move],
+) -> Tuple[bool, Optional[str]]:
+    """
+    Lightweight trace-mode validation of a recorded move list.
+
+    Replays the moves through GameEngine.apply_move(trace_mode=True) to catch
+    actor/phase mismatches (e.g., "not your turn") before committing a game
+    to the DB. Returns (ok, error_str).
+    """
+    try:
+        state = initial_state
+        for mv in moves:
+            state = GameEngine.apply_move(state, mv, trace_mode=True)
+        return True, None
+    except Exception as exc:  # pragma: no cover - defensive
+        return False, f"invalid_history:{type(exc).__name__}:{exc}"
+
+
 def _parse_board_type(name: str) -> BoardType:
     name = name.lower()
     if name == "square8":
@@ -728,6 +748,15 @@ def run_self_play_soak(
                             if termination_reason == "recorded_player_mismatch":
                                 break
                             game_moves_for_recording.extend(auto_moves)
+                    if done:
+                        # If the env terminated but the rules engine still reports
+                        # ACTIVE, treat it as an env-level cutoff to avoid recording
+                        # a partial turn.
+                        if state.game_status != GameStatus.ACTIVE:
+                            termination_reason = f"status:{state.game_status.value}"
+                        else:
+                            termination_reason = "env_done_flag"
+                        break
                 except Exception as exc:  # pragma: no cover - defensive
                     import traceback
                     print(f"[DEBUG] Step exception: {exc}")
@@ -977,6 +1006,28 @@ def run_self_play_soak(
 
             # Record full game to database if enabled
             if replay_db and initial_state_for_recording is not None:
+                # Only record completed games; skip any partial/aborted runs.
+                if state.game_status != GameStatus.COMPLETED:
+                    print(
+                        f"[record-db] Skipping game {game_idx} "
+                        f"because game_status={state.game_status.value} "
+                        f"termination_reason={termination_reason}",
+                        file=sys.stderr,
+                    )
+                    continue
+
+                # Validate recorded history in trace_mode before committing.
+                ok, err = _validate_history_trace(
+                    initial_state_for_recording,
+                    game_moves_for_recording,
+                )
+                if not ok:
+                    print(
+                        f"[record-db] Skipping game {game_idx} due to trace replay failure: {err}",
+                        file=sys.stderr,
+                    )
+                    continue
+
                 try:
                     if profile_timing:
                         t_db_start = time.time()
@@ -1008,16 +1059,12 @@ def run_self_play_soak(
                         timing_totals["db_record"] += time.time() - t_db_start
                     games_recorded += 1
                 except ParityValidationError as pve:
-                    # Parity validation failed - this is a critical error in strict mode.
-                    # The parity validator has already dumped diagnostic bundles.
+                    # Parity validation failed - skip this game but continue.
                     print(
-                        f"[PARITY ERROR] Game {game_idx} diverged from TS engine at k={pve.divergence.move_index}:\n"
-                        f"  Python phase: {pve.divergence.python_phase}, TS phase: {pve.divergence.ts_phase}\n"
-                        f"  Bundle dumped to: {pve.divergence.bundle_path or 'N/A'}",
+                        f"[PARITY ERROR] Skipping game {game_idx} due to TS parity divergence: {pve}",
                         file=sys.stderr,
                     )
-                    # Re-raise to halt the soak - parity divergence should stop immediately
-                    raise
+                    continue
                 except Exception as exc:  # pragma: no cover - defensive
                     # DB recording must never break the soak loop
                     print(

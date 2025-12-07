@@ -241,7 +241,8 @@ Operational drills completed:
 
 - [x] Enforce phase ↔ move whitelist in both TS and Python (`validate_canonical_move`, `phase_move_contract`) when adding phases/move types
 - [ ] Run parity + canonical history gates on any new/modified DBs (`ai-service/scripts/check_ts_python_replay_parity.py --emit-state-bundles-dir`, `ai-service/scripts/check_canonical_phase_history.py`)
-- [ ] Add and keep a small golden replay pack in CI that replays in TS + Python and fails on any semantic drift
+- [ ] Shortcut wrapper: `ai-service/scripts/run_parity_and_history_gate.py --db <path> [--emit-state-bundles-dir DIR]`
+- [x] Add and keep a small golden replay pack in CI that replays in TS + Python and fails on any semantic drift
 - [ ] Audit orchestrator/Python `game_engine.py` changes for silent transitions or forced elimination without recorded moves
 
 #### Orchestrator & Territory Branch Coverage Hardening
@@ -249,11 +250,11 @@ Operational drills completed:
 - [ ] Add branch-coverage cases in `tests/unit/turnOrchestrator.core.branchCoverage.test.ts`:
   - [x] Forced-elimination pending decisions when blocked with stacks
   - [x] No-op phase transitions (`no_line_action_required`, `no_territory_action_required`)
-  - [ ] Chain → line → territory sequence coverage
+  - [x] Chain → line → territory sequence coverage
 - [ ] Add branch-coverage cases in `tests/unit/TerritoryAggregate.advanced.branchCoverage.test.ts`:
   - [x] Mini-region elimination / interior ring handling
   - [x] Disconnected region ordering with multiple regions
-  - [ ] Multi-player tie-break ladders
+  - [x] Multi-player tie-break ladders
 - [ ] Mirror high-risk TS cases in Python parity suites to keep contract expectations aligned
 
 ### 2.2 Active P1 Tasks

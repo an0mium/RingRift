@@ -110,7 +110,8 @@ interface PersistedGameStateSnapshot {
     count: number;
     difficulty: number[];
     mode?: 'local_heuristic' | 'service';
-    aiType?: 'random' | 'heuristic' | 'minimax' | 'mcts';
+    aiType?: 'random' | 'heuristic' | 'minimax' | 'mcts' | 'descent';
+    aiTypes?: ('random' | 'heuristic' | 'minimax' | 'mcts' | 'descent')[];
   };
   rulesOptions?: GameState['rulesOptions'];
   fixture?: DecisionPhaseFixtureMetadata;
@@ -250,10 +251,12 @@ export class GameSession {
       for (let i = 0; i < aiCount; i++) {
         const playerNumber = startingNumber + i;
         const difficulty = aiOpponents.difficulty?.[i] ?? 5;
+        // Use per-player AI type from aiTypes array if available, falling back to shared aiType
+        const aiType = aiOpponents.aiTypes?.[i] ?? aiOpponents.aiType;
         const aiProfile: AIProfile = {
           difficulty,
           mode: aiOpponents.mode ?? 'service',
-          ...(aiOpponents.aiType && { aiType: aiOpponents.aiType }),
+          ...(aiType && { aiType }),
         };
 
         players.push({

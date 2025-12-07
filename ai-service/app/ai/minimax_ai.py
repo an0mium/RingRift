@@ -7,16 +7,28 @@ make/unmake search modes, gated by ``config.use_incremental_search``.
 In all modes, ``config.think_time`` (when set) is interpreted strictly as
 an upper bound on wall‑clock search time per move. No artificial delay is
 introduced once search has completed.
+
+Neural Network Integration (D4+):
+When ``config.use_neural_net`` is True and ``config.difficulty >= 4``,
+MinimaxAI uses NNUE (Efficiently Updatable Neural Network) evaluation
+instead of the hand-crafted heuristic. This provides stronger positional
+evaluation while maintaining fast CPU inference suitable for alpha-beta
+search.
 """
 
 from typing import Optional, List
+import logging
+import os
 import time
 
 from .bounded_transposition_table import BoundedTranspositionTable
 from .heuristic_ai import HeuristicAI
+from .nnue import NNUEEvaluator
 from .zobrist import ZobristHash
 from ..models import GameState, Move, AIConfig, GamePhase
 from ..rules.mutable_state import MutableGameState
+
+logger = logging.getLogger(__name__)
 
 # Interactive phases where player actions (and thus quiescence search) are valid.
 # Non-interactive phases (LINE_PROCESSING, TERRITORY_PROCESSING, FORCED_ELIMINATION)
@@ -73,6 +85,44 @@ class MinimaxAI(HeuristicAI):
             config, 'use_incremental_search', True
         )
 
+        # NNUE neural evaluation (D4+ when enabled)
+        # Priority:
+        # - Explicit AIConfig.use_neural_net when provided
+        # - RINGRIFT_DISABLE_NEURAL_NET env var can globally disable NN usage
+        # - Default: enabled for difficulty >= 4
+        disable_nn_env = os.environ.get("RINGRIFT_DISABLE_NEURAL_NET", "").lower() in {
+            "1", "true", "yes", "on",
+        }
+        use_nn_config = getattr(config, "use_neural_net", None)
+        # NNUE is enabled at D4+ by default, can be explicitly disabled
+        should_use_nnue = (
+            config.difficulty >= 4 and
+            (use_nn_config if use_nn_config is not None else True) and
+            not disable_nn_env
+        )
+
+        self.nnue_evaluator: Optional[NNUEEvaluator] = None
+        self.use_nnue: bool = False
+
+        if should_use_nnue:
+            try:
+                # Board type will be determined on first evaluation
+                # For now, use a placeholder that gets set in select_move
+                self._pending_nnue_init = True
+                logger.debug(
+                    f"MinimaxAI(player={player_number}, difficulty={config.difficulty}): "
+                    "NNUE evaluation will be initialized on first move"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to initialize NNUE: {e}")
+                self._pending_nnue_init = False
+        else:
+            self._pending_nnue_init = False
+            logger.debug(
+                f"MinimaxAI(player={player_number}, difficulty={config.difficulty}): "
+                "using heuristic evaluation"
+            )
+
     def select_move(self, game_state: GameState) -> Optional[Move]:
         """Select the best move using minimax search.
 
@@ -95,6 +145,32 @@ class MinimaxAI(HeuristicAI):
 
         if not valid_moves:
             return None
+
+        # Lazy NNUE initialization on first move (needs board type from game state)
+        if getattr(self, '_pending_nnue_init', False):
+            self._pending_nnue_init = False
+            try:
+                board_type = game_state.board.type
+                self.nnue_evaluator = NNUEEvaluator(
+                    board_type=board_type,
+                    player_number=self.player_number,
+                    model_id=getattr(self.config, 'nn_model_id', None),
+                    allow_fresh=True,  # Use fresh weights if no checkpoint
+                )
+                self.use_nnue = self.nnue_evaluator.available
+                if self.use_nnue:
+                    logger.info(
+                        f"MinimaxAI(player={self.player_number}): NNUE evaluation enabled "
+                        f"for {board_type.value}"
+                    )
+                else:
+                    logger.debug(
+                        f"MinimaxAI(player={self.player_number}): NNUE model not available, "
+                        "falling back to heuristic"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to initialize NNUE evaluator: {e}")
+                self.use_nnue = False
 
         # Check if should pick random move based on randomness setting
         if self.should_pick_random_move():
@@ -759,12 +835,15 @@ class MinimaxAI(HeuristicAI):
 
     def _evaluate_mutable(self, state: MutableGameState) -> float:
         """
-        Evaluate MutableGameState by converting to immutable and using
-        the parent HeuristicAI's evaluate_position method.
+        Evaluate MutableGameState using NNUE (when available) or heuristic.
 
-        Note: This conversion adds some overhead, but is still faster than
-        cloning state at every tree node. Future optimization could implement
-        direct evaluation on MutableGameState.
+        When NNUE is enabled (D4+ with use_neural_net=True), uses neural
+        network evaluation for stronger positional assessment. Falls back
+        to heuristic evaluation when NNUE is unavailable.
+
+        Note: For heuristic fallback, this converts to immutable state which
+        adds some overhead, but is still faster than cloning state at every
+        tree node.
         """
         # Check for game over first using mutable state methods
         if state.is_game_over():
@@ -776,7 +855,15 @@ class MinimaxAI(HeuristicAI):
             else:
                 return 0.0
 
-        # Convert to immutable for evaluation
+        # Use NNUE evaluation when available
+        if self.use_nnue and self.nnue_evaluator is not None:
+            try:
+                return self.nnue_evaluator.evaluate_mutable(state)
+            except Exception as e:
+                # Fallback to heuristic on NNUE error
+                logger.warning(f"NNUE evaluation failed, falling back to heuristic: {e}")
+
+        # Convert to immutable for heuristic evaluation
         immutable = state.to_immutable()
         return self.evaluate_position(immutable)
 

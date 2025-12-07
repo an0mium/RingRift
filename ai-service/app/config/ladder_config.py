@@ -41,6 +41,7 @@ class LadderTierConfig:
     heuristic_profile_id: Optional[str]
     randomness: float
     think_time_ms: int
+    use_neural_net: bool = False
     notes: str = ""
 
 
@@ -50,13 +51,21 @@ def _build_default_square8_two_player_configs() -> Dict[
     """Return the built-in ladder assignments for square8 2-player tiers.
 
     These defaults mirror the canonical difficulty profiles in ``app.main``
-    for D2/D4/D6/D8 while threading through an explicit model / profile id
-    so that calibration and promotion tooling can reason about assignments.
+    while threading through an explicit model / profile id so that
+    calibration and promotion tooling can reason about assignments.
 
-    Strength differences between tiers are primarily expressed via
-    ``ai_type``, ``randomness`` and ``think_time_ms``. For the current
-    heuristic-driven tree-search stack the same 2-player heuristic weights
-    (``heuristic_v1_2p``) are shared across tiers.
+    Difficulty mapping:
+    - D1: Random
+    - D2: Heuristic
+    - D3: Minimax (non-neural, heuristic eval only)
+    - D4: Minimax (neural/NNUE)
+    - D5: MCTS (non-neural, heuristic rollouts)
+    - D6: MCTS (neural value/policy)
+    - D7-8: MCTS (neural, higher budgets)
+    - D9-10: Descent (AlphaZero-style, always neural)
+
+    Strength differences between tiers are expressed via ``ai_type``,
+    ``use_neural_net``, ``randomness`` and ``think_time_ms``.
     """
     return {
         # D2 – easy heuristic baseline on square8, 2-player.
@@ -65,56 +74,144 @@ def _build_default_square8_two_player_configs() -> Dict[
             board_type=BoardType.SQUARE8,
             num_players=2,
             ai_type=AIType.HEURISTIC,
-            # Optimised 2-player heuristic weights; also exposed via
-            # trained_heuristic_profiles.json and HeuristicAI.
             model_id="heuristic_v1_2p",
             heuristic_profile_id="heuristic_v1_2p",
             randomness=0.3,
             think_time_ms=200,
+            use_neural_net=False,
             notes=(
                 "Easy square8 2p tier backed by v1 2-player heuristic "
                 "weights. Intended as the first non-random production "
                 "difficulty."
             ),
         ),
-        # D4 – mid-tier minimax on square8, 2-player.
+        # D3 – lower-mid minimax on square8, 2-player (non-neural).
+        (3, BoardType.SQUARE8, 2): LadderTierConfig(
+            difficulty=3,
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            ai_type=AIType.MINIMAX,
+            model_id="v1-minimax-3",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.15,
+            think_time_ms=1800,
+            use_neural_net=False,
+            notes=(
+                "Lower-mid square8 2p tier using minimax with heuristic "
+                "evaluation only (no neural net)."
+            ),
+        ),
+        # D4 – mid minimax on square8, 2-player (neural/NNUE).
         (4, BoardType.SQUARE8, 2): LadderTierConfig(
             difficulty=4,
             board_type=BoardType.SQUARE8,
             num_players=2,
             ai_type=AIType.MINIMAX,
-            # Version tag for the search configuration / persona.
-            model_id="v1-minimax-4",
-            # Minimax continues to use the 2-player heuristic weights
-            # for static evaluation.
+            model_id="v1-minimax-4-nnue",
             heuristic_profile_id="heuristic_v1_2p",
-            randomness=0.1,
-            think_time_ms=2100,
-            notes="Mid square8 2p tier using v1 minimax configuration.",
+            randomness=0.08,
+            think_time_ms=2800,
+            use_neural_net=True,
+            notes=(
+                "Mid square8 2p tier using minimax with NNUE neural "
+                "evaluation for stronger positional assessment."
+            ),
         ),
-        # D6 – high minimax on square8, 2-player.
+        # D5 – upper-mid MCTS on square8, 2-player (non-neural).
+        (5, BoardType.SQUARE8, 2): LadderTierConfig(
+            difficulty=5,
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-5",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.05,
+            think_time_ms=4000,
+            use_neural_net=False,
+            notes=(
+                "Upper-mid square8 2p tier using MCTS with heuristic "
+                "rollouts only (no neural net)."
+            ),
+        ),
+        # D6 – high MCTS on square8, 2-player (neural).
         (6, BoardType.SQUARE8, 2): LadderTierConfig(
             difficulty=6,
             board_type=BoardType.SQUARE8,
             num_players=2,
-            ai_type=AIType.MINIMAX,
-            model_id="v1-minimax-6",
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-6-neural",
             heuristic_profile_id="heuristic_v1_2p",
             randomness=0.02,
-            think_time_ms=4800,
-            notes="High square8 2p tier with extended minimax search budget.",
+            think_time_ms=5500,
+            use_neural_net=True,
+            notes=(
+                "High square8 2p tier using MCTS with neural value and "
+                "policy guidance for improved search efficiency."
+            ),
         ),
-        # D8 – strong MCTS on square8, 2-player.
+        # D7 – expert MCTS on square8, 2-player (neural).
+        (7, BoardType.SQUARE8, 2): LadderTierConfig(
+            difficulty=7,
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-7-neural",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.0,
+            think_time_ms=7500,
+            use_neural_net=True,
+            notes=(
+                "Expert square8 2p tier using MCTS with neural guidance "
+                "and higher search budget."
+            ),
+        ),
+        # D8 – strong expert MCTS on square8, 2-player (neural).
         (8, BoardType.SQUARE8, 2): LadderTierConfig(
             difficulty=8,
             board_type=BoardType.SQUARE8,
             num_players=2,
             ai_type=AIType.MCTS,
-            model_id="v1-mcts-8",
+            model_id="v1-mcts-8-neural",
             heuristic_profile_id="heuristic_v1_2p",
             randomness=0.0,
             think_time_ms=9600,
-            notes="Strong square8 2p tier using v1 MCTS configuration.",
+            use_neural_net=True,
+            notes=(
+                "Strong expert square8 2p tier using MCTS with neural "
+                "guidance and large search budget."
+            ),
+        ),
+        # D9 – master Descent on square8, 2-player.
+        (9, BoardType.SQUARE8, 2): LadderTierConfig(
+            difficulty=9,
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-9",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.0,
+            think_time_ms=12600,
+            use_neural_net=True,
+            notes=(
+                "Master square8 2p tier using Descent/UBFM search with "
+                "AlphaZero-style neural policy and value guidance."
+            ),
+        ),
+        # D10 – grandmaster Descent on square8, 2-player.
+        (10, BoardType.SQUARE8, 2): LadderTierConfig(
+            difficulty=10,
+            board_type=BoardType.SQUARE8,
+            num_players=2,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-10",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.0,
+            think_time_ms=16000,
+            use_neural_net=True,
+            notes=(
+                "Grandmaster square8 2p tier using strongest Descent "
+                "configuration with maximum search budget."
+            ),
         ),
     }
 
@@ -124,9 +221,9 @@ def _build_default_square19_two_player_configs() -> Dict[
 ]:
     """Return ladder assignments for square19 2-player tiers.
 
-    These entries are currently experimental and primarily intended for
-    evaluation/gating and multi-board smoke tests. They reuse the canonical
-    square19 2-player heuristic weights where available.
+    These entries use the same difficulty mapping as square8 but with
+    adjusted think times for the larger board. Experimental tiers
+    primarily intended for evaluation/gating and multi-board smoke tests.
     """
     return {
         # D2 – easy heuristic baseline on square19, 2-player.
@@ -135,35 +232,116 @@ def _build_default_square19_two_player_configs() -> Dict[
             board_type=BoardType.SQUARE19,
             num_players=2,
             ai_type=AIType.HEURISTIC,
-            # Optimised square19 2-player heuristic; see heuristic_weights.
             model_id="heuristic_v1_square19_2p",
             heuristic_profile_id="heuristic_v1_square19_2p",
             randomness=0.3,
-            # Slightly larger think-time budget than square8 to account
-            # for the larger board while remaining practical.
-            think_time_ms=250,
-            notes=(
-                "Experimental square19 2p D2 tier backed by square19-tuned "
-                "heuristic weights. Intended for gating and tooling smoke "
-                "tests rather than end-user gameplay calibration."
-            ),
+            think_time_ms=300,
+            use_neural_net=False,
+            notes="Easy square19 2p tier using heuristic evaluation.",
         ),
-        # D4 – mid-tier minimax on square19, 2-player.
+        # D3 – lower-mid minimax on square19, 2-player (non-neural).
+        (3, BoardType.SQUARE19, 2): LadderTierConfig(
+            difficulty=3,
+            board_type=BoardType.SQUARE19,
+            num_players=2,
+            ai_type=AIType.MINIMAX,
+            model_id="v1-minimax-square19-3",
+            heuristic_profile_id="heuristic_v1_square19_2p",
+            randomness=0.15,
+            think_time_ms=2500,
+            use_neural_net=False,
+            notes="Lower-mid square19 2p tier using minimax (non-neural).",
+        ),
+        # D4 – mid minimax on square19, 2-player (neural/NNUE).
         (4, BoardType.SQUARE19, 2): LadderTierConfig(
             difficulty=4,
             board_type=BoardType.SQUARE19,
             num_players=2,
             ai_type=AIType.MINIMAX,
-            model_id="v1-minimax-square19-4",
+            model_id="v1-minimax-square19-4-nnue",
             heuristic_profile_id="heuristic_v1_square19_2p",
-            randomness=0.1,
-            # Higher search budget than D2; still conservative for tests.
-            think_time_ms=1500,
-            notes=(
-                "Experimental square19 2p D4 tier using minimax with "
-                "square19-tuned heuristic evaluation. Calibrated mainly "
-                "for tier evaluation and ladder experiments."
-            ),
+            randomness=0.08,
+            think_time_ms=4000,
+            use_neural_net=True,
+            notes="Mid square19 2p tier using minimax with NNUE.",
+        ),
+        # D5 – upper-mid MCTS on square19, 2-player (non-neural).
+        (5, BoardType.SQUARE19, 2): LadderTierConfig(
+            difficulty=5,
+            board_type=BoardType.SQUARE19,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-square19-5",
+            heuristic_profile_id="heuristic_v1_square19_2p",
+            randomness=0.05,
+            think_time_ms=6000,
+            use_neural_net=False,
+            notes="Upper-mid square19 2p tier using MCTS (non-neural).",
+        ),
+        # D6 – high MCTS on square19, 2-player (neural).
+        (6, BoardType.SQUARE19, 2): LadderTierConfig(
+            difficulty=6,
+            board_type=BoardType.SQUARE19,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-square19-6-neural",
+            heuristic_profile_id="heuristic_v1_square19_2p",
+            randomness=0.02,
+            think_time_ms=8000,
+            use_neural_net=True,
+            notes="High square19 2p tier using MCTS with neural guidance.",
+        ),
+        # D7 – expert MCTS on square19, 2-player (neural).
+        (7, BoardType.SQUARE19, 2): LadderTierConfig(
+            difficulty=7,
+            board_type=BoardType.SQUARE19,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-square19-7-neural",
+            heuristic_profile_id="heuristic_v1_square19_2p",
+            randomness=0.0,
+            think_time_ms=11000,
+            use_neural_net=True,
+            notes="Expert square19 2p tier using MCTS with neural guidance.",
+        ),
+        # D8 – strong expert MCTS on square19, 2-player (neural).
+        (8, BoardType.SQUARE19, 2): LadderTierConfig(
+            difficulty=8,
+            board_type=BoardType.SQUARE19,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-square19-8-neural",
+            heuristic_profile_id="heuristic_v1_square19_2p",
+            randomness=0.0,
+            think_time_ms=14000,
+            use_neural_net=True,
+            notes="Strong expert square19 2p tier using MCTS with neural.",
+        ),
+        # D9 – master Descent on square19, 2-player.
+        (9, BoardType.SQUARE19, 2): LadderTierConfig(
+            difficulty=9,
+            board_type=BoardType.SQUARE19,
+            num_players=2,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-square19-9",
+            heuristic_profile_id="heuristic_v1_square19_2p",
+            randomness=0.0,
+            think_time_ms=18000,
+            use_neural_net=True,
+            notes="Master square19 2p tier using Descent with neural.",
+        ),
+        # D10 – grandmaster Descent on square19, 2-player.
+        (10, BoardType.SQUARE19, 2): LadderTierConfig(
+            difficulty=10,
+            board_type=BoardType.SQUARE19,
+            num_players=2,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-square19-10",
+            heuristic_profile_id="heuristic_v1_square19_2p",
+            randomness=0.0,
+            think_time_ms=24000,
+            use_neural_net=True,
+            notes="Grandmaster square19 2p tier using strongest Descent.",
         ),
     }
 
@@ -173,8 +351,9 @@ def _build_default_hex_two_player_configs() -> Dict[
 ]:
     """Return ladder assignments for hexagonal 2-player tiers.
 
-    These entries currently reuse the canonical 2-player heuristic profile and
-    should be treated as experimental until dedicated hex weights are wired in.
+    These entries use the same difficulty mapping as square8 but with
+    adjusted think times for the larger hex board. Experimental until
+    dedicated hex-tuned weights are available.
     """
     return {
         # D2 – easy heuristic on hexagonal, 2-player.
@@ -183,31 +362,116 @@ def _build_default_hex_two_player_configs() -> Dict[
             board_type=BoardType.HEXAGONAL,
             num_players=2,
             ai_type=AIType.HEURISTIC,
-            model_id="heuristic_v1_2p",
+            model_id="heuristic_v1_hex_2p",
             heuristic_profile_id="heuristic_v1_2p",
             randomness=0.3,
-            think_time_ms=250,
-            notes=(
-                "Experimental hexagonal 2p D2 tier reusing the canonical 2p "
-                "heuristic weights. Intended for multi-board tier evaluation "
-                "and smoke testing."
-            ),
+            think_time_ms=300,
+            use_neural_net=False,
+            notes="Easy hex 2p tier using heuristic evaluation.",
         ),
-        # D4 – mid minimax on hexagonal, 2-player.
+        # D3 – lower-mid minimax on hexagonal, 2-player (non-neural).
+        (3, BoardType.HEXAGONAL, 2): LadderTierConfig(
+            difficulty=3,
+            board_type=BoardType.HEXAGONAL,
+            num_players=2,
+            ai_type=AIType.MINIMAX,
+            model_id="v1-minimax-hex-3",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.15,
+            think_time_ms=2500,
+            use_neural_net=False,
+            notes="Lower-mid hex 2p tier using minimax (non-neural).",
+        ),
+        # D4 – mid minimax on hexagonal, 2-player (neural/NNUE).
         (4, BoardType.HEXAGONAL, 2): LadderTierConfig(
             difficulty=4,
             board_type=BoardType.HEXAGONAL,
             num_players=2,
             ai_type=AIType.MINIMAX,
-            model_id="v1-minimax-hex-4",
+            model_id="v1-minimax-hex-4-nnue",
             heuristic_profile_id="heuristic_v1_2p",
-            randomness=0.1,
-            think_time_ms=1500,
-            notes=(
-                "Experimental hexagonal 2p D4 tier using minimax with the "
-                "canonical 2p heuristic profile. Primarily used for gating "
-                "and tooling smoke tests."
-            ),
+            randomness=0.08,
+            think_time_ms=4000,
+            use_neural_net=True,
+            notes="Mid hex 2p tier using minimax with NNUE.",
+        ),
+        # D5 – upper-mid MCTS on hexagonal, 2-player (non-neural).
+        (5, BoardType.HEXAGONAL, 2): LadderTierConfig(
+            difficulty=5,
+            board_type=BoardType.HEXAGONAL,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-hex-5",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.05,
+            think_time_ms=6000,
+            use_neural_net=False,
+            notes="Upper-mid hex 2p tier using MCTS (non-neural).",
+        ),
+        # D6 – high MCTS on hexagonal, 2-player (neural).
+        (6, BoardType.HEXAGONAL, 2): LadderTierConfig(
+            difficulty=6,
+            board_type=BoardType.HEXAGONAL,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-hex-6-neural",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.02,
+            think_time_ms=8000,
+            use_neural_net=True,
+            notes="High hex 2p tier using MCTS with neural guidance.",
+        ),
+        # D7 – expert MCTS on hexagonal, 2-player (neural).
+        (7, BoardType.HEXAGONAL, 2): LadderTierConfig(
+            difficulty=7,
+            board_type=BoardType.HEXAGONAL,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-hex-7-neural",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.0,
+            think_time_ms=11000,
+            use_neural_net=True,
+            notes="Expert hex 2p tier using MCTS with neural guidance.",
+        ),
+        # D8 – strong expert MCTS on hexagonal, 2-player (neural).
+        (8, BoardType.HEXAGONAL, 2): LadderTierConfig(
+            difficulty=8,
+            board_type=BoardType.HEXAGONAL,
+            num_players=2,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-hex-8-neural",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.0,
+            think_time_ms=14000,
+            use_neural_net=True,
+            notes="Strong expert hex 2p tier using MCTS with neural.",
+        ),
+        # D9 – master Descent on hexagonal, 2-player.
+        (9, BoardType.HEXAGONAL, 2): LadderTierConfig(
+            difficulty=9,
+            board_type=BoardType.HEXAGONAL,
+            num_players=2,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-hex-9",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.0,
+            think_time_ms=18000,
+            use_neural_net=True,
+            notes="Master hex 2p tier using Descent with neural.",
+        ),
+        # D10 – grandmaster Descent on hexagonal, 2-player.
+        (10, BoardType.HEXAGONAL, 2): LadderTierConfig(
+            difficulty=10,
+            board_type=BoardType.HEXAGONAL,
+            num_players=2,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-hex-10",
+            heuristic_profile_id="heuristic_v1_2p",
+            randomness=0.0,
+            think_time_ms=24000,
+            use_neural_net=True,
+            notes="Grandmaster hex 2p tier using strongest Descent.",
         ),
     }
 
@@ -217,11 +481,11 @@ def _build_default_square8_three_player_configs() -> Dict[
 ]:
     """Return ladder assignments for square8 3-player tiers.
 
-    These tiers reuse the 3-player-optimised heuristic profile and are
-    intentionally conservative. They primarily serve as entrypoints for
-    multiplayer tier evaluation rather than full production calibration.
+    These tiers use the same difficulty mapping as 2-player but with
+    3-player-optimised heuristic profile where available.
     """
     return {
+        # D2 – easy heuristic on square8, 3-player.
         (2, BoardType.SQUARE8, 3): LadderTierConfig(
             difficulty=2,
             board_type=BoardType.SQUARE8,
@@ -231,11 +495,112 @@ def _build_default_square8_three_player_configs() -> Dict[
             heuristic_profile_id="heuristic_v1_3p",
             randomness=0.3,
             think_time_ms=250,
-            notes=(
-                "Experimental square8 3p D2 tier backed by the CMA-ES "
-                "optimised 3-player heuristic profile. Intended for "
-                "multiplayer evaluation smoke tests."
-            ),
+            use_neural_net=False,
+            notes="Easy square8 3p tier using heuristic evaluation.",
+        ),
+        # D3 – lower-mid minimax on square8, 3-player (non-neural).
+        (3, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=3,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.MINIMAX,
+            model_id="v1-minimax-3p-3",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.15,
+            think_time_ms=2000,
+            use_neural_net=False,
+            notes="Lower-mid square8 3p tier using minimax (non-neural).",
+        ),
+        # D4 – mid minimax on square8, 3-player (neural/NNUE).
+        (4, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=4,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.MINIMAX,
+            model_id="v1-minimax-3p-4-nnue",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.08,
+            think_time_ms=3200,
+            use_neural_net=True,
+            notes="Mid square8 3p tier using minimax with NNUE.",
+        ),
+        # D5 – upper-mid MCTS on square8, 3-player (non-neural).
+        (5, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=5,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-3p-5",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.05,
+            think_time_ms=4500,
+            use_neural_net=False,
+            notes="Upper-mid square8 3p tier using MCTS (non-neural).",
+        ),
+        # D6 – high MCTS on square8, 3-player (neural).
+        (6, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=6,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-3p-6-neural",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.02,
+            think_time_ms=6000,
+            use_neural_net=True,
+            notes="High square8 3p tier using MCTS with neural guidance.",
+        ),
+        # D7 – expert MCTS on square8, 3-player (neural).
+        (7, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=7,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-3p-7-neural",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.0,
+            think_time_ms=8500,
+            use_neural_net=True,
+            notes="Expert square8 3p tier using MCTS with neural guidance.",
+        ),
+        # D8 – strong expert MCTS on square8, 3-player (neural).
+        (8, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=8,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-3p-8-neural",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.0,
+            think_time_ms=11000,
+            use_neural_net=True,
+            notes="Strong expert square8 3p tier using MCTS with neural.",
+        ),
+        # D9 – master Descent on square8, 3-player.
+        (9, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=9,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-3p-9",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.0,
+            think_time_ms=14000,
+            use_neural_net=True,
+            notes="Master square8 3p tier using Descent with neural.",
+        ),
+        # D10 – grandmaster Descent on square8, 3-player.
+        (10, BoardType.SQUARE8, 3): LadderTierConfig(
+            difficulty=10,
+            board_type=BoardType.SQUARE8,
+            num_players=3,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-3p-10",
+            heuristic_profile_id="heuristic_v1_3p",
+            randomness=0.0,
+            think_time_ms=18000,
+            use_neural_net=True,
+            notes="Grandmaster square8 3p tier using strongest Descent.",
         ),
     }
 
@@ -245,10 +610,11 @@ def _build_default_square8_four_player_configs() -> Dict[
 ]:
     """Return ladder assignments for square8 4-player tiers.
 
-    These tiers reuse the 4-player-optimised heuristic profile and are
-    intended primarily for smoke tests and early ladder experiments.
+    These tiers use the same difficulty mapping as 2-player but with
+    4-player-optimised heuristic profile where available.
     """
     return {
+        # D2 – easy heuristic on square8, 4-player.
         (2, BoardType.SQUARE8, 4): LadderTierConfig(
             difficulty=2,
             board_type=BoardType.SQUARE8,
@@ -258,11 +624,112 @@ def _build_default_square8_four_player_configs() -> Dict[
             heuristic_profile_id="heuristic_v1_4p",
             randomness=0.3,
             think_time_ms=300,
-            notes=(
-                "Experimental square8 4p D2 tier backed by the CMA-ES "
-                "optimised 4-player heuristic profile. Intended for "
-                "4-player evaluation and ladder smoke tests."
-            ),
+            use_neural_net=False,
+            notes="Easy square8 4p tier using heuristic evaluation.",
+        ),
+        # D3 – lower-mid minimax on square8, 4-player (non-neural).
+        (3, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=3,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.MINIMAX,
+            model_id="v1-minimax-4p-3",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.15,
+            think_time_ms=2200,
+            use_neural_net=False,
+            notes="Lower-mid square8 4p tier using minimax (non-neural).",
+        ),
+        # D4 – mid minimax on square8, 4-player (neural/NNUE).
+        (4, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=4,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.MINIMAX,
+            model_id="v1-minimax-4p-4-nnue",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.08,
+            think_time_ms=3500,
+            use_neural_net=True,
+            notes="Mid square8 4p tier using minimax with NNUE.",
+        ),
+        # D5 – upper-mid MCTS on square8, 4-player (non-neural).
+        (5, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=5,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-4p-5",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.05,
+            think_time_ms=5000,
+            use_neural_net=False,
+            notes="Upper-mid square8 4p tier using MCTS (non-neural).",
+        ),
+        # D6 – high MCTS on square8, 4-player (neural).
+        (6, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=6,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-4p-6-neural",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.02,
+            think_time_ms=6500,
+            use_neural_net=True,
+            notes="High square8 4p tier using MCTS with neural guidance.",
+        ),
+        # D7 – expert MCTS on square8, 4-player (neural).
+        (7, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=7,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-4p-7-neural",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.0,
+            think_time_ms=9000,
+            use_neural_net=True,
+            notes="Expert square8 4p tier using MCTS with neural guidance.",
+        ),
+        # D8 – strong expert MCTS on square8, 4-player (neural).
+        (8, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=8,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.MCTS,
+            model_id="v1-mcts-4p-8-neural",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.0,
+            think_time_ms=12000,
+            use_neural_net=True,
+            notes="Strong expert square8 4p tier using MCTS with neural.",
+        ),
+        # D9 – master Descent on square8, 4-player.
+        (9, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=9,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-4p-9",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.0,
+            think_time_ms=15000,
+            use_neural_net=True,
+            notes="Master square8 4p tier using Descent with neural.",
+        ),
+        # D10 – grandmaster Descent on square8, 4-player.
+        (10, BoardType.SQUARE8, 4): LadderTierConfig(
+            difficulty=10,
+            board_type=BoardType.SQUARE8,
+            num_players=4,
+            ai_type=AIType.DESCENT,
+            model_id="v1-descent-4p-10",
+            heuristic_profile_id="heuristic_v1_4p",
+            randomness=0.0,
+            think_time_ms=20000,
+            use_neural_net=True,
+            notes="Grandmaster square8 4p tier using strongest Descent.",
         ),
     }
 

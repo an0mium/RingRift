@@ -86,6 +86,10 @@ def run_selfplay_soak(board_type: str, num_games: int, db_path: Path, seed: int,
     # Enable strict invariant by default so soak respects ANM constraints.
     env_overrides = {
         "RINGRIFT_STRICT_NO_MOVE_INVARIANT": "1",
+        # Enforce TS↔Python parity during recording; abort early on any divergence.
+        # This prevents non-canonical games (e.g., actor mismatches) from entering
+        # the canonical DB in the first place.
+        "RINGRIFT_PARITY_VALIDATION": "strict",
         "PYTHONPATH": str(AI_SERVICE_ROOT),
         # Keep OpenMP usage conservative for long-running soaks and
         # avoid environment-specific SHM issues on some platforms.

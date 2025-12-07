@@ -11,6 +11,7 @@ clones for backwards‑compatible behaviour and debugging.
 """
 
 import logging
+import os
 from typing import Optional, Dict, Any, cast, List, Tuple
 import math
 import time
@@ -462,11 +463,43 @@ class MCTSAI(HeuristicAI):
         self.use_incremental_search = getattr(
             config, 'use_incremental_search', True
         )
-        # Try to load neural net for evaluation
-        try:
-            self.neural_net = NeuralNetAI(player_number, config)
-        except Exception:
-            self.neural_net = None
+
+        # Neural network evaluation gating (D6+ when enabled)
+        # Priority:
+        # - Explicit AIConfig.use_neural_net when provided
+        # - RINGRIFT_DISABLE_NEURAL_NET env var can globally disable NN usage
+        # - Default: enabled for difficulty >= 6 (D6+ are neural MCTS tiers)
+        disable_nn_env = os.environ.get("RINGRIFT_DISABLE_NEURAL_NET", "").lower() in {
+            "1", "true", "yes", "on",
+        }
+        use_nn_config = getattr(config, "use_neural_net", None)
+        # Neural MCTS is enabled at D6+ by default, can be explicitly disabled
+        should_use_neural = (
+            config.difficulty >= 6 and
+            (use_nn_config if use_nn_config is not None else True) and
+            not disable_nn_env
+        )
+        # Also allow explicit opt-in at any difficulty via use_neural_net=True
+        if use_nn_config is True and not disable_nn_env:
+            should_use_neural = True
+
+        # Try to load neural net for evaluation when enabled
+        self.neural_net: Optional[NeuralNetAI] = None
+        if should_use_neural:
+            try:
+                self.neural_net = NeuralNetAI(player_number, config)
+                logger.info(
+                    f"MCTSAI(player={player_number}, difficulty={config.difficulty}): "
+                    "neural evaluation enabled"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to load neural net for MCTS: {e}")
+                self.neural_net = None
+        else:
+            logger.debug(
+                f"MCTSAI(player={player_number}, difficulty={config.difficulty}): "
+                "using heuristic evaluation (neural disabled)"
+            )
 
         # Optional hex-specific encoder and network (used for hex boards).
         self.hex_encoder: Optional[ActionEncoderHex]

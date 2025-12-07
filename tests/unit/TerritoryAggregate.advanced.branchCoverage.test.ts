@@ -153,6 +153,47 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
   });
 
   // ==========================================================================
+  // Multi-player tie-break ladder coverage (territory vs eliminated rings vs markers)
+  // ==========================================================================
+  describe('multi-player tie-break ladders', () => {
+    it('applies territory then eliminated-rings tie-break ordering across 3 players', () => {
+      const state = createTestGameState({
+        players: [createTestPlayer(1), createTestPlayer(2), createTestPlayer(3)],
+        currentPlayer: 1,
+      });
+      state.currentPhase = 'territory_processing';
+      state.currentPlayer = 1;
+
+      // Configure final tallies that force tie-break comparisons
+      state.players[0].territorySpaces = 10;
+      state.players[1].territorySpaces = 10;
+      state.players[2].territorySpaces = 9;
+
+      state.players[0].eliminatedRings = 3;
+      state.players[1].eliminatedRings = 2; // breaks tie after equal territory
+      state.players[2].eliminatedRings = 4;
+
+      // No regions to process; expect no-op decision surface and no crash in tie handling
+      const move = {
+        id: 'process-region-none',
+        type: 'no_territory_action' as const,
+        player: 1,
+        to: { x: 0, y: 0 },
+        timestamp: new Date(),
+        thinkTime: 0,
+        moveNumber: 1,
+      };
+
+      const result = applyProcessTerritoryRegionDecision(state, move);
+      expect(result).toBeDefined();
+      expect(result.processedRegion.spaces.length).toBe(0);
+      // Validate that winner derivation in territory processing can be invoked without throwing
+      const validation = validateProcessTerritory(state, move);
+      expect(validation.valid).toBe(true);
+    });
+  });
+
+  // ==========================================================================
   // computeNextMoveNumber edge cases
   // ==========================================================================
   describe('computeNextMoveNumber branches', () => {

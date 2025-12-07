@@ -476,7 +476,22 @@ def validate_game_parity(
     try:
         total_moves_ts, ts_summaries = _run_ts_replay(db_path_obj, game_id)
     except Exception as e:
+        # Treat TS harness failures as structural divergences in strict mode
         logger.warning(f"TS replay failed for {game_id}: {e}")
+        if effective_mode == ParityMode.STRICT:
+            divergence = ParityDivergence(
+                game_id=game_id,
+                db_path=str(db_path_obj),
+                diverged_at=-1,
+                mismatch_kinds=["structure_error"],
+                mismatch_context=f"ts_replay_error:{type(e).__name__}",
+                total_moves_python=total_moves_py,
+                total_moves_ts=-1,
+                python_summary=None,
+                ts_summary=None,
+                move_at_divergence=None,
+            )
+            raise ParityValidationError(divergence)
         return None
 
     divergence: Optional[ParityDivergence] = None
