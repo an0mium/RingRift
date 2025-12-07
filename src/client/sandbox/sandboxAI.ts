@@ -1125,6 +1125,8 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
               boardType: gameState.boardType,
               currentPlayer: gameState.currentPlayer,
               currentPhase: gameState.currentPhase,
+              allMovesCount: allMoves.length,
+              allMovesTypes: allMoves.map((m) => m.type),
             }
           );
         }
@@ -1175,7 +1177,12 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       debugForcedEliminationAttempted = true;
       debugForcedEliminationEliminated = true;
 
-      await hooks.applyCanonicalMove(forcedEliminationMove);
+      try {
+        await hooks.applyCanonicalMove(forcedEliminationMove);
+      } catch (e) {
+        console.error('[Sandbox AI Debug] applyCanonicalMove failed for forced_elimination', e);
+        throw e;
+      }
 
       lastAIMove = forcedEliminationMove;
       hooks.setLastAIMove(lastAIMove);
@@ -1440,9 +1447,14 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     const stateUnchanged = beforeHashForHistory === afterHashForHistory;
     const samePlayer =
       debugPlayerNumber !== null && afterStateForHistory.currentPlayer === debugPlayerNumber;
+    const samePhase =
+      debugPhaseBefore !== null && afterStateForHistory.currentPhase === debugPhaseBefore;
     const stillActive = afterStateForHistory.gameStatus === 'active';
 
-    if (stateUnchanged && samePlayer && stillActive) {
+    // Stall detection: if state hash is unchanged AND player/phase are same, count as no-op.
+    // If phase changed (e.g. forced_elimination -> ring_placement) or player changed,
+    // it's progress even if hash somehow collided (unlikely) or if we want to be extra safe.
+    if (stateUnchanged && samePlayer && samePhase && stillActive) {
       sandboxConsecutiveNoopAITurns += 1;
     } else {
       sandboxConsecutiveNoopAITurns = 0;

@@ -1,15 +1,15 @@
-import React, { useState } from 'react';
-import type { Player, GamePhase, Move } from '../../shared/types/game';
+import { useState } from 'react';
+import type { GamePhase, Move } from '../../shared/types/game';
 import type { PositionEvaluationPayload } from '../../shared/types/websocket';
-import { PLAYER_COLORS, PHASE_INFO } from '../adapters/gameViewModels';
+import { PLAYER_COLORS, PHASE_INFO, type PlayerViewModel } from '../adapters/gameViewModels';
 import { EvaluationGraph } from './EvaluationGraph';
 import { MoveAnalysisPanel, type MoveAnalysis } from './MoveAnalysisPanel';
 
 export interface SpectatorHUDProps {
   /** Current game phase */
   phase: GamePhase;
-  /** All players in the game */
-  players: Player[];
+  /** All players in the game (view-model projection) */
+  players: PlayerViewModel[];
   /** Current player number (whose turn it is) */
   currentPlayerNumber: number;
   /** Current turn number */
@@ -33,42 +33,60 @@ export interface SpectatorHUDProps {
 /**
  * Get phase display info
  */
-function getPhaseDisplay(phase: GamePhase): { label: string; color: string; icon: string } {
+function getPhaseDisplay(phase: GamePhase): { label: string; colorClass: string; icon: string } {
   const info = PHASE_INFO[phase];
   if (info) {
     return {
       label: info.label,
-      color: info.color,
+      colorClass: info.colorClass,
       icon: info.icon,
     };
   }
-  return { label: phase, color: 'bg-slate-600', icon: '' };
+  return { label: phase, colorClass: 'bg-slate-600', icon: '' };
 }
 
 /**
  * Get a brief annotation for a move
  */
 function getMoveAnnotation(move: Move, playerNumber: number): string {
-  switch (move.phase) {
-    case 'ring_placement':
-      return `P${playerNumber} placed a ring`;
-    case 'movement':
-      return `P${playerNumber} moved a stack`;
-    case 'capturing':
-      return `P${playerNumber} captured`;
-    case 'chain_capture':
-      return `P${playerNumber} continued chain`;
-    case 'line_processing':
-      return `P${playerNumber} claimed line bonus`;
-    case 'territory_processing':
-      return `P${playerNumber} processed territory`;
+  const prefix = `P${playerNumber}`;
+  switch (move.type) {
+    case 'place_ring':
+      return `${prefix} placed a ring`;
+    case 'skip_placement':
+    case 'no_placement_action':
+      return `${prefix} skipped placement`;
+    case 'move_ring':
+    case 'move_stack':
+    case 'build_stack':
+    case 'no_movement_action':
+      return `${prefix} moved a stack`;
+    case 'overtaking_capture':
+    case 'continue_capture_segment':
+      return `${prefix} captured`;
+    case 'skip_capture':
+      return `${prefix} skipped capture`;
+    case 'process_line':
+    case 'choose_line_reward':
+    case 'no_line_action':
+      return `${prefix} claimed line bonus`;
+    case 'process_territory_region':
+    case 'eliminate_rings_from_stack':
+    case 'skip_territory_processing':
+    case 'no_territory_action':
+      return `${prefix} processed territory`;
     case 'forced_elimination':
-      return `P${playerNumber} forced to eliminate`;
+      return `${prefix} forced to eliminate`;
+    case 'swap_sides':
+      return `${prefix} swapped sides`;
+    case 'line_formation':
+      return `${prefix} formed a line`;
+    case 'territory_claim':
+      return `${prefix} claimed territory`;
     default:
-      return `P${playerNumber} made a move`;
+      return `${prefix} made a move`;
   }
 }
-
 /**
  * Dedicated HUD for spectators watching a game.
  * Shows enhanced game state, move annotations, and integrated analysis.
@@ -107,7 +125,7 @@ export function SpectatorHUD({
       ? {
           move: moveHistory[selectedMoveIndex],
           moveNumber: selectedMoveIndex + 1,
-          playerNumber: moveHistory[selectedMoveIndex].playerNumber,
+          playerNumber: moveHistory[selectedMoveIndex].player,
           evaluation: evaluationHistory.find((e) => e.moveNumber === selectedMoveIndex + 1),
           prevEvaluation:
             selectedMoveIndex > 0
@@ -151,7 +169,7 @@ export function SpectatorHUD({
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span
-              className={`px-2 py-1 rounded text-xs font-medium ${phaseDisplay.color} text-white`}
+              className={`px-2 py-1 rounded text-xs font-medium ${phaseDisplay.colorClass} text-white`}
             >
               {phaseDisplay.icon} {phaseDisplay.label}
             </span>
@@ -184,10 +202,7 @@ export function SpectatorHUD({
               ring: 'bg-slate-300',
               hex: '#64748b',
             };
-            const ringsOnBoard =
-              player.ringsInHand !== undefined
-                ? (player.totalRings ?? 24) - player.ringsInHand - (player.ringsEliminated ?? 0)
-                : 0;
+            const ringsOnBoard = player.ringStats.onBoard;
 
             return (
               <div
@@ -212,11 +227,11 @@ export function SpectatorHUD({
                 <div className="flex items-center gap-3 text-[11px] text-slate-400">
                   <span title="Rings on board">{ringsOnBoard} board</span>
                   <span title="Rings captured" className="text-red-400/70">
-                    {player.ringsEliminated ?? 0} cap
+                    {player.ringStats.eliminated} cap
                   </span>
-                  {player.territory !== undefined && player.territory > 0 && (
+                  {player.territorySpaces > 0 && (
                     <span title="Territory spaces" className="text-emerald-400/70">
-                      {player.territory} terr
+                      {player.territorySpaces} terr
                     </span>
                   )}
                 </div>
@@ -269,7 +284,7 @@ export function SpectatorHUD({
                 recentMoves.map((move, idx) => {
                   const actualIndex = moveHistory.length - recentMoves.length + idx;
                   const isSelected = selectedMoveIndex === actualIndex;
-                  const colors = PLAYER_COLORS[move.playerNumber as keyof typeof PLAYER_COLORS] ?? {
+                  const colors = PLAYER_COLORS[move.player as keyof typeof PLAYER_COLORS] ?? {
                     ring: 'bg-slate-300',
                     hex: '#64748b',
                   };
@@ -288,7 +303,7 @@ export function SpectatorHUD({
                       <span className="text-slate-500 w-6">#{actualIndex + 1}</span>
                       <span className={`w-2 h-2 rounded-full ${colors.ring}`} aria-hidden="true" />
                       <span className="text-slate-300 flex-1">
-                        {getMoveAnnotation(move, move.playerNumber)}
+                        {getMoveAnnotation(move, move.player)}
                       </span>
                     </button>
                   );
