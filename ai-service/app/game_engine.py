@@ -2854,6 +2854,8 @@ class GameEngine:
                 controlling_player = (
                     region.controlling_player if region.controlling_player != 0 else player_number
                 )
+                # Mutate the region as well to keep downstream parity tools consistent.
+                region.controlling_player = controlling_player
                 safe_region = Territory(
                     spaces=region.spaces,
                     controlling_player=controlling_player,
