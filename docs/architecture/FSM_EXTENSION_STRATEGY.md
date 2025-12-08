@@ -1,97 +1,281 @@
 # FSM Extension Strategy
 
-**Context:** We now have an explicit Turn FSM (`src/shared/engine/fsm/TurnStateMachine.ts`) and adapter (`src/shared/engine/fsm/FSMAdapter.ts`). FSM validation (shadow/active) is wired into `turnOrchestrator.ts`. Extending the FSM approach can improve determinism, parity, and debugging if applied deliberately.
+> **Status:** Living Document  
+> **Last Updated:** 2025-12-08  
+> **Related:** [STATE_MACHINES.md](./STATE_MACHINES.md), [CANONICAL_ENGINE_API.md](./CANONICAL_ENGINE_API.md)
 
-## Target Areas (with Pros / Cons / Risk–Reward)
+---
 
-1) **Turn Orchestrator Integration (TS)**
-   - **Pros:** Single source of truth for phase transitions; eliminates duplicated logic; clearer invariant enforcement; easier diffing vs Python.
-   - **Cons/Risks:** Large refactor; potential regressions in live sandbox; needs decision-resolution plumbing.
-   - **Reward:** High correctness and maintainability payoff; simplifies future rule changes.
-2) **Move Validation Unification**
-   - **Pros:** FSM-active validation becomes authoritative; removes divergent legacy validators; fewer phase-invariant escapes.
-   - **Cons/Risks:** Might reject legacy recordings/tests; needs migration plan for fixtures.
-   - **Reward:** High—reduces class of phase/move bugs; cleaner API surface.
-3) **Decision Surfaces (line/territory/FE)**
-   - **Pros:** PendingDecision emission can be purely FSM-driven; predictable loops for multiple regions/lines; fewer “silent skips”.
-   - **Cons/Risks:** Needs UI/client adjustments; careful UX telemetry alignment.
-   - **Reward:** Medium–High—reduces off-phase moves; better UX/state explainability.
-4) **Python Phase Machine Parity**
-   - **Pros:** Shared FSM semantics in Python (`app/rules/phase_machine.py`) keep parity tight; easier bundle diffing.
-   - **Cons/Risks:** Requires tight mirroring or codegen; dual maintenance if manual.
-   - **Reward:** High—directly reduces TS↔Python divergences.
-5) **UI/Telemetry (GameHUD/Replay/Explanation)**
-   - **Pros:** UI can render phase/event timelines directly from FSM actions; better teaching overlays and replay debugging.
-   - **Cons/Risks:** Needs adapter layer for existing view models; risk of churn in tests.
-   - **Reward:** Medium—clarity and debuggability for players and devs.
-6) **Testing & Fixtures**
-   - **Pros:** FSM golden tests and property-based sequences catch regressions early; reusable fixtures for both TS/Python.
-   - **Cons/Risks:** More test plumbing; fixture drift if not shared.
-   - **Reward:** Medium–High—guards against future regression.
-7) **Data / Training Pipeline**
-   - **Pros:** Parity and canonical-history gates can consume FSM validation results; clearer labels for phase/move legality in datasets.
-   - **Cons/Risks:** Needs export format updates; retraining triggers.
-   - **Reward:** Medium—cleaner data provenance and model training signals.
-8) **Observability / Tooling**
-   - **Pros:** FSM traces as structured logs; easier to diff recorded vs expected transitions; better invariant snapshots.
-   - **Cons/Risks:** Log volume; requires viewer tooling.
-   - **Reward:** Medium—debug speedup.
+## Executive Summary
 
-## Recommendations (prioritized)
+RingRift has an explicit Turn FSM for game phase validation. This document outlines the strategy for extending FSM coverage to improve determinism, TS↔Python parity, and debugging capabilities.
 
-P0-P1:
-- Migrate turnOrchestrator phase advancement to rely on FSM transitions/adapters; keep shadow/active validation always on in dev/test.
-- Unify move validation on FSM-active; retire redundant phase-move guards once fixtures updated.
-- Extend Python `phase_machine` to mirror the FSM transitions verbatim; add bundle tests around end-of-game current_player ownership.
-- Use FSM to drive PendingDecision surfaces for territory/line/FE to remove ad-hoc skips.
+---
 
-P2:
-- Expose FSM action traces to UI/telemetry and replay panels for debugging/teaching.
-- Add property-based FSM tests plus cross-language fixture generation.
-- Feed FSM validation outcomes into data export to tag non-canonical sequences.
+## Current State
 
-## Work Plan by Area
+### FSM Implementation (TS)
 
-### A) Turn Orchestrator → FSM Control
-- Replace manual phase-routing branches in `turnOrchestrator.ts` with FSM `transition` + adapter events.
-- Keep a compatibility layer for delegates/pending decisions; map FSM-required events to existing move shapes.
-- Add feature flag for “FSM-driven orchestrator” and enable in test/parity first.
+| File | Purpose |
+|------|---------|
+| `src/shared/engine/fsm/TurnStateMachine.ts` | Core FSM: phase transitions, state, and event validation |
+| `src/shared/engine/fsm/FSMAdapter.ts` | Bridge between FSM events and existing Move types |
+| `src/shared/engine/fsm/index.ts` | Public exports for FSM validation |
 
-### B) Move Validation Unification
-- Make FSM-active the default validator; route `validateMove` through `validateMoveWithFSM`.
-- Update fixtures/tests that assume legacy coercions; add targeted tests for rejection cases (off-phase moves, missing bookkeeping).
-- Remove duplicated phase-invariant checks once parity is clean.
+### Integration Points
 
-### C) Decision Surfaces (line/territory/FE)
-- Emit pending decisions from FSM state (pendingLines/pendingRegions/FE options) instead of re-deriving in orchestrator.
-- Ensure multiple-region and multi-line flows loop through FSM until empty; forbid auto-advance without explicit no_* moves.
-- Add tests for “single region still requires explicit process_territory_region” and “FE surfaces only after territory”.
+| Location | Integration |
+|----------|-------------|
+| `src/shared/engine/orchestration/turnOrchestrator.ts` | Imports `validateMoveWithFSM`, `isMoveTypeValidForPhase` from FSM |
+| Environment Variable | `RINGRIFT_FSM_VALIDATION_MODE` controls shadow/active/off modes |
 
-### D) Python Parity
-- Align `app/rules/phase_machine.py` transitions to the TS FSM table (consider generating from shared JSON/YAML spec).
-- Add parity bundles focused on end-of-turn and game_over ownership; fix current_player divergence.
-- Keep `GameEngine.get_phase_requirement` consistent with FSM-derived requirements.
+### Validation Modes
 
-### E) UI/Telemetry
-- Add an adapter to surface FSM actions/decisions to `GameHUD`/Replay/Explanation builders.
-- Log FSM state/event traces in replay harness for debuggability; gate by env flag.
+- **`off`**: FSM validation disabled (legacy behavior)
+- **`shadow`**: FSM validation runs alongside existing validation; divergences logged but not enforced
+- **`active`**: FSM validation enforced; invalid moves rejected with FSM error codes
 
-### F) Testing/Fixtures
-- Expand `tests/unit/fsm` with property-based random event sequences that must preserve invariants.
-- Generate cross-language fixtures: TS FSM expected transitions → Python replay assertions.
-- Add targeted tests for FE entry/exit, territory loops, and no-rings skip rules.
+### Related Components
 
-### G) Data/Training
-- Thread FSM validation results into data export metadata (canonical: bool, phase_move_ok: bool).
-- Block dataset generation on FSM-active validation pass for new DBs.
+| File | Role |
+|------|------|
+| `src/shared/engine/orchestration/phaseStateMachine.ts` | Legacy phase transition helpers (being superseded) |
+| `ai-service/app/rules/history_contract.py` | Python phase↔move contract (must mirror FSM) |
+| `ai-service/app/game_engine.py` | Python GameEngine (parity target) |
 
-### H) Observability/Tooling
-- Add optional trace emission (JSONL) for FSM transitions during self-play/replay.
-- Provide a small CLI to diff FSM traces between TS and Python for a given game ID.
+---
 
-## Immediate Next Steps (suggested sequence)
-1. Fix end-of-game current_player mismatch by aligning TS/Python phase-machine transitions at game_over (use existing state bundle).
-2. Implement FSM-driven pending decisions for territory/FE to prevent early FE and off-phase no_* moves.
-3. Add Python phase-machine parity tests generated from the TS FSM transition table.
-4. Enable FSM-active validation by default in test/parity workflows; update fixtures that relied on skip_placement with zero rings.
-5. Prototype FSM-driven orchestrator flag; run parity + canonical history gates on small DB to validate.
+## Extension Roadmap
+
+### Phase 1: Validation Unification (P0)
+
+**Goal:** Make FSM-active validation authoritative for move legality.
+
+| Task | Status | Files |
+|------|--------|-------|
+| Wire FSM validation into turnOrchestrator | ✅ Done | `turnOrchestrator.ts` |
+| Add shadow mode logging for divergence detection | ✅ Done | `turnOrchestrator.ts` |
+| Enable `active` mode by default in test/parity | 🔄 In Progress | CI config |
+| Update fixtures that assume legacy coercions | 🔜 Planned | `tests/fixtures/**` |
+| Remove redundant phase-invariant checks | 🔜 Planned | Various validators |
+
+**Success Criteria:**
+- All parity tests pass with `FSM_VALIDATION_MODE=active`
+- Zero divergences between FSM and legacy validation in canonical DBs
+
+### Phase 2: Orchestrator FSM Control (P1)
+
+**Goal:** Replace manual phase-routing branches with FSM-driven transitions.
+
+| Task | Status |
+|------|--------|
+| Add feature flag `RINGRIFT_FSM_ORCHESTRATOR` | 🔜 Planned |
+| Map FSM events to move shapes for compatibility | 🔜 Planned |
+| Replace `advancePhase` calls with FSM transitions | 🔜 Planned |
+| Validate via orchestrator soak + parity gates | 🔜 Planned |
+
+**Benefits:**
+- Single source of truth for phase transitions
+- Eliminates duplicated transition logic
+- Cleaner invariant enforcement
+- Easier diffing vs Python
+
+### Phase 3: Decision Surfaces (P1)
+
+**Goal:** Emit pending decisions (line/territory/FE choices) from FSM state.
+
+| Task | Status |
+|------|--------|
+| Drive `pendingLines` from FSM state | 🔜 Planned |
+| Drive `pendingRegions` from FSM state | 🔜 Planned |
+| Ensure FE surfaces only after territory phase | 🔜 Planned |
+| Forbid auto-advance without explicit `no_*` moves | 🔜 Planned |
+
+**Benefits:**
+- Predictable loops for multiple regions/lines
+- Fewer "silent skips"
+- Better UX/state explainability
+
+### Phase 4: Python Parity (P1)
+
+**Goal:** Align Python phase machine to TS FSM transitions exactly.
+
+| Task | Status | Files |
+|------|--------|-------|
+| Mirror FSM transition table in Python | 🔜 Planned | `ai-service/app/rules/phase_machine.py` |
+| Consider codegen from shared JSON/YAML spec | 🔜 Planned | New spec file |
+| Add parity bundles for end-of-turn ownership | 🔜 Planned | `ai-service/parity_fixtures/` |
+| Fix `current_player` divergence at `game_over` | 🔜 Planned | Both engines |
+
+**Benefits:**
+- Tight TS↔Python parity
+- Easier bundle diffing
+- Reduced maintenance burden
+
+### Phase 5: UI/Telemetry Integration (P2)
+
+**Goal:** Surface FSM state to UI and telemetry systems.
+
+| Task | Status |
+|------|--------|
+| Adapter for FSM → GameHUD view model | 🔜 Planned |
+| FSM action traces in replay harness | 🔜 Planned |
+| Teaching overlay FSM-aware explanations | 🔜 Planned |
+
+### Phase 6: Testing & Fixtures (P2)
+
+**Goal:** Comprehensive FSM test coverage.
+
+| Task | Status |
+|------|--------|
+| Property-based random event sequences | 🔜 Planned |
+| Cross-language fixture generation | 🔜 Planned |
+| FE entry/exit targeted tests | 🔜 Planned |
+| Territory loop tests | 🔜 Planned |
+
+### Phase 7: Data Pipeline (P2)
+
+**Goal:** Thread FSM validation into training data.
+
+| Task | Status |
+|------|--------|
+| Add `fsm_valid` field to move metadata | 🔜 Planned |
+| Block dataset generation on FSM validation | 🔜 Planned |
+| Tag non-canonical sequences in export | 🔜 Planned |
+
+---
+
+## Target Areas: Detailed Analysis
+
+### 1. Turn Orchestrator Integration
+
+**Current:** `turnOrchestrator.ts` uses manual phase-routing with FSM validation as a guard.
+
+**Target:** FSM transitions drive phase advancement directly.
+
+| Aspect | Pros | Cons/Risks |
+|--------|------|------------|
+| **Correctness** | Single source of truth | Large refactor |
+| **Maintainability** | Cleaner code | Regression risk in sandbox |
+| **Parity** | Easier Python alignment | Decision-resolution plumbing needed |
+
+**Reward:** HIGH - Foundation for all other extensions.
+
+### 2. Move Validation Unification
+
+**Current:** FSM validation runs alongside existing validators.
+
+**Target:** FSM-active becomes sole authority.
+
+| Aspect | Pros | Cons/Risks |
+|--------|------|------------|
+| **API Surface** | Cleaner, unified | Legacy fixture breakage |
+| **Bug Reduction** | Eliminates phase-invariant escapes | Migration effort |
+| **Divergence** | None possible | Testing overhead |
+
+**Reward:** HIGH - Closes entire class of phase/move bugs.
+
+### 3. Decision Surfaces
+
+**Current:** Pending decisions derived in multiple places.
+
+**Target:** FSM state is authoritative source.
+
+| Aspect | Pros | Cons/Risks |
+|--------|------|------------|
+| **Predictability** | Deterministic loops | UI adjustments needed |
+| **UX** | Better state explainability | Telemetry alignment |
+| **Bugs** | Removes off-phase moves | Careful testing |
+
+**Reward:** MEDIUM-HIGH - Reduces weird-state bugs.
+
+### 4. Python Parity
+
+**Current:** Manual mirroring of phase rules.
+
+**Target:** Generated or tightly-coupled FSM definitions.
+
+| Aspect | Pros | Cons/Risks |
+|--------|------|------------|
+| **Parity** | Eliminates drift | Codegen complexity |
+| **Debugging** | Easy diff | Dual maintenance if manual |
+| **Training** | Clean data | Schema changes |
+
+**Reward:** HIGH - Directly impacts AI training quality.
+
+---
+
+## Implementation Guidelines
+
+### Adding FSM Events
+
+1. Define event type in `TurnStateMachine.ts`
+2. Add transition rule to FSM table
+3. Add adapter mapping in `FSMAdapter.ts`
+4. Mirror in Python `phase_machine.py`
+5. Add test coverage
+6. Update parity fixtures
+
+### Enabling Active Mode
+
+```bash
+# In test environment
+export RINGRIFT_FSM_VALIDATION_MODE=active
+
+# Run parity checks
+npm run test:parity
+```
+
+### Debugging FSM Divergences
+
+1. Enable shadow mode logging
+2. Run failing test/scenario
+3. Check logs for `[FSM_SHADOW_VALIDATION]` entries
+4. Compare `fsmResult` vs `existingResult` in divergence logs
+5. Fix either FSM rules or legacy validator
+
+---
+
+## Immediate Action Items
+
+1. **Fix `current_player` mismatch** at `game_over` transition
+   - Use existing state bundles from parity failures
+   - Align TS and Python phase-machine transitions
+
+2. **Enable FSM-active in CI parity tests**
+   - Update CI config to set `RINGRIFT_FSM_VALIDATION_MODE=active`
+   - Fix any resulting test failures
+
+3. **Add Python phase-machine parity tests**
+   - Generate from TS FSM transition table
+   - Add to `ai-service/tests/parity/`
+
+4. **Update fixtures with zero-ring skip_placement**
+   - Audit fixtures assuming legacy behavior
+   - Update to use explicit `no_placement_action`
+
+5. **Prototype FSM-driven orchestrator flag**
+   - Add `RINGRIFT_FSM_ORCHESTRATOR` env flag
+   - Run orchestrator soak with flag enabled
+   - Gate on canonical history validation
+
+---
+
+## Success Metrics
+
+| Metric | Target | Current |
+|--------|--------|---------|
+| FSM-legacy divergences in shadow mode | 0 | TBD |
+| Parity tests passing with active mode | 100% | ~95% |
+| Python phase-machine coverage | 100% | ~80% |
+| Canonical DBs passing FSM validation | 100% | TBD |
+
+---
+
+## References
+
+- **FSM Source:** `src/shared/engine/fsm/`
+- **Orchestrator:** `src/shared/engine/orchestration/turnOrchestrator.ts`
+- **Python Phase Contract:** `ai-service/app/rules/history_contract.py`
+- **Parity Runbook:** [PARITY_VERIFICATION_RUNBOOK.md](../PARITY_VERIFICATION_RUNBOOK.md)
+- **State Machines Overview:** [STATE_MACHINES.md](./STATE_MACHINES.md)

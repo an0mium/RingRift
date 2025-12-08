@@ -191,6 +191,17 @@ export function isFSMValidationEnabled(): boolean {
 }
 
 /**
+ * True when FSM shadow orchestration checks are enabled.
+ *
+ * When enabled, the orchestrator will run the FSM transition logic in
+ * parallel and log any divergences between FSM-derived phase/player and
+ * the legacy orchestration result. This does not alter game behavior.
+ */
+export function isFSMOrchestratorShadowEnabled(): boolean {
+  return flagEnabled('RINGRIFT_FSM_ORCHESTRATOR_SHADOW');
+}
+
+/**
  * Debug logging wrapper that suppresses ESLint no-console warnings.
  * Use this for debug logs that are gated by environment flags.
  * The wrapped console.log is only invoked if the condition is true.

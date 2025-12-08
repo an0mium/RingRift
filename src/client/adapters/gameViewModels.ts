@@ -886,7 +886,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
       weirdState = {
         type: 'forced-elimination', // Reuse FE styling for LPS-FE endings
         title: 'Last Player Standing (via Forced Elimination)',
-        body: 'The game ended because only one player could make real moves for a full round. Other players were blocked or forced to eliminate rings.',
+        body: 'The game ended because only one player could make real moves for three consecutive full rounds. Other players were blocked or forced to eliminate rings.',
         tone: 'warning',
       };
     }

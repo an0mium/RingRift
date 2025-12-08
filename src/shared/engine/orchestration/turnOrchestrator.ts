@@ -59,10 +59,22 @@ import type {
 } from './types';
 
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
-import { flagEnabled, debugLog, getFSMValidationMode } from '../../utils/envFlags';
+import {
+  flagEnabled,
+  debugLog,
+  getFSMValidationMode,
+  isFSMOrchestratorShadowEnabled,
+} from '../../utils/envFlags';
 
 // FSM validation imports
-import { validateMoveWithFSM, isMoveTypeValidForPhase } from '../fsm';
+import {
+  validateMoveWithFSM,
+  isMoveTypeValidForPhase,
+  transition as fsmTransition,
+  deriveStateFromGame as fsmDeriveState,
+  deriveGameContext as fsmDeriveContext,
+  moveToEvent as fsmMoveToEvent,
+} from '../fsm';
 
 // Import from domain aggregates
 import {
@@ -1286,6 +1298,55 @@ export function processTurn(
     finalState = resolved.nextState;
     if (resolved.victoryResult) {
       finalVictory = resolved.victoryResult;
+    }
+  }
+
+  // FSM orchestrator shadow check: run the FSM transition in parallel and log
+  // divergences between FSM-derived phase/player and the orchestration result.
+  if (isFSMOrchestratorShadowEnabled()) {
+    try {
+      const fsmState = fsmDeriveState(state);
+      const fsmContext = fsmDeriveContext(state);
+      const fsmEvent = fsmMoveToEvent(move);
+
+      if (fsmEvent) {
+        const fsmResult = fsmTransition(fsmState, fsmEvent, fsmContext);
+        if (fsmResult.ok) {
+          const fsmPhase = fsmResult.state.phase;
+          const fsmPlayer =
+            (fsmResult.state as { player?: number }).player ?? finalState.currentPlayer;
+          const diverged =
+            fsmPhase !== finalState.currentPhase || fsmPlayer !== finalState.currentPlayer;
+          if (diverged) {
+            debugLog(true, '[FSM_ORCHESTRATOR_SHADOW] DIVERGENCE', {
+              moveType: move.type,
+              movePlayer: move.player,
+              fsmPhase,
+              fsmPlayer,
+              orchPhase: finalState.currentPhase,
+              orchPlayer: finalState.currentPlayer,
+              gameId: state.id,
+              moveNumber: state.moveHistory.length + 1,
+            });
+          }
+        } else {
+          debugLog(true, '[FSM_ORCHESTRATOR_SHADOW] ERROR', {
+            moveType: move.type,
+            movePlayer: move.player,
+            error: fsmResult.error,
+            gameId: state.id,
+            moveNumber: state.moveHistory.length + 1,
+          });
+        }
+      }
+    } catch (err) {
+      debugLog(true, '[FSM_ORCHESTRATOR_SHADOW] EXCEPTION', {
+        moveType: move.type,
+        movePlayer: move.player,
+        error: err instanceof Error ? err.message : String(err),
+        gameId: state.id,
+        moveNumber: state.moveHistory.length + 1,
+      });
     }
   }
 

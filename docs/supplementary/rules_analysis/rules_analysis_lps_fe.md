@@ -131,9 +131,9 @@ Imagine Player A has trapped Player B's large stack (capHeight 5) in a corner. P
 
 1. **Turn 1:** B performs FE, loses entire cap (5 rings). Stack may now be height 0-N depending on buried rings.
 2. **Turn 2:** If still blocked, B performs another FE (if stacks remain). A has completed round 1 as only player with real actions.
-3. **Turn 3+:** If B remains blocked through round 2, A wins by LPS.
+3. **Turn 3+:** If B remains blocked through rounds 2 and 3, A wins by LPS after the third consecutive round.
 
-**Result:** Strategic victory for A's positioning. Game ends decisively after ~2 rounds.
+**Result:** Strategic victory for A's positioning. Game ends decisively after ~3 rounds (per RR-CANON-R172).
 
 ### Under Proposed Rules
 
