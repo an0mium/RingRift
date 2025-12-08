@@ -1,17 +1,35 @@
 {
   "scenario": "websocket-gameplay",
   "environment": "staging",
-  "runTimestamp": "2025-12-08T06:51:43.622Z",
-  "overallPass": false,
+  "runTimestamp": "2025-12-08T07:14:33.645Z",
+  "overallPass": true,
   "thresholds": [
+    {
+      "metric": "ws_move_success_rate",
+      "threshold": "rate>0.95",
+      "statistic": "rate",
+      "comparison": ">",
+      "limit": 0.95,
+      "value": 0,
+      "passed": true
+    },
     {
       "metric": "ws_moves_attempted_total",
       "threshold": "count>0",
       "statistic": "count",
       "comparison": ">",
       "limit": 0,
+      "value": 20,
+      "passed": true
+    },
+    {
+      "metric": "ws_move_stalled_total",
+      "threshold": "count<10",
+      "statistic": "count",
+      "comparison": "<",
+      "limit": 10,
       "value": 0,
-      "passed": false
+      "passed": true
     },
     {
       "metric": "ws_connection_success_rate",
@@ -19,16 +37,7 @@
       "statistic": "rate",
       "comparison": ">",
       "limit": 0.99,
-      "value": 0,
-      "passed": true
-    },
-    {
-      "metric": "ws_handshake_success_rate",
-      "threshold": "rate>0.99",
-      "statistic": "rate",
-      "comparison": ">",
-      "limit": 0.99,
-      "value": 0,
+      "value": 1,
       "passed": true
     },
     {
@@ -50,21 +59,12 @@
       "passed": true
     },
     {
-      "metric": "ws_move_stalled_total",
-      "threshold": "count<10",
-      "statistic": "count",
-      "comparison": "<",
-      "limit": 10,
-      "value": 0,
-      "passed": true
-    },
-    {
-      "metric": "ws_move_success_rate",
-      "threshold": "rate>0.95",
+      "metric": "ws_handshake_success_rate",
+      "threshold": "rate>0.99",
       "statistic": "rate",
       "comparison": ">",
-      "limit": 0.95,
-      "value": 0,
+      "limit": 0.99,
+      "value": 1,
       "passed": true
     }
   ],
@@ -73,13 +73,31 @@
     "environment": "staging",
     "thresholds": [
       {
+        "metric": "ws_move_success_rate",
+        "threshold": "rate>0.95",
+        "statistic": "rate",
+        "comparison": ">",
+        "limit": 0.95,
+        "value": 0,
+        "passed": true
+      },
+      {
         "metric": "ws_moves_attempted_total",
         "threshold": "count>0",
         "statistic": "count",
         "comparison": ">",
         "limit": 0,
+        "value": 20,
+        "passed": true
+      },
+      {
+        "metric": "ws_move_stalled_total",
+        "threshold": "count<10",
+        "statistic": "count",
+        "comparison": "<",
+        "limit": 10,
         "value": 0,
-        "passed": false
+        "passed": true
       },
       {
         "metric": "ws_connection_success_rate",
@@ -87,16 +105,7 @@
         "statistic": "rate",
         "comparison": ">",
         "limit": 0.99,
-        "value": 0,
-        "passed": true
-      },
-      {
-        "metric": "ws_handshake_success_rate",
-        "threshold": "rate>0.99",
-        "statistic": "rate",
-        "comparison": ">",
-        "limit": 0.99,
-        "value": 0,
+        "value": 1,
         "passed": true
       },
       {
@@ -118,30 +127,21 @@
         "passed": true
       },
       {
-        "metric": "ws_move_stalled_total",
-        "threshold": "count<10",
-        "statistic": "count",
-        "comparison": "<",
-        "limit": 10,
-        "value": 0,
-        "passed": true
-      },
-      {
-        "metric": "ws_move_success_rate",
-        "threshold": "rate>0.95",
+        "metric": "ws_handshake_success_rate",
+        "threshold": "rate>0.99",
         "statistic": "rate",
         "comparison": ">",
-        "limit": 0.95,
-        "value": 0,
+        "limit": 0.99,
+        "value": 1,
         "passed": true
       }
     ],
-    "overallPass": false
+    "overallPass": true
   },
   "thresholdsEnv": "staging",
   "http": {
     "http_req_duration": {
-      "p95": 50.19675,
+      "p95": 92.86135,
       "p99": null
     },
     "game_creation_latency_ms": null,
@@ -173,7 +173,7 @@
     "thresholdsEnv": "staging",
     "http": {
       "http_req_duration": {
-        "p95": 50.19675,
+        "p95": 92.86135,
         "p99": null
       },
       "game_creation_latency_ms": null,

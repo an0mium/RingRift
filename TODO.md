@@ -252,7 +252,7 @@ Operational drills completed:
 
 **P2 – Telemetry tooling hardening**
 
-- Add CLI smoke test/dry-run fixture for `scripts/analyze_rules_ux_telemetry.ts` that validates aggregate shape, top-K selection, and min-events gating; document expected inputs/outputs inline.
+- [x] Add CLI smoke test/dry-run fixture for `scripts/analyze_rules_ux_telemetry.ts` that validates aggregate shape, top-K selection, and min-events gating; document expected inputs/outputs inline (`tests/unit/RulesUxHotspotAnalysis.test.ts` + `tests/fixtures/rules_ux_hotspots`).
 
 ### 1.11 Accessibility (Wave 14) ✅
 

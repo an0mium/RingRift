@@ -192,6 +192,14 @@ describe('RulesUxHotspotAnalysis – happy path', () => {
 
     const summary = JSON.parse(fs.readFileSync(jsonOutPath, 'utf8')) as any;
 
+    // Basic shape derived from the fixture metadata.
+    expect(summary.board).toBe('square8');
+    expect(summary.num_players).toBe(2);
+    expect(summary.games.started).toBe(600);
+    expect(summary.games.completed).toBe(500);
+    expect(summary.window.label).toBe('2025-12');
+    expect(summary.contexts).toHaveLength(4);
+
     // Ranking should surface the two highest-help contexts.
     expect(summary.topByHelpOpensPer100Games).toEqual([
       'anm_forced_elimination',
@@ -203,9 +211,28 @@ describe('RulesUxHotspotAnalysis – happy path', () => {
     );
     expect(territoryCtx).toBeDefined();
     expect(territoryCtx.sources[0].sampleOk).toBe(false); // below minEvents threshold
+    expect(territoryCtx.hotspotSeverity).toBe('LOW');
 
     const anmCtx = summary.contexts.find((c: any) => c.rulesContext === 'anm_forced_elimination');
     expect(anmCtx.sources.every((s: any) => s.sampleOk)).toBe(true);
+    expect(anmCtx.hotspotSeverity).toBe('HIGH');
+    expect(anmCtx.sumHelpOpens).toBe(70);
+    expect(anmCtx.helpOpensPer100Games).toBeCloseTo((70 / 500) * 100, 4);
+    expect(anmCtx.maxHelpReopenRate).toBeCloseTo(20 / 60, 4);
+    expect(anmCtx.maxResignAfterWeirdRate).toBeCloseTo(24 / 120, 4);
+
+    const structuralCtx = summary.contexts.find(
+      (c: any) => c.rulesContext === 'structural_stalemate'
+    );
+    expect(structuralCtx).toBeDefined();
+    expect(structuralCtx.hotspotSeverity).toBe('MEDIUM');
+    expect(structuralCtx.helpOpensPer100Games).toBeCloseTo((35 / 500) * 100, 4);
+
+    const lineProcessing = summary.contexts.find((c: any) => c.rulesContext === 'line_processing');
+    expect(lineProcessing).toBeDefined();
+    expect(lineProcessing!.hotspotSeverity).toBe('MEDIUM');
+    expect(lineProcessing!.sources[0].sampleOk).toBe(true);
+    expect(lineProcessing!.helpOpensPer100Games).toBeCloseTo((8 / 500) * 100, 4);
 
     const md = fs.readFileSync(mdOutPath, 'utf8');
     expect(md).toContain('Rules UX Hotspots – square8 2-player');
