@@ -1,3 +1,22 @@
+/**
+ * Placement Helpers - Shared placement application and skip-placement logic
+ *
+ * @module placementHelpers
+ *
+ * This module provides placement application and skip-placement decision logic.
+ * It works in conjunction with PlacementAggregate and PlacementValidator:
+ *
+ * Canonical module hierarchy for placement logic:
+ * - `./aggregates/PlacementAggregate.ts` - Core placement validation and enumeration
+ * - `./validators/PlacementValidator.ts` - Board-level placement validation
+ * - `./mutators/PlacementMutator.ts` - Board-level placement application
+ * - This module - Decision enumeration and GameState-level updates
+ *
+ * For new code, prefer importing from PlacementAggregate for enumeration and
+ * validation. This module focuses on GameState-level application and
+ * skip-placement eligibility.
+ */
+
 import type { GameState, Move, Position, BoardState } from '../types/game';
 import { positionToString } from '../types/game';
 import { hasAnyLegalMoveOrCaptureFromOnBoard, MovementBoardView, calculateCapHeight } from './core';

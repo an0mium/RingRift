@@ -65,6 +65,8 @@ import { getGameOverBannerText } from '../utils/gameCopy';
 import { serializeGameState } from '../../shared/engine/contracts/serialization';
 import { buildTestFixtureFromGameState, exportGameStateToFile } from '../sandbox/statePersistence';
 import { useIsMobile } from '../hooks/useIsMobile';
+import { useBoardOverlays } from '../hooks/useBoardViewProps';
+import { useSandboxPersistence, type LocalPlayerType } from '../hooks/useSandboxPersistence';
 
 const BOARD_PRESETS: Array<{
   value: BoardType;
@@ -383,13 +385,22 @@ export const SandboxGameHost: React.FC = () => {
   // Selection + valid target highlighting
   const [selected, setSelected] = useState<Position | undefined>();
   const [validTargets, setValidTargets] = useState<Position[]>([]);
-  // Start with the movement grid overlay enabled by default; it helps
+
+  // Board overlay visibility configuration - using extracted hook
+  // Start with movement grid overlay enabled by default; it helps
   // players understand valid moves and adjacency patterns.
-  const [showMovementGrid, setShowMovementGrid] = useState(true);
-  const [showValidTargetsOverlay, setShowValidTargetsOverlay] = useState(true);
-  // Debug overlays for visualizing detected lines and territory regions
-  const [showLineOverlays, setShowLineOverlays] = useState(true);
-  const [showTerritoryOverlays, setShowTerritoryOverlays] = useState(true);
+  const {
+    overlays,
+    setShowMovementGrid,
+    setShowValidTargets,
+    setShowLineOverlays,
+    setShowTerritoryOverlays,
+  } = useBoardOverlays({
+    showMovementGrid: true,
+    showValidTargets: true,
+    showLineOverlays: true,
+    showTerritoryOverlays: true,
+  });
 
   // Help / controls overlay for the active sandbox host
   const [showBoardControls, setShowBoardControls] = useState(false);
@@ -1428,7 +1439,7 @@ export const SandboxGameHost: React.FC = () => {
   const primaryValidTargets =
     sandboxCaptureTargets.length > 0 ? sandboxCaptureTargets : validTargets;
 
-  const displayedValidTargets = showValidTargetsOverlay ? primaryValidTargets : [];
+  const displayedValidTargets = overlays.showValidTargets ? primaryValidTargets : [];
 
   // Derive decision-phase highlights from the current sandbox GameState and
   // whichever PlayerChoice is currently active. Capture-direction choices
@@ -2494,7 +2505,7 @@ export const SandboxGameHost: React.FC = () => {
                     onCellContextMenu={
                       isInReplayMode ? undefined : (pos) => handleSandboxCellContextMenu(pos)
                     }
-                    showMovementGrid={showMovementGrid}
+                    showMovementGrid={overlays.showMovementGrid}
                     showCoordinateLabels={
                       sandboxBoardState.type === 'square8' || sandboxBoardState.type === 'square19'
                     }
@@ -2503,8 +2514,8 @@ export const SandboxGameHost: React.FC = () => {
                         ? true
                         : false
                     }
-                    showLineOverlays={showLineOverlays}
-                    showTerritoryRegionOverlays={showTerritoryOverlays}
+                    showLineOverlays={overlays.showLineOverlays}
+                    showTerritoryRegionOverlays={overlays.showTerritoryOverlays}
                     pendingAnimation={
                       isInReplayMode
                         ? (replayAnimation ?? undefined)
@@ -2875,15 +2886,15 @@ export const SandboxGameHost: React.FC = () => {
               onApplyMove={() => {
                 clearSandboxSelection();
               }}
-              showMovementGrid={showMovementGrid}
+              showMovementGrid={overlays.showMovementGrid}
               onToggleMovementGrid={(next) => setShowMovementGrid(next)}
-              showValidTargets={showValidTargetsOverlay}
-              onToggleValidTargets={(next) => setShowValidTargetsOverlay(next)}
-              showLineOverlays={showLineOverlays}
+              showValidTargets={overlays.showValidTargets}
+              onToggleValidTargets={(next) => setShowValidTargets(next)}
+              showLineOverlays={overlays.showLineOverlays}
               onToggleLineOverlays={
                 developerToolsEnabled ? (next) => setShowLineOverlays(next) : undefined
               }
-              showTerritoryOverlays={showTerritoryOverlays}
+              showTerritoryOverlays={overlays.showTerritoryOverlays}
               onToggleTerritoryOverlays={
                 developerToolsEnabled ? (next) => setShowTerritoryOverlays(next) : undefined
               }

@@ -45,4 +45,11 @@ export {
   validateMoveWithFSM,
   isMoveTypeValidForPhase,
   type FSMValidationResult,
+  // Orchestration integration
+  determineNextPhaseFromFSM,
+  attemptFSMTransition,
+  getCurrentFSMState,
+  isFSMTerminalState,
+  type PhaseTransitionContext,
+  type FSMTransitionAttemptResult,
 } from './FSMAdapter';

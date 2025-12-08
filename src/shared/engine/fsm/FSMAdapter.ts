@@ -719,3 +719,180 @@ export function isMoveTypeValidForPhase(
   const validPhases = movePhaseMap[moveType] ?? [];
   return validPhases.includes(fsmState.phase);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ORCHESTRATION INTEGRATION
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Context for determining the next phase after a move.
+ *
+ * This provides the information needed by TurnStateMachine to determine
+ * valid phase transitions.
+ */
+export interface PhaseTransitionContext {
+  /** Whether more lines exist to process */
+  hasMoreLinesToProcess: boolean;
+  /** Whether more territory regions exist to process */
+  hasMoreRegionsToProcess: boolean;
+  /** Whether chain capture continuations are available */
+  chainCapturesAvailable: boolean;
+  /** Whether the player has any movement options */
+  hasAnyMovement: boolean;
+  /** Whether the player has any capture options */
+  hasAnyCapture: boolean;
+}
+
+/**
+ * Determine the next phase using FSM transition logic.
+ *
+ * This is the FSM-based equivalent of `determineNextPhase()` from
+ * phaseStateMachine.ts. It uses the TurnStateMachine's transition rules
+ * to determine valid phase progressions.
+ *
+ * @param gameState Current game state
+ * @param moveType Type of move that was just processed
+ * @param context Additional context about available actions
+ * @returns The next phase according to FSM rules
+ */
+export function determineNextPhaseFromFSM(
+  gameState: GameState,
+  _moveType: Move['type'],
+  context: PhaseTransitionContext
+): TurnState['phase'] {
+  const currentPhase = gameState.currentPhase;
+
+  // Use FSM transition rules to determine next phase
+  switch (currentPhase) {
+    case 'ring_placement':
+      // After placement, move to movement phase if player has moves/captures
+      if (context.hasAnyMovement || context.hasAnyCapture) {
+        return 'movement';
+      }
+      // Otherwise skip to line processing
+      return 'line_processing';
+
+    case 'movement':
+      // After movement/capture, check for chain captures
+      if (context.chainCapturesAvailable) {
+        return 'chain_capture';
+      }
+      // Otherwise proceed to line processing
+      return 'line_processing';
+
+    case 'capture':
+      // Same as movement
+      if (context.chainCapturesAvailable) {
+        return 'chain_capture';
+      }
+      return 'line_processing';
+
+    case 'chain_capture':
+      // After chain capture segment, check for more chains
+      if (context.chainCapturesAvailable) {
+        return 'chain_capture'; // Stay in chain capture
+      }
+      return 'line_processing';
+
+    case 'line_processing':
+      // After processing lines, move to territory
+      if (context.hasMoreLinesToProcess) {
+        return 'line_processing'; // Stay and process more
+      }
+      return 'territory_processing';
+
+    case 'territory_processing':
+      // After territory, turn ends (handled by turn advance)
+      return 'territory_processing';
+
+    case 'forced_elimination':
+      // After forced elimination, turn ends (handled by turn advance)
+      return 'forced_elimination';
+
+    default:
+      return currentPhase as TurnState['phase'];
+  }
+}
+
+/**
+ * Result of an FSM-driven phase transition attempt.
+ */
+export interface FSMTransitionAttemptResult {
+  /** Whether the transition was valid */
+  valid: boolean;
+  /** The resulting FSM state if valid */
+  nextState?: TurnState;
+  /** Actions to apply if valid */
+  actions?: Action[];
+  /** Error details if invalid */
+  error?: {
+    code: 'INVALID_EVENT' | 'GUARD_FAILED' | 'INVALID_STATE' | 'CONVERSION_FAILED';
+    message: string;
+  };
+}
+
+/**
+ * Attempt a phase transition using the FSM.
+ *
+ * This provides a higher-level interface for orchestration code that wants
+ * to use TurnStateMachine for phase transitions without fully replacing
+ * existing PhaseStateMachine usage.
+ *
+ * @param gameState Current game state
+ * @param move The move to process
+ * @returns Transition result including new state and actions
+ */
+export function attemptFSMTransition(
+  gameState: GameState,
+  move: Move
+): FSMTransitionAttemptResult {
+  const fsmState = deriveStateFromGame(gameState);
+  const context = deriveGameContext(gameState);
+
+  const event = moveToEvent(move);
+  if (!event) {
+    return {
+      valid: false,
+      error: {
+        code: 'CONVERSION_FAILED',
+        message: `Cannot convert move type '${move.type}' to FSM event`,
+      },
+    };
+  }
+
+  const result = transition(fsmState, event, context);
+
+  if (result.ok) {
+    return {
+      valid: true,
+      nextState: result.state,
+      actions: result.actions,
+    };
+  }
+
+  return {
+    valid: false,
+    error: {
+      code: result.error.code,
+      message: result.error.message,
+    },
+  };
+}
+
+/**
+ * Get the current FSM state for a game.
+ *
+ * This is useful for debugging and for components that need to understand
+ * the FSM representation of the current game state.
+ */
+export function getCurrentFSMState(gameState: GameState): TurnState {
+  return deriveStateFromGame(gameState);
+}
+
+/**
+ * Check if the FSM considers the game to be in a terminal state.
+ */
+export function isFSMTerminalState(gameState: GameState): boolean {
+  const fsmState = deriveStateFromGame(gameState);
+  return fsmState.phase === 'game_over';
+}

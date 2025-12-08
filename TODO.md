@@ -1,6 +1,6 @@
 # RingRift Task Tracker
 
-**Last Updated:** 2025-12-07
+**Last Updated:** 2025-12-08
 **Project Health:** GREEN
 **Purpose:** Canonical task tracker for near- and mid-term work
 
@@ -42,6 +42,12 @@ This is the canonical high-level task/backlog tracker. For rules semantics, defe
 - **Python:** 3-layer design, 836 tests passing
 - **Cross-language:** 54 contract vectors with 0 mismatches
 - **Phases:** 8 canonical phases including `game_over` terminal phase
+
+## Immediate Handoffs (Jan 2026)
+
+- **Rules coverage to 80%:** Extend the scenario matrix with chain→line→territory multi-choice turns on all boards, add tests that assert `GameEndExplanation` payloads for those sequences, then tighten coverage thresholds; update `RULES_SCENARIO_MATRIX.md` and clear the matching entry in `KNOWN_ISSUES.md` when landed.
+- **AI ladder (Square-8 2p):** Run `ai-service/scripts/run_tier_training_pipeline.py` and `ai-service/scripts/run_full_tier_gating.py` on canonical data; refresh `ai-service/config/tier_candidate_registry.square8_2p.json`; regenerate canonical self-play via `ai-service/scripts/generate_canonical_selfplay.py` with parity/history validation and update `TRAINING_DATA_REGISTRY.md`.
+- **Load/ops alignment:** Execute staging runs for baseline, target-scale, and AI-heavy harnesses; verify via `tests/load/scripts/verify-slos.js`; record paths in `docs/BASELINE_CAPACITY.md`; rerun secrets rotation + backup/restore drills and update `docs/GO_NO_GO_CHECKLIST.md`.
 
 ---
 
@@ -382,7 +388,50 @@ Operational drills completed:
 - [ ] Refresh eval pools (`ai-service/app/training/eval_pools.py`) and rerun difficulty calibration (`ai-service/scripts/analyze_difficulty_calibration.py`) against `docs/ai/AI_TIER_PERF_BUDGETS.md`
 - [ ] Keep large-board search parity tests (`ai-service/tests/test_search_board_parity.py`) and `ai-service/scripts/benchmark_search_board_large_board.py` perf budgets aligned; document deviations in results logs
 
-### 2.4 Deferred Work
+### 2.4 Component Decomposition (Phase 3 Refactoring) ✅
+
+**Completed December 2025**
+
+Client-side hook extraction from SandboxGameHost:
+
+- [x] `useSandboxPersistence.ts` - Game persistence, auto-save, sync service
+- [x] `useSandboxScenarios.ts` - Scenario loading, replay, history playback
+- [x] `useSandboxEvaluation.ts` - AI evaluation management
+- [x] `useBoardViewProps.ts` - BoardView props consolidation, overlay config
+- [x] `useCountdown.ts` - Reusable countdown timer with server reconciliation
+
+TS Engine consolidation:
+
+- [x] FSMAdapter orchestration enhancements (`determineNextPhaseFromFSM`, `attemptFSMTransition`)
+- [x] Deprecation markers on `phaseStateMachine.determineNextPhase()` pointing to FSM
+- [x] FSM shadow validation in turnOrchestrator (via `RINGRIFT_FSM_SHADOW_VALIDATION` flag)
+- [x] Module documentation updates for helper → aggregate consolidation hierarchy
+- [x] Helper files updated with deprecation/migration guidance (captureChainHelpers, lineDecisionHelpers, etc.)
+
+Hooks index updated with new exports for sandbox and timer hooks.
+
+**Unit Tests Added:**
+- [x] `tests/unit/useCountdown.test.ts` - 30 tests for countdown functionality
+- [x] `tests/unit/FSMAdapter.orchestration.test.ts` - 22 tests for FSM orchestration integration
+
+**Integration Status (In Progress):**
+SandboxGameHost integration requires mapping existing state to hooks:
+
+| Hook | SandboxGameHost State | Status |
+|------|----------------------|--------|
+| `useSandboxPersistence` | `autoSaveGames`, `gameSaveStatus`, `pendingLocalGames`, `syncState`, `initialGameStateRef`, `gameSavedRef` | Pending |
+| `useSandboxScenarios` | `isInReplayMode`, `replayState`, `replayAnimation`, `isViewingHistory`, `historyViewIndex`, `hasHistorySnapshots`, `lastLoadedScenario`, `showScenarioPicker`, `showSelfPlayBrowser` | Pending |
+| `useSandboxEvaluation` | `sandboxEvaluationHistory`, `sandboxEvaluationError`, `isSandboxAnalysisRunning`, `lastEvaluatedMoveRef` | Pending |
+| `useBoardOverlays` | `showMovementGrid`, `showLineOverlays`, `showTerritoryOverlays`, `showValidTargets` | ✅ Complete |
+
+**Next Steps:**
+- [x] Integrate `useBoardOverlays` into SandboxGameHost (completed Dec 2025)
+- [x] FSM shadow validation infrastructure (already in place in turnOrchestrator)
+- [ ] Promote FSM validation from shadow to primary (requires confidence in shadow validation results)
+- [ ] Integrate remaining hooks (`useSandboxPersistence`, `useSandboxScenarios`, `useSandboxEvaluation`)
+- [ ] Add additional sandbox hook tests
+
+### 2.5 Deferred Work
 
 #### Phase 4 (Post-MVP)
 

@@ -13,6 +13,25 @@ Iteration 0002 is explicitly **hotspot‑driven**. It assumes the existence of r
 
 Compared to Iteration 0001 ([`UX_RULES_IMPROVEMENT_ITERATION_0001.md`](docs/ux/rules_iterations/UX_RULES_IMPROVEMENT_ITERATION_0001.md:1)), which primarily focused on **copy routing and teaching flows**, Iteration 0002 treats [`GameEndExplanation`](docs/UX_RULES_EXPLANATION_MODEL_SPEC.md:129) as the central contract for _“Why did the game end?”_ and scopes changes around using that model consistently for a small set of high‑confusion concepts.
 
+### 0. Execution checklist for a live telemetry run
+
+Use this quick sequence when fresh telemetry is available (Square‑8, 2‑player window):
+
+1. **Run the hotspot analyzer**  
+   `node scripts/analyze_rules_ux_telemetry.ts --input <snapshot.json> --output-json docs/ux/rules_iterations/data/iteration_0002_square8_2p_<YYYYMMDD>.json --output-md docs/ux/rules_iterations/data/iteration_0002_square8_2p_<YYYYMMDD>.md --min-events 10 --top-k 10`
+
+2. **Inspect top contexts**  
+   Confirm the top `rulesContext` entries and severities; if the top 3 differ from the defaults in §3, update §3 to match the live hotspots and note the window label.
+
+3. **Thread contexts into UX targets**  
+   For the selected contexts, ensure `GameEndExplanation.primaryConceptId`, `rulesContextTags`, and HUD/VictoryModal copy keys are mapped per §4; file any Code‑mode tasks needed to align behaviour.
+
+4. **Attach artefacts**  
+   Commit the analyzer JSON/Markdown outputs alongside this iteration (or link the paths here) and capture the telemetry window (`start`, `end`, `label`) in §2.1.
+
+5. **Validate post‑change telemetry**  
+   After implementation, rerun the analyzer for the same dimensions and compare help‑opens/100 games, reopen rate, and resign‑after‑weird rates for the targeted contexts; summarise deltas in a short addendum.
+
 ## 2. Inputs and required artifacts
 
 Even when live data is not embedded in this document, Iteration 0002 assumes the following logical inputs are available for each run:

@@ -116,9 +116,9 @@ export const options = {
     // Custom thresholds
     game_state_check_success: ['rate>0.99'],
 
-    // Use max() so the gauge reflects the peak reached during the run rather
-    // than the final value after ramp-down.
-    concurrent_active_games: [`max>=${EXPECTED_MIN_CONCURRENT_GAMES}`],
+    // k6 v1.4.2 only supports value aggregation for Gauge metrics.
+    // Use value>=... here; peak concurrency is still enforced via the SLO verifier.
+    concurrent_active_games: [`value>=${EXPECTED_MIN_CONCURRENT_GAMES}`],
 
     // Classification counters
     contract_failures_total: [`count<=${loadTestEnv.contract_failures_total.max}`],

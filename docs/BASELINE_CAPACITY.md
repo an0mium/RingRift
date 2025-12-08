@@ -21,6 +21,33 @@ Baselines are established through load testing and used to:
 > npm run load:baseline:staging # For staging environment
 > ```
 
+Baseline runner notes (Dec 2025):
+- `SCENARIO_ID` defaults to `BCAP_STAGING_BASELINE_20G_60P` and is threaded into filenames/tags.
+- Optional WebSocket companion run (`websocket-stress.js`, preset=baseline ~60 conns) runs automatically unless `SKIP_WS_COMPANION=true` is set; companion result files are named `websocket_<SCENARIO_ID>_...json`.
+- Optional user seeding via `SEED_LOADTEST_USERS=true` (with `LOADTEST_USER_*` overrides) seeds a load-test account pool before k6 starts.
+- Smoke profile: set `SMOKE=1` for a short/local wiring check; otherwise the `load` profile is used.
+
+Common baseline commands:
+
+```bash
+# Staging baseline with seeding (default SCENARIO_ID, WS companion on)
+SEED_LOADTEST_USERS=true tests/load/scripts/run-baseline.sh --staging
+
+# Local smoke baseline without WS companion
+SMOKE=1 SKIP_WS_COMPANION=1 tests/load/scripts/run-baseline.sh --local
+```
+
+Recent baseline run artifacts (Dec 2025):
+
+| Date (UTC) | Scenario ID | Notes | Paths |
+| --- | --- | --- | --- |
+| 2025-12-08 | BCAP_STAGING_BASELINE_20G_60P | Smoke-level run; baseline + WS companion | `tests/load/results/baseline_staging_20251208_144949.json`, `tests/load/results/baseline_staging_20251208_144949_summary.json`, `tests/load/results/websocket_BCAP_STAGING_BASELINE_20G_60P_staging_20251208_144949.json` |
+
+Post-run validation checklist:
+- Run SLO verifier against the main and WS outputs: `node tests/load/scripts/verify-slos.js <results.json> console --env staging`.
+- If passes, append a row to the table above with scenario ID, date, notes, and result paths.
+- If fails, attach SLO summary JSON and open a tracking issue with failing metrics.
+
 ### Production Targets (from PROJECT_GOALS.md)
 
 | Metric             | Target  | Current Baseline | Status | Notes                                  |
@@ -44,10 +71,98 @@ Baselines are established through load testing and used to:
 
 ---
 
+## Immediate Actions to Reconcile Baselines with Wave 7 Status
+
+The improvement plan marks production validation as complete, but this doc still lacks current baselines and target/AI-heavy entries. Execute and record the following runs (staging preferred) to bring this file in sync:
+
+1. **Baseline (20G/60P + WS companion)**
+   - Run: `SEED_LOADTEST_USERS=true tests/load/scripts/run-baseline.sh --staging`
+   - Verify: `node tests/load/scripts/verify-slos.js <baseline_results.json> console --env staging`
+   - WS verify: `node tests/load/scripts/verify-slos.js <websocket_results.json> console --env staging`
+   - Record main + summary + WS paths in the Baseline table above.
+
+2. **Target Scale (100G/300P + WS companion)**
+   - Run: `SEED_LOADTEST_USERS=true tests/load/scripts/run-target-scale.sh --staging`
+   - Skip prompt for CI/non-interactive: add `SKIP_CONFIRM=true`
+   - Verify: `node tests/load/scripts/verify-slos.js <target_results.json> console --env production`
+   - WS verify: `node tests/load/scripts/verify-slos.js <target_ws_results.json> console --env production`
+   - Add a row to the Target-scale table with date, scenario ID, notes, and paths.
+
+3. **AI-Heavy Probe (75G/300P, 3 AI seats per game)**
+   - Run: `SEED_LOADTEST_USERS=true tests/load/scripts/run-ai-heavy.sh --staging`
+   - Optional smoke/local: `SMOKE=1 SKIP_WS_COMPANION=1 SKIP_CONFIRM=true --local`
+   - Verify: `node tests/load/scripts/verify-slos.js <ai_heavy_results.json> console --env staging`
+   - WS verify if run: `node tests/load/scripts/verify-slos.js <ai_heavy_ws_results.json> console --env staging`
+   - Add a row to the AI-heavy table with date, scenario ID, notes, and paths.
+
+Recording template (replace placeholders):
+
+| Date (UTC) | Scenario ID | Notes | Paths |
+| --- | --- | --- | --- |
+| 2026-01-XX | <SCENARIO_ID> | <baseline/target/ai-heavy, env, smoke/full> | `<main_results.json>`, `<summary.json>`, `<websocket_results.json>` |
+
+After each run, if any SLO verifier fails, attach the SLO summary JSON and open a tracking issue with failing metrics and remediation plan before marking the table row as canonical.
+
 ## Target Scale Validation
 
 Target scale testing validates the system at full production capacity:
 **100 concurrent games with 300 concurrent players**.
+
+Target-scale runner notes (Dec 2025):
+- `SCENARIO_ID` defaults to `BCAP_SQ8_3P_TARGET_100G_300P` and is threaded into filenames/tags.
+- Optional WebSocket companion run (`websocket-stress.js`, preset=target ~300 conns) runs automatically unless `SKIP_WS_COMPANION=true` is set; companion result files are named `websocket_<SCENARIO_ID>_...json`.
+- Optional user seeding via `SEED_LOADTEST_USERS=true` (with `LOADTEST_USER_*` overrides) seeds a load-test account pool before k6 starts.
+- Confirmation prompt can be skipped with `SKIP_CONFIRM=true` for CI/non-interactive runs.
+
+Common target-scale commands:
+
+```bash
+# Staging target-scale with seeding and WS companion
+SEED_LOADTEST_USERS=true tests/load/scripts/run-target-scale.sh --staging
+
+# Local dry-run without WS companion (still uses target-scale stages)
+SKIP_WS_COMPANION=1 SKIP_CONFIRM=true tests/load/scripts/run-target-scale.sh --local
+```
+
+Target-scale run tracking:
+
+| Date (UTC) | Scenario ID | Notes | Paths |
+| --- | --- | --- | --- |
+| _TBD_ | BCAP_SQ8_3P_TARGET_100G_300P | _Pending first target-scale run_ | _Add main + summary + WS companion paths here_ |
+
+Post-run validation checklist (target-scale):
+- Run SLO verifier on main and WS outputs: `node tests/load/scripts/verify-slos.js <results.json> console --env production`.
+- If passes, record paths (main, summary, WS companion) in the table above with date/notes.
+- If fails, attach SLO summary JSON and open a tracking issue with failing metrics and remediation plan.
+
+## AI-Heavy Capacity Probe (75 games / ~300 players, 3 AI seats per game)
+
+AI-heavy runner notes (Dec 2025):
+- Scenario ID defaults to `BCAP_SQ8_4P_AI_HEAVY_75G_300P` and is threaded into filenames/tags.
+- Uses target-scale-like stages but at 75 VUs (steady) with 4p/3 AI seats; optional WebSocket companion (`WS_SCENARIO_PRESET=target`, ~300 conns) runs automatically unless `SKIP_WS_COMPANION=true`.
+- Optional user seeding via `SEED_LOADTEST_USERS=true` (with `LOADTEST_USER_*` overrides).
+- Confirmation prompt can be skipped with `SKIP_CONFIRM=true` for CI/non-interactive runs; smoke mode available via `SMOKE=1`.
+
+Common AI-heavy commands:
+
+```bash
+# Staging AI-heavy probe with seeding and WS companion
+SEED_LOADTEST_USERS=true tests/load/scripts/run-ai-heavy.sh --staging
+
+# Local smoke AI-heavy probe without WS companion
+SMOKE=1 SKIP_WS_COMPANION=1 SKIP_CONFIRM=true tests/load/scripts/run-ai-heavy.sh --local
+```
+
+AI-heavy run tracking:
+
+| Date (UTC) | Scenario ID | Notes | Paths |
+| --- | --- | --- | --- |
+| _TBD_ | BCAP_SQ8_4P_AI_HEAVY_75G_300P | _Pending first AI-heavy probe_ | _Add main + summary + WS companion paths here_ |
+
+Post-run validation checklist (AI-heavy):
+- Run SLO verifier on main and WS outputs: `node tests/load/scripts/verify-slos.js <results.json> console --env staging`.
+- If passes, record paths (main, summary, WS companion) in the table above with date/notes.
+- If fails, attach SLO summary JSON and open a tracking issue with failing metrics and remediation plan.
 
 ### How to Run Target Scale Test
 

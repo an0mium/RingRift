@@ -142,3 +142,59 @@ export {
   type KeyboardNavigationState,
   type GlobalGameShortcuts,
 } from './useKeyboardNavigation';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sandbox Hooks (for SandboxGameHost decomposition)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  useSandboxPersistence,
+  type GameSaveStatus,
+  type SyncState,
+  type LocalPlayerType,
+  type SandboxPersistenceOptions,
+  type SandboxPersistenceState,
+} from './useSandboxPersistence';
+
+export {
+  useSandboxScenarios,
+  extractChainCapturePath,
+  type LoadedScenario,
+  type ScenarioData,
+  type SandboxScenariosOptions,
+  type SandboxScenariosState,
+} from './useSandboxScenarios';
+
+export {
+  useSandboxEvaluation,
+  formatEvaluationScore,
+  getEvaluationTrend,
+  getKeyFeatures,
+  type EvaluationData,
+  type SandboxEvaluationOptions,
+  type SandboxEvaluationState,
+} from './useSandboxEvaluation';
+
+export {
+  useBoardViewProps,
+  useBoardOverlays,
+  type BoardOverlayConfig,
+  type UseBoardViewPropsOptions,
+  type BoardViewPropsResult,
+} from './useBoardViewProps';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Timer/Countdown Hooks
+// ═══════════════════════════════════════════════════════════════════════════
+
+export {
+  useCountdown,
+  useDecisionTimer,
+  formatTime,
+  formatTimeWithMs,
+  formatTimeAdaptive,
+  type UseCountdownOptions,
+  type CountdownState,
+  type UseDecisionTimerOptions,
+  type DecisionTimerState,
+} from './useCountdown';

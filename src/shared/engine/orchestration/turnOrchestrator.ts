@@ -1927,6 +1927,30 @@ function processPostMovePhases(
     return { victoryResult };
   }
 
+  // Zero-rings/no-actions terminal guard: if all players are out of rings and
+  // none have any global interactive actions (placement, movement/capture,
+  // forced elimination), end the game to mirror Python ANM/LPS termination.
+  const allZeroRings = stateMachine.gameState.players.every((p) => p.ringsInHand <= 0);
+  if (allZeroRings) {
+    const anyActions = stateMachine.gameState.players.some((p) => {
+      const summary = computeGlobalLegalActionsSummary(stateMachine.gameState, p.playerNumber);
+      return (
+        summary.hasGlobalPlacementAction ||
+        summary.hasPhaseLocalInteractiveMove ||
+        summary.hasForcedEliminationAction
+      );
+    });
+    if (!anyActions) {
+      stateMachine.updateGameState({
+        ...stateMachine.gameState,
+        currentPhase: 'game_over',
+        gameStatus: 'completed',
+      });
+      const finalVictory = toVictoryState(stateMachine.gameState);
+      return finalVictory.isGameOver ? { victoryResult: finalVictory } : { victoryResult };
+    }
+  }
+
   // All phases complete - advance to next player's turn
   const currentState = stateMachine.gameState;
   const players = currentState.players;

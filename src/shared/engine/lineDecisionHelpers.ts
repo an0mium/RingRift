@@ -1,3 +1,22 @@
+/**
+ * Line Decision Helpers - Shared line-processing decision logic
+ *
+ * @module lineDecisionHelpers
+ *
+ * This module provides line-processing decision enumeration and application.
+ * It works in conjunction with LineAggregate which handles the core line
+ * detection and collapse mechanics.
+ *
+ * For line detection geometry, use `./lineDetection.ts` or `./aggregates/LineAggregate.ts`.
+ * For line processing decisions, this module is the canonical source.
+ *
+ * Integration with LineAggregate:
+ * - `LineAggregate.findAllLines` - Line detection (geometry)
+ * - `LineAggregate.applyProcessLineDecision` - State mutation
+ * - `LineAggregate.applyChooseLineRewardDecision` - Reward application
+ * - This module - Decision enumeration and orchestration helpers
+ */
+
 import type { GameState, Move, Position, LineInfo, BoardType } from '../types/game';
 import { positionToString } from '../types/game';
 import { findAllLines } from './lineDetection';

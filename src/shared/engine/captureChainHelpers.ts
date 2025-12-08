@@ -1,3 +1,21 @@
+/**
+ * Capture Chain Helpers - Legacy Compatibility Layer
+ *
+ * @module captureChainHelpers
+ * @deprecated This module is a thin compatibility layer over CaptureAggregate.
+ * For new code, import directly from `./aggregates/CaptureAggregate` instead.
+ *
+ * Migration guide:
+ * - `enumerateChainCaptureSegments` → `CaptureAggregate.enumerateChainCaptureSegments`
+ * - `getChainCaptureContinuationInfo` → `CaptureAggregate.getChainCaptureContinuationInfo`
+ * - `canCapture` → Use `CaptureAggregate.validateCapture` with action format
+ * - `getValidCaptureTargets` → `CaptureAggregate.enumerateCaptureMoves`
+ * - `processChainCapture` → `CaptureAggregate.applyCaptureSegment`
+ *
+ * This module will be removed in a future release once all consumers have
+ * migrated to the canonical aggregate API.
+ */
+
 import type { GameState, Move, Position } from '../types/game';
 import { positionToString, stringToPosition } from '../types/game';
 import { validateCaptureSegmentOnBoard, type CaptureSegmentBoardView } from './core';
@@ -11,6 +29,9 @@ import {
   enumerateChainCaptureSegments as enumerateChainCaptureSegmentsAggregate,
   enumerateCaptureMoves as enumerateCaptureMovesAggregate,
 } from './aggregates/CaptureAggregate';
+
+// Re-export canonical types for convenience during migration
+export type { AggregateChainSnapshot, AggregateChainOptions, AggregateCaptureBoardAdapters };
 
 /**
  * Shared primitives for capture-chain orchestration (legacy shim).

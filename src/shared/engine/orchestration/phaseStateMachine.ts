@@ -22,6 +22,12 @@ import { advanceTurnAndPhase } from '../turnLogic';
  * This function encapsulates the phase transition rules from the canonical
  * RingRift rules specification.
  *
+ * @deprecated Use `determineNextPhaseFromFSM` from `../fsm/FSMAdapter` instead.
+ * This function duplicates logic that is canonically expressed in TurnStateMachine.
+ * The FSM-based version provides type-safe transitions and better validation.
+ * Migration path: Import `determineNextPhaseFromFSM` from `../fsm` and adapt
+ * the context parameter to `PhaseTransitionContext`.
+ *
  * @param currentPhase Current phase
  * @param moveType Type of move that was processed
  * @param context Additional context for the transition

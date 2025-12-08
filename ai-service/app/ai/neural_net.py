@@ -2210,7 +2210,7 @@ class NeuralNetAI(BaseAI):
             model_class="auto",  # Let factory choose best class
             use_mps=self._use_mps_arch,
             in_channels=14,
-            global_features=10,
+            global_features=20,  # Must match _extract_features() which returns 20 globals
             num_res_blocks=10,
             num_filters=128,
             history_length=self.history_length,

@@ -1,3 +1,21 @@
+/**
+ * Territory Decision Helpers - Shared territory-processing decision logic
+ *
+ * @module territoryDecisionHelpers
+ *
+ * This module provides territory-processing decision enumeration and application.
+ * It works in conjunction with TerritoryAggregate and territoryProcessing:
+ *
+ * Canonical module hierarchy for territory logic:
+ * - `./aggregates/TerritoryAggregate.ts` - Core territory detection and processing
+ * - `./territoryProcessing.ts` - Region-level processing primitives
+ * - `./territoryDetection.ts` - Disconnected region geometry
+ * - This module - Decision enumeration and application helpers
+ *
+ * For new code, prefer importing core geometry from the aggregates when possible.
+ * This module focuses on decision surfaces and GameState-level updates.
+ */
+
 import type { GameState, Move, Territory, RingStack } from '../types/game';
 import { positionToString } from '../types/game';
 import { calculateCapHeight } from './core';
@@ -8,6 +26,7 @@ import {
   canProcessTerritoryRegion,
 } from './territoryProcessing';
 import type { TerritoryProcessingContext } from './territoryProcessing';
+
 /**
  * Shared helpers for territory-processing decision enumeration and
  * application, including mandatory self-elimination semantics.
