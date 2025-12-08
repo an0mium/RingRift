@@ -63,7 +63,7 @@ import { serializeGameState } from '../../shared/engine/contracts/serialization'
 import { buildTestFixtureFromGameState, exportGameStateToFile } from '../sandbox/statePersistence';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useBoardOverlays } from '../hooks/useBoardViewProps';
-import { useSandboxPersistence, type LocalPlayerType } from '../hooks/useSandboxPersistence';
+import { useSandboxPersistence } from '../hooks/useSandboxPersistence';
 import { useSandboxEvaluation } from '../hooks/useSandboxEvaluation';
 import { useSandboxScenarios, type LoadedScenario } from '../hooks/useSandboxScenarios';
 
@@ -554,7 +554,7 @@ export const SandboxGameHost: React.FC = () => {
             try {
               for (let i = 0; i < recordedMoves.length; i += 1) {
                 const move = recordedMoves[i];
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
                 await (sandboxEngine as ClientSandboxEngine).applyCanonicalMoveForReplay(
                   move as any
                 );

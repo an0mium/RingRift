@@ -1,11 +1,11 @@
 /* eslint-disable no-console */
 import fs from 'fs';
 import path from 'path';
-import type { GameState, BoardState, Player, Position } from '../src/shared/types/game';
+import type { GameState, BoardState, Player, Position } from '../../src/shared/types/game';
 import {
   computeGlobalLegalActionsSummary,
   hasAnyGlobalMovementOrCapture,
-} from '../src/shared/engine/globalActions';
+} from '../../src/shared/engine/globalActions';
 
 function revivePosition(pos: any): Position {
   return { x: pos.x, y: pos.y, z: pos.z ?? null };
