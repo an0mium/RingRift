@@ -81,6 +81,8 @@ export type TurnState =
 export interface RingPlacementState {
   readonly phase: 'ring_placement';
   readonly player: number;
+  /** Rings currently in hand for the active player. */
+  readonly ringsInHand: number;
   readonly canPlace: boolean;
   readonly validPositions: Position[];
 }
@@ -306,6 +308,13 @@ function handleRingPlacement(
     }
 
     case 'SKIP_PLACEMENT': {
+      if (state.ringsInHand <= 0) {
+        return guardFailed(
+          state,
+          event,
+          'Cannot skip placement when you have no rings in hand; use no_placement_action'
+        );
+      }
       if (state.canPlace) {
         return guardFailed(state, event, 'Cannot skip placement when valid placements exist');
       }
@@ -818,6 +827,7 @@ function handleTurnEnd(
         {
           phase: 'ring_placement',
           player: state.nextPlayer,
+          ringsInHand: 0,
           canPlace: true, // Will be computed
           validPositions: [], // Will be computed
         },
@@ -962,6 +972,7 @@ export class TurnStateMachine {
     return {
       phase: 'ring_placement',
       player: startingPlayer,
+      ringsInHand: 0,
       canPlace: true,
       validPositions: [],
     };

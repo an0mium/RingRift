@@ -71,6 +71,7 @@ describe('TurnStateMachine', () => {
       const state: RingPlacementState = {
         phase: 'ring_placement',
         player: 1,
+        ringsInHand: 1,
         canPlace: true,
         validPositions: [{ x: 3, y: 3 }],
       };
@@ -84,6 +85,25 @@ describe('TurnStateMachine', () => {
         expect(result.error.code).toBe('INVALID_EVENT');
         expect(result.error.currentPhase).toBe('ring_placement');
         expect(result.error.eventType).toBe('MOVE_STACK');
+      }
+    });
+
+    it('should reject SKIP_PLACEMENT when ringsInHand is 0', () => {
+      const state: RingPlacementState = {
+        phase: 'ring_placement',
+        player: 1,
+        ringsInHand: 0,
+        canPlace: false,
+        validPositions: [],
+      };
+
+      const event: TurnEvent = { type: 'SKIP_PLACEMENT' };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('GUARD_FAILED');
+        expect(result.error.message).toMatch(/no rings in hand/i);
       }
     });
 

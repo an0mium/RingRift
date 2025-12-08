@@ -283,6 +283,7 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
       return {
         phase: 'ring_placement',
         player,
+        ringsInHand: 0,
         canPlace: false,
         validPositions: [],
       };
@@ -294,10 +295,13 @@ function deriveRingPlacementState(state: GameState, player: number): RingPlaceme
   const placementMoves = validMoves.filter((m) => m.type === 'place_ring');
   const validPositions = placementMoves.map((m) => m.to);
   const canPlace = validPositions.length > 0;
+  const playerObj = state.players.find((p) => p.playerNumber === player);
+  const ringsInHand = playerObj?.ringsInHand ?? 0;
 
   return {
     phase: 'ring_placement',
     player,
+    ringsInHand,
     canPlace,
     validPositions,
   };

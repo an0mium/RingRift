@@ -116,9 +116,12 @@ export const options = {
     // Custom thresholds
     game_state_check_success: ['rate>0.99'],
 
-    // Use max() so the gauge reflects the peak reached during the run rather
-    // than the final value after ramp-down.
-    concurrent_active_games: [`max>=${EXPECTED_MIN_CONCURRENT_GAMES}`],
+    // Note: concurrency targets are now enforced via the higher-level SLO
+    // verification pipeline (see verify-slos.js), which computes
+    // concurrent_games from the concurrent_active_games gauge. We intentionally
+    // avoid a k6 threshold on this Gauge because only the "value" aggregation
+    // is supported for Gauges, and that would key off the final post-ramp-down
+    // value rather than the peak reached during the run.
 
     // Classification counters
     contract_failures_total: [`count<=${loadTestEnv.contract_failures_total.max}`],

@@ -16,6 +16,8 @@ set -euo pipefail
 #   BASE_URL       - Override the base URL for the target environment
 #   STAGING_URL    - URL for staging environment (default: http://localhost:3000)
 #   K6_EXTRA_ARGS  - Additional arguments to pass to k6
+#   SEED_LOADTEST_USERS - If 'true', seed load-test users before running (uses scripts/seed-loadtest-users.js)
+#   LOADTEST_USER_COUNT / LOADTEST_USER_DOMAIN / LOADTEST_USER_OFFSET / LOADTEST_USER_PASSWORD / LOADTEST_USER_ROLE - Seeding overrides
 #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,6 +30,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RESULTS_DIR="$LOAD_DIR/results"
 RESULT_FILE="$RESULTS_DIR/baseline_${TARGET}_${TIMESTAMP}.json"
 SUMMARY_FILE="$RESULTS_DIR/baseline_${TARGET}_${TIMESTAMP}_summary.json"
+SCENARIO_ID="${SCENARIO_ID:-BCAP_STAGING_BASELINE_20G_60P}"
 
 # Color output helpers
 RED='\033[0;31m'
@@ -144,6 +147,13 @@ log_info "Starting baseline load test..."
 log_info "This will take approximately 10 minutes (1m warmup + 3m ramp + 5m steady + 1m down)"
 echo ""
 
+# Optionally seed load-test users to ensure sufficient accounts exist.
+if [[ "${SEED_LOADTEST_USERS:-false}" == "true" ]]; then
+    echo ""
+    log_info "Seeding load-test users (LOADTEST_USER_COUNT=${LOADTEST_USER_COUNT:-400}, domain=${LOADTEST_USER_DOMAIN:-loadtest.local}, offset=${LOADTEST_USER_OFFSET:-0})..."
+    (cd "$PROJECT_ROOT" && npm run load:seed-users) || log_warning "User seeding failed; continuing without seeding"
+fi
+
 # Determine which scenario to run - use concurrent-games as the primary baseline
 SCENARIO_FILE="$LOAD_DIR/scenarios/concurrent-games.js"
 
@@ -159,7 +169,10 @@ K6_ARGS=(
     "--env" "WS_URL=$WS_URL"
     "--env" "THRESHOLD_ENV=$THRESHOLD_ENV"
     "--env" "LOAD_PROFILE=load"
+    "--env" "SMOKE=${SMOKE:-0}"
+    "--env" "SCENARIO_ID=$SCENARIO_ID"
     "--tag" "test=baseline"
+    "--tag" "scenario_id=$SCENARIO_ID"
     "--tag" "target=$TARGET"
     "--tag" "timestamp=$TIMESTAMP"
     "--out" "json=$RESULT_FILE"

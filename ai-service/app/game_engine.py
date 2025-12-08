@@ -2060,11 +2060,6 @@ class GameEngine:
         - Player must have at least one stack.
         - At least one controlled stack must have a legal move or capture
           in the current board state.
-
-        NOTE: Unlike an earlier version, this now allows skip_placement even
-        when rings_in_hand = 0. Per TS: "If player has no rings in hand,
-        skip_placement is semantically fine - it means 'I cannot/will not
-        place, advance to movement phase'."
         """
         if game_state.current_phase != GamePhase.RING_PLACEMENT:
             return []
@@ -2078,6 +2073,11 @@ class GameEngine:
             None,
         )
         if not player:
+            return []
+
+        # Canonical rule: with zero rings in hand, skip_placement is invalid.
+        # Players must record an explicit no_placement_action instead.
+        if player.rings_in_hand <= 0:
             return []
 
         board = game_state.board
