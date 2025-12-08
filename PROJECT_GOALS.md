@@ -118,7 +118,7 @@ Together, these goals define **how the game should feel**: simple to describe at
 
 ### 3.4 Current Highest-Risk Area (Frontend UX & Production Validation)
 
-> **Status (2025-12-01): Improved Operational Readiness, Frontend UX Remains Priority**
+> **Status (2025-12-08): Critical Test Gap Identified, Operational Readiness Improved**
 
 Following PASS20-21 completion:
 
@@ -128,6 +128,10 @@ Following PASS20-21 completion:
 - ✅ **Test suite stabilized** (2,987 TS tests passing, ~130 skipped with rationale)
 
 Remaining priorities:
+
+- **Client-Side Test Coverage (Critical):**
+  As identified in `COMPREHENSIVE_PROJECT_ASSESSMENT.md`, client components, hooks, and services currently have **0% unit test coverage**. This is a critical vulnerability for v1.0 quality.
+  - **Action:** Establish React Testing Library infrastructure and backfill tests for critical paths (`BoardView`, `GameHUD`, `useSandboxInteractions`).
 
 - **Frontend UX Polish (P1):**
   The frontend still needs key features:
@@ -143,7 +147,7 @@ Remaining priorities:
   - Execute operational drills (secrets rotation, backup/restore)
   - Validate all SLOs under real production-scale load
 
-High-level risk framing and historical assessment for this area are summarised in [`WEAKNESS_ASSESSMENT_REPORT.md`](WEAKNESS_ASSESSMENT_REPORT.md:1) and [`docs/PASS21_ASSESSMENT_REPORT.md`](docs/PASS21_ASSESSMENT_REPORT.md:1).
+High-level risk framing and historical assessment for this area are summarised in [`WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md`](WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md) and [`docs/archive/assessments/PASS21_ASSESSMENT_REPORT.md`](docs/archive/assessments/PASS21_ASSESSMENT_REPORT.md).
 
 ---
 
@@ -163,14 +167,14 @@ From [`STRATEGIC_ROADMAP.md`](STRATEGIC_ROADMAP.md:144-149):
 
 ### 4.2 Test Coverage Requirements
 
-| Category                  | Requirement              | Current Status                                                                                         |
-| ------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------ |
-| **TypeScript tests**      | All passing              | ✅ 2,987 tests passing, ~130 skipped (see `CURRENT_STATE_ASSESSMENT.md`)                               |
-| **Python tests**          | All passing              | ✅ 836 tests passing (see `CURRENT_STATE_ASSESSMENT.md`)                                               |
-| **Contract vectors**      | 100% parity              | ✅ 49/49 passing, 0 mismatches                                                                         |
-| **Coverage target**       | 80% lines                | 🟡 ~69% lines (improved from 65.55%), key contexts now covered (89.52%/84.21%)                         |
-| **Rules scenario matrix** | All FAQ examples covered | ✅ All Q1–Q24 FAQ scenarios mapped to concrete Jest suites (see `docs/rules/RULES_SCENARIO_MATRIX.md`) |
-| **Integration tests**     | Core workflows passing   | ✅ AI resilience, reconnection (including reconnect → fresh `game_state`), sessions, contexts          |
+| Category                  | Requirement              | Current Status                                                                                                      |
+| ------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| **TypeScript tests**      | All passing              | ✅ 2,987 tests passing, ~130 skipped (see `CURRENT_STATE_ASSESSMENT.md`)                                            |
+| **Python tests**          | All passing              | ✅ 836 tests passing (see `CURRENT_STATE_ASSESSMENT.md`)                                                            |
+| **Contract vectors**      | 100% parity              | ✅ 54/54 passing, 0 mismatches                                                                                      |
+| **Coverage target**       | 80% lines                | 🔴 **Critical Gap:** Overall ~69%, but Client Components/Hooks are at **0%**. Key contexts covered (89.52%/84.21%). |
+| **Rules scenario matrix** | All FAQ examples covered | ✅ All Q1–Q24 FAQ scenarios mapped to concrete Jest suites (see `docs/rules/RULES_SCENARIO_MATRIX.md`)              |
+| **Integration tests**     | Core workflows passing   | ✅ AI resilience, reconnection (including reconnect → fresh `game_state`), sessions, contexts                       |
 
 > **Note:** Live test counts and coverage breakdowns are maintained in [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:236). This document is not the single source of truth for those numbers; it records only the high-level requirements.
 
@@ -211,7 +215,7 @@ Environment posture and rollout discipline are first-class parts of v1.0 readine
 - **Invariants, parity, and AI healthchecks part of promotion** ✅ **ACHIEVED (PASS20-21)**
   - Orchestrator invariant metrics and dashboards implemented (PASS21)
   - Python strict‑invariant metrics tracked
-  - Cross‑language parity suites stable (49/49 contract vectors passing)
+  - Cross‑language parity suites stable (54/54 contract vectors passing)
   - AI healthcheck profile documented and passing
   - 3 Grafana dashboards with 22 panels monitoring all critical metrics
 

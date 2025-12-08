@@ -16,6 +16,7 @@ import ws from 'k6/ws';
 import { check, sleep } from 'k6';
 import { Trend, Rate, Counter } from 'k6/metrics';
 import { loginAndGetToken } from '../auth/helpers.js';
+import { makeHandleSummary } from '../summary.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Metrics
@@ -50,19 +51,33 @@ const WS_URL = (() => {
   return BASE_URL.replace(/^http/, 'ws');
 })();
 
-// Scenario selection: smoke (default) vs throughput.
-const ENABLE_THROUGHPUT = (() => {
-  const raw = String(__ENV.ENABLE_WS_GAMEPLAY_THROUGHPUT || '').toLowerCase();
-  return raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on';
-})();
+// Scenario selection: smoke (default), baseline (10–25 games), or throughput.
+// Prefer an explicit WS_GAMEPLAY_MODE when provided, but fall back to the
+// legacy ENABLE_WS_GAMEPLAY_THROUGHPUT flag for compatibility.
+const MODE = (() => {
+  const explicit = String(__ENV.WS_GAMEPLAY_MODE || '').toLowerCase();
+  if (explicit === 'smoke' || explicit === 'baseline' || explicit === 'throughput') {
+    return explicit;
+  }
 
-const MODE = ENABLE_THROUGHPUT ? 'throughput' : 'smoke';
+  const raw = String(__ENV.ENABLE_WS_GAMEPLAY_THROUGHPUT || '').toLowerCase();
+  if (raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on') {
+    return 'throughput';
+  }
+
+  return 'smoke';
+})();
 
 // Gameplay tuning (overrideable via env vars).
 const GAME_MAX_MOVES = Number(__ENV.GAME_MAX_MOVES || 40);
 const GAME_MAX_LIFETIME_S = Number(__ENV.GAME_MAX_LIFETIME_S || 600);
 const DEFAULT_VU_MAX_GAMES = MODE === 'throughput' ? 10 : 3;
 const VU_MAX_GAMES = Number(__ENV.VU_MAX_GAMES || DEFAULT_VU_MAX_GAMES);
+
+// Baseline target concurrent games (VUs) for MODE="baseline".
+// Clamped to [10, 25] to satisfy the 10–25 game baseline requirement.
+const BASELINE_TARGET_VUS = Number(__ENV.WS_GAMEPLAY_BASELINE_VUS || 20);
+const BASELINE_VUS_CLAMPED = Math.max(10, Math.min(BASELINE_TARGET_VUS, 25));
 
 const TERMINAL_GAME_STATUSES = ['completed', 'abandoned', 'finished'];
 
@@ -81,7 +96,24 @@ const smokeScenario = {
   gracefulRampDown: '30s',
 };
 
-// Throughput scenario is enabled only when ENABLE_WS_GAMEPLAY_THROUGHPUT is truthy.
+// Baseline scenario: 10–25 concurrent games over a short steady-state window.
+// This is the default profile for staging 10–25 game baselines when
+// WS_GAMEPLAY_MODE=baseline.
+const baselineScenario = {
+  executor: 'ramping-vus',
+  startVUs: 0,
+  stages: [
+    // Ramp up to roughly half the target to avoid sudden spikes.
+    { duration: '1m', target: Math.max(5, Math.floor(BASELINE_VUS_CLAMPED / 2)) },
+    // Hold between 10 and 25 concurrent games for the main measurement window.
+    { duration: '4m', target: BASELINE_VUS_CLAMPED },
+    // Graceful ramp down.
+    { duration: '1m', target: 0 },
+  ],
+  gracefulRampDown: '30s',
+};
+
+// Throughput scenario is intended for higher-scale P-01 runs.
 const throughputScenario = {
   executor: 'ramping-vus',
   startVUs: 0,
@@ -95,13 +127,15 @@ const throughputScenario = {
   gracefulRampDown: '1m',
 };
 
-const scenarios = {
-  websocket_gameplay_smoke: smokeScenario,
-};
-
-if (ENABLE_THROUGHPUT) {
-  // This scenario is intended for staging/perf P-01 runs.
+// Select scenarios based on MODE.
+const scenarios = {};
+if (MODE === 'baseline') {
+  scenarios.websocket_gameplay_baseline = baselineScenario;
+} else if (MODE === 'throughput') {
   scenarios.websocket_gameplay_throughput = throughputScenario;
+} else {
+  // Default to the original smoke profile for dev/CI.
+  scenarios.websocket_gameplay_smoke = smokeScenario;
 }
 
 export const options = {
@@ -724,3 +758,7 @@ function chooseMoveFromValidMoves(validMoves, myPlayerNumberInGame) {
   const idx = Math.floor(Math.random() * pool.length);
   return pool[idx] || null;
 }
+
+// Shared SLO-aware summary writer; writes
+// results/load/websocket-gameplay.<env>.summary.json by default.
+export const handleSummary = makeHandleSummary('websocket-gameplay');

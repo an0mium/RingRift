@@ -161,6 +161,57 @@ describe('RulesUxHotspotAnalysis – happy path', () => {
     expect(md).toContain('Help opens per 100 games: 2.27');
     expect(md).toContain('help_reopen: 70 (reopen rate: 0.35)');
   });
+
+  it('smoke fixture: respects top-k ranking and min-events gating for dry-run usage', async () => {
+    const fixturePath = path.resolve(
+      __dirname,
+      '../fixtures/rules_ux_hotspots/rules_ux_aggregates.square8_2p.sample.json'
+    );
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rules-ux-hotspots-smoke-'));
+    const jsonOutPath = path.join(tmpDir, 'summary.json');
+    const mdOutPath = path.join(tmpDir, 'summary.md');
+
+    const exitCode = await main([
+      'node',
+      'analyze_rules_ux_telemetry.ts',
+      '--input',
+      fixturePath,
+      '--output-json',
+      jsonOutPath,
+      '--output-md',
+      mdOutPath,
+      '--min-events',
+      '15',
+      '--top-k',
+      '2',
+    ]);
+
+    expect(exitCode).toBe(0);
+    expect(fs.existsSync(jsonOutPath)).toBe(true);
+    expect(fs.existsSync(mdOutPath)).toBe(true);
+
+    const summary = JSON.parse(fs.readFileSync(jsonOutPath, 'utf8')) as any;
+
+    // Ranking should surface the two highest-help contexts.
+    expect(summary.topByHelpOpensPer100Games).toEqual([
+      'anm_forced_elimination',
+      'structural_stalemate',
+    ]);
+
+    const territoryCtx = summary.contexts.find(
+      (c: any) => c.rulesContext === 'territory_mini_region'
+    );
+    expect(territoryCtx).toBeDefined();
+    expect(territoryCtx.sources[0].sampleOk).toBe(false); // below minEvents threshold
+
+    const anmCtx = summary.contexts.find((c: any) => c.rulesContext === 'anm_forced_elimination');
+    expect(anmCtx.sources.every((s: any) => s.sampleOk)).toBe(true);
+
+    const md = fs.readFileSync(mdOutPath, 'utf8');
+    expect(md).toContain('Rules UX Hotspots – square8 2-player');
+    expect(md).toContain('Context: anm_forced_elimination');
+    expect(md).toContain('Context: structural_stalemate');
+  });
 });
 
 describe('RulesUxHotspotAnalysis – validation failures', () => {

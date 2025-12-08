@@ -16,13 +16,13 @@ A central navigation guide for developers to quickly locate all rules-related do
 
 ## Quick Status Summary
 
-| Aspect         | Status                 | Notes                                                                           |
-| -------------- | ---------------------- | ------------------------------------------------------------------------------- |
-| Rules Engine   | ✅ Fully implemented   | TS/Python parity verified (core flows)                                          |
-| Orchestrator   | ✅ 100% rollout in CI  | All environments use orchestrator adapter                                       |
-| Known Issues   | ⚠️ Frontend UX gaps    | See [PASS18_ASSESSMENT_REPORT_PASS3.md](docs/PASS18_ASSESSMENT_REPORT_PASS3.md) |
-| Weakest Aspect | Frontend UX Polish     | See [WEAKNESS_ASSESSMENT_REPORT.md](WEAKNESS_ASSESSMENT_REPORT.md) (Pass 18-3)  |
-| Test Health    | ✅ 2,670 tests passing | 0 failing, 176 skipped (orchestrator-conditional + diagnostic)                  |
+| Aspect         | Status                 | Notes                                                                                                  |
+| -------------- | ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| Rules Engine   | ✅ Fully implemented   | TS/Python parity verified (core flows)                                                                 |
+| Orchestrator   | ✅ 100% rollout in CI  | All environments use orchestrator adapter                                                              |
+| Known Issues   | ⚠️ Frontend UX gaps    | See [PASS18_ASSESSMENT_REPORT_PASS3.md](docs/PASS18_ASSESSMENT_REPORT_PASS3.md)                        |
+| Weakest Aspect | Frontend UX Polish     | See [WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md](../../WEAKNESS_AND_HARDEST_PROBLEM_REPORT.md) (Pass 18-3) |
+| Test Health    | ✅ 2,670 tests passing | 0 failing, 176 skipped (orchestrator-conditional + diagnostic)                                         |
 
 ---
 

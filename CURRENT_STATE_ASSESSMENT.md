@@ -25,14 +25,14 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 
 ### Key Metrics
 
-| Metric                                | Value                                                      |
-| ------------------------------------- | ---------------------------------------------------------- |
-| TypeScript tests (CI-gated)           | 2,987 passing                                              |
-| Python tests                          | 836 passing                                                |
-| Contract vectors                      | 54 (legacy vectors still passing)                          |
-| DB replay parity (TS↔Python replays)  | In progress; CanonicalReplayEngine powering TS harness     |
-| Line coverage                         | ~69%                                                       |
-| Canonical phases                      | 8                                                          |
+| Metric                               | Value                                                  |
+| ------------------------------------ | ------------------------------------------------------ |
+| TypeScript tests (CI-gated)          | 2,987 passing                                          |
+| Python tests                         | 836 passing                                            |
+| Contract vectors                     | 54 (legacy vectors still passing)                      |
+| DB replay parity (TS↔Python replays) | In progress; CanonicalReplayEngine powering TS harness |
+| Line coverage                        | ~69%                                                   |
+| Canonical phases                     | 8                                                      |
 
 ### Architecture State
 
@@ -40,7 +40,17 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 - **Legacy code removal:** ~1,176 lines removed in consolidation
 - **Engine architecture:** Canonical turn orchestrator with 6 domain aggregates
 - **Cross-language parity:** Contract testing framework with 54 vectors, 0 mismatches
+- **FSM validation:** Production-ready with shadow/active modes (validated: 10 games, 774 moves, 0 divergences)
 - **Sandbox replay:** Phase 1 complete – `CanonicalReplayEngine` powers TS DB replays (`scripts/selfplay-db-ts-replay.ts`). Client sandbox coercions remain for interactive play only and are slated for removal per `docs/archive/plans/SANDBOX_REPLAY_REFACTOR_PLAN.md`.
+
+### Replay Architecture (Dec 2025)
+
+| Engine                  | LOC   | Purpose                                    | Coercions  |
+| ----------------------- | ----- | ------------------------------------------ | ---------- |
+| `CanonicalReplayEngine` | 426   | Clean parity testing, FSM validation       | None       |
+| `ClientSandboxEngine`   | 4,351 | Interactive play + legacy recording replay | ~250 lines |
+
+Migration path: 20 parity test files use `ClientSandboxEngine` with `traceMode: true`. These should migrate to `CanonicalReplayEngine` before coercion code removal. See `TODO.md` § Sandbox Replay Refactor.
 
 ---
 
@@ -177,11 +187,11 @@ The contract testing framework ensures TypeScript and Python engines produce ide
 
 ### 3.2 Replay Parity Infrastructure
 
-| Tool                               | Purpose                    |
-| ---------------------------------- | -------------------------- |
+| Tool                               | Purpose                                                     |
+| ---------------------------------- | ----------------------------------------------------------- |
 | `selfplay-db-ts-replay.ts`         | TS replay from Python DBs (now via `CanonicalReplayEngine`) |
-| `check_ts_python_replay_parity.py` | Per-game parity comparison |
-| `debug_ts_python_state_diff.py`    | Structural diff tooling    |
+| `check_ts_python_replay_parity.py` | Per-game parity comparison                                  |
+| `debug_ts_python_state_diff.py`    | Structural diff tooling                                     |
 
 ### 3.3 Training Data Hygiene
 
@@ -189,17 +199,45 @@ The contract testing framework ensures TypeScript and Python engines produce ide
 - **Canonical gate:** `run_canonical_selfplay_parity_gate.py`
 - **Legacy data:** Marked `legacy_noncanonical`, not used for new training
 
+### 3.4 Resolved Invariant Issues
+
+#### INV-ACTIVE-NO-MOVES (RESOLVED)
+
+**Status:** Fixed (2025-12-07)
+
+Games were reaching `gameStatus=active` with no valid candidate moves per the `is_anm_state()` invariant checker, causing false positive violations.
+
+| Aspect       | Detail                            |
+| ------------ | --------------------------------- |
+| Invariant ID | `INV-ACTIVE-NO-MOVES`             |
+| Severity     | P0 - Game logic correctness       |
+| Discovery    | Self-play soak testing (Dec 2025) |
+| Resolution   | Two bugs fixed in Python engine   |
+
+**Root Causes Identified:**
+
+1. **LINE_PROCESSING/TERRITORY_PROCESSING false positives:** The `has_phase_local_interactive_move()` function in `global_actions.py` only checked for interactive moves but ignored host-synthesized bookkeeping moves (`NO_LINE_ACTION`, `NO_TERRITORY_ACTION`). During these phases, even when no lines/territories exist, a valid bookkeeping move is always available.
+
+2. **skip_placement parity bug:** Python's `_get_skip_placement_moves()` in `game_engine.py` required `rings_in_hand > 0`, but TypeScript allows `skip_placement` even when `ringsInHand == 0`. This created a false ANM state during `ring_placement` phase when players had exhausted their rings but still had stacks with valid moves.
+
+**Fixes Applied:**
+
+- `ai-service/app/rules/global_actions.py`: Changed `has_phase_local_interactive_move()` to return `True` for LINE_PROCESSING and TERRITORY_PROCESSING phases (bookkeeping moves always available)
+- `ai-service/app/game_engine.py`: Removed `rings_in_hand <= 0` check from `_get_skip_placement_moves()` to match TypeScript semantics
+
+**Verification:** Diagnostic replay of 219-move game shows 0 ANM violations after fixes. All 95 parity tests pass.
+
 ---
 
 ## 4. Testing Infrastructure
 
 ### 4.1 Test Counts
 
-| Category              | Count | Status                |
-| --------------------- | ----- | --------------------- |
-| TypeScript CI-gated   | 2,987 | ✅ Passing            |
-| TypeScript diagnostic | ~170  | Skipped (intentional) |
-| Python                | 836   | ✅ Passing            |
+| Category              | Count | Status                                                              |
+| --------------------- | ----- | ------------------------------------------------------------------- |
+| TypeScript CI-gated   | 2,987 | ✅ Passing                                                          |
+| TypeScript diagnostic | ~170  | Skipped (intentional)                                               |
+| Python                | 836   | ✅ Passing                                                          |
 | Contract vectors      | 54    | ✅ Legacy vectors green; DB replay parity still under investigation |
 
 ### 4.2 Test Categories

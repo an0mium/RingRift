@@ -155,6 +155,14 @@ and are anchored by backend↔sandbox parity and Python metadata/snapshot checks
 - **Backend ↔ sandbox parity & S‑invariant (compact rules §9, §13.5):**
   - Seeded trace/AI-parallel suites where backend and sandbox traces remain in lockstep on actions, phases, hashes, and S, treated as CI gates once P0.2 gaps are closed.
 
+### Pending multi-phase turn scenarios (planned)
+
+| Focus                                               | Board(s)               | Planned tests / suites                                                                                                                                                                                                                                                                                                                   | Status  |
+| --------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- |
+| Chain → line → territory turn with multiple choices | square8, square19, hex | New rules-matrix scenarios covering a single turn that triggers chain capture → line processing (with reward choice) → territory processing (with region order + optional skip), ensuring all decision phases are recorded (`line_reward_option`, `ring_elimination`, `region_order`, `skip_territory_processing`) and TS/Python parity. | PLANNED |
+
+Target suites: extend `tests/scenarios/RulesMatrix.Comprehensive.test.ts` (backend) plus matching sandbox/parity slices; add contract-style fixtures under `tests/fixtures/contract-vectors/v2/multi_phase_turn.vectors.json` for the combined chain→line→territory path across all board families.
+
 > **Naming convention:** When adding new tests, prefer `describe` / `it` names that reference the rule or FAQ explicitly, e.g. `Q15_3_1_180_degree_reversal` or `Rules_11_2_LineReward_Option1VsOption2`.
 
 ---
