@@ -62,7 +62,7 @@ There are three standard boards:
 
 - **Hexagonal** (radius 12; 13 cells per side)
   - 469 spaces.
-  - **60 rings** per player.
+  - **72 rings** per player.
   - Territory victory: **>234** spaces.
   - Lines: **4+** markers along hex directions.
 
@@ -287,10 +287,10 @@ Thresholds (from the rulebook):
   - 2 players: >36.
   - 3 players: >54.
   - 4 players: >72.
-- Hex (469 cells, 48 rings/player):
-  - 2 players: >48.
-  - 3 players: >72.
-  - 4 players: >96.
+- Hex (469 cells, 72 rings/player):
+  - 2 players: >72.
+  - 3 players: >108.
+  - 4 players: >144.
 
 Your eliminated‑rings total includes:
 

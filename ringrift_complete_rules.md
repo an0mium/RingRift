@@ -79,10 +79,10 @@ The rule documentation is structured to facilitate different learning approaches
 ## Table of Contents
 
 - [RingRift Complete Rules](#ringrift-complete-rules)
-    - [What is RingRift?](#what-is-ringrift)
-    - [Ruleset Design Goals \& Rationale](#ruleset-design-goals--rationale)
-    - [Learning and Playing RingRift](#learning-and-playing-ringrift)
-    - [How to Navigate This Document](#how-to-navigate-this-document)
+  - [What is RingRift?](#what-is-ringrift)
+  - [Ruleset Design Goals \& Rationale](#ruleset-design-goals--rationale)
+  - [Learning and Playing RingRift](#learning-and-playing-ringrift)
+  - [How to Navigate This Document](#how-to-navigate-this-document)
   - [Table of Contents](#table-of-contents)
   - [1. Introduction (All Versions)](#1-introduction-all-versions)
     - [What is RingRift?](#what-is-ringrift-1)
@@ -247,7 +247,7 @@ Three versions of the game exist, offering different strategic landscapes while 
 
 - **8×8 Simplified Version**: A smaller square grid (64 spaces) for faster games and easier learning. Uses 18 rings per player.
 - **19×19 Full Version**: The original, larger square grid (361 spaces) offering maximum tactical complexity. Uses 48 rings per player.
-- **Hexagonal Version**: A regular hexagonal grid with 13 spaces per side (469 total spaces), providing the deepest strategic landscape and the fullest realization of the design vision. Uses 60 rings per player.
+- **Hexagonal Version**: A regular hexagonal grid with 13 spaces per side (469 total spaces), providing the deepest strategic landscape and the fullest realization of the design vision. Uses 72 rings per player.
 
 ### 1.1 Game Overview
 
@@ -273,8 +273,8 @@ The game's rich strategic depth, tension and drama emerge from the interplay bet
 | Feature                  | 19×19 Full Version                           | 8×8 Simplified Version                       | Hexagonal Version                            |
 | ------------------------ | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
 | Board Size               | 361 spaces (19×19)                           | 64 spaces (8×8)                              | 469 spaces (13 per side)                     |
-| Rings per Player         | 48 rings                                     | 18 rings                                     | 60 rings                                     |
-| Victory Threshold (3p)   | >72 rings                                    | >27 rings                                    | >90 rings                                    |
+| Rings per Player         | 48 rings                                     | 18 rings                                     | 72 rings                                     |
+| Victory Threshold (3p)   | >72 rings                                    | >27 rings                                    | >108 rings                                   |
 | Movement Adjacency       | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Line Formation Adjacency | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Territory Adjacency      | Von Neumann (4-direction)                    | Von Neumann (4-direction)                    | Hexagonal (6-direction)                      |
@@ -293,7 +293,7 @@ RingRift is a territory control and ring elimination game where you'll build sta
 
 - Eliminate more than 50% of the total rings in play
 - Control more than 50% of the board as territory
- - Win by last-player-standing: be the only player with legal actions for **three consecutive full rounds**, taking at least one real action on each of your turns while all other players have no real actions (see Section 13.3 for details)
+- Win by last-player-standing: be the only player with legal actions for **three consecutive full rounds**, taking at least one real action on each of your turns while all other players have no real actions (see Section 13.3 for details)
 
 #### Start With The Simpler Version
 
@@ -301,7 +301,7 @@ We recommend beginning with the **8×8 version** - it has simpler rules but pres
 
 #### Setup in 30 Seconds
 
-- Each player takes the appropriate number of rings of their own color for the chosen version (18 for 8×8, 48 for 19×19, 60 for Hexagonal); this is their entire personal ring supply for the game.
+- Each player takes the appropriate number of rings of their own color for the chosen version (18 for 8×8, 48 for 19×19, 72 for Hexagonal); this is their entire personal ring supply for the game.
 - No rings start on the board - players place and move them during play.
 - Decide turn order and begin!
 
@@ -429,7 +429,7 @@ Before diving into the detailed rules, it's helpful to understand some core conc
 
 #### 3.2.1 Rings (19×19 Full Version)
 
-• Quantity: Each player has a fixed personal supply of rings of their own colour: 48 in the 19×19 version, 60 in the Hexagonal version, 18 in the 8×8 version.
+• Quantity: Each player has a fixed personal supply of rings of their own colour: 48 in the 19×19 version, 72 in the Hexagonal version, 18 in the 8×8 version.
 • Supply limit: At any time, the total number of rings of a player's colour that are in play (on the board in any stack, regardless of who controls those stacks, plus in that player's hand) can never exceed this limit. Captured rings of other colours in stacks you control do not count against your own supply—they still belong, by colour, to their original owner for conservation and victory accounting. A quick check: `ringsInHand + ringsOnBoardOfColor` must always equal the starting supply for that board size.
 • Characteristics:
 • Begin "in hand" (off the board)
@@ -702,7 +702,7 @@ _In these examples, the Blue player controls both stacks (as Blue is on top). Ex
 
 ### 6.2 Placement on Empty Spaces
 
-- You may place **1–3 rings** on any empty, non-collapsed space, forming a stack. The exact number is constrained by both your remaining rings in hand and your supply limit for the board type (18 for 8×8, 48 for 19×19, 60 for Hexagonal): the total number of rings of your color currently on the board in any stack, plus in your hand, must not exceed this limit. Captured opponent-color rings in stacks you control do not reduce this capacity.
+- You may place **1–3 rings** on any empty, non-collapsed space, forming a stack. The exact number is constrained by both your remaining rings in hand and your supply limit for the board type (18 for 8×8, 48 for 19×19, 72 for Hexagonal): the total number of rings of your color currently on the board in any stack, plus in your hand, must not exceed this limit. Captured opponent-color rings in stacks you control do not reduce this capacity.
   • Before a placement is legal, the resulting stack must have at least one legal move or capture available according to the standard movement and capture rules (the **no-dead-placement** rule).
   • Must move the newly placed stack immediately.
   • The placed stack's movement follows standard rules for its initial height (e.g., placing 3 rings requires moving at least 3 spaces).
@@ -1976,8 +1976,8 @@ Note that by definition, any stack you control must have at least one ring of yo
 | Feature                  | 19×19 Full Version                           | 8×8 Simplified Version                       | Hexagonal Version                            |
 | ------------------------ | -------------------------------------------- | -------------------------------------------- | -------------------------------------------- |
 | Board Size               | 361 spaces (19×19)                           | 64 spaces (8×8)                              | 469 spaces (13 per side)                     |
-| Rings per Player         | 48 rings                                     | 18 rings                                     | 60 rings                                     |
-| Victory Threshold (3p)   | >72 rings                                    | >27 rings                                    | >90 rings                                    |
+| Rings per Player         | 48 rings                                     | 18 rings                                     | 72 rings                                     |
+| Victory Threshold (3p)   | >72 rings                                    | >27 rings                                    | >108 rings                                   |
 | Movement Adjacency       | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Line Formation Adjacency | Moore (8-direction)                          | Moore (8-direction)                          | Hexagonal (6-direction)                      |
 | Territory Adjacency      | Von Neumann (4-direction)                    | Von Neumann (4-direction)                    | Hexagonal (6-direction)                      |
@@ -1999,7 +1999,7 @@ Note that by definition, any stack you control must have at least one ring of yo
 
 **Victory Conditions:**
 
-- Eliminate >50% of total rings (>54 for 3 players in 19×19, >27 for 3 players in 8×8, >72 for 3 players in Hexagonal)
+- Eliminate >50% of total rings (>54 for 3 players in 19×19, >27 for 3 players in 8×8, >108 for 3 players in Hexagonal)
 - Control >50% of board as collapsed territory (>180 spaces in 19×19, >32 in 8×8)
 - Be the last player able to make legal moves
 
@@ -2161,7 +2161,7 @@ Below are the 19×19 full rules in comparison with the simplified 8×8 version.
 • Board: 19×19 intersections, with Moore adjacency for movement & lines of 4+, but Von Neumann adjacency for territory disconnection.
 • Movement: Minimum distance = stack height. Landing after markers allows landing on any valid space beyond them meeting the distance requirement (no mandatory stop at first).
 • Captures: "Overtaking" vs. "Elimination," as introduced, with partial ring capture.
-• Victory: Eliminate more than half of all rings (>54 for 3 players, >72 for 4 players on 19×19; >72 for 3 players, >96 for 4 players on Hex), or last standing, or stalemate tiebreak.
+• Victory: Eliminate more than half of all rings (>54 for 3 players, >72 for 4 players on 19×19; >108 for 3 players, >144 for 4 players on Hex), or last standing, or stalemate tiebreak.
 
 #### 16.9.1 Major Differences from 8×8
 
@@ -2382,7 +2382,7 @@ In practice, territory disconnection on the 19×19 board works exactly like the 
 Hexagonal Version:
 • Regular hexagon with 13 spaces per side (469 total spaces).
 • 6-direction hexagonal adjacency used for movement, line formation, AND territory connectivity.
-• 60 rings/player, victory at >50% of total rings.
+• 72 rings/player, victory at >50% of total rings.
 • Movement landing rule: Min distance, any valid space beyond markers (Unified rule).
 • Capture landing rule: Min distance, any empty beyond target (same as 19×19).
 • Unique spatial dynamics due to 6-directional movement and 3 line axes.

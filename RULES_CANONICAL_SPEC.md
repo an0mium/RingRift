@@ -92,7 +92,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - For each board type, each player P has a fixed personal supply of rings of P's **own colour**:
     - `square8`: 18 rings.
     - `square19`: 48 rings.
-    - `hexagonal`: 60 rings.
+    - `hexagonal`: 72 rings.
   - At all times, the total number of rings of P's colour that are **in play** (on the board in any stack, regardless of which player currently controls those stacks, plus in P's hand) must be ≤ this `ringsPerPlayer` value for the chosen board type.
   - Rings of other colours that P has captured and that are buried in stacks P controls **do not** count against P's `ringsPerPlayer` cap; they continue to belong, by colour, to their original owners for conservation, elimination, and victory accounting.
   - Eliminated rings of P's colour are permanently out of play and do not refresh or expand P's supply beyond `ringsPerPlayer`; they only change how much of that fixed supply is currently eliminated versus still in play.

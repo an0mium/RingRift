@@ -20,10 +20,10 @@ For each board type, define a static configuration:
 | --------- | ---- | ----------- | -------------- | ---------- | ----------------- | ------------- | ------------------- | --------------- |
 | square8   | 8    | 64          | 18             | 3          | Moore (8-dir)     | Moore         | Von Neumann (4-dir) | orthogonal grid |
 | square19  | 19   | 361         | 48             | 4          | Moore             | Moore         | Von Neumann         | orthogonal grid |
-| hexagonal | 13   | 469         | 60             | 4          | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
+| hexagonal | 13   | 469         | 72             | 4          | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
 
 - **Ring supply semantics:** For each player P, `ringsPerPlayer` is the maximum number of rings of P's own colour that may ever be in play: all of P's rings currently on the board in any stack (regardless of which player controls those stacks) plus all of P's rings in hand must never exceed this value. Rings of other colours that P has captured and that are buried in stacks P controls do **not** count against P's `ringsPerPlayer` cap; they remain, by colour, part of the original owner's supply for conservation and victory accounting.
-  - Quick supply check: `ringsInHand[P] + ringsOfColorOnBoard[P]` must always equal the starting supply for P's board type (18 on square8, 48 on square19, 60 on hex).
+  - Quick supply check: `ringsInHand[P] + ringsOfColorOnBoard[P]` must always equal the starting supply for P's board type (18 on square8, 48 on square19, 72 on hex).
 
 - **Coordinates**:
   - Square boards: integer `(x, y)` in `[0, size-1] × [0, size-1]`.
