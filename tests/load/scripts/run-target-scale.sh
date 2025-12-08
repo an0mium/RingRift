@@ -27,8 +27,8 @@ PROJECT_ROOT="$(dirname "$(dirname "$LOAD_DIR")")"
 TARGET="${1:-staging}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RESULTS_DIR="$LOAD_DIR/results"
-RESULT_FILE="$RESULTS_DIR/target-scale_${TARGET}_${TIMESTAMP}.json"
-SUMMARY_FILE="$RESULTS_DIR/target-scale_${TARGET}_${TIMESTAMP}_summary.json"
+RESULT_FILE="$RESULTS_DIR/BCAP_SQ8_3P_TARGET_100G_300P_${TARGET}_${TIMESTAMP}.json"
+SUMMARY_FILE="$RESULTS_DIR/BCAP_SQ8_3P_TARGET_100G_300P_${TARGET}_${TIMESTAMP}_summary.json"
 CONFIG_FILE="$LOAD_DIR/configs/target-scale.json"
 
 # Color output helpers
