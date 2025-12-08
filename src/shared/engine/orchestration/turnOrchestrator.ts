@@ -59,9 +59,9 @@ import type {
 } from './types';
 
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
-import { flagEnabled, debugLog } from '../../utils/envFlags';
+import { flagEnabled, debugLog, getFSMValidationMode } from '../../utils/envFlags';
 
-// FSM shadow validation imports
+// FSM validation imports
 import { validateMoveWithFSM, isMoveTypeValidForPhase } from '../fsm';
 
 // Import from domain aggregates
@@ -1106,12 +1106,19 @@ export function processTurn(
   // no-action move per RR-CANON-R075.
   assertPhaseMoveInvariant(state, move);
 
-  // FSM Shadow Validation: Run FSM-based validation in parallel with existing
-  // validation and log any divergences. This is gated by RINGRIFT_FSM_SHADOW_VALIDATION
-  // flag and does not affect game behavior - it only logs potential issues.
-  const FSM_SHADOW_ENABLED = flagEnabled('RINGRIFT_FSM_SHADOW_VALIDATION');
-  if (FSM_SHADOW_ENABLED) {
-    performFSMShadowValidation(state, move);
+  // FSM Validation: Run FSM-based validation either in shadow mode (log only)
+  // or active mode (enforce validation). Controlled by RINGRIFT_FSM_VALIDATION_MODE.
+  const fsmMode = getFSMValidationMode();
+  if (fsmMode !== 'off') {
+    const fsmValidationResult = performFSMValidation(state, move, fsmMode);
+
+    // In active mode, reject invalid moves based on FSM validation
+    if (fsmMode === 'active' && !fsmValidationResult.valid) {
+      const reason = fsmValidationResult.reason || `FSM validation rejected ${move.type} move`;
+      throw new Error(
+        `[FSM] Invalid move: ${reason} (phase=${fsmValidationResult.currentPhase}, errorCode=${fsmValidationResult.errorCode})`
+      );
+    }
   }
 
   const sInvariantBefore = computeSInvariant(state);
@@ -1563,71 +1570,109 @@ function assertPhaseMoveInvariant(state: GameState, move: Move): void {
 }
 
 /**
- * Perform FSM shadow validation on a move.
+ * FSM validation result type.
+ */
+interface FSMValidationInternalResult {
+  valid: boolean;
+  currentPhase?: string | undefined;
+  errorCode?: string | undefined;
+  reason?: string | undefined;
+}
+
+/**
+ * Perform FSM validation on a move.
  *
- * This runs the FSM-based validation in parallel with existing validation
- * and logs any divergences. It does NOT affect game behavior - it only logs
- * potential issues for debugging and incremental FSM integration.
+ * In shadow mode: runs FSM validation in parallel with existing validation
+ * and logs any divergences without affecting game behavior.
+ *
+ * In active mode: returns the FSM validation result for the caller to enforce.
  *
  * @param state - The current game state
  * @param move - The move to validate
+ * @param mode - 'shadow' for logging only, 'active' for enforcement
+ * @returns FSM validation result
  */
-function performFSMShadowValidation(state: GameState, move: Move): void {
+function performFSMValidation(
+  state: GameState,
+  move: Move,
+  mode: 'shadow' | 'active'
+): FSMValidationInternalResult {
   try {
     // Run FSM validation
     const fsmResult = validateMoveWithFSM(state, move);
 
-    // Run existing validation for comparison
-    const existingResult = validateMove(state, move);
+    // In shadow mode, also run existing validation for comparison and log divergences
+    if (mode === 'shadow') {
+      const existingResult = validateMove(state, move);
 
-    // Check for divergences between FSM and existing validation
-    const fsmValid = fsmResult.valid;
-    const existingValid = existingResult.valid;
+      // Log divergence if FSM and existing disagree
+      if (fsmResult.valid !== existingResult.valid) {
+        debugLog(true, '[FSM_SHADOW_VALIDATION] DIVERGENCE DETECTED', {
+          moveType: move.type,
+          movePlayer: move.player,
+          currentPhase: state.currentPhase,
+          fsmResult: {
+            valid: fsmResult.valid,
+            currentPhase: fsmResult.currentPhase,
+            errorCode: fsmResult.errorCode,
+            reason: fsmResult.reason,
+          },
+          existingResult: {
+            valid: existingResult.valid,
+            reason: existingResult.reason,
+          },
+          gameId: state.id,
+          moveNumber: state.moveHistory.length + 1,
+        });
+      }
 
-    // Log divergence if FSM and existing disagree
-    if (fsmValid !== existingValid) {
-      debugLog(true, '[FSM_SHADOW_VALIDATION] DIVERGENCE DETECTED', {
-        moveType: move.type,
-        movePlayer: move.player,
-        currentPhase: state.currentPhase,
-        fsmResult: {
-          valid: fsmResult.valid,
-          currentPhase: fsmResult.currentPhase,
-          errorCode: fsmResult.errorCode,
-          reason: fsmResult.reason,
-        },
-        existingResult: {
-          valid: existingResult.valid,
-          reason: existingResult.reason,
-        },
-        gameId: state.id,
-        moveNumber: state.moveHistory.length + 1,
-      });
+      // Also check phase validity
+      const fsmPhaseValid = isMoveTypeValidForPhase(state, move.type);
+      const existingPhaseValid = isPhaseValidForMoveType(state.currentPhase, move.type);
+
+      if (fsmPhaseValid !== existingPhaseValid) {
+        debugLog(true, '[FSM_SHADOW_VALIDATION] PHASE_VALIDITY_DIVERGENCE', {
+          moveType: move.type,
+          currentPhase: state.currentPhase,
+          fsmPhaseValid,
+          existingPhaseValid,
+          gameId: state.id,
+          moveNumber: state.moveHistory.length + 1,
+        });
+      }
     }
 
-    // Also check phase validity
-    const fsmPhaseValid = isMoveTypeValidForPhase(state, move.type);
-    const existingPhaseValid = isPhaseValidForMoveType(state.currentPhase, move.type);
-
-    if (fsmPhaseValid !== existingPhaseValid) {
-      debugLog(true, '[FSM_SHADOW_VALIDATION] PHASE_VALIDITY_DIVERGENCE', {
-        moveType: move.type,
-        currentPhase: state.currentPhase,
-        fsmPhaseValid,
-        existingPhaseValid,
-        gameId: state.id,
-        moveNumber: state.moveHistory.length + 1,
-      });
-    }
+    // Cast to any to bypass strict type checking on the return type for now
+    // The errorCode mismatch is likely due to exactOptionalPropertyTypes
+    const result: any = {
+      valid: fsmResult.valid,
+      currentPhase: fsmResult.currentPhase,
+      errorCode: fsmResult.errorCode,
+      reason: fsmResult.reason,
+    };
+    return result;
   } catch (error) {
-    // Log FSM validation errors but don't propagate - shadow validation
-    // should never break the game
-    debugLog(true, '[FSM_SHADOW_VALIDATION] ERROR', {
+    // Log FSM validation errors
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    debugLog(true, '[FSM_VALIDATION] ERROR', {
       moveType: move.type,
       currentPhase: state.currentPhase,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
       gameId: state.id,
+      mode,
     });
+
+    // In shadow mode, don't propagate errors - just mark as valid to continue
+    // In active mode, treat errors as validation failures
+    if (mode === 'shadow') {
+      return { valid: true };
+    }
+    return {
+      valid: false,
+      currentPhase: state.currentPhase,
+      errorCode: 'FSM_ERROR',
+      reason: errorMessage,
+    };
   }
 }
 
