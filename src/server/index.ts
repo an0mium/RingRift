@@ -133,7 +133,9 @@ app.get('/metrics', async (_req: Request, res: Response) => {
   }
 });
 
-const clientBuildPath = path.resolve(__dirname, '../client');
+// In production, the server runs from dist/server/server/index.js
+// Client files are in dist/client, so we need to go up two levels
+const clientBuildPath = path.resolve(__dirname, '../../client');
 
 if (config.isProduction) {
   app.use(express.static(clientBuildPath));
