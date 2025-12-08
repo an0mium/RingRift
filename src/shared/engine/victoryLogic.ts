@@ -135,8 +135,6 @@ export function evaluateVictory(state: GameState): VictoryResult {
   }
 
   // 5) Bare-board structural terminality & global stalemate.
-  const noStacksLeft = state.board.stacks.size === 0;
-
   const anyRingsInHand = players.some((p) => p.ringsInHand > 0);
   let treatHandAsEliminated = false;
   let handCountsAsEliminated = false;

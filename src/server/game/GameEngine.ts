@@ -158,6 +158,15 @@ export class GameEngine {
     return this._swapSidesApplied;
   }
 
+  /**
+   * When true, the engine operates in replay mode:
+   * - Auto-processing of single-option decisions is disabled.
+   * - The decision loop is broken immediately when a decision is required.
+   * - This allows the replay driver to supply explicit decision moves from
+   *   a recording.
+   */
+  private readonly replayMode: boolean;
+
   constructor(
     gameId: string,
     boardType: BoardType,
@@ -166,8 +175,10 @@ export class GameEngine {
     isRated: boolean = true,
     interactionManager?: PlayerInteractionManager,
     rngSeed?: number,
-    rulesOptions?: GameState['rulesOptions']
+    rulesOptions?: GameState['rulesOptions'],
+    replayMode: boolean = false
   ) {
+    this.replayMode = replayMode;
     this.boardManager = new BoardManager(boardType);
     this.ruleEngine = new RuleEngine(this.boardManager, boardType);
     this.interactionManager = interactionManager;
@@ -620,6 +631,7 @@ export class GameEngine {
       decisionHandler,
       eventEmitter,
       ...(this.debugCheckpointHook ? { debugHook: this.debugCheckpointHook } : {}),
+      replayMode: this.replayMode,
     };
 
     return new TurnEngineAdapter(deps);

@@ -598,8 +598,8 @@ function toAIInfoViewModel(player: Player): AIInfoViewModel {
 
 const BOARD_CONFIGS_LOCAL = {
   square8: { ringsPerPlayer: 18 },
-  square19: { ringsPerPlayer: 36 },
-  hexagonal: { ringsPerPlayer: 48 },
+  square19: { ringsPerPlayer: 48 },
+  hexagonal: { ringsPerPlayer: 60 },
 } as const;
 
 function calculateRingStats(player: Player, gameState: GameState): PlayerRingStatsViewModel {
@@ -1664,7 +1664,7 @@ function getVictoryMessage(
     const verb = userWon ? 'were' : 'was';
     return {
       title: '👑 Last Player Standing',
-      description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for two consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
+      description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for three consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
       titleColorClass,
     };
   }
@@ -1706,7 +1706,7 @@ function getVictoryMessage(
       const verb = userWon ? 'were' : 'was';
       return {
         title: '👑 Last Player Standing',
-        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for two consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
+        description: `${subject} ${verb} the only player able to make real moves (placements, movements, or captures) for three consecutive full rounds. Other players either had no real moves or could only perform forced eliminations, which do not count as real moves for Last Player Standing even though they still remove caps and permanently eliminate rings.`,
         titleColorClass,
       };
     }

@@ -39,20 +39,20 @@ describe('FAQ Q19-Q21, Q24: Player Counts, Thresholds & Forced Elimination', () 
         expect(gameState.totalRingsInPlay).toBe(36);
       });
 
-      it('should use correct thresholds for 2-player square19 (>36 rings)', () => {
+      it('should use correct thresholds for 2-player square19 (>48 rings)', () => {
         const players = [
-          createTestPlayer(1, { ringsInHand: 36 }),
-          createTestPlayer(2, { ringsInHand: 36 }),
+          createTestPlayer(1, { ringsInHand: 48 }),
+          createTestPlayer(2, { ringsInHand: 48 }),
         ];
 
         const engine = new GameEngine('faq-q19-2p-s19', 'square19', players, timeControl, false);
         const engineAny: any = engine;
         const gameState = engineAny.gameState;
 
-        // Total rings: 2 × 36 = 72
-        // Victory threshold (rings needed to win): 37 (>50% of 72)
-        expect(gameState.victoryThreshold).toBe(37);
-        expect(gameState.totalRingsInPlay).toBe(72);
+        // Total rings: 2 × 48 = 96
+        // Victory threshold (rings needed to win): 49 (>50% of 96)
+        expect(gameState.victoryThreshold).toBe(49);
+        expect(gameState.totalRingsInPlay).toBe(96);
       });
     });
 
@@ -74,45 +74,26 @@ describe('FAQ Q19-Q21, Q24: Player Counts, Thresholds & Forced Elimination', () 
         expect(gameState.totalRingsInPlay).toBe(54);
       });
 
-      it('should use correct thresholds for 3-player square19 (>54 rings)', () => {
+      it('should use correct thresholds for 3-player square19 (>72 rings)', () => {
         const players = [
-          createTestPlayer(1, { ringsInHand: 36 }),
-          createTestPlayer(2, { ringsInHand: 36 }),
-          createTestPlayer(3, { ringsInHand: 36 }),
+          createTestPlayer(1, { ringsInHand: 48 }),
+          createTestPlayer(2, { ringsInHand: 48 }),
+          createTestPlayer(3, { ringsInHand: 48 }),
         ];
 
         const engine = new GameEngine('faq-q19-3p-s19', 'square19', players, timeControl, false);
         const engineAny: any = engine;
         const gameState = engineAny.gameState;
 
-        // Total rings: 3 × 36 = 108
-        // Victory threshold (rings needed to win): 55 (>50% of 108)
-        expect(gameState.victoryThreshold).toBe(55);
-        expect(gameState.totalRingsInPlay).toBe(108);
-      });
-    });
-
-    describe('4-Player Games', () => {
-      it('should use correct thresholds for 4-player square19 (>72 rings)', () => {
-        const players = [
-          createTestPlayer(1, { ringsInHand: 36 }),
-          createTestPlayer(2, { ringsInHand: 36 }),
-          createTestPlayer(3, { ringsInHand: 36 }),
-          createTestPlayer(4, { ringsInHand: 36 }),
-        ];
-
-        const engine = new GameEngine('faq-q19-4p-s19', 'square19', players, timeControl, false);
-        const engineAny: any = engine;
-        const gameState = engineAny.gameState;
-
-        // Total rings: 4 × 36 = 144
+        // Total rings: 3 × 48 = 144
         // Victory threshold (rings needed to win): 73 (>50% of 144)
         expect(gameState.victoryThreshold).toBe(73);
         expect(gameState.totalRingsInPlay).toBe(144);
       });
+    });
 
-      it('should use correct thresholds for 4-player hexagonal (>72 rings)', () => {
-        // Per RR-CANON-R020, hex boards have 48 rings per player
+    describe('4-Player Games', () => {
+      it('should use correct thresholds for 4-player square19 (>96 rings)', () => {
         const players = [
           createTestPlayer(1, { ringsInHand: 48 }),
           createTestPlayer(2, { ringsInHand: 48 }),
@@ -120,13 +101,32 @@ describe('FAQ Q19-Q21, Q24: Player Counts, Thresholds & Forced Elimination', () 
           createTestPlayer(4, { ringsInHand: 48 }),
         ];
 
+        const engine = new GameEngine('faq-q19-4p-s19', 'square19', players, timeControl, false);
+        const engineAny: any = engine;
+        const gameState = engineAny.gameState;
+
+        // Total rings: 4 × 48 = 192
+        // Victory threshold (rings needed to win): 97 (>50% of 192)
+        expect(gameState.victoryThreshold).toBe(97);
+        expect(gameState.totalRingsInPlay).toBe(192);
+      });
+
+      it('should use correct thresholds for 4-player hexagonal (>120 rings)', () => {
+        // Per RR-CANON-R020, hex boards have 60 rings per player
+        const players = [
+          createTestPlayer(1, { ringsInHand: 60 }),
+          createTestPlayer(2, { ringsInHand: 60 }),
+          createTestPlayer(3, { ringsInHand: 60 }),
+          createTestPlayer(4, { ringsInHand: 60 }),
+        ];
+
         const engine = new GameEngine('faq-q19-4p-hex', 'hexagonal', players, timeControl, false);
         const engineAny: any = engine;
         const gameState = engineAny.gameState;
 
-        // Total rings: 4 × 48 = 192, Victory threshold = floor(192/2) + 1 = 97
-        expect(gameState.victoryThreshold).toBe(97);
-        expect(gameState.totalRingsInPlay).toBe(192);
+        // Total rings: 4 × 60 = 240, Victory threshold = floor(240/2) + 1 = 121
+        expect(gameState.victoryThreshold).toBe(121);
+        expect(gameState.totalRingsInPlay).toBe(240);
       });
     });
   });
@@ -138,9 +138,12 @@ describe('FAQ Q19-Q21, Q24: Player Counts, Thresholds & Forced Elimination', () 
       const testCases = [
         { total: 36, threshold: 19 }, // 2p square8
         { total: 54, threshold: 28 }, // 3p square8
-        { total: 72, threshold: 37 }, // 2p square19/hex
-        { total: 108, threshold: 55 }, // 3p square19/hex
-        { total: 144, threshold: 73 }, // 4p square19/hex
+        { total: 96, threshold: 49 }, // 2p square19
+        { total: 144, threshold: 73 }, // 3p square19
+        { total: 192, threshold: 97 }, // 4p square19
+        { total: 120, threshold: 61 }, // 2p hexagonal
+        { total: 180, threshold: 91 }, // 3p hexagonal
+        { total: 240, threshold: 121 }, // 4p hexagonal
       ];
 
       testCases.forEach(({ total, threshold }) => {

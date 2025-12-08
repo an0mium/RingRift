@@ -1143,10 +1143,8 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
           const count = Math.max(1, capHeight);
           const fallbackMove: Move = {
             id: `forced-elim-fallback-${Date.now()}`,
-            // WORKAROUND: The shared engine's TerritoryAggregate throws if passed 'forced_elimination',
-            // but turnOrchestrator passes it through. We must convert to 'eliminate_rings_from_stack'
-            // and rely on ClientSandboxEngine's phase coercion to 'territory_processing' to apply it.
-            type: 'eliminate_rings_from_stack',
+            // Canonical forced elimination move (handled by turnOrchestrator).
+            type: 'forced_elimination',
             player: gameState.currentPlayer,
             to: eligibleStack.position,
             eliminatedRings: [{ player: gameState.currentPlayer, count }],
@@ -1211,10 +1209,9 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
         id: '',
         moveNumber,
         timestamp: new Date(),
-        // WORKAROUND: The shared engine's TerritoryAggregate throws if passed 'forced_elimination',
-        // but turnOrchestrator passes it through. We must convert to 'eliminate_rings_from_stack'
-        // and rely on ClientSandboxEngine's phase coercion to 'territory_processing' to apply it.
-        type: 'eliminate_rings_from_stack',
+        // Preserve canonical forced_elimination type; the shared orchestrator
+        // accepts this MoveType directly.
+        type: 'forced_elimination',
       } as Move;
 
       debugForcedEliminationAttempted = true;

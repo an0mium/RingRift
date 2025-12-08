@@ -34,28 +34,22 @@ import {
   getSelfPlayGameService,
   importSelfPlayGameAsGameRecord,
 } from '../src/server/services/SelfPlayGameService';
-import {
-  ClientSandboxEngine,
-  type SandboxConfig,
-  type SandboxInteractionHandler,
-} from '../src/client/sandbox/ClientSandboxEngine';
-import type {
-  BoardType,
-  GameState,
-  Move,
-  Position,
-  Player,
-  TimeControl,
-} from '../src/shared/types/game';
+import type { BoardType, GameState, Move, Position } from '../src/shared/types/game';
 import {
   hashGameStateSHA256,
   getEffectiveLineLengthThreshold,
   evaluateVictory,
 } from '../src/shared/engine';
-import { createInitialGameState } from '../src/shared/engine/initialState';
 import { serializeGameState } from '../src/shared/engine/contracts/serialization';
 import { connectDatabase, disconnectDatabase } from '../src/server/database/connection';
 import type { PrismaClient } from '@prisma/client';
+import { CanonicalReplayEngine } from '../src/shared/replay/CanonicalReplayEngine';
+
+// Known-bad recordings that should be skipped until regenerated.
+const DEFAULT_SKIP_GAME_IDS = new Set<string>([
+  // canonical_square8.db: territory -> no_placement_action off-phase, missing initial state (non-canonical).
+  '151ba34a-b7bf-4845-a779-5232221f592e',
+]);
 
 type Mode = 'replay' | 'import';
 
@@ -69,6 +63,8 @@ interface ReplayCliArgs extends BaseCliArgs {
   gameId: string;
   /** Move number(s) at which to dump full TS state JSON for debugging */
   dumpStateAt?: number[];
+  /** Game IDs to skip (non-canonical/known-bad recordings) */
+  skipGameIds?: Set<string>;
 }
 
 interface ImportCliArgs extends BaseCliArgs {
@@ -116,6 +112,7 @@ export function parseArgs(argv: string[]): CliArgs | null {
   const tags: string[] = [];
   let dryRun = false;
   const dumpStateAt: number[] = [];
+  const skipGameIds: Set<string> = new Set();
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -163,6 +160,9 @@ export function parseArgs(argv: string[]): CliArgs | null {
         }
       }
       i += 1;
+    } else if (arg === '--skip-game' && argv[i + 1]) {
+      skipGameIds.add(argv[i + 1]);
+      i += 1;
     }
   }
 
@@ -184,6 +184,7 @@ export function parseArgs(argv: string[]): CliArgs | null {
       dbPath: resolvedDb,
       gameId,
       ...(dumpStateAt.length > 0 && { dumpStateAt }),
+      ...(skipGameIds.size > 0 && { skipGameIds }),
     };
   }
 
@@ -319,7 +320,8 @@ function summarizeState(label: string, state: GameState): Record<string, unknown
 }
 
 async function runReplayMode(args: ReplayCliArgs): Promise<void> {
-  const { dbPath, gameId, dumpStateAt } = args;
+  const { dbPath, gameId, dumpStateAt, skipGameIds } = args;
+  const skipSet = new Set<string>([...DEFAULT_SKIP_GAME_IDS, ...(skipGameIds ?? [])]);
 
   const service = getSelfPlayGameService();
   const detail = service.getGame(dbPath, gameId);
@@ -330,103 +332,61 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     return;
   }
 
-  // Sanitize initial state in the same way SelfPlayBrowser does before
-  // passing it into /sandbox, so this script matches sandbox behaviour.
-  // If there's no initial state (e.g., GameRecord format imports from soaks),
-  // create a fresh initial state using the board type and player count.
-  let sanitizedState: any;
-  const rawState = detail.initialState as any;
-
-  if (rawState && typeof rawState === 'object') {
-    sanitizedState = { ...rawState };
-    if (Array.isArray(sanitizedState.moveHistory)) {
-      sanitizedState.moveHistory = [];
-    }
-    if (Array.isArray(sanitizedState.history)) {
-      sanitizedState.history = [];
-    }
-  } else {
-    // No initial state - create a fresh one for the board type and player count.
-    // This handles GameRecord format imports (golden games, soak exports) which
-    // record games from a standard empty board without explicit initial state.
-    console.error(
-      `[selfplay-db-ts-replay] No initial state found for ${gameId}; creating fresh state for ${detail.boardType} with ${detail.numPlayers} players`
-    );
-
-    const timeControl: TimeControl = {
-      type: 'rapid',
-      initialTime: 600,
-      increment: 0,
-    };
-
-    const players: Player[] = [];
-    for (let i = 0; i < detail.numPlayers; i += 1) {
-      const playerNumber = i + 1;
-      players.push({
-        id: `player-${playerNumber}`,
-        username: `Player ${playerNumber}`,
-        type: 'ai',
-        playerNumber,
-        isReady: true,
-        timeRemaining: timeControl.initialTime * 1000,
-        ringsInHand: 0,
-        eliminatedRings: 0,
-        territorySpaces: 0,
-      });
-    }
-
-    const freshState = createInitialGameState(
-      gameId,
-      detail.boardType as BoardType,
-      players,
-      timeControl,
-      false
-    );
-    sanitizedState = serializeGameState(freshState);
+  if (skipSet.has(gameId)) {
+    console.error(`[ts-replay] Skipping game ${gameId} (known-bad or listed in --skip-game)`);
+    return;
   }
-
-  const config: SandboxConfig = {
-    boardType: detail.boardType as BoardType,
-    numPlayers: detail.numPlayers,
-    playerKinds: Array.from({ length: detail.numPlayers }, () => 'human'),
-  };
-
-  const interactionHandler: SandboxInteractionHandler = {
-    async requestChoice(choice: any) {
-      const options = (choice?.options as any[]) ?? [];
-      const selectedOption = options.length > 0 ? options[0] : undefined;
-      return {
-        choiceId: choice.id,
-        playerNumber: choice.playerNumber,
-        choiceType: choice.type,
-        selectedOption,
-      } as any;
-    },
-  };
 
   // Optional debug configuration: dump TS GameState JSON at specified move numbers.
   // Supports both CLI args (--dump-state-at 10,20,30) and env var (legacy).
-  // Dumps are written to RINGRIFT_TS_REPLAY_DUMP_DIR or ./ts-replay-dumps.
+  // Parse env var which may be comma-separated (e.g., "50,51,52")
   const dumpKRaw = process.env.RINGRIFT_TS_REPLAY_DUMP_STATE_AT_K;
-  const envDumpK = dumpKRaw ? Number.parseInt(dumpKRaw, 10) : NaN;
   const dumpKSet = new Set<number>(dumpStateAt ?? []);
-  if (Number.isFinite(envDumpK)) {
-    dumpKSet.add(envDumpK);
+  if (dumpKRaw) {
+    const parts = dumpKRaw.split(',').map((s) => s.trim());
+    for (const part of parts) {
+      if (part === 'all') {
+        // Special value to dump at every step (handled in the loop)
+        dumpKSet.add(-1); // Sentinel for "dump all"
+      } else {
+        const parsed = Number.parseInt(part, 10);
+        if (Number.isFinite(parsed)) {
+          dumpKSet.add(parsed);
+        }
+      }
+    }
   }
   const shouldDumpState = dumpKSet.size > 0;
+  const dumpAll = dumpKSet.has(-1);
   const dumpDirEnv = process.env.RINGRIFT_TS_REPLAY_DUMP_DIR;
   const dumpDir =
     dumpDirEnv && dumpDirEnv.length > 0 ? dumpDirEnv : path.join(process.cwd(), 'ts-replay-dumps');
 
-  const engine = new ClientSandboxEngine({
-    config,
-    interactionHandler,
-    // Enable traceMode so the sandbox replay path uses strict, parity-oriented
-    // semantics (no extra auto line/territory processing beyond recorded moves).
-    traceMode: true,
-  });
+  // Sanitize initial state (clear history arrays to ensure clean replay)
+  let initialState: unknown = undefined;
+  const rawState = detail.initialState as any;
+  if (rawState && typeof rawState === 'object') {
+    const sanitized = { ...rawState };
+    if (Array.isArray(sanitized.moveHistory)) {
+      sanitized.moveHistory = [];
+    }
+    if (Array.isArray(sanitized.history)) {
+      sanitized.history = [];
+    }
+    initialState = sanitized;
+  } else {
+    console.error(
+      `[selfplay-db-ts-replay] No initial state found for ${gameId}; creating fresh state for ${detail.boardType} with ${detail.numPlayers} players`
+    );
+  }
 
-  engine.initFromSerializedState(sanitizedState, config.playerKinds, interactionHandler);
+  // Create CanonicalReplayEngine - coercion-free replay via TurnEngineAdapter
+  const engine = new CanonicalReplayEngine({
+    gameId,
+    boardType: detail.boardType as BoardType,
+    numPlayers: detail.numPlayers,
+    initialState,
+  });
 
   const normalizedMoves: Move[] = detail.moves.map((m) =>
     normalizeRecordedMove(m.move as Move, m.moveNumber)
@@ -446,46 +406,49 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       dbPath,
       gameId,
       totalRecordedMoves: recordedMoves.length,
-      summary: summarizeState('initial', engine.getGameState()),
+      summary: { ...engine.summarize('initial'), label: 'initial' },
     })
   );
 
   let applied = 0;
   for (let i = 0; i < recordedMoves.length; i++) {
     const move = recordedMoves[i];
-    const nextMove = i + 1 < recordedMoves.length ? recordedMoves[i + 1] : null;
     applied += 1;
 
-    try {
-      await engine.applyCanonicalMoveForReplay(move, nextMove);
-    } catch (err) {
-      const state = engine.getGameState();
+    const result = await engine.applyMove(move);
+
+    if (!result.success) {
+      const state = engine.getState();
       console.error(
         JSON.stringify(
           {
             kind: 'ts-replay-error',
             k: applied,
             move,
-            nextMove,
-            error: err instanceof Error ? err.message : String(err),
-            stateSummary: summarizeState('error', state),
+            error: result.error,
+            stateSummary: summarizeState('error', state as GameState),
           },
           null,
           2
         )
       );
-      throw err;
+      throw new Error(result.error);
     }
-    const state = engine.getGameState();
+
+    const state = engine.getState();
 
     // Optional debug dump for parity investigation
-    if (shouldDumpState && dumpKSet.has(applied)) {
+    if (shouldDumpState && (dumpAll || dumpKSet.has(applied))) {
       try {
         fs.mkdirSync(dumpDir, { recursive: true });
         const fileName = `${path.basename(dbPath)}__${gameId}__k${applied}.ts_state.json`;
         const outPath = path.join(dumpDir, fileName);
         // Use serializeGameState to properly convert Map objects to plain objects
-        fs.writeFileSync(outPath, JSON.stringify(serializeGameState(state), null, 2), 'utf-8');
+        fs.writeFileSync(
+          outPath,
+          JSON.stringify(serializeGameState(state as GameState), null, 2),
+          'utf-8'
+        );
 
         console.error(
           `[selfplay-db-ts-replay] Dumped TS state for ${gameId} @ k=${applied} to ${outPath}`
@@ -497,6 +460,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         );
       }
     }
+
     // eslint-disable-next-line no-console
     console.log(
       JSON.stringify({
@@ -505,7 +469,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         moveType: move.type,
         movePlayer: move.player,
         moveNumber: move.moveNumber,
-        summary: summarizeState(`after_move_${applied}`, state),
+        summary: summarizeState(`after_move_${applied}`, state as GameState),
       })
     );
   }
@@ -515,8 +479,8 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
   // bare-board stalemate tie-breakers (territory → eliminated → markers →
   // last actor) are applied even when legacy logs omit a winner, and keeps
   // parity with the shared VictoryAggregate semantics.
-  const verdict = evaluateVictory(engine.getGameState() as any);
-  let finalState = engine.getGameState();
+  const verdict = evaluateVictory(engine.getState() as any);
+  let finalState = engine.getState() as GameState;
   if (verdict.isGameOver) {
     finalState = {
       ...finalState,
@@ -528,7 +492,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
   // If the final k was requested for dumping, overwrite it with the recomputed
   // terminal state so parity bundles see the canonical phase/winner.
-  if (shouldDumpState && dumpKSet.has(applied)) {
+  if (shouldDumpState && (dumpAll || dumpKSet.has(applied))) {
     try {
       fs.mkdirSync(dumpDir, { recursive: true });
       const fileName = `${path.basename(dbPath)}__${gameId}__k${applied}.ts_state.json`;

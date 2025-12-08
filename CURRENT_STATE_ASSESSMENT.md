@@ -25,13 +25,14 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 
 ### Key Metrics
 
-| Metric                      | Value                      |
-| --------------------------- | -------------------------- |
-| TypeScript tests (CI-gated) | 2,987 passing              |
-| Python tests                | 836 passing                |
-| Contract vectors            | 54 (100% TS↔Python parity) |
-| Line coverage               | ~69%                       |
-| Canonical phases            | 8                          |
+| Metric                                | Value                                                      |
+| ------------------------------------- | ---------------------------------------------------------- |
+| TypeScript tests (CI-gated)           | 2,987 passing                                              |
+| Python tests                          | 836 passing                                                |
+| Contract vectors                      | 54 (legacy vectors still passing)                          |
+| DB replay parity (TS↔Python replays)  | In progress; CanonicalReplayEngine powering TS harness     |
+| Line coverage                         | ~69%                                                       |
+| Canonical phases                      | 8                                                          |
 
 ### Architecture State
 
@@ -39,6 +40,7 @@ RingRift is a **stable beta** turn-based board game implementation with a consol
 - **Legacy code removal:** ~1,176 lines removed in consolidation
 - **Engine architecture:** Canonical turn orchestrator with 6 domain aggregates
 - **Cross-language parity:** Contract testing framework with 54 vectors, 0 mismatches
+- **Sandbox replay:** Phase 1 complete – `CanonicalReplayEngine` powers TS DB replays (`scripts/selfplay-db-ts-replay.ts`). Client sandbox coercions remain for interactive play only and are slated for removal per `docs/archive/plans/SANDBOX_REPLAY_REFACTOR_PLAN.md`.
 
 ---
 
@@ -165,8 +167,8 @@ Python is explicitly a **host adapter** over canonical TS semantics—all rules 
 
 The contract testing framework ensures TypeScript and Python engines produce identical results:
 
-- **54 test vectors** across 8+ categories
-- **0 mismatches** between engines
+- **54 test vectors** across 8+ categories (legacy contract suite remains green)
+- **DB replay parity:** active investigation; CanonicalReplayEngine surfaces recorded divergences in self-play DBs
 - Categories covered:
   - Placement, movement, capture, chain_capture
   - Line detection, territory processing
@@ -177,7 +179,7 @@ The contract testing framework ensures TypeScript and Python engines produce ide
 
 | Tool                               | Purpose                    |
 | ---------------------------------- | -------------------------- |
-| `selfplay-db-ts-replay.ts`         | TS replay from Python DBs  |
+| `selfplay-db-ts-replay.ts`         | TS replay from Python DBs (now via `CanonicalReplayEngine`) |
 | `check_ts_python_replay_parity.py` | Per-game parity comparison |
 | `debug_ts_python_state_diff.py`    | Structural diff tooling    |
 
@@ -198,7 +200,7 @@ The contract testing framework ensures TypeScript and Python engines produce ide
 | TypeScript CI-gated   | 2,987 | ✅ Passing            |
 | TypeScript diagnostic | ~170  | Skipped (intentional) |
 | Python                | 836   | ✅ Passing            |
-| Contract vectors      | 54    | ✅ 100% parity        |
+| Contract vectors      | 54    | ✅ Legacy vectors green; DB replay parity still under investigation |
 
 ### 4.2 Test Categories
 

@@ -603,8 +603,8 @@ describe('GameEngine branch coverage', () => {
       const engine = new GameEngine('test-s19-3p', 'square19', createPlayers(3), timeControl);
       const state = engine.getGameState();
       expect(state.players).toHaveLength(3);
-      // 36 rings per player * 3 = 108 total
-      expect(state.totalRingsInPlay).toBe(108);
+      // 48 rings per player * 3 = 144 total
+      expect(state.totalRingsInPlay).toBe(144);
     });
   });
 

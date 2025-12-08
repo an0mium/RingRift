@@ -793,7 +793,7 @@
       "tags": ["weird_state", "last_player_standing", "anm_last_player_standing", "victory"],
       "rulesConcept": "anm_last_player_standing",
       "uxSpecAnchor": "victory.last_player_standing",
-      "rulesSnippet": "Last Player Standing: you win if you are the only player who can make real moves (placements, movements, or captures) for two full rounds; forced elimination does not count as a real move.",
+      "rulesSnippet": "Last Player Standing: you win if you are the only player who can make real moves (placements, movements, or captures) for three full rounds; forced elimination does not count as a real move.",
       "rulesSnippetRef": "ringrift_complete_rules#last-player-standing",
       "boardType": "square8",
       "playerCount": 3,

@@ -192,6 +192,16 @@ Extended analysis and edge case documentation.
 | [RULES_DOCS_UX_AUDIT.md](docs/supplementary/RULES_DOCS_UX_AUDIT.md)                   | Documentation UX review        |
 | [AI_IMPROVEMENT_BACKLOG.md](docs/supplementary/AI_IMPROVEMENT_BACKLOG.md)             | AI improvement ideas           |
 
+**Rules analysis (`docs/supplementary/rules_analysis/`)**
+
+| Document                                                                                                            | Purpose                                                         |
+| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| [rules_analysis_lps_inconsistencies.md](docs/supplementary/rules_analysis/rules_analysis_lps_inconsistencies.md)    | LPS three-round threshold audit + remaining UX copy gaps        |
+| [rules_analysis_lps_fe.md](docs/supplementary/rules_analysis/rules_analysis_lps_fe.md)                              | Analysis of forced elimination not counting as an LPS real move |
+| [rules_analysis_ring_count_inconsistencies.md](docs/supplementary/rules_analysis/rules_analysis_ring_count_inconsistencies.md) | Ring count mismatches across specs, docs, and engines           |
+| [rules_analysis_ring_count_increase.md](docs/supplementary/rules_analysis/rules_analysis_ring_count_increase.md)    | Historical proposal to raise 19×19/hex ring supplies            |
+| [rules_analysis_ring_count_remediation_plan.md](docs/supplementary/rules_analysis/rules_analysis_ring_count_remediation_plan.md) | Remediation steps for ring count inconsistencies                |
+
 ---
 
 ## /docs/archive/

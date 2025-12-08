@@ -81,6 +81,15 @@ export interface TurnEngineAdapterDeps {
   decisionHandler: DecisionHandler;
   eventEmitter?: EventEmitter;
   debugHook?: (label: string, state: GameState) => void;
+  /**
+   * When true, the adapter operates in replay mode:
+   * - Auto-processing of single-option decisions (lines, territory) is disabled.
+   * - The decision loop is broken immediately when a decision is required,
+   *   returning success: true but with the state left in the decision phase.
+   *   This allows the replay driver to supply the explicit decision move from
+   *   the recording.
+   */
+  replayMode?: boolean;
 }
 
 /**
@@ -125,7 +134,7 @@ export class TurnEngineAdapter {
    * after Phase 3 migration is complete.
    */
   async processMove(move: Move): Promise<AdapterMoveResult> {
-    const { stateAccessor, decisionHandler, eventEmitter, debugHook } = this.deps;
+    const { stateAccessor, decisionHandler, eventEmitter, debugHook, replayMode } = this.deps;
     const beforeState = stateAccessor.getGameState();
 
     // Debug checkpoint before processing
@@ -134,6 +143,17 @@ export class TurnEngineAdapter {
     // Create delegates that route decisions to players
     const delegates: TurnProcessingDelegates = {
       resolveDecision: async (decision: PendingDecision): Promise<Move> => {
+        // In replay mode, we must NOT resolve decisions via delegates. The
+        // replay driver will supply the explicit decision move from the
+        // recording in the next call. We throw here to ensure the orchestrator
+        // loop breaks (though processTurnAsync should handle this if we pass
+        // the right options).
+        if (replayMode) {
+          throw new Error(
+            `[TurnEngineAdapter] resolveDecision called in replayMode for ${decision.type} - this should not happen if processTurnAsync is configured correctly`
+          );
+        }
+
         // Core may surface required no-action decisions when a phase has no
         // interactive moves (RR-CANON-R075/R076). These are non-interactive
         // bookkeeping steps; hosts are responsible for constructing the
@@ -196,7 +216,15 @@ export class TurnEngineAdapter {
 
     try {
       // Delegate to canonical orchestrator
-      const result = await processTurnAsync(beforeState, move, delegates);
+      // In replay mode, rely on explicit decision moves from the recording by
+      // breaking when a decision is required, but otherwise allow normal
+      // auto-processing semantics to run.
+      const processTurnOptions = replayMode
+        ? {
+            breakOnDecisionRequired: true,
+          }
+        : {};
+      const result = await processTurnAsync(beforeState, move, delegates, processTurnOptions);
 
       // Update state
       stateAccessor.updateGameState(result.nextState);

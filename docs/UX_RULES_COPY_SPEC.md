@@ -109,18 +109,18 @@ Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_territory`](src/
 
 **HUD one‑liner**
 
-- `"Win when, for two full rounds, you are the only player with any real moves (placements, movements, or captures)."`
+- `"Win when, for three full rounds, you are the only player with any real moves (placements, movements, or captures)."`
 
 **Tooltip (multi‑line)**
 
 - Line 1: `"Real moves are placements, movements, and captures – forced elimination and automatic line/territory processing do not count."`
-- Line 2: `"Last Player Standing requires two consecutive full rounds where you have and take at least one real action while all other players have none."`
-- Line 3: `"If any other player regains a real move before both rounds complete, the LPS condition resets and victory is not declared."`
+- Line 2: `"Last Player Standing requires three consecutive full rounds where you have and take at least one real action while all other players have none."`
+- Line 3: `"If any other player regains a real move before all three rounds complete, the LPS condition resets and victory is not declared."`
 
 **TeachingOverlay victory topic – stalemate / LPS**
 Description (used in [`TeachingOverlay.TEACHING_CONTENT.victory_stalemate`](src/client/components/TeachingOverlay.tsx:118)):
 
-- `"Last Player Standing happens when, for TWO consecutive complete rounds, you are the only player who can still make real moves (placements, movements, or captures). In the first round you must have and take at least one real action while all others have none; in the second round the condition must persist. Forced eliminations and automatic territory processing do not count as real actions for LPS."`
+- `"Last Player Standing happens when, for THREE consecutive complete rounds, you are the only player who can still make real moves (placements, movements, or captures). In the first round you must have and take at least one real action while all others have none; in the second and third rounds the condition must persist. Forced eliminations and automatic territory processing do not count as real actions for LPS."`
 
 ## 4. Movement semantics
 

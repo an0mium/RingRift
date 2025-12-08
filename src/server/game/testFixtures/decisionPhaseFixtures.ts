@@ -414,7 +414,7 @@ function seedChainCaptureChoiceDecisionPhase(engine: GameEngine): void {
  * Player 2's last ring.
  *
  * Victory condition: >50% of all rings eliminated from opponent. For 2-player
- * on square8, each player has 19 rings (38 total). Eliminating 19+ rings
+ * on square8, each player has 18 rings (36 total). Eliminating 19+ rings
  * from the opponent triggers victory. Setting opponent to 18 eliminated
  * means one more capture wins.
  *
@@ -439,14 +439,14 @@ function seedNearVictoryEliminationState(engine: GameEngine): void {
   const opponentPlayerNumber = 2;
 
   // Update player stats to near-victory state.
-  // Player 2 has 18 rings eliminated (one away from 19 = total elimination).
+  // Player 2 has 18 rings eliminated (on square8 the victory threshold is 19).
   // Player 1 has 0 eliminated and some rings available.
   if (state.players.length >= 2) {
     // Player 1: healthy state
     state.players[0].eliminatedRings = 0;
     state.players[0].ringsInHand = 10;
 
-    // Player 2: near-eliminated (18 of 19 rings gone)
+    // Player 2: near-eliminated (all 18 rings from their supply removed)
     state.players[1].eliminatedRings = 18;
     state.players[1].ringsInHand = 0;
   }

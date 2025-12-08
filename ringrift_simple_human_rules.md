@@ -56,13 +56,13 @@ There are three standard boards:
 
 - **19×19 square** (full version)
   - 361 spaces.
-  - **36 rings** per player.
+  - **48 rings** per player.
   - Territory victory: **>180** spaces.
   - Lines: **4+** markers in a row.
 
 - **Hexagonal** (radius 12; 13 cells per side)
   - 469 spaces.
-  - **48 rings** per player.
+  - **60 rings** per player.
   - Territory victory: **>234** spaces.
   - Lines: **4+** markers along hex directions.
 
@@ -343,7 +343,7 @@ real action for LPS purposes.
 
 Player P wins by Last Player Standing if all of the following hold:
 
-1. **First round:** Over one complete round of turns (each non‑eliminated
+1. **Round 1:** Over one complete round of turns (each non‑eliminated
    player taking exactly one turn in order):
    - On P's turn in that round, P has **at least one real action** available
      and **takes at least one such action**.
@@ -351,11 +351,17 @@ Player P wins by Last Player Standing if all of the following hold:
      actions** at the start of their turn (they may have only forced
      eliminations or no actions at all).
 
-2. **Second round:** After the first round completes (including all
+2. **Round 2:** After the first round completes (including all
    post-movement processing), on the following round:
-   - P remains the **only player** who has taken any legal real action.
+   - P remains the **only player** who has taken any legal real action and
+     takes at least one such action on their turn.
 
-3. **Victory declared:** After the second round completes (including all
+3. **Round 3:** After the second round completes (including all
+   post-movement processing), on the following round:
+   - P is still the **only player** who has taken any legal real action and
+     takes at least one such action on their turn.
+
+4. **Victory declared:** After the third round completes (including all
    post-movement processing), P is declared the winner by Last Player
    Standing. This applies regardless of relative territory or rings eliminated.
 
@@ -381,9 +387,9 @@ action, for example:
   colour; or
 - Reducing the height of a stack they control so that it can move again.
 
-If any temporarily inactive player regains a real action before **both
-rounds** in the LPS condition have been completed, the LPS condition is not
-met and must be re‑established over fresh rounds.
+If any temporarily inactive player regains a real action before **all
+three rounds** in the LPS condition have been completed, the LPS condition is
+not met and must be re‑established over fresh rounds.
 
 ### 5.4 Global stalemate and tiebreakers
 

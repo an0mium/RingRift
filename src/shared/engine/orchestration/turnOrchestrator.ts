@@ -61,6 +61,9 @@ import type {
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
 import { flagEnabled, debugLog } from '../../utils/envFlags';
 
+// FSM shadow validation imports
+import { validateMoveWithFSM, isMoveTypeValidForPhase } from '../fsm';
+
 // Import from domain aggregates
 import {
   validatePlacement,
@@ -1042,6 +1045,14 @@ export interface ProcessTurnOptions {
    * truth for when lines are processed.
    */
   skipAutoLineProcessing?: boolean;
+
+  /**
+   * When true, processTurnAsync will return immediately when a decision is
+   * required, instead of calling the delegate to resolve it. This is used
+   * in replay contexts where the next move in the recording is the decision
+   * resolution.
+   */
+  breakOnDecisionRequired?: boolean;
 }
 
 /**
@@ -1094,6 +1105,14 @@ export function processTurn(
   // that every visited phase is represented by an explicit action, skip, or
   // no-action move per RR-CANON-R075.
   assertPhaseMoveInvariant(state, move);
+
+  // FSM Shadow Validation: Run FSM-based validation in parallel with existing
+  // validation and log any divergences. This is gated by RINGRIFT_FSM_SHADOW_VALIDATION
+  // flag and does not affect game behavior - it only logs potential issues.
+  const FSM_SHADOW_ENABLED = flagEnabled('RINGRIFT_FSM_SHADOW_VALIDATION');
+  if (FSM_SHADOW_ENABLED) {
+    performFSMShadowValidation(state, move);
+  }
 
   const sInvariantBefore = computeSInvariant(state);
   const startTime = Date.now();
@@ -1544,6 +1563,136 @@ function assertPhaseMoveInvariant(state: GameState, move: Move): void {
 }
 
 /**
+ * Perform FSM shadow validation on a move.
+ *
+ * This runs the FSM-based validation in parallel with existing validation
+ * and logs any divergences. It does NOT affect game behavior - it only logs
+ * potential issues for debugging and incremental FSM integration.
+ *
+ * @param state - The current game state
+ * @param move - The move to validate
+ */
+function performFSMShadowValidation(state: GameState, move: Move): void {
+  try {
+    // Run FSM validation
+    const fsmResult = validateMoveWithFSM(state, move);
+
+    // Run existing validation for comparison
+    const existingResult = validateMove(state, move);
+
+    // Check for divergences between FSM and existing validation
+    const fsmValid = fsmResult.valid;
+    const existingValid = existingResult.valid;
+
+    // Log divergence if FSM and existing disagree
+    if (fsmValid !== existingValid) {
+      debugLog(true, '[FSM_SHADOW_VALIDATION] DIVERGENCE DETECTED', {
+        moveType: move.type,
+        movePlayer: move.player,
+        currentPhase: state.currentPhase,
+        fsmResult: {
+          valid: fsmResult.valid,
+          currentPhase: fsmResult.currentPhase,
+          errorCode: fsmResult.errorCode,
+          reason: fsmResult.reason,
+        },
+        existingResult: {
+          valid: existingResult.valid,
+          reason: existingResult.reason,
+        },
+        gameId: state.id,
+        moveNumber: state.moveHistory.length + 1,
+      });
+    }
+
+    // Also check phase validity
+    const fsmPhaseValid = isMoveTypeValidForPhase(state, move.type);
+    const existingPhaseValid = isPhaseValidForMoveType(state.currentPhase, move.type);
+
+    if (fsmPhaseValid !== existingPhaseValid) {
+      debugLog(true, '[FSM_SHADOW_VALIDATION] PHASE_VALIDITY_DIVERGENCE', {
+        moveType: move.type,
+        currentPhase: state.currentPhase,
+        fsmPhaseValid,
+        existingPhaseValid,
+        gameId: state.id,
+        moveNumber: state.moveHistory.length + 1,
+      });
+    }
+  } catch (error) {
+    // Log FSM validation errors but don't propagate - shadow validation
+    // should never break the game
+    debugLog(true, '[FSM_SHADOW_VALIDATION] ERROR', {
+      moveType: move.type,
+      currentPhase: state.currentPhase,
+      error: error instanceof Error ? error.message : String(error),
+      gameId: state.id,
+    });
+  }
+}
+
+/**
+ * Check if a move type is valid for the current phase (existing logic).
+ * Used for comparison with FSM phase validation.
+ */
+function isPhaseValidForMoveType(phase: GamePhase, moveType: Move['type']): boolean {
+  // Meta-moves allowed in any phase
+  if (moveType === 'swap_sides') {
+    return true;
+  }
+
+  // Legacy types allowed
+  if (moveType === 'line_formation' || moveType === 'territory_claim') {
+    return true;
+  }
+
+  let allowed: Set<MoveType>;
+
+  switch (phase) {
+    case 'ring_placement':
+      allowed = new Set<MoveType>(['place_ring', 'skip_placement', 'no_placement_action']);
+      break;
+    case 'movement':
+      allowed = new Set<MoveType>([
+        'move_stack',
+        'move_ring',
+        'overtaking_capture',
+        'continue_capture_segment',
+        'no_movement_action',
+      ]);
+      break;
+    case 'capture':
+      allowed = new Set<MoveType>([
+        'overtaking_capture',
+        'continue_capture_segment',
+        'skip_capture',
+      ]);
+      break;
+    case 'chain_capture':
+      allowed = new Set<MoveType>(['overtaking_capture', 'continue_capture_segment']);
+      break;
+    case 'line_processing':
+      allowed = new Set<MoveType>(['process_line', 'choose_line_reward', 'no_line_action']);
+      break;
+    case 'territory_processing':
+      allowed = new Set<MoveType>([
+        'process_territory_region',
+        'eliminate_rings_from_stack',
+        'skip_territory_processing',
+        'no_territory_action',
+      ]);
+      break;
+    case 'forced_elimination':
+      allowed = new Set<MoveType>(['forced_elimination']);
+      break;
+    default:
+      return true;
+  }
+
+  return allowed.has(moveType as MoveType);
+}
+
+/**
  * Process post-move phases (lines, territory, victory check).
  */
 function processPostMovePhases(
@@ -1814,9 +1963,10 @@ function processPostMovePhases(
 export async function processTurnAsync(
   state: GameState,
   move: Move,
-  delegates: TurnProcessingDelegates
+  delegates: TurnProcessingDelegates,
+  options?: ProcessTurnOptions
 ): Promise<ProcessTurnResult> {
-  let result = processTurn(state, move);
+  let result = processTurn(state, move, options);
 
   // Process any pending decisions
   while (result.status === 'awaiting_decision' && result.pendingDecision) {
@@ -1828,6 +1978,14 @@ export async function processTurnAsync(
     // decision so GameEngine can set up chainCaptureState and allow the
     // caller to select a continuation move.
     if (decision.type === 'chain_capture') {
+      return result;
+    }
+
+    // In replay mode (breakOnDecisionRequired), we stop here and return the
+    // pending decision. The caller (replay driver) is responsible for
+    // supplying the next move from the recording, which will resolve this
+    // decision.
+    if (options?.breakOnDecisionRequired) {
       return result;
     }
 
@@ -1849,7 +2007,7 @@ export async function processTurnAsync(
     });
 
     // Continue processing with the chosen move
-    result = processTurn(result.nextState, chosenMove);
+    result = processTurn(result.nextState, chosenMove, options);
   }
 
   return result;

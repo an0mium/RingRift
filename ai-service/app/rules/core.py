@@ -26,13 +26,13 @@ BOARD_CONFIGS: Dict[BoardType, BoardConfig] = {
     BoardType.SQUARE19: BoardConfig(
         size=19,
         total_spaces=361,
-        rings_per_player=36,
+        rings_per_player=48,
         line_length=4,
     ),
     BoardType.HEXAGONAL: BoardConfig(
         size=13,
         total_spaces=469,
-        rings_per_player=48,
+        rings_per_player=60,
         line_length=4,
     ),
 }

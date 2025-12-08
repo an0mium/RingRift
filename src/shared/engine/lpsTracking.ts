@@ -2,8 +2,8 @@
  * Shared Last-Player-Standing (LPS) tracking helpers for RingRift engine.
  *
  * The LPS victory condition (R172) fires when exactly one player has any real
- * actions available for TWO CONSECUTIVE full rounds while all other players
- * with material are blocked. After the second round completes, the exclusive
+ * actions available for THREE CONSECUTIVE full rounds while all other players
+ * with material are blocked. After the third round completes, the exclusive
  * player wins by LPS.
  *
  * Real actions are: placement, non-capture movement, overtaking capture.
@@ -54,7 +54,7 @@ export interface LpsTrackingState {
 
   /**
    * Number of consecutive completed rounds where the same player was the
-   * exclusive real-action holder. LPS victory requires 2 consecutive rounds.
+   * exclusive real-action holder. LPS victory requires 3 consecutive rounds.
    */
   consecutiveExclusiveRounds: number;
 
@@ -265,9 +265,9 @@ export interface LpsEvaluationResult {
 /**
  * Number of consecutive exclusive rounds required for LPS victory.
  * Per RR-CANON-R172, a player must be the exclusive real-action holder
- * for TWO consecutive full rounds before winning by LPS.
+ * for THREE consecutive full rounds before winning by LPS.
  */
-export const LPS_REQUIRED_CONSECUTIVE_ROUNDS = 2;
+export const LPS_REQUIRED_CONSECUTIVE_ROUNDS = 3;
 
 /**
  * Evaluate whether the Last-Player-Standing victory condition (R172) is satisfied.

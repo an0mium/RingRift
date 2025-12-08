@@ -861,9 +861,9 @@ class GameEngine:
         # 3. Early last-player-standing victory (R172).
         # LPS is only evaluated during interactive phases, matching TS
         # lpsTracking.ts LPS_ACTIVE_PHASES.
-        # LPS requires TWO consecutive full rounds where the same player is
+        # LPS requires THREE consecutive full rounds where the same player is
         # the exclusive real-action holder.
-        LPS_REQUIRED_CONSECUTIVE_ROUNDS = 2
+        LPS_REQUIRED_CONSECUTIVE_ROUNDS = 3
         lps_active_phases = {
             GamePhase.RING_PLACEMENT,
             GamePhase.MOVEMENT,
@@ -1455,16 +1455,16 @@ class GameEngine:
         types:
 
         - square8   → 18 rings per player
-        - square19  → 36 rings per player
-        - hexagonal → 48 rings per player
+        - square19  → 48 rings per player
+        - hexagonal → 60 rings per player
         """
         board_type = game_state.board.type
         if board_type == BoardType.SQUARE8:
             return 18
         if board_type == BoardType.SQUARE19:
-            return 36
-        if board_type == BoardType.HEXAGONAL:
             return 48
+        if board_type == BoardType.HEXAGONAL:
+            return 60
         # Fallback for unknown types: use totalRingsInPlay as a safe
         # upper bound to avoid underestimating.
         return game_state.total_rings_in_play

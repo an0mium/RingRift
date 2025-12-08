@@ -19,11 +19,11 @@ For each board type, define a static configuration:
 | BoardType | size | totalSpaces | ringsPerPlayer | lineLength | movementAdjacency | lineAdjacency | territoryAdjacency  | boardGeometry   |
 | --------- | ---- | ----------- | -------------- | ---------- | ----------------- | ------------- | ------------------- | --------------- |
 | square8   | 8    | 64          | 18             | 3          | Moore (8-dir)     | Moore         | Von Neumann (4-dir) | orthogonal grid |
-| square19  | 19   | 361         | 36             | 4          | Moore             | Moore         | Von Neumann         | orthogonal grid |
-| hexagonal | 13   | 469         | 48             | 4          | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
+| square19  | 19   | 361         | 48             | 4          | Moore             | Moore         | Von Neumann         | orthogonal grid |
+| hexagonal | 13   | 469         | 60             | 4          | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
 
 - **Ring supply semantics:** For each player P, `ringsPerPlayer` is the maximum number of rings of P's own colour that may ever be in play: all of P's rings currently on the board in any stack (regardless of which player controls those stacks) plus all of P's rings in hand must never exceed this value. Rings of other colours that P has captured and that are buried in stacks P controls do **not** count against P's `ringsPerPlayer` cap; they remain, by colour, part of the original owner's supply for conservation and victory accounting.
-  - Quick supply check: `ringsInHand[P] + ringsOfColorOnBoard[P]` must always equal the starting supply for P's board type (18 on square8, 36 on square19, 48 on hex).
+  - Quick supply check: `ringsInHand[P] + ringsOfColorOnBoard[P]` must always equal the starting supply for P's board type (18 on square8, 48 on square19, 60 on hex).
 
 - **Coordinates**:
   - Square boards: integer `(x, y)` in `[0, size-1] × [0, size-1]`.
@@ -222,7 +222,7 @@ A single overtaking capture segment is defined by `(from, target, landing)`:
 
 - `from`: current stack position with controllingPlayer `P`, height `H`, capHeight `CH`.
 - `target`: position of a stack to be overtaken.
-- `landing`: empty or same-color marker cell beyond `target`.
+- `landing`: empty cell or any marker (own or opponent) beyond `target`. Landing on a marker removes it and immediately eliminates the top ring of the moving stack's cap (credited to the mover).
 
 **Validation requirements**:
 
@@ -452,10 +452,12 @@ A **full round of turns** is one contiguous cycle of turns in player order in wh
 
 A player `P` wins by last-player-standing if all of the following hold:
 
-- There exists at least one full round of turns such that:
-  - On each of `P`’s turns in that round, `P` has at least one legal real action available at the start of their action; and
-  - On every other player’s turns in that same round, those players have **no** legal real action available at the start of their action (they may have only forced-elimination actions or no legal actions at all); and
-- Immediately after that round completes (including all line and territory processing), at the start of `P`’s next turn `P` is still the only player who has any legal real action.
+- There exists a sequence of **three consecutive full rounds** of turns such that:
+  - On each of `P`’s turns across those rounds, `P` has at least one legal real action available at the start of their action **and takes at least one such action**; and
+  - On every other player’s turns in those same rounds, those players have **no** legal real action available at the start of their action (they may have only forced-elimination actions or no legal actions at all); and
+- After that first round completes, on the following round `P` remains the only player who has taken any legal real action.
+- After the second round completes, on the following round `P` remains the only player who has taken any legal real action.
+- After the third round completes, `P` is declared the winner by last-player-standing.
 
 A player is **temporarily inactive** (has no real actions on their own turn, but remains in the game) when:
 
@@ -465,7 +467,7 @@ A player is **temporarily inactive** (has no real actions on their own turn, but
 
 Such a player can potentially become active again if capture or elimination expose one of their buried rings as the new top ring of a stack, thereby giving them a controlled stack on a later turn and restoring at least one real action.
 
-If any temporarily inactive player regains a real action **before** the full-round condition above has been satisfied, the last-player-standing condition effectively resets and must be re-satisfied from that point.
+If any temporarily inactive player regains a real action **before** the three-round condition above has been satisfied, the last-player-standing condition effectively resets and must be re-satisfied from that point.
 
 A player is **eliminated** (has no legal actions on their own turn, and cannot in future turns) when:
 

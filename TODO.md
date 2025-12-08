@@ -275,6 +275,15 @@ Operational drills completed:
   - [x] Confirm Python `game_engine.py` mirrors forced_elimination and no-op phases – **VERIFIED**: `_assert_phase_move_invariant()` mirrors TS, `get_phase_requirement()` surfaces bookkeeping move needs
   - [x] Spot-check replay logs for silent forced_elimination or skipped phases – **VERIFIED**: selfplay.db shows all bookkeeping moves (`no_line_action`, `no_territory_action`, `eliminate_rings_from_stack`, `process_line`) properly recorded
 
+#### Sandbox Replay Refactor (Option E hybrid)
+
+- [x] Land `CanonicalReplayEngine` (TurnEngineAdapter `replayMode` wrapper) and port `scripts/selfplay-db-ts-replay.ts` to use it for parity.
+- [x] Add unit tests for the replay engine (decision/no-op/FE coverage).
+- [ ] Regenerate/replace `canonical_square8.db` (game `151ba34a-b7bf-4845-a779-5232221f592e` is non-canonical: territory → no_placement_action; missing initial state in Python checker). Until regenerated, skip this game/DB in parity runs (`--skip-game`).
+- [ ] Remove replay-specific phase/player coercions from `ClientSandboxEngine` (interactive sandbox only) now that parity uses the canonical engine.
+- [ ] Begin modular extraction (`SandboxStateManager`, `SandboxDecisionHandler`, move processing strategies) keeping `SandboxOrchestratorAdapter` as the single rules path.
+- [ ] Expand replay test matrix (decision phases, `no_*` actions, FE) to guard against reintroducing coercions.
+
 #### Orchestrator & Territory Branch Coverage Hardening
 
 - [ ] Add branch-coverage cases in `tests/unit/turnOrchestrator.core.branchCoverage.test.ts`:

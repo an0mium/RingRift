@@ -26,12 +26,13 @@ from app.db.game_replay import GameReplayDB
 from app.game_engine import GameEngine
 
 
-def check_db(db_path: str) -> int:
+def check_db(db_path: str, game_ids: list[str] | None = None) -> int:
     db = GameReplayDB(db_path)
 
-    with db._get_conn() as conn:  # type: ignore[attr-defined]
-        rows = conn.execute("SELECT game_id FROM games").fetchall()
-        game_ids = [row["game_id"] for row in rows]
+    if game_ids is None:
+        with db._get_conn() as conn:  # type: ignore[attr-defined]
+            rows = conn.execute("SELECT game_id FROM games").fetchall()
+            game_ids = [row["game_id"] for row in rows]
 
     violations = 0
 
@@ -62,11 +63,16 @@ def check_db(db_path: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Check canonical phase-history invariants for a replay DB")
     parser.add_argument("--db", required=True, help="Path to GameReplayDB SQLite file")
+    parser.add_argument(
+        "--game-id",
+        action="append",
+        dest="game_ids",
+        help="Specific game_id(s) to check (can be provided multiple times). When omitted, all games are checked.",
+    )
     args = parser.parse_args(argv)
 
-    return check_db(args.db)
+    return check_db(args.db, args.game_ids)
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
