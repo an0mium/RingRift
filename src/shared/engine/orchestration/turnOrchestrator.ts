@@ -1580,6 +1580,45 @@ interface FSMValidationInternalResult {
 }
 
 /**
+ * Structured FSM validation event for production monitoring.
+ * Emits JSON logs that can be easily parsed by log aggregators.
+ */
+interface FSMValidationEvent {
+  event: 'fsm_validation';
+  timestamp: string;
+  mode: 'shadow' | 'active';
+  gameId: string;
+  moveNumber: number;
+  moveType: string;
+  movePlayer: number;
+  currentPhase: string;
+  fsmValid: boolean;
+  existingValid?: boolean | undefined;
+  divergence: boolean;
+  errorCode?: string | undefined;
+  reason?: string | undefined;
+  durationMs?: number | undefined;
+}
+
+/**
+ * Emit a structured FSM validation event for monitoring.
+ * In production, these can be aggregated to track:
+ * - Divergence rate between FSM and existing validation
+ * - FSM rejection rate in active mode
+ * - Validation performance
+ */
+function emitFSMValidationEvent(event: FSMValidationEvent): void {
+  // Only emit if FSM logging is enabled
+  if (!flagEnabled('RINGRIFT_FSM_STRUCTURED_LOGGING')) {
+    return;
+  }
+
+  // Emit as JSON line for log aggregation
+  // eslint-disable-next-line no-console
+  console.log(JSON.stringify(event));
+}
+
+/**
  * Perform FSM validation on a move.
  *
  * In shadow mode: runs FSM validation in parallel with existing validation
@@ -1597,16 +1636,24 @@ function performFSMValidation(
   move: Move,
   mode: 'shadow' | 'active'
 ): FSMValidationInternalResult {
+  const startTime = Date.now();
+  const moveNumber = state.moveHistory.length + 1;
+
   try {
     // Run FSM validation
     const fsmResult = validateMoveWithFSM(state, move);
 
     // In shadow mode, also run existing validation for comparison and log divergences
+    let existingValid: boolean | undefined;
+    let divergence = false;
+
     if (mode === 'shadow') {
       const existingResult = validateMove(state, move);
+      existingValid = existingResult.valid;
+      divergence = fsmResult.valid !== existingResult.valid;
 
       // Log divergence if FSM and existing disagree
-      if (fsmResult.valid !== existingResult.valid) {
+      if (divergence) {
         debugLog(true, '[FSM_SHADOW_VALIDATION] DIVERGENCE DETECTED', {
           moveType: move.type,
           movePlayer: move.player,
@@ -1622,7 +1669,7 @@ function performFSMValidation(
             reason: existingResult.reason,
           },
           gameId: state.id,
-          moveNumber: state.moveHistory.length + 1,
+          moveNumber,
         });
       }
 
@@ -1637,20 +1684,35 @@ function performFSMValidation(
           fsmPhaseValid,
           existingPhaseValid,
           gameId: state.id,
-          moveNumber: state.moveHistory.length + 1,
+          moveNumber,
         });
       }
     }
 
-    // Cast to any to bypass strict type checking on the return type for now
-    // The errorCode mismatch is likely due to exactOptionalPropertyTypes
-    const result: any = {
+    // Emit structured event for monitoring
+    emitFSMValidationEvent({
+      event: 'fsm_validation',
+      timestamp: new Date().toISOString(),
+      mode,
+      gameId: state.id,
+      moveNumber,
+      moveType: move.type,
+      movePlayer: move.player,
+      currentPhase: state.currentPhase,
+      fsmValid: fsmResult.valid,
+      existingValid,
+      divergence,
+      errorCode: fsmResult.errorCode,
+      reason: fsmResult.reason,
+      durationMs: Date.now() - startTime,
+    });
+
+    return {
       valid: fsmResult.valid,
       currentPhase: fsmResult.currentPhase,
       errorCode: fsmResult.errorCode,
       reason: fsmResult.reason,
     };
-    return result;
   } catch (error) {
     // Log FSM validation errors
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1660,6 +1722,23 @@ function performFSMValidation(
       error: errorMessage,
       gameId: state.id,
       mode,
+    });
+
+    // Emit error event
+    emitFSMValidationEvent({
+      event: 'fsm_validation',
+      timestamp: new Date().toISOString(),
+      mode,
+      gameId: state.id,
+      moveNumber,
+      moveType: move.type,
+      movePlayer: move.player,
+      currentPhase: state.currentPhase,
+      fsmValid: false,
+      divergence: false,
+      errorCode: 'FSM_ERROR',
+      reason: errorMessage,
+      durationMs: Date.now() - startTime,
     });
 
     // In shadow mode, don't propagate errors - just mark as valid to continue
