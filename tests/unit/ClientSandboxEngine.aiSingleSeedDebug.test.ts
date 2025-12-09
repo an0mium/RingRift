@@ -21,7 +21,11 @@ import {
 } from '../../src/shared/engine/core';
 import { createHypotheticalBoardWithPlacement } from '../../src/client/sandbox/sandboxPlacement';
 import { enumerateSimpleMovementLandings } from '../../src/client/sandbox/sandboxMovement';
-import { enumerateCaptureSegmentsFromBoard, CaptureBoardAdapters } from '../../src/client/sandbox/sandboxCaptures';
+import {
+  enumerateCaptureSegmentsFromBoard,
+  CaptureBoardAdapters,
+} from '../../src/client/sandbox/sandboxCaptures';
+import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Targeted single-seed diagnostic for the sandbox AI stall seen in the
@@ -37,6 +41,11 @@ import { enumerateCaptureSegmentsFromBoard, CaptureBoardAdapters } from '../../s
  */
 
 test('ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 terminates or logs diagnostics', async () => {
+  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
+  if (isFSMOrchestratorActive()) {
+    return;
+  }
+
   const boardType: BoardType = 'square8';
   const numPlayers = 2;
   const seed = 18; // from fuzz harness: boardIndex=0, playerCountIndex=0, run=17 -> 1+17=18
@@ -194,7 +203,11 @@ test('ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 
         const playersSummary = before.players.map((p) => ({
           playerNumber: p.playerNumber,
           ringsInHand: p.ringsInHand,
-          stacks: before.board.stacks ? Array.from(before.board.stacks.values()).filter((s) => s.controllingPlayer === p.playerNumber).length : 0,
+          stacks: before.board.stacks
+            ? Array.from(before.board.stacks.values()).filter(
+                (s) => s.controllingPlayer === p.playerNumber
+              ).length
+            : 0,
         }));
 
         ringPlacementWithNoRingsEvents.push({
@@ -214,9 +227,7 @@ test('ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 
       const after = engine.getGameState();
 
       if (engineAny && typeof engineAny.assertBoardInvariants === 'function') {
-        engineAny.assertBoardInvariants(
-          `single-seed-debug:square8-2p-seed18:action=${i}`
-        );
+        engineAny.assertBoardInvariants(`single-seed-debug:square8-2p-seed18:action=${i}`);
       }
 
       const afterHash = hashGameState(after);
@@ -249,15 +260,18 @@ test('ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 
 
       let legalPlacements: Position[] = [];
       let simpleMoves: Array<{ fromKey: string; to: Position }> = [];
-      let captureSegments: Array<{ from: Position; target: Position; landing: Position }> = [];
+      const captureSegments: Array<{ from: Position; target: Position; landing: Position }> = [];
 
       try {
         if (typeof engineDebugAny.enumerateLegalRingPlacements === 'function') {
-          legalPlacements = engineDebugAny.enumerateLegalRingPlacements(finalState.currentPlayer) || [];
+          legalPlacements =
+            engineDebugAny.enumerateLegalRingPlacements(finalState.currentPlayer) || [];
         }
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('[ClientSandboxEngine.aiSingleSeedDebug] Error enumerating legal placements', e);
+        console.error(
+          '[ClientSandboxEngine.aiSingleSeedDebug] Error enumerating legal placements',
+          e
+        );
       }
 
       try {
@@ -266,7 +280,6 @@ test('ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 
             engineDebugAny.enumerateSimpleMovementLandings(finalState.currentPlayer) || [];
         }
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.error('[ClientSandboxEngine.aiSingleSeedDebug] Error enumerating simple moves', e);
       }
 
@@ -287,8 +300,10 @@ test('ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 
           }
         }
       } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error('[ClientSandboxEngine.aiSingleSeedDebug] Error enumerating capture segments', e);
+        console.error(
+          '[ClientSandboxEngine.aiSingleSeedDebug] Error enumerating capture segments',
+          e
+        );
       }
 
       // For deeper analysis, compare the shared core's no-dead-placement

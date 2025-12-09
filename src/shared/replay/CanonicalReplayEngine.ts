@@ -246,6 +246,15 @@ export class CanonicalReplayEngine {
         };
       }
 
+      // IMPORTANT: Append the move to moveHistory for accurate phase transition
+      // logic. The orchestrator's computeHadAnyActionThisTurn relies on moveHistory
+      // to decide whether to enter forced_elimination phase. Without this, replay
+      // would incorrectly think no actions were taken this turn.
+      this.currentState = {
+        ...this.currentState,
+        moveHistory: [...this.currentState.moveHistory, move],
+      };
+
       this.debugHook?.(`after-applyMove-${this.appliedMoveCount}`, this.currentState);
 
       // Check for victory via orchestrator result or explicit evaluation

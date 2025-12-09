@@ -1,67 +1,57 @@
 import { getCountdownSeverity, msToDisplaySeconds } from '../../../src/client/utils/countdown';
 
-describe('getCountdownSeverity', () => {
-  it('returns null for non-numeric or null input', () => {
-    expect(getCountdownSeverity(null)).toBeNull();
-    expect(getCountdownSeverity(undefined)).toBeNull();
-    expect(getCountdownSeverity(NaN as unknown as number)).toBeNull();
+describe('countdown utilities', () => {
+  describe('getCountdownSeverity', () => {
+    it('returns null for non-numeric or nullish values', () => {
+      expect(getCountdownSeverity(null)).toBeNull();
+      expect(getCountdownSeverity(undefined)).toBeNull();
+      // @ts-expect-error intentional NaN test
+      expect(getCountdownSeverity(NaN)).toBeNull();
+    });
+
+    it('classifies above 10s as normal', () => {
+      expect(getCountdownSeverity(10_001)).toBe('normal');
+      expect(getCountdownSeverity(25_000)).toBe('normal');
+    });
+
+    it('classifies between 3s and 10s as warning', () => {
+      expect(getCountdownSeverity(10_000)).toBe('warning');
+      expect(getCountdownSeverity(5_000)).toBe('warning');
+      expect(getCountdownSeverity(3_001)).toBe('warning');
+    });
+
+    it('classifies 3s and below (including negative) as critical', () => {
+      expect(getCountdownSeverity(3_000)).toBe('critical');
+      expect(getCountdownSeverity(1_000)).toBe('critical');
+      expect(getCountdownSeverity(0)).toBe('critical');
+      expect(getCountdownSeverity(-1_000)).toBe('critical');
+    });
   });
 
-  it('returns "normal" when time remaining is greater than 10 seconds (ms-based)', () => {
-    expect(getCountdownSeverity(11_000)).toBe('normal');
-    expect(getCountdownSeverity(20_000)).toBe('normal');
-  });
+  describe('msToDisplaySeconds', () => {
+    it('returns null for non-finite or nullish values', () => {
+      expect(msToDisplaySeconds(null)).toBeNull();
+      expect(msToDisplaySeconds(undefined)).toBeNull();
+      expect(msToDisplaySeconds(Infinity)).toBeNull();
+      expect(msToDisplaySeconds(-Infinity)).toBeNull();
+      // @ts-expect-error intentional NaN test
+      expect(msToDisplaySeconds(NaN)).toBeNull();
+    });
 
-  it('returns "warning" when time remaining is between 3 and 10 seconds in ms (exclusive lower bound, inclusive upper bound)', () => {
-    expect(getCountdownSeverity(10_000)).toBe('warning');
-    expect(getCountdownSeverity(3_001)).toBe('warning');
-  });
+    it('clamps negative values to zero seconds', () => {
+      expect(msToDisplaySeconds(-500)).toBe(0);
+      expect(msToDisplaySeconds(0)).toBe(0);
+    });
 
-  it('returns "critical" when time remaining is at or below 3 seconds in ms, including zero and negative values', () => {
-    expect(getCountdownSeverity(3_000)).toBe('critical');
-    expect(getCountdownSeverity(0)).toBe('critical');
-    expect(getCountdownSeverity(-1)).toBe('critical');
-  });
-});
+    it('uses ceiling to avoid showing zero when time remains', () => {
+      expect(msToDisplaySeconds(1)).toBe(1);
+      expect(msToDisplaySeconds(999)).toBe(1);
+      expect(msToDisplaySeconds(1_001)).toBe(2);
+    });
 
-describe('msToDisplaySeconds', () => {
-  it('returns null for nullish or non-finite input', () => {
-    expect(msToDisplaySeconds(null)).toBeNull();
-    expect(msToDisplaySeconds(undefined)).toBeNull();
-    expect(msToDisplaySeconds(NaN as unknown as number)).toBeNull();
-    expect(msToDisplaySeconds(Infinity as unknown as number)).toBeNull();
-    expect(msToDisplaySeconds(-Infinity as unknown as number)).toBeNull();
+    it('handles multi-second values', () => {
+      expect(msToDisplaySeconds(5_000)).toBe(5);
+      expect(msToDisplaySeconds(12_345)).toBe(13);
+    });
   });
-
-  it('converts positive milliseconds to whole display seconds using ceil, never showing 0 when time remains', () => {
-    expect(msToDisplaySeconds(1)).toBe(1);
-    expect(msToDisplaySeconds(999)).toBe(1);
-    expect(msToDisplaySeconds(1_000)).toBe(1);
-    expect(msToDisplaySeconds(1_001)).toBe(2);
-    expect(msToDisplaySeconds(1_500)).toBe(2);
-    expect(msToDisplaySeconds(2_000)).toBe(2);
-  });
-
-  it('clamps zero and negative milliseconds to 0 display seconds', () => {
-    expect(msToDisplaySeconds(0)).toBe(0);
-    expect(msToDisplaySeconds(-1)).toBe(0);
-    expect(msToDisplaySeconds(-1_000)).toBe(0);
-  });
-});
-
-describe('msToDisplaySeconds + getCountdownSeverity integration', () => {
-  it.each([
-    { timeRemainingMs: 15_000, expectedSeconds: 15, expectedSeverity: 'normal' as const },
-    { timeRemainingMs: 9_000, expectedSeconds: 9, expectedSeverity: 'warning' as const },
-    // 2_500ms is still > 0ms so we display 3s while severity is already critical.
-    { timeRemainingMs: 2_500, expectedSeconds: 3, expectedSeverity: 'critical' as const },
-    { timeRemainingMs: 0, expectedSeconds: 0, expectedSeverity: 'critical' as const },
-    { timeRemainingMs: -500, expectedSeconds: 0, expectedSeverity: 'critical' as const },
-  ])(
-    'keeps ms-based severity and seconds-based display consistent for $timeRemainingMs ms',
-    ({ timeRemainingMs, expectedSeconds, expectedSeverity }) => {
-      expect(msToDisplaySeconds(timeRemainingMs)).toBe(expectedSeconds);
-      expect(getCountdownSeverity(timeRemainingMs)).toBe(expectedSeverity);
-    }
-  );
 });

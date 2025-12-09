@@ -109,12 +109,12 @@ These alerts detect service outages and critical failures.
 
 #### AIServiceDown
 
-| Property      | Value                                                |
-| ------------- | ---------------------------------------------------- |
-| **Severity**  | warning                                              |
-| **Threshold** | `ringrift_service_status{service="ai_service"} == 0` |
-| **Duration**  | 2 minutes                                            |
-| **Impact**    | AI moves use local fallback heuristics               |
+| Property      | Value                                               |
+| ------------- | --------------------------------------------------- |
+| **Severity**  | warning                                             |
+| **Threshold** | `ringrift_service_status{service="aiService"} == 0` |
+| **Duration**  | 2 minutes                                           |
+| **Impact**    | AI moves use local fallback heuristics              |
 
 **Rationale**: AI service has graceful fallback, so this is warning not critical. 2-minute duration allows for container restarts.
 

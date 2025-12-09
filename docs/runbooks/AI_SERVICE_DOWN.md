@@ -5,7 +5,7 @@
 >
 > **SSoT alignment:** This is **derived operational guidance** over:
 >
-> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIServiceDown` based on `ringrift_service_status{service="ai_service"}`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
+> - **Monitoring SSoT:** Prometheus alert rules in `monitoring/prometheus/alerts.yml` (alert `AIServiceDown` based on `ringrift_service_status{service="aiService"}`) and scrape configuration in `monitoring/prometheus/prometheus.yml`.
 > - **Health and status surfaces:** `ServiceStatusManager` and `HealthCheckService` (`src/server/services/ServiceStatusManager.ts`, `src/server/services/HealthCheckService.ts`) behind `/health` and `/ready`, plus the `ringrift_service_status` metric.
 > - **AI integration:** `AIServiceClient` and AI orchestration (`src/server/services/AIServiceClient.ts`, `src/server/game/ai/AIEngine.ts`, `src/server/game/ai/AIPlayer.ts`) including circuit breaker, timeouts, and fallback behaviour.
 > - **AI service implementation:** FastAPI app in `ai-service/app/main.py` (endpoints `/`, `/health`, `/metrics`, `/ai/move`, `/ai/evaluate`, `/ai/choice/*`, `/ai/cache`).
@@ -33,7 +33,7 @@
 **Conceptual condition (do not edit thresholds here; see `alerts.yml`):**
 
 ```promql
-ringrift_service_status{service="ai_service"} == 0
+ringrift_service_status{service="aiService"} == 0
 ```
 
 `ringrift_service_status` is emitted from the Node backend via `ServiceStatusManager` and updated by:
@@ -109,10 +109,10 @@ In Prometheus (or Grafana with Prometheus as a source):
 
 ```promql
 # Current AI service status over time
-ringrift_service_status{service="ai_service"}
+ringrift_service_status{service="aiService"}
 
 # Optional: recent status history
-avg_over_time(ringrift_service_status{service="ai_service"}[30m])
+avg_over_time(ringrift_service_status{service="aiService"}[30m])
 ```
 
 Confirm that the value has actually transitioned to `0` and stayed there for the alert’s `for` duration (see `alerts.yml` for exact timings).
@@ -363,7 +363,7 @@ Example PromQL checks:
 
 ```promql
 # Current AI service status
-ringrift_service_status{service="ai_service"}
+ringrift_service_status{service="aiService"}
 
 # Fallback fraction (sanity check)
 sum(rate(ringrift_ai_fallback_total[10m]))

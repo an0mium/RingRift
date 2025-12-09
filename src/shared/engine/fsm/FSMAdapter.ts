@@ -34,6 +34,7 @@ import {
   type LineProcessingState,
   type TerritoryProcessingState,
   type ForcedEliminationState,
+  type TurnEndState,
   type GameOverState,
   type DetectedLine,
   type DisconnectedRegion,
@@ -1530,6 +1531,25 @@ export function computeFSMOrchestration(
         awaitingReward: false,
       } as LineProcessingState;
     }
+  }
+
+  // Post-transition adjustment for territory processing: The pure FSM expects
+  // a two-step process (PROCESS_REGION then ELIMINATE_FROM_STACK for internal
+  // eliminations), but the game engine's process_territory_region move handles
+  // internal eliminations atomically. If the FSM stays in territory_processing
+  // after a process_territory_region move, transition to turn_end because:
+  // 1. The game engine atomically processes the region (including internal eliminations)
+  // 2. The orchestrator will surface another pending decision if more regions exist
+  // 3. The FSM can't accurately predict whether more regions exist post-move
+  if (move.type === 'process_territory_region' && nextState.phase === 'territory_processing') {
+    // Always transition to turn_end after process_territory_region
+    // The orchestrator handles surfacing additional region decisions if needed
+    const computedNextPlayer = (move.player % context.numPlayers) + 1;
+    nextState = {
+      phase: 'turn_end',
+      completedPlayer: move.player,
+      nextPlayer: computedNextPlayer,
+    } as TurnEndState;
   }
 
   // Extract next phase and player from FSM state

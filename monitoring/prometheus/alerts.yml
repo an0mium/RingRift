@@ -63,7 +63,7 @@ groups:
       # Service Down - AI Service
       # -------------------------------------------------------------------------
       - alert: AIServiceDown
-        expr: ringrift_service_status{service="ai_service"} == 0
+        expr: (ringrift_service_status{service="aiService"} == 0) or (up{job="ringrift-ai-service"} == 0)
         for: 2m
         labels:
           severity: warning

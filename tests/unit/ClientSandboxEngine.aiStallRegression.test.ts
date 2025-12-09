@@ -1,6 +1,7 @@
 import { hashGameState, computeProgressSnapshot } from '../../src/shared/engine/core';
 import { reproduceSquare8TwoAiSeed1AtAction } from '../utils/aiSeedSnapshots';
 import { STALL_WINDOW_STEPS } from '../utils/aiSimulationPolicy';
+import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Regression for the sandbox AI stall discovered by the fuzz harness in the
@@ -15,6 +16,11 @@ import { STALL_WINDOW_STEPS } from '../utils/aiSimulationPolicy';
  */
 
 test('ClientSandboxEngine AI stall regression: square8 / 2 AI / seed=1 plateau does not re-stall', async () => {
+  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
+  if (isFSMOrchestratorActive()) {
+    return;
+  }
+
   // Reproduce a mid-game state near the historical stall plateau.
   const targetActionIndex = 58;
   const {

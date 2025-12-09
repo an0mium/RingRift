@@ -82,40 +82,17 @@ def _on_line_processing_complete(game_state: GameState, *, trace_mode: bool) -> 
     """
     Shared helper for exiting LINE_PROCESSING.
 
-    Decides whether to advance to TERRITORY_PROCESSING, enter FORCED_ELIMINATION,
-    or end the turn (rotate to next player) using the same boolean contract as
-    TurnStateMachine.onLineProcessingComplete on the TS side.
+    Per RR-CANON-R075, every phase must be visited and produce a recorded
+    action. Always advance to TERRITORY_PROCESSING so hosts can emit
+    no_territory_action when there are no regions. The subsequent
+    _on_territory_processing_complete will handle the FE/turn-end decision.
     """
     from app.game_engine import GameEngine
 
-    current_player = game_state.current_player
-
-    # Territory availability is defined by the presence of at least one
-    # process_territory_region decision for the active player.
-    territory_moves = GameEngine._get_territory_processing_moves(
+    GameEngine._advance_to_territory_processing(
         game_state,
-        current_player,
+        trace_mode=trace_mode,
     )
-    has_territory_regions = bool(territory_moves)
-
-    had_any_action = compute_had_any_action_this_turn(game_state)
-    has_stacks = player_has_stacks_on_board(game_state, current_player)
-
-    if has_territory_regions:
-        GameEngine._advance_to_territory_processing(
-            game_state,
-            trace_mode=trace_mode,
-        )
-        return
-
-    # No territory regions – decide between forced_elimination and normal turn end.
-    if not had_any_action and has_stacks:
-        game_state.current_phase = GamePhase.FORCED_ELIMINATION
-        return
-
-    # Normal turn end: rotate to the next player using the canonical _end_turn
-    # helper so that FE gating and ANM invariants are applied consistently.
-    GameEngine._end_turn(game_state, trace_mode=trace_mode)
 
 
 def _on_territory_processing_complete(game_state: GameState, *, trace_mode: bool) -> None:

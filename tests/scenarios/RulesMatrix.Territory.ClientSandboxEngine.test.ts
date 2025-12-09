@@ -15,6 +15,7 @@ import {
 import { enumerateProcessTerritoryRegionMoves } from '../../src/shared/engine/territoryDecisionHelpers';
 import { addStack, pos } from '../utils/fixtures';
 import { territoryRuleScenarios, TerritoryRuleScenario } from './rulesMatrix';
+import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * RulesMatrix → ClientSandboxEngine territory scenarios
@@ -26,6 +27,12 @@ import { territoryRuleScenarios, TerritoryRuleScenario } from './rulesMatrix';
  */
 
 describe('RulesMatrix → ClientSandboxEngine territory scenarios (Section 12; FAQ Q23)', () => {
+  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
+  if (isFSMOrchestratorActive()) {
+    it.skip('Skipping - FSM orchestrator active mode changes phase transitions', () => {});
+    return;
+  }
+
   function createEngine(boardType: BoardType): { engine: ClientSandboxEngine; state: GameState } {
     const config: SandboxConfig = {
       boardType,

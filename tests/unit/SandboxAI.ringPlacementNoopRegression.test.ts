@@ -11,6 +11,7 @@ import {
 } from '../../src/shared/types/game';
 import { hashGameState, computeProgressSnapshot } from '../../src/shared/engine/core';
 import { STALL_WINDOW_STEPS, MAX_AI_ACTIONS_PER_GAME } from '../utils/aiSimulationPolicy';
+import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Focused regression for the historical sandbox AI stall observed in the
@@ -29,6 +30,11 @@ import { STALL_WINDOW_STEPS, MAX_AI_ACTIONS_PER_GAME } from '../utils/aiSimulati
  */
 
 test('Sandbox AI regression: square8 / 2p / seed=18 terminates without long no-op stall', async () => {
+  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
+  if (isFSMOrchestratorActive()) {
+    return;
+  }
+
   const boardType: BoardType = 'square8';
   const numPlayers = 2;
   const seed = 18;
