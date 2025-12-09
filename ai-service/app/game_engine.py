@@ -337,7 +337,7 @@ class GameEngine:
 
             stacks = BoardManager.get_player_stacks(game_state.board, player_number)
             eligible_positions = [
-                stack.position for stack in stacks.values() if stack.cap_height > 0
+                stack.position for stack in stacks if stack.cap_height > 0
             ]
             return PhaseRequirement(
                 type=PhaseRequirementType.FORCED_ELIMINATION_REQUIRED,
@@ -2387,14 +2387,31 @@ class GameEngine:
 
     @staticmethod
     def _has_valid_captures(game_state: GameState, player_number: int) -> bool:
-        """True if the player has any legal overtaking capture segments.
+        """True if the player has any legal overtaking capture from ANY controlled stack.
 
-        Note: Captures don't use must_move_from_stack_key (attacker position
-        comes from chain state or last move), so no special handling needed
-        for FE eligibility checks.
+        For FE eligibility checks (RR-CANON-R072/R100/R205), we must check captures
+        from ALL stacks controlled by the player, not just the last move's position.
+        This matches the TS hasAnyGlobalMovementOrCapture behaviour.
         """
-        # Use limit=1 for early return optimization on large boards.
-        return bool(GameEngine._get_capture_moves(game_state, player_number, limit=1))
+        from app.rules.capture_chain import enumerate_capture_moves_py
+
+        # Check each controlled stack for potential captures
+        for stack in game_state.board.stacks.values():
+            if stack.controlling_player != player_number or stack.stack_height <= 0:
+                continue
+
+            # Check captures from this stack position
+            captures = enumerate_capture_moves_py(
+                game_state,
+                player_number,
+                stack.position,
+                move_number=len(game_state.move_history) + 1,
+                kind="initial",
+            )
+            if captures:
+                return True  # Early return - we only need to find one
+
+        return False
 
     @staticmethod
     def _has_valid_actions(game_state: GameState, player_number: int) -> bool:

@@ -153,6 +153,7 @@ describe('DecisionUI harness → ChoiceDialog integration', () => {
       pendingChoiceView: { viewModel: undefined },
       choiceDeadline: null,
       reconciledDecisionTimeRemainingMs: 25_000,
+      decisionIsServerCapped: false,
     } as any);
     mockedUseGameActions.mockReturnValue({
       respondToChoice,
@@ -173,6 +174,19 @@ describe('DecisionUI harness → ChoiceDialog integration', () => {
     const [choiceArg, optionArg] = respondToChoice.mock.calls[0];
     expect(choiceArg).toEqual(captureChoice);
     expect(optionArg).toEqual(captureChoice.options[0]);
+  });
+
+  it('renders nothing when there is no pending choice', () => {
+    mockedUsePendingChoice.mockReturnValue({
+      pendingChoice: null,
+      pendingChoiceView: { viewModel: undefined },
+      choiceDeadline: null,
+      reconciledDecisionTimeRemainingMs: null,
+      decisionIsServerCapped: false,
+    } as any);
+
+    const { container } = render(<DecisionUIHarness />);
+    expect(container.firstChild).toBeNull();
   });
 
   it('renders line_reward_option choice and routes selection', async () => {

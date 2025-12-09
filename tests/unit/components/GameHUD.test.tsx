@@ -556,4 +556,158 @@ describe('GameHUD – view-model props', () => {
       ).toBeInTheDocument();
     });
   });
+
+  it('formats blitz time control correctly', () => {
+    const viewModel = createHUDViewModel();
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'blitz', initialTime: 180, increment: 2 }}
+      />
+    );
+
+    expect(screen.getByText(/Blitz • 3\+2/i)).toBeInTheDocument();
+  });
+
+  it('formats classical time control correctly', () => {
+    const viewModel = createHUDViewModel();
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'classical', initialTime: 1800, increment: 30 }}
+      />
+    );
+
+    expect(screen.getByText(/Classical • 30\+30/i)).toBeInTheDocument();
+  });
+
+  it('shows generic Time label for unknown time control types', () => {
+    const viewModel = createHUDViewModel();
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'custom' as any, initialTime: 300, increment: 5 }}
+      />
+    );
+
+    expect(screen.getByText(/Time • 5\+5/i)).toBeInTheDocument();
+  });
+
+  it('renders default unknown phase for unrecognized phase key', () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'unknown_phase' as any,
+        label: 'Unknown Phase',
+        description: '',
+      },
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    expect(screen.getByText('Unknown Phase')).toBeInTheDocument();
+  });
+
+  it('maps capture_basic concept to capturing topic', async () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'capture' as any,
+        label: 'Capture',
+        description: 'Capture phase.',
+      },
+      rulesUxRulesConcept: 'capture_basic',
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.queryByTestId('hud-phase-help-capture');
+    expect(helpButton).toBeInTheDocument();
+  });
+
+  it('maps lines_basic concept to line_bonus topic', async () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'line_processing' as any,
+        label: 'Line Processing',
+        description: 'Process formed lines.',
+      },
+      rulesUxRulesConcept: 'lines_basic',
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.queryByTestId('hud-phase-help-line_processing');
+    expect(helpButton).toBeInTheDocument();
+  });
+
+  it('maps territory_basic concept to territory topic', async () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'territory_processing' as any,
+        label: 'Territory',
+        description: 'Process territories.',
+      },
+      rulesUxRulesConcept: 'territory_basic',
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.queryByTestId('hud-phase-help-territory_processing');
+    expect(helpButton).toBeInTheDocument();
+  });
+
+  it('maps movement_basic concept to stack_movement topic', async () => {
+    const baseVm = createHUDViewModel();
+    const viewModel: HUDViewModel = {
+      ...baseVm,
+      phase: {
+        ...baseVm.phase,
+        phaseKey: 'movement' as any,
+        label: 'Movement',
+        description: 'Move your stacks.',
+      },
+      rulesUxRulesConcept: 'movement_basic',
+    };
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    const helpButton = screen.queryByTestId('hud-phase-help-movement');
+    expect(helpButton).toBeInTheDocument();
+  });
 });

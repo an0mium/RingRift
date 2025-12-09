@@ -681,6 +681,89 @@ describe('ChoiceDialog', () => {
   });
 
   describe('accessibility', () => {
+    it('responds to ArrowDown key for option navigation', async () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      const dialog = screen.getByRole('dialog');
+      const optionButtons = screen.getAllByRole('option') as HTMLButtonElement[];
+      expect(optionButtons.length).toBe(2);
+
+      // First option should be focused initially
+      expect(document.activeElement).toBe(optionButtons[0]);
+
+      // Spy on the second option's focus method to verify the code path is executed
+      const focusSpy = jest.spyOn(optionButtons[1], 'focus');
+
+      // Press ArrowDown - should trigger navigation code path
+      await act(async () => {
+        fireEvent.keyDown(dialog, { key: 'ArrowDown' });
+      });
+
+      // Verify focus() was called on the next element (JSDOM doesn't always update activeElement)
+      expect(focusSpy).toHaveBeenCalled();
+      focusSpy.mockRestore();
+    });
+
+    it('responds to ArrowUp key for option navigation', async () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      const dialog = screen.getByRole('dialog');
+      const optionButtons = screen.getAllByRole('option') as HTMLButtonElement[];
+
+      // First option focused initially (index 0)
+      expect(document.activeElement).toBe(optionButtons[0]);
+
+      // Spy on the last option's focus method to verify the code path is executed
+      const focusSpy = jest.spyOn(optionButtons[1], 'focus');
+
+      // Press ArrowUp - should wrap to last option (index becomes length - 1)
+      await act(async () => {
+        fireEvent.keyDown(dialog, { key: 'ArrowUp' });
+      });
+
+      // Verify focus() was called on the wrapped element
+      expect(focusSpy).toHaveBeenCalled();
+      focusSpy.mockRestore();
+    });
+
+    it('traps focus when Shift+Tab from first element', () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      const dialog = screen.getByRole('dialog');
+      const optionButtons = screen.getAllByRole('option') as HTMLButtonElement[];
+      const cancelButton = screen.getByText('Cancel');
+
+      // Focus first option
+      act(() => {
+        optionButtons[0].focus();
+      });
+
+      // Shift+Tab should wrap to last focusable (cancel button)
+      fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+      expect(document.activeElement).toBe(cancelButton);
+    });
+
+    it('traps focus when Tab from last element', () => {
+      const choice = createLineOrderChoice();
+      render(<ChoiceDialog {...defaultProps} choice={choice} />);
+
+      const dialog = screen.getByRole('dialog');
+      const optionButtons = screen.getAllByRole('option') as HTMLButtonElement[];
+      const cancelButton = screen.getByText('Cancel');
+
+      // Focus cancel button (last focusable)
+      act(() => {
+        cancelButton.focus();
+      });
+
+      // Tab should wrap to first focusable
+      fireEvent.keyDown(dialog, { key: 'Tab' });
+      expect(document.activeElement).toBe(optionButtons[0]);
+    });
+
     it('traps focus within the dialog when tabbing forward/backward', async () => {
       const choice = createLineOrderChoice();
       render(<ChoiceDialog {...defaultProps} choice={choice} />);

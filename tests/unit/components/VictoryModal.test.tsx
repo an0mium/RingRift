@@ -667,3 +667,154 @@ describe('VictoryModal – draw result', () => {
     expect(screen.getByText(/ended in a stalemate/i)).toBeInTheDocument();
   });
 });
+
+describe('VictoryModal – rematch states', () => {
+  it('shows accepted message when rematch is accepted', () => {
+    const players = createPlayers();
+    const gameState = createGameState(players);
+    const gameResult = createGameResult(1, 'ring_elimination');
+
+    render(
+      <VictoryModal
+        isOpen={true}
+        gameResult={gameResult}
+        players={players}
+        gameState={gameState}
+        onClose={jest.fn()}
+        onReturnToLobby={jest.fn()}
+        onRequestRematch={jest.fn()}
+        rematchStatus={{ status: 'accepted', isPending: false, isRequester: false }}
+      />
+    );
+
+    expect(screen.getByText('Rematch accepted! Joining new game...')).toBeInTheDocument();
+  });
+
+  it('shows declined message when rematch is declined', () => {
+    const players = createPlayers();
+    const gameState = createGameState(players);
+    const gameResult = createGameResult(1, 'ring_elimination');
+
+    render(
+      <VictoryModal
+        isOpen={true}
+        gameResult={gameResult}
+        players={players}
+        gameState={gameState}
+        onClose={jest.fn()}
+        onReturnToLobby={jest.fn()}
+        onRequestRematch={jest.fn()}
+        rematchStatus={{ status: 'declined', isPending: false, isRequester: false }}
+      />
+    );
+
+    expect(screen.getByText('Rematch declined')).toBeInTheDocument();
+  });
+
+  it('shows expired message with request button when rematch expired', () => {
+    const players = createPlayers();
+    const gameState = createGameState(players);
+    const gameResult = createGameResult(1, 'ring_elimination');
+    const onRequestRematch = jest.fn();
+
+    render(
+      <VictoryModal
+        isOpen={true}
+        gameResult={gameResult}
+        players={players}
+        gameState={gameState}
+        onClose={jest.fn()}
+        onReturnToLobby={jest.fn()}
+        onRequestRematch={onRequestRematch}
+        rematchStatus={{ status: 'expired', isPending: false, isRequester: false }}
+      />
+    );
+
+    expect(screen.getByText('Rematch request expired')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Request Rematch/i })).toBeInTheDocument();
+  });
+
+  it('shows accept/decline buttons when opponent requests rematch', () => {
+    const players = createPlayers();
+    const gameState = createGameState(players);
+    const gameResult = createGameResult(1, 'ring_elimination');
+    const onAcceptRematch = jest.fn();
+    const onDeclineRematch = jest.fn();
+    // Set expires 30 seconds in the future
+    const expiresAt = new Date(Date.now() + 30000).toISOString();
+
+    render(
+      <VictoryModal
+        isOpen={true}
+        gameResult={gameResult}
+        players={players}
+        gameState={gameState}
+        onClose={jest.fn()}
+        onReturnToLobby={jest.fn()}
+        onRequestRematch={jest.fn()}
+        onAcceptRematch={onAcceptRematch}
+        onDeclineRematch={onDeclineRematch}
+        rematchStatus={{
+          status: 'pending',
+          isPending: true,
+          isRequester: false,
+          requestId: 'req-123',
+          requesterUsername: 'OpponentPlayer',
+          expiresAt,
+        }}
+      />
+    );
+
+    expect(screen.getByText('OpponentPlayer wants a rematch!')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Accept/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Decline/i })).toBeInTheDocument();
+  });
+
+  it('shows waiting message when current user requested rematch', () => {
+    const players = createPlayers();
+    const gameState = createGameState(players);
+    const gameResult = createGameResult(1, 'ring_elimination');
+    const expiresAt = new Date(Date.now() + 30000).toISOString();
+
+    render(
+      <VictoryModal
+        isOpen={true}
+        gameResult={gameResult}
+        players={players}
+        gameState={gameState}
+        onClose={jest.fn()}
+        onReturnToLobby={jest.fn()}
+        onRequestRematch={jest.fn()}
+        rematchStatus={{
+          status: 'pending',
+          isPending: true,
+          isRequester: true,
+          expiresAt,
+        }}
+      />
+    );
+
+    expect(screen.getByText('Waiting for opponent...')).toBeInTheDocument();
+  });
+
+  it('shows request rematch button when no pending request', () => {
+    const players = createPlayers();
+    const gameState = createGameState(players);
+    const gameResult = createGameResult(1, 'ring_elimination');
+    const onRequestRematch = jest.fn();
+
+    render(
+      <VictoryModal
+        isOpen={true}
+        gameResult={gameResult}
+        players={players}
+        gameState={gameState}
+        onClose={jest.fn()}
+        onReturnToLobby={jest.fn()}
+        onRequestRematch={onRequestRematch}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /Request Rematch/i })).toBeInTheDocument();
+  });
+});
