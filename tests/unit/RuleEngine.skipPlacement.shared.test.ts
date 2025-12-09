@@ -177,10 +177,10 @@ describe('RuleEngine skip_placement validation parity with PlacementAggregate', 
     expect(ruleEngineValid).toBe(false);
   });
 
-  it('rejects skip_placement when player has no rings in hand even if aggregate allows it', () => {
+  it('rejects skip_placement when player has no rings in hand (both aggregate and RuleEngine)', () => {
     const { engine, state } = createRuleEngineAndState();
 
-    // Add a controlled stack with legal movement so the aggregate returns eligible=true
+    // Add a controlled stack with legal movement
     // Stack at (3,3) controlled by player 1 with height 2
     state.board.stacks.set('3,3', {
       position: { x: 3, y: 3 },
@@ -205,13 +205,12 @@ describe('RuleEngine skip_placement validation parity with PlacementAggregate', 
     } as Move;
 
     const aggregateEligibility = evaluateSkipPlacementEligibilityAggregate(state, 1);
-    const aggregateFlag =
-      (aggregateEligibility as any).eligible ?? (aggregateEligibility as any).canSkip ?? false;
 
-    // Backend tightening: even if the aggregate helper reports that a skip
-    // would be semantically fine, RuleEngine must still reject skip_placement
-    // when the active player has no rings in hand.
-    expect(aggregateFlag).toBe(true);
+    // Both the aggregate and RuleEngine now correctly reject skip_placement
+    // when the player has no rings in hand (per canonical rules, should use
+    // no_placement_action instead).
+    expect(aggregateEligibility.eligible).toBe(false);
+    expect(aggregateEligibility.code).toBe('NO_RINGS_IN_HAND');
     const ruleEngineValid = engine.validateMove(skipMove, state);
     expect(ruleEngineValid).toBe(false);
   });
