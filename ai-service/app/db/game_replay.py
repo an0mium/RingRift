@@ -1285,7 +1285,8 @@ class GameReplayDB:
         Returns:
             Updated game state with any necessary bookkeeping moves applied.
         """
-        from app.game_engine import GameEngine, MoveType, Move
+        from app.game_engine import GameEngine, MoveType, Move, Position
+        from datetime import datetime
 
         # Limit iterations to prevent infinite loops
         max_iterations = 10
@@ -1304,9 +1305,13 @@ class GameReplayDB:
             if current_phase == "territory_processing":
                 # Need to inject NO_TERRITORY_ACTION to advance
                 no_territory_move = Move(
+                    id="auto-inject-no-territory",
                     type=MoveType.NO_TERRITORY_ACTION,
                     player=state.current_player,
-                    timestamp=0,
+                    to=Position(x=0, y=0),
+                    timestamp=datetime.now(),
+                    thinkTime=0,
+                    moveNumber=0,
                 )
                 state = GameEngine.apply_move(state, no_territory_move, trace_mode=True)
             elif current_phase == "line_processing":
@@ -1319,9 +1324,13 @@ class GameReplayDB:
                 )
                 if next_type not in ("no_line_action", "process_line"):
                     no_line_move = Move(
+                        id="auto-inject-no-line",
                         type=MoveType.NO_LINE_ACTION,
                         player=state.current_player,
-                        timestamp=0,
+                        to=Position(x=0, y=0),
+                        timestamp=datetime.now(),
+                        thinkTime=0,
+                        moveNumber=0,
                     )
                     state = GameEngine.apply_move(state, no_line_move, trace_mode=True)
                 else:
