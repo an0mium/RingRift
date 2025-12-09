@@ -234,17 +234,17 @@ Even with zero net height change, the **physical board constrains cyclic paths**
 1. **Departure markers accumulate:**
    - Each capture segment deposits a departure marker
    - These markers occupy cells along the path
-   - Landing on these markers causes cap eliminations (accelerating control change)
+   - Landing on these markers causes cap eliminations (either accelerating control change, or depleting the pool of rings in play)
 
 2. **Movement direction constraints:**
    - Movement/capture must proceed in straight orthogonal or diagonal lines
-   - Returning to a previously-visited position requires either:
+   - Returning to a previously-visited position can occur either via:
      - A 180° reversal (deposits marker at each endpoint, causing eliminations)
      - A complex multi-leg path (each leg deposits markers)
 
 3. **Board size limit:**
    - Even if height stays constant, the stack cannot reach targets beyond `BoardDiagonal`
-   - Markers filling the board progressively reduce traversable paths
+   - Either markers filling the board progressively reduce traversable paths that do not result in requirement to eliminate rings, or else eliminated rings due to landing on existing markers will deplete rings in play until no further capture segments are possible.
 
 #### 4.1.6 Summary: Why Infinite Cycles Cannot Occur
 

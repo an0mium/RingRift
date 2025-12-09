@@ -1038,15 +1038,20 @@ export function applyProcessTerritoryRegionDecision(
 }
 
 /**
- * Apply an `eliminate_rings_from_stack` move.
+ * Apply an `eliminate_rings_from_stack` or `forced_elimination` move.
+ *
+ * Both move types use the same ring elimination logic - the only difference
+ * is semantic: `eliminate_rings_from_stack` is used during territory processing
+ * as a player choice, while `forced_elimination` is used when a player has no
+ * valid moves and must eliminate rings from a stack (RR-CANON-R070).
  */
 export function applyEliminateRingsFromStackDecision(
   state: GameState,
   move: Move
 ): EliminateRingsFromStackOutcome {
-  if (move.type !== 'eliminate_rings_from_stack') {
+  if (move.type !== 'eliminate_rings_from_stack' && move.type !== 'forced_elimination') {
     throw new Error(
-      `applyEliminateRingsFromStackDecision expected move.type === 'eliminate_rings_from_stack', got '${move.type}'`
+      `applyEliminateRingsFromStackDecision expected move.type === 'eliminate_rings_from_stack' or 'forced_elimination', got '${move.type}'`
     );
   }
 

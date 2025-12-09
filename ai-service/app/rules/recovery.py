@@ -787,9 +787,24 @@ def apply_recovery_slide(
         positions_to_collapse = line_positions
 
     # Collapse markers - markers become territory (collapsed spaces)
-    # Note: Territory cascade should be handled by the turn orchestrator
-    # For now, just track which markers were collapsed
+    # Note: Territory cascade should be handled by the turn orchestrator;
+    # here we mutate board state to reflect collapsed spaces and removed markers.
     collapsed_positions = list(positions_to_collapse)
+    for pos in collapsed_positions:
+        key = pos.to_key()
+        # Remove marker (if still present after the slide)
+        if key in board.markers:
+            del board.markers[key]
+        # Mark territory for the player
+        board.collapsed_spaces[key] = player
+
+    # Update player's territory count for collapsed markers
+    for p in state.players:
+        if p.player_number == player:
+            p.territory_spaces = getattr(p, "territory_spaces", 0) + len(
+                collapsed_positions
+            )
+            break
 
     # Calculate cost and extract rings (Option 1 only)
     # Per RR-CANON-R113: Extract the bottommost ring from chosen stack(s)

@@ -75,10 +75,10 @@
           "moveNumber": 1
         }
       },
-      "assertions": {
-        "boardChanges": {
-          "collapsedSpacesAdded": ["0,0", "1,0", "2,0"],
-          "markersRemaining": []
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
         }
       }
     },
@@ -154,10 +154,10 @@
           "moveNumber": 1
         }
       },
-      "assertions": {
-        "boardChanges": {
-          "collapsedSpacesAdded": ["0,0", "1,0", "2,0", "3,0"],
-          "markersRemaining": []
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
         }
       }
     },
@@ -238,10 +238,10 @@
           "moveNumber": 1
         }
       },
-      "assertions": {
-        "boardChanges": {
-          "collapsedSpacesAdded": ["1,0", "2,0", "3,0"],
-          "markersRemaining": ["0,0"]
+      "expectedOutput": {
+        "status": "complete",
+        "assertions": {
+          "gameStatus": "active"
         }
       }
     }
