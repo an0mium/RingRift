@@ -78,6 +78,10 @@ export function hasTurnMaterial(state: GameState, player: number): boolean {
  * used from movement/territory/victory code as required by R200.
  */
 export function hasGlobalPlacementAction(state: GameState, player: number): boolean {
+  const playerState = state.players.find((p) => p.playerNumber === player);
+  if (!playerState || playerState.ringsInHand <= 0) {
+    return false;
+  }
   const positions = enumeratePlacementPositions(state, player);
   return positions.length > 0;
 }
@@ -121,6 +125,11 @@ function createMovementBoardView(state: GameState): MovementBoardView {
  * preconditions (R072/R100/R205).
  */
 export function hasAnyGlobalMovementOrCapture(state: GameState, player: number): boolean {
+  const playerState = state.players.find((p) => p.playerNumber === player);
+  if (!playerState) {
+    return false;
+  }
+
   const boardType = state.board.type as BoardType;
   const view = createMovementBoardView(state);
 
@@ -259,10 +268,10 @@ export function hasForcedEliminationAction(state: GameState, player: number): bo
 }
 
 /**
- * Stricter zero-rings global action check used by termination guards:
- * - If ringsInHand > 0 and a placement exists → true.
- * - Otherwise, true only if a controlled stack has a legal move or capture.
- * Forced elimination is ignored when ringsInHand == 0.
+ * Global action check used by termination guards:
+ * - True if any placement OR any movement/capture OR forced elimination exists.
+ *   (forced elimination follows RR-CANON-R072/R100 and does not depend on
+ *   ringsInHand once the player is blocked).
  */
 export function hasAnyGlobalActionZeroRingAware(state: GameState, player: number): boolean {
   const playerState = state.players.find((p) => p.playerNumber === player);
@@ -270,11 +279,11 @@ export function hasAnyGlobalActionZeroRingAware(state: GameState, player: number
     return false;
   }
 
-  if (playerState.ringsInHand > 0 && hasGlobalPlacementAction(state, player)) {
-    return true;
-  }
-
-  return hasAnyGlobalMovementOrCapture(state, player);
+  return (
+    hasGlobalPlacementAction(state, player) ||
+    hasAnyGlobalMovementOrCapture(state, player) ||
+    hasForcedEliminationAction(state, player)
+  );
 }
 
 /**

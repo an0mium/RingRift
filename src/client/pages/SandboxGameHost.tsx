@@ -608,14 +608,17 @@ export const SandboxGameHost: React.FC = () => {
         setSandboxStateVersion(0);
 
         // Call the hook handler (handles state management and engine creation)
-        hookHandleLoadScenario(scenario);
+        // The hook now returns the engine synchronously so we can use it for replay
+        const engine = hookHandleLoadScenario(scenario);
 
         // Handle self-play specific logic
         if (scenario.selfPlayMeta) {
           const recordedMoves: Move[] | undefined = scenario.selfPlayMeta.moves;
 
-          if (recordedMoves && recordedMoves.length > 0) {
-            // Self-play replay: async replay of recorded moves
+          if (recordedMoves && recordedMoves.length > 0 && engine) {
+            // Capture engine reference for the async closure
+            const replayEngine = engine;
+
             void (async () => {
               // eslint-disable-next-line no-console
               console.log('[SandboxSelfPlayReplay] Replaying recorded self-play game', {
@@ -629,9 +632,7 @@ export const SandboxGameHost: React.FC = () => {
                 for (let i = 0; i < recordedMoves.length; i += 1) {
                   const move = recordedMoves[i];
 
-                  await (sandboxEngine as ClientSandboxEngine).applyCanonicalMoveForReplay(
-                    move as any
-                  );
+                  await replayEngine.applyCanonicalMoveForReplay(move as any);
                   appliedCount += 1;
                 }
 
@@ -642,24 +643,35 @@ export const SandboxGameHost: React.FC = () => {
                 console.log('[SandboxSelfPlayReplay] Finished local replay', {
                   gameId: scenario.selfPlayMeta?.gameId,
                   appliedMoves: appliedCount,
-                  historyLength: (sandboxEngine as ClientSandboxEngine).getGameState().moveHistory
-                    .length,
+                  historyLength: replayEngine.getGameState().moveHistory.length,
                 });
               } catch (err) {
+                const failedMove =
+                  appliedCount < recordedMoves.length ? recordedMoves[appliedCount] : null;
                 console.error(
                   '[SandboxGameHost] Failed to replay recorded self-play game into sandbox engine',
                   {
-                    error: err,
+                    errorMessage: err instanceof Error ? err.message : String(err),
+                    errorStack: err instanceof Error ? err.stack : undefined,
                     gameId: scenario.selfPlayMeta?.gameId,
                     appliedMoves: appliedCount,
                     totalRecordedMoves: recordedMoves.length,
+                    failedMoveIndex: appliedCount,
+                    failedMove: failedMove
+                      ? {
+                          type: failedMove.type,
+                          player: failedMove.player,
+                          from: failedMove.from,
+                          to: failedMove.to,
+                        }
+                      : null,
                   }
                 );
                 setHasHistorySnapshots(false);
               }
             })();
           } else {
-            // No recorded moves; disable snapshot-driven history
+            // No recorded moves or no engine; disable snapshot-driven history
             setHasHistorySnapshots(false);
           }
 
@@ -675,7 +687,7 @@ export const SandboxGameHost: React.FC = () => {
         toast.error('Failed to load scenario');
       }
     },
-    [hookHandleLoadScenario, sandboxEngine, setHasHistorySnapshots]
+    [hookHandleLoadScenario, setHasHistorySnapshots]
   );
 
   /**

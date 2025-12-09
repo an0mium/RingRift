@@ -256,6 +256,31 @@ Key docs and tools for TS↔Python parity, replay analysis, and replay DB health
 
 ---
 
+## Environments and Infrastructure
+
+RingRift supports multiple deployment and test environments:
+
+- **Local development** – Node.js dev server and optional AI service running on a developer workstation. See [QUICKSTART.md](QUICKSTART.md).
+- **Docker-based staging on localhost** – Full stack composed via Docker Compose on a single host (for example `http://localhost:3000` for HTTP and `ws://localhost:3001` for WebSockets), suitable for capacity and SLO runs.
+- **Cloud-hosted staging and load-testing environments (optional)** – Operators may provision remote instances on AWS EC2/ECS or another cloud provider to run:
+  - The RingRift backend/API and WebSocket endpoints for staging (for example `https://staging.example.com`, `wss://staging.example.com`).
+  - One or more load-generator instances (for example k6 workers or equivalent) that execute the same scenarios described in [tests/load/README.md](tests/load/README.md) against a configurable base URL.
+  - AI training and self-play infrastructure that uses cloud storage and queues, as outlined in [ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md).
+
+These cloud environments are deployment-specific:
+
+- This repository does **not** assume any particular cloud account ID, region (for example `us-east-1`), VPC topology, or hostname.
+- Operators are expected to configure their own regions, networks, TLS certificates, and DNS records, and to inject base URLs and credentials via environment variables, CI/CD secrets, and infrastructure-as-code.
+
+Key reference documents:
+
+- [docs/STAGING_ENVIRONMENT.md](docs/STAGING_ENVIRONMENT.md) – Staging environment topology, Docker-based setup, and how load tests attach to staging.
+- [docs/BASELINE_CAPACITY.md](docs/BASELINE_CAPACITY.md) – Baseline capacity scenarios and how to execute and record them.
+- [docs/SLO_VERIFICATION.md](docs/SLO_VERIFICATION.md) – SLO verification pipeline that consumes k6 JSON outputs from any environment.
+- [ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md](ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md) – Cloud training and distributed self-play infrastructure plan (illustrative, not required for all deployments).
+
+---
+
 ## Finding Documentation
 
 ### By Topic

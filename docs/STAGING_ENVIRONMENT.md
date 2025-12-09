@@ -205,6 +205,28 @@ tcp-keepalive 300
 
 ---
 
+## Cloud-hosted staging environments and load-testing instances
+
+Beyond the localhost Docker-based staging described above, operators may optionally run RingRift in a remote staging environment hosted on AWS or another cloud provider. A typical setup includes:
+
+- An HTTPS-accessible staging API base URL, for example `https://staging.example.com`.
+- A corresponding WebSocket endpoint, for example `wss://staging.example.com` (often the same origin as the HTTP API).
+- One or more cloud-hosted load-generator instances (for example, EC2 instances, ECS tasks, or equivalent on other providers) that run the same k6-based load tests found under `tests/load/**`.
+
+In this model:
+
+- The game backend, AI service, and supporting services run in a cloud network (for example, a VPC) behind a public or private load balancer.
+- Load generators are pointed at the remote staging base URLs via environment variables such as `BASE_URL` and `WS_URL`, matching the patterns described in `tests/load/README.md`.
+- Orchestration can be handled by CI/CD pipelines or infrastructure-as-code (for example, Terraform-managed ECS services), depending on the operator's preferences.
+
+Cloud-hosted staging is intentionally **deployment-specific**:
+
+- This repository does not encode any particular cloud account, region, or hostname.
+- Domains like `staging.example.com` are placeholders; teams should configure their own DNS entries, TLS certificates, network topology, and secrets.
+- Environment variables and CI secrets are the primary mechanism for passing URLs and credentials into both the application and k6 runners.
+
+For examples of how the AI service and training workloads can take advantage of cloud infrastructure, see `ai-service/docs/CLOUD_TRAINING_INFRASTRUCTURE_PLAN.md`. That plan is illustrative and not a requirement for basic game staging.
+
 ## Load Testing
 
 The staging environment supports the k6 load testing scenarios defined in `tests/load/`:

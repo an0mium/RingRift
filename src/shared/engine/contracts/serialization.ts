@@ -129,18 +129,37 @@ export function serializeBoardState(board: BoardState): SerializedBoardState {
 export function deserializeBoardState(data: SerializedBoardState): BoardState {
   const stacks = new Map<string, RingStack>();
   for (const [key, stack] of Object.entries(data.stacks)) {
-    // Handle different ring formats: array, object with numeric keys, or undefined
+    // Handle different ring formats: array, object with numeric keys, or missing
     let rings: number[];
-    if (Array.isArray(stack.rings)) {
+    if (Array.isArray(stack.rings) && stack.rings.length > 0) {
       rings = [...stack.rings];
-    } else if (stack.rings && typeof stack.rings === 'object') {
+    } else if (stack.rings && typeof stack.rings === 'object' && !Array.isArray(stack.rings)) {
       // Convert object with numeric keys to array (e.g., {0: 1, 1: 2} -> [1, 2])
       rings = Object.values(stack.rings) as number[];
+    } else if (stack.stackHeight > 0 && stack.controllingPlayer) {
+      // Generate synthetic rings array from stackHeight and controllingPlayer
+      // This handles curated scenarios that omit the rings array
+      rings = Array(stack.stackHeight).fill(stack.controllingPlayer);
     } else {
       rings = [];
     }
+
+    // Handle position: use stack.position if present, otherwise reconstruct from key
+    let position: Position;
+    if (stack.position && typeof stack.position.x === 'number') {
+      position = { ...stack.position };
+    } else {
+      // Reconstruct position from key (e.g., "2,4" -> {x: 2, y: 4})
+      const parts = key.split(',');
+      position = {
+        x: Number(parts[0]),
+        y: Number(parts[1]),
+        ...(parts[2] !== undefined ? { z: Number(parts[2]) } : {}),
+      };
+    }
+
     stacks.set(key, {
-      position: stack.position,
+      position,
       rings,
       stackHeight: stack.stackHeight,
       capHeight: stack.capHeight,
@@ -150,8 +169,21 @@ export function deserializeBoardState(data: SerializedBoardState): BoardState {
 
   const markers = new Map<string, MarkerInfo>();
   for (const [key, marker] of Object.entries(data.markers)) {
+    // Handle position: use marker.position if present, otherwise reconstruct from key
+    let markerPosition: Position;
+    if (marker.position && typeof marker.position.x === 'number') {
+      markerPosition = { ...marker.position };
+    } else {
+      const parts = key.split(',');
+      markerPosition = {
+        x: Number(parts[0]),
+        y: Number(parts[1]),
+        ...(parts[2] !== undefined ? { z: Number(parts[2]) } : {}),
+      };
+    }
+
     markers.set(key, {
-      position: marker.position,
+      position: markerPosition,
       player: marker.player,
       type: marker.type as 'regular' | 'collapsed',
     });
@@ -212,28 +244,47 @@ export function serializeGameState(state: GameState): SerializedGameState {
 /**
  * Deserialize a plain object to a GameState.
  * Note: Creates a minimal GameState suitable for engine processing.
+ *
+ * Handles both SerializedGameState format (from curated scenarios) and
+ * full GameState format (from self-play database) by checking for
+ * alternative field names.
  */
 export function deserializeGameState(data: SerializedGameState): GameState {
-  return {
-    id: data.gameId || '',
-    boardType: data.board.type as GameState['boardType'],
-    board: deserializeBoardState(data.board),
-    players: data.players.map((p) => ({
-      // Create minimal Player with required fields
-      id: `player-${p.playerNumber}`,
-      username: `Player ${p.playerNumber}`,
-      type: p.isActive ? ('human' as const) : ('ai' as const),
+  // Handle both formats: SerializedGameState uses gameId, full GameState uses id
+  const dataAny = data as unknown as Record<string, unknown>;
+  const gameId = data.gameId || (dataAny.id as string) || '';
+
+  // Handle both formats for board type
+  const boardType = (data.board?.type ||
+    (dataAny.boardType as string) ||
+    'square8') as GameState['boardType'];
+
+  // Handle players - self-play format may have full Player objects
+  const players = data.players.map((p) => {
+    const pAny = p as Record<string, unknown>;
+    return {
+      // Use existing id/username if present (self-play format), otherwise generate
+      id: (pAny.id as string) || `player-${p.playerNumber}`,
+      username: (pAny.username as string) || `Player ${p.playerNumber}`,
+      type: (pAny.type as 'human' | 'ai') || (p.isActive ? ('human' as const) : ('ai' as const)),
       playerNumber: p.playerNumber,
-      isReady: true,
-      timeRemaining: 600,
+      isReady: (pAny.isReady as boolean) ?? true,
+      timeRemaining: (pAny.timeRemaining as number) ?? 600,
       ringsInHand: p.ringsInHand,
       eliminatedRings: p.eliminatedRings,
       territorySpaces: p.territorySpaces,
-    })),
+    };
+  });
+
+  return {
+    id: gameId,
+    boardType,
+    board: deserializeBoardState(data.board),
+    players,
     currentPlayer: data.currentPlayer,
     currentPhase: data.currentPhase as GameState['currentPhase'],
     chainCapturePosition: data.chainCapturePosition,
-    moveHistory: data.moveHistory.map((m) => ({ ...m })),
+    moveHistory: data.moveHistory?.map((m) => ({ ...m })) || [],
     history: [],
     gameStatus: data.gameStatus as GameState['gameStatus'],
     winner: undefined,

@@ -97,7 +97,7 @@ export interface SandboxScenariosState<T = ScenarioData> {
   setHasHistorySnapshots: (has: boolean) => void;
 
   // Handlers
-  handleLoadScenario: (scenario: T) => void;
+  handleLoadScenario: (scenario: T) => ClientSandboxEngine | null;
   handleForkFromReplay: (state: GameState, moveIndex: number) => void;
   handleResetScenario: () => void;
   clearScenarioContext: () => void;
@@ -153,8 +153,10 @@ export function useSandboxScenarios<
   const originalScenarioRef = useRef<T | null>(null);
 
   // Load a scenario - simplified to delegate complex logic to parent
+  // Returns the created engine so the caller can use it for replay without
+  // waiting for React state updates (which are asynchronous)
   const handleLoadScenario = useCallback(
-    (scenario: T) => {
+    (scenario: T): ClientSandboxEngine | null => {
       // Store for potential reset
       originalScenarioRef.current = scenario;
 
@@ -163,7 +165,7 @@ export function useSandboxScenarios<
 
       if (!engine) {
         toast.error('Failed to load scenario');
-        return;
+        return null;
       }
 
       // Reset parent's UI state (selection, pending choices, etc.)
@@ -200,6 +202,9 @@ export function useSandboxScenarios<
       // after receiving the onScenarioLoaded callback
 
       onStateVersionChange?.();
+
+      // Return the engine so caller can use it immediately for replay
+      return engine;
     },
     [initSandboxWithScenario, onScenarioLoaded, onStateVersionChange, onUIStateReset]
   );

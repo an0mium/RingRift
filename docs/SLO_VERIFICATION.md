@@ -16,6 +16,8 @@ Service Level Objectives (SLOs) define the targets for system performance and re
 > ```
 >
 > or pass an existing results file via `--skip-test --results-file`.
+>
+> Load can be generated from a developer machine, CI runner, or cloud-hosted instances (for example AWS EC2/ECS tasks or equivalents on other providers), as long as the runner can reach the target environment and emits standard k6 JSON. The SLO verification scripts are environment-agnostic: they consume result files and configuration (for example the `--env` flag and thresholds) without depending on where the load generator itself is hosted.
 
 ## Quick Start
 

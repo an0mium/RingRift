@@ -38,6 +38,8 @@ SEED_LOADTEST_USERS=true tests/load/scripts/run-baseline.sh --staging
 SMOKE=1 SKIP_WS_COMPANION=1 tests/load/scripts/run-baseline.sh --local
 ```
 
+Baseline capacity scenarios can be executed either from a developer machine or from cloud-hosted load-generator instances (for example, AWS EC2/ECS tasks or equivalents on other providers) as long as they can reach the chosen target environment. The scripts under `tests/load/**` are environment-agnostic and use environment variables (such as `BASE_URL` and `WS_URL`) to select whether they run against local Docker, a remote staging URL, or another HTTP/WebSocket endpoint.
+
 Recent baseline run artifacts (Dec 2025):
 
 | Date (UTC) | Scenario ID                   | Notes                                    | Paths                                                                                                                                                                                                                     |

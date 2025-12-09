@@ -122,6 +122,10 @@ export type MoveType =
   // controls stacks. Eliminates entire cap of a controlled stack. Only valid
   // in 'forced_elimination' phase. See RR-CANON-R100, RR-CANON-R204.
   | 'forced_elimination'
+  // Recovery action: player has no stacks, no rings in hand, but can slide
+  // a marker to complete a line. Cost is paid with buried rings. Only valid
+  // in recovery_action phase. See RR-CANON-R110–R115.
+  | 'recovery_slide'
   // Legacy / experimental move types (not used by the unified Move model).
   | 'line_formation'
   | 'territory_claim'
@@ -847,6 +851,11 @@ export interface Game {
 
 // Utility functions for position handling
 export const positionToString = (pos: Position): string => {
+  // Guard against undefined/null positions
+  if (!pos) {
+    console.warn('[positionToString] Received undefined position');
+    return 'invalid';
+  }
   // Only include z in key if it's a valid number (handles both null and undefined the same way)
   return typeof pos.z === 'number' ? `${pos.x},${pos.y},${pos.z}` : `${pos.x},${pos.y}`;
 };

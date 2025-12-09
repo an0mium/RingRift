@@ -3812,8 +3812,17 @@ export class ClientSandboxEngine {
     ];
 
     // Decision-phase move types that indicate what phase we should be in
-    const lineProcessingMoveTypes: Move['type'][] = ['process_line', 'choose_line_reward'];
-    const territoryProcessingMoveTypes: Move['type'][] = ['process_territory_region'];
+    // Include no-op markers (no_line_action, no_territory_action) so auto-resolve
+    // can transition to the expected phase when Python recorded a no-op marker
+    const lineProcessingMoveTypes: Move['type'][] = [
+      'process_line',
+      'choose_line_reward',
+      'no_line_action',
+    ];
+    const territoryProcessingMoveTypes: Move['type'][] = [
+      'process_territory_region',
+      'no_territory_action',
+    ];
 
     // Handle ring_placement → movement skip: if we're in ring_placement but the
     // next move is a movement/capture from the SAME player (not place_ring or

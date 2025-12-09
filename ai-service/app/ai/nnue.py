@@ -241,8 +241,8 @@ def extract_features_from_gamestate(
     # Initialize feature planes
     features = np.zeros(num_positions * FEATURE_PLANES, dtype=np.float32)
 
-    # Extract ring/stack positions from board
-    for pos_key, cell in (board.positions or {}).items():
+    # Extract ring/stack positions from board.stacks (Dict[str, RingStack])
+    for pos_key, ring_stack in (board.stacks or {}).items():
         try:
             parts = pos_key.split(",")
             if len(parts) >= 2:
@@ -252,34 +252,35 @@ def extract_features_from_gamestate(
                 idx = _pos_to_index(pos, board_size, board_type)
 
                 if 0 <= idx < num_positions:
-                    # Ring features (planes 0-3)
-                    if hasattr(cell, 'ring') and cell.ring:
-                        owner = cell.ring.player
-                        if 1 <= owner <= 4:
-                            plane_idx = (owner - 1) * num_positions
+                    # Ring features (planes 0-3) - mark presence for each player's rings
+                    rings = getattr(ring_stack, 'rings', [])
+                    for ring_owner in rings:
+                        if 1 <= ring_owner <= 4:
+                            plane_idx = (ring_owner - 1) * num_positions
                             features[plane_idx + idx] = 1.0
 
-                    # Stack features (planes 4-7)
-                    if hasattr(cell, 'stack') and cell.stack:
-                        owner = cell.stack.player
-                        height = getattr(cell.stack, 'height', 1)
-                        if 1 <= owner <= 4:
-                            plane_idx = (4 + owner - 1) * num_positions
-                            # Normalize height to [0, 1]
-                            features[plane_idx + idx] = min(height / 5.0, 1.0)
+                    # Stack features (planes 4-7) - use controlling player and height
+                    owner = getattr(ring_stack, 'controlling_player', 0)
+                    height = getattr(ring_stack, 'stack_height', 0)
+                    if 1 <= owner <= 4 and height > 0:
+                        plane_idx = (4 + owner - 1) * num_positions
+                        # Normalize height to [0, 1]
+                        features[plane_idx + idx] = min(height / 5.0, 1.0)
         except (ValueError, AttributeError):
             continue
 
-    # Extract territory features (planes 8-11)
-    for player in state.players:
-        pnum = player.player_number
-        if 1 <= pnum <= 4:
-            for territory in (player.territories or []):
-                for pos in (territory.spaces or []):
+    # Extract territory features (planes 8-11) from board.territories
+    for territory_key, territory in (board.territories or {}).items():
+        try:
+            pnum = getattr(territory, 'player', 0)
+            if 1 <= pnum <= 4:
+                for pos in (getattr(territory, 'spaces', None) or []):
                     idx = _pos_to_index(pos, board_size, board_type)
                     if 0 <= idx < num_positions:
                         plane_idx = (8 + pnum - 1) * num_positions
                         features[plane_idx + idx] = 1.0
+        except (ValueError, AttributeError):
+            continue
 
     return features
 

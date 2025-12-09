@@ -143,3 +143,97 @@ export function hasAnyRealAction(
 
   return false;
 }
+
+/**
+ * Check if a player owns any markers on the board.
+ *
+ * @param board - Current board state
+ * @param playerNumber - Player to check
+ * @returns True if the player owns at least one marker
+ */
+export function playerHasMarkers(board: BoardState, playerNumber: number): boolean {
+  for (const marker of board.markers.values()) {
+    if (marker.player === playerNumber) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Count buried rings for a player.
+ *
+ * A buried ring is a ring of the player's colour that is in an opponent-
+ * controlled stack (not the top ring). These are used for recovery action
+ * costs per RR-CANON-R113.
+ *
+ * @param board - Current board state
+ * @param playerNumber - Player to count buried rings for
+ * @returns Number of buried rings
+ */
+export function countBuriedRings(board: BoardState, playerNumber: number): number {
+  let count = 0;
+
+  for (const stack of board.stacks.values()) {
+    // Only count rings in opponent-controlled stacks
+    if (stack.controllingPlayer === playerNumber) continue;
+
+    // Count rings belonging to this player (excluding top ring)
+    for (let i = 0; i < stack.rings.length - 1; i++) {
+      if (stack.rings[i] === playerNumber) {
+        count++;
+      }
+    }
+  }
+
+  return count;
+}
+
+/**
+ * Check if a player is eligible for recovery action.
+ *
+ * A player is eligible per RR-CANON-R110 if:
+ * - They control no stacks
+ * - They have no rings in hand
+ * - They own at least one marker
+ * - They have at least one buried ring
+ *
+ * @param state - Current game state
+ * @param playerNumber - Player to check
+ * @returns True if the player is eligible for recovery action
+ */
+export function isEligibleForRecovery(state: GameState, playerNumber: number): boolean {
+  const player = state.players.find((p) => p.playerNumber === playerNumber);
+  if (!player) {
+    return false;
+  }
+
+  // Must have no rings in hand
+  if (player.ringsInHand > 0) {
+    return false;
+  }
+
+  // Must control no stacks
+  if (playerControlsAnyStack(state.board, playerNumber)) {
+    return false;
+  }
+
+  // Must own at least one marker
+  let hasMarker = false;
+  for (const marker of state.board.markers.values()) {
+    if (marker.player === playerNumber) {
+      hasMarker = true;
+      break;
+    }
+  }
+  if (!hasMarker) {
+    return false;
+  }
+
+  // Must have at least one buried ring
+  if (countBuriedRings(state.board, playerNumber) < 1) {
+    return false;
+  }
+
+  return true;
+}
