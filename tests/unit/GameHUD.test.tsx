@@ -666,6 +666,41 @@ describe('GameHUD', () => {
       expect(countdownPill).not.toHaveAttribute('data-server-capped');
     });
 
+    it('omits the countdown pill when showCountdown is false in the decision phase', () => {
+      const gameState = createTestGameState({
+        currentPhase: 'line_processing',
+        currentPlayer: 1,
+      });
+      const choice: PlayerChoice = {
+        id: 'choice-no-countdown',
+        type: 'line_reward_option',
+        playerNumber: 1,
+        options: ['add_ring', 'add_stack'] as any,
+        timeoutMs: 30_000,
+      } as any;
+
+      const hudViewModel = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: false,
+        currentUserId: 'p1',
+        pendingChoice: choice,
+        choiceDeadline: null,
+        choiceTimeRemainingMs: null,
+      });
+
+      if (hudViewModel.decisionPhase) {
+        hudViewModel.decisionPhase.showCountdown = false;
+        hudViewModel.decisionPhase.timeRemainingMs = null;
+      }
+
+      render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
+
+      expect(screen.getByTestId('decision-phase-banner')).toBeInTheDocument();
+      expect(screen.queryByTestId('decision-phase-countdown')).toBeNull();
+    });
+
     it('applies critical severity when time has fully elapsed', () => {
       const gameState = createTestGameState({
         currentPhase: 'line_processing',
@@ -726,6 +761,40 @@ describe('GameHUD', () => {
       expect(chip).toBeInTheDocument();
       expect(chip).toHaveAttribute('data-severity', 'warning');
       expect(chip).toHaveTextContent('Your decision timer: 0:04');
+    });
+
+    it('does not render the decision time-pressure chip when countdowns are hidden', () => {
+      const gameState = createTestGameState({
+        currentPhase: 'line_processing',
+        currentPlayer: 1,
+      });
+      const choice: PlayerChoice = {
+        id: 'choice-hide-chip',
+        type: 'line_reward_option',
+        playerNumber: 1,
+        options: ['add_ring', 'add_stack'] as any,
+        timeoutMs: 30_000,
+      } as any;
+
+      const hudViewModel = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: false,
+        currentUserId: 'p1',
+        pendingChoice: choice,
+        choiceDeadline: Date.now() + 4_000,
+        choiceTimeRemainingMs: 4_000,
+      });
+
+      // Explicitly hide countdown chip
+      if (hudViewModel.decisionPhase) {
+        hudViewModel.decisionPhase.showCountdown = false;
+      }
+
+      render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
+
+      expect(screen.queryByTestId('hud-decision-time-pressure')).toBeNull();
     });
 
     it('renders spectator-oriented decision banner when user is not acting player', () => {

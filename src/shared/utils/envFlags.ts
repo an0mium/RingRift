@@ -205,7 +205,9 @@ export type FSMOrchestratorMode = 'off' | 'shadow' | 'active';
 
 /**
  * Read the current FSM orchestrator mode from the environment.
- * Defaults to 'off' when unset or invalid.
+ * Defaults to 'active' when unset or invalid (FSM is now the canonical orchestrator).
+ *
+ * To revert to legacy orchestration, explicitly set RINGRIFT_FSM_ORCHESTRATOR_MODE=off.
  */
 export function getFSMOrchestratorMode(): FSMOrchestratorMode {
   // Explicit mode takes precedence
@@ -214,12 +216,13 @@ export function getFSMOrchestratorMode(): FSMOrchestratorMode {
     return modeRaw;
   }
 
-  // Backwards compat: legacy shadow flag
+  // Backwards compat: legacy shadow flag (for debugging/comparison)
   if (flagEnabled('RINGRIFT_FSM_ORCHESTRATOR_SHADOW')) {
     return 'shadow';
   }
 
-  return 'off';
+  // FSM is now the canonical orchestrator by default
+  return 'active';
 }
 
 /**
