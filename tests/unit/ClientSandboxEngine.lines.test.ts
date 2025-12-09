@@ -16,6 +16,7 @@ import {
   BOARD_CONFIGS,
 } from '../../src/shared/types/game';
 import { getEffectiveLineLengthThreshold } from '../../src/shared/engine';
+import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Sandbox line detection + reward tests.

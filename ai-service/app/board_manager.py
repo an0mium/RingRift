@@ -392,6 +392,7 @@ class BoardManager:
                 region,
                 board,
             )
+
             if len(represented_players) < len(active_players):
                 # Only keep the region if exactly one player is represented inside;
                 # ambiguous/neutral regions are non-canonical and should be dropped.

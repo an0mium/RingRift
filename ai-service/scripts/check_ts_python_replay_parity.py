@@ -494,7 +494,19 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
     """Invoke the TS harness and parse its per-move summaries.
 
     Returns:
-      (total_moves_reported_by_ts, mapping from move_index -> summary)
+      (total_moves_reported_by_ts,
+       mapping from k -> post-move (after any synthesized bridges) summary)
+
+    The TS harness may emit ``ts-replay-bridge`` events when it synthesises
+    bookkeeping moves (for example ``no_territory_action``) between recorded
+    DB moves. For parity we want TS step ``k`` to represent the state *after*
+    those synthesized bridge moves for DB move ``k-1``, matching Python's
+    ``get_state_at_move(k-1)`` semantics. To achieve this we treat the last
+    ``ts-replay-bridge`` seen after a given ``ts-replay-step`` as the canonical
+    snapshot for that ``k``, overriding the pre-bridge ``ts-replay-step``
+    summary. Bridges that occur before the first ``ts-replay-step`` are
+    ignored for parity; they are harness-internal adjustments to the initial
+    snapshot rather than post-move states.
     """
     root = repo_root()
     cmd = [
@@ -529,6 +541,7 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
 
     total_ts_moves = 0
     summaries: Dict[int, StateSummary] = {}
+    last_ts_step_k: Optional[int] = None
 
     for line in stdout.splitlines():
         line = line.strip()
@@ -555,6 +568,24 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
             summary = payload.get("summary") or {}
             summaries[k] = StateSummary(
                 move_index=k,
+                current_player=summary.get("currentPlayer"),
+                current_phase=summary.get("currentPhase"),
+                game_status=_canonicalize_status(summary.get("gameStatus")),
+                state_hash=summary.get("stateHash"),
+            )
+            last_ts_step_k = k
+        elif kind == "ts-replay-bridge":
+            # Bridge snapshots are treated as the canonical post-move state for
+            # the most recent TS step. This aligns TS k semantics with
+            # Python's get_state_at_move(k-1), where internal bridge/no-op
+            # transitions have already been applied. Bridges before the first
+            # ts-replay-step are ignored for parity.
+            if last_ts_step_k is None:
+                continue
+            summary = payload.get("summary") or {}
+            target_k = last_ts_step_k
+            summaries[target_k] = StateSummary(
+                move_index=target_k,
                 current_player=summary.get("currentPlayer"),
                 current_phase=summary.get("currentPhase"),
                 game_status=_canonicalize_status(summary.get("gameStatus")),
@@ -1318,3 +1349,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

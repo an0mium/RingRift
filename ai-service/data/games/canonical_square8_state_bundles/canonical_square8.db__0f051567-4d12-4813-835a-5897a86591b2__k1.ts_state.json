@@ -4,29 +4,19 @@
     "type": "square8",
     "size": 8,
     "stacks": {
-      "0,3": {
+      "6,2": {
         "position": {
-          "x": 0,
-          "y": 3,
+          "x": 6,
+          "y": 2,
           "z": null
         },
-        "rings": [1, 1],
-        "stackHeight": 2,
-        "capHeight": 2,
+        "rings": [1, 1, 1],
+        "stackHeight": 3,
+        "capHeight": 3,
         "controllingPlayer": 1
       }
     },
-    "markers": {
-      "0,1": {
-        "position": {
-          "x": 0,
-          "y": 1,
-          "z": null
-        },
-        "player": 1,
-        "type": "regular"
-      }
-    },
+    "markers": {},
     "collapsedSpaces": {},
     "eliminatedRings": {},
     "formedLines": []
@@ -34,7 +24,7 @@
   "players": [
     {
       "playerNumber": 1,
-      "ringsInHand": 16,
+      "ringsInHand": 15,
       "eliminatedRings": 0,
       "territorySpaces": 0,
       "isActive": true
@@ -48,16 +38,16 @@
     }
   ],
   "currentPlayer": 1,
-  "currentPhase": "line_processing",
-  "turnNumber": 3,
+  "currentPhase": "movement",
+  "turnNumber": 2,
   "moveHistory": [
     {
       "id": "simulated",
       "type": "place_ring",
       "player": 1,
       "to": {
-        "x": 0,
-        "y": 1,
+        "x": 6,
+        "y": 2,
         "z": null
       },
       "captureTarget": null,
@@ -65,7 +55,7 @@
       "captureChain": null,
       "overtakenRings": null,
       "placedOnStack": false,
-      "placementCount": 2,
+      "placementCount": 3,
       "stackMoved": null,
       "minimumDistance": null,
       "actualDistance": null,
@@ -78,45 +68,9 @@
       "collapsePositions": null,
       "extractionStacks": null,
       "eliminatedRings": null,
-      "timestamp": "2025-12-09T07:53:55.274Z",
+      "timestamp": "2025-12-09T07:45:04.850Z",
       "thinkTime": 0,
       "moveNumber": 1
-    },
-    {
-      "id": "simulated",
-      "type": "move_stack",
-      "player": 1,
-      "from": {
-        "x": 0,
-        "y": 1,
-        "z": null
-      },
-      "to": {
-        "x": 0,
-        "y": 3,
-        "z": null
-      },
-      "captureTarget": null,
-      "capturedStacks": null,
-      "captureChain": null,
-      "overtakenRings": null,
-      "placedOnStack": null,
-      "placementCount": null,
-      "stackMoved": null,
-      "minimumDistance": null,
-      "actualDistance": null,
-      "markerLeft": null,
-      "formedLines": null,
-      "collapsedMarkers": null,
-      "claimedTerritory": null,
-      "disconnectedRegions": null,
-      "recoveryOption": null,
-      "collapsePositions": null,
-      "extractionStacks": null,
-      "eliminatedRings": null,
-      "timestamp": "2025-12-09T07:53:55.274Z",
-      "thinkTime": 0,
-      "moveNumber": 2
     }
   ],
   "gameStatus": "active",

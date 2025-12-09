@@ -8,6 +8,7 @@ import { BOARD_CONFIGS, positionToString } from '../../src/shared/types/game';
 import { lineAndTerritoryRuleScenarios, LineAndTerritoryRuleScenario } from './rulesMatrix';
 import { SandboxOrchestratorAdapter } from '../../src/client/sandbox/SandboxOrchestratorAdapter';
 import { enumerateProcessTerritoryRegionMoves } from '../../src/shared/engine/territoryDecisionHelpers';
+import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Orchestrator-centric sandbox multi-phase scenario tests.
@@ -144,15 +145,19 @@ describe('Orchestrator.Sandbox multi-phase scenarios (ClientSandboxEngine + Sand
     const beforeState = engine.getGameState();
 
     // Orchestrator moves before any region is processed. In this synthetic
-    // geometry the shared detector may or may not report a disconnected region;
-    // elimination decisions may already exist for generic territory contexts.
+    // geometry the shared detector may or may not report a disconnected region
+    // because we only seed stacks, not markers. Per RR-CANON-R075/R076, elimination
+    // moves are only surfaced in forced_elimination phase, not territory_processing.
+    // So movesBefore may be empty when no natural region is detected.
     const movesBefore = adapter.getValidMoves();
-    expect(movesBefore.length).toBeGreaterThan(0);
+    // We do NOT assert movesBefore.length > 0 since the synthetic geometry
+    // may not produce a naturally-detected disconnected region.
 
-    const elimBefore = movesBefore.filter((m) => m.type === 'eliminate_rings_from_stack');
-    // We do not assert on elimBefore count here; the invariant we care about is
-    // that once a specific region is processed via a canonical decision, the
-    // resulting elimination moves and accounting are consistent across hosts.
+    // All orchestrator moves that ARE present should validate for this snapshot.
+    for (const move of movesBefore) {
+      const validation = adapter.validateMove(move);
+      expect(validation.valid).toBe(true);
+    }
 
     // Construct a canonical process_territory_region decision using the shared
     // helper with a test-only override region, mirroring the backend scenario.
@@ -166,12 +171,6 @@ describe('Orchestrator.Sandbox multi-phase scenarios (ClientSandboxEngine + Sand
       testOverrideRegions: [regionTerritory],
     });
     expect(regionMoves.length).toBeGreaterThan(0);
-
-    // All orchestrator moves should validate for this snapshot.
-    for (const move of movesBefore) {
-      const validation = adapter.validateMove(move);
-      expect(validation.valid).toBe(true);
-    }
 
     const targetKey = keyFromPositions(regionSpaces);
     const regionMove =

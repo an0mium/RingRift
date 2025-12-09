@@ -743,6 +743,46 @@ describe('BoardView', () => {
       expect(arrowMarker).toBeNull();
     });
 
+    it('renders movement grid overlay when enabled', () => {
+      const board = createEmptyBoardState('square8');
+
+      const { container } = render(
+        <BoardView boardType="square8" board={board} showMovementGrid={true} />
+      );
+
+      const svg = container.querySelector('svg');
+      expect(svg).toBeInTheDocument();
+      const lines = svg?.querySelectorAll('line') ?? [];
+      expect(lines.length).toBeGreaterThan(0);
+    });
+
+    it('renders movement grid overlay on hex boards when enabled', () => {
+      const board = createEmptyBoardState('hexagonal');
+      board.type = 'hexagonal';
+      board.size = 3;
+
+      const { container } = render(
+        <BoardView boardType="hexagonal" board={board} showMovementGrid={true} />
+      );
+
+      const svg = container.querySelector('svg');
+      expect(svg).toBeInTheDocument();
+      const lines = svg?.querySelectorAll('line') ?? [];
+      expect(lines.length).toBeGreaterThan(0);
+    });
+
+    it('does not render movement grid overlay when disabled', () => {
+      const board = createEmptyBoardState('square8');
+
+      const { container } = render(
+        <BoardView boardType="square8" board={board} showMovementGrid={false} />
+      );
+
+      const svg = container.querySelector('svg');
+      // No movement grid overlay should be present when the feature flag is false.
+      expect(svg).not.toBeInTheDocument();
+    });
+
     it('accepts chainCapturePath prop on hex boards', () => {
       const board = createEmptyBoardState('hexagonal');
       board.type = 'hexagonal';

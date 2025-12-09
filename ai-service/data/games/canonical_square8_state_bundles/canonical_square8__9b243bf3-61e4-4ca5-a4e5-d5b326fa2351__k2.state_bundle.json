@@ -1,31 +1,23 @@
 {
   "db_path": "/Users/armand/Development/RingRift/ai-service/data/games/canonical_square8.db",
-  "diverged_at": 3,
-  "game_id": "36ecda5c-3383-4492-9366-33d67a303ac0",
+  "diverged_at": 2,
+  "game_id": "9b243bf3-61e4-4ca5-a4e5-d5b326fa2351",
   "mismatch_context": "post_move",
   "mismatch_kinds": ["current_player", "current_phase", "state_hash"],
   "python_states": {
-    "2": {
+    "1": {
       "board": {
         "collapsedSpaces": {},
         "eliminatedRings": {},
-        "markers": {
-          "1,0": {
-            "player": 1,
-            "position": {
-              "x": 1,
-              "y": 0
-            }
-          }
-        },
+        "markers": {},
         "size": 8,
         "stacks": {
-          "7,6": {
+          "3,4": {
             "capHeight": 3,
             "controllingPlayer": 1,
             "position": {
-              "x": 7,
-              "y": 6
+              "x": 3,
+              "y": 4
             },
             "rings": [1, 1, 1],
             "stackHeight": 3
@@ -33,7 +25,7 @@
         },
         "type": "square8"
       },
-      "currentPhase": "line_processing",
+      "currentPhase": "movement",
       "currentPlayer": 1,
       "gameId": "self-play",
       "gameStatus": "active",
@@ -45,28 +37,12 @@
           "placementCount": 3,
           "player": 1,
           "thinkTime": 0,
-          "timestamp": "2025-12-09T02:31:16.361424",
+          "timestamp": "2025-12-09T01:45:04.850431",
           "to": {
-            "x": 1,
-            "y": 0
+            "x": 3,
+            "y": 4
           },
           "type": "place_ring"
-        },
-        {
-          "from": {
-            "x": 1,
-            "y": 0
-          },
-          "id": "simulated",
-          "moveNumber": 2,
-          "player": 1,
-          "thinkTime": 0,
-          "timestamp": "2025-12-09T02:31:16.361424",
-          "to": {
-            "x": 7,
-            "y": 6
-          },
-          "type": "move_stack"
         }
       ],
       "players": [
@@ -88,31 +64,31 @@
       "territoryVictoryThreshold": 33,
       "totalRingsEliminated": 0,
       "totalRingsInPlay": 36,
-      "turnNumber": 3,
+      "turnNumber": 2,
       "victoryThreshold": 19,
       "winner": null
     },
-    "3": {
+    "2": {
       "board": {
         "collapsedSpaces": {},
         "eliminatedRings": {},
         "markers": {
-          "1,0": {
+          "3,4": {
             "player": 1,
             "position": {
-              "x": 1,
-              "y": 0
+              "x": 3,
+              "y": 4
             }
           }
         },
         "size": 8,
         "stacks": {
-          "7,6": {
+          "6,4": {
             "capHeight": 3,
             "controllingPlayer": 1,
             "position": {
-              "x": 7,
-              "y": 6
+              "x": 6,
+              "y": 4
             },
             "rings": [1, 1, 1],
             "stackHeight": 3
@@ -120,8 +96,8 @@
         },
         "type": "square8"
       },
-      "currentPhase": "territory_processing",
-      "currentPlayer": 1,
+      "currentPhase": "ring_placement",
+      "currentPlayer": 2,
       "gameId": "self-play",
       "gameStatus": "active",
       "moveHistory": [
@@ -132,26 +108,26 @@
           "placementCount": 3,
           "player": 1,
           "thinkTime": 0,
-          "timestamp": "2025-12-09T02:31:16.361424",
+          "timestamp": "2025-12-09T01:45:04.850431",
           "to": {
-            "x": 1,
-            "y": 0
+            "x": 3,
+            "y": 4
           },
           "type": "place_ring"
         },
         {
           "from": {
-            "x": 1,
-            "y": 0
+            "x": 3,
+            "y": 4
           },
           "id": "simulated",
           "moveNumber": 2,
           "player": 1,
           "thinkTime": 0,
-          "timestamp": "2025-12-09T02:31:16.361424",
+          "timestamp": "2025-12-09T01:45:04.850431",
           "to": {
-            "x": 7,
-            "y": 6
+            "x": 6,
+            "y": 4
           },
           "type": "move_stack"
         },
@@ -160,12 +136,24 @@
           "moveNumber": 3,
           "player": 1,
           "thinkTime": 0,
-          "timestamp": "2025-12-09T02:34:17.939421",
+          "timestamp": "2025-12-09T06:10:56.115940",
           "to": {
             "x": 0,
             "y": 0
           },
           "type": "no_line_action"
+        },
+        {
+          "id": "no-territory-action-4",
+          "moveNumber": 4,
+          "player": 1,
+          "thinkTime": 0,
+          "timestamp": "2025-12-09T06:10:56.116004",
+          "to": {
+            "x": 0,
+            "y": 0
+          },
+          "type": "no_territory_action"
         }
       ],
       "players": [
@@ -187,26 +175,106 @@
       "territoryVictoryThreshold": 33,
       "totalRingsEliminated": 0,
       "totalRingsInPlay": 36,
-      "turnNumber": 4,
+      "turnNumber": 5,
       "victoryThreshold": 19,
       "winner": null
     }
   },
-  "total_moves_python": 84,
-  "total_moves_ts": 84,
-  "ts_k_values": [2, 3],
+  "total_moves_python": 57,
+  "total_moves_ts": 57,
+  "ts_k_values": [1, 2],
   "ts_states": {
+    "1": {
+      "board": {
+        "collapsedSpaces": {},
+        "eliminatedRings": {},
+        "formedLines": [],
+        "markers": {},
+        "size": 8,
+        "stacks": {
+          "3,4": {
+            "capHeight": 3,
+            "controllingPlayer": 1,
+            "position": {
+              "x": 3,
+              "y": 4,
+              "z": null
+            },
+            "rings": [1, 1, 1],
+            "stackHeight": 3
+          }
+        },
+        "type": "square8"
+      },
+      "currentPhase": "movement",
+      "currentPlayer": 1,
+      "gameId": "self-play",
+      "gameStatus": "active",
+      "moveHistory": [
+        {
+          "actualDistance": null,
+          "captureChain": null,
+          "captureTarget": null,
+          "capturedStacks": null,
+          "claimedTerritory": null,
+          "collapsePositions": null,
+          "collapsedMarkers": null,
+          "disconnectedRegions": null,
+          "eliminatedRings": null,
+          "extractionStacks": null,
+          "formedLines": null,
+          "id": "simulated",
+          "markerLeft": null,
+          "minimumDistance": null,
+          "moveNumber": 1,
+          "overtakenRings": null,
+          "placedOnStack": false,
+          "placementCount": 3,
+          "player": 1,
+          "recoveryOption": null,
+          "stackMoved": null,
+          "thinkTime": 0,
+          "timestamp": "2025-12-09T07:45:04.850Z",
+          "to": {
+            "x": 3,
+            "y": 4,
+            "z": null
+          },
+          "type": "place_ring"
+        }
+      ],
+      "players": [
+        {
+          "eliminatedRings": 0,
+          "isActive": true,
+          "playerNumber": 1,
+          "ringsInHand": 15,
+          "territorySpaces": 0
+        },
+        {
+          "eliminatedRings": 0,
+          "isActive": true,
+          "playerNumber": 2,
+          "ringsInHand": 18,
+          "territorySpaces": 0
+        }
+      ],
+      "territoryVictoryThreshold": 33,
+      "totalRingsEliminated": 0,
+      "turnNumber": 2,
+      "victoryThreshold": 19
+    },
     "2": {
       "board": {
         "collapsedSpaces": {},
         "eliminatedRings": {},
         "formedLines": [],
         "markers": {
-          "1,0": {
+          "3,4": {
             "player": 1,
             "position": {
-              "x": 1,
-              "y": 0,
+              "x": 3,
+              "y": 4,
               "z": null
             },
             "type": "regular"
@@ -214,12 +282,12 @@
         },
         "size": 8,
         "stacks": {
-          "7,6": {
+          "6,4": {
             "capHeight": 3,
             "controllingPlayer": 1,
             "position": {
-              "x": 7,
-              "y": 6,
+              "x": 6,
+              "y": 4,
               "z": null
             },
             "rings": [1, 1, 1],
@@ -256,10 +324,10 @@
           "recoveryOption": null,
           "stackMoved": null,
           "thinkTime": 0,
-          "timestamp": "2025-12-09T08:31:16.361Z",
+          "timestamp": "2025-12-09T07:45:04.850Z",
           "to": {
-            "x": 1,
-            "y": 0,
+            "x": 3,
+            "y": 4,
             "z": null
           },
           "type": "place_ring"
@@ -277,8 +345,8 @@
           "extractionStacks": null,
           "formedLines": null,
           "from": {
-            "x": 1,
-            "y": 0,
+            "x": 3,
+            "y": 4,
             "z": null
           },
           "id": "simulated",
@@ -292,10 +360,10 @@
           "recoveryOption": null,
           "stackMoved": null,
           "thinkTime": 0,
-          "timestamp": "2025-12-09T08:31:16.361Z",
+          "timestamp": "2025-12-09T07:45:04.850Z",
           "to": {
-            "x": 7,
-            "y": 6,
+            "x": 6,
+            "y": 4,
             "z": null
           },
           "type": "move_stack"
@@ -320,154 +388,6 @@
       "territoryVictoryThreshold": 33,
       "totalRingsEliminated": 0,
       "turnNumber": 3,
-      "victoryThreshold": 19
-    },
-    "3": {
-      "board": {
-        "collapsedSpaces": {},
-        "eliminatedRings": {},
-        "formedLines": [],
-        "markers": {
-          "1,0": {
-            "player": 1,
-            "position": {
-              "x": 1,
-              "y": 0,
-              "z": null
-            },
-            "type": "regular"
-          }
-        },
-        "size": 8,
-        "stacks": {
-          "7,6": {
-            "capHeight": 3,
-            "controllingPlayer": 1,
-            "position": {
-              "x": 7,
-              "y": 6,
-              "z": null
-            },
-            "rings": [1, 1, 1],
-            "stackHeight": 3
-          }
-        },
-        "type": "square8"
-      },
-      "currentPhase": "territory_processing",
-      "currentPlayer": 1,
-      "gameId": "self-play",
-      "gameStatus": "active",
-      "moveHistory": [
-        {
-          "actualDistance": null,
-          "captureChain": null,
-          "captureTarget": null,
-          "capturedStacks": null,
-          "claimedTerritory": null,
-          "collapsePositions": null,
-          "collapsedMarkers": null,
-          "disconnectedRegions": null,
-          "eliminatedRings": null,
-          "extractionStacks": null,
-          "formedLines": null,
-          "id": "simulated",
-          "markerLeft": null,
-          "minimumDistance": null,
-          "moveNumber": 1,
-          "overtakenRings": null,
-          "placedOnStack": false,
-          "placementCount": 3,
-          "player": 1,
-          "recoveryOption": null,
-          "stackMoved": null,
-          "thinkTime": 0,
-          "timestamp": "2025-12-09T08:31:16.361Z",
-          "to": {
-            "x": 1,
-            "y": 0,
-            "z": null
-          },
-          "type": "place_ring"
-        },
-        {
-          "actualDistance": null,
-          "captureChain": null,
-          "captureTarget": null,
-          "capturedStacks": null,
-          "claimedTerritory": null,
-          "collapsePositions": null,
-          "collapsedMarkers": null,
-          "disconnectedRegions": null,
-          "eliminatedRings": null,
-          "extractionStacks": null,
-          "formedLines": null,
-          "from": {
-            "x": 1,
-            "y": 0,
-            "z": null
-          },
-          "id": "simulated",
-          "markerLeft": null,
-          "minimumDistance": null,
-          "moveNumber": 2,
-          "overtakenRings": null,
-          "placedOnStack": null,
-          "placementCount": null,
-          "player": 1,
-          "recoveryOption": null,
-          "stackMoved": null,
-          "thinkTime": 0,
-          "timestamp": "2025-12-09T08:31:16.361Z",
-          "to": {
-            "x": 7,
-            "y": 6,
-            "z": null
-          },
-          "type": "move_stack"
-        },
-        {
-          "actualDistance": null,
-          "collapsePositions": null,
-          "collapsedMarkers": null,
-          "extractionStacks": null,
-          "id": "no-line-action-3",
-          "markerLeft": null,
-          "minimumDistance": null,
-          "moveNumber": 3,
-          "placedOnStack": null,
-          "placementCount": null,
-          "player": 1,
-          "recoveryOption": null,
-          "stackMoved": null,
-          "thinkTime": 0,
-          "timestamp": "2025-12-09T08:34:17.939Z",
-          "to": {
-            "x": 0,
-            "y": 0
-          },
-          "type": "no_line_action"
-        }
-      ],
-      "players": [
-        {
-          "eliminatedRings": 0,
-          "isActive": true,
-          "playerNumber": 1,
-          "ringsInHand": 15,
-          "territorySpaces": 0
-        },
-        {
-          "eliminatedRings": 0,
-          "isActive": true,
-          "playerNumber": 2,
-          "ringsInHand": 18,
-          "territorySpaces": 0
-        }
-      ],
-      "territoryVictoryThreshold": 33,
-      "totalRingsEliminated": 0,
-      "turnNumber": 4,
       "victoryThreshold": 19
     }
   }

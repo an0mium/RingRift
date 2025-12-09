@@ -24,6 +24,7 @@ import { enumerateProcessTerritoryRegionMoves } from '../../src/shared/engine/te
 import { getEffectiveLineLengthThreshold } from '../../src/shared/engine/rulesConfig';
 import { computeProgressSnapshot } from '../../src/shared/engine/core';
 import { processTurn } from '../../src/shared/engine/orchestration/turnOrchestrator';
+import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Orchestrator-centric backend multi-phase scenario + invariant tests.
@@ -813,12 +814,16 @@ describe('Orchestrator.Backend invariants – getValidMoves vs validateMove & fo
   });
 
   /**
-   * Territory forced-elimination invariant: when the current player is in a
-   * territory_processing phase with no real actions available but still
-   * controls stacks, the orchestrator must surface explicit
-   * eliminate_rings_from_stack decisions and those moves must validate.
+   * Forced-elimination phase invariant: when the current player is in the
+   * forced_elimination phase (blocked with stacks but no legal actions),
+   * the orchestrator must surface explicit forced_elimination moves that
+   * allow eliminating caps from owned stacks, and those moves must validate.
+   *
+   * Note: Per RR-CANON-R075/R076, eliminate_rings_from_stack moves only appear
+   * in forced_elimination phase, not territory_processing. In territory_processing,
+   * elimination is handled via process_territory_region moves with self-elimination costs.
    */
-  it('territory forced-elimination surfaces elimination decisions when player is blocked with material', async () => {
+  it('forced_elimination phase surfaces elimination decisions when player is blocked with material', async () => {
     const { players } = createDefaultTwoPlayerConfig(boardType, timeControl);
     // Start with no rings in hand so placements are impossible.
     players.forEach((p) => {
@@ -829,41 +834,82 @@ describe('Orchestrator.Backend invariants – getValidMoves vs validateMove & fo
     const engineAny: any = engine;
     const state: GameState = engineAny.gameState as GameState;
 
+    // Create a truly blocked state: P1 has a single stack surrounded by P2 stacks.
+    // This ensures hasAnyGlobalMovementOrCapture returns false for P1.
+    // Place P1 at (3,3) surrounded by P2 stacks at all orthogonal neighbors.
+    const stackPos: Position = { x: 3, y: 3 };
+    const p1Rings = [1, 1, 1];
+
+    // Modify the internal engine state directly. Note: we must do this BEFORE
+    // creating the harness, and then also update the harness's state since
+    // engine.getGameState() creates shallow clones with new Map copies.
+    //
+    // Per RR-CANON-R075/R076, eliminate_rings_from_stack moves are only valid
+    // in the 'forced_elimination' phase. In territory_processing, elimination
+    // is handled via process_territory_region moves. When no regions exist,
+    // the orchestrator transitions to forced_elimination phase.
     state.gameStatus = 'active';
     state.currentPlayer = 1;
-    (state as any).currentPhase = 'territory_processing';
-
-    // Single Player 1 stack eligible for elimination; no markers/regions so
-    // process_territory_region moves are unavailable.
-    const stackPos: Position = { x: 3, y: 3 };
-    const rings = [1, 1, 1];
+    (state as any).currentPhase = 'forced_elimination';
     state.board.stacks.clear();
     state.board.markers.clear();
     state.board.collapsedSpaces.clear();
 
+    // P1's single stack
     state.board.stacks.set(positionToString(stackPos), {
       position: stackPos,
-      rings,
-      stackHeight: rings.length,
-      capHeight: rings.length,
+      rings: p1Rings,
+      stackHeight: p1Rings.length,
+      capHeight: p1Rings.length,
       controllingPlayer: 1,
     } as any);
 
+    // Surround with P2 stacks to block all movement/capture options for P1.
+    // Square8 uses 8-direction Moore adjacency, so we need to block all 8 neighbors.
+    // Neighbors of (3,3): E(4,3), SE(4,4), S(3,4), SW(2,4), W(2,3), NW(2,2), N(3,2), NE(4,2)
+    const p2Rings = [2, 2, 2, 2, 2]; // Taller stacks so P1 can't capture
+    const neighbors = [
+      { x: 4, y: 3 }, // E
+      { x: 4, y: 4 }, // SE
+      { x: 3, y: 4 }, // S
+      { x: 2, y: 4 }, // SW
+      { x: 2, y: 3 }, // W
+      { x: 2, y: 2 }, // NW
+      { x: 3, y: 2 }, // N
+      { x: 4, y: 2 }, // NE
+    ];
+    for (const pos of neighbors) {
+      state.board.stacks.set(positionToString(pos), {
+        position: pos,
+        rings: p2Rings,
+        stackHeight: p2Rings.length,
+        capHeight: p2Rings.length,
+        controllingPlayer: 2,
+      } as any);
+    }
+
+    // Create harness AFTER state modifications, and get state from harness.
+    // The harness's getState() returns the adapter's internal state reference,
+    // not a clone. Since engine.getGameState() clones Maps, we need to verify
+    // the harness sees the modified state correctly.
     const harness = createBackendOrchestratorHarness(engine);
     const orchState = harness.getState();
-    expect(orchState.currentPhase).toBe('territory_processing');
+
+    // The adapter's state should reflect our modifications since getGameState()
+    // is called after we modified engineAny.gameState.
+    // However, getGameState() creates new Maps, so verify the state is correct:
+    expect(orchState.currentPhase).toBe('forced_elimination');
     expect(orchState.currentPlayer).toBe(1);
 
     const orchMoves = harness.adapter.getValidMovesFor(orchState);
 
-    // No "real" actions should be present in territory_processing for this shape.
+    // No "real" actions should be present in forced_elimination phase for this shape.
+    // forced_elimination moves are considered bookkeeping/penalty moves, not real actions.
     const realOrch = filterRealActionMoves(orchMoves);
     expect(realOrch.length).toBe(0);
 
-    const regionMoves = orchMoves.filter((m) => m.type === 'process_territory_region');
-    expect(regionMoves.length).toBe(0);
-
-    const elimMoves = orchMoves.filter((m) => m.type === 'eliminate_rings_from_stack');
+    // In forced_elimination phase, moves are typed as 'forced_elimination', not 'eliminate_rings_from_stack'
+    const elimMoves = orchMoves.filter((m) => m.type === 'forced_elimination');
     expect(elimMoves.length).toBeGreaterThan(0);
 
     for (const m of elimMoves) {

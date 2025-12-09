@@ -7,9 +7,19 @@ but game state fixtures are function-scoped to ensure test isolation.
 """
 
 from datetime import datetime
+from pathlib import Path
+import sys
 from typing import Callable, Dict, List, Optional
 
 import pytest
+
+# Ensure ai-service root is on sys.path so `import app` works when running
+# pytest either from the repository root or from the ai-service directory.
+# This avoids ModuleNotFoundError in tests/conftest.py when the pytest
+# rootdir is resolved above ai-service/.
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+if str(AI_SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.models import (
     AIConfig,
