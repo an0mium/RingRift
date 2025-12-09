@@ -277,6 +277,22 @@ describe('DecisionUI harness → ChoiceDialog integration', () => {
     expect(screen.getByText('3s')).toBeInTheDocument();
   });
 
+  it('applies warning severity when decision time remaining is between 3s and 10s', async () => {
+    const deadline = Date.now() + 8000;
+    mockedUsePendingChoice.mockReturnValue({
+      pendingChoice: lineOrderChoice,
+      pendingChoiceView: { viewModel: undefined },
+      choiceDeadline: deadline,
+      reconciledDecisionTimeRemainingMs: 8000,
+    } as any);
+
+    render(<DecisionUIHarness />);
+
+    const countdown = await screen.findByTestId('choice-countdown');
+    expect(countdown).toHaveAttribute('data-severity', 'warning');
+    expect(screen.getByText('8s')).toBeInTheDocument();
+  });
+
   it('surfaces countdown severity for short timers', async () => {
     const deadline = Date.now() + 2500;
     mockedUsePendingChoice.mockReturnValue({
