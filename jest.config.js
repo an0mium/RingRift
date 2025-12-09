@@ -184,6 +184,25 @@ module.exports = {
       lines: 80,
       statements: 80,
     },
+    // Client UI modules with explicit thresholds to prevent silent regressions.
+    '<rootDir>/src/client/components/BoardView.tsx': {
+      branches: 50,
+      functions: 50,
+      lines: 50,
+      statements: 50,
+    },
+    '<rootDir>/src/client/components/GameHUD.tsx': {
+      branches: 60,
+      functions: 70,
+      lines: 60,
+      statements: 60,
+    },
+    '<rootDir>/src/client/components/ChoiceDialog.tsx': {
+      branches: 75,
+      functions: 90,
+      lines: 80,
+      statements: 80,
+    },
   },
   
   // Coverage reporters

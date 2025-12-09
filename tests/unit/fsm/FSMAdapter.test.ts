@@ -422,7 +422,10 @@ describe('FSMAdapter', () => {
       expect(result.reason).toContain('swap_sides');
     });
 
-    it('should reject skip_placement when player can place rings', () => {
+    it('should accept skip_placement when move hint is trusted (replay parity)', () => {
+      // In replay mode, skip_placement moves are trusted because they come from
+      // recorded game data where the player genuinely couldn't place. We trust
+      // the moveHint to set canPlace=false in deriveRingPlacementState.
       const state = createTestGameState();
       const move: Move = {
         id: 'test-4',
@@ -436,9 +439,8 @@ describe('FSMAdapter', () => {
 
       const result = validateMoveWithFSM(state, move);
 
-      // Should fail because player has rings to place
-      expect(result.valid).toBe(false);
-      expect(result.errorCode).toBe('GUARD_FAILED');
+      // Should pass because skip_placement is trusted via moveHint
+      expect(result.valid).toBe(true);
     });
   });
 

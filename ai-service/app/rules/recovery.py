@@ -56,6 +56,7 @@ from app.rules.core import (
 @dataclass
 class RecoverySlideTarget:
     """A valid target position for a recovery slide move (before option selection)."""
+
     from_pos: Position
     to_pos: Position
     markers_in_line: int  # number of markers (including the sliding marker) that form the line
@@ -71,6 +72,7 @@ class RecoverySlideTarget:
 @dataclass
 class RecoveryValidationResult:
     """Result of validating a recovery slide move."""
+
     valid: bool
     reason: Optional[str] = None
     markers_in_line: int = 0
@@ -82,6 +84,7 @@ class RecoveryValidationResult:
 @dataclass
 class RecoveryApplicationOutcome:
     """Outcome of applying a recovery slide."""
+
     success: bool
     error: Optional[str] = None
     option_used: Optional[RecoveryOption] = None
@@ -93,6 +96,7 @@ class RecoveryApplicationOutcome:
 @dataclass
 class EligibleExtractionStack:
     """Information about a stack eligible for buried ring extraction."""
+
     position_key: str  # Position key of the stack (e.g., "3,4")
     position: Position  # Position of the stack
     bottom_ring_index: int  # Index of the bottommost buried ring in the stack.rings list
@@ -111,10 +115,7 @@ def _get_moore_directions(board_type: BoardType) -> List[Tuple[int, int, Optiona
     6 axial directions for hex).
     """
     if board_type == BoardType.HEXAGONAL:
-        return [
-            (1, 0, -1), (0, 1, -1), (-1, 1, 0),
-            (-1, 0, 1), (0, -1, 1), (1, -1, 0)
-        ]
+        return [(1, 0, -1), (0, 1, -1), (-1, 1, 0), (-1, 0, 1), (0, -1, 1), (1, -1, 0)]
     else:
         # Moore neighborhood: 8 directions
         directions = []
@@ -462,9 +463,7 @@ def enumerate_recovery_slide_targets(
             )
 
             # Check if this completes a line
-            completes, markers_count, line_positions = _would_complete_line_at(
-                board, player, to_pos, line_length
-            )
+            completes, markers_count, line_positions = _would_complete_line_at(board, player, to_pos, line_length)
 
             # Restore the marker
             del board.markers[to_pos.to_key()]
@@ -480,17 +479,19 @@ def enumerate_recovery_slide_targets(
 
                 # At least one option must be available
                 if can_use_option1 or can_use_option2:
-                    targets.append(RecoverySlideTarget(
-                        from_pos=marker_pos,
-                        to_pos=to_pos,
-                        markers_in_line=markers_count,
-                        is_overlength=is_overlength,
-                        option1_cost=1,
-                        option2_available=is_overlength,
-                        option2_cost=0,
-                        line_positions=line_positions,
-                        cost=1,  # Deprecated, kept for backwards compatibility
-                    ))
+                    targets.append(
+                        RecoverySlideTarget(
+                            from_pos=marker_pos,
+                            to_pos=to_pos,
+                            markers_in_line=markers_count,
+                            is_overlength=is_overlength,
+                            option1_cost=1,
+                            option2_available=is_overlength,
+                            option2_cost=0,
+                            line_positions=line_positions,
+                            cost=1,  # Deprecated, kept for backwards compatibility
+                        )
+                    )
 
     return targets
 
@@ -602,9 +603,7 @@ def validate_recovery_slide(
     )
 
     line_length = get_effective_line_length(board.type, len(state.players))
-    completes, markers_count, line_positions = _would_complete_line_at(
-        board, player, move.to, line_length
-    )
+    completes, markers_count, line_positions = _would_complete_line_at(board, player, move.to, line_length)
 
     # Restore marker
     del board.markers[to_key]
@@ -757,9 +756,7 @@ def apply_recovery_slide(
 
     # Find the completed line
     line_length = get_effective_line_length(board.type, len(state.players))
-    _, markers_count, line_positions = _would_complete_line_at(
-        board, player, move.to, line_length
-    )
+    _, markers_count, line_positions = _would_complete_line_at(board, player, move.to, line_length)
 
     is_overlength = markers_count > line_length
 
@@ -799,9 +796,7 @@ def apply_recovery_slide(
     # Update player's territory count for collapsed markers
     for p in state.players:
         if p.player_number == player:
-            p.territory_spaces = getattr(p, "territory_spaces", 0) + len(
-                collapsed_positions
-            )
+            p.territory_spaces = getattr(p, "territory_spaces", 0) + len(collapsed_positions)
             break
 
     # Calculate cost and extract rings (Option 1 only)
@@ -916,7 +911,9 @@ def get_recovery_moves(state: GameState, player: int) -> List[Move]:
             moves.append(
                 Move(
                     recoveryOption=2,
-                    collapsePositions=tuple(target.line_positions[: get_effective_line_length(state.board.type, len(state.players))]),
+                    collapsePositions=tuple(
+                        target.line_positions[: get_effective_line_length(state.board.type, len(state.players))]
+                    ),
                     **base_kwargs,
                 )
             )

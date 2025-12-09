@@ -46,21 +46,27 @@ class FastGeometry:
 
     # Square board directions (8 neighbors)
     SQUARE_DIRECTIONS: List[Tuple[int, int]] = [
-        (-1, -1), (-1, 0), (-1, 1),
-        (0, -1),          (0, 1),
-        (1, -1),  (1, 0),  (1, 1),
+        (-1, -1),
+        (-1, 0),
+        (-1, 1),
+        (0, -1),
+        (0, 1),
+        (1, -1),
+        (1, 0),
+        (1, 1),
     ]
 
     # Line-of-sight directions for square boards
-    SQUARE_LOS_DIRECTIONS: List[Tuple[int, int, int]] = [
-        (dx, dy, 0) for dx, dy in SQUARE_DIRECTIONS
-    ]
+    SQUARE_LOS_DIRECTIONS: List[Tuple[int, int, int]] = [(dx, dy, 0) for dx, dy in SQUARE_DIRECTIONS]
 
     # Hexagonal directions (6 neighbors)
     HEX_DIRECTIONS: List[Tuple[int, int, int]] = [
-        (1, 0, -1), (-1, 0, 1),
-        (0, 1, -1), (0, -1, 1),
-        (1, -1, 0), (-1, 1, 0),
+        (1, 0, -1),
+        (-1, 0, 1),
+        (0, 1, -1),
+        (0, -1, 1),
+        (1, -1, 0),
+        (-1, 1, 0),
     ]
 
     def __init__(self):
@@ -144,23 +150,17 @@ class FastGeometry:
                     neighbors: List[str] = []
                     for dx, dy, dz in self.HEX_DIRECTIONS:
                         nx, ny, nz = x + dx, y + dy, z + dz
-                        if (abs(nx) <= radius and
-                            abs(ny) <= radius and
-                            abs(nz) <= radius):
+                        if abs(nx) <= radius and abs(ny) <= radius and abs(nz) <= radius:
                             neighbors.append(f"{nx},{ny},{nz}")
                     adjacency[key] = neighbors
 
     def _build_center_tables(self) -> None:
         """Pre-compute center position sets."""
         # Square8: center 2x2
-        self._center_square8 = frozenset(
-            f"{x},{y}" for x in [3, 4] for y in [3, 4]
-        )
+        self._center_square8 = frozenset(f"{x},{y}" for x in [3, 4] for y in [3, 4])
 
         # Square19: center 3x3
-        self._center_square19 = frozenset(
-            f"{x},{y}" for x in [8, 9, 10] for y in [8, 9, 10]
-        )
+        self._center_square19 = frozenset(f"{x},{y}" for x in [8, 9, 10] for y in [8, 9, 10])
 
         # Hex11: center hexagon (distance 0-2 from origin)
         hex_center: Set[str] = set()
@@ -339,9 +339,7 @@ class FastGeometry:
             return f"{x},{y}"
         return f"{x},{y},{z}"
 
-    def get_los_directions(
-        self, board_type: BoardType
-    ) -> List[Tuple[int, int, int]]:
+    def get_los_directions(self, board_type: BoardType) -> List[Tuple[int, int, int]]:
         """Get line-of-sight directions for a board type.
 
         Args:
@@ -495,9 +493,7 @@ class FastGeometry:
                 if curr_z is not None:
                     curr_z += dz
 
-                if not self.is_within_bounds_tuple(
-                    curr_x, curr_y, curr_z, board_type
-                ):
+                if not self.is_within_bounds_tuple(curr_x, curr_y, curr_z, board_type):
                     break
 
                 ray.append(self.coords_to_key(curr_x, curr_y, curr_z))

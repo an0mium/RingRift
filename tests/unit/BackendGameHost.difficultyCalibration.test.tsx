@@ -230,6 +230,13 @@ jest.mock('../../src/client/components/ScreenReaderAnnouncer', () => ({
     message: null,
     announce: jest.fn(),
   }),
+  useGameAnnouncements: () => ({
+    queue: [],
+    announce: jest.fn(),
+    removeAnnouncement: jest.fn(),
+    clearQueue: jest.fn(),
+  }),
+  useGameStateAnnouncements: jest.fn(),
 }));
 
 jest.mock('../../src/client/components/ChoiceDialog', () => ({

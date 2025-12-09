@@ -157,6 +157,7 @@ def get_spatial_size_for_board(board_type: BoardType) -> int:
     """Get the spatial (H, W) size for a board type."""
     return BOARD_SPATIAL_SIZES.get(board_type, 19)
 
+
 # Hex-specific canonical geometry and policy layout constants.
 #
 # The canonical competitive hex board has radius N = 12, which yields
@@ -169,8 +170,8 @@ HEX_MAX_DIST = HEX_BOARD_SIZE - 1  # 24 distance buckets (1..24)
 
 # Canonical axial directions in the 2D embedding.
 HEX_DIRS = [
-    (1, 0),   # +q
-    (0, 1),   # +r
+    (1, 0),  # +q
+    (0, 1),  # +r
     (-1, 1),  # -q + r
     (-1, 0),  # -q
     (0, -1),  # -r
@@ -186,12 +187,7 @@ NUM_HEX_DIRS = len(HEX_DIRS)
 # Total: P_HEX = 91_876
 HEX_PLACEMENT_SPAN = HEX_BOARD_SIZE * HEX_BOARD_SIZE * 3
 HEX_MOVEMENT_BASE = HEX_PLACEMENT_SPAN
-HEX_MOVEMENT_SPAN = (
-    HEX_BOARD_SIZE
-    * HEX_BOARD_SIZE
-    * NUM_HEX_DIRS
-    * HEX_MAX_DIST
-)
+HEX_MOVEMENT_SPAN = HEX_BOARD_SIZE * HEX_BOARD_SIZE * NUM_HEX_DIRS * HEX_MAX_DIST
 HEX_SPECIAL_BASE = HEX_MOVEMENT_BASE + HEX_MOVEMENT_SPAN
 P_HEX = HEX_SPECIAL_BASE + 1
 
@@ -206,7 +202,7 @@ P_HEX = HEX_SPECIAL_BASE + 1
 NUM_SQUARE_DIRS = 8
 
 # Maximum movement distance for each board type
-MAX_DIST_SQUARE8 = 7   # Max diagonal: sqrt(7^2 + 7^2) ≈ 9.9
+MAX_DIST_SQUARE8 = 7  # Max diagonal: sqrt(7^2 + 7^2) ≈ 9.9
 MAX_DIST_SQUARE19 = 18  # Max diagonal: sqrt(18^2 + 18^2) ≈ 25.5
 
 # Line formation directions (horizontal, vertical, diagonal)
@@ -266,9 +262,7 @@ SQUARE19_SWAP_SIDES_IDX = SQUARE19_SPECIAL_BASE + 1  # 54873
 SQUARE19_LINE_CHOICE_BASE = SQUARE19_SPECIAL_BASE + 2  # 54874
 SQUARE19_LINE_CHOICE_SPAN = 4
 SQUARE19_TERRITORY_CHOICE_BASE = SQUARE19_LINE_CHOICE_BASE + SQUARE19_LINE_CHOICE_SPAN
-SQUARE19_TERRITORY_CHOICE_SPAN = (
-    19 * 19 * TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS
-)  # 11,552
+SQUARE19_TERRITORY_CHOICE_SPAN = 19 * 19 * TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS  # 11,552
 
 
 def _infer_board_size(board: Union[BoardState, GameState]) -> int:
@@ -300,10 +294,7 @@ def _infer_board_size(board: Union[BoardState, GameState]) -> int:
     # Defensive fallback: use board.size but guard against unsupported sizes
     size = getattr(board, "size", 8)
     if size > MAX_N:
-        raise ValueError(
-            f"Unsupported board size {size}; MAX_N={MAX_N} is the current "
-            "canonical maximum."
-        )
+        raise ValueError(f"Unsupported board size {size}; MAX_N={MAX_N} is the current " "canonical maximum.")
     return int(size)
 
 
@@ -567,17 +558,14 @@ class RingRiftCNN_v2(nn.Module):
         self.total_in_channels = in_channels * (history_length + 1)
 
         # Initial convolution
-        self.conv1 = nn.Conv2d(
-            self.total_in_channels, num_filters, kernel_size=3, padding=1
-        )
+        self.conv1 = nn.Conv2d(self.total_in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
 
         # SE-enhanced residual blocks for global pattern recognition
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head (outputs per-player win probability)
         self.value_fc1 = nn.Linear(num_filters + global_features, value_intermediate)
@@ -636,12 +624,8 @@ class RingRiftCNN_v2(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            x = torch.from_numpy(feature[None, ...]).float().to(
-                next(self.parameters()).device
-            )
-            g = torch.from_numpy(globals_vec[None, ...]).float().to(
-                next(self.parameters()).device
-            )
+            x = torch.from_numpy(feature[None, ...]).float().to(next(self.parameters()).device)
+            g = torch.from_numpy(globals_vec[None, ...]).float().to(next(self.parameters()).device)
             v, p = self.forward(x, g)
         return float(v[0, player_idx].item()), p.cpu().numpy()[0]
 
@@ -706,17 +690,14 @@ class RingRiftCNN_v2_Lite(nn.Module):
         self.total_in_channels = in_channels * (history_length + 1)
 
         # Initial convolution
-        self.conv1 = nn.Conv2d(
-            self.total_in_channels, num_filters, kernel_size=3, padding=1
-        )
+        self.conv1 = nn.Conv2d(self.total_in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
 
         # SE-enhanced residual blocks
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head
         self.value_fc1 = nn.Linear(num_filters + global_features, value_intermediate)
@@ -766,12 +747,8 @@ class RingRiftCNN_v2_Lite(nn.Module):
         """Convenience method for single-sample inference."""
         self.eval()
         with torch.no_grad():
-            x = torch.from_numpy(feature[None, ...]).float().to(
-                next(self.parameters()).device
-            )
-            g = torch.from_numpy(globals_vec[None, ...]).float().to(
-                next(self.parameters()).device
-            )
+            x = torch.from_numpy(feature[None, ...]).float().to(next(self.parameters()).device)
+            g = torch.from_numpy(globals_vec[None, ...]).float().to(next(self.parameters()).device)
             v, p = self.forward(x, g)
         return float(v[0, player_idx].item()), p.cpu().numpy()[0]
 
@@ -849,9 +826,7 @@ class RingRiftCNN_v3(nn.Module):
         self.territory_size_buckets = territory_size_buckets
         self.territory_max_players = territory_max_players
         self.movement_channels = num_directions * self.max_distance  # 8 × 7 or 8 × 18
-        self.territory_choice_channels = (
-            territory_size_buckets * territory_max_players
-        )  # 32
+        self.territory_choice_channels = territory_size_buckets * territory_max_players  # 32
 
         # Input channels = base_channels * (history_length + 1)
         self.total_in_channels = in_channels * (history_length + 1)
@@ -870,17 +845,14 @@ class RingRiftCNN_v3(nn.Module):
         self._register_policy_indices(board_size)
 
         # Initial convolution
-        self.conv1 = nn.Conv2d(
-            self.total_in_channels, num_filters, kernel_size=3, padding=1
-        )
+        self.conv1 = nn.Conv2d(self.total_in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
 
         # SE-enhanced residual blocks
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head (legacy, kept for backward compatibility)
         self.value_fc1 = nn.Linear(num_filters + global_features, value_intermediate)
@@ -910,9 +882,7 @@ class RingRiftCNN_v3(nn.Module):
         self.territory_claim_conv = nn.Conv2d(num_filters, 1, kernel_size=1)
 
         # Territory choice head: [B, 32, H, W] for (cell, size_bucket, player)
-        self.territory_choice_conv = nn.Conv2d(
-            num_filters, self.territory_choice_channels, kernel_size=1
-        )
+        self.territory_choice_conv = nn.Conv2d(num_filters, self.territory_choice_channels, kernel_size=1)
 
         # Special actions FC: skip_placement (1) + swap_sides (1) + line_choice (4) = 6
         self.special_fc = nn.Linear(num_filters + global_features, 6)
@@ -976,9 +946,7 @@ class RingRiftCNN_v3(nn.Module):
         for y in range(H):
             for x in range(W):
                 for ld in range(self.num_line_dirs):
-                    line_form_idx[ld, y, x] = (
-                        line_form_base + y * W * self.num_line_dirs + x * self.num_line_dirs + ld
-                    )
+                    line_form_idx[ld, y, x] = line_form_base + y * W * self.num_line_dirs + x * self.num_line_dirs + ld
         self.register_buffer("line_form_idx", line_form_idx)
 
         # Territory claim indices: [1, H, W] → flat index
@@ -989,9 +957,7 @@ class RingRiftCNN_v3(nn.Module):
         self.register_buffer("territory_claim_idx", territory_claim_idx)
 
         # Territory choice indices: [32, H, W] → flat index
-        territory_choice_idx = torch.zeros(
-            self.territory_choice_channels, H, W, dtype=torch.long
-        )
+        territory_choice_idx = torch.zeros(self.territory_choice_channels, H, W, dtype=torch.long)
         for y in range(H):
             for x in range(W):
                 for size_bucket in range(self.territory_size_buckets):
@@ -1045,9 +1011,7 @@ class RingRiftCNN_v3(nn.Module):
         dtype = placement_logits.dtype
 
         # Initialize flat policy with large negative (will be masked by legal moves)
-        policy = torch.full(
-            (B, self.policy_size), -1e9, device=device, dtype=dtype
-        )
+        policy = torch.full((B, self.policy_size), -1e9, device=device, dtype=dtype)
 
         # Flatten and scatter placement logits
         placement_flat = placement_logits.view(B, -1)
@@ -1077,13 +1041,11 @@ class RingRiftCNN_v3(nn.Module):
         # Add special action logits
         policy[:, self.skip_placement_idx] = special_logits[:, 0]
         policy[:, self.swap_sides_idx] = special_logits[:, 1]
-        policy[:, self.line_choice_base:self.line_choice_base + 4] = special_logits[:, 2:6]
+        policy[:, self.line_choice_base : self.line_choice_base + 4] = special_logits[:, 2:6]
 
         return policy
 
-    def forward(
-        self, x: torch.Tensor, globals: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, globals: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass with spatial policy heads and rank distribution output.
 
@@ -1154,12 +1116,8 @@ class RingRiftCNN_v3(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            x = torch.from_numpy(feature[None, ...]).float().to(
-                next(self.parameters()).device
-            )
-            g = torch.from_numpy(globals_vec[None, ...]).float().to(
-                next(self.parameters()).device
-            )
+            x = torch.from_numpy(feature[None, ...]).float().to(next(self.parameters()).device)
+            g = torch.from_numpy(globals_vec[None, ...]).float().to(next(self.parameters()).device)
             v, p, rank_dist = self.forward(x, g)
         return float(v[0, player_idx].item()), p.cpu().numpy()[0], rank_dist.cpu().numpy()[0]
 
@@ -1239,17 +1197,14 @@ class RingRiftCNN_v3_Lite(nn.Module):
         self._register_policy_indices(board_size)
 
         # Initial convolution
-        self.conv1 = nn.Conv2d(
-            self.total_in_channels, num_filters, kernel_size=3, padding=1
-        )
+        self.conv1 = nn.Conv2d(self.total_in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
 
         # SE-enhanced residual blocks
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head (legacy, kept for backward compatibility)
         self.value_fc1 = nn.Linear(num_filters + global_features, value_intermediate)
@@ -1269,9 +1224,7 @@ class RingRiftCNN_v3_Lite(nn.Module):
         self.movement_conv = nn.Conv2d(num_filters, self.movement_channels, kernel_size=1)
         self.line_form_conv = nn.Conv2d(num_filters, num_line_dirs, kernel_size=1)
         self.territory_claim_conv = nn.Conv2d(num_filters, 1, kernel_size=1)
-        self.territory_choice_conv = nn.Conv2d(
-            num_filters, self.territory_choice_channels, kernel_size=1
-        )
+        self.territory_choice_conv = nn.Conv2d(num_filters, self.territory_choice_channels, kernel_size=1)
         self.special_fc = nn.Linear(num_filters + global_features, 6)
 
     def _register_policy_indices(self, board_size: int) -> None:
@@ -1321,9 +1274,7 @@ class RingRiftCNN_v3_Lite(nn.Module):
         for y in range(H):
             for x in range(W):
                 for ld in range(self.num_line_dirs):
-                    line_form_idx[ld, y, x] = (
-                        line_form_base + y * W * self.num_line_dirs + x * self.num_line_dirs + ld
-                    )
+                    line_form_idx[ld, y, x] = line_form_base + y * W * self.num_line_dirs + x * self.num_line_dirs + ld
         self.register_buffer("line_form_idx", line_form_idx)
 
         # Territory claim indices
@@ -1334,9 +1285,7 @@ class RingRiftCNN_v3_Lite(nn.Module):
         self.register_buffer("territory_claim_idx", territory_claim_idx)
 
         # Territory choice indices
-        territory_choice_idx = torch.zeros(
-            self.territory_choice_channels, H, W, dtype=torch.long
-        )
+        territory_choice_idx = torch.zeros(self.territory_choice_channels, H, W, dtype=torch.long)
         for y in range(H):
             for x in range(W):
                 for size_bucket in range(self.territory_size_buckets):
@@ -1402,13 +1351,11 @@ class RingRiftCNN_v3_Lite(nn.Module):
         # Special actions
         policy[:, self.skip_placement_idx] = special_logits[:, 0]
         policy[:, self.swap_sides_idx] = special_logits[:, 1]
-        policy[:, self.line_choice_base:self.line_choice_base + 4] = special_logits[:, 2:6]
+        policy[:, self.line_choice_base : self.line_choice_base + 4] = special_logits[:, 2:6]
 
         return policy
 
-    def forward(
-        self, x: torch.Tensor, globals: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor, globals: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass with spatial policy heads and rank distribution output.
 
@@ -1469,12 +1416,8 @@ class RingRiftCNN_v3_Lite(nn.Module):
         """
         self.eval()
         with torch.no_grad():
-            x = torch.from_numpy(feature[None, ...]).float().to(
-                next(self.parameters()).device
-            )
-            g = torch.from_numpy(globals_vec[None, ...]).float().to(
-                next(self.parameters()).device
-            )
+            x = torch.from_numpy(feature[None, ...]).float().to(next(self.parameters()).device)
+            g = torch.from_numpy(globals_vec[None, ...]).float().to(next(self.parameters()).device)
             v, p, rank_dist = self.forward(x, g)
         return float(v[0, player_idx].item()), p.cpu().numpy()[0], rank_dist.cpu().numpy()[0]
 
@@ -1892,105 +1835,129 @@ def get_model_config_for_board(
     # V3 models with spatial policy heads (more memory-efficient)
     if tier == "v3-high":
         if board_type == BoardType.HEXAGONAL:
-            config.update({
-                "num_res_blocks": 12,
-                "num_filters": 192,
-                "recommended_model": "HexNeuralNet_v3",
-                "description": "V3 spatial policy hex model for 96GB systems (~8M params)",
-                "estimated_params_m": 8.2,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 12,
+                    "num_filters": 192,
+                    "recommended_model": "HexNeuralNet_v3",
+                    "description": "V3 spatial policy hex model for 96GB systems (~8M params)",
+                    "estimated_params_m": 8.2,
+                }
+            )
         elif board_type == BoardType.SQUARE19:
-            config.update({
-                "num_res_blocks": 12,
-                "num_filters": 192,
-                "recommended_model": "RingRiftCNN_v3",
-                "description": "V3 spatial policy 19x19 model for 96GB systems (~7M params)",
-                "estimated_params_m": 7.0,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 12,
+                    "num_filters": 192,
+                    "recommended_model": "RingRiftCNN_v3",
+                    "description": "V3 spatial policy 19x19 model for 96GB systems (~7M params)",
+                    "estimated_params_m": 7.0,
+                }
+            )
         else:  # SQUARE8
-            config.update({
-                "num_res_blocks": 12,
-                "num_filters": 192,
-                "recommended_model": "RingRiftCNN_v3",
-                "description": "V3 spatial policy 8x8 model for 96GB systems (~7M params)",
-                "estimated_params_m": 7.0,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 12,
+                    "num_filters": 192,
+                    "recommended_model": "RingRiftCNN_v3",
+                    "description": "V3 spatial policy 8x8 model for 96GB systems (~7M params)",
+                    "estimated_params_m": 7.0,
+                }
+            )
     elif tier == "v3-low":
         if board_type == BoardType.HEXAGONAL:
-            config.update({
-                "num_res_blocks": 6,
-                "num_filters": 96,
-                "recommended_model": "HexNeuralNet_v3_Lite",
-                "description": "V3 spatial policy hex model for 48GB systems (~2M params)",
-                "estimated_params_m": 2.1,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 6,
+                    "num_filters": 96,
+                    "recommended_model": "HexNeuralNet_v3_Lite",
+                    "description": "V3 spatial policy hex model for 48GB systems (~2M params)",
+                    "estimated_params_m": 2.1,
+                }
+            )
         elif board_type == BoardType.SQUARE19:
-            config.update({
-                "num_res_blocks": 6,
-                "num_filters": 96,
-                "recommended_model": "RingRiftCNN_v3_Lite",
-                "description": "V3 spatial policy 19x19 model for 48GB systems (~2M params)",
-                "estimated_params_m": 1.8,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 6,
+                    "num_filters": 96,
+                    "recommended_model": "RingRiftCNN_v3_Lite",
+                    "description": "V3 spatial policy 19x19 model for 48GB systems (~2M params)",
+                    "estimated_params_m": 1.8,
+                }
+            )
         else:  # SQUARE8
-            config.update({
-                "num_res_blocks": 6,
-                "num_filters": 96,
-                "recommended_model": "RingRiftCNN_v3_Lite",
-                "description": "V3 spatial policy 8x8 model for 48GB systems (~2M params)",
-                "estimated_params_m": 1.8,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 6,
+                    "num_filters": 96,
+                    "recommended_model": "RingRiftCNN_v3_Lite",
+                    "description": "V3 spatial policy 8x8 model for 48GB systems (~2M params)",
+                    "estimated_params_m": 1.8,
+                }
+            )
     # V2 models with FC policy heads
     elif tier == "high":
         if board_type == BoardType.HEXAGONAL:
-            config.update({
-                "num_res_blocks": 12,
-                "num_filters": 192,
-                "recommended_model": "HexNeuralNet_v2",
-                "description": "High-capacity hex model for 96GB systems (~43M params)",
-                "estimated_params_m": 43.4,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 12,
+                    "num_filters": 192,
+                    "recommended_model": "HexNeuralNet_v2",
+                    "description": "High-capacity hex model for 96GB systems (~43M params)",
+                    "estimated_params_m": 43.4,
+                }
+            )
         elif board_type == BoardType.SQUARE19:
-            config.update({
-                "num_res_blocks": 12,
-                "num_filters": 192,
-                "recommended_model": "RingRiftCNN_v2",
-                "description": "High-capacity 19x19 model for 96GB systems (~34M params)",
-                "estimated_params_m": 34.0,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 12,
+                    "num_filters": 192,
+                    "recommended_model": "RingRiftCNN_v2",
+                    "description": "High-capacity 19x19 model for 96GB systems (~34M params)",
+                    "estimated_params_m": 34.0,
+                }
+            )
         else:  # SQUARE8
-            config.update({
-                "num_res_blocks": 12,
-                "num_filters": 192,
-                "recommended_model": "RingRiftCNN_v2",
-                "description": "High-capacity 8x8 model for 96GB systems (~34M params)",
-                "estimated_params_m": 34.0,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 12,
+                    "num_filters": 192,
+                    "recommended_model": "RingRiftCNN_v2",
+                    "description": "High-capacity 8x8 model for 96GB systems (~34M params)",
+                    "estimated_params_m": 34.0,
+                }
+            )
     else:  # low tier
         if board_type == BoardType.HEXAGONAL:
-            config.update({
-                "num_res_blocks": 6,
-                "num_filters": 96,
-                "recommended_model": "HexNeuralNet_v2_Lite",
-                "description": "Memory-efficient hex model for 48GB systems (~19M params)",
-                "estimated_params_m": 18.7,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 6,
+                    "num_filters": 96,
+                    "recommended_model": "HexNeuralNet_v2_Lite",
+                    "description": "Memory-efficient hex model for 48GB systems (~19M params)",
+                    "estimated_params_m": 18.7,
+                }
+            )
         elif board_type == BoardType.SQUARE19:
-            config.update({
-                "num_res_blocks": 6,
-                "num_filters": 96,
-                "recommended_model": "RingRiftCNN_v2_Lite",
-                "description": "Memory-efficient 19x19 model for 48GB systems (~14M params)",
-                "estimated_params_m": 14.3,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 6,
+                    "num_filters": 96,
+                    "recommended_model": "RingRiftCNN_v2_Lite",
+                    "description": "Memory-efficient 19x19 model for 48GB systems (~14M params)",
+                    "estimated_params_m": 14.3,
+                }
+            )
         else:  # SQUARE8
-            config.update({
-                "num_res_blocks": 6,
-                "num_filters": 96,
-                "recommended_model": "RingRiftCNN_v2_Lite",
-                "description": "Memory-efficient 8x8 model for 48GB systems (~14M params)",
-                "estimated_params_m": 14.0,
-            })
+            config.update(
+                {
+                    "num_res_blocks": 6,
+                    "num_filters": 96,
+                    "recommended_model": "RingRiftCNN_v2_Lite",
+                    "description": "Memory-efficient 8x8 model for 48GB systems (~14M params)",
+                    "estimated_params_m": 14.0,
+                }
+            )
 
     return config
 
@@ -2067,10 +2034,7 @@ class NeuralNetAI(BaseAI):
         # Device detection
         import os
 
-        disable_mps = bool(
-            os.environ.get("RINGRIFT_DISABLE_MPS")
-            or os.environ.get("PYTORCH_MPS_DISABLE")
-        )
+        disable_mps = bool(os.environ.get("RINGRIFT_DISABLE_MPS") or os.environ.get("PYTORCH_MPS_DISABLE"))
         force_cpu = bool(os.environ.get("RINGRIFT_FORCE_CPU"))
 
         # Architecture selection
@@ -2086,22 +2050,17 @@ class NeuralNetAI(BaseAI):
             self._use_mps_arch = True
         elif arch_type == "auto":
             # Auto-select MPS architecture if MPS is available
-            if (torch.backends.mps.is_available() and
-                not disable_mps and not force_cpu):
+            if torch.backends.mps.is_available() and not disable_mps and not force_cpu:
                 self._use_mps_arch = True
 
         # Device selection - prefer MPS when using MPS architecture
         if self._use_mps_arch:
-            if (torch.backends.mps.is_available() and
-                not disable_mps and not force_cpu):
+            if torch.backends.mps.is_available() and not disable_mps and not force_cpu:
                 self.device = torch.device("mps")
                 logger.info("Using MPS device with MPS-compatible architecture")
             else:
                 self.device = torch.device("cpu")
-                logger.warning(
-                    "MPS architecture selected but MPS not available, "
-                    "falling back to CPU"
-                )
+                logger.warning("MPS architecture selected but MPS not available, " "falling back to CPU")
         else:
             # Standard device selection for default architecture
             # NOTE: V2 models use torch.mean for pooling, which is MPS-compatible
@@ -2111,8 +2070,7 @@ class NeuralNetAI(BaseAI):
             else:
                 self.device = torch.device("cpu")
                 # Warn if MPS is available but we're using CPU due to architecture
-                if (torch.backends.mps.is_available() and
-                    not disable_mps and not force_cpu):
+                if torch.backends.mps.is_available() and not disable_mps and not force_cpu:
                     logger.warning(
                         "Non-MPS architecture selected but MPS available. "
                         "Using CPU to avoid AdaptiveAvgPool2d MPS limitations. "
@@ -2124,9 +2082,7 @@ class NeuralNetAI(BaseAI):
         self.architecture_type = "mps" if self._use_mps_arch else "default"
 
         # Store base_dir for model path resolution
-        self._base_dir = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
+        self._base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
         # Model will be lazily initialized when we see the first game state
         # unless board_type is explicitly provided
@@ -2195,8 +2151,7 @@ class NeuralNetAI(BaseAI):
             self.model = _MODEL_CACHE[cache_key]
             self._initialized_board_type = board_type
             logger.debug(
-                f"Reusing cached model: board={board_type}, "
-                f"arch={self.architecture_type}, device={self.device}"
+                f"Reusing cached model: board={board_type}, " f"arch={self.architecture_type}, device={self.device}"
             )
             return
 
@@ -2215,8 +2170,7 @@ class NeuralNetAI(BaseAI):
             history_length=self.history_length,
         )
         logger.info(
-            f"Initialized {type(self.model).__name__} for {board_type} "
-            f"(policy_size={self.model.policy_size})"
+            f"Initialized {type(self.model).__name__} for {board_type} " f"(policy_size={self.model.policy_size})"
         )
 
         self.model.to(self.device)
@@ -2226,35 +2180,23 @@ class NeuralNetAI(BaseAI):
             self._load_model_checkpoint(model_path)
         else:
             # Try fallback to base model path without board suffix
-            fallback_filename = (
-                f"{model_id}_mps.pth"
-                if self.architecture_type == "mps"
-                else f"{model_id}.pth"
-            )
+            fallback_filename = f"{model_id}_mps.pth" if self.architecture_type == "mps" else f"{model_id}.pth"
             fallback_path = os.path.join(self._base_dir, "models", fallback_filename)
 
             if os.path.exists(fallback_path) and board_suffix:
-                logger.info(
-                    f"Board-specific model not found at {model_path}, "
-                    f"trying fallback at {fallback_path}"
-                )
+                logger.info(f"Board-specific model not found at {model_path}, " f"trying fallback at {fallback_path}")
                 # Note: This may fail if architecture differs significantly
                 try:
                     self._load_model_checkpoint(fallback_path)
                 except RuntimeError as e:
-                    logger.warning(
-                        f"Fallback model incompatible: {e}. Using fresh weights."
-                    )
+                    logger.warning(f"Fallback model incompatible: {e}. Using fresh weights.")
                     self.model.eval()
             else:
                 # No model found - this is often a configuration error in production
                 # but may be intentional for training.
                 allow_fresh = getattr(self.config, "allow_fresh_weights", False)
                 if allow_fresh:
-                    logger.info(
-                        f"No model found at {model_path}, using fresh weights "
-                        "(allow_fresh_weights=True)"
-                    )
+                    logger.info(f"No model found at {model_path}, using fresh weights " "(allow_fresh_weights=True)")
                 else:
                     logger.warning(
                         f"No model found at {model_path}, using fresh (random) weights. "
@@ -2270,7 +2212,6 @@ class NeuralNetAI(BaseAI):
             f"Cached model: board={board_type}, arch={self.architecture_type}, "
             f"device={self.device} (total cached: {len(_MODEL_CACHE)})"
         )
-
 
     def _load_model_checkpoint(self, model_path: str) -> None:
         """
@@ -2296,9 +2237,7 @@ class NeuralNetAI(BaseAI):
             try:
                 # Try strict loading first
                 # Use actual model class for version validation
-                expected_version = getattr(
-                    self.model, 'ARCHITECTURE_VERSION', 'v2.0.0'
-                )
+                expected_version = getattr(self.model, "ARCHITECTURE_VERSION", "v2.0.0")
                 expected_class = self.model.__class__.__name__
                 state_dict, metadata = manager.load_checkpoint(
                     model_path,
@@ -2327,9 +2266,7 @@ class NeuralNetAI(BaseAI):
                             os.remove(model_path)
                             logger.info(f"Deleted incompatible model file: {model_path}")
                         except OSError:
-                            logger.debug(
-                                f"Could not delete incompatible model file: {model_path}"
-                            )
+                            logger.debug(f"Could not delete incompatible model file: {model_path}")
                         return
 
                 # Guard: reject checkpoints whose value_fc1 weight shape does not
@@ -2348,17 +2285,12 @@ class NeuralNetAI(BaseAI):
                             os.remove(model_path)
                             logger.info(f"Deleted incompatible model file: {model_path}")
                         except OSError:
-                            logger.debug(
-                                f"Could not delete incompatible model file: {model_path}"
-                            )
+                            logger.debug(f"Could not delete incompatible model file: {model_path}")
                         return
 
                 self.model.load_state_dict(state_dict)
                 self.model.eval()
-                logger.info(
-                    f"Loaded versioned model from {model_path} "
-                    f"(version: {metadata.architecture_version})"
-                )
+                logger.info(f"Loaded versioned model from {model_path} " f"(version: {metadata.architecture_version})")
                 return
 
             except LegacyCheckpointError:
@@ -2401,10 +2333,7 @@ class NeuralNetAI(BaseAI):
 
         except ImportError:
             # model_versioning not available, fall back to direct loading
-            logger.warning(
-                "model_versioning module not available, "
-                "using legacy loading"
-            )
+            logger.warning("model_versioning module not available, " "using legacy loading")
             self._load_legacy_checkpoint(model_path)
 
     def _load_legacy_checkpoint(self, model_path: str) -> None:
@@ -2423,10 +2352,10 @@ class NeuralNetAI(BaseAI):
 
             # Handle different checkpoint formats
             if isinstance(checkpoint, dict):
-                if 'model_state_dict' in checkpoint:
-                    state_dict = checkpoint['model_state_dict']
-                elif 'state_dict' in checkpoint:
-                    state_dict = checkpoint['state_dict']
+                if "model_state_dict" in checkpoint:
+                    state_dict = checkpoint["model_state_dict"]
+                elif "state_dict" in checkpoint:
+                    state_dict = checkpoint["state_dict"]
                 else:
                     # Assume it's a direct state dict
                     state_dict = checkpoint
@@ -2504,9 +2433,7 @@ class NeuralNetAI(BaseAI):
             moves_list: list[Move] = []
 
             for move in valid_moves:
-                next_states.append(
-                    self.rules_engine.apply_move(game_state, move)
-                )
+                next_states.append(self.rules_engine.apply_move(game_state, move))
                 moves_list.append(move)
 
             # Construct stacked inputs for all next states
@@ -2543,12 +2470,8 @@ class NeuralNetAI(BaseAI):
                 batch_globals.append(ns_globals)
 
             # Convert to tensor
-            tensor_input = torch.FloatTensor(
-                np.array(batch_stacks)
-            ).to(self.device)
-            globals_input = torch.FloatTensor(
-                np.array(batch_globals)
-            ).to(self.device)
+            tensor_input = torch.FloatTensor(np.array(batch_stacks)).to(self.device)
+            globals_input = torch.FloatTensor(np.array(batch_globals)).to(self.device)
 
             # Evaluate batch
             values, _ = self.evaluate_batch(
@@ -2607,10 +2530,7 @@ class NeuralNetAI(BaseAI):
             first_type = first_board.type
             first_size = first_board.size
             for state in game_states[1:]:
-                if (
-                    state.board.type != first_type or
-                    state.board.size != first_size
-                ):
+                if state.board.type != first_type or state.board.size != first_size:
                     raise ValueError(
                         "NeuralNetAI.evaluate_batch requires all game_states "
                         "in a batch to share the same board.type and "
@@ -2652,12 +2572,8 @@ class NeuralNetAI(BaseAI):
                 batch_stacks.append(stack)
                 batch_globals.append(globals_vec)
 
-            tensor_input = torch.FloatTensor(
-                np.array(batch_stacks)
-            ).to(self.device)
-            globals_input = torch.FloatTensor(
-                np.array(batch_globals)
-            ).to(self.device)
+            tensor_input = torch.FloatTensor(np.array(batch_stacks)).to(self.device)
+            globals_input = torch.FloatTensor(np.array(batch_globals)).to(self.device)
 
         assert globals_input is not None
 
@@ -2723,20 +2639,17 @@ class NeuralNetAI(BaseAI):
             # the canonical MAX_N=19 grid.
             board = None
         else:
-            raise TypeError(
-                f"Unsupported board_context type for encode_move: "
-                f"{type(board_context)!r}"
-            )
+            raise TypeError(f"Unsupported board_context type for encode_move: " f"{type(board_context)!r}")
 
         # Pre-compute layout constants from MAX_N to avoid hard-coded offsets.
-        placement_span = 3 * MAX_N * MAX_N            # 0..1082
-        movement_base = placement_span                # 1083
+        placement_span = 3 * MAX_N * MAX_N  # 0..1082
+        movement_base = placement_span  # 1083
         movement_span = MAX_N * MAX_N * (8 * (MAX_N - 1))
-        line_base = movement_base + movement_span     # 53067
+        line_base = movement_base + movement_span  # 53067
         line_span = MAX_N * MAX_N * 4
-        territory_base = line_base + line_span        # 54511
-        skip_index = territory_base + MAX_N * MAX_N   # 54872
-        swap_sides_index = skip_index + 1             # 54873
+        territory_base = line_base + line_span  # 54511
+        skip_index = territory_base + MAX_N * MAX_N  # 54872
+        swap_sides_index = skip_index + 1  # 54873
 
         # Placement: 0..1082 (3 * 19 * 19)
         if move.type == "place_ring":
@@ -2781,10 +2694,7 @@ class NeuralNetAI(BaseAI):
 
             # If either endpoint lies outside the canonical 19×19 grid, this
             # move cannot be represented in the fixed policy head.
-            if not (
-                0 <= cfx < MAX_N and 0 <= cfy < MAX_N and
-                0 <= ctx < MAX_N and 0 <= cty < MAX_N
-            ):
+            if not (0 <= cfx < MAX_N and 0 <= cfy < MAX_N and 0 <= ctx < MAX_N and 0 <= cty < MAX_N):
                 return INVALID_MOVE_INDEX
 
             from_idx = cfy * MAX_N + cfx
@@ -2804,9 +2714,14 @@ class NeuralNetAI(BaseAI):
             dir_y = dy // dist if dist > 0 else 0
 
             dirs = [
-                (-1, -1), (0, -1), (1, -1),
-                (-1, 0),           (1, 0),
-                (-1, 1),  (0, 1),  (1, 1),
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (-1, 0),
+                (1, 0),
+                (-1, 1),
+                (0, 1),
+                (1, 1),
             ]
             try:
                 dir_idx = dirs.index((dir_x, dir_y))
@@ -2815,12 +2730,7 @@ class NeuralNetAI(BaseAI):
                 return INVALID_MOVE_INDEX
 
             max_dist = MAX_N - 1
-            return (
-                movement_base +
-                from_idx * (8 * max_dist) +
-                dir_idx * max_dist +
-                (dist - 1)
-            )
+            return movement_base + from_idx * (8 * max_dist) + dir_idx * max_dist + (dist - 1)
 
         # Line: 53067..54510
         if move.type == "line_formation":
@@ -2860,7 +2770,7 @@ class NeuralNetAI(BaseAI):
 
         # Choice moves: line and territory decision options
         # Line choices: 4 slots (options 0-3, typically option 1 = partial, 2 = full)
-        line_choice_base = swap_sides_index + 1      # 54874
+        line_choice_base = swap_sides_index + 1  # 54874
 
         if move.type in ("choose_line_reward", "choose_line_option"):
             # Line choice uses placement_count to indicate option (1-based)
@@ -2889,13 +2799,13 @@ class NeuralNetAI(BaseAI):
                 if regions:
                     region = regions[0]
                     # Get region spaces
-                    if hasattr(region, 'spaces') and region.spaces:
+                    if hasattr(region, "spaces") and region.spaces:
                         spaces = list(region.spaces)
                         region_size = len(spaces)
                         # Find canonical (lexicographically smallest) position
                         canonical_pos = min(spaces, key=lambda p: (p.y, p.x))
                     # Get controlling player (who owns the border)
-                    if hasattr(region, 'controlling_player'):
+                    if hasattr(region, "controlling_player"):
                         controlling_player = region.controlling_player
 
             # Convert position to canonical coordinates
@@ -2912,10 +2822,10 @@ class NeuralNetAI(BaseAI):
             player_idx = (controlling_player - 1) % TERRITORY_MAX_PLAYERS  # 0-3
 
             return (
-                territory_choice_base +
-                pos_idx * (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS) +
-                size_bucket * TERRITORY_MAX_PLAYERS +
-                player_idx
+                territory_choice_base
+                + pos_idx * (TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS)
+                + size_bucket * TERRITORY_MAX_PLAYERS
+                + player_idx
             )
 
         return INVALID_MOVE_INDEX
@@ -2931,13 +2841,13 @@ class NeuralNetAI(BaseAI):
         board = game_state.board
 
         # Pre-compute layout constants from MAX_N to align with encode_move.
-        placement_span = 3 * MAX_N * MAX_N            # 0..1082
-        movement_base = placement_span                # 1083
+        placement_span = 3 * MAX_N * MAX_N  # 0..1082
+        movement_base = placement_span  # 1083
         movement_span = MAX_N * MAX_N * (8 * (MAX_N - 1))
-        line_base = movement_base + movement_span     # 53067
+        line_base = movement_base + movement_span  # 53067
         line_span = MAX_N * MAX_N * 4
-        territory_base = line_base + line_span        # 54511
-        skip_index = territory_base + MAX_N * MAX_N   # 54872
+        territory_base = line_base + line_span  # 54511
+        skip_index = territory_base + MAX_N * MAX_N  # 54872
 
         if index < 0 or index >= self.model.policy_size:
             return None
@@ -2950,9 +2860,7 @@ class NeuralNetAI(BaseAI):
             cx = pos_idx % MAX_N
 
             pos = _from_canonical_xy(board, cx, cy)
-            if pos is None or not BoardGeometry.is_within_bounds(
-                pos, board.type, board.size
-            ):
+            if pos is None or not BoardGeometry.is_within_bounds(pos, board.type, board.size):
                 return None
 
             to_payload: dict[str, int] = {"x": pos.x, "y": pos.y}
@@ -2988,24 +2896,25 @@ class NeuralNetAI(BaseAI):
             cfx = from_idx % MAX_N
 
             from_pos = _from_canonical_xy(board, cfx, cfy)
-            if from_pos is None or not BoardGeometry.is_within_bounds(
-                from_pos, board.type, board.size
-            ):
+            if from_pos is None or not BoardGeometry.is_within_bounds(from_pos, board.type, board.size):
                 return None
 
             dirs = [
-                (-1, -1), (0, -1), (1, -1),
-                (-1, 0),           (1, 0),
-                (-1, 1),  (0, 1),  (1, 1),
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (-1, 0),
+                (1, 0),
+                (-1, 1),
+                (0, 1),
+                (1, 1),
             ]
             dx, dy = dirs[dir_idx]
 
             ctx = cfx + dx * dist
             cty = cfy + dy * dist
             to_pos = _from_canonical_xy(board, ctx, cty)
-            if to_pos is None or not BoardGeometry.is_within_bounds(
-                to_pos, board.type, board.size
-            ):
+            if to_pos is None or not BoardGeometry.is_within_bounds(to_pos, board.type, board.size):
                 return None
 
             from_payload: dict[str, int] = {"x": from_pos.x, "y": from_pos.y}
@@ -3036,9 +2945,7 @@ class NeuralNetAI(BaseAI):
             cx = pos_idx % MAX_N
 
             pos = _from_canonical_xy(board, cx, cy)
-            if pos is None or not BoardGeometry.is_within_bounds(
-                pos, board.type, board.size
-            ):
+            if pos is None or not BoardGeometry.is_within_bounds(pos, board.type, board.size):
                 return None
 
             to_payload: dict[str, int] = {"x": pos.x, "y": pos.y}
@@ -3063,9 +2970,7 @@ class NeuralNetAI(BaseAI):
             cx = pos_idx % MAX_N
 
             pos = _from_canonical_xy(board, cx, cy)
-            if pos is None or not BoardGeometry.is_within_bounds(
-                pos, board.type, board.size
-            ):
+            if pos is None or not BoardGeometry.is_within_bounds(pos, board.type, board.size):
                 return None
 
             to_payload: dict[str, int] = {"x": pos.x, "y": pos.y}
@@ -3111,7 +3016,7 @@ class NeuralNetAI(BaseAI):
             return Move(**move_data)
 
         # Choice moves: line and territory options
-        line_choice_base = swap_sides_index + 1      # 54874
+        line_choice_base = swap_sides_index + 1  # 54874
         territory_choice_base = line_choice_base + 4  # 54878
 
         # Line choice (indices 54874-54877)
@@ -3205,9 +3110,7 @@ class NeuralNetAI(BaseAI):
         # 11: Cap presence - opponent
         # 12: Valid board position mask
         # 13: Reserved (zeros)
-        features = np.zeros(
-            (14, board_size, board_size), dtype=np.float32
-        )
+        features = np.zeros((14, board_size, board_size), dtype=np.float32)
 
         is_hex = board.type == BoardType.HEXAGONAL
 
@@ -3288,10 +3191,7 @@ class NeuralNetAI(BaseAI):
                 ):
                     continue
                 n_key = npos.to_key()
-                if (
-                    n_key in board.stacks or
-                    n_key in board.collapsed_spaces
-                ):
+                if n_key in board.stacks or n_key in board.collapsed_spaces:
                     continue
                 liberties += 1
 
@@ -3329,10 +3229,7 @@ class NeuralNetAI(BaseAI):
                     continue
                 n_key = npos.to_key()
                 neighbor_marker = board.markers.get(n_key)
-                if (
-                    neighbor_marker is not None and
-                    neighbor_marker.player == marker.player
-                ):
+                if neighbor_marker is not None and neighbor_marker.player == marker.player:
                     neighbor_count += 1
 
             max_neighbors = 6.0 if is_hex else 8.0
@@ -3400,19 +3297,11 @@ class NeuralNetAI(BaseAI):
 
         # Rings info
         my_player = next(
-            (
-                p
-                for p in game_state.players
-                if p.player_number == game_state.current_player
-            ),
+            (p for p in game_state.players if p.player_number == game_state.current_player),
             None,
         )
         opp_player = next(
-            (
-                p
-                for p in game_state.players
-                if p.player_number != game_state.current_player
-            ),
+            (p for p in game_state.players if p.player_number != game_state.current_player),
             None,
         )
 
@@ -3525,10 +3414,7 @@ class NeuralNetAI(BaseAI):
 
         if actual_channels < expected_base:
             # Pad with zeros to reach 56 channels
-            padding = np.zeros(
-                (expected_base - actual_channels, board_size, board_size),
-                dtype=np.float32
-            )
+            padding = np.zeros((expected_base - actual_channels, board_size, board_size), dtype=np.float32)
             base_stack = np.concatenate([base_stack, padding], axis=0)
 
         # Extract phase/chain planes (8 channels for current state)
@@ -3651,12 +3537,7 @@ class ActionEncoderHex:
                 return INVALID_MOVE_INDEX
 
             from_idx = from_cy * HEX_BOARD_SIZE + from_cx
-            return (
-                HEX_MOVEMENT_BASE
-                + from_idx * (NUM_HEX_DIRS * HEX_MAX_DIST)
-                + dir_idx * HEX_MAX_DIST
-                + (dist - 1)
-            )
+            return HEX_MOVEMENT_BASE + from_idx * (NUM_HEX_DIRS * HEX_MAX_DIST) + dir_idx * HEX_MAX_DIST + (dist - 1)
 
         # --- Special ---
         if move.type == MoveType.SKIP_PLACEMENT:
@@ -3692,9 +3573,7 @@ class ActionEncoderHex:
             cx = pos_idx % HEX_BOARD_SIZE
 
             pos = _from_canonical_xy(board, cx, cy)
-            if pos is None or not BoardGeometry.is_within_bounds(
-                pos, board.type, board.size
-            ):
+            if pos is None or not BoardGeometry.is_within_bounds(pos, board.type, board.size):
                 return None
 
             to_payload: dict[str, int] = {"x": pos.x, "y": pos.y}
@@ -3729,9 +3608,7 @@ class ActionEncoderHex:
             from_cx = from_idx % HEX_BOARD_SIZE
 
             from_pos = _from_canonical_xy(board, from_cx, from_cy)
-            if from_pos is None or not BoardGeometry.is_within_bounds(
-                from_pos, board.type, board.size
-            ):
+            if from_pos is None or not BoardGeometry.is_within_bounds(from_pos, board.type, board.size):
                 return None
 
             dx, dy = HEX_DIRS[dir_idx]
@@ -3739,9 +3616,7 @@ class ActionEncoderHex:
             to_cy = from_cy + dy * dist
 
             to_pos = _from_canonical_xy(board, to_cx, to_cy)
-            if to_pos is None or not BoardGeometry.is_within_bounds(
-                to_pos, board.type, board.size
-            ):
+            if to_pos is None or not BoardGeometry.is_within_bounds(to_pos, board.type, board.size):
                 return None
 
             from_payload: dict[str, int] = {"x": from_pos.x, "y": from_pos.y}
@@ -3856,18 +3731,15 @@ class HexNeuralNet_v2(nn.Module):
         self.num_players = num_players
 
         # Pre-compute hex validity mask
-        self.register_buffer(
-            "hex_mask", create_hex_mask(hex_radius, board_size)
-        )
+        self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
 
         # Shared backbone with SE blocks
         self.conv1 = nn.Conv2d(in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head with masked pooling
         self.value_conv = nn.Conv2d(num_filters, 1, kernel_size=1)
@@ -4003,18 +3875,15 @@ class HexNeuralNet_v2_Lite(nn.Module):
         self.num_players = num_players
 
         # Pre-compute hex validity mask
-        self.register_buffer(
-            "hex_mask", create_hex_mask(hex_radius, board_size)
-        )
+        self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
 
         # Shared backbone with SE blocks
         self.conv1 = nn.Conv2d(in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head with masked pooling
         self.value_conv = nn.Conv2d(num_filters, 1, kernel_size=1)
@@ -4147,9 +4016,7 @@ class HexNeuralNet_v3(nn.Module):
         self.movement_channels = num_directions * max_distance  # 6 × 24 = 144
 
         # Pre-compute hex validity mask
-        self.register_buffer(
-            "hex_mask", create_hex_mask(hex_radius, board_size)
-        )
+        self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
 
         # Pre-compute index scatter tensors for policy assembly
         self._register_policy_indices(board_size)
@@ -4158,10 +4025,9 @@ class HexNeuralNet_v3(nn.Module):
         self.conv1 = nn.Conv2d(in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head with masked pooling (same as V2)
         self.value_conv = nn.Conv2d(num_filters, 1, kernel_size=1)
@@ -4178,9 +4044,7 @@ class HexNeuralNet_v3(nn.Module):
 
         # Movement head: produces logits for each (cell, dir, dist) tuple
         # Output shape: [B, 144, 25, 25] → indices [1875, 91874]
-        self.movement_conv = nn.Conv2d(
-            num_filters, self.movement_channels, kernel_size=1
-        )
+        self.movement_conv = nn.Conv2d(num_filters, self.movement_channels, kernel_size=1)
 
         # Special actions head: small FC for skip_placement
         # Uses global pooled features → single logit
@@ -4259,9 +4123,7 @@ class HexNeuralNet_v3(nn.Module):
         dtype = placement_logits.dtype
 
         # Initialize flat policy with large negative (will be masked anyway)
-        policy = torch.full(
-            (B, self.policy_size), -1e9, device=device, dtype=dtype
-        )
+        policy = torch.full((B, self.policy_size), -1e9, device=device, dtype=dtype)
 
         # Flatten spatial dimensions for scatter
         # placement_logits: [B, 3, H, W] → [B, 3*H*W]
@@ -4277,7 +4139,7 @@ class HexNeuralNet_v3(nn.Module):
         policy.scatter_(1, movement_idx_flat, movement_flat)
 
         # Add special action logit at index HEX_SPECIAL_BASE
-        policy[:, HEX_SPECIAL_BASE:HEX_SPECIAL_BASE + 1] = special_logits
+        policy[:, HEX_SPECIAL_BASE : HEX_SPECIAL_BASE + 1] = special_logits
 
         return policy
 
@@ -4329,12 +4191,8 @@ class HexNeuralNet_v3(nn.Module):
         if mask is not None:
             mask_expanded = mask.to(dtype=out.dtype, device=out.device)
             # Broadcast mask to all channels
-            placement_logits = placement_logits * mask_expanded + (
-                1.0 - mask_expanded
-            ) * (-1e9)
-            movement_logits = movement_logits * mask_expanded + (
-                1.0 - mask_expanded
-            ) * (-1e9)
+            placement_logits = placement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
+            movement_logits = movement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
 
         # Special action logits from pooled features
         out_pooled = self._masked_global_avg_pool(out, hex_mask)
@@ -4342,9 +4200,7 @@ class HexNeuralNet_v3(nn.Module):
         special_logits = self.special_fc(special_input)  # [B, 1]
 
         # Scatter into flat policy vector
-        policy_logits = self._scatter_policy_logits(
-            placement_logits, movement_logits, special_logits, hex_mask
-        )
+        policy_logits = self._scatter_policy_logits(placement_logits, movement_logits, special_logits, hex_mask)
 
         return v_out, policy_logits
 
@@ -4397,9 +4253,7 @@ class HexNeuralNet_v3_Lite(nn.Module):
         self.movement_channels = num_directions * max_distance
 
         # Pre-compute hex validity mask
-        self.register_buffer(
-            "hex_mask", create_hex_mask(hex_radius, board_size)
-        )
+        self.register_buffer("hex_mask", create_hex_mask(hex_radius, board_size))
 
         # Pre-compute index scatter tensors
         self._register_policy_indices(board_size)
@@ -4408,10 +4262,9 @@ class HexNeuralNet_v3_Lite(nn.Module):
         self.conv1 = nn.Conv2d(in_channels, num_filters, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(num_filters)
         self.relu = nn.ReLU()
-        self.res_blocks = nn.ModuleList([
-            SEResidualBlock(num_filters, reduction=se_reduction)
-            for _ in range(num_res_blocks)
-        ])
+        self.res_blocks = nn.ModuleList(
+            [SEResidualBlock(num_filters, reduction=se_reduction) for _ in range(num_res_blocks)]
+        )
 
         # Multi-player value head
         self.value_conv = nn.Conv2d(num_filters, 1, kernel_size=1)
@@ -4423,9 +4276,7 @@ class HexNeuralNet_v3_Lite(nn.Module):
 
         # Spatial policy heads
         self.placement_conv = nn.Conv2d(num_filters, num_ring_counts, kernel_size=1)
-        self.movement_conv = nn.Conv2d(
-            num_filters, self.movement_channels, kernel_size=1
-        )
+        self.movement_conv = nn.Conv2d(num_filters, self.movement_channels, kernel_size=1)
         self.special_fc = nn.Linear(num_filters + global_features, 1)
 
     def _register_policy_indices(self, board_size: int) -> None:
@@ -4482,9 +4333,7 @@ class HexNeuralNet_v3_Lite(nn.Module):
         device = placement_logits.device
         dtype = placement_logits.dtype
 
-        policy = torch.full(
-            (B, self.policy_size), -1e9, device=device, dtype=dtype
-        )
+        policy = torch.full((B, self.policy_size), -1e9, device=device, dtype=dtype)
 
         placement_flat = placement_logits.view(B, -1)
         placement_idx_flat = self.placement_idx.view(-1).expand(B, -1)
@@ -4494,7 +4343,7 @@ class HexNeuralNet_v3_Lite(nn.Module):
 
         policy.scatter_(1, placement_idx_flat, placement_flat)
         policy.scatter_(1, movement_idx_flat, movement_flat)
-        policy[:, HEX_SPECIAL_BASE:HEX_SPECIAL_BASE + 1] = special_logits
+        policy[:, HEX_SPECIAL_BASE : HEX_SPECIAL_BASE + 1] = special_logits
 
         return policy
 
@@ -4528,20 +4377,14 @@ class HexNeuralNet_v3_Lite(nn.Module):
 
         if mask is not None:
             mask_expanded = mask.to(dtype=out.dtype, device=out.device)
-            placement_logits = placement_logits * mask_expanded + (
-                1.0 - mask_expanded
-            ) * (-1e9)
-            movement_logits = movement_logits * mask_expanded + (
-                1.0 - mask_expanded
-            ) * (-1e9)
+            placement_logits = placement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
+            movement_logits = movement_logits * mask_expanded + (1.0 - mask_expanded) * (-1e9)
 
         out_pooled = self._masked_global_avg_pool(out, hex_mask)
         special_input = torch.cat([out_pooled, globals], dim=1)
         special_logits = self.special_fc(special_input)
 
-        policy_logits = self._scatter_policy_logits(
-            placement_logits, movement_logits, special_logits, hex_mask
-        )
+        policy_logits = self._scatter_policy_logits(placement_logits, movement_logits, special_logits, hex_mask)
 
         return v_out, policy_logits
 

@@ -8,6 +8,7 @@ import torch.optim as optim
 
 from app.ai.neural_net import RingRiftCNN
 
+
 def test_overfit():
     print("Testing overfitting capability...")
 
@@ -27,7 +28,7 @@ def test_overfit():
 
     value_criterion = nn.MSELoss()
     # Use KLDivLoss for distribution matching
-    policy_criterion = nn.KLDivLoss(reduction='batchmean')
+    policy_criterion = nn.KLDivLoss(reduction="batchmean")
 
     # Train loop
     for epoch in range(100):
@@ -54,6 +55,7 @@ def test_overfit():
         print("SUCCESS: Model successfully overfitted small batch.")
     else:
         print("FAILURE: Model failed to overfit small batch.")
+
 
 if __name__ == "__main__":
     test_overfit()

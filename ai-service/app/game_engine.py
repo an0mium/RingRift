@@ -64,6 +64,7 @@ from .board_manager import BoardManager
 
 class PhaseRequirementType(Enum):
     """Types of phase requirements that hosts must handle."""
+
     NO_PLACEMENT_ACTION_REQUIRED = "no_placement_action_required"
     NO_MOVEMENT_ACTION_REQUIRED = "no_movement_action_required"
     NO_LINE_ACTION_REQUIRED = "no_line_action_required"
@@ -86,9 +87,12 @@ class PhaseRequirement:
         eligible_positions: For FORCED_ELIMINATION_REQUIRED, the stack
             positions the player can eliminate from. Empty for no-action types.
     """
+
     type: PhaseRequirementType
     player: int
     eligible_positions: List[Position]
+
+
 from .ai.zobrist import ZobristHash
 from .rules.geometry import BoardGeometry
 from .rules.core import count_rings_in_play_for_player, get_effective_line_length
@@ -142,9 +146,7 @@ class GameEngine:
     _cache_misses: int = 0
 
     @staticmethod
-    def get_valid_moves(
-        game_state: GameState, player_number: int
-    ) -> List[Move]:
+    def get_valid_moves(game_state: GameState, player_number: int) -> List[Move]:
         """Return all valid moves for ``player_number`` in ``game_state``.
 
         This mirrors the TS `GameEngine.getValidMoves` surface and is used
@@ -185,23 +187,15 @@ class GameEngine:
 
         if phase == GamePhase.RING_PLACEMENT:
             # Core: only interactive placement/skip options.
-            placement_moves = GameEngine._get_ring_placement_moves(
-                game_state, player_number
-            )
-            skip_moves = GameEngine._get_skip_placement_moves(
-                game_state, player_number
-            )
+            placement_moves = GameEngine._get_ring_placement_moves(game_state, player_number)
+            skip_moves = GameEngine._get_skip_placement_moves(game_state, player_number)
             moves = placement_moves + skip_moves
             # NO auto NO_PLACEMENT_ACTION - hosts use get_phase_requirement()
 
         elif phase == GamePhase.MOVEMENT:
             # Core: only interactive movement/capture options.
-            movement_moves = GameEngine._get_movement_moves(
-                game_state, player_number
-            )
-            capture_moves = GameEngine._get_capture_moves(
-                game_state, player_number
-            )
+            movement_moves = GameEngine._get_movement_moves(game_state, player_number)
+            capture_moves = GameEngine._get_capture_moves(game_state, player_number)
             # Recovery slides for temporarily eliminated players (RR-CANON-R110-R115)
             recovery_moves = get_recovery_moves(game_state, player_number)
             moves = movement_moves + capture_moves + recovery_moves
@@ -215,25 +209,19 @@ class GameEngine:
 
         elif phase == GamePhase.LINE_PROCESSING:
             # Core: only interactive line-processing decisions.
-            moves = GameEngine._get_line_processing_moves(
-                game_state, player_number
-            )
+            moves = GameEngine._get_line_processing_moves(game_state, player_number)
             # NO auto NO_LINE_ACTION - hosts use get_phase_requirement()
 
         elif phase == GamePhase.TERRITORY_PROCESSING:
             # Core: only interactive territory-processing decisions.
-            moves = GameEngine._get_territory_processing_moves(
-                game_state, player_number
-            )
+            moves = GameEngine._get_territory_processing_moves(game_state, player_number)
             # NO auto NO_TERRITORY_ACTION - hosts use get_phase_requirement()
 
         elif phase == GamePhase.FORCED_ELIMINATION:
             # In the forced_elimination phase (7th and final phase per
             # RR-CANON-R070), enumerate explicit FORCED_ELIMINATION moves for
             # the blocked player.
-            moves = GameEngine._get_forced_elimination_moves(
-                game_state, player_number
-            )
+            moves = GameEngine._get_forced_elimination_moves(game_state, player_number)
 
         # Layer in the swap_sides meta-move (pie rule) for Player 2 when
         # enabled. This mirrors the backend TS GameEngine.shouldOfferSwapSidesMetaMove
@@ -271,9 +259,7 @@ class GameEngine:
         GameEngine._cache_misses = 0
 
     @staticmethod
-    def get_phase_requirement(
-        game_state: GameState, player_number: int
-    ) -> Optional[PhaseRequirement]:
+    def get_phase_requirement(game_state: GameState, player_number: int) -> Optional[PhaseRequirement]:
         """
         Return the phase requirement when no interactive moves exist.
 
@@ -297,7 +283,7 @@ class GameEngine:
 
         # Check game status
         game_status = game_state.game_status
-        status_str = game_status.value if hasattr(game_status, 'value') else str(game_status)
+        status_str = game_status.value if hasattr(game_status, "value") else str(game_status)
         if status_str != "active":
             return None
 
@@ -421,9 +407,7 @@ class GameEngine:
         raise ValueError(f"Unknown requirement type: {requirement.type}")
 
     @staticmethod
-    def apply_move(
-        game_state: GameState, move: Move, *, trace_mode: bool = False
-    ) -> GameState:
+    def apply_move(game_state: GameState, move: Move, *, trace_mode: bool = False) -> GameState:
         """
         Apply a move to a game state and return the new state.
 
@@ -452,9 +436,7 @@ class GameEngine:
         # Can be disabled via RINGRIFT_SKIP_PHASE_INVARIANT for test scaffolding.
         if not SKIP_PHASE_INVARIANT:
             if game_state.game_status == GameStatus.ACTIVE and move.player != game_state.current_player:
-                raise ValueError(
-                    f"Move player {move.player} does not match current player {game_state.current_player}"
-                )
+                raise ValueError(f"Move player {move.player} does not match current player {game_state.current_player}")
 
         # 1. Create new BoardState (shallow copy first)
         new_board = game_state.board.model_copy()
@@ -484,9 +466,7 @@ class GameEngine:
 
         # Initialize Zobrist hash if missing
         if new_state.zobrist_hash is None:
-            new_state.zobrist_hash = (
-                ZobristHash().compute_initial_hash(new_state)
-            )
+            new_state.zobrist_hash = ZobristHash().compute_initial_hash(new_state)
 
         # Capture S-invariant before move
         before_snapshot = BoardManager.compute_progress_snapshot(new_state)
@@ -494,12 +474,8 @@ class GameEngine:
         # Update hash for phase/player change (remove old)
         zobrist = ZobristHash()
         if new_state.zobrist_hash is not None:
-            new_state.zobrist_hash ^= zobrist.get_player_hash(
-                new_state.current_player
-            )
-            new_state.zobrist_hash ^= zobrist.get_phase_hash(
-                new_state.current_phase
-            )
+            new_state.zobrist_hash ^= zobrist.get_player_hash(new_state.current_player)
+            new_state.zobrist_hash ^= zobrist.get_phase_hash(new_state.current_phase)
 
         if move.type == MoveType.SWAP_SIDES:
             GameEngine._apply_swap_sides(new_state, move)
@@ -562,8 +538,8 @@ class GameEngine:
         elif move.type == MoveType.RECOVERY_SLIDE:
             # Recovery slide for temporarily eliminated players (RR-CANON-R110-R115)
             # Extract option and collapse_positions from move metadata if present
-            option = getattr(move, 'recovery_option', None) or 1
-            collapse_positions = getattr(move, 'collapse_positions', None)
+            option = getattr(move, "recovery_option", None) or 1
+            collapse_positions = getattr(move, "collapse_positions", None)
             apply_recovery_slide(new_state, move, option=option, collapse_positions=collapse_positions)
 
         # Update move history
@@ -601,12 +577,8 @@ class GameEngine:
 
         # Update hash for phase/player change (add new)
         if new_state.zobrist_hash is not None:
-            new_state.zobrist_hash ^= zobrist.get_player_hash(
-                new_state.current_player
-            )
-            new_state.zobrist_hash ^= zobrist.get_phase_hash(
-                new_state.current_phase
-            )
+            new_state.zobrist_hash ^= zobrist.get_player_hash(new_state.current_player)
+            new_state.zobrist_hash ^= zobrist.get_phase_hash(new_state.current_phase)
 
         # Verify S-invariant
         # S = markers + collapsed + eliminated
@@ -728,8 +700,7 @@ class GameEngine:
 
         if mtype not in allowed:
             raise RuntimeError(
-                f"Phase/move invariant violated: cannot apply move type "
-                f"{mtype.value} in phase {phase.value}"
+                f"Phase/move invariant violated: cannot apply move type " f"{mtype.value} in phase {phase.value}"
             )
 
     @staticmethod
@@ -833,10 +804,7 @@ class GameEngine:
             return False
 
         has_p1_move = any(m.player == 1 for m in game_state.move_history)
-        has_p2_move = any(
-            m.player == 2 and m.type != MoveType.SWAP_SIDES
-            for m in game_state.move_history
-        )
+        has_p2_move = any(m.player == 2 and m.type != MoveType.SWAP_SIDES for m in game_state.move_history)
 
         return has_p1_move and not has_p2_move
 
@@ -905,11 +873,7 @@ class GameEngine:
             # seat (after another player's bookkeeping no-ops) from
             # prematurely ending the game before the candidate actually acts,
             # matching TS turn-orchestration semantics.
-            last_move_player = (
-                game_state.move_history[-1].player
-                if game_state.move_history
-                else None
-            )
+            last_move_player = game_state.move_history[-1].player if game_state.move_history else None
             if last_move_player != candidate:
                 # Defer LPS check until the candidate takes their own action.
                 pass
@@ -924,10 +888,7 @@ class GameEngine:
             for player in game_state.players:
                 if player.player_number == candidate:
                     continue
-                has_stacks = any(
-                    stack.controlling_player == player.player_number
-                    for stack in board.stacks.values()
-                )
+                has_stacks = any(stack.controlling_player == player.player_number for stack in board.stacks.values())
                 if not has_stacks and player.rings_in_hand <= 0:
                     continue
                 if GameEngine._has_real_action_for_player(
@@ -958,9 +919,7 @@ class GameEngine:
         #
         # This mirrors TS victoryLogic.ts hasAnyLegalPlacementOnBareBoard().
         no_stacks_left = not game_state.board.stacks
-        any_rings_in_hand = any(
-            p.rings_in_hand > 0 for p in game_state.players
-        )
+        any_rings_in_hand = any(p.rings_in_hand > 0 for p in game_state.players)
 
         # Check if global stalemate should apply
         should_apply_stalemate = False
@@ -976,9 +935,7 @@ class GameEngine:
                 # has ANY legal placement on the bare board.
                 any_legal_placement_exists = any(
                     p.rings_in_hand > 0
-                    and GameEngine._has_any_legal_placement_on_bare_board(
-                        game_state, p.player_number
-                    )
+                    and GameEngine._has_any_legal_placement_on_bare_board(game_state, p.player_number)
                     for p in game_state.players
                 )
                 if not any_legal_placement_exists:
@@ -1030,13 +987,7 @@ class GameEngine:
                     scores[p.player_number]["collapsed"],
                     scores[p.player_number]["eliminated"],
                     scores[p.player_number]["markers"],
-                    1
-                    if (
-                        game_state.move_history
-                        and game_state.move_history[-1].player
-                        == p.player_number
-                    )
-                    else 0,
+                    1 if (game_state.move_history and game_state.move_history[-1].player == p.player_number) else 0,
                 ),
                 reverse=True,
             )
@@ -1068,10 +1019,7 @@ class GameEngine:
         active_players = 0
         for p in game_state.players:
             # Check if player can potentially move
-            has_stacks = any(
-                s.controlling_player == p.player_number
-                for s in game_state.board.stacks.values()
-            )
+            has_stacks = any(s.controlling_player == p.player_number for s in game_state.board.stacks.values())
             can_place = p.rings_in_hand > 0
             if has_stacks or can_place:
                 active_players += 1
@@ -1085,9 +1033,7 @@ class GameEngine:
             pass
 
     @staticmethod
-    def _update_phase(
-        game_state: GameState, last_move: Move, *, trace_mode: bool = False
-    ):
+    def _update_phase(game_state: GameState, last_move: Move, *, trace_mode: bool = False):
         """
         Advance phase after a move using the dedicated phase state machine.
 
@@ -1105,9 +1051,7 @@ class GameEngine:
         advance_phases(inp)
 
     @staticmethod
-    def _advance_to_line_processing(
-        game_state: GameState, *, trace_mode: bool = False
-    ):
+    def _advance_to_line_processing(game_state: GameState, *, trace_mode: bool = False):
         # Clear chain_capture_state when leaving capture phase.
         # This ensures the next capture opportunity (e.g., after a future
         # MOVE_STACK) will be correctly classified as OVERTAKING_CAPTURE.
@@ -1120,9 +1064,7 @@ class GameEngine:
         game_state.current_phase = GamePhase.LINE_PROCESSING
 
     @staticmethod
-    def _advance_to_territory_processing(
-        game_state: GameState, *, trace_mode: bool = False
-    ):
+    def _advance_to_territory_processing(game_state: GameState, *, trace_mode: bool = False):
         """Advance from line processing into territory processing.
 
         Always enter TERRITORY_PROCESSING as a distinct phase. If there are no
@@ -1371,9 +1313,7 @@ class GameEngine:
                 rotated_player = game_state.current_player
                 # If rotation found a player with material and the resulting
                 # state is not ANM, accept it without further checks.
-                if ga.has_turn_material(game_state, rotated_player) and not ga.is_anm_state(
-                    game_state
-                ):
+                if ga.has_turn_material(game_state, rotated_player) and not ga.is_anm_state(game_state):
                     return
 
         # Re-evaluate the (possibly rotated) current player and consult the
@@ -1494,9 +1434,7 @@ class GameEngine:
         return game_state.total_rings_in_play
 
     @staticmethod
-    def _calculate_distance(
-        board_type: BoardType, from_pos: Position, to_pos: Position
-    ) -> int:
+    def _calculate_distance(board_type: BoardType, from_pos: Position, to_pos: Position) -> int:
         """Thin wrapper around shared geometry distance helper.
 
         Delegates to ``BoardGeometry.calculate_distance`` to keep a single
@@ -1505,9 +1443,7 @@ class GameEngine:
         return BoardGeometry.calculate_distance(board_type, from_pos, to_pos)
 
     @staticmethod
-    def _get_path_positions(
-        from_pos: Position, to_pos: Position
-    ) -> List[Position]:
+    def _get_path_positions(from_pos: Position, to_pos: Position) -> List[Position]:
         """Thin wrapper around shared geometry path helper.
 
         Delegates to ``BoardGeometry.get_path_positions`` to keep a single
@@ -1516,9 +1452,7 @@ class GameEngine:
         return BoardGeometry.get_path_positions(from_pos, to_pos)
 
     @staticmethod
-    def _is_straight_line_movement(
-        board_type: BoardType, from_pos: Position, to_pos: Position
-    ) -> bool:
+    def _is_straight_line_movement(board_type: BoardType, from_pos: Position, to_pos: Position) -> bool:
         """
         True if move from `from_pos` to `to_pos` lies along a valid movement
         ray for the given board type.
@@ -1542,9 +1476,7 @@ class GameEngine:
         return True
 
     @staticmethod
-    def _is_path_clear_for_movement(
-        board, from_pos: Position, to_pos: Position
-    ) -> bool:
+    def _is_path_clear_for_movement(board, from_pos: Position, to_pos: Position) -> bool:
         """
         Path check for non-capture movement and for capture geometry.
         Mirrors RuleEngine.isPathClear semantics: no stacks or collapsed
@@ -1622,11 +1554,7 @@ class GameEngine:
 
     @staticmethod
     def _process_markers_along_path(
-        board,
-        from_pos: Position,
-        to_pos: Position,
-        player_number: int,
-        game_state: GameState
+        board, from_pos: Position, to_pos: Position, player_number: int, game_state: GameState
     ) -> None:
         """
         Process markers along a straight-line path, excluding endpoints.
@@ -1642,21 +1570,15 @@ class GameEngine:
             if marker.player == player_number:
                 # Remove marker hash
                 if game_state.zobrist_hash is not None:
-                    game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                        pos_key, marker.player
-                    )
+                    game_state.zobrist_hash ^= zobrist.get_marker_hash(pos_key, marker.player)
                 BoardManager.set_collapsed_space(pos, player_number, board)
                 # Add collapsed hash
                 if game_state.zobrist_hash is not None:
-                    game_state.zobrist_hash ^= zobrist.get_collapsed_hash(
-                        pos_key
-                    )
+                    game_state.zobrist_hash ^= zobrist.get_collapsed_hash(pos_key)
             else:
                 # Remove old marker hash
                 if game_state.zobrist_hash is not None:
-                    game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                        pos_key, marker.player
-                    )
+                    game_state.zobrist_hash ^= zobrist.get_marker_hash(pos_key, marker.player)
                 # Copy marker before modification to avoid mutating shared state
                 new_marker = marker.model_copy()
                 new_marker.player = player_number
@@ -1664,14 +1586,10 @@ class GameEngine:
 
                 # Add new marker hash
                 if game_state.zobrist_hash is not None:
-                    game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                        pos_key, new_marker.player
-                    )
+                    game_state.zobrist_hash ^= zobrist.get_marker_hash(pos_key, new_marker.player)
 
     @staticmethod
-    def _eliminate_top_ring_at(
-        game_state: GameState, position: Position, credited_player: int
-    ) -> None:
+    def _eliminate_top_ring_at(game_state: GameState, position: Position, credited_player: int) -> None:
         """
         Eliminate exactly the top ring from the stack at `position`,
         crediting the elimination to `credited_player`.
@@ -1689,10 +1607,7 @@ class GameEngine:
         # Remove old stack hash
         if game_state.zobrist_hash is not None:
             game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                pos_key,
-                stack.controlling_player,
-                stack.stack_height,
-                tuple(stack.rings)
+                pos_key, stack.controlling_player, stack.stack_height, tuple(stack.rings)
             )
 
         stack = stack.model_copy(deep=True)
@@ -1702,9 +1617,7 @@ class GameEngine:
         stack.stack_height -= 1
 
         player_id_str = str(credited_player)
-        board.eliminated_rings[player_id_str] = (
-            board.eliminated_rings.get(player_id_str, 0) + 1
-        )
+        board.eliminated_rings[player_id_str] = board.eliminated_rings.get(player_id_str, 0) + 1
         game_state.total_rings_eliminated += 1
 
         for p in game_state.players:
@@ -1727,10 +1640,7 @@ class GameEngine:
             # Add new stack hash
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                    pos_key,
-                    stack.controlling_player,
-                    stack.stack_height,
-                    tuple(stack.rings)
+                    pos_key, stack.controlling_player, stack.stack_height, tuple(stack.rings)
                 )
 
             _debug(
@@ -1904,17 +1814,11 @@ class GameEngine:
                 if dest_stack is None or dest_stack.stack_height == 0:
                     # Empty space or marker-only cell.
                     # Per RR-CANON-R091/R092: landing on any marker is legal.
-                    _debug(
-                        f"DEBUG: _has_any found move from {from_pos} "
-                        f"to {target} dist {distance}\n"
-                    )
+                    _debug(f"DEBUG: _has_any found move from {from_pos} " f"to {target} dist {distance}\n")
                     return True
                 else:
                     # Landing on a stack (for merging) is also a legal move.
-                    _debug(
-                        f"DEBUG: _has_any found merge from {from_pos} "
-                        f"to {target} dist {distance}\n"
-                    )
+                    _debug(f"DEBUG: _has_any found merge from {from_pos} " f"to {target} dist {distance}\n")
                     return True
 
         # === Capture reachability ===
@@ -1974,10 +1878,7 @@ class GameEngine:
                     player_number,
                     board,
                 ):
-                    _debug(
-                        f"DEBUG: _has_any found capture from {from_pos} "
-                        f"to {landing} via {target_pos}\n"
-                    )
+                    _debug(f"DEBUG: _has_any found capture from {from_pos} " f"to {landing} via {target_pos}\n")
                     return True
 
                 landing_step += 1
@@ -2055,10 +1956,7 @@ class GameEngine:
             return True
 
         if DEBUG_ENGINE:
-            _debug(
-                "DEBUG: no-dead-placement rejected placement at "
-                f"{from_pos.to_key()} for P{player_number}\n"
-            )
+            _debug("DEBUG: no-dead-placement rejected placement at " f"{from_pos.to_key()} for P{player_number}\n")
 
         return False
 
@@ -2080,11 +1978,7 @@ class GameEngine:
             return []
 
         player = next(
-            (
-                p
-                for p in game_state.players
-                if p.player_number == player_number
-            ),
+            (p for p in game_state.players if p.player_number == player_number),
             None,
         )
         if not player:
@@ -2153,11 +2047,7 @@ class GameEngine:
 
         # Check if player has rings in hand
         player = next(
-            (
-                p
-                for p in game_state.players
-                if p.player_number == player_number
-            ),
+            (p for p in game_state.players if p.player_number == player_number),
             None,
         )
         if not player or player.rings_in_hand <= 0:
@@ -2225,13 +2115,11 @@ class GameEngine:
                 if placement_count > max_available:
                     continue
 
-                hyp_board = (
-                    GameEngine._create_hypothetical_board_with_placement(
-                        board,
-                        pos,
-                        player_number,
-                        placement_count,
-                    )
+                hyp_board = GameEngine._create_hypothetical_board_with_placement(
+                    board,
+                    pos,
+                    player_number,
+                    placement_count,
                 )
 
                 if GameEngine._has_any_movement_or_capture_after_hypothetical_placement(
@@ -2266,9 +2154,7 @@ class GameEngine:
         return moves
 
     @staticmethod
-    def _get_capture_moves(
-        game_state: GameState, player_number: int, limit: int | None = None
-    ) -> List[Move]:
+    def _get_capture_moves(game_state: GameState, player_number: int, limit: int | None = None) -> List[Move]:
         """
         Enumerate legal overtaking capture segments for the current attacker.
 
@@ -2285,10 +2171,7 @@ class GameEngine:
             attacker_pos = game_state.chain_capture_state.current_position
             kind = "continuation"
         else:
-            last_move = (
-                game_state.move_history[-1]
-                if game_state.move_history else None
-            )
+            last_move = game_state.move_history[-1] if game_state.move_history else None
             if not last_move or not last_move.to:
                 return []
             attacker_pos = last_move.to
@@ -2306,10 +2189,9 @@ class GameEngine:
         if limit is not None and len(moves) > limit:
             return moves[:limit]
         return moves
+
     @staticmethod
-    def _has_valid_placements(
-        game_state: GameState, player_number: int
-    ) -> bool:
+    def _has_valid_placements(game_state: GameState, player_number: int) -> bool:
         """
         True if the player has any legal ring placements.
 
@@ -2322,9 +2204,7 @@ class GameEngine:
         return GameEngine._has_any_valid_placement_fast(game_state, player_number)
 
     @staticmethod
-    def _has_any_valid_placement_fast(
-        game_state: GameState, player_number: int
-    ) -> bool:
+    def _has_any_valid_placement_fast(game_state: GameState, player_number: int) -> bool:
         """
         Fast early-return check for valid placements.
 
@@ -2412,9 +2292,7 @@ class GameEngine:
         return False
 
     @staticmethod
-    def _has_any_legal_placement_on_bare_board(
-        game_state: GameState, player_number: int
-    ) -> bool:
+    def _has_any_legal_placement_on_bare_board(game_state: GameState, player_number: int) -> bool:
         """
         Check if a player can legally place a ring on a bare board.
 
@@ -2510,9 +2388,7 @@ class GameEngine:
         for FE eligibility checks.
         """
         # Use limit=1 for early return optimization on large boards.
-        return bool(
-            GameEngine._get_capture_moves(game_state, player_number, limit=1)
-        )
+        return bool(GameEngine._get_capture_moves(game_state, player_number, limit=1))
 
     @staticmethod
     def _has_valid_actions(game_state: GameState, player_number: int) -> bool:
@@ -2532,9 +2408,7 @@ class GameEngine:
             return True
         # FE checks: ignore must_move_key since we're asking about potential
         # moves on a fresh turn, not constrained by current turn's placement.
-        if GameEngine._has_valid_movements(
-            game_state, player_number, ignore_must_move_key=True
-        ):
+        if GameEngine._has_valid_movements(game_state, player_number, ignore_must_move_key=True):
             return True
         if GameEngine._has_valid_captures(game_state, player_number):
             return True
@@ -2582,10 +2456,7 @@ class GameEngine:
         # Active players are those with at least one stack or a ring in hand.
         active_players: List[int] = []
         for player in game_state.players:
-            has_stacks = any(
-                stack.controlling_player == player.player_number
-                for stack in board.stacks.values()
-            )
+            has_stacks = any(stack.controlling_player == player.player_number for stack in board.stacks.values())
             if has_stacks or player.rings_in_hand > 0:
                 active_players.append(player.player_number)
 
@@ -2620,10 +2491,7 @@ class GameEngine:
         elif current == first and len(mask) > 0:
             # Cycled back to first player - finalize the previous round.
             # Determine if exactly one active player had real actions.
-            true_players = [
-                pid for pid in active_players
-                if mask.get(pid, False)
-            ]
+            true_players = [pid for pid in active_players if mask.get(pid, False)]
             exclusive_player: Optional[int] = None
             if len(true_players) == 1:
                 exclusive_player = true_players[0]
@@ -2656,9 +2524,7 @@ class GameEngine:
         mask[current] = has_real_action
 
     @staticmethod
-    def _get_forced_elimination_moves(
-        game_state: GameState, player_number: int
-    ) -> List[Move]:
+    def _get_forced_elimination_moves(game_state: GameState, player_number: int) -> List[Move]:
         """
         Get forced elimination moves for a blocked player.
 
@@ -2673,10 +2539,7 @@ class GameEngine:
         board = game_state.board
 
         # Player must control at least one stack and have no other actions.
-        player_stacks = [
-            s for s in board.stacks.values()
-            if s.controlling_player == player_number
-        ]
+        player_stacks = [s for s in board.stacks.values() if s.controlling_player == player_number]
         if not player_stacks:
             return []
 
@@ -2685,7 +2548,7 @@ class GameEngine:
 
         # Sort stacks by capHeight (smallest first) to match TS behavior
         # When caps are equal, order is arbitrary (first in iteration)
-        player_stacks.sort(key=lambda s: s.cap_height if s.cap_height > 0 else float('inf'))
+        player_stacks.sort(key=lambda s: s.cap_height if s.cap_height > 0 else float("inf"))
 
         moves: List[Move] = []
         for stack in player_stacks:
@@ -2814,7 +2677,7 @@ class GameEngine:
             # length required_len along the line.
             max_start = line_len - required_len
             for start in range(max_start + 1):
-                segment = tuple(line.positions[start:start + required_len])
+                segment = tuple(line.positions[start : start + required_len])
                 moves.append(
                     Move(
                         id=f"choose-line-reward-{idx}-{line_key}-min-{start}",
@@ -2877,9 +2740,7 @@ class GameEngine:
                 # Canonical guard: controlling_player should not be 0. If the
                 # detector returned a neutral region, attribute it to the active
                 # player to keep the recording canonical with TS expectations.
-                controlling_player = (
-                    region.controlling_player if region.controlling_player != 0 else player_number
-                )
+                controlling_player = region.controlling_player if region.controlling_player != 0 else player_number
                 # Mutate the region as well to keep downstream parity tools consistent.
                 region.controlling_player = controlling_player
                 safe_region = Territory(
@@ -2958,9 +2819,7 @@ class GameEngine:
         # may move or capture, mirroring TurnEngine.mustMoveFromStackKey.
         # When ignore_must_move_key is True (FE eligibility checks), we skip
         # this constraint since it's specific to the current player's turn.
-        must_move_key = (
-            None if ignore_must_move_key else game_state.must_move_from_stack_key
-        )
+        must_move_key = None if ignore_must_move_key else game_state.must_move_from_stack_key
 
         directions = BoardManager._get_all_directions(board.type)
         _debug(f"DEBUG: _get_movement_moves directions: {directions}\n")
@@ -2979,8 +2838,7 @@ class GameEngine:
             from_pos = stack.position
 
             # If we must move a specific stack, skip others
-            if (must_move_key is not None and
-                    from_pos.to_key() != must_move_key):
+            if must_move_key is not None and from_pos.to_key() != must_move_key:
                 _debug(
                     f"DEBUG: Skipping stack {from_pos} because "
                     f"must_move_key={must_move_key} != {from_pos.to_key()}\n"
@@ -2994,22 +2852,16 @@ class GameEngine:
                 # sys.stderr.write(f"DEBUG: Checking direction {direction} from {from_pos}\n")
                 distance = min_distance
                 while True:
-                    to_pos = BoardManager._add_direction(
-                        from_pos, direction, distance
-                    )
+                    to_pos = BoardManager._add_direction(from_pos, direction, distance)
 
-                    if not BoardManager.is_valid_position(
-                        to_pos, board.type, board.size
-                    ):
+                    if not BoardManager.is_valid_position(to_pos, board.type, board.size):
                         break
 
                     if BoardManager.is_collapsed_space(to_pos, board):
                         break
 
                     # Check path blocking between from_pos and to_pos
-                    if not GameEngine._is_path_clear_for_movement(
-                        board, from_pos, to_pos
-                    ):
+                    if not GameEngine._is_path_clear_for_movement(board, from_pos, to_pos):
                         # Any blocking stack/collapsed space stops further
                         # exploration along this ray.
                         break
@@ -3025,8 +2877,7 @@ class GameEngine:
                         # the cap is eliminated. Movement to empty cells is
                         # always valid.
                         _debug(
-                            f"DEBUG: _get_movement_moves found move from "
-                            f"{from_pos} to {to_pos} dist {distance}\n"
+                            f"DEBUG: _get_movement_moves found move from " f"{from_pos} to {to_pos} dist {distance}\n"
                         )
                         moves.append(
                             Move(
@@ -3047,10 +2898,7 @@ class GameEngine:
                         # stacks. Captures (overtaking_capture) handle landing
                         # on opponent stacks and are enumerated separately.
                         # Cannot move further along this ray past a stack.
-                        _debug(
-                            f"DEBUG: _get_movement_moves blocked by stack at "
-                            f"{to_pos}\n"
-                        )
+                        _debug(f"DEBUG: _get_movement_moves blocked by stack at " f"{to_pos}\n")
                         break
 
                     distance += 1
@@ -3091,10 +2939,7 @@ class GameEngine:
             # Remove old stack hash
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                    pos_key,
-                    existing.controlling_player,
-                    existing.stack_height,
-                    tuple(existing.rings)
+                    pos_key, existing.controlling_player, existing.stack_height, tuple(existing.rings)
                 )
 
             # Add rings on top of an existing stack. Our representation stores
@@ -3144,10 +2989,7 @@ class GameEngine:
         # Add new stack hash
         if game_state.zobrist_hash is not None:
             game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                pos_key,
-                stack.controlling_player,
-                stack.stack_height,
-                tuple(stack.rings)
+                pos_key, stack.controlling_player, stack.stack_height, tuple(stack.rings)
             )
 
         # Decrement rings in hand for the moving player. Move generation
@@ -3187,10 +3029,7 @@ class GameEngine:
         zobrist = ZobristHash()
         if game_state.zobrist_hash is not None:
             game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                from_key,
-                source_stack.controlling_player,
-                source_stack.stack_height,
-                tuple(source_stack.rings)
+                from_key, source_stack.controlling_player, source_stack.stack_height, tuple(source_stack.rings)
             )
         del board.stacks[from_key]
 
@@ -3201,16 +3040,12 @@ class GameEngine:
             type="regular",
         )
         if game_state.zobrist_hash is not None:
-            game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                from_key, move.player
-            )
+            game_state.zobrist_hash ^= zobrist.get_marker_hash(from_key, move.player)
 
         # Process markers along movement path (excluding endpoints)
         # Track collapsed space delta for territory_spaces update
         collapsed_before = len(board.collapsed_spaces)
-        GameEngine._process_markers_along_path(
-            board, move.from_pos, move.to, move.player, game_state
-        )
+        GameEngine._process_markers_along_path(board, move.from_pos, move.to, move.player, game_state)
         collapsed_after = len(board.collapsed_spaces)
         collapsed_delta = collapsed_after - collapsed_before
         if collapsed_delta > 0:
@@ -3228,9 +3063,7 @@ class GameEngine:
         if landed_on_marker:
             # Remove marker before landing
             if game_state.zobrist_hash is not None:
-                game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                    to_key, landing_marker.player
-                )
+                game_state.zobrist_hash ^= zobrist.get_marker_hash(to_key, landing_marker.player)
             del board.markers[to_key]
 
         # Handle merge with any existing stack at destination
@@ -3239,10 +3072,7 @@ class GameEngine:
             # Remove old dest stack hash
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                    to_key,
-                    dest_stack.controlling_player,
-                    dest_stack.stack_height,
-                    tuple(dest_stack.rings)
+                    to_key, dest_stack.controlling_player, dest_stack.stack_height, tuple(dest_stack.rings)
                 )
 
             dest_stack = dest_stack.model_copy(deep=True)
@@ -3268,10 +3098,7 @@ class GameEngine:
             # Add new dest stack hash
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                    to_key,
-                    dest_stack.controlling_player,
-                    dest_stack.stack_height,
-                    tuple(dest_stack.rings)
+                    to_key, dest_stack.controlling_player, dest_stack.stack_height, tuple(dest_stack.rings)
                 )
         else:
             # Simple move to empty (or marker-only) space
@@ -3280,15 +3107,13 @@ class GameEngine:
             # Add new stack hash
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                    to_key,
-                    moving_stack.controlling_player,
-                    moving_stack.stack_height,
-                    tuple(moving_stack.rings)
+                    to_key, moving_stack.controlling_player, moving_stack.stack_height, tuple(moving_stack.rings)
                 )
 
         # Cap-elimination when landing on any marker
         if landed_on_marker:
             GameEngine._eliminate_top_ring_at(game_state, move.to, move.player)
+
     @staticmethod
     def _apply_overtaking_capture(game_state: GameState, move: Move):
         """
@@ -3344,10 +3169,7 @@ class GameEngine:
         zobrist = ZobristHash()
         if game_state.zobrist_hash is not None:
             game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                from_key,
-                attacker.controlling_player,
-                attacker.stack_height,
-                tuple(attacker.rings)
+                from_key, attacker.controlling_player, attacker.stack_height, tuple(attacker.rings)
             )
         del board.stacks[from_key]
 
@@ -3358,17 +3180,11 @@ class GameEngine:
             type="regular",
         )
         if game_state.zobrist_hash is not None:
-            game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                from_key, move.player
-            )
+            game_state.zobrist_hash ^= zobrist.get_marker_hash(from_key, move.player)
 
         # Process markers along from→target and target→landing
-        GameEngine._process_markers_along_path(
-            board, from_pos, target_pos, move.player, game_state
-        )
-        GameEngine._process_markers_along_path(
-            board, target_pos, landing_pos, move.player, game_state
-        )
+        GameEngine._process_markers_along_path(board, from_pos, target_pos, move.player, game_state)
+        GameEngine._process_markers_along_path(board, target_pos, landing_pos, move.player, game_state)
 
         # Capture top ring from target (top = end of list)
         if not target_stack.rings:
@@ -3379,10 +3195,7 @@ class GameEngine:
         # Remove old target stack hash
         if game_state.zobrist_hash is not None:
             game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                target_key,
-                target_stack.controlling_player,
-                target_stack.stack_height,
-                tuple(target_stack.rings)
+                target_key, target_stack.controlling_player, target_stack.stack_height, tuple(target_stack.rings)
             )
 
         captured_ring = target_stack.rings.pop()
@@ -3405,10 +3218,7 @@ class GameEngine:
             # Add new target stack hash
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                    target_key,
-                    target_stack.controlling_player,
-                    target_stack.stack_height,
-                    tuple(target_stack.rings)
+                    target_key, target_stack.controlling_player, target_stack.stack_height, tuple(target_stack.rings)
                 )
 
         # Insert captured ring at bottom of attacker.
@@ -3444,7 +3254,7 @@ class GameEngine:
                     landing_key,
                     existing_dest.controlling_player,
                     existing_dest.stack_height,
-                    tuple(existing_dest.rings)
+                    tuple(existing_dest.rings),
                 )
 
             existing_dest = existing_dest.model_copy(deep=True)
@@ -3468,7 +3278,7 @@ class GameEngine:
                     landing_key,
                     existing_dest.controlling_player,
                     existing_dest.stack_height,
-                    tuple(existing_dest.rings)
+                    tuple(existing_dest.rings),
                 )
         else:
             attacker.position = landing_pos
@@ -3476,10 +3286,7 @@ class GameEngine:
             # Add new stack hash
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_stack_hash(
-                    landing_key,
-                    attacker.controlling_player,
-                    attacker.stack_height,
-                    tuple(attacker.rings)
+                    landing_key, attacker.controlling_player, attacker.stack_height, tuple(attacker.rings)
                 )
 
         # Handle landing on marker
@@ -3489,14 +3296,10 @@ class GameEngine:
         if landing_marker is not None:
             # Remove marker (do not collapse it)
             if game_state.zobrist_hash is not None:
-                game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                    landing_key, landing_marker.player
-                )
+                game_state.zobrist_hash ^= zobrist.get_marker_hash(landing_key, landing_marker.player)
             del board.markers[landing_key]
             # Eliminate top ring of the attacking stack's cap
-            GameEngine._eliminate_top_ring_at(
-                game_state, landing_pos, move.player
-            )
+            GameEngine._eliminate_top_ring_at(game_state, landing_pos, move.player)
 
         # Update chain capture state (Python analogue of
         # updateChainCaptureStateAfterCapture)
@@ -3622,9 +3425,7 @@ class GameEngine:
             marker = board.markers.get(key)
             if marker:
                 if game_state.zobrist_hash is not None:
-                    game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                        key, marker.player
-                    )
+                    game_state.zobrist_hash ^= zobrist.get_marker_hash(key, marker.player)
             BoardManager.set_collapsed_space(pos, move.player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
@@ -3643,6 +3444,7 @@ class GameEngine:
         # not part of the canonical hash. We therefore do not mutate
         # board.formed_lines here; parity fixtures care only about the
         # collapsed territory side-effects.
+
     @staticmethod
     def _apply_territory_claim(game_state: GameState, move: Move):
         """
@@ -3743,9 +3545,7 @@ class GameEngine:
             marker = board.markers.get(key)
             if marker:
                 if game_state.zobrist_hash is not None:
-                    game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                        key, marker.player
-                    )
+                    game_state.zobrist_hash ^= zobrist.get_marker_hash(key, marker.player)
             BoardManager.set_collapsed_space(pos, player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
@@ -3756,9 +3556,7 @@ class GameEngine:
             marker = board.markers.get(key)
             if marker:
                 if game_state.zobrist_hash is not None:
-                    game_state.zobrist_hash ^= zobrist.get_marker_hash(
-                        key, marker.player
-                    )
+                    game_state.zobrist_hash ^= zobrist.get_marker_hash(key, marker.player)
             BoardManager.set_collapsed_space(pos, player, board)
             if game_state.zobrist_hash is not None:
                 game_state.zobrist_hash ^= zobrist.get_collapsed_hash(key)
@@ -3772,9 +3570,7 @@ class GameEngine:
                     break
 
     @staticmethod
-    def _generate_all_positions(
-        board_type: BoardType, size: int
-    ) -> List[Position]:
+    def _generate_all_positions(board_type: BoardType, size: int) -> List[Position]:
         """Generate all valid positions"""
         # Use BoardManager logic (replicated here or delegated if BoardManager
         # exposed it)
@@ -3793,16 +3589,12 @@ class GameEngine:
             for x in range(-radius, radius + 1):
                 for y in range(-radius, radius + 1):
                     z = -x - y
-                    if (abs(x) <= radius and
-                            abs(y) <= radius and
-                            abs(z) <= radius):
+                    if abs(x) <= radius and abs(y) <= radius and abs(z) <= radius:
                         positions.append(Position(x=x, y=y, z=z))
         return positions
 
     @staticmethod
-    def _get_adjacent_positions(
-        pos: Position, board_type: BoardType, size: int
-    ) -> List[Position]:
+    def _get_adjacent_positions(pos: Position, board_type: BoardType, size: int) -> List[Position]:
         """Get adjacent positions"""
         # Use BoardManager logic
         # For now, keep existing logic
@@ -3821,27 +3613,19 @@ class GameEngine:
                         adjacent.append(Position(x=new_x, y=new_y))
 
         elif board_type == BoardType.HEXAGONAL:
-            hex_directions = [
-                (1, 0, -1), (-1, 0, 1),
-                (0, 1, -1), (0, -1, 1),
-                (1, -1, 0), (-1, 1, 0)
-            ]
+            hex_directions = [(1, 0, -1), (-1, 0, 1), (0, 1, -1), (0, -1, 1), (1, -1, 0), (-1, 1, 0)]
             radius = size - 1
             for dx, dy, dz in hex_directions:
                 if pos.z is None:
                     continue
                 nx, ny, nz = pos.x + dx, pos.y + dy, pos.z + dz
-                if (abs(nx) <= radius and
-                        abs(ny) <= radius and
-                        abs(nz) <= radius):
+                if abs(nx) <= radius and abs(ny) <= radius and abs(nz) <= radius:
                     adjacent.append(Position(x=nx, y=ny, z=nz))
 
         return adjacent
 
     @staticmethod
-    def get_visible_stacks(
-        pos: Position, game_state: GameState
-    ) -> List[RingStack]:
+    def get_visible_stacks(pos: Position, game_state: GameState) -> List[RingStack]:
         """
         Get all stacks visible from a given position (line of sight).
         This is used for determining capture/overtake potential.
@@ -3861,11 +3645,7 @@ class GameEngine:
                     directions.append((dx, dy, 0))
         elif board_type == BoardType.HEXAGONAL:
             # 6 directions for hexagonal board
-            directions = [
-                (1, 0, -1), (-1, 0, 1),
-                (0, 1, -1), (0, -1, 1),
-                (1, -1, 0), (-1, 1, 0)
-            ]
+            directions = [(1, 0, -1), (-1, 0, 1), (0, 1, -1), (0, -1, 1), (1, -1, 0), (-1, 1, 0)]
 
         limit = 8 if board_type == BoardType.SQUARE8 else 19
         radius = size - 1
@@ -3885,9 +3665,7 @@ class GameEngine:
                     if not (0 <= curr_x < limit and 0 <= curr_y < limit):
                         break
                 elif board_type == BoardType.HEXAGONAL:
-                    if not (abs(curr_x) <= radius and
-                            abs(curr_y) <= radius and
-                            abs(curr_z) <= radius):
+                    if not (abs(curr_x) <= radius and abs(curr_y) <= radius and abs(curr_z) <= radius):
                         break
 
                 curr_pos_key = f"{curr_x},{curr_y}"

@@ -1,5 +1,6 @@
 from app.models import GameState, Move
 from app.rules.interfaces import Mutator
+
 # from app.game_engine import GameEngine
 
 
@@ -7,6 +8,7 @@ class MovementMutator(Mutator):
     def apply(self, state: GameState, move: Move) -> None:
         # Delegate to GameEngine's static method
         from app.game_engine import GameEngine
+
         GameEngine._apply_move_stack(state, move)
         # Note: GameEngine._apply_move_stack does NOT update last_move_at
         # or move_history, so we must do it here if we want the mutator
@@ -77,7 +79,9 @@ class MovementMutator(Mutator):
         # 2. Territory processing? (But that happens in a separate phase)
         # 3. Forced elimination?
         #
-        # If GameEngine.apply_move triggers _update_phase -> _advance_to_territory_processing -> _end_turn -> _perform_forced_elimination_for_player...
+        # If GameEngine.apply_move triggers _update_phase ->
+        # _advance_to_territory_processing -> _end_turn ->
+        # _perform_forced_elimination_for_player...
         #
         # If the move ended the turn, and the NEXT player had to force-eliminate,
         # that would modify the board in the Engine result.
@@ -166,7 +170,8 @@ class MovementMutator(Mutator):
         #
         # Wait, I might be misinterpreting the coordinates or the diff.
         #
-        # If `only_mut=['3,6']`, it means `mutator_state.board.stacks` has a key '3,6' that `next_via_engine.board.stacks` does not.
+        # If `only_mut=['3,6']`, it means `mutator_state.board.stacks` has a
+        # key '3,6' that `next_via_engine.board.stacks` does not.
         #
         # This implies the Engine deleted the stack at '3,6'.
         #
@@ -183,11 +188,13 @@ class MovementMutator(Mutator):
         #
         # Both start from `state`.
         #
-        # If `GameEngine.apply_move` removes a stack that `MovementMutator` (which calls `_apply_move_stack`) does not...
+        # If `GameEngine.apply_move` removes a stack that `MovementMutator`
+        # (which calls `_apply_move_stack`) does not...
         #
         # `GameEngine.apply_move` calls `_apply_move_stack`.
         #
-        # So `next_via_engine` has the result of `_apply_move_stack` PLUS `_update_phase` PLUS `_check_victory`.
+        # So `next_via_engine` has the result of `_apply_move_stack`
+        # PLUS `_update_phase` PLUS `_check_victory`.
         #
         # `mutator_state` has ONLY `_apply_move_stack`.
         #
@@ -195,7 +202,8 @@ class MovementMutator(Mutator):
         #
         # `_check_victory` checks for victory conditions. It doesn't modify the board (except maybe `game_status`).
         #
-        # `_update_phase` advances phase. It calls `_advance_to_line_processing` -> `_advance_to_territory_processing` -> `_end_turn`.
+        # `_update_phase` advances phase. It calls `_advance_to_line_processing`
+        # -> `_advance_to_territory_processing` -> `_end_turn`.
         #
         # If `_end_turn` is called, it might call `_perform_forced_elimination_for_player`.
         #
@@ -205,9 +213,12 @@ class MovementMutator(Mutator):
         #
         # But if forced elimination happens, `_end_turn` was called.
         #
-        # If `_end_turn` was called, `current_player` SHOULD change... UNLESS the next player was forced to eliminate and then kept their turn?
+        # If `_end_turn` was called, `current_player` SHOULD change...
+        # UNLESS the next player was forced to eliminate and then kept their turn?
         #
-        # "If this player controls at least one stack but has no legal ... actions, we must eliminate a cap ... Keep this player active and begin their turn in MOVEMENT."
+        # "If this player controls at least one stack but has no legal ...
+        # actions, we must eliminate a cap ... Keep this player active and
+        # begin their turn in MOVEMENT."
         #
         # AHA!
         #

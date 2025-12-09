@@ -32,14 +32,25 @@ class BoardArrays:
 
     Arrays are indexed by flattened position index for O(1) access.
     """
+
     __slots__ = [
-        'board_type', 'board_size', 'num_positions',
-        'stack_owner', 'stack_height', 'marker_owner',
-        'is_collapsed', 'territory_owner',
-        'player_rings_in_hand', 'player_eliminated', 'player_territory',
-        'position_to_idx', 'idx_to_position',
-        'center_mask', 'neighbor_indices',
-        'victory_rings', 'victory_territory',
+        "board_type",
+        "board_size",
+        "num_positions",
+        "stack_owner",
+        "stack_height",
+        "marker_owner",
+        "is_collapsed",
+        "territory_owner",
+        "player_rings_in_hand",
+        "player_eliminated",
+        "player_territory",
+        "position_to_idx",
+        "idx_to_position",
+        "center_mask",
+        "neighbor_indices",
+        "victory_rings",
+        "victory_territory",
     ]
 
     def __init__(self, board_size: int, board_type: int):
@@ -77,9 +88,7 @@ class BoardArrays:
         # Neighbor indices for each position (for mobility calculation)
         # -1 means no neighbor (edge/invalid)
         max_neighbors = 8 if board_type != BOARD_HEX else 6
-        self.neighbor_indices = np.full(
-            (self.num_positions, max_neighbors), -1, dtype=np.int32
-        )
+        self.neighbor_indices = np.full((self.num_positions, max_neighbors), -1, dtype=np.int32)
 
         # Victory conditions
         self.victory_rings = 19
@@ -116,19 +125,46 @@ class BoardArrays:
         """Build mask for center positions."""
         if self.board_type == BOARD_SQUARE8:
             center_keys = [
-                "3,3", "3,4", "4,3", "4,4",
-                "2,2", "2,3", "2,4", "2,5",
-                "3,2", "3,5", "4,2", "4,5",
-                "5,2", "5,3", "5,4", "5,5",
+                "3,3",
+                "3,4",
+                "4,3",
+                "4,4",
+                "2,2",
+                "2,3",
+                "2,4",
+                "2,5",
+                "3,2",
+                "3,5",
+                "4,2",
+                "4,5",
+                "5,2",
+                "5,3",
+                "5,4",
+                "5,5",
             ]
         elif self.board_type == BOARD_SQUARE19:
             center_keys = [f"{x},{y}" for x in range(7, 12) for y in range(7, 12)]
         else:  # Hex
             center_keys = [
                 "0,0",
-                "1,0", "0,1", "-1,1", "-1,0", "0,-1", "1,-1",
-                "2,0", "1,1", "0,2", "-1,2", "-2,2", "-2,1",
-                "-2,0", "-1,-1", "0,-2", "1,-2", "2,-2", "2,-1",
+                "1,0",
+                "0,1",
+                "-1,1",
+                "-1,0",
+                "0,-1",
+                "1,-1",
+                "2,0",
+                "1,1",
+                "0,2",
+                "-1,2",
+                "-2,2",
+                "-2,1",
+                "-2,0",
+                "-1,-1",
+                "0,-2",
+                "1,-2",
+                "2,-2",
+                "2,-1",
             ]
 
         for key in center_keys:
@@ -143,9 +179,14 @@ class BoardArrays:
         else:
             # Square directions (8-connected)
             directions = [
-                (-1, -1), (0, -1), (1, -1),
-                (-1, 0),          (1, 0),
-                (-1, 1),  (0, 1), (1, 1),
+                (-1, -1),
+                (0, -1),
+                (1, -1),
+                (-1, 0),
+                (1, 0),
+                (-1, 1),
+                (0, 1),
+                (1, 1),
             ]
 
         for key, idx in self.position_to_idx.items():
@@ -160,7 +201,7 @@ class BoardArrays:
                     self.neighbor_indices[idx, d_idx] = self.position_to_idx[neighbor_key]
 
     @classmethod
-    def from_lightweight_state(cls, state: 'LightweightState') -> 'BoardArrays':
+    def from_lightweight_state(cls, state: "LightweightState") -> "BoardArrays":
         """Create BoardArrays from a LightweightState."""
         # Determine board type
         board_type_str = state.board_type.value
@@ -213,7 +254,7 @@ class BoardArrays:
 
         return arrays
 
-    def copy(self) -> 'BoardArrays':
+    def copy(self) -> "BoardArrays":
         """Create a shallow copy with copied arrays."""
         new = BoardArrays.__new__(BoardArrays)
         new.board_type = self.board_type
@@ -238,7 +279,7 @@ class BoardArrays:
 
         return new
 
-    def update_from_lightweight_state(self, state: 'LightweightState') -> None:
+    def update_from_lightweight_state(self, state: "LightweightState") -> None:
         """
         Update arrays in-place from a LightweightState.
 
@@ -329,16 +370,16 @@ def batch_evaluate_positions(
         return np.array([], dtype=np.float64)
 
     # Extract weights
-    w_stack = weights.get('WEIGHT_STACK_CONTROL', 10.0)
-    w_no_stacks = weights.get('WEIGHT_NO_STACKS_PENALTY', -50.0)
-    w_single_stack = weights.get('WEIGHT_SINGLE_STACK_PENALTY', -10.0)
-    w_territory = weights.get('WEIGHT_TERRITORY', 15.0)
-    w_rings = weights.get('WEIGHT_RINGS_IN_HAND', 3.0)
-    w_center = weights.get('WEIGHT_CENTER_CONTROL', 8.0)
-    w_eliminated = weights.get('WEIGHT_ELIMINATED_RINGS', 20.0)
-    w_marker = weights.get('WEIGHT_MARKER_COUNT', 2.0)
-    w_victory = weights.get('WEIGHT_VICTORY_PROXIMITY', 25.0)
-    w_victory_bonus = weights.get('WEIGHT_VICTORY_THRESHOLD_BONUS', 30.0)
+    w_stack = weights.get("WEIGHT_STACK_CONTROL", 10.0)
+    w_no_stacks = weights.get("WEIGHT_NO_STACKS_PENALTY", -50.0)
+    w_single_stack = weights.get("WEIGHT_SINGLE_STACK_PENALTY", -10.0)
+    w_territory = weights.get("WEIGHT_TERRITORY", 15.0)
+    w_rings = weights.get("WEIGHT_RINGS_IN_HAND", 3.0)
+    w_center = weights.get("WEIGHT_CENTER_CONTROL", 8.0)
+    w_eliminated = weights.get("WEIGHT_ELIMINATED_RINGS", 20.0)
+    w_marker = weights.get("WEIGHT_MARKER_COUNT", 2.0)
+    w_victory = weights.get("WEIGHT_VICTORY_PROXIMITY", 25.0)
+    w_victory_bonus = weights.get("WEIGHT_VICTORY_THRESHOLD_BONUS", 30.0)
 
     # Pre-compute base features that don't change
     base_my_stacks = np.sum(base_arrays.stack_owner == player_number)
@@ -346,7 +387,9 @@ def batch_evaluate_positions(
     base_my_markers = np.sum(base_arrays.marker_owner == player_number)
     base_opp_markers = np.sum((base_arrays.marker_owner > 0) & (base_arrays.marker_owner != player_number))
     base_my_center = np.sum((base_arrays.stack_owner == player_number) & base_arrays.center_mask)
-    base_opp_center = np.sum((base_arrays.stack_owner > 0) & (base_arrays.stack_owner != player_number) & base_arrays.center_mask)
+    base_opp_center = np.sum(
+        (base_arrays.stack_owner > 0) & (base_arrays.stack_owner != player_number) & base_arrays.center_mask
+    )
     base_my_territory = np.sum(base_arrays.territory_owner == player_number)
     base_opp_territory = np.sum((base_arrays.territory_owner > 0) & (base_arrays.territory_owner != player_number))
 
@@ -369,7 +412,7 @@ def batch_evaluate_positions(
         if to_idx < 0:
             continue
 
-        is_my_move = (move_player == player_number)
+        is_my_move = move_player == player_number
 
         if move_type == 0:  # place_ring
             # New stack at to_key
@@ -502,7 +545,7 @@ def prepare_moves_for_batch(
         player = move.player
 
         # Determine move type
-        move_type_str = move.type.value if hasattr(move.type, 'value') else str(move.type)
+        move_type_str = move.type.value if hasattr(move.type, "value") else str(move.type)
 
         if move_type_str == "place_ring":
             move_type = 0
@@ -529,7 +572,8 @@ class BoardArraysPool:
     BoardArrays objects on each move evaluation. Arrays are cached
     by board geometry (type + size) for fast lookup.
     """
-    _instances: Dict[str, 'BoardArraysPool'] = {}
+
+    _instances: Dict[str, "BoardArraysPool"] = {}
 
     def __init__(self, board_size: int, board_type: int, pool_size: int = 4):
         self.board_size = board_size
@@ -546,7 +590,7 @@ class BoardArraysPool:
             self._available.append(arrays)
 
     @classmethod
-    def get_pool(cls, board_size: int, board_type: int) -> 'BoardArraysPool':
+    def get_pool(cls, board_size: int, board_type: int) -> "BoardArraysPool":
         """Get or create a pool for the given board geometry."""
         key = f"{board_type}_{board_size}"
         if key not in cls._instances:
@@ -589,14 +633,14 @@ class BoardArraysPool:
     def stats(self) -> Dict[str, int]:
         """Get pool statistics."""
         return {
-            'available': len(self._available),
-            'in_use': len(self._in_use),
-            'pool_size': self.pool_size,
+            "available": len(self._available),
+            "in_use": len(self._in_use),
+            "pool_size": self.pool_size,
         }
 
 
 def get_or_update_board_arrays(
-    state: 'LightweightState',
+    state: "LightweightState",
     cached_arrays: Optional[BoardArrays] = None,
 ) -> BoardArrays:
     """
@@ -626,9 +670,7 @@ def get_or_update_board_arrays(
         board_size = state.board_size
 
     # Check if we can reuse cached arrays
-    if (cached_arrays is not None and
-            cached_arrays.board_type == board_type and
-            cached_arrays.board_size == board_size):
+    if cached_arrays is not None and cached_arrays.board_type == board_type and cached_arrays.board_size == board_size:
         cached_arrays.update_from_lightweight_state(state)
         return cached_arrays
 

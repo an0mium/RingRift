@@ -20,6 +20,7 @@ from enum import Enum
 
 class LightweightBoardType(Enum):
     """Board type for lightweight state."""
+
     SQUARE8 = "square8"
     SQUARE19 = "square19"
     HEXAGONAL = "hexagonal"
@@ -27,6 +28,7 @@ class LightweightBoardType(Enum):
 
 class LightweightPhase(Enum):
     """Game phase for lightweight state - 7 canonical phases per RR-CANON-R070."""
+
     RING_PLACEMENT = "ring_placement"
     MOVEMENT = "movement"
     CAPTURE = "capture"
@@ -42,6 +44,7 @@ class LightweightPhase(Enum):
 @dataclass(slots=True)
 class LightweightStack:
     """Minimal stack representation."""
+
     position_key: str
     rings: List[int]  # Player numbers from bottom to top
     controlling_player: int
@@ -54,6 +57,7 @@ class LightweightStack:
 @dataclass(slots=True)
 class LightweightMarker:
     """Minimal marker representation."""
+
     position_key: str
     player: int
 
@@ -61,6 +65,7 @@ class LightweightMarker:
 @dataclass(slots=True)
 class LightweightPlayer:
     """Minimal player representation for evaluation."""
+
     player_number: int
     rings_in_hand: int
     eliminated_rings: int
@@ -76,6 +81,7 @@ class MoveUndo:
     - What was removed (to be restored on undo)
     - What was modified (original values to restore)
     """
+
     # Stack changes
     added_stack_keys: List[str] = field(default_factory=list)
     removed_stacks: Dict[str, LightweightStack] = field(default_factory=dict)
@@ -120,9 +126,18 @@ class LightweightState:
     """
 
     __slots__ = [
-        'board_type', 'board_size', 'stacks', 'markers', 'collapsed_spaces',
-        'territories', 'players', 'current_player', 'current_phase',
-        'victory_rings', 'victory_territory', '_position_key_cache'
+        "board_type",
+        "board_size",
+        "stacks",
+        "markers",
+        "collapsed_spaces",
+        "territories",
+        "players",
+        "current_player",
+        "current_phase",
+        "victory_rings",
+        "victory_territory",
+        "_position_key_cache",
     ]
 
     def __init__(self):
@@ -140,7 +155,7 @@ class LightweightState:
         self._position_key_cache: Dict[Tuple[int, int], str] = {}
 
     @classmethod
-    def from_game_state(cls, game_state) -> 'LightweightState':
+    def from_game_state(cls, game_state) -> "LightweightState":
         """Convert a Pydantic GameState to lightweight representation.
 
         This is O(n) where n is board elements, but only done once per
@@ -150,7 +165,7 @@ class LightweightState:
 
         # Board type
         board = game_state.board
-        board_type_str = board.type.value if hasattr(board.type, 'value') else str(board.type)
+        board_type_str = board.type.value if hasattr(board.type, "value") else str(board.type)
         state.board_type = LightweightBoardType(board_type_str)
         state.board_size = board.size
 
@@ -187,12 +202,16 @@ class LightweightState:
 
         # Game state
         state.current_player = game_state.current_player
-        phase_str = game_state.current_phase.value if hasattr(game_state.current_phase, 'value') else str(game_state.current_phase)
+        phase_str = (
+            game_state.current_phase.value
+            if hasattr(game_state.current_phase, "value")
+            else str(game_state.current_phase)
+        )
         state.current_phase = LightweightPhase(phase_str)
 
         # Victory conditions
-        state.victory_rings = getattr(game_state, 'victory_threshold', 19)
-        state.victory_territory = getattr(game_state, 'territory_victory_threshold', 33)
+        state.victory_rings = getattr(game_state, "victory_threshold", 19)
+        state.victory_territory = getattr(game_state, "territory_victory_threshold", 33)
 
         return state
 

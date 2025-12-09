@@ -5,7 +5,7 @@ import numpy as np
 def reanalyze_dataset(
     input_file="data/dataset.npz",
     output_file="data/dataset_reanalyzed.npz",
-    model_path="ai-service/app/models/ringrift_best.pth"
+    model_path="ai-service/app/models/ringrift_best.pth",
 ):
     """
     Re-analyze a dataset using the latest model and Descent search.
@@ -39,7 +39,7 @@ def reanalyze_dataset(
     data = np.load(input_file, allow_pickle=True)
 
     # Handle both new and old formats
-    if 'features' in data:
+    if "features" in data:
         # Feature-only format cannot be re-analyzed
         # We would need full GameState to run search
 
@@ -93,6 +93,7 @@ def reanalyze_dataset(
     # np.savez(output_file, features=features, globals=globals_vec, values=new_values, policies=new_policies)
 
     print("ReAnalyze implementation pending full state storage.")
+
 
 if __name__ == "__main__":
     reanalyze_dataset()

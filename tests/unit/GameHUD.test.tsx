@@ -115,6 +115,29 @@ describe('GameHUD', () => {
     expect(screen.getAllByText(/\d+:\d{2}/).length).toBeGreaterThan(0);
   });
 
+  it('shows critical styling on legacy timers under one minute', () => {
+    const gameState = createTestGameState({
+      timeControl: { type: 'rapid', initialTime: 60_000, increment: 0 },
+      players: [
+        {
+          ...createTestGameState().players[0],
+          timeRemaining: 55_000,
+        },
+        {
+          ...createTestGameState().players[1],
+          timeRemaining: 120_000,
+        },
+      ],
+    });
+    const currentPlayer = gameState.players[0];
+
+    const { container } = render(<GameHUD gameState={gameState} currentPlayer={currentPlayer} />);
+
+    const timer = container.querySelector('.text-red-600.font-bold');
+    expect(timer).toBeInTheDocument();
+    expect(timer?.textContent).toMatch(/0:55/);
+  });
+
   it('should display game progress turn counter', () => {
     const gameState = createTestGameState();
     const currentPlayer = gameState.players[0];
@@ -160,6 +183,32 @@ describe('GameHUD', () => {
     expect(screen.getByText('🤖 AI')).toBeInTheDocument();
   });
 
+  it('maps AI difficulty and type labels for legacy AI cards', () => {
+    const gameState = createTestGameState({
+      players: [
+        {
+          id: 'p1',
+          username: 'AI Expert',
+          playerNumber: 1,
+          type: 'ai',
+          isReady: true,
+          timeRemaining: 55_000,
+          ringsInHand: 10,
+          eliminatedRings: 2,
+          territorySpaces: 0,
+          aiDifficulty: 7,
+          aiProfile: { difficulty: 7, aiType: 'mcts' },
+        },
+      ],
+    });
+    const currentPlayer = gameState.players[0];
+
+    render(<GameHUD gameState={gameState} currentPlayer={currentPlayer} />);
+
+    expect(screen.getByText(/Expert · MCTS/)).toBeInTheDocument();
+    expect(screen.getAllByText(/MCTS/).length).toBeGreaterThan(0);
+  });
+
   it('should display connection status', () => {
     const gameState = createTestGameState();
     const currentPlayer = gameState.players[0];
@@ -169,6 +218,17 @@ describe('GameHUD', () => {
     );
 
     expect(screen.getByText(/Connected/)).toBeInTheDocument();
+  });
+
+  it('should render connecting connection status (legacy props path)', () => {
+    const gameState = createTestGameState();
+    const currentPlayer = gameState.players[0];
+
+    render(
+      <GameHUD gameState={gameState} currentPlayer={currentPlayer} connectionStatus="connecting" />
+    );
+
+    expect(screen.getByText(/Connecting…/)).toBeInTheDocument();
   });
 
   it('should render reconnecting and disconnected connection statuses (legacy props path)', () => {
@@ -259,9 +319,11 @@ describe('GameHUD', () => {
     const phases: Array<GameState['currentPhase']> = [
       'ring_placement',
       'movement',
+      'capture',
       'chain_capture',
       'line_processing',
       'territory_processing',
+      'forced_elimination',
     ];
 
     phases.forEach((phase) => {
@@ -287,6 +349,35 @@ describe('GameHUD', () => {
     expect(screen.getByText(/Ring Elimination – Win by eliminating/)).toBeInTheDocument();
     expect(screen.getByText(/Territory Control – Win by controlling/)).toBeInTheDocument();
     expect(screen.getByText(/Last Player Standing/)).toBeInTheDocument();
+  });
+
+  it('renders legacy sub-phase detail copy for line and territory processing', () => {
+    const baseState = createTestGameState();
+
+    const lineGameState = createTestGameState({
+      currentPhase: 'line_processing',
+      board: {
+        ...baseState.board,
+        formedLines: [
+          { positions: [{ x: 0, y: 0 }], player: 1, length: 1, direction: { x: 1, y: 0 } },
+          { positions: [{ x: 1, y: 1 }], player: 2, length: 1, direction: { x: 0, y: 1 } },
+        ],
+      },
+    });
+
+    render(<GameHUD gameState={lineGameState} currentPlayer={lineGameState.players[0]} />);
+    expect(screen.getByText(/Processing 2 lines/)).toBeInTheDocument();
+
+    const territoryGameState = createTestGameState({
+      ...baseState,
+      currentPhase: 'territory_processing',
+    });
+    render(
+      <GameHUD gameState={territoryGameState} currentPlayer={territoryGameState.players[0]} />
+    );
+    expect(
+      screen.getByText(/Processing disconnected regions; you must eliminate one outside ring/i)
+    ).toBeInTheDocument();
   });
 
   it('renders contextual tooltips for each victory condition', () => {
