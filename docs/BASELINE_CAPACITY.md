@@ -12,14 +12,26 @@ Baselines are established through load testing and used to:
 
 ## Current Baseline
 
-> ⚠️ **No baseline established yet**
->
-> Run baseline tests with:
->
-> ```bash
-> npm run load:baseline:local   # For local testing
-> npm run load:baseline:staging # For staging environment
-> ```
+Baseline (staging, smoke-scale 20G/60P) was established on 2025-12-08 from the `BCAP_STAGING_BASELINE_20G_60P` scenario.
+
+- Raw k6 JSON: `tests/load/results/baseline_staging_20251208_144949.json`
+- Analyzer summary: `tests/load/results/baseline_staging_20251208_144949_summary.json`
+- SLO summary (raw-based): `tests/load/results/baseline_staging_20251208_144949_slo_summary.json`
+
+Key SLO figures (staging; approximate):
+
+- HTTP API latency p95: 10 ms (from `baseline_staging_20251208_144949_slo_summary.json`, underlying analyzer p95 ≈ 9.9 ms)
+- HTTP API latency p99: 11 ms (from `baseline_staging_20251208_144949_summary.json`)
+- Error rate: 0% (16,600 requests, 0 failed)
+- Max concurrent games observed: 1 (well below staging target; wiring/smoke baseline only)
+- Max concurrent players (max VUs): 100 (baseline scenario, not production target scale)
+
+Run baseline tests with:
+
+```bash
+npm run load:baseline:local   # For local testing
+npm run load:baseline:staging # For staging environment
+```
 
 Baseline runner notes (Dec 2025):
 
@@ -54,12 +66,16 @@ Post-run validation checklist:
 
 Target-scale run tracking:
 
-- **Not yet executed** (as of 2025-12-08). First target-scale run should use `SCENARIO_ID=BCAP_SQ8_3P_TARGET_100G_300P`, include the WebSocket companion (unless skipped), and record both main and WS result paths here after completion.
+- First target-scale attempt executed on 2025-12-08 with `SCENARIO_ID=BCAP_SQ8_3P_TARGET_100G_300P` against staging. The run failed during login/setup and never reached steady-state VUs or games (availability ≈50%, error rate ≈50%, 0 concurrent games/players). Artifacts:
+  - Raw k6 JSON: `tests/load/results/BCAP_SQ8_3P_TARGET_100G_300P_staging_20251208_234328.json`
+  - Analyzer summary: `tests/load/results/BCAP_SQ8_3P_TARGET_100G_300P_staging_20251208_234328_summary.json`
+  - SLO summary (raw-based): `tests/load/results/BCAP_SQ8_3P_TARGET_100G_300P_staging_20251208_234328_slo_summary.json`
+- A valid capacity baseline at target scale is **not yet established**; the next successful run should reuse `SCENARIO_ID=BCAP_SQ8_3P_TARGET_100G_300P` and record main + WS results once steady-state load is achieved.
 
 Latest staging baseline run for pipeline validation (smoke-level only, not target scale): see
 `tests/load/results/baseline_staging_20251208_144949.json` and the corresponding
 `baseline_staging_20251208_144949_summary.json` and
-`baseline_staging_20251208_144949_summary_slo_summary.json`.
+`baseline_staging_20251208_144949_slo_summary.json`.
 
 ### Production Targets (from PROJECT_GOALS.md)
 
@@ -140,9 +156,9 @@ SKIP_WS_COMPANION=1 SKIP_CONFIRM=true tests/load/scripts/run-target-scale.sh --l
 
 Target-scale run tracking:
 
-| Date (UTC) | Scenario ID                  | Notes                            | Paths                                          |
-| ---------- | ---------------------------- | -------------------------------- | ---------------------------------------------- |
-| _TBD_      | BCAP_SQ8_3P_TARGET_100G_300P | _Pending first target-scale run_ | _Add main + summary + WS companion paths here_ |
+| Date (UTC) | Scenario ID                  | Notes                                                                               | Paths                                                                                                                                                                                                                                                              |
+| ---------- | ---------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2025-12-08 | BCAP_SQ8_3P_TARGET_100G_300P | Failed during login/setup; no steady-state games; not a valid capacity baseline yet | `tests/load/results/BCAP_SQ8_3P_TARGET_100G_300P_staging_20251208_234328.json`, `tests/load/results/BCAP_SQ8_3P_TARGET_100G_300P_staging_20251208_234328_summary.json`, `tests/load/results/BCAP_SQ8_3P_TARGET_100G_300P_staging_20251208_234328_slo_summary.json` |
 
 Post-run validation checklist (target-scale):
 

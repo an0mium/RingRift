@@ -66,12 +66,12 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 
 ### 2.1 Capacity
 
-| Item                                                    | Status | Target                               | Evidence                              |
-| ------------------------------------------------------- | ------ | ------------------------------------ | ------------------------------------- |
-| System tested at target scale (100 games / 300 players) | ⬜     | 100 concurrent games                 | k6 framework ready                    |
-| Baseline capacity documented                            | ⏳     | Documented in `BASELINE_CAPACITY.md` | No baseline established yet           |
-| Breaking point identified via stress testing            | ⬜     | Beyond 300 VUs                       | `load:stress:breaking` scenario ready |
-| Horizontal scaling verified                             | ⬜     | Single-instance for v1.0             | Post-v1.0 scope                       |
+| Item                                                    | Status | Target                               | Evidence                                                                                                                   |
+| ------------------------------------------------------- | ------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| System tested at target scale (100 games / 300 players) | ⬜     | 100 concurrent games                 | k6 framework ready; first staging attempt (`BCAP_SQ8_3P_TARGET_100G_300P`) failed during login/setup, no steady-state load |
+| Baseline capacity documented                            | ⏳     | Documented in `BASELINE_CAPACITY.md` | Staging smoke-scale baseline (`BCAP_STAGING_BASELINE_20G_60P`, 2025-12-08) recorded with raw + summary + SLO summary       |
+| Breaking point identified via stress testing            | ⬜     | Beyond 300 VUs                       | `load:stress:breaking` scenario ready                                                                                      |
+| Horizontal scaling verified                             | ⬜     | Single-instance for v1.0             | Post-v1.0 scope                                                                                                            |
 
 ### 2.2 Latency SLOs
 
@@ -202,12 +202,12 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 
 ### 5.4 Load Tests
 
-| Item                                   | Status | Evidence                                 |
-| -------------------------------------- | ------ | ---------------------------------------- |
-| Baseline load test complete            | ⬜     | `npm run load:baseline:staging`          |
-| Target scale test complete (100 games) | ⬜     | `npm run load:target:staging`            |
-| SLO verification passing               | ⬜     | `npm run slo:check`                      |
-| Load test results documented           | ⬜     | Results pending in `tests/load/results/` |
+| Item                                   | Status | Evidence                                                                                                                                                              |
+| -------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline load test complete            | ⏳     | Staging smoke-scale baseline (`BCAP_STAGING_BASELINE_20G_60P`, 2025-12-08); rerunnable via `npm run load:baseline:staging`                                            |
+| Target scale test complete (100 games) | ⬜     | `npm run load:target:staging`; first staging attempt (`BCAP_SQ8_3P_TARGET_100G_300P`) failed during login/setup                                                       |
+| SLO verification passing               | ⏳     | Baseline SLO pipeline wired (`npm run slo:check` against `baseline_staging_20251208_144949.json`); target-scale SLOs currently failing (≈50% availability/error rate) |
+| Load test results documented           | ⏳     | Baseline + target-scale attempt JSON, analyzer summaries, and SLO summaries under `tests/load/results/`; docs partially updated                                       |
 
 ### 5.5 Parity Tests
 

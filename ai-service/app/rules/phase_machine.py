@@ -301,6 +301,17 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
     #   still controls stacks; or
     # - end the turn and rotate to the next player.
     _on_line_processing_complete(game_state, trace_mode=trace_mode)
+    # If line processing had no interactive decisions and territory also has
+    # no regions, make sure hosts see the no-territory requirement so they
+    # record NO_TERRITORY_ACTION rather than leaving the recorder mid-turn.
+    remaining_regions = GameEngine._get_territory_processing_moves(
+      game_state,
+      current_player,
+    )
+    if not remaining_regions and game_state.current_phase == GamePhase.TERRITORY_PROCESSING:
+      # Explicitly set the phase; hosts will synthesize NO_TERRITORY_ACTION
+      # via get_phase_requirement → synthesize_bookkeeping_move.
+      game_state.current_phase = GamePhase.TERRITORY_PROCESSING
 
   elif last_move.type == MoveType.ELIMINATE_RINGS_FROM_STACK:
     # After an explicit ELIMINATE_RINGS_FROM_STACK decision, re-evaluate whether

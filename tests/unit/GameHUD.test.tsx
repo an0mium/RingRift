@@ -739,7 +739,9 @@ describe('GameHUD', () => {
 
       render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
 
-      expect(screen.getByText(/Structural stalemate/i)).toBeInTheDocument();
+      // Component renders "Structural stalemate" in both title and summary elements
+      const stalemateElements = screen.getAllByText(/Structural stalemate/i);
+      expect(stalemateElements.length).toBeGreaterThan(0);
       expect(
         screen.getByText(
           /No legal placements, movements, captures, or forced eliminations remain for any player/i

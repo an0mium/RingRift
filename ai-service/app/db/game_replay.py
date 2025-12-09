@@ -359,11 +359,23 @@ class GameWriter:
             self._turn_count += 1
             self._current_player = move.player
 
+        # When we have a reliable "before" state (either explicitly provided
+        # by the caller or tracked via _prev_state for history entries),
+        # thread its current_phase through to the DB writer so that the
+        # canonical (phase, moveType) contract can be enforced at write time.
+        phase_hint: Optional[str] = None
+        source_state: Optional[GameState] = state_before or self._prev_state
+        if source_state is not None:
+            phase_enum = getattr(source_state, "current_phase", None)
+            if phase_enum is not None:
+                phase_hint = getattr(phase_enum, "value", str(phase_enum))
+
         self._db._store_move(
             game_id=self._game_id,
             move_number=self._move_count,
             turn_number=self._turn_count,
             move=move,
+            phase=phase_hint,
         )
 
         # Handle snapshots
@@ -904,12 +916,22 @@ class GameReplayDB:
                     turn_number += 1
                     current_player = move.player
 
+                # Use the current phase of prev_state (state BEFORE this move)
+                # as the canonical phase hint for validate_canonical_move so
+                # that territory / forced-elimination moves are only recorded
+                # when they occur in their dedicated phases.
+                phase_hint: Optional[str] = None
+                phase_enum = getattr(prev_state, "current_phase", None)
+                if phase_enum is not None:
+                    phase_hint = getattr(phase_enum, "value", str(phase_enum))
+
                 self._store_move_conn(
                     conn,
                     game_id=game_id,
                     move_number=i,
                     turn_number=turn_number,
                     move=move,
+                    phase=phase_hint,
                 )
 
                 # Store history entry with before/after states (v4 feature)
@@ -1764,10 +1786,33 @@ class GameReplayDB:
         move_number: int,
         turn_number: int,
         move: Move,
+        phase: Optional[str] = None,
+        *,
+        time_remaining_ms: Optional[int] = None,
+        engine_eval: Optional[float] = None,
+        engine_eval_type: Optional[str] = None,
+        engine_depth: Optional[int] = None,
+        engine_nodes: Optional[int] = None,
+        engine_pv: Optional[List[str]] = None,
+        engine_time_ms: Optional[int] = None,
     ) -> None:
         """Store a single move (standalone transaction)."""
         with self._get_conn() as conn:
-            self._store_move_conn(conn, game_id, move_number, turn_number, move)
+            self._store_move_conn(
+                conn,
+                game_id,
+                move_number,
+                turn_number,
+                move,
+                phase=phase,
+                time_remaining_ms=time_remaining_ms,
+                engine_eval=engine_eval,
+                engine_eval_type=engine_eval_type,
+                engine_depth=engine_depth,
+                engine_nodes=engine_nodes,
+                engine_pv=engine_pv,
+                engine_time_ms=engine_time_ms,
+            )
 
     def _store_move_conn(
         self,
@@ -1776,6 +1821,7 @@ class GameReplayDB:
         move_number: int,
         turn_number: int,
         move: Move,
+        phase: Optional[str] = None,
         *,
         time_remaining_ms: Optional[int] = None,
         engine_eval: Optional[float] = None,
@@ -1793,6 +1839,9 @@ class GameReplayDB:
             move_number: Move sequence number (0-indexed)
             turn_number: Turn number this move belongs to
             move: The Move object
+            phase: Canonical phase string for this move (phase *during* which
+                the move occurs). When None/empty, phase is inferred from
+                move.type for legacy recordings.
             time_remaining_ms: Clock time remaining after this move (v2)
             engine_eval: Engine evaluation score (v2)
             engine_eval_type: Type of evaluation ('heuristic', 'neural', 'mcts_winrate') (v2)
@@ -1801,18 +1850,22 @@ class GameReplayDB:
             engine_pv: Principal variation as list of move strings (v2)
             engine_time_ms: Time spent computing this move in ms (v2)
         """
-        # Enforce canonical (phase, move_type) contract at write time for
-        # all new recordings, unless explicitly disabled for legacy/fixture
-        # migrations. The phase column is currently left empty and inferred
-        # from move.type; this still guarantees that only canonical MoveType
-        # values are written for production self‑play DBs.
-        if self._enforce_canonical_history:
-            check = validate_canonical_move("", move.type.value)
-            if not check.ok and check.reason:
-                raise ValueError(
-                    f"Attempted to record non-canonical move "
-                    f"in GameReplayDB {self._db_path}: {check.reason}"
-                )
+        # Enforce canonical (phase, move_type) contract at write time for all
+        # new recordings. We thread the *actual* phase-at-move-time through
+        # from the engine/recorder when available so that territory moves can
+        # only be written during TERRITORY_PROCESSING and forced_elimination
+        # moves only during FORCED_ELIMINATION, mirroring the TS FSM.
+        phase_hint = (phase or "").strip()
+        check = validate_canonical_move(phase_hint, move.type.value)
+
+        if self._enforce_canonical_history and not check.ok and check.reason:
+            raise ValueError(
+                f"Attempted to record non-canonical move "
+                f"in GameReplayDB {self._db_path}: {check.reason}"
+            )
+
+        # Store the effective canonical phase derived by the contract helper.
+        phase_to_store = check.effective_phase
 
         conn.execute(
             """
@@ -1827,7 +1880,7 @@ class GameReplayDB:
                 move_number,
                 turn_number,
                 move.player,
-                "",  # Phase not stored in Move currently
+                phase_to_store,
                 move.type.value,
                 _serialize_move(move),
                 move.timestamp.isoformat() if move.timestamp else None,

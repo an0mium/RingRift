@@ -1,7 +1,10 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { MoveAnalysisPanel, type MoveAnalysis } from '../../src/client/components/MoveAnalysisPanel';
+import {
+  MoveAnalysisPanel,
+  type MoveAnalysis,
+} from '../../src/client/components/MoveAnalysisPanel';
 import type { PositionEvaluationPayload } from '../../src/shared/types/websocket';
 import type { Player, Move, GamePhase } from '../../src/shared/types/game';
 
@@ -33,20 +36,40 @@ function createTestPlayers(): Player[] {
   ];
 }
 
+// Map phases to appropriate move types for testing getMoveTypeLabel
+function getMoveTypeForPhase(phase: GamePhase): string {
+  switch (phase) {
+    case 'ring_placement':
+      return 'place_ring';
+    case 'movement':
+      return 'move_stack';
+    case 'capture':
+      return 'overtaking_capture';
+    case 'chain_capture':
+      return 'continue_capture_segment';
+    case 'line_processing':
+      return 'process_line';
+    case 'territory_processing':
+      return 'process_territory_region';
+    case 'forced_elimination':
+      return 'forced_elimination';
+    default:
+      return 'place_ring';
+  }
+}
+
 // Helper to create mock move
-// Note: The Move type in the component expects a 'phase' property for display purposes
+// Note: The Move type in the component expects a 'type' property for getMoveTypeLabel
 function createMockMove(phase: GamePhase, playerNumber: number): Move {
   return {
     id: 'move-1',
-    type: 'place_ring',
+    type: getMoveTypeForPhase(phase),
     player: playerNumber,
     playerNumber,
     to: { x: 3, y: 3 },
     timestamp: new Date(),
     moveNumber: 1,
     thinkTime: 1000,
-    // The component uses move.phase for getMoveTypeLabel - we add it here
-    // even though it may not be in the strict Move type
     phase,
   } as Move;
 }
@@ -78,9 +101,7 @@ function createEvaluationData(
 }
 
 // Helper to create MoveAnalysis
-function createMoveAnalysis(
-  overrides: Partial<MoveAnalysis> = {}
-): MoveAnalysis {
+function createMoveAnalysis(overrides: Partial<MoveAnalysis> = {}): MoveAnalysis {
   return {
     move: createMockMove('ring_placement', 1),
     moveNumber: 1,
@@ -293,29 +314,30 @@ describe('MoveAnalysisPanel', () => {
 
       render(<MoveAnalysisPanel analysis={analysis} players={players} />);
 
-      // Due to component's switch statement using 'capturing' instead of 'capture',
-      // this falls through to default which returns the phase value as-is
-      expect(screen.getByText('capture')).toBeInTheDocument();
+      // overtaking_capture maps to 'Capture'
+      expect(screen.getByText('Capture')).toBeInTheDocument();
     });
 
-    it('displays "Chain Capture" for chain capture phase', () => {
+    it('displays "Capture" for chain capture phase', () => {
       const analysis = createMoveAnalysis({
         move: createMockMove('chain_capture', 1),
       });
 
       render(<MoveAnalysisPanel analysis={analysis} players={players} />);
 
-      expect(screen.getByText('Chain Capture')).toBeInTheDocument();
+      // continue_capture_segment maps to 'Capture'
+      expect(screen.getByText('Capture')).toBeInTheDocument();
     });
 
-    it('displays "Line Bonus" for line processing phase', () => {
+    it('displays "Line Processing" for line processing phase', () => {
       const analysis = createMoveAnalysis({
         move: createMockMove('line_processing', 1),
       });
 
       render(<MoveAnalysisPanel analysis={analysis} players={players} />);
 
-      expect(screen.getByText('Line Bonus')).toBeInTheDocument();
+      // process_line maps to 'Line Processing'
+      expect(screen.getByText('Line Processing')).toBeInTheDocument();
     });
 
     it('displays "Territory" for territory processing phase', () => {
@@ -365,9 +387,7 @@ describe('MoveAnalysisPanel', () => {
     it('displays player indicator with color', () => {
       const analysis = createMoveAnalysis();
 
-      const { container } = render(
-        <MoveAnalysisPanel analysis={analysis} players={players} />
-      );
+      const { container } = render(<MoveAnalysisPanel analysis={analysis} players={players} />);
 
       // Should have a colored indicator element
       const colorIndicators = container.querySelectorAll('[aria-hidden="true"]');
@@ -391,13 +411,7 @@ describe('MoveAnalysisPanel', () => {
     it('applies custom className', () => {
       const analysis = createMoveAnalysis();
 
-      render(
-        <MoveAnalysisPanel
-          analysis={analysis}
-          players={players}
-          className="custom-class"
-        />
-      );
+      render(<MoveAnalysisPanel analysis={analysis} players={players} className="custom-class" />);
 
       const panel = screen.getByTestId('move-analysis-panel');
       expect(panel).toHaveClass('custom-class');
@@ -434,9 +448,7 @@ describe('MoveAnalysisPanel', () => {
 
       const analysis = createMoveAnalysis();
 
-      render(
-        <MoveAnalysisPanel analysis={analysis} players={playersWithoutUsername} />
-      );
+      render(<MoveAnalysisPanel analysis={analysis} players={playersWithoutUsername} />);
 
       expect(screen.getByText('Player 1')).toBeInTheDocument();
     });

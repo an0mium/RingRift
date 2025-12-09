@@ -19,6 +19,7 @@ from app.models import (  # noqa: E402
     Position,
     RingStack,
     MoveType,
+    Move,
 )
 from app.models.core import MarkerInfo  # noqa: E402
 from app.game_engine import GameEngine  # noqa: E402
@@ -201,6 +202,126 @@ def test_territory_processing_q23_region_property(
 
     # Collapsed spaces are monotone.
     assert len(board_after.collapsed_spaces) >= initial_collapsed
+
+
+def test_territory_and_forced_elimination_moves_rejected_outside_phases(
+) -> None:
+    """Territory/FE moves must not be applied outside their dedicated phases.
+
+    This asserts that the engine-level phase→MoveType invariant matches the
+    TS-side [PHASE_MOVE_INVARIANT] contract for:
+
+    - PROCESS_TERRITORY_REGION moves (territory_processing only).
+    - FORCED_ELIMINATION moves (forced_elimination phase only).
+    """
+    from datetime import datetime
+
+    # Base square8 state for two players.
+    state = _make_base_game_state()
+    state.game_status = GameStatus.ACTIVE
+    state.current_player = 1
+
+    now = datetime.now()
+
+    # PROCESS_TERRITORY_REGION is only valid during TERRITORY_PROCESSING.
+    bad_territory_move = Move(
+        id="bad-territory",
+        type=MoveType.PROCESS_TERRITORY_REGION,
+        player=1,
+        timestamp=now,
+        think_time=0,
+        move_number=0,
+    )
+
+    state.current_phase = GamePhase.MOVEMENT
+    with pytest.raises(RuntimeError) as terr_exc:
+        GameEngine.apply_move(state, bad_territory_move)
+    assert "Phase/move invariant violated" in str(terr_exc.value)
+
+    # FORCED_ELIMINATION is only valid during the FORCED_ELIMINATION phase.
+    bad_fe_move = Move(
+        id="bad-fe",
+        type=MoveType.FORCED_ELIMINATION,
+        player=1,
+        timestamp=now,
+        think_time=0,
+        move_number=1,
+    )
+
+    state.current_phase = GamePhase.MOVEMENT
+    with pytest.raises(RuntimeError) as fe_exc:
+        GameEngine.apply_move(state, bad_fe_move)
+    assert "Phase/move invariant violated" in str(fe_exc.value)
+
+
+def test_no_territory_action_then_forced_elimination_phase_transition(
+) -> None:
+    """ANM / FE gating after territory_processing for square8 2p.
+
+    Construct a square8 state where:
+
+    - Player 1 controls at least one stack on the board.
+    - The entire turn history for Player 1 consists only of NO_*_ACTION moves
+      (no interactive actions in any phase).
+    - The last move is NO_TERRITORY_ACTION in TERRITORY_PROCESSING.
+
+    After applying that move, the Python phase machine must:
+
+    - Transition into the FORCED_ELIMINATION phase for Player 1, and
+    - Offer only FORCED_ELIMINATION moves, mirroring the TS
+      onTerritoryProcessingComplete + post-move FSM semantics.
+    """
+    from datetime import datetime
+
+    state = _make_base_game_state()
+    state.game_status = GameStatus.ACTIVE
+    state.current_player = 1
+    state.current_phase = GamePhase.TERRITORY_PROCESSING
+
+    board = state.board
+    # Ensure Player 1 has at least one stack on the board.
+    assert any(s.controlling_player == 1 for s in board.stacks.values())
+
+    # Clear any existing history and seed the turn with bookkeeping NO_* moves.
+    state.move_history = []
+    now = datetime.now()
+
+    def _mk_no_move(mtype: MoveType, num: int) -> Move:
+        return Move(
+            id=f"no-{mtype.value}-{num}",
+            type=mtype,
+            player=1,
+            timestamp=now,
+            think_time=0,
+            move_number=num,
+        )
+
+    # Visit placement, movement, and line phases with forced no-ops only.
+    state.move_history.append(_mk_no_move(MoveType.NO_PLACEMENT_ACTION, 0))
+    state.move_history.append(_mk_no_move(MoveType.NO_MOVEMENT_ACTION, 1))
+    state.move_history.append(_mk_no_move(MoveType.NO_LINE_ACTION, 2))
+
+    # Sanity: the engine-side helper must treat this turn as having had no
+    # interactive actions so far.
+    from app.rules import phase_machine as pm  # noqa: E402
+
+    assert pm.compute_had_any_action_this_turn(state) is False
+
+    # Final bookkeeping move in TERRITORY_PROCESSING.
+    no_territory = _mk_no_move(MoveType.NO_TERRITORY_ACTION, 3)
+
+    # Apply the move via the full engine, which will delegate phase/turn
+    # transitions to the shared phase_machine.advance_phases helper.
+    new_state = GameEngine.apply_move(state, no_territory)
+
+    # The next phase for Player 1 must be FORCED_ELIMINATION.
+    assert new_state.current_phase == GamePhase.FORCED_ELIMINATION
+    assert new_state.current_player == 1
+
+    # In the forced_elimination phase, only FORCED_ELIMINATION moves are legal.
+    fe_moves = GameEngine.get_valid_moves(new_state, new_state.current_player)
+    assert fe_moves
+    assert all(m.type == MoveType.FORCED_ELIMINATION for m in fe_moves)
 
 
 @pytest.mark.skip(

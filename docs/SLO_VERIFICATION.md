@@ -8,14 +8,16 @@
 
 Service Level Objectives (SLOs) define the targets for system performance and reliability. The SLO verification framework validates these targets during load testing, providing actionable reports for production readiness assessment.
 
-> **Current status:** No baseline JSON results are checked in. The pipeline expects a running target (local or staging) plus `k6`. For a quick smoke run against a local dev server, start the app, then run:
+> **Current status (2025-12-08):** Baseline and target-scale k6 JSON results are checked in under `tests/load/results/`. SLO verification consumes the **raw k6 JSON output** from these runs. Analyzer summaries (for example `*_summary.json`) are used for human-readable capacity reporting (for example in `docs/BASELINE_CAPACITY.md`), not as inputs to the SLO verifier.
+>
+> For a quick smoke run against a local dev server, start the app, then run:
 >
 > ```bash
 > K6_EXTRA_ARGS="--vus 1 --duration 30s" tests/load/scripts/run-baseline.sh --local
 > tests/load/scripts/run-slo-verification.sh local --skip-test --results-file tests/load/results/<baseline_file>.json
 > ```
 >
-> or pass an existing results file via `--skip-test --results-file`.
+> or pass an existing raw results file via `--skip-test --results-file`.
 >
 > Load can be generated from a developer machine, CI runner, or cloud-hosted instances (for example AWS EC2/ECS tasks or equivalents on other providers), as long as the runner can reach the target environment and emits standard k6 JSON. The SLO verification scripts are environment-agnostic: they consume result files and configuration (for example the `--env` flag and thresholds) without depending on where the load generator itself is hosted.
 
@@ -25,17 +27,19 @@ Service Level Objectives (SLOs) define the targets for system performance and re
 # Run full SLO verification pipeline (load test + verification + dashboard)
 npm run slo:check
 
-# Verify SLOs from existing load test results
-npm run slo:verify tests/load/results/baseline_staging_20251207.json
+# Verify SLOs from an existing baseline results file (raw k6 JSON)
+npm run slo:verify tests/load/results/baseline_staging_20251208_144949.json
 
-# Generate HTML dashboard from SLO report
-npm run slo:dashboard tests/load/results/baseline_staging_20251207_slo_report.json
+# Generate HTML dashboard from the corresponding SLO report
+npm run slo:dashboard tests/load/results/baseline_staging_20251208_144949_slo_report.json
 ```
+
+`npm run slo:check` uses `tests/load/scripts/run-slo-verification.sh` under the hood; it automatically selects the latest **raw** `baseline_*.json` in `tests/load/results/` (excluding `*_summary.json` and `*_slo_*.json` artifacts).
 
 If you already have a results JSON, you can skip the load test:
 
 ```bash
-tests/load/scripts/run-slo-verification.sh --skip-test --results-file tests/load/results/baseline_staging_20251207.json
+tests/load/scripts/run-slo-verification.sh --skip-test --results-file tests/load/results/baseline_staging_20251208_144949.json
 ```
 
 ## Defined SLOs
@@ -98,19 +102,19 @@ npm run slo:check:production
 
 ```bash
 # Verify SLOs with console output (default)
-node tests/load/scripts/verify-slos.js results/baseline_staging_20251207.json
+node tests/load/scripts/verify-slos.js results/baseline_staging_20251208_144949.json
 
 # Verify with JSON output
-node tests/load/scripts/verify-slos.js results/baseline_staging_20251207.json json
+node tests/load/scripts/verify-slos.js results/baseline_staging_20251208_144949.json json
 
 # Verify with Markdown output
-node tests/load/scripts/verify-slos.js results/baseline_staging_20251207.json markdown
+node tests/load/scripts/verify-slos.js results/baseline_staging_20251208_144949.json markdown
 
 # Verify with production thresholds
-node tests/load/scripts/verify-slos.js results/baseline_staging_20251207.json --env production
+node tests/load/scripts/verify-slos.js results/baseline_staging_20251208_144949.json --env production
 
 # Generate HTML dashboard
-node tests/load/scripts/generate-slo-dashboard.js results/baseline_staging_20251207_slo_report.json
+node tests/load/scripts/generate-slo-dashboard.js results/baseline_staging_20251208_144949_slo_report.json
 
 # Run full verification pipeline
 cd tests/load && ./scripts/run-slo-verification.sh staging

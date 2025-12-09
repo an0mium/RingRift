@@ -270,6 +270,79 @@ class TestGameReplayDBBasic:
         assert BoardType.SQUARE8.value in stats["games_by_board_type"]
 
 
+class TestGameReplayDBCanonicalContract:
+    """Tests for canonical phase↔move enforcement at DB write time."""
+
+    @pytest.fixture
+    def db_path(self):
+        """Create a temporary database path."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir) / "test_games.db"
+
+    def test_store_move_records_effective_phase_from_hint(self, db_path):
+        """_store_move_conn stores the effective canonical phase derived from the hint."""
+        db = GameReplayDB(str(db_path))
+        game_id = "phase-hint-game"
+        initial_state = create_test_state(game_id)
+
+        # Create a placeholder games row to satisfy FK constraints.
+        db._create_placeholder_game(game_id, initial_state)
+
+        # MOVE_STACK is canonical in the 'movement' phase.
+        move = create_test_move(player=1, move_number=0)
+
+        with db._get_conn() as conn:
+            db._store_move_conn(
+                conn,
+                game_id=game_id,
+                move_number=0,
+                turn_number=0,
+                move=move,
+                phase="movement",
+            )
+
+            row = conn.execute(
+                """
+                SELECT phase, move_type
+                FROM game_moves
+                WHERE game_id = ? AND move_number = 0
+                """,
+                (game_id,),
+            ).fetchone()
+
+        assert row is not None
+        assert row["phase"] == "movement"
+        assert row["move_type"] == MoveType.MOVE_STACK.value
+
+    def test_store_move_rejects_non_canonical_phase_move_pair(self, db_path):
+        """_store_move_conn rejects non-canonical (phase, moveType) pairs."""
+        db = GameReplayDB(str(db_path))
+        game_id = "phase-mismatch-game"
+        initial_state = create_test_state(game_id)
+
+        # Create a placeholder games row to satisfy FK constraints.
+        db._create_placeholder_game(game_id, initial_state)
+
+        # MOVE_STACK is not allowed in the territory_processing phase by the
+        # canonical phase↔MoveType contract.
+        move = create_test_move(player=1, move_number=0)
+
+        with db._get_conn() as conn:
+            with pytest.raises(ValueError) as excinfo:
+                db._store_move_conn(
+                    conn,
+                    game_id=game_id,
+                    move_number=0,
+                    turn_number=0,
+                    move=move,
+                    phase="territory_processing",
+                )
+
+        msg = str(excinfo.value)
+        # The underlying history_contract should report a phase_move_mismatch.
+        assert "phase_move_mismatch:territory_processing:move_stack" in msg
+
+
 class TestGameWriter:
     """Tests for incremental game writing."""
 

@@ -6,6 +6,14 @@ import { logger } from '../../../src/server/utils/logger';
 // Mock dependencies
 jest.mock('../../../src/server/services/AIServiceClient');
 jest.mock('../../../src/server/utils/logger');
+jest.mock('../../../src/server/services/MetricsService', () => ({
+  getMetricsService: () => ({
+    recordAIRequest: jest.fn(),
+    recordAIRequestDuration: jest.fn(),
+    recordAIRequestLatencyMs: jest.fn(),
+    recordAIFallback: jest.fn(),
+  }),
+}));
 
 // Shared mutable backing store for the mocked RuleEngine.getValidMoves output.
 let mockRuleEngineValidMoves: Move[] = [];

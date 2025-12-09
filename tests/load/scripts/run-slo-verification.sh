@@ -30,7 +30,8 @@ PROJECT_ROOT="$(dirname "$(dirname "$LOAD_DIR")")"
 TARGET="staging"
 SLO_ENV="staging"
 SKIP_TEST=false
-RESULTS_FILE=""
+# Allow RESULTS_FILE to be provided via environment or CLI (do not clobber existing value)
+RESULTS_FILE="${RESULTS_FILE-}"
 
 # Color output helpers
 RED='\033[0;31m'
@@ -127,8 +128,14 @@ if [ "$SKIP_TEST" = true ]; then
     if [ -n "$RESULTS_FILE" ]; then
         LATEST_RESULT="$RESULTS_FILE"
     else
-        # Find the latest results file
-        LATEST_RESULT=$(ls -t "$RESULTS_DIR"/baseline_*.json 2>/dev/null | head -1 || true)
+        # Find the latest raw baseline results file (exclude summaries and SLO artifacts)
+        LATEST_RESULT=$(
+            ls -t "$RESULTS_DIR"/baseline_*.json 2>/dev/null \
+              | grep -v '_summary\.json$' \
+              | grep -v '_slo_report\.json$' \
+              | grep -v '_slo_summary\.json$' \
+              | head -1 || true
+        )
     fi
     
     if [ -z "$LATEST_RESULT" ] || [ ! -f "$LATEST_RESULT" ]; then
@@ -155,10 +162,16 @@ else
         log_warning "Load test completed with threshold violations"
     fi
     
-    # Find the latest results file
-    LATEST_RESULT=$(ls -t "$RESULTS_DIR"/baseline_*.json 2>/dev/null | head -1 || true)
+    # Find the latest raw baseline results file (exclude summaries and SLO artifacts)
+    LATEST_RESULT=$(
+        ls -t "$RESULTS_DIR"/baseline_*.json 2>/dev/null \
+          | grep -v '_summary\.json$' \
+          | grep -v '_slo_report\.json$' \
+          | grep -v '_slo_summary\.json$' \
+          | head -1 || true
+    )
     
-    if [ -z "$LATEST_RESULT" ]; then
+    if [ -z "$LATEST_RESULT" ] || [ ! -f "$LATEST_RESULT" ]; then
         log_error "No load test results found in $RESULTS_DIR"
         exit 1
     fi

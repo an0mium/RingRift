@@ -33,9 +33,11 @@ const makeLine = (player: number, positions: Position[]): LineInfo => ({
 });
 
 // Helper to create empty board state
+// Using square19 because lineLength=4 (vs square8 lineLength=3).
+// This means 3-marker lines are "below required length" and 4-marker lines are "exact length".
 const makeEmptyBoard = (): BoardState => ({
-  type: 'square8',
-  size: 8,
+  type: 'square19',
+  size: 19,
   stacks: new Map(),
   markers: new Map(),
   collapsedSpaces: new Map(),
@@ -47,7 +49,7 @@ const makeEmptyBoard = (): BoardState => ({
 // Helper to create a minimal game state
 const makeGameState = (overrides?: Partial<GameState>): GameState => ({
   id: 'test-game',
-  boardType: 'square8',
+  boardType: 'square19',
   board: makeEmptyBoard(),
   players: [
     {
@@ -171,7 +173,7 @@ describe('lineDecisionHelpers branch coverage', () => {
 
       it('filters out lines below required length', () => {
         const state = makeGameState();
-        // 3-in-a-row is not enough for 2-player
+        // On square19 boards, lineLength=4, so 3-in-a-row is below required length
         const shortLine = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0)]);
         addFormedLine(state, shortLine);
 
@@ -866,8 +868,9 @@ describe('lineDecisionHelpers branch coverage', () => {
         territorySpaces: 0,
       });
 
-      // 3-in-a-row should be valid for 3-player
-      const line = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0)]);
+      // Line length is determined by board type, not player count.
+      // square19 has lineLength=4, so 4-in-a-row is valid.
+      const line = makeLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]);
       addFormedLine(state, line);
 
       const moves = enumerateProcessLineMoves(state, 1);

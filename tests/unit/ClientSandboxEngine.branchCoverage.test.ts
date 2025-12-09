@@ -560,8 +560,9 @@ describe('ClientSandboxEngine branch coverage', () => {
       const serialized = engine.getSerializedState();
       expect(typeof serialized).toBe('object');
       expect(serialized).not.toBeNull();
-      // Verify essential state properties are included
-      expect(serialized).toHaveProperty('gameState');
+      // Verify essential state properties are included (flat SerializedGameState structure)
+      expect(serialized).toHaveProperty('board');
+      expect(serialized).toHaveProperty('players');
     });
 
     it('can initialize from serialized state with player kinds', () => {
@@ -583,7 +584,9 @@ describe('ClientSandboxEngine branch coverage', () => {
       const json = JSON.stringify(serialized);
       const parsed = JSON.parse(json);
       expect(typeof parsed).toBe('object');
-      expect(parsed).toHaveProperty('gameState');
+      // SerializedGameState is a flat structure with board, players, etc.
+      expect(parsed).toHaveProperty('board');
+      expect(parsed).toHaveProperty('players');
     });
   });
 
@@ -884,7 +887,9 @@ describe('ClientSandboxEngine branch coverage', () => {
       const serialized = engine.getSerializedState();
       expect(typeof serialized).toBe('object');
       expect(serialized).not.toBeNull();
-      expect(serialized).toHaveProperty('gameState');
+      // SerializedGameState is a flat structure with board, players, etc.
+      expect(serialized).toHaveProperty('board');
+      expect(serialized).toHaveProperty('players');
     });
 
     it('serialized state can be stringified', () => {

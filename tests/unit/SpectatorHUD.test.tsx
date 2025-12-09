@@ -137,8 +137,8 @@ describe('SpectatorHUD', () => {
     it('displays ring counts for players', () => {
       render(<SpectatorHUD {...defaultProps} />);
 
-      // Should show board rings and captured rings
-      expect(screen.getAllByText(/board/).length).toBeGreaterThan(0);
+      // Should show rings in hand and captured rings
+      expect(screen.getAllByText(/hand/).length).toBeGreaterThan(0);
       expect(screen.getAllByText(/cap/).length).toBeGreaterThan(0);
     });
 

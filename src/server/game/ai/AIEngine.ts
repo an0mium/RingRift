@@ -244,6 +244,8 @@ export class AIEngine {
       throw new Error(`No AI configuration found for player number ${playerNumber}`);
     }
 
+    const metrics = getMetricsService();
+    const requestStart = performance.now();
     const difficultyLabel = String(config.difficulty ?? 'n/a');
     const effectiveRng: LocalAIRng =
       rng ?? this.createDeterministicLocalRng(gameState, playerNumber);
@@ -391,6 +393,9 @@ export class AIEngine {
       if (localMove) {
         const duration = performance.now() - heuristicStart;
         aiMoveLatencyHistogram.labels('heuristic', difficultyLabel).observe(duration);
+        const totalDuration = performance.now() - requestStart;
+        metrics.recordAIRequest('fallback');
+        metrics.recordAIRequestLatencyMs(totalDuration, 'fallback');
 
         const diag = this.getOrCreateDiagnostics(playerNumber);
         diag.localFallbackCount += 1;
@@ -416,6 +421,10 @@ export class AIEngine {
       validMoveCount: validMoves.length,
       lastError: lastError?.message,
     });
+
+    const totalDuration = performance.now() - requestStart;
+    metrics.recordAIRequest('fallback');
+    metrics.recordAIRequestLatencyMs(totalDuration, 'fallback');
 
     const randomIndex = Math.floor(effectiveRng() * validMoves.length);
     return validMoves[randomIndex];
