@@ -1146,7 +1146,8 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       state.board.markers.set('3,2', { position: { x: 3, y: 2 }, player: 1, type: 'regular' });
       state.board.markers.set('3,3', { position: { x: 3, y: 3 }, player: 1, type: 'regular' });
 
-      // Add stack for player
+      // Add stacks for both players - territory detection requires 2+ active players
+      // to determine disconnection (one player cannot be "cut off" from themselves)
       state.board.stacks.set('7,7', {
         position: { x: 7, y: 7 },
         stackHeight: 2,
@@ -1154,6 +1155,16 @@ describe('TurnOrchestrator advanced branch coverage', () => {
         controllingPlayer: 1,
         composition: [{ player: 1, count: 2 }],
         rings: [1, 1],
+      });
+
+      // Player 2 stack outside the enclosed region (required for disconnection detection)
+      state.board.stacks.set('6,6', {
+        position: { x: 6, y: 6 },
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 2,
+        composition: [{ player: 2, count: 1 }],
+        rings: [2],
       });
 
       const moves = getValidMoves(state);
@@ -1410,9 +1421,11 @@ const createMove = (type: Move['type']): Move => ({
 
 describe('turnOrchestrator advanced branch coverage', () => {
   it('surfaces forced-elimination decision when blocked with stacks and no actions remain', () => {
+    // Start in territory_processing phase (where forced elimination is checked)
+    // to test the forced elimination decision directly
     const board = createBoardWithSingleStack(1);
-    const state = createBaseState('movement', 0, board);
-    const move = createMove('no_movement_action');
+    const state = createBaseState('territory_processing', 0, board);
+    const move = createMove('no_territory_action');
 
     const result = processTurn(state, move);
 
@@ -1424,12 +1437,15 @@ describe('turnOrchestrator advanced branch coverage', () => {
   });
 
   it('does not surface forced-elimination decision when placement actions exist', () => {
+    // Start in territory_processing phase to test forced elimination check
+    // When ringsInHand > 0 and placement positions exist, no forced elimination
     const board = createEmptyBoard();
-    const state = createBaseState('movement', 1, board); // ringsInHand > 0 ⇒ placement exists
-    const move = createMove('no_movement_action');
+    const state = createBaseState('territory_processing', 1, board); // ringsInHand > 0 ⇒ placement exists
+    const move = createMove('no_territory_action');
 
     const result = processTurn(state, move);
 
+    // Turn should complete (rotate to next player/placement) rather than forced elimination
     expect(result.status).toBe('complete');
     expect(result.pendingDecision).toBeUndefined();
     expect(result.nextState.currentPhase).not.toBe('forced_elimination');

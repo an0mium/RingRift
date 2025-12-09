@@ -6,7 +6,8 @@
  * with material are blocked. After the third round completes, the exclusive
  * player wins by LPS.
  *
- * Real actions are: placement, non-capture movement, overtaking capture.
+ * Real actions are: placement, non-capture movement, overtaking capture,
+ * recovery slide (RR-CANON-R110–R115).
  * Non-real actions (that don't count for LPS): skip_placement, forced elimination,
  * line/territory processing decisions.
  *

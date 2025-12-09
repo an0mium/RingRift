@@ -532,6 +532,33 @@ export {
 } from './aggregates/VictoryAggregate';
 
 // =============================================================================
+// RECOVERY AGGREGATE
+// =============================================================================
+// Recovery action for temporarily eliminated players
+// Location: aggregates/RecoveryAggregate.ts
+// Rule Reference: RR-CANON-R110–R115
+
+export type {
+  RecoveryOption,
+  RecoverySlideMove,
+  RecoverySlideTarget,
+  RecoveryValidationResult,
+  RecoveryApplicationOutcome,
+} from './aggregates/RecoveryAggregate';
+
+export {
+  // Enumeration
+  enumerateRecoverySlideTargets,
+  hasAnyRecoveryMove,
+  // Validation
+  validateRecoverySlide,
+  // Application
+  applyRecoverySlide,
+  // Cost calculation
+  calculateRecoveryCost,
+} from './aggregates/RecoveryAggregate';
+
+// =============================================================================
 // GLOBAL ACTIONS &amp; ANM HELPERS
 // =============================================================================
 // Location: globalActions.ts
@@ -682,6 +709,10 @@ export {
   playerControlsAnyStack,
   playerHasActiveMaterial,
   hasAnyRealAction,
+  // Recovery helpers (RR-CANON-R110–R115)
+  playerHasMarkers,
+  countBuriedRings,
+  isEligibleForRecovery,
 } from './playerStateHelpers';
 
 // =============================================================================

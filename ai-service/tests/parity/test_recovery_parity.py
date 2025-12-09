@@ -1,0 +1,422 @@
+#!/usr/bin/env python3
+"""Recovery action parity tests.
+
+These tests verify that the Python recovery action implementation matches
+the TypeScript implementation according to RR-CANON-R110–R115.
+
+Tests cover:
+- Recovery eligibility checks
+- Option 1/2 cost model
+- Overlength line handling
+- Marker slide and collapse logic
+"""
+
+import pytest
+from datetime import datetime
+from typing import Dict, Any
+
+from app.models import (
+    GameState,
+    BoardState,
+    BoardType,
+    Position,
+    RingStack,
+    MarkerInfo,
+    Player,
+    GamePhase,
+    GameStatus,
+    Move,
+    MoveType,
+    TimeControl,
+)
+from app.rules.core import (
+    count_buried_rings,
+    player_has_markers,
+    is_eligible_for_recovery,
+    player_controls_any_stack,
+    get_effective_line_length,
+)
+from app.rules.recovery import (
+    enumerate_recovery_slide_targets,
+    has_any_recovery_move,
+    validate_recovery_slide,
+    apply_recovery_slide,
+    calculate_recovery_cost,
+)
+
+
+def make_test_state(
+    stacks: Dict[str, RingStack],
+    markers: Dict[str, MarkerInfo],
+    player1_rings_in_hand: int = 0,
+    player2_rings_in_hand: int = 16,
+) -> GameState:
+    """Helper to create a test game state."""
+    now = datetime.now()
+    board = BoardState(type=BoardType.SQUARE8, size=8)
+    board.stacks = stacks
+    board.markers = markers
+    board.collapsed_spaces = {}
+    board.eliminated_rings = {"1": 0, "2": 0}
+    board.formed_lines = []
+    board.territories = {}
+
+    players = [
+        Player(
+            id="p1",
+            username="p1",
+            type="human",
+            playerNumber=1,
+            isReady=True,
+            timeRemaining=60,
+            aiDifficulty=None,
+            ringsInHand=player1_rings_in_hand,
+            eliminatedRings=0,
+            territorySpaces=0,
+        ),
+        Player(
+            id="p2",
+            username="p2",
+            type="human",
+            playerNumber=2,
+            isReady=True,
+            timeRemaining=60,
+            aiDifficulty=None,
+            ringsInHand=player2_rings_in_hand,
+            eliminatedRings=0,
+            territorySpaces=0,
+        ),
+    ]
+
+    return GameState(
+        id="test-recovery-parity",
+        boardType=BoardType.SQUARE8,
+        board=board,
+        players=players,
+        currentPlayer=1,
+        currentPhase=GamePhase.MOVEMENT,
+        timeControl=TimeControl(initialTime=60, increment=0, type="untimed"),
+        gameStatus=GameStatus.ACTIVE,
+        createdAt=now,
+        lastMoveAt=now,
+        isRated=False,
+        maxPlayers=2,
+        totalRingsInPlay=36,
+        totalRingsEliminated=0,
+        victoryThreshold=19,
+        territoryVictoryThreshold=33,
+        chainCaptureState=None,
+        mustMoveFromStackKey=None,
+        zobristHash=None,
+        turnNumber=50,
+    )
+
+
+class TestRecoveryEligibility:
+    """Tests for recovery eligibility checks."""
+
+    def test_eligible_when_no_stacks_no_rings_has_markers_has_buried(self):
+        """Player is eligible when they have markers, buried rings, but no active material."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],  # Player 1 has a buried ring
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+                "3,3": MarkerInfo(position=Position(x=3, y=3), player=1, type="regular"),
+            },
+            player1_rings_in_hand=0,
+        )
+
+        assert is_eligible_for_recovery(state, 1) is True
+
+    def test_not_eligible_when_controls_stack(self):
+        """Player is not eligible if they control any stack."""
+        state = make_test_state(
+            stacks={
+                "0,0": RingStack(
+                    position=Position(x=0, y=0),
+                    rings=[1],  # Player 1 controls this stack
+                    stack_height=1,
+                    cap_height=1,
+                    controlling_player=1,
+                ),
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+            },
+            player1_rings_in_hand=0,
+        )
+
+        assert is_eligible_for_recovery(state, 1) is False
+
+    def test_not_eligible_when_has_rings_in_hand(self):
+        """Player is not eligible if they have rings in hand."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+            },
+            player1_rings_in_hand=5,  # Has rings in hand
+        )
+
+        assert is_eligible_for_recovery(state, 1) is False
+
+    def test_not_eligible_when_no_markers(self):
+        """Player is not eligible if they have no markers."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={},  # No markers
+            player1_rings_in_hand=0,
+        )
+
+        assert is_eligible_for_recovery(state, 1) is False
+
+    def test_not_eligible_when_no_buried_rings(self):
+        """Player is not eligible if they have no buried rings."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[2],  # No buried rings for player 1
+                    stack_height=1,
+                    cap_height=1,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+            },
+            player1_rings_in_hand=0,
+        )
+
+        assert is_eligible_for_recovery(state, 1) is False
+
+
+class TestRecoveryCostModel:
+    """Tests for Option 1/2 cost model."""
+
+    def test_option1_cost_is_one(self):
+        """Option 1 always costs 1 buried ring."""
+        assert calculate_recovery_cost(1) == 1
+
+    def test_option2_cost_is_zero(self):
+        """Option 2 is free (costs 0 buried rings)."""
+        assert calculate_recovery_cost(2) == 0
+
+
+class TestBuriedRingCounting:
+    """Tests for counting buried rings."""
+
+    def test_count_single_buried_ring(self):
+        """Count a single buried ring in opponent's stack."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],  # Player 1 ring at bottom
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={},
+        )
+
+        assert count_buried_rings(state.board, 1) == 1
+
+    def test_count_multiple_buried_rings(self):
+        """Count multiple buried rings across stacks."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 1, 2],  # Two player 1 rings buried
+                    stack_height=3,
+                    cap_height=3,
+                    controlling_player=2,
+                ),
+            },
+            markers={},
+        )
+
+        assert count_buried_rings(state.board, 1) == 2
+
+    def test_not_count_controlling_ring(self):
+        """Don't count the top ring (controlling ring) as buried."""
+        state = make_test_state(
+            stacks={
+                "0,0": RingStack(
+                    position=Position(x=0, y=0),
+                    rings=[2, 1],  # Player 1 is on top (not buried)
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=1,
+                ),
+            },
+            markers={},
+        )
+
+        assert count_buried_rings(state.board, 1) == 0
+
+    def test_not_count_rings_in_own_stacks(self):
+        """Don't count rings in player's own stacks as buried."""
+        state = make_test_state(
+            stacks={
+                "0,0": RingStack(
+                    position=Position(x=0, y=0),
+                    rings=[1, 1],  # Both rings are player 1's in their stack
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=1,
+                ),
+            },
+            markers={},
+        )
+
+        assert count_buried_rings(state.board, 1) == 0
+
+
+class TestRecoverySlideEnumeration:
+    """Tests for enumerating recovery slide targets."""
+
+    def test_enumerate_exact_length_target(self):
+        """Enumerate a slide that completes an exact-length line."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+                "3,3": MarkerInfo(position=Position(x=3, y=3), player=1, type="regular"),
+                "5,3": MarkerInfo(position=Position(x=5, y=3), player=1, type="regular"),
+            },
+        )
+
+        targets = enumerate_recovery_slide_targets(state, 1)
+
+        # Should find the slide from (5,3) to (4,3) that completes a line of 3
+        assert len(targets) > 0
+        slide_to_4_3 = next(
+            (t for t in targets if t.to_pos.x == 4 and t.to_pos.y == 3), None
+        )
+        assert slide_to_4_3 is not None
+        assert slide_to_4_3.markers_in_line >= 3
+        assert slide_to_4_3.option1_cost == 1
+
+    def test_enumerate_overlength_target(self):
+        """Enumerate a slide that completes an overlength line."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "1,3": MarkerInfo(position=Position(x=1, y=3), player=1, type="regular"),
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+                "3,3": MarkerInfo(position=Position(x=3, y=3), player=1, type="regular"),
+                "5,3": MarkerInfo(position=Position(x=5, y=3), player=1, type="regular"),
+            },
+        )
+
+        targets = enumerate_recovery_slide_targets(state, 1)
+
+        # Should find the slide from (5,3) to (4,3) that completes a line of 4
+        slide_to_4_3 = next(
+            (t for t in targets if t.to_pos.x == 4 and t.to_pos.y == 3), None
+        )
+        assert slide_to_4_3 is not None
+        assert slide_to_4_3.markers_in_line == 4
+        assert slide_to_4_3.is_overlength is True
+        assert slide_to_4_3.option2_available is True
+        assert slide_to_4_3.option2_cost == 0
+
+
+class TestHasAnyRecoveryMove:
+    """Tests for checking if player has any valid recovery move."""
+
+    def test_has_recovery_when_valid_slide_exists(self):
+        """Player has recovery move when valid slide exists."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+                "3,3": MarkerInfo(position=Position(x=3, y=3), player=1, type="regular"),
+                "5,3": MarkerInfo(position=Position(x=5, y=3), player=1, type="regular"),
+            },
+        )
+
+        assert has_any_recovery_move(state, 1) is True
+
+    def test_no_recovery_when_no_valid_slide(self):
+        """Player has no recovery move when no valid slide completes a line."""
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                # Markers too far apart to form a line with a single slide
+                "0,0": MarkerInfo(position=Position(x=0, y=0), player=1, type="regular"),
+                "7,0": MarkerInfo(position=Position(x=7, y=0), player=1, type="regular"),
+            },
+        )
+
+        assert has_any_recovery_move(state, 1) is False
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -93,6 +93,7 @@ from .ai.zobrist import ZobristHash
 from .rules.geometry import BoardGeometry
 from .rules.core import count_rings_in_play_for_player, get_line_length_for_board, get_effective_line_length
 from .rules.capture_chain import enumerate_capture_moves_py
+from .rules.recovery import get_recovery_moves, apply_recovery_slide
 
 
 DEBUG_ENGINE = os.environ.get("RINGRIFT_DEBUG_ENGINE") == "1"
@@ -201,7 +202,9 @@ class GameEngine:
             capture_moves = GameEngine._get_capture_moves(
                 game_state, player_number
             )
-            moves = movement_moves + capture_moves
+            # Recovery slides for temporarily eliminated players (RR-CANON-R110-R115)
+            recovery_moves = get_recovery_moves(game_state, player_number)
+            moves = movement_moves + capture_moves + recovery_moves
             # NO auto NO_MOVEMENT_ACTION - hosts use get_phase_requirement()
 
         elif phase == GamePhase.CAPTURE:
@@ -556,6 +559,12 @@ class GameEngine:
                 GameEngine._apply_territory_claim(new_state, move)
         elif move.type == MoveType.FORCED_ELIMINATION:
             GameEngine._apply_forced_elimination(new_state, move)
+        elif move.type == MoveType.RECOVERY_SLIDE:
+            # Recovery slide for temporarily eliminated players (RR-CANON-R110-R115)
+            # Extract option and collapse_positions from move metadata if present
+            option = getattr(move, 'recovery_option', None) or 1
+            collapse_positions = getattr(move, 'collapse_positions', None)
+            apply_recovery_slide(new_state, move, option=option, collapse_positions=collapse_positions)
 
         # Update move history
         new_state.move_history.append(move)
@@ -634,7 +643,7 @@ class GameEngine:
             PLACE_RING, SKIP_PLACEMENT, NO_PLACEMENT_ACTION
         - MOVEMENT:
             MOVE_STACK, MOVE_RING, OVERTAKING_CAPTURE,
-            CONTINUE_CAPTURE_SEGMENT, NO_MOVEMENT_ACTION
+            CONTINUE_CAPTURE_SEGMENT, NO_MOVEMENT_ACTION, RECOVERY_SLIDE
         - CAPTURE:
             OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT
         - CHAIN_CAPTURE:
@@ -682,6 +691,7 @@ class GameEngine:
                 MoveType.OVERTAKING_CAPTURE,
                 MoveType.CONTINUE_CAPTURE_SEGMENT,
                 MoveType.NO_MOVEMENT_ACTION,
+                MoveType.RECOVERY_SLIDE,  # RR-CANON-R110-R115
             }
         elif phase == GamePhase.CAPTURE:
             # CAPTURE phase only supports actual capture moves - there is no

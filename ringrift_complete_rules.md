@@ -570,7 +570,13 @@ A **recovery action** allows a player who has been temporarily eliminated (no st
 
 • **Marker Slide:** The player moves one of their markers to an adjacent empty cell (using Moore neighbourhood adjacency for square boards, or hex-adjacency for hexagonal boards).
 
-• **Line Requirement:** The marker slide is legal **only if** it completes a line of **exactly** `lineLength` consecutive markers of the player's colour. Overlength lines (longer than `lineLength`) do **not** satisfy this requirement; the slide must complete a line of exactly the required length. The slide must create the line; it cannot merely extend or modify an existing line. (For `lineLength`, use the same threshold as for normal line processing: 4 for 8×8 2-player, 3 for 8×8 3–4 player, 4 for 19×19 and Hex.)
+• **Line Requirement:** The marker slide is legal **only if** it completes a line of **at least** `lineLength` consecutive markers of the player's colour. The slide must create the line; it cannot merely extend or modify an existing line. (For `lineLength`, use the same threshold as for normal line processing: 4 for 8×8 2-player, 3 for 8×8 3–4 player, 4 for 19×19 and Hex.)
+
+• **Overlength Lines:** If the completed line is longer than the minimum required length, the player chooses between:
+
+- **Option 1:** Collapse all markers in the line to territory and pay the self-elimination cost (one buried ring extraction).
+- **Option 2:** Collapse exactly `lineLength` consecutive markers of the player's choice to territory **without** paying any self-elimination cost. The remaining markers stay on the board.
+  This mirrors normal line reward semantics and increases the strategic value of recovery actions.
 
 • **Buried Ring Extraction (Self-Elimination Payment):** To pay the mandatory self-elimination cost for the line collapse:
 

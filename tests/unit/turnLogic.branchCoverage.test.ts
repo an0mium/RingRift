@@ -174,7 +174,10 @@ describe('turnLogic branch coverage', () => {
       expect(result.nextState.currentPhase).toBe('movement');
     });
 
-    it('transitions to line_processing when player cannot move or capture', () => {
+    it('always transitions to movement phase per RR-CANON-R075 (explicit phases)', () => {
+      // Per RR-CANON-R075: All phases must be visited with explicit moves.
+      // Even when no movements/captures are available, we go to movement phase.
+      // The player must then emit no_movement_action to advance to line_processing.
       const state = makeGameState({ currentPhase: 'ring_placement' });
       const turn = makeTurnState();
       const delegates = makeDelegates({
@@ -184,7 +187,7 @@ describe('turnLogic branch coverage', () => {
 
       const result = advanceTurnAndPhase(state, turn, delegates);
 
-      expect(result.nextState.currentPhase).toBe('line_processing');
+      expect(result.nextState.currentPhase).toBe('movement');
     });
   });
 

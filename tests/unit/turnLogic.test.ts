@@ -131,7 +131,12 @@ describe('turnLogic', () => {
     });
 
     describe('ring_placement phase', () => {
-      it('should advance to movement phase when movement is available', () => {
+      // Per RR-CANON-R075: All phases must be visited with explicit moves.
+      // advanceTurnAndPhase always transitions to movement phase - if no moves
+      // exist, the player must emit no_movement_action to advance. No silent
+      // phase skipping is permitted.
+
+      it('should always advance to movement phase (explicit phase progression)', () => {
         const state = createGameState({ currentPhase: 'ring_placement' });
         const turn = createTurnState({ hasPlacedThisTurn: true });
         const delegates = createDelegates({
@@ -141,25 +146,12 @@ describe('turnLogic', () => {
 
         const result = advanceTurnAndPhase(state, turn, delegates);
 
+        // Per RR-CANON-R075: Always goes to movement, no silent skipping
         expect(result.nextState.currentPhase).toBe('movement');
-        expect(delegates.hasAnyMovement).toHaveBeenCalledWith(state, 1, turn);
+        // Note: delegate not called since movement is always the next phase
       });
 
-      it('should advance to movement phase when capture is available', () => {
-        const state = createGameState({ currentPhase: 'ring_placement' });
-        const turn = createTurnState({ hasPlacedThisTurn: true });
-        const delegates = createDelegates({
-          hasAnyMovement: jest.fn().mockReturnValue(false),
-          hasAnyCapture: jest.fn().mockReturnValue(true),
-        });
-
-        const result = advanceTurnAndPhase(state, turn, delegates);
-
-        expect(result.nextState.currentPhase).toBe('movement');
-        expect(delegates.hasAnyCapture).toHaveBeenCalledWith(state, 1, turn);
-      });
-
-      it('should skip to line_processing when no movement or capture available', () => {
+      it('should advance to movement phase even when no movement is available', () => {
         const state = createGameState({ currentPhase: 'ring_placement' });
         const turn = createTurnState({ hasPlacedThisTurn: true });
         const delegates = createDelegates({
@@ -169,7 +161,9 @@ describe('turnLogic', () => {
 
         const result = advanceTurnAndPhase(state, turn, delegates);
 
-        expect(result.nextState.currentPhase).toBe('line_processing');
+        // Per RR-CANON-R075: Always goes to movement phase - player must then
+        // emit no_movement_action to advance to line_processing
+        expect(result.nextState.currentPhase).toBe('movement');
       });
     });
 

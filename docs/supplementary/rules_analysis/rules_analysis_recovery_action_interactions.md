@@ -19,17 +19,17 @@
 
 **Action:** Slide one marker to an adjacent empty cell. Legal **only if** it completes a line of **at least** `lineLength` consecutive markers.
 
-**Overlength Lines:** Overlength lines (longer than `lineLength`) **are permitted**:
+**Overlength Lines:** Overlength lines (longer than `lineLength`) **are permitted**. When an overlength line is formed, the player chooses:
 
-- Entire line collapses (all markers become territory)
-- Cost: 1 base extraction + 1 per marker beyond `lineLength`
-- Example: `lineLength = 3`, line of 5 → costs 3 buried rings total
-- If player lacks sufficient buried rings, that slide is illegal
+- **Option 1:** Collapse all markers in the line to territory. Cost: 1 buried ring extraction.
+- **Option 2:** Collapse exactly `lineLength` consecutive markers of the player's choice. Cost: 0 (no extraction required).
+
+This mirrors normal line reward semantics (RR-CANON-R130–R134).
 
 **Effect:**
 
 1. Line of markers collapses → markers become collapsed spaces (territory)
-2. Buried ring(s) extracted (1 + overlength cost) → eliminated (credited to recovering player)
+2. For exact-length lines or Option 1: buried ring extracted → eliminated (credited to recovering player)
 3. If collapse creates disconnected regions → territory cascade processing
 4. Recovering player now has ring(s) in hand from any exhumed buried rings during cascade
 

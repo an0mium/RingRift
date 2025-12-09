@@ -11,10 +11,18 @@
  * Key Rules:
  * - RR-CANON-R110: Recovery eligibility (no stacks, no rings in hand, has markers, has buried rings)
  * - RR-CANON-R111: Marker slide adjacency (Moore for square, hex-adjacency for hex)
- * - RR-CANON-R112: Line requirement (at least lineLength markers)
- * - RR-CANON-R113: Buried ring extraction cost (1 base + 1 per marker beyond lineLength)
+ * - RR-CANON-R112: Line requirement (at least lineLength markers), overlength allowed with Option 1/2
+ * - RR-CANON-R113: Buried ring extraction cost:
+ *   - Option 1 (collapse all): 1 buried ring extraction
+ *   - Option 2 (collapse lineLength, overlength only): 0 (free)
  * - RR-CANON-R114: Cascade processing (territory regions after line collapse)
  * - RR-CANON-R115: Recording semantics (recovery_slide move type)
+ *
+ * Cost Model (Option 1 / Option 2):
+ * - Exact-length lines: Always collapse all markers, cost = 1 buried ring
+ * - Overlength lines: Player chooses:
+ *   - Option 1: Collapse all markers, cost = 1 buried ring
+ *   - Option 2: Collapse exactly lineLength consecutive markers, cost = 0 (free)
  *
  * Design principles:
  * - Pure functions: No side effects, return new state
@@ -33,6 +41,13 @@ import { isEligibleForRecovery, countBuriedRings } from '../playerStateHelpers';
 // ===============================================================================
 
 /**
+ * Recovery option type.
+ * - Option 1: Collapse all markers in the line, pay 1 buried ring
+ * - Option 2: Collapse exactly lineLength consecutive markers, pay 0 (free, overlength only)
+ */
+export type RecoveryOption = 1 | 2;
+
+/**
  * A valid recovery slide move.
  */
 export interface RecoverySlideMove extends Move {
@@ -43,15 +58,28 @@ export interface RecoverySlideMove extends Move {
   /** Adjacent destination (empty cell) */
   to: Position;
   /**
+   * Which option to use for overlength lines.
+   * - Option 1: Collapse all markers, pay 1 buried ring
+   * - Option 2: Collapse exactly lineLength markers, pay 0 (free)
+   * Required for overlength lines. For exact-length lines, this is ignored (always Option 1).
+   */
+  option?: RecoveryOption;
+  /**
+   * For Option 2: which consecutive markers to collapse (exactly lineLength positions).
+   * Must include the destination position. Required when option = 2.
+   */
+  collapsePositions?: Position[];
+  /**
    * Stacks from which to extract buried rings for self-elimination cost.
-   * Length must equal the total cost (1 + overlength markers).
+   * - For Option 1: Length must be 1
+   * - For Option 2: Length must be 0 (empty array)
    * Each string is a position key (e.g., "3,4").
    */
   extractionStacks: string[];
 }
 
 /**
- * A potential recovery slide target (before extraction stacks are chosen).
+ * A potential recovery slide target (before option and extraction stacks are chosen).
  */
 export interface RecoverySlideTarget {
   /** Source marker position */
@@ -60,7 +88,20 @@ export interface RecoverySlideTarget {
   to: Position;
   /** Length of the line that would be formed */
   formedLineLength: number;
-  /** Number of buried rings required (1 + overlength) */
+  /** Whether this is an overlength line (> lineLength) */
+  isOverlength: boolean;
+  /** Cost for Option 1 (collapse all): always 1 */
+  option1Cost: 1;
+  /** Whether Option 2 is available (only for overlength lines) */
+  option2Available: boolean;
+  /** Cost for Option 2 (collapse lineLength): always 0 */
+  option2Cost: 0;
+  /** Positions of all markers in the formed line */
+  linePositions: Position[];
+  /**
+   * @deprecated Use option1Cost or option2Cost instead.
+   * Kept for backwards compatibility during transition.
+   */
   cost: number;
 }
 
@@ -70,9 +111,13 @@ export interface RecoverySlideTarget {
 export interface RecoveryApplicationOutcome {
   /** Updated game state after recovery */
   nextState: GameState;
-  /** The line that was formed and collapsed */
+  /** The line that was formed */
   formedLine: LineInfo;
-  /** Number of buried rings extracted */
+  /** Which markers were actually collapsed (all for Option 1, lineLength for Option 2) */
+  collapsedPositions: Position[];
+  /** Which option was used (1 or 2) */
+  optionUsed: RecoveryOption;
+  /** Number of buried rings extracted (1 for Option 1, 0 for Option 2) */
   extractionCount: number;
   /** Territory spaces gained */
   territoryGained: number;
@@ -95,7 +140,13 @@ export interface RecoveryValidationResult {
  * Enumerate all valid recovery slide targets for a player.
  *
  * Returns targets without extraction stack selection - the caller must
- * choose which stacks to extract from when constructing the full move.
+ * choose which option and extraction stacks when constructing the full move.
+ *
+ * Cost Model (Option 1 / Option 2):
+ * - Exact-length lines: Only Option 1 available (cost = 1 buried ring)
+ * - Overlength lines: Player chooses:
+ *   - Option 1: Collapse all markers, cost = 1 buried ring
+ *   - Option 2: Collapse exactly lineLength markers, cost = 0 (free)
  *
  * @param state - Current game state
  * @param playerNumber - Player to enumerate recovery moves for
@@ -111,7 +162,6 @@ export function enumerateRecoverySlideTargets(
   }
 
   const lineLength = getEffectiveLineLengthThreshold(state.board.type, state.players.length);
-
   const buriedRingCount = countBuriedRings(state.board, playerNumber);
   const targets: RecoverySlideTarget[] = [];
 
@@ -137,19 +187,30 @@ export function enumerateRecoverySlideTargets(
       if (isCollapsedSpace(toPos, state.board)) continue;
 
       // Would this slide complete a line of at least lineLength?
-      const formedLineLength = getFormedLineLength(state.board, fromPos, toPos, playerNumber);
+      const lineInfo = getFormedLineInfo(state.board, fromPos, toPos, playerNumber);
+      const formedLineLength = lineInfo.length;
 
       if (formedLineLength >= lineLength) {
-        // Calculate cost: 1 base + overlength
-        const cost = 1 + Math.max(0, formedLineLength - lineLength);
+        const isOverlength = formedLineLength > lineLength;
 
-        // Only legal if player has enough buried rings
-        if (buriedRingCount >= cost) {
+        // For exact-length: need 1 buried ring (Option 1 only)
+        // For overlength: Option 2 is free, so always legal
+        const canUseOption1 = buriedRingCount >= 1;
+        const canUseOption2 = isOverlength; // Option 2 is free but only available for overlength
+
+        // At least one option must be available
+        if (canUseOption1 || canUseOption2) {
           targets.push({
             from: fromPos,
             to: toPos,
             formedLineLength,
-            cost,
+            isOverlength,
+            option1Cost: 1,
+            option2Available: isOverlength,
+            option2Cost: 0,
+            linePositions: lineInfo.positions,
+            // Deprecated: keep for backwards compatibility
+            cost: 1, // Minimum cost is always 1 for Option 1
           });
         }
       }
@@ -164,6 +225,10 @@ export function enumerateRecoverySlideTargets(
  *
  * This is a quick check for LPS purposes - returns true if at least one
  * recovery slide is available.
+ *
+ * Cost Model (Option 1 / Option 2):
+ * - Exact-length: need 1 buried ring for Option 1
+ * - Overlength: Option 2 is free, so always legal
  *
  * @param state - Current game state
  * @param playerNumber - Player to check
@@ -193,11 +258,15 @@ export function hasAnyRecoveryMove(state: GameState, playerNumber: number): bool
       if (getMarker(toPos, state.board) !== undefined) continue;
       if (isCollapsedSpace(toPos, state.board)) continue;
 
-      const formedLineLength = getFormedLineLength(state.board, fromPos, toPos, playerNumber);
+      const lineInfo = getFormedLineInfo(state.board, fromPos, toPos, playerNumber);
+      const formedLineLength = lineInfo.length;
 
       if (formedLineLength >= lineLength) {
-        const cost = 1 + Math.max(0, formedLineLength - lineLength);
-        if (buriedRingCount >= cost) {
+        const isOverlength = formedLineLength > lineLength;
+
+        // For exact-length: need 1 buried ring (Option 1 only)
+        // For overlength: Option 2 is free, so always legal
+        if (isOverlength || buriedRingCount >= 1) {
           return true; // Early exit
         }
       }
@@ -208,15 +277,24 @@ export function hasAnyRecoveryMove(state: GameState, playerNumber: number): bool
 }
 
 /**
- * Calculate the cost of a recovery slide.
+ * Calculate the cost of a recovery slide for a given option.
  *
- * Cost = 1 (base) + max(0, actualLineLength - lineLength)
+ * Cost Model (Option 1 / Option 2):
+ * - Option 1 (collapse all): 1 buried ring extraction
+ * - Option 2 (collapse lineLength, overlength only): 0 (free)
  *
- * @param lineLength - Required minimum line length for the board/player-count
- * @param actualLineLength - Actual length of the formed line
+ * @param option - Which option (1 or 2)
  * @returns Number of buried rings required
  */
-export function calculateRecoveryCost(lineLength: number, actualLineLength: number): number {
+export function calculateRecoveryCost(option: RecoveryOption): number {
+  return option === 1 ? 1 : 0;
+}
+
+/**
+ * @deprecated Use calculateRecoveryCost(option) instead.
+ * This function used the old graduated cost model.
+ */
+export function calculateRecoveryCostLegacy(lineLength: number, actualLineLength: number): number {
   return 1 + Math.max(0, actualLineLength - lineLength);
 }
 
@@ -235,7 +313,8 @@ export function validateRecoverySlide(
   state: GameState,
   move: RecoverySlideMove
 ): RecoveryValidationResult {
-  const { player, from, to, extractionStacks } = move;
+  const { player, from, to, option, collapsePositions, extractionStacks } = move;
+  const buriedRingCount = countBuriedRings(state.board, player);
 
   // Check eligibility
   if (!isEligibleForRecovery(state, player)) {
@@ -291,7 +370,8 @@ export function validateRecoverySlide(
 
   // Check line formation
   const lineLength = getEffectiveLineLengthThreshold(state.board.type, state.players.length);
-  const formedLineLength = getFormedLineLength(state.board, from, to, player);
+  const lineInfo = getFormedLineInfo(state.board, from, to, player);
+  const formedLineLength = lineInfo.length;
 
   if (formedLineLength < lineLength) {
     return {
@@ -301,17 +381,71 @@ export function validateRecoverySlide(
     };
   }
 
-  // Check extraction cost
-  const cost = calculateRecoveryCost(lineLength, formedLineLength);
-  if (extractionStacks.length !== cost) {
+  const isOverlength = formedLineLength > lineLength;
+
+  // Determine effective option
+  // For exact-length lines, option is ignored (always Option 1)
+  // For overlength lines, option must be specified
+  let effectiveOption: RecoveryOption = 1;
+  if (isOverlength) {
+    if (option === undefined) {
+      return {
+        valid: false,
+        reason: 'Overlength line requires option (1 or 2) to be specified',
+        code: 'RECOVERY_OPTION_REQUIRED',
+      };
+    }
+    effectiveOption = option;
+  }
+
+  // Validate Option 2 specific requirements
+  if (effectiveOption === 2) {
+    if (!collapsePositions) {
+      return {
+        valid: false,
+        reason: 'Option 2 requires collapsePositions to be specified',
+        code: 'RECOVERY_COLLAPSE_POSITIONS_REQUIRED',
+      };
+    }
+
+    if (collapsePositions.length !== lineLength) {
+      return {
+        valid: false,
+        reason: `Option 2 requires exactly ${lineLength} collapse positions, got ${collapsePositions.length}`,
+        code: 'RECOVERY_WRONG_COLLAPSE_COUNT',
+      };
+    }
+
+    // Verify collapsePositions are consecutive and part of the formed line
+    const validationResult = validateCollapsePositions(
+      collapsePositions,
+      lineInfo.positions,
+      to,
+      state.board.type
+    );
+    if (!validationResult.valid) {
+      return validationResult;
+    }
+  }
+
+  // Check extraction cost matches selected option
+  const expectedCost = calculateRecoveryCost(effectiveOption);
+  if (expectedCost > 0 && buriedRingCount < expectedCost) {
     return {
       valid: false,
-      reason: `Recovery requires ${cost} extractions, got ${extractionStacks.length}`,
+      reason: 'Not enough buried rings to pay recovery cost',
+      code: 'RECOVERY_INSUFFICIENT_BURIED_RINGS',
+    };
+  }
+  if (extractionStacks.length !== expectedCost) {
+    return {
+      valid: false,
+      reason: `Option ${effectiveOption} requires ${expectedCost} extractions, got ${extractionStacks.length}`,
       code: 'RECOVERY_WRONG_EXTRACTION_COUNT',
     };
   }
 
-  // Validate each extraction stack
+  // Validate each extraction stack (for Option 1)
   for (const stackKey of extractionStacks) {
     const stack = state.board.stacks.get(stackKey);
     if (!stack) {
@@ -338,6 +472,61 @@ export function validateRecoverySlide(
   return { valid: true };
 }
 
+/**
+ * Validate that collapse positions are consecutive and part of the formed line.
+ */
+function validateCollapsePositions(
+  collapsePositions: Position[],
+  linePositions: Position[],
+  destinationPos: Position,
+  boardType: string
+): RecoveryValidationResult {
+  // All collapse positions must be in the formed line
+  const lineKeys = new Set(linePositions.map(positionToString));
+  for (const pos of collapsePositions) {
+    const key = positionToString(pos);
+    if (!lineKeys.has(key)) {
+      return {
+        valid: false,
+        reason: `Collapse position ${key} is not part of the formed line`,
+        code: 'RECOVERY_INVALID_COLLAPSE_POSITION',
+      };
+    }
+  }
+
+  // Destination must be included in collapse positions
+  const destKey = positionToString(destinationPos);
+  if (!collapsePositions.some((p) => positionToString(p) === destKey)) {
+    return {
+      valid: false,
+      reason: 'Collapse positions must include the destination position',
+      code: 'RECOVERY_DEST_NOT_IN_COLLAPSE',
+    };
+  }
+
+  // Collapse positions must be consecutive
+  // Sort by position along the line direction
+  const sortedCollapse = [...collapsePositions].sort((a, b) => {
+    const lineStart = linePositions[0];
+    const distA = Math.abs(a.x - lineStart.x) + Math.abs(a.y - lineStart.y);
+    const distB = Math.abs(b.x - lineStart.x) + Math.abs(b.y - lineStart.y);
+    return distA - distB;
+  });
+
+  // Verify adjacency between consecutive positions
+  for (let i = 0; i < sortedCollapse.length - 1; i++) {
+    if (!isAdjacent(sortedCollapse[i], sortedCollapse[i + 1], boardType)) {
+      return {
+        valid: false,
+        reason: 'Collapse positions must be consecutive',
+        code: 'RECOVERY_COLLAPSE_NOT_CONSECUTIVE',
+      };
+    }
+  }
+
+  return { valid: true };
+}
+
 // ===============================================================================
 // Application
 // ===============================================================================
@@ -347,9 +536,12 @@ export function validateRecoverySlide(
  *
  * This function:
  * 1. Moves the marker from -> to
- * 2. Detects and collapses the formed line
- * 3. Extracts buried rings as self-elimination cost
- * 4. Updates territory and eliminated ring counts
+ * 2. Detects the formed line
+ * 3. Collapses markers based on selected option:
+ *    - Option 1: Collapse all markers in the line
+ *    - Option 2: Collapse only the specified lineLength consecutive markers
+ * 4. Extracts buried rings as self-elimination cost (Option 1 only)
+ * 5. Updates territory and eliminated ring counts
  *
  * Note: Territory cascade (disconnected regions) is NOT handled here.
  * That should be handled by the turn orchestrator after this function returns.
@@ -362,7 +554,7 @@ export function applyRecoverySlide(
   state: GameState,
   move: RecoverySlideMove
 ): RecoveryApplicationOutcome {
-  const { player, from, to, extractionStacks } = move;
+  const { player, from, to, option, collapsePositions, extractionStacks } = move;
 
   // Clone state for mutation
   const nextState = cloneGameState(state);
@@ -387,8 +579,29 @@ export function applyRecoverySlide(
     throw new Error('Recovery slide did not form a valid line');
   }
 
-  // 3. Collapse the line - all markers become collapsed spaces (territory)
-  for (const pos of formedLine.positions) {
+  const isOverlength = formedLine.length > lineLength;
+
+  // Determine effective option and collapse positions
+  let effectiveOption: RecoveryOption = 1;
+  let positionsToCollapse: Position[];
+
+  if (isOverlength && option === 2) {
+    // Option 2: Collapse only the specified positions
+    effectiveOption = 2;
+    if (!collapsePositions || collapsePositions.length !== lineLength) {
+      throw new Error(
+        `Option 2 requires exactly ${lineLength} collapse positions, got ${collapsePositions?.length ?? 0}`
+      );
+    }
+    positionsToCollapse = collapsePositions;
+  } else {
+    // Option 1 (or exact-length): Collapse all markers in the line
+    effectiveOption = 1;
+    positionsToCollapse = formedLine.positions;
+  }
+
+  // 3. Collapse markers - selected markers become collapsed spaces (territory)
+  for (const pos of positionsToCollapse) {
     const posKey = positionToString(pos);
     board.markers.delete(posKey);
     board.collapsedSpaces.set(posKey, player);
@@ -397,46 +610,50 @@ export function applyRecoverySlide(
   // Update player's territory count
   const playerState = nextState.players.find((p) => p.playerNumber === player);
   if (playerState) {
-    playerState.territorySpaces += formedLine.length;
+    playerState.territorySpaces += positionsToCollapse.length;
   }
 
-  // 4. Extract buried rings (self-elimination cost)
+  // 4. Extract buried rings (self-elimination cost) - Option 1 only
   let extractionCount = 0;
-  for (const stackKey of extractionStacks) {
-    const stack = board.stacks.get(stackKey);
-    if (!stack) continue;
+  if (effectiveOption === 1) {
+    for (const stackKey of extractionStacks) {
+      const stack = board.stacks.get(stackKey);
+      if (!stack) continue;
 
-    // Find and remove player's bottommost ring
-    const ringIndex = stack.rings.findIndex((r) => r === player);
-    if (ringIndex === -1) continue;
+      // Find and remove player's bottommost ring
+      const ringIndex = stack.rings.lastIndexOf(player);
+      if (ringIndex === -1) continue;
 
-    // Remove the ring
-    stack.rings.splice(ringIndex, 1);
-    stack.stackHeight--;
-    extractionCount++;
+      // Remove the ring
+      stack.rings.splice(ringIndex, 1);
+      stack.stackHeight--;
+      extractionCount++;
 
-    // Update player's eliminated rings
-    if (playerState) {
-      playerState.eliminatedRings++;
-    }
+      // Update player's eliminated rings
+      if (playerState) {
+        playerState.eliminatedRings++;
+      }
 
-    // Update stack control if needed
-    if (stack.rings.length === 0) {
-      // Stack is now empty, remove it
-      board.stacks.delete(stackKey);
-    } else {
-      // Update controlling player (top ring)
-      stack.controllingPlayer = stack.rings[stack.rings.length - 1];
-      // Recalculate cap height
-      stack.capHeight = calculateCapHeight(stack.rings);
+      // Update stack control if needed
+      if (stack.rings.length === 0) {
+        // Stack is now empty, remove it
+        board.stacks.delete(stackKey);
+      } else {
+        // Update controlling player (top ring)
+        stack.controllingPlayer = stack.rings[stack.rings.length - 1];
+        // Recalculate cap height
+        stack.capHeight = calculateCapHeight(stack.rings);
+      }
     }
   }
 
   return {
     nextState,
     formedLine,
+    collapsedPositions: positionsToCollapse,
+    optionUsed: effectiveOption,
     extractionCount,
-    territoryGained: formedLine.length,
+    territoryGained: positionsToCollapse.length,
   };
 }
 
@@ -546,17 +763,30 @@ function isCollapsedSpace(position: Position, board: BoardState): boolean {
 }
 
 /**
- * Calculate the length of the line that would be formed by sliding
+ * Result of line formation detection.
+ */
+interface FormedLineInfo {
+  /** Length of the longest line formed */
+  length: number;
+  /** Positions of all markers in the longest line */
+  positions: Position[];
+  /** Direction of the line */
+  direction: Position;
+}
+
+/**
+ * Get information about the line that would be formed by sliding
  * a marker from `from` to `to`.
  *
  * Simulates the marker move and detects lines containing the new position.
+ * Returns the longest line found with its positions.
  */
-function getFormedLineLength(
+function getFormedLineInfo(
   board: BoardState,
   from: Position,
   to: Position,
   player: number
-): number {
+): FormedLineInfo {
   // Simulate the marker move on a temporary copy
   const tempMarkers = new Map(board.markers);
   const fromKey = positionToString(from);
@@ -577,14 +807,69 @@ function getFormedLineLength(
 
   // Find lines containing the new position
   const directions = getLineDirections(board.type);
-  let maxLineLength = 0;
+  let bestLine: FormedLineInfo = {
+    length: 0,
+    positions: [],
+    direction: { x: 0, y: 0 },
+  };
 
   for (const direction of directions) {
-    const lineLength = countLineInDirection(to, direction, player, tempBoard);
-    maxLineLength = Math.max(maxLineLength, lineLength);
+    const positions = collectLinePositionsInDirection(to, direction, player, tempBoard);
+    if (positions.length > bestLine.length) {
+      bestLine = {
+        length: positions.length,
+        positions,
+        direction,
+      };
+    }
   }
 
-  return maxLineLength;
+  return bestLine;
+}
+
+/**
+ * Collect all positions in a line from a starting point in both directions.
+ */
+function collectLinePositionsInDirection(
+  start: Position,
+  direction: Position,
+  player: number,
+  board: BoardState
+): Position[] {
+  const positions: Position[] = [start];
+
+  // Check forward
+  let current = start;
+  while (true) {
+    const next = addPositions(current, direction);
+    if (!isValidPosition(next, board)) break;
+    const markerPlayer = getMarker(next, board);
+    if (markerPlayer !== player) break;
+    if (isCollapsedSpace(next, board) || getStack(next, board)) break;
+    positions.push(next);
+    current = next;
+  }
+
+  // Check backward
+  const reverseDir: Position = {
+    x: -direction.x,
+    y: -direction.y,
+  };
+  if (direction.z !== undefined) {
+    reverseDir.z = -direction.z;
+  }
+  current = start;
+  while (true) {
+    const prev = addPositions(current, reverseDir);
+    if (!isValidPosition(prev, board)) break;
+    const markerPlayer = getMarker(prev, board);
+    if (markerPlayer !== player) break;
+    if (isCollapsedSpace(prev, board) || getStack(prev, board)) break;
+    positions.unshift(prev);
+    current = prev;
+  }
+
+  return positions;
 }
 
 /**
@@ -607,51 +892,6 @@ function getLineDirections(boardType: string): Position[] {
       { x: 1, y: -1 }, // Diagonal NE
     ];
   }
-}
-
-/**
- * Count the length of a line in a direction (both directions from start).
- */
-function countLineInDirection(
-  start: Position,
-  direction: Position,
-  player: number,
-  board: BoardState
-): number {
-  let count = 1; // Start position counts
-
-  // Check forward
-  let current = start;
-  while (true) {
-    const next = addPositions(current, direction);
-    if (!isValidPosition(next, board)) break;
-    const markerPlayer = getMarker(next, board);
-    if (markerPlayer !== player) break;
-    if (isCollapsedSpace(next, board) || getStack(next, board)) break;
-    count++;
-    current = next;
-  }
-
-  // Check backward
-  const reverseDir: Position = {
-    x: -direction.x,
-    y: -direction.y,
-  };
-  if (direction.z !== undefined) {
-    reverseDir.z = -direction.z;
-  }
-  current = start;
-  while (true) {
-    const prev = addPositions(current, reverseDir);
-    if (!isValidPosition(prev, board)) break;
-    const markerPlayer = getMarker(prev, board);
-    if (markerPlayer !== player) break;
-    if (isCollapsedSpace(prev, board) || getStack(prev, board)) break;
-    count++;
-    current = prev;
-  }
-
-  return count;
 }
 
 /**

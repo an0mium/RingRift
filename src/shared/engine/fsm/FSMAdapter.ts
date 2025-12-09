@@ -721,18 +721,23 @@ export function validateMoveWithFSM(gameState: GameState, move: Move): FSMValida
 function getExpectedEventTypes(state: TurnState): TurnEvent['type'][] {
   switch (state.phase) {
     case 'ring_placement':
-      return ['PLACE_RING', 'SKIP_PLACEMENT', 'RESIGN', 'TIMEOUT'];
+      // Placement phase supports explicit actions, voluntary skip, and forced no-op.
+      return ['PLACE_RING', 'SKIP_PLACEMENT', 'NO_PLACEMENT_ACTION', 'RESIGN', 'TIMEOUT'];
     case 'movement':
-      // Per RR-CANON-R070: movement phase allows both simple moves and overtaking captures
-      return ['MOVE_STACK', 'CAPTURE', 'RESIGN', 'TIMEOUT'];
+      // Per RR-CANON-R070: movement phase allows both simple moves and overtaking captures,
+      // plus an explicit forced no-op when no movement/capture is available.
+      return ['MOVE_STACK', 'CAPTURE', 'NO_MOVEMENT_ACTION', 'RESIGN', 'TIMEOUT'];
     case 'capture':
       return ['CAPTURE', 'END_CHAIN', 'RESIGN', 'TIMEOUT'];
     case 'chain_capture':
       return ['CONTINUE_CHAIN', 'END_CHAIN', 'RESIGN', 'TIMEOUT'];
     case 'line_processing':
-      return ['PROCESS_LINE', 'CHOOSE_LINE_REWARD', 'RESIGN', 'TIMEOUT'];
+      // Line-processing phase supports explicit processing, reward choice, and forced no-op.
+      return ['PROCESS_LINE', 'CHOOSE_LINE_REWARD', 'NO_LINE_ACTION', 'RESIGN', 'TIMEOUT'];
     case 'territory_processing':
-      return ['PROCESS_REGION', 'ELIMINATE_FROM_STACK', 'RESIGN', 'TIMEOUT'];
+      // Territory-processing phase supports region processing, self-elimination, voluntary
+      // skip, and forced no-op when no regions exist.
+      return ['PROCESS_REGION', 'ELIMINATE_FROM_STACK', 'NO_TERRITORY_ACTION', 'RESIGN', 'TIMEOUT'];
     case 'forced_elimination':
       return ['FORCED_ELIMINATE', 'RESIGN', 'TIMEOUT'];
     case 'turn_end':
@@ -771,7 +776,9 @@ export function isMoveTypeValidForPhase(gameState: GameState, moveType: Move['ty
     process_territory_region: ['territory_processing'],
     skip_territory_processing: ['territory_processing'],
     no_territory_action: ['territory_processing'],
-    eliminate_rings_from_stack: ['territory_processing', 'forced_elimination'],
+    // Self-elimination decisions are modelled as part of the territory_processing
+    // phase only; the dedicated forced_elimination phase uses its own move type.
+    eliminate_rings_from_stack: ['territory_processing'],
     forced_elimination: ['forced_elimination'],
     swap_sides: [], // Meta-move, not FSM-tracked
     line_formation: [], // Legacy

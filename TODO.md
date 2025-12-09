@@ -562,34 +562,47 @@ SandboxGameHost integration requires mapping existing state to hooks:
 
 ### 3.1.1 Recovery Action Implementation (New Rule Feature)
 
-**Specification:** See `RECOVERY_ACTION_IMPLEMENTATION_PLAN.md` and `RULES_CANONICAL_SPEC.md` §5.4 (RR-CANON-R110–R115).
+**Specification:** See [`docs/archive/plans/RECOVERY_ACTION_IMPLEMENTATION_PLAN.md`](docs/archive/plans/RECOVERY_ACTION_IMPLEMENTATION_PLAN.md) (comprehensive plan) and `RULES_CANONICAL_SPEC.md` §5.4 (RR-CANON-R110–R115).
 
-**Summary:** Recovery action allows temporarily eliminated players (no stacks, no rings in hand, but has markers and buried rings) to slide a marker to complete a line of exactly `lineLength`, extracting a buried ring as self-elimination cost.
+**Summary:** Recovery action allows temporarily eliminated players (no stacks, no rings in hand, but has markers and buried rings) to slide a marker to complete a line of **at least** `lineLength`. Overlength lines follow standard Option 1 / Option 2 semantics (collapse all and pay one buried ring, or collapse minimum and pay nothing). Exact-length lines require extracting a buried ring as self-elimination cost.
 
-| Task                                             | Priority | Status  | Notes                                                         |
-| ------------------------------------------------ | -------- | ------- | ------------------------------------------------------------- |
-| Add `recovery_slide` MoveType (TS + Python)      | P1       | Pending | New move type in `game.ts` and `core.py`                      |
-| Implement recovery eligibility predicate         | P1       | Pending | Check: no stacks, no rings in hand, has markers, buried rings |
-| Implement recovery move generation               | P1       | Pending | Enumerate marker slides that complete exact-length lines      |
-| Implement recovery move application              | P1       | Pending | Marker slide → line collapse → buried ring extraction         |
-| Update LPS `hasAnyRealAction` for recovery       | P0       | Pending | Recovery counts as real action (RR-CANON-R110)                |
-| Integrate into turn orchestrator movement phase  | P1       | Pending | Add recovery moves to movement phase enumeration              |
-| Add RecoveryAggregate.ts (TS)                    | P1       | Pending | New aggregate module                                          |
-| Add RecoveryValidator + RecoveryMutator (Python) | P1       | Pending | Shadow contract infrastructure                                |
-| Add recovery action unit tests (TS)              | P1       | Pending | Eligibility, enumeration, application, overlength exclusion   |
-| Add recovery action unit tests (Python)          | P1       | Pending | Mirror TS tests for parity                                    |
-| Add TS/Python parity tests for recovery          | P0       | Pending | Contract vectors for recovery scenarios                       |
-| Update AI move generation for recovery           | P2       | Pending | AI must consider recovery slides                              |
-| Update teaching materials for recovery           | P2       | Pending | TeachingOverlay, teachingTopics, scenarios                    |
-| Update UX copy for recovery action               | P2       | Pending | HUD hints, tooltips, victory explanations                     |
+**Implementation Status:**
+
+- ✅ Rules specification complete (RR-CANON-R110–R115)
+- ⚠️ RecoveryAggregate.ts exists but needs Option 1/2 update (old graduated cost model)
+- ⚠️ Python recovery.py exists but needs Option 1/2 update
+- ❌ Not integrated into turn orchestrator / game_engine.py
+- ❌ LPS integration missing
+- ❌ Contract vectors missing
+
+| Task                                       | Priority | Status  | Notes                                                    |
+| ------------------------------------------ | -------- | ------- | -------------------------------------------------------- |
+| Update cost model to Option 1/2 (TS)       | P0       | Pending | RecoveryAggregate.ts has old graduated cost model        |
+| Update cost model to Option 1/2 (Python)   | P0       | Pending | recovery.py has old graduated cost model                 |
+| Integrate into turn orchestrator (TS)      | P0       | Pending | Wire into movement phase enumeration                     |
+| Integrate into game_engine.py (Python)     | P0       | Pending | Add `_get_recovery_moves()` call                         |
+| Update LPS `hasAnyRealAction` for recovery | P0       | Pending | Recovery counts as real action (RR-CANON-R110)           |
+| Add FSM event mapping                      | P1       | Pending | FSMAdapter.ts: map recovery_slide to event               |
+| Add RuleEngine validation case             | P1       | Pending | validateMove() case for recovery_slide                   |
+| Add recovery move notation                 | P1       | Pending | notation.ts: "Ra3-a4" format                             |
+| Create contract vectors                    | P0       | Pending | tests/fixtures/contract-vectors/v2/recovery.vectors.json |
+| Add TS/Python parity tests for recovery    | P0       | Pending | Contract vectors for recovery scenarios                  |
+| Update unit tests for Option 1/2 semantics | P1       | Pending | RecoveryAggregate.shared.test.ts, test_recovery.py       |
+| Add UI highlighting for recovery moves     | P2       | Pending | BoardView.tsx, sandboxMovement.ts                        |
+| Add Option 1/2 choice dialog               | P2       | Pending | ChoiceDialog.tsx: RecoveryLineOptionChoice               |
+| Update move history display                | P2       | Pending | MoveHistory.tsx: render recovery_slide                   |
+| Update teaching materials for recovery     | P2       | Pending | TeachingOverlay, teachingTopics, scenarios               |
+| Update AI move ordering for recovery       | P3       | Pending | move_ordering.py: recovery heuristics                    |
 
 **Key Interactions:**
 
 - **LPS:** Recovery action is a "real action" for Last-Player-Standing (RR-CANON-R110)
 - **FE:** Recovery uses buried ring extraction, not cap elimination
 - **ANM:** Temporarily eliminated player with recovery option is NOT in ANM state
-- **Line Length:** Recovery requires exactly `lineLength` markers (no overlength)
+- **Line Length:** Recovery requires at least `lineLength` markers; overlength uses Option 1/2
 - **Territory:** Line collapse may trigger territory processing cascade
+- **Option 1:** Collapse all markers, pay 1 buried ring extraction
+- **Option 2:** Collapse minimum (`lineLength`) markers, pay 0 (free)
 
 ### 3.2 Testing Work
 

@@ -909,6 +909,92 @@ function nextPlayer(current: number, numPlayers: number): number {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PHASE COMPLETION HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * High-level phase tokens used for line/territory completion decisions.
+ *
+ * These are intentionally string literals rather than full TurnState objects so
+ * that callers (e.g. orchestrators, Python mirrors) can map them onto their own
+ * GamePhase / turn-end handling without depending on TurnState internals.
+ */
+export type PhaseAfterLineProcessing = 'territory_processing' | 'forced_elimination' | 'turn_end';
+export type PhaseAfterTerritoryProcessing = 'forced_elimination' | 'turn_end';
+
+/**
+ * Decide the high-level phase transition after **completing line_processing**
+ * for the active player.
+ *
+ * Inputs are deliberately host-provided booleans so that this helper can be
+ * re-used across TS orchestrator, Python phase machine, and parity tooling:
+ *
+ * - hasTerritoryRegions:
+ *     Whether at least one canonical, processable territory region exists for
+ *     the active player after line collapse (per Q23 / §12.2).
+ * - hadAnyActionThisTurn:
+ *     Whether the player has performed any non-`no_*` action in any phase of
+ *     the current turn so far (placement, movement/capture, line, territory).
+ *     Voluntary skips (e.g. skip_capture) count as actions; forced no-ops
+ *     (`no_placement_action`, `no_movement_action`, `no_line_action`,
+ *     `no_territory_action`) do not.
+ * - playerHasStacks:
+ *     Whether the player still controls at least one stack on the board at
+ *     this point in the turn.
+ *
+ * Semantics (RR‑CANON‑R070/R075/R204):
+ *
+ * - If at least one canonical territory region exists, the next phase is
+ *   `territory_processing`.
+ * - If no territory regions exist AND the player had **no actions this turn**
+ *   AND they still control stacks, the next phase is `forced_elimination`.
+ * - Otherwise, the turn ends and control passes to the next player
+ *   (`turn_end` token for the caller to interpret).
+ */
+export function onLineProcessingComplete(
+  hasTerritoryRegions: boolean,
+  hadAnyActionThisTurn: boolean,
+  playerHasStacks: boolean
+): PhaseAfterLineProcessing {
+  if (hasTerritoryRegions) {
+    return 'territory_processing';
+  }
+  if (!hadAnyActionThisTurn && playerHasStacks) {
+    return 'forced_elimination';
+  }
+  return 'turn_end';
+}
+
+/**
+ * Decide the high-level phase transition after **completing territory_processing**
+ * for the active player, i.e. once no further territory decisions (regions or
+ * self-eliminations) remain this turn.
+ *
+ * Inputs mirror {@link onLineProcessingComplete}:
+ *
+ * - hadAnyActionThisTurn:
+ *     Whether the player has performed any non-`no_*` action this turn across
+ *     all phases.
+ * - playerHasStacks:
+ *     Whether the player still controls at least one stack on the board.
+ *
+ * Semantics (RR‑CANON‑R070/R075/R204):
+ *
+ * - If the player had **no actions this entire turn** and still controls
+ *   stacks, the next phase is `forced_elimination`.
+ * - Otherwise, the turn ends and control passes to the next player
+ *   (`turn_end` token for the caller to interpret).
+ */
+export function onTerritoryProcessingComplete(
+  hadAnyActionThisTurn: boolean,
+  playerHasStacks: boolean
+): PhaseAfterTerritoryProcessing {
+  if (!hadAnyActionThisTurn && playerHasStacks) {
+    return 'forced_elimination';
+  }
+  return 'turn_end';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // STATE MACHINE CLASS WRAPPER
 // ═══════════════════════════════════════════════════════════════════════════
 

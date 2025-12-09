@@ -216,19 +216,20 @@ class TestIsEligibleForRecovery:
 
 
 class TestCalculateRecoveryCost:
-    """Tests for calculate_recovery_cost."""
+    """Tests for calculate_recovery_cost.
 
-    def test_base_cost_is_one(self):
-        state = create_test_state()
-        # line_length for square8 is 3
-        assert calculate_recovery_cost(state.board, 1, 3) == 1
+    New cost model (Option 1 / Option 2):
+    - Option 1: Always costs 1 buried ring (collapse all markers)
+    - Option 2: Always costs 0 (free, collapse lineLength markers, overlength only)
+    """
 
-    def test_excess_markers_increase_cost(self):
-        state = create_test_state()
-        # 4 markers = 1 excess = cost 2
-        assert calculate_recovery_cost(state.board, 1, 4) == 2
-        # 5 markers = 2 excess = cost 3
-        assert calculate_recovery_cost(state.board, 1, 5) == 3
+    def test_option1_always_costs_one(self):
+        # Option 1 always costs 1 buried ring regardless of markers
+        assert calculate_recovery_cost(1) == 1
+
+    def test_option2_always_free(self):
+        # Option 2 is free (costs 0) - only available for overlength lines
+        assert calculate_recovery_cost(2) == 0
 
 
 class TestEnumerateRecoverySlideTargets:

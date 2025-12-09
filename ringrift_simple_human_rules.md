@@ -193,14 +193,17 @@ still have **markers on the board** and **buried rings** (your rings at the
 bottom of opponents' stacks), you may perform a **recovery action**:
 
 1. **Slide** one of your markers to an adjacent empty cell.
-2. The slide is legal **only if** it completes a line of exactly `lineLength`
+2. The slide is legal **only if** it completes a line of **at least** `lineLength`
    of your markers (3 for 8×8, 4 for 19×19/Hex).
-   Overlength lines (longer than the required length) do **not** qualify.
-3. **Pay the self-elimination cost** by extracting your bottommost ring from
-   any stack containing your buried rings:
+3. **Overlength lines** (longer than the required length) follow standard
+   Option 1 / Option 2 semantics:
+   - **Option 1:** Collapse all markers; pay one buried ring extraction.
+   - **Option 2:** Collapse exactly `lineLength` markers of your choice; pay nothing.
+4. **For exact-length lines** (or Option 1 on overlength), **pay the cost** by
+   extracting your bottommost ring from any stack containing your buried rings:
    - That ring is permanently eliminated (credited to you).
    - The stack shrinks by 1; its new top ring determines control.
-4. If the line collapse creates **territory regions**, you may claim them by
+5. If the line collapse creates **territory regions**, you may claim them by
    extracting additional buried rings (one per region, from stacks outside
    each region).
 

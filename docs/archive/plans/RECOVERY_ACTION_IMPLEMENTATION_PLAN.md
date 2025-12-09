@@ -1,333 +1,271 @@
 # Recovery Action Implementation Plan
 
-## Overview
-
-This document outlines the implementation plan for the **Recovery Action** rule, which allows temporarily eliminated players to recover by sliding a marker to complete a line.
-
-### Rule Summary (from canonical specs)
-
-**Eligibility:** A player is eligible for recovery if ALL of these conditions hold:
-
-1. They control **no stacks** on the board
-2. They have **zero rings in hand**
-3. They have at least one **marker** on the board
-4. They have **buried rings** in opponent-controlled stacks
-
-**Action:** A **recovery slide** moves one of the player's markers orthogonally (Von Neumann adjacency) to an adjacent empty space. The slide is legal **only if** it completes a line of **exactly** `lineLength` consecutive markers of the player's colour. Overlength lines do NOT qualify.
-
-**Effect:** On completing a line:
-
-- The line of markers collapses into territory
-- Buried rings are exhumed and returned to the player's hand
-- The player can now place rings on subsequent turns
-
-**LPS Impact:** Recovery action counts as a "real action" for Last Player Standing purposes (alongside placement, movement, and capture).
+> **Doc Status (2025-12-08): Active – P0 Complete, P1 In Progress**
+>
+> **Purpose:** Complete implementation plan for the Recovery Action rule feature.
+>
+> **Canonical Source:** `RULES_CANONICAL_SPEC.md` §5.4 (RR-CANON-R110–R115)
+>
+> **Progress (2025-12-08):** All P0 (Critical Path) tasks completed. P1 tasks in progress.
 
 ---
 
-## Implementation Tasks
+## Executive Summary
 
-### Phase 1: Recovery Action Core Implementation
+The **Recovery Action** allows temporarily eliminated players to remain active by sliding markers to form lines, paying costs with buried ring extraction. This feature has **partial implementation** that needs updating to match the new Option 1/Option 2 overlength line semantics and full integration.
 
-#### 1.1 New MoveType
+### Implementation Status Overview
 
-**File: `src/shared/types/game.ts`**
-Add to MoveType union:
+| Component                       | Status      | Notes                                           |
+| ------------------------------- | ----------- | ----------------------------------------------- |
+| Rules Specification             | ✅ Complete | RR-CANON-R110–R115 in `RULES_CANONICAL_SPEC.md` |
+| TS RecoveryAggregate            | ✅ Complete | Option 1/2 cost model implemented               |
+| Python recovery.py              | ✅ Complete | Option 1/2 cost model implemented               |
+| Turn Orchestrator Integration   | ✅ Complete | Wired into movement phase                       |
+| GameEngine Integration (Python) | ✅ Complete | `get_valid_moves()` includes recovery           |
+| LPS Integration                 | ✅ Complete | Recovery counted as real action                 |
+| Contract Vectors                | ✅ Complete | `recovery_action.vectors.json` created          |
+| Parity Tests                    | ✅ Complete | `test_recovery_parity.py` (15 tests)            |
+| FSM Event Mapping               | ⚠️ P1       | Needs implementation                            |
+| RuleEngine Validation           | ⚠️ P1       | Needs validation case                           |
+| Move Notation                   | ⚠️ P1       | Needs recovery notation                         |
+| UI Components                   | ❌ P2       | No recovery move display/selection              |
+| Teaching Materials              | ❌ P2       | No teaching content                             |
 
-```typescript
-| 'recovery_slide'        // Marker slide that completes a line for recovery
-```
+---
 
-**File: `ai-service/app/models/core.py`**
-Add to MoveType enum:
+## 1. Rule Summary (RR-CANON-R110–R115)
 
-```python
-RECOVERY_SLIDE = "recovery_slide"
-```
+### 1.1 Eligibility (RR-CANON-R110)
 
-#### 1.2 Recovery Eligibility Predicate
+A player P is eligible for recovery if **ALL** conditions hold:
 
-**TypeScript: `src/shared/engine/playerStateHelpers.ts`**
+1. P controls **no stacks** on the board
+2. P has **zero rings in hand** (`ringsInHand[P] == 0`)
+3. P has **at least one marker** on the board
+4. P has **at least one buried ring** (their ring at a non-top position in some stack)
 
-```typescript
-/**
- * Check if a player is eligible for recovery action.
- *
- * Eligibility (RR-CANON-R???):
- * - No stacks controlled
- * - Zero rings in hand
- * - Has markers on board
- * - Has buried rings in opponent stacks
- */
-export function isEligibleForRecovery(state: GameState, playerNumber: number): boolean {
-  const player = state.players.find((p) => p.playerNumber === playerNumber);
-  if (!player) return false;
+### 1.2 Marker Slide (RR-CANON-R111)
 
-  // Must have zero rings in hand
-  if (player.ringsInHand > 0) return false;
+- Move one marker to an **adjacent empty cell**
+- Square boards: Moore neighborhood (8 directions)
+- Hexagonal boards: Hex-adjacency (6 directions)
+- Destination must be: valid, empty (no stack/marker), not collapsed
 
-  // Must control no stacks
-  if (playerControlsAnyStack(state.board, playerNumber)) return false;
+### 1.3 Line Requirement (RR-CANON-R112) – **UPDATED**
 
-  // Must have at least one marker
-  const hasMarker = [...state.board.markers.values()].some((m) => m.player === playerNumber);
-  if (!hasMarker) return false;
+The slide is legal **only if** it completes a line of **at least `lineLength`** consecutive markers:
 
-  // Must have buried rings in opponent stacks
-  const hasBuriedRings = [...state.board.stacks.values()].some(
-    (stack) => stack.controllingPlayer !== playerNumber && stack.rings.includes(playerNumber)
-  );
+| Board Type | Players | `lineLength` |
+| ---------- | ------- | ------------ |
+| square8    | 2       | 4            |
+| square8    | 3-4     | 3            |
+| square19   | any     | 4            |
+| hexagonal  | any     | 4            |
 
-  return hasBuriedRings;
-}
-```
+**Overlength lines ARE permitted** with Option 1/Option 2 semantics:
 
-**Python: `ai-service/app/game_engine.py`**
+- **Option 1:** Collapse all markers → pay 1 buried ring extraction
+- **Option 2:** Collapse exactly `lineLength` markers of choice → pay 0
 
-```python
-@staticmethod
-def _is_eligible_for_recovery(game_state: GameState, player_number: int) -> bool:
-    """Check if player is eligible for recovery action."""
-    player = next((p for p in game_state.players if p.player_number == player_number), None)
-    if not player:
-        return False
+### 1.4 Buried Ring Extraction (RR-CANON-R113) – **UPDATED**
 
-    # Must have zero rings in hand
-    if player.rings_in_hand > 0:
-        return False
+| Line Type             | Cost                     |
+| --------------------- | ------------------------ |
+| Exact length          | 1 buried ring extraction |
+| Overlength + Option 1 | 1 buried ring extraction |
+| Overlength + Option 2 | 0 (no extraction)        |
 
-    # Must control no stacks
-    board = game_state.board
-    controls_stack = any(
-        s.controlling_player == player_number
-        for s in board.stacks.values()
-    )
-    if controls_stack:
-        return False
+Extraction process:
 
-    # Must have at least one marker
-    has_marker = any(m.player == player_number for m in board.markers.values())
-    if not has_marker:
-        return False
+1. Select any stack containing at least one of your buried rings
+2. Remove your **bottommost** ring from that stack
+3. Ring is eliminated and credited to your eliminated rings total
+4. Stack height decreases by 1; control determined by new top ring
 
-    # Must have buried rings in opponent stacks
-    has_buried = any(
-        s.controlling_player != player_number and player_number in s.rings
-        for s in board.stacks.values()
-    )
+### 1.5 LPS Classification
 
-    return has_buried
-```
+Recovery is a **"real action"** for Last Player Standing purposes (RR-CANON-R172).
 
-#### 1.3 Recovery Move Generation
+---
 
-**TypeScript: `src/shared/engine/aggregates/RecoveryAggregate.ts`** (new file)
+## 2. Implementation Phases
+
+### Phase 0: Pre-requisites
+
+| Task                                             | Priority | File(s)                     | Status  |
+| ------------------------------------------------ | -------- | --------------------------- | ------- |
+| Verify player-count dependent `lineLength` works | P0       | `rulesConfig.ts`, `core.py` | ✅ Done |
+| Confirm `recovery_slide` in MoveType enum        | P0       | `game.ts`, `core.py`        | ✅ Done |
+
+### Phase 1: Update Cost Model (Option 1/Option 2)
+
+**Critical:** The existing implementation uses a graduated cost model (`1 + overlength`). This must be updated to match the new rules.
+
+#### 1.1 TypeScript: RecoveryAggregate.ts
+
+**File:** `src/shared/engine/aggregates/RecoveryAggregate.ts`
 
 ```typescript
-/**
- * Recovery Action Aggregate
- *
- * Handles enumeration and application of recovery slides.
- * Recovery is available when a player is temporarily eliminated
- * (no stacks, no rings in hand) but has markers and buried rings.
- */
+// OLD (remove):
+const cost = 1 + Math.max(0, formedLineLength - lineLength);
 
-export function enumerateRecoverySlides(state: GameState, playerNumber: number): Move[] {
-  if (!isEligibleForRecovery(state, playerNumber)) {
-    return [];
-  }
-
-  const lineLength = getEffectiveLineLengthThreshold(state.board.type, state.players.length);
-
-  const moves: Move[] = [];
-
-  // For each marker owned by the player
-  for (const [posKey, marker] of state.board.markers) {
-    if (marker.player !== playerNumber) continue;
-
-    const fromPos = stringToPosition(posKey);
-
-    // Check each Von Neumann neighbor (4 orthogonal directions)
-    const vonNeumannDirs = [
-      { x: 1, y: 0 },
-      { x: -1, y: 0 },
-      { x: 0, y: 1 },
-      { x: 0, y: -1 },
-    ];
-
-    for (const dir of vonNeumannDirs) {
-      const toPos = { x: fromPos.x + dir.x, y: fromPos.y + dir.y };
-
-      // Must be valid and empty (no stack, no marker, not collapsed)
-      if (!isValidPosition(toPos, state.board)) continue;
-      if (getStack(toPos, state.board)) continue;
-      if (getMarker(toPos, state.board) !== undefined) continue;
-      if (isCollapsedSpace(toPos, state.board)) continue;
-
-      // Would this slide complete a line of EXACTLY lineLength?
-      if (wouldCompleteExactLine(state, fromPos, toPos, playerNumber, lineLength)) {
-        moves.push({
-          type: 'recovery_slide',
-          player: playerNumber,
-          from: fromPos,
-          to: toPos,
-        });
-      }
-    }
-  }
-
-  return moves;
-}
-
-function wouldCompleteExactLine(
-  state: GameState,
-  fromPos: Position,
-  toPos: Position,
-  player: number,
-  requiredLength: number
-): boolean {
-  // Simulate the marker move
-  const tempBoard = cloneBoardState(state.board);
-  tempBoard.markers.delete(positionToString(fromPos));
-  tempBoard.markers.set(positionToString(toPos), {
-    player,
-    position: toPos,
-    type: 'regular',
-  });
-
-  // Find lines containing the new position
-  const lines = findLinesContainingPosition({ ...state, board: tempBoard }, toPos);
-
-  // Must have exactly one line of exactly lineLength (not overlength)
-  return lines.some((line) => line.player === player && line.length === requiredLength);
-}
+// NEW: Cost depends on option choice
+// For enumeration, we only need to check if recovery is possible
+// Option 2 always costs 0 for overlength, Option 1 costs 1
+// Player must have at least 1 buried ring for exact-length lines
+// but can always do Option 2 (cost 0) for overlength lines
 ```
 
-**Python: `ai-service/app/game_engine.py`**
+**Changes needed:**
 
-```python
-@staticmethod
-def _get_recovery_moves(game_state: GameState, player_number: int) -> List[Move]:
-    """Get recovery slide moves for an eligible player."""
-    if not GameEngine._is_eligible_for_recovery(game_state, player_number):
-        return []
+1. Update `RecoverySlideTarget` interface:
 
-    line_length = get_effective_line_length(
-        game_state.board.type,
-        len(game_state.players)
-    )
+   ```typescript
+   interface RecoverySlideTarget {
+     from: Position;
+     to: Position;
+     formedLineLength: number;
+     isOverlength: boolean;
+     /** For exact-length or Option 1: 1. For Option 2: 0 */
+     option1Cost: number;
+     option2Cost: number;
+   }
+   ```
 
-    moves: List[Move] = []
-    board = game_state.board
+2. Update `enumerateRecoverySlideTargets()` to return overlength-eligible moves even when player has 0 buried rings (Option 2 is free)
 
-    # Von Neumann directions (orthogonal only)
-    directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+3. Add `RecoverySlideMove` discriminated type with `option: 1 | 2` field for overlength lines
 
-    for pos_key, marker in board.markers.items():
-        if marker.player != player_number:
-            continue
+4. Update `applyRecoverySlide()` to handle Option 1 vs Option 2 collapse semantics
 
-        from_pos = marker.position
+#### 1.2 Python: recovery.py
 
-        for dx, dy in directions:
-            to_pos = Position(x=from_pos.x + dx, y=from_pos.y + dy)
+**File:** `ai-service/app/rules/recovery.py`
 
-            # Must be valid and empty
-            if not BoardManager.is_valid_position(to_pos, board.type, board.size):
-                continue
-            if BoardManager.get_stack(to_pos, board):
-                continue
-            if board.markers.get(to_pos.to_key()):
-                continue
-            if BoardManager.is_collapsed_space(to_pos, board):
-                continue
+Mirror the TypeScript changes:
 
-            # Would complete a line of exactly lineLength?
-            if GameEngine._would_complete_exact_line(
-                game_state, from_pos, to_pos, player_number, line_length
-            ):
-                moves.append(Move(
-                    type=MoveType.RECOVERY_SLIDE,
-                    player=player_number,
-                    from_position=from_pos,
-                    to=to_pos,
-                ))
+1. Update `RecoverySlideTarget` dataclass
+2. Update enumeration logic
+3. Update application to support Option 1/2
 
-    return moves
-```
+**File:** `ai-service/app/rules/mutators/recovery.py`
 
-#### 1.4 Recovery Move Application
+- Update mutator to handle option parameter
 
-**TypeScript: `src/shared/engine/aggregates/RecoveryAggregate.ts`**
+**File:** `ai-service/app/rules/validators/recovery.py`
 
-```typescript
-export function applyRecoverySlide(state: GameState, move: Move): RecoveryApplicationOutcome {
-  // 1. Move the marker from -> to
-  const fromKey = positionToString(move.from);
-  const toKey = positionToString(move.to);
+- Update validator to accept overlength moves
 
-  state.board.markers.delete(fromKey);
-  state.board.markers.set(toKey, {
-    player: move.player,
-    position: move.to,
-    type: 'regular',
-  });
+---
 
-  // 2. Detect the formed line
-  const lines = findLinesContainingPosition(state, move.to);
-  const formedLine = lines.find((l) => l.player === move.player);
+### Phase 2: Integration into Move Generation
 
-  if (!formedLine) {
-    throw new Error('Recovery slide did not form a line');
-  }
+#### 2.1 TypeScript Turn Orchestrator
 
-  // 3. Process the line (collapse markers -> territory)
-  // This follows the same logic as normal line processing
-  // but happens immediately as part of the recovery action
-  processLineForRecovery(state, formedLine);
+**File:** `src/shared/engine/orchestration/turnOrchestrator.ts`
 
-  // 4. Exhume buried rings
-  exhumeBuriedRings(state, move.player);
-
-  return { success: true, formedLine };
-}
-```
-
-**Python:** Similar implementation in `_apply_recovery_slide()`.
-
-#### 1.5 Integration into Turn Orchestrator
-
-**TypeScript: `src/shared/engine/orchestration/turnOrchestrator.ts`**
-
-In the `movement` phase, add recovery slides to available moves:
+In `getValidMovesForPhase()` for MOVEMENT phase:
 
 ```typescript
 // In movement phase enumeration
-if (phase === 'movement') {
+case 'movement': {
   const movementMoves = enumerateSimpleMovesForPlayer(state, player);
   const captureMoves = enumerateAllCaptureMoves(state, player);
-  const recoveryMoves = enumerateRecoverySlides(state, player); // NEW
-  moves = [...movementMoves, ...captureMoves, ...recoveryMoves];
+
+  // NEW: Add recovery moves if eligible
+  const recoveryMoves = enumerateRecoverySlides(state, player);
+
+  return [...movementMoves, ...captureMoves, ...recoveryMoves];
 }
 ```
 
-**Python: `ai-service/app/game_engine.py`**
+#### 2.2 Python GameEngine
 
-In `get_valid_moves()` for MOVEMENT phase:
+**File:** `ai-service/app/game_engine.py`
+
+In `get_valid_moves()` method, add recovery integration:
 
 ```python
-elif phase == GamePhase.MOVEMENT:
-    movement_moves = GameEngine._get_movement_moves(state, player_number)
-    capture_moves = GameEngine._get_capture_moves(state, player_number)
-    recovery_moves = GameEngine._get_recovery_moves(state, player_number)  # NEW
-    moves = movement_moves + capture_moves + recovery_moves
+def get_valid_moves(self, game_state: GameState, player_number: int) -> List[Move]:
+    phase = game_state.current_phase
+
+    if phase == GamePhase.MOVEMENT:
+        movement_moves = self._get_movement_moves(game_state, player_number)
+        capture_moves = self._get_capture_moves(game_state, player_number)
+        # NEW: Add recovery moves
+        recovery_moves = self._get_recovery_moves(game_state, player_number)
+        return movement_moves + capture_moves + recovery_moves
+    # ... rest of phases
 ```
 
-#### 2.6 LPS Real Action Update
+Add the helper method:
 
-**TypeScript: `src/shared/engine/playerStateHelpers.ts`**
+```python
+def _get_recovery_moves(self, game_state: GameState, player_number: int) -> List[Move]:
+    """Get recovery moves for an eligible player (RR-CANON-R110–R115)."""
+    from app.rules.recovery import enumerate_recovery_moves
+    return enumerate_recovery_moves(game_state, player_number)
+```
 
-Update `hasAnyRealAction()` to include recovery:
+---
+
+### Phase 3: Move Application & Dispatching
+
+#### 3.1 TypeScript FSM Integration
+
+**File:** `src/shared/engine/fsm/FSMAdapter.ts`
+
+Add recovery event mapping in `moveToEvent()`:
+
+```typescript
+case 'recovery_slide':
+  return { type: 'RECOVERY_SLIDE', move };
+```
+
+Update `isMoveTypeValidForPhase()`:
+
+```typescript
+case 'movement':
+  return ['movement', 'overtaking_capture', 'recovery_slide'].includes(moveType);
+```
+
+#### 3.2 TypeScript RuleEngine
+
+**File:** `src/server/game/RuleEngine.ts`
+
+Add validation case in `validateMove()`:
+
+```typescript
+case 'recovery_slide':
+  return this.validateRecoverySlide(move, gameState);
+```
+
+#### 3.3 Move Notation
+
+**File:** `src/shared/engine/notation.ts`
+
+Add recovery notation:
+
+```typescript
+case 'recovery_slide': {
+  const optionSuffix = move.option === 2 ? '(min)' : '';
+  return `R${posToNotation(move.from)}-${posToNotation(move.to)}${optionSuffix}`;
+}
+// Example: "Ra3-a4" or "Ra3-a4(min)" for Option 2
+```
+
+---
+
+### Phase 4: LPS Integration (Critical)
+
+Recovery action is a **"real action"** for Last Player Standing. This is essential for correct game termination.
+
+#### 4.1 TypeScript playerStateHelpers
+
+**File:** `src/shared/engine/playerStateHelpers.ts`
+
+Update `hasAnyRealAction()`:
 
 ```typescript
 export function hasAnyRealAction(
@@ -335,10 +273,10 @@ export function hasAnyRealAction(
   playerNumber: number,
   delegates: ActionAvailabilityDelegates
 ): boolean {
-  // ... existing checks ...
+  // Existing checks for placement, movement, capture...
 
-  // Check recovery action
-  if (delegates.hasRecovery && delegates.hasRecovery(playerNumber)) {
+  // NEW: Check recovery action
+  if (delegates.hasRecovery?.(playerNumber)) {
     return true;
   }
 
@@ -357,191 +295,465 @@ export interface ActionAvailabilityDelegates {
 }
 ```
 
-**Python: `ai-service/app/game_engine.py`**
+#### 4.2 Python LPS Integration
 
-Update `_has_real_action_for_player()`:
+**File:** `ai-service/app/game_engine.py`
+
+Update real action detection to include recovery:
 
 ```python
-@staticmethod
-def _has_real_action_for_player(game_state: GameState, player_number: int) -> bool:
+def _has_real_action_for_player(self, game_state: GameState, player_number: int) -> bool:
     """R172 real-action availability predicate for LPS."""
-    if GameEngine._has_valid_actions(game_state, player_number):
+    # Existing checks...
+
+    # Check recovery moves
+    recovery_moves = self._get_recovery_moves(game_state, player_number)
+    if recovery_moves:
         return True
-    # Also check recovery action
-    if GameEngine._get_recovery_moves(game_state, player_number):
-        return True
+
     return False
 ```
 
 ---
 
-### Phase 3: Tests
+### Phase 5: UI Components
 
-#### 3.1 TypeScript Tests
+#### 5.1 Board Highlighting
 
-**File: `tests/unit/RecoveryAggregate.test.ts`** (new)
+**File:** `src/client/components/BoardView.tsx`
 
-- Test recovery eligibility predicate
-- Test recovery move enumeration
-- Test that overlength lines don't qualify
-- Test that Von Neumann adjacency is enforced
-- Test recovery application and line collapse
-- Test ring exhumation
+When current player is recovery-eligible:
 
-**File: `tests/unit/lpsTracking.recovery.test.ts`** (new or extend existing)
+- Highlight markers that can slide (source markers)
+- On marker selection, highlight valid adjacent destinations
+- Show line preview when hovering over destination
 
-- Test that recovery counts as real action for LPS
+#### 5.2 Move Selection
 
-**File: `tests/unit/lineLength.playerCount.test.ts`** (new)
+**File:** `src/client/sandbox/sandboxMovement.ts`
 
-- Test that square8 2-player uses lineLength=4
-- Test that square8 3-4 player uses lineLength=3
+Add recovery move handling:
 
-#### 3.2 Python Tests
+- Detect when player clicks on their marker in recovery-eligible state
+- Show valid slide destinations
+- For overlength lines, present Option 1 vs Option 2 choice dialog
 
-**File: `ai-service/tests/test_recovery_action.py`** (new)
+#### 5.3 Choice Dialog for Overlength
 
-- Mirror TS tests for recovery eligibility
-- Test recovery move generation
-- Test overlength exclusion
-- Test Von Neumann adjacency
+**File:** `src/client/components/ChoiceDialog.tsx`
 
-**File: `ai-service/tests/test_linelength_player_count.py`** (new)
+Add `RecoveryLineOptionChoice` similar to existing `LineRewardChoice`:
 
-- Test player-count dependent lineLength
-
-**File: `ai-service/tests/parity/test_recovery_parity.py`** (new)
-
-- Test TS/Python parity for recovery scenarios
-
-#### 3.3 Mutator Tests
-
-**File: `ai-service/tests/rules/test_mutators.py`**
-Add RecoveryMutator tests following existing patterns.
-
----
-
-### Phase 4: Python Mutator/Validator Infrastructure
-
-#### 4.1 RecoveryValidator
-
-**File: `ai-service/app/rules/validators/recovery_validator.py`** (new)
-
-```python
-class RecoveryValidator:
-    def validate(self, state: GameState, move: Move) -> ValidationResult:
-        # Validate recovery_slide move
-        pass
+```typescript
+interface RecoveryLineOptionChoice extends PlayerChoice {
+  choiceType: 'recovery_line_option';
+  lineLength: number;
+  requiredLength: number;
+  options: [
+    { option: 1; description: 'Collapse all markers (costs 1 buried ring)' },
+    { option: 2; description: 'Collapse minimum markers (free)' },
+  ];
+}
 ```
 
-#### 4.2 RecoveryMutator
+#### 5.4 Move History Display
 
-**File: `ai-service/app/rules/mutators/recovery_mutator.py`** (new)
+**File:** `src/client/components/MoveHistory.tsx`
 
-```python
-class RecoveryMutator:
-    def apply(self, state: GameState, move: Move) -> GameState:
-        # Apply recovery_slide move
-        pass
+Add recovery move rendering:
+
+```typescript
+case 'recovery_slide':
+  return `Recovery: ${formatPos(move.from)} → ${formatPos(move.to)}${move.option === 2 ? ' (min)' : ''}`;
 ```
 
-#### 4.3 DefaultRulesEngine Integration
+#### 5.5 Teaching Content
 
-**File: `ai-service/app/rules/default_engine.py`**
-Add recovery shadow contract following existing patterns.
+**File:** `src/shared/teaching/teachingTopics.ts`
 
----
+Add recovery action teaching tips:
 
-### Phase 5: UI Considerations
+```typescript
+export const RECOVERY_ACTION_TIPS: TeachingTip[] = [
+  {
+    text: 'When you have no stacks and no rings in hand, but still have markers and buried rings, you can perform a RECOVERY ACTION.',
+    category: 'eligibility',
+    emphasis: 'critical',
+  },
+  {
+    text: 'Slide one of your markers to an adjacent empty cell to complete a line. If successful, extract a buried ring as payment.',
+    category: 'action',
+    emphasis: 'important',
+  },
+  {
+    text: 'For lines longer than the minimum, you can choose Option 2 (collapse minimum markers) to avoid paying any buried rings.',
+    category: 'overlength',
+    emphasis: 'normal',
+  },
+];
+```
 
-#### 5.1 Move Display
+**File:** `src/client/components/TeachingOverlay.tsx`
 
-Recovery slides should be displayed in the move list/history with appropriate labeling:
-
-- "Recovery: A3 → A4 (forms line)"
-
-#### 5.2 Board Highlighting
-
-When a player is eligible for recovery, highlight:
-
-- Their markers that can slide
-- Valid destination squares that would complete a line
-
-#### 5.3 Tutorial/Help Text
-
-Add explanation of recovery action to help system.
-
----
-
-## File Summary
-
-### New Files
-
-- `src/shared/engine/aggregates/RecoveryAggregate.ts`
-- `tests/unit/RecoveryAggregate.test.ts`
-- `tests/unit/lineLength.playerCount.test.ts`
-- `ai-service/app/rules/validators/recovery_validator.py`
-- `ai-service/app/rules/mutators/recovery_mutator.py`
-- `ai-service/tests/test_recovery_action.py`
-- `ai-service/tests/test_linelength_player_count.py`
-- `ai-service/tests/parity/test_recovery_parity.py`
-
-### Modified Files
-
-- `src/shared/types/game.ts` (add MoveType)
-- `src/shared/engine/rulesConfig.ts` (lineLength player-count)
-- `src/shared/engine/playerStateHelpers.ts` (recovery eligibility, LPS)
-- `src/shared/engine/orchestration/turnOrchestrator.ts` (integrate recovery)
-- `ai-service/app/models/core.py` (add MoveType)
-- `ai-service/app/rules/core.py` (lineLength player-count)
-- `ai-service/app/game_engine.py` (recovery methods)
-- `ai-service/app/rules/default_engine.py` (recovery contract)
+Add routing for recovery teaching.
 
 ---
 
-## Implementation Order
+### Phase 6: Testing
 
-1. **LineLength Player-Count** (pre-requisite)
-   - Update TS `getEffectiveLineLengthThreshold()`
-   - Update Python `get_effective_line_length()`
-   - Add tests
+#### 6.1 Contract Vectors
 
-2. **Recovery Eligibility**
-   - Add eligibility predicate to both engines
-   - Add tests
+**File:** `tests/fixtures/contract-vectors/v2/recovery.vectors.json` (NEW)
 
-3. **Recovery Move Generation**
-   - Add move enumeration to both engines
-   - Ensure overlength exclusion
-   - Add tests
+Create comprehensive test vectors:
 
-4. **Recovery Move Application**
-   - Implement application in both engines
-   - Handle line collapse and ring exhumation
-   - Add tests
+```json
+{
+  "metadata": {
+    "category": "recovery",
+    "version": 2,
+    "description": "Recovery action scenarios (RR-CANON-R110–R115)"
+  },
+  "vectors": [
+    {
+      "id": "recovery.eligibility.basic",
+      "description": "Player eligible for recovery with exact-length line available",
+      "input": { "state": "...", "move": { "type": "recovery_slide", ... } },
+      "expectedOutput": { "valid": true, "assertions": { ... } }
+    },
+    {
+      "id": "recovery.overlength.option1",
+      "description": "Overlength line with Option 1 (collapse all, pay 1)",
+      ...
+    },
+    {
+      "id": "recovery.overlength.option2",
+      "description": "Overlength line with Option 2 (collapse min, pay 0)",
+      ...
+    },
+    {
+      "id": "recovery.not_eligible.has_stacks",
+      "description": "Player not eligible - still controls stacks",
+      ...
+    },
+    {
+      "id": "recovery.not_eligible.has_rings_in_hand",
+      "description": "Player not eligible - has rings in hand",
+      ...
+    },
+    {
+      "id": "recovery.lps.counts_as_real_action",
+      "description": "Recovery prevents LPS victory",
+      ...
+    }
+  ]
+}
+```
 
-5. **LPS Integration**
-   - Update `hasAnyRealAction()` in both engines
-   - Add LPS-specific tests
+#### 6.2 Unit Tests (TypeScript)
 
-6. **Turn Orchestrator Integration**
-   - Wire recovery into movement phase
-   - Full integration tests
+**File:** `tests/unit/RecoveryAggregate.shared.test.ts` (exists, extend)
 
-7. **Parity Tests**
-   - Ensure TS/Python produce identical results
+Add tests for:
 
-8. **Mutator/Validator Infrastructure** (Python)
-   - Add shadow contracts
+- [ ] Option 1/Option 2 semantics for overlength
+- [ ] Overlength move legal even with 0 buried rings (Option 2)
+- [ ] Exact-length move requires 1 buried ring
+- [ ] Line collapse positions for Option 2 (subset selection)
+- [ ] Territory cascade after recovery
+
+**File:** `tests/unit/lpsRecovery.test.ts` (NEW)
+
+- [ ] Recovery counts as real action
+- [ ] Player with recovery option blocks LPS
+- [ ] LPS counter resets when recovery taken
+
+#### 6.3 Unit Tests (Python)
+
+**File:** `ai-service/tests/rules/test_recovery.py` (exists, extend)
+
+Mirror TypeScript tests for:
+
+- [ ] Option 1/Option 2 semantics
+- [ ] Overlength with 0 buried rings
+- [ ] LPS integration
+
+#### 6.4 Parity Tests
+
+**File:** `ai-service/tests/parity/test_recovery_parity.py` (NEW)
+
+Verify TS↔Python produce identical results for:
+
+- Eligibility checks
+- Move enumeration (same moves generated)
+- Move application (same state mutations)
+- LPS real-action detection
 
 ---
 
-## Risk Considerations
+### Phase 7: AI Considerations
 
-1. **LineLength Change Impact:** Changing square8 2-player to lineLength=4 is a significant gameplay change. Existing games and replays may behave differently.
+#### 7.1 Move Ordering
 
-2. **Recovery Rarity:** Recovery scenarios are rare in practice. Extensive testing needed to ensure edge cases are covered.
+**File:** `ai-service/app/ai/move_ordering.py`
 
-3. **Performance:** Recovery move enumeration involves line detection simulation. May need optimization for AI search.
+Recovery moves should be evaluated with appropriate heuristics:
 
-4. **UI Complexity:** Recovery adds another action type that needs clear visual representation.
+- Line length (longer = more territory)
+- Option 1 vs Option 2 tradeoff (territory vs. preserving buried rings)
+- Resulting board position strength
+
+#### 7.2 Heuristic Evaluation
+
+**File:** `ai-service/app/ai/heuristic_ai.py`
+
+Consider adding recovery-specific evaluation:
+
+- Value of having recovery available (threat potential)
+- Cost of losing recovery eligibility
+- Buried ring value as recovery resource
+
+Note: Most AI algorithms (minimax, MCTS, descent) auto-inherit recovery moves from `get_valid_moves()`.
+
+---
+
+### Phase 8: Replay & Serialization
+
+#### 8.1 Canonical Replay Engine
+
+**File:** `src/shared/replay/CanonicalReplayEngine.ts`
+
+Add recovery move replay support:
+
+```typescript
+case 'recovery_slide':
+  return applyRecoverySlide(state, move);
+```
+
+#### 8.2 Database Serialization
+
+**File:** `ai-service/app/db/game_replay.py`
+
+Ensure recovery_slide moves are correctly serialized/deserialized.
+
+---
+
+## 3. Complete File Inventory
+
+### Files to Create
+
+| File                                                       | Purpose               |
+| ---------------------------------------------------------- | --------------------- |
+| `tests/fixtures/contract-vectors/v2/recovery.vectors.json` | Parity test vectors   |
+| `tests/unit/lpsRecovery.test.ts`                           | LPS integration tests |
+| `ai-service/tests/parity/test_recovery_parity.py`          | TS↔Python parity      |
+
+### Files to Modify
+
+| File                                                  | Changes                              |
+| ----------------------------------------------------- | ------------------------------------ |
+| `src/shared/engine/aggregates/RecoveryAggregate.ts`   | Option 1/2 semantics                 |
+| `src/shared/engine/orchestration/turnOrchestrator.ts` | Wire recovery into movement phase    |
+| `src/shared/engine/fsm/FSMAdapter.ts`                 | Add recovery event mapping           |
+| `src/shared/engine/notation.ts`                       | Recovery move notation               |
+| `src/shared/engine/playerStateHelpers.ts`             | LPS real-action check                |
+| `src/server/game/RuleEngine.ts`                       | Validation case                      |
+| `ai-service/app/rules/recovery.py`                    | Option 1/2 semantics                 |
+| `ai-service/app/game_engine.py`                       | Integration into `get_valid_moves()` |
+| `ai-service/app/rules/validators/recovery.py`         | Update validation                    |
+| `ai-service/app/rules/mutators/recovery.py`           | Update mutation                      |
+| `src/client/components/BoardView.tsx`                 | Recovery move highlighting           |
+| `src/client/sandbox/sandboxMovement.ts`               | Recovery move selection              |
+| `src/client/components/ChoiceDialog.tsx`              | Option 1/2 choice dialog             |
+| `src/client/components/MoveHistory.tsx`               | Recovery move display                |
+| `src/shared/teaching/teachingTopics.ts`               | Recovery teaching tips               |
+| `tests/unit/RecoveryAggregate.shared.test.ts`         | Extend with Option 1/2               |
+| `ai-service/tests/rules/test_recovery.py`             | Extend with Option 1/2               |
+
+---
+
+## 4. Implementation Priority Order
+
+### Critical Path (P0) – ✅ COMPLETE
+
+1. ✅ **Update cost model** in RecoveryAggregate.ts and recovery.py
+2. ✅ **Integrate into turn orchestrator** (TS) and game_engine.py (Python)
+3. ✅ **LPS integration** in both engines
+4. ✅ **Contract vectors** for parity testing (`recovery_action.vectors.json`)
+5. ✅ **Basic parity tests** (`test_recovery_parity.py` - 15 tests)
+
+### High Priority (P1) – IN PROGRESS
+
+6. ⬜ FSM event mapping
+7. ⬜ RuleEngine validation case
+8. ⬜ Unit tests for Option 1/2 semantics
+9. ⬜ Move notation
+
+### Medium Priority (P2)
+
+10. UI highlighting and selection
+11. Choice dialog for overlength
+12. Move history display
+13. Teaching content
+14. AI move ordering
+
+### Lower Priority (P3)
+
+15. Heuristic evaluation enhancements
+16. Replay engine integration
+17. Extended parity test coverage
+
+---
+
+## 5. Risk Considerations
+
+| Risk                    | Impact                                                      | Mitigation                                                 |
+| ----------------------- | ----------------------------------------------------------- | ---------------------------------------------------------- |
+| **Cost model mismatch** | Existing code uses graduated cost; rules now use Option 1/2 | Comprehensive update of both TS and Python implementations |
+| **LPS edge cases**      | Recovery affecting game termination                         | Extensive testing with LPS scenarios                       |
+| **UI complexity**       | Option 1/2 choice adds interaction                          | Clear UI with good defaults                                |
+| **Parity divergence**   | TS and Python may handle overlength differently             | Contract vectors and parity tests                          |
+| **Recovery rarity**     | Hard to test rare scenarios                                 | Curated test scenarios and fuzzing                         |
+
+---
+
+## 6. Acceptance Criteria
+
+- [ ] Recovery eligibility correctly detected in both engines
+- [ ] Recovery moves enumerated when eligible (including overlength with Option 2)
+- [ ] Option 1/Option 2 choice for overlength lines works correctly
+- [ ] Line collapse follows chosen option (all vs. minimum)
+- [ ] Buried ring extraction only for exact-length or Option 1
+- [ ] Recovery counts as real action for LPS
+- [ ] All contract vectors pass
+- [ ] TS↔Python parity verified
+- [ ] UI allows recovery move selection
+- [ ] Move history correctly displays recovery moves
+- [ ] Teaching overlay explains recovery action
+
+---
+
+## Appendix A: Code Examples
+
+### A.1 Option 1/2 Move Structure
+
+```typescript
+// TypeScript Move for recovery with overlength
+interface RecoverySlideMove extends Move {
+  type: 'recovery_slide';
+  player: number;
+  from: Position;
+  to: Position;
+  /** For overlength lines: 1 (collapse all) or 2 (collapse min) */
+  option?: 1 | 2;
+  /** For Option 2: which markers to collapse (subset of line) */
+  collapsedMarkers?: Position[];
+  /** Stack to extract buried ring from (for exact-length or Option 1) */
+  extractionStack?: string;
+}
+```
+
+### A.2 Enumeration Logic
+
+```typescript
+function enumerateRecoverySlides(state: GameState, player: number): Move[] {
+  if (!isEligibleForRecovery(state, player)) return [];
+
+  const moves: Move[] = [];
+  const lineLength = getEffectiveLineLengthThreshold(state.board.type, state.players.length);
+  const buriedRings = countBuriedRings(state.board, player);
+
+  for (const [posKey, marker] of state.board.markers) {
+    if (marker.player !== player) continue;
+
+    for (const dir of getAdjacencyDirections(state.board.type)) {
+      const toPos = addPositions(marker.position, dir);
+      if (!isValidEmptyCell(toPos, state.board)) continue;
+
+      const formedLength = getFormedLineLength(state.board, marker.position, toPos, player);
+
+      if (formedLength >= lineLength) {
+        const isOverlength = formedLength > lineLength;
+
+        if (isOverlength) {
+          // Option 2 is always available (free)
+          moves.push({
+            type: 'recovery_slide',
+            player,
+            from: marker.position,
+            to: toPos,
+            option: 2,
+          });
+
+          // Option 1 requires at least 1 buried ring
+          if (buriedRings >= 1) {
+            moves.push({
+              type: 'recovery_slide',
+              player,
+              from: marker.position,
+              to: toPos,
+              option: 1,
+            });
+          }
+        } else {
+          // Exact-length requires 1 buried ring
+          if (buriedRings >= 1) {
+            moves.push({ type: 'recovery_slide', player, from: marker.position, to: toPos });
+          }
+        }
+      }
+    }
+  }
+
+  return moves;
+}
+```
+
+---
+
+## Appendix B: Contract Vector Schema
+
+```json
+{
+  "id": "recovery.overlength.option2.free",
+  "category": "recovery",
+  "description": "Overlength line with Option 2 has zero cost",
+  "input": {
+    "state": {
+      "board": {
+        "type": "square8",
+        "stacks": {},
+        "markers": {
+          "3,3": { "player": 1 },
+          "3,4": { "player": 1 },
+          "3,5": { "player": 1 },
+          "3,7": { "player": 1 }
+        },
+        "collapsedSpaces": {}
+      },
+      "players": [
+        { "playerNumber": 1, "ringsInHand": 0 },
+        { "playerNumber": 2, "ringsInHand": 5 }
+      ],
+      "currentPlayer": 1,
+      "currentPhase": "movement"
+    },
+    "move": {
+      "type": "recovery_slide",
+      "player": 1,
+      "from": { "x": 3, "y": 7 },
+      "to": { "x": 3, "y": 6 },
+      "option": 2
+    }
+  },
+  "expectedOutput": {
+    "valid": true,
+    "assertions": {
+      "linesProcessed": 1,
+      "markersCollapsed": 3,
+      "ringsExtracted": 0,
+      "territoryGained": 3
+    }
+  }
+}
+```

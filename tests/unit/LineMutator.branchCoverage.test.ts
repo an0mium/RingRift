@@ -26,11 +26,14 @@ const pos = (x: number, y: number): Position => ({ x, y });
 
 // Helper to create a minimal game state for testing
 function makeGameState(overrides: Partial<GameState> = {}): GameState {
+  // Use square19 board type because lineLength=4 (matching our 4-position test lines).
+  // square8 has lineLength=3, so 4-position lines would be > minimum and require
+  // ChooseLineRewardAction instead of ProcessLineAction.
   const defaultState: GameState = {
     id: 'test-game',
     board: {
-      type: 'square8' as BoardType,
-      size: 8,
+      type: 'square19' as BoardType,
+      size: 19,
       stacks: new Map(),
       markers: new Map(),
       collapsedSpaces: new Map(),
@@ -68,7 +71,7 @@ function makeGameState(overrides: Partial<GameState> = {}): GameState {
     timeControl: { initialTime: 600000, increment: 0, type: 'rapid' },
     moveHistory: [],
     spectators: [],
-    boardType: 'square8',
+    boardType: 'square19',
   };
 
   return { ...defaultState, ...overrides } as GameState & {

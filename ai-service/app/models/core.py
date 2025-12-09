@@ -107,6 +107,11 @@ class MoveType(str, Enum):
     CHOOSE_LINE_OPTION = "choose_line_option"
     CHOOSE_TERRITORY_OPTION = "choose_territory_option"
 
+    # Recovery (RR-CANON-R110–R115)
+    # Temporarily eliminated players (no stacks, no rings in hand, has markers
+    # and buried rings) can slide a marker to complete a line.
+    RECOVERY_SLIDE = "recovery_slide"
+
 
 class AIType(str, Enum):
     """AI type enumeration.

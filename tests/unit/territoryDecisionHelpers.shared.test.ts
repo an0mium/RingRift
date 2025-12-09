@@ -100,15 +100,17 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
       controllingPlayer: 1,
     } as any);
 
+    // Per canonical rules, territory regions must have a valid controllingPlayer
+    // (player who owns the border markers that created the disconnection)
     const regionWithOutsideStack: Territory = {
       spaces: [a],
-      controllingPlayer: 0,
+      controllingPlayer: 1,
       isDisconnected: true,
     };
 
     const regionWithoutOutsideStack: Territory = {
       spaces: [a, b],
-      controllingPlayer: 0,
+      controllingPlayer: 1,
       isDisconnected: true,
     };
 

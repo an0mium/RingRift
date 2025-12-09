@@ -89,6 +89,8 @@ export interface ActionAvailabilityDelegates {
   hasMovement: (playerNumber: number) => boolean;
   /** Check if player can make an overtaking capture */
   hasCapture: (playerNumber: number) => boolean;
+  /** Check if player can perform a recovery action (optional, defaults to false) */
+  hasRecovery?: (playerNumber: number) => boolean;
 }
 
 /**
@@ -98,6 +100,7 @@ export interface ActionAvailabilityDelegates {
  * - Ring placement (place_ring)
  * - Non-capture stack movement (move_stack, move_ring, build_stack)
  * - Overtaking capture (overtaking_capture)
+ * - Recovery slide (recovery_slide) - RR-CANON-R110–R115
  *
  * NOT real actions (for LPS purposes):
  * - Forced elimination (eliminate_rings_from_stack when stack > 5)
@@ -138,6 +141,11 @@ export function hasAnyRealAction(
 
   // Check overtaking capture
   if (delegates.hasCapture(playerNumber)) {
+    return true;
+  }
+
+  // Check recovery (marker slide that completes a line; real action for LPS)
+  if (delegates.hasRecovery && delegates.hasRecovery(playerNumber)) {
     return true;
   }
 

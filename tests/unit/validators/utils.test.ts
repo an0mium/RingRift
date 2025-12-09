@@ -144,12 +144,12 @@ describe('isValidPosition', () => {
       expect(isValidPosition(pos, boardType, boardSize)).toBe(false);
     });
 
-    it('handles fractional coordinates by rounding sum check', () => {
-      // The function uses Math.round(q + r + s) === 0
-      // With small floating point errors, this should still work
+    it('uses strict sum check (q + r + s === 0), rejects floating point errors', () => {
+      // The function uses strict validation: sum === 0 (not rounded)
+      // This matches VictoryAggregate.ts for consistency
       const pos: Position = { x: 1, y: -1, z: 0.0000001 };
-      // q + r + s = 1 - 1 + 0.0000001 ≈ 0, rounds to 0
-      expect(isValidPosition(pos, boardType, boardSize)).toBe(true);
+      // q + r + s = 1 - 1 + 0.0000001 ≠ 0 exactly, so invalid
+      expect(isValidPosition(pos, boardType, boardSize)).toBe(false);
     });
   });
 

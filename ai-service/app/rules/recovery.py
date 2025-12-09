@@ -7,6 +7,12 @@ and buried rings) to slide a marker to complete a line.
 
 Mirrors src/shared/engine/aggregates/RecoveryAggregate.ts
 
+Cost Model (Option 1 / Option 2):
+- Exact-length lines: Always collapse all markers, cost = 1 buried ring (Option 1 only)
+- Overlength lines: Player chooses:
+  - Option 1: Collapse all markers, cost = 1 buried ring
+  - Option 2: Collapse exactly lineLength consecutive markers, cost = 0 (free)
+
 **SSoT Policy:**
 The canonical rules defined in RULES_CANONICAL_SPEC.md are the ultimate
 authority. The TS shared engine (src/shared/engine/**) is the primary
@@ -17,9 +23,12 @@ be updated—never the other way around.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import List, Optional, Tuple, Literal
 from datetime import datetime
+
+# Recovery option type alias
+RecoveryOption = Literal[1, 2]
 
 from app.models import (
     GameState,
@@ -48,11 +57,17 @@ from app.rules.core import (
 
 @dataclass
 class RecoverySlideTarget:
-    """A valid target position for a recovery slide move."""
+    """A valid target position for a recovery slide move (before option selection)."""
     from_pos: Position
     to_pos: Position
     markers_in_line: int  # number of markers (including the sliding marker) that form the line
-    cost: int  # number of buried rings extracted (1 + excess)
+    is_overlength: bool  # whether this is an overlength line (> lineLength)
+    option1_cost: int  # always 1 for Option 1 (collapse all)
+    option2_available: bool  # True only for overlength lines
+    option2_cost: int  # always 0 for Option 2 (collapse lineLength, free)
+    line_positions: List[Position]  # all marker positions in the line
+    # Deprecated: use option1_cost/option2_cost instead
+    cost: int = 1  # kept for backwards compatibility
 
 
 @dataclass
@@ -61,7 +76,9 @@ class RecoveryValidationResult:
     valid: bool
     reason: Optional[str] = None
     markers_in_line: int = 0
-    cost: int = 0
+    is_overlength: bool = False
+    option_used: Optional[RecoveryOption] = None
+    cost: int = 0  # Effective cost based on option used
 
 
 @dataclass
@@ -69,12 +86,10 @@ class RecoveryApplicationOutcome:
     """Outcome of applying a recovery slide."""
     success: bool
     error: Optional[str] = None
-    rings_extracted: int = 0
-    line_positions: List[Position] = None
-
-    def __post_init__(self):
-        if self.line_positions is None:
-            self.line_positions = []
+    option_used: Optional[RecoveryOption] = None
+    rings_extracted: int = 0  # 1 for Option 1, 0 for Option 2
+    line_positions: List[Position] = field(default_factory=list)  # All markers in the formed line
+    collapsed_positions: List[Position] = field(default_factory=list)  # Markers that were collapsed
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -298,27 +313,33 @@ def _would_complete_line_at(
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def calculate_recovery_cost(
+def calculate_recovery_cost(option: RecoveryOption) -> int:
+    """
+    Calculate the recovery cost for a given option.
+
+    Cost Model (Option 1 / Option 2):
+    - Option 1 (collapse all): 1 buried ring extraction
+    - Option 2 (collapse lineLength, overlength only): 0 (free)
+
+    Per RR-CANON-R113.
+
+    Args:
+        option: Which option (1 or 2)
+
+    Returns:
+        Number of buried rings to extract (1 for Option 1, 0 for Option 2)
+    """
+    return 1 if option == 1 else 0
+
+
+def calculate_recovery_cost_legacy(
     board: BoardState,
     player: int,
     markers_in_line: int,
 ) -> int:
     """
-    Calculate the recovery cost (number of buried rings to extract).
-
-    Cost = 1 + max(0, markers_in_line - line_length)
-
-    Per RR-CANON-R113:
-    - Base extraction is 1 ring
-    - Each marker beyond lineLength costs an additional ring
-
-    Args:
-        board: Current board state
-        player: Player performing recovery
-        markers_in_line: Number of markers in the line (including the sliding marker)
-
-    Returns:
-        Number of buried rings to extract
+    DEPRECATED: Use calculate_recovery_cost(option) instead.
+    This function used the old graduated cost model.
     """
     line_length = get_effective_line_length(board.type, 3)  # num_players not used for line length
     excess = max(0, markers_in_line - line_length)
@@ -342,6 +363,12 @@ def enumerate_recovery_slide_targets(
     2. To an adjacent empty space (Moore/hex-adjacent)
     3. Where the final position completes a line of at least lineLength markers
 
+    Cost Model (Option 1 / Option 2):
+    - Exact-length lines: Only Option 1 available (cost = 1 buried ring)
+    - Overlength lines: Player chooses:
+      - Option 1: Collapse all markers, cost = 1 buried ring
+      - Option 2: Collapse exactly lineLength markers, cost = 0 (free)
+
     Mirrors src/shared/engine/aggregates/RecoveryAggregate.enumerateRecoverySlideTargets.
 
     Args:
@@ -354,6 +381,7 @@ def enumerate_recovery_slide_targets(
     targets: List[RecoverySlideTarget] = []
     board = state.board
     line_length = get_effective_line_length(board.type, len(state.players))
+    buried_ring_count = count_buried_rings(board, player)
 
     # Find all markers owned by the player
     player_marker_positions: List[Position] = []
@@ -383,7 +411,7 @@ def enumerate_recovery_slide_targets(
             )
 
             # Check if this completes a line
-            completes, markers_count, _ = _would_complete_line_at(
+            completes, markers_count, line_positions = _would_complete_line_at(
                 board, player, to_pos, line_length
             )
 
@@ -392,13 +420,26 @@ def enumerate_recovery_slide_targets(
             board.markers[marker_pos.to_key()] = original_marker
 
             if completes:
-                cost = calculate_recovery_cost(board, player, markers_count)
-                targets.append(RecoverySlideTarget(
-                    from_pos=marker_pos,
-                    to_pos=to_pos,
-                    markers_in_line=markers_count,
-                    cost=cost,
-                ))
+                is_overlength = markers_count > line_length
+
+                # For exact-length: need 1 buried ring (Option 1 only)
+                # For overlength: Option 2 is free, so always legal
+                can_use_option1 = buried_ring_count >= 1
+                can_use_option2 = is_overlength  # Option 2 is free but only for overlength
+
+                # At least one option must be available
+                if can_use_option1 or can_use_option2:
+                    targets.append(RecoverySlideTarget(
+                        from_pos=marker_pos,
+                        to_pos=to_pos,
+                        markers_in_line=markers_count,
+                        is_overlength=is_overlength,
+                        option1_cost=1,
+                        option2_available=is_overlength,
+                        option2_cost=0,
+                        line_positions=line_positions,
+                        cost=1,  # Deprecated, kept for backwards compatibility
+                    ))
 
     return targets
 
@@ -408,6 +449,10 @@ def has_any_recovery_move(state: GameState, player: int) -> bool:
     Check if a player has any valid recovery moves.
 
     This is an optimized check that can short-circuit early.
+
+    Cost Model (Option 1 / Option 2):
+    - Exact-length: need 1 buried ring for Option 1
+    - Overlength: Option 2 is free, so always legal
 
     Args:
         state: Current game state
@@ -520,18 +565,34 @@ def validate_recovery_slide(
             reason=f"Move does not complete a line (need {line_length} markers)",
         )
 
-    cost = calculate_recovery_cost(board, player, markers_count)
+    # Option 1/2 cost model (RR-CANON-R113)
+    is_overlength = markers_count > line_length
     buried_rings = count_buried_rings(board, player)
 
-    if buried_rings < cost:
+    # Option 2 is free but only available for overlength lines
+    # Option 1 costs 1 buried ring
+    can_use_option1 = buried_rings >= 1
+    can_use_option2 = is_overlength  # Free, only for overlength
+
+    if not can_use_option1 and not can_use_option2:
         return RecoveryValidationResult(
             valid=False,
-            reason=f"Insufficient buried rings: need {cost}, have {buried_rings}",
+            reason="Insufficient buried rings: need 1, have 0 (and no free Option 2 available)",
         )
+
+    # Determine which option to use (prefer free Option 2 when available)
+    if can_use_option2:
+        option_used: RecoveryOption = 2
+        cost = 0
+    else:
+        option_used = 1
+        cost = 1
 
     return RecoveryValidationResult(
         valid=True,
         markers_in_line=markers_count,
+        is_overlength=is_overlength,
+        option_used=option_used,
         cost=cost,
     )
 
@@ -544,6 +605,8 @@ def validate_recovery_slide(
 def apply_recovery_slide(
     state: GameState,
     move: Move,
+    option: Optional[RecoveryOption] = None,
+    collapse_positions: Optional[List[Position]] = None,
 ) -> RecoveryApplicationOutcome:
     """
     Apply a recovery slide move to the game state (mutates in place).
@@ -551,12 +614,23 @@ def apply_recovery_slide(
     Steps:
     1. Move the marker from from_pos to to_pos
     2. Find the completed line
-    3. Extract buried rings (cost = 1 + excess)
-    4. Return extracted rings to player's hand
+    3. Collapse markers based on option:
+       - Option 1: Collapse all markers in the line
+       - Option 2: Collapse only the specified lineLength consecutive markers
+    4. Extract buried rings (Option 1 only, cost = 1)
+    5. Return extracted rings to player's hand
+
+    Cost Model (Option 1 / Option 2):
+    - Option 1 (collapse all): 1 buried ring extraction
+    - Option 2 (collapse lineLength, overlength only): 0 (free)
 
     Args:
         state: Current game state (will be mutated)
         move: The recovery slide move to apply
+        option: Which option to use (1 or 2). For overlength, required.
+                For exact-length, defaults to Option 1.
+        collapse_positions: For Option 2, which positions to collapse.
+                           Must be exactly lineLength consecutive positions.
 
     Returns:
         RecoveryApplicationOutcome with details
@@ -589,57 +663,87 @@ def apply_recovery_slide(
         board, player, move.to, line_length
     )
 
-    # Calculate cost and extract rings
-    cost = calculate_recovery_cost(board, player, markers_count)
+    is_overlength = markers_count > line_length
 
-    # Find stacks with buried rings and extract them
+    # Determine effective option
+    if option is not None:
+        effective_option = option
+    elif is_overlength:
+        # Default to Option 2 (free) for overlength if not specified
+        effective_option: RecoveryOption = 2
+    else:
+        effective_option = 1
+
+    # Determine which positions to collapse
+    if effective_option == 2 and collapse_positions is not None:
+        positions_to_collapse = collapse_positions
+    elif effective_option == 2 and is_overlength:
+        # Default: collapse the first lineLength positions
+        positions_to_collapse = line_positions[:line_length]
+    else:
+        # Option 1: collapse all
+        positions_to_collapse = line_positions
+
+    # Collapse markers - markers become territory (collapsed spaces)
+    # Note: Territory cascade should be handled by the turn orchestrator
+    # For now, just track which markers were collapsed
+    collapsed_positions = list(positions_to_collapse)
+
+    # Calculate cost and extract rings (Option 1 only)
+    cost = calculate_recovery_cost(effective_option)
     rings_extracted = 0
-    for stack_key, stack in list(board.stacks.items()):
-        if stack.controlling_player == player:
-            continue  # Skip player's own stacks
 
-        # Count and extract this player's rings from this stack
-        rings_to_remove = []
-        for i, ring in enumerate(stack.rings):
-            if ring == player and rings_extracted < cost:
-                rings_to_remove.append(i)
-                rings_extracted += 1
+    if cost > 0:
+        # Find stacks with buried rings and extract them
+        for stack_key, stack in list(board.stacks.items()):
+            if stack.controlling_player == player:
+                continue  # Skip player's own stacks
 
-        # Remove rings from bottom to top (to maintain indices)
-        for i in reversed(rings_to_remove):
-            stack.rings.pop(i)
+            # Count and extract this player's rings from this stack
+            rings_to_remove = []
+            for i, ring in enumerate(stack.rings):
+                if ring == player and rings_extracted < cost:
+                    rings_to_remove.append(i)
+                    rings_extracted += 1
 
-        # Update stack height
-        stack.stack_height = len(stack.rings)
+            # Remove rings from bottom to top (to maintain indices)
+            for i in reversed(rings_to_remove):
+                stack.rings.pop(i)
 
-        # Recalculate cap height
-        if stack.rings:
-            cap_height = 0
-            controlling = stack.rings[-1]
-            for r in reversed(stack.rings):
-                if r == controlling:
-                    cap_height += 1
-                else:
-                    break
-            stack.cap_height = cap_height
-            stack.controlling_player = controlling
-        else:
-            # Stack is empty, remove it
-            del board.stacks[stack_key]
+            # Update stack height
+            stack.stack_height = len(stack.rings)
 
-        if rings_extracted >= cost:
-            break
+            # Recalculate cap height
+            if stack.rings:
+                cap_height = 0
+                controlling = stack.rings[-1]
+                for r in reversed(stack.rings):
+                    if r == controlling:
+                        cap_height += 1
+                    else:
+                        break
+                stack.cap_height = cap_height
+                stack.controlling_player = controlling
+            else:
+                # Stack is empty, remove it
+                del board.stacks[stack_key]
+
+            if rings_extracted >= cost:
+                break
 
     # Return extracted rings to player's hand
-    for p in state.players:
-        if p.player_number == player:
-            p.rings_in_hand += rings_extracted
-            break
+    if rings_extracted > 0:
+        for p in state.players:
+            if p.player_number == player:
+                p.rings_in_hand += rings_extracted
+                break
 
     return RecoveryApplicationOutcome(
         success=True,
+        option_used=effective_option,
         rings_extracted=rings_extracted,
         line_positions=line_positions,
+        collapsed_positions=collapsed_positions,
     )
 
 

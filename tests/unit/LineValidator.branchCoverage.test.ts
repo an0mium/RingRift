@@ -24,11 +24,13 @@ const pos = (x: number, y: number): Position => ({ x, y });
 
 // Helper to create a minimal game state for testing
 function makeGameState(overrides: Partial<GameState> = {}): GameState {
+  // Use square19 board type because lineLength=4, matching our test lines.
+  // square8 has lineLength=3, so 4+ position lines would have different validation.
   const defaultState: GameState = {
     id: 'test-game',
     board: {
-      type: 'square8' as BoardType,
-      size: 8,
+      type: 'square19' as BoardType,
+      size: 19,
       stacks: new Map(),
       markers: new Map(),
       collapsedSpaces: new Map(),
@@ -66,7 +68,7 @@ function makeGameState(overrides: Partial<GameState> = {}): GameState {
     timeControl: { initialTime: 600000, increment: 0, type: 'rapid' },
     moveHistory: [],
     spectators: [],
-    boardType: 'square8',
+    boardType: 'square19',
   };
 
   return { ...defaultState, ...overrides } as GameState;
@@ -276,7 +278,7 @@ describe('LineValidator branch coverage', () => {
     describe('exact length line validation', () => {
       it('rejects MINIMUM_COLLAPSE for exact length line', () => {
         const state = makeGameState();
-        // For 2-player square8, minimum line length is 4
+        // For square19, minimum line length is 4
         state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',

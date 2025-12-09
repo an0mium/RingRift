@@ -35,6 +35,9 @@ describe('reconstructStateAtMove', () => {
     endedAt: new Date().toISOString(),
     totalMoves: 2,
     totalDurationMs: 0,
+    // Per RR-CANON-R075: All phases must be visited with explicit moves.
+    // After place_ring, the turn progresses through movement, line_processing,
+    // and territory_processing with explicit no-op moves before next player.
     moves: [
       {
         moveNumber: 0,
@@ -47,6 +50,30 @@ describe('reconstructStateAtMove', () => {
       },
       {
         moveNumber: 1,
+        player: 1,
+        type: 'no_movement_action',
+        from: undefined,
+        to: undefined,
+        thinkTimeMs: 0,
+      },
+      {
+        moveNumber: 2,
+        player: 1,
+        type: 'no_line_action',
+        from: undefined,
+        to: undefined,
+        thinkTimeMs: 0,
+      },
+      {
+        moveNumber: 3,
+        player: 1,
+        type: 'no_territory_action',
+        from: undefined,
+        to: undefined,
+        thinkTimeMs: 0,
+      },
+      {
+        moveNumber: 4,
         player: 2,
         type: 'place_ring',
         from: undefined,
@@ -69,8 +96,10 @@ describe('reconstructStateAtMove', () => {
   });
 
   it('applies moves up to the requested index', () => {
+    // moveIndex 1 = after place_ring by player 1
     const stateAfterFirst = reconstructStateAtMove(baseRecord, 1);
-    const stateAfterSecond = reconstructStateAtMove(baseRecord, 2);
+    // moveIndex 5 = after place_ring by player 2 (move indices 2-4 are no-op phase moves)
+    const stateAfterSecond = reconstructStateAtMove(baseRecord, 5);
 
     const positionsAfterFirst = Array.from(stateAfterFirst.board.stacks.values()).map(
       (s) => `${s.position.x},${s.position.y}`

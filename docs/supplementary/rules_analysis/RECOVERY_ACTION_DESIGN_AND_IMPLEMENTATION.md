@@ -73,35 +73,38 @@ The destination cell must be:
 
 ### RR-CANON-R112: Line Requirement
 
-A marker slide is **legal only if** it completes a line of at least `lineLength` consecutive markers of P's color:
+A marker slide is **legal only if** it completes a line of **at least** `lineLength` consecutive markers of P's color:
 
 - `lineLength = 3` for 8×8 (3-4 player) or as configured
 - `lineLength = 4` for 19×19, hexagonal, and 8×8 (2-player)
 
 The slid marker, in its new position, must participate in the completed line.
 
+**Overlength lines are permitted.** When an overlength line is formed, the player chooses between:
+
+- **Option 1:** Collapse all markers in the line to territory and pay the self-elimination cost (one buried ring extraction).
+- **Option 2:** Collapse exactly `lineLength` consecutive markers of the player's choice to territory **without** paying any self-elimination cost. The remaining markers stay on the board.
+
+This mirrors normal line reward semantics (RR-CANON-R130–R134), ensuring consistency and increasing the strategic value of recovery actions.
+
 ### RR-CANON-R113: Buried Ring Extraction Cost
 
-The cost of a recovery slide depends on the line length:
+The cost of a recovery slide depends on the chosen option:
 
-- **Exact length** (`actualLength == lineLength`): Cost = 1 buried ring
-- **Overlength** (`actualLength > lineLength`): Cost = 1 + (actualLength - lineLength) buried rings
+- **Exact-length lines:** Cost = 1 buried ring extraction
+- **Overlength lines with Option 1:** Cost = 1 buried ring extraction
+- **Overlength lines with Option 2:** Cost = 0 (no extraction required)
 
-Example for `lineLength = 3`:
-| Line Length | Cost |
-|-------------|------|
-| 3 markers | 1 buried ring |
-| 4 markers | 2 buried rings |
-| 5 markers | 3 buried rings |
-
-If P has fewer buried rings than the cost, that slide is **illegal**.
+If P has no buried rings and must pay a cost, that action is **illegal**.
 
 ### RR-CANON-R114: Cascade Processing
 
 After a recovery slide:
 
-1. **Line collapse:** All markers in the formed line become collapsed spaces (territory) owned by P
-2. **Buried ring extraction:** The required number of buried rings are removed from their containing stacks and credited to P's `eliminatedRingsTotal`
+1. **Line collapse:**
+   - **Exact-length or Option 1:** All markers in the formed line become collapsed spaces (territory) owned by P
+   - **Option 2:** Exactly `lineLength` consecutive markers chosen by P become collapsed spaces; remaining markers stay on board
+2. **Buried ring extraction:** For exact-length lines or Option 1, one buried ring is removed and credited to P's `eliminatedRingsTotal`. Option 2 has no extraction cost.
 3. **Territory processing:** Check for disconnected regions created by the collapse; process per standard territory rules (RR-CANON-R140–R145)
 4. **Victory check:** After all processing, check victory conditions
 
@@ -115,7 +118,9 @@ type RecoverySlideMove = {
   player: number;
   from: Position; // Source marker position
   to: Position; // Adjacent destination
-  extractionStacks: string[]; // Stacks to extract buried rings from
+  option?: 1 | 2; // For overlength lines: 1 (collapse all) or 2 (collapse min)
+  collapsedMarkers?: Position[]; // For Option 2: which markers to collapse
+  extractionStack?: string; // Stack for buried ring extraction (if applicable)
   formedLines: LineInfo[];
 };
 ```

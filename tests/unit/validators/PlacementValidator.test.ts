@@ -346,15 +346,17 @@ describe('PlacementValidator', () => {
       expect(result.code).toBe('NO_LEGAL_ACTIONS');
     });
 
-    it('allows skip even with zero rings in hand', () => {
-      // Per the code comment, skip is allowed when ringsInHand=0
+    it('rejects skip when player has zero rings in hand (use no_placement_action instead)', () => {
+      // Per canonical rules: when a player has zero rings in hand, they cannot
+      // voluntarily skip placement. The only legal move is no_placement_action.
       state.players[0].ringsInHand = 0;
       const action: SkipPlacementAction = {
         type: 'skip_placement',
         playerId: 1,
       };
       const result = validateSkipPlacement(state, action);
-      expect(result.valid).toBe(true);
+      expect(result.valid).toBe(false);
+      expect(result.code).toBe('NO_RINGS_IN_HAND');
     });
 
     it('rejects skip when player not found', () => {

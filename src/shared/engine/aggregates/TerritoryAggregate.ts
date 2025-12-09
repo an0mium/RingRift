@@ -664,11 +664,14 @@ export function enumerateTerritoryEliminationMoves(
 ): Move[] {
   const board = state.board;
 
-  // In the dedicated territory_processing phase, do not surface explicit
-  // self-elimination decisions while any disconnected region remains processable
+  // In the dedicated territory_processing phase, territory elimination moves
+  // are only relevant when processing territory regions. If no regions exist,
+  // there's nothing to eliminate for territory purposes - forced elimination
+  // (7th phase) handles the case of blocked players with stacks.
   if (state.currentPhase === 'territory_processing') {
     const remainingRegions = getProcessableTerritoryRegions(board, { player });
-    if (remainingRegions.length > 0) {
+    // Only surface elimination when regions exist and need processing
+    if (remainingRegions.length === 0) {
       return [];
     }
   }

@@ -104,6 +104,7 @@ import {
   applyProcessLineDecision,
   applyChooseLineRewardDecision,
 } from '../aggregates/LineAggregate';
+import { getEffectiveLineLengthThreshold } from '../rulesConfig';
 
 import {
   getProcessableTerritoryRegions,
@@ -114,6 +115,15 @@ import {
 } from '../aggregates/TerritoryAggregate';
 
 import { evaluateVictory } from '../aggregates/VictoryAggregate';
+
+import {
+  enumerateRecoverySlideTargets,
+  validateRecoverySlide,
+  applyRecoverySlide,
+} from '../aggregates/RecoveryAggregate';
+import type { RecoverySlideMove } from '../aggregates/RecoveryAggregate';
+
+import { isEligibleForRecovery } from '../playerStateHelpers';
 
 import { countRingsOnBoardForPlayer } from '../core';
 
@@ -1172,8 +1182,8 @@ export function processTurn(
 
   // For turn-ending territory moves, the turn is complete - no post-move processing needed.
   // The applyMoveWithChainInfo handler already rotates to the next player.
-  const isTurnEndingTerritoryMove =
-    move.type === 'no_territory_action' || move.type === 'skip_territory_processing';
+  // Note: no_territory_action is NOT turn-ending because forced elimination may be needed.
+  const isTurnEndingTerritoryMove = move.type === 'skip_territory_processing';
 
   let result: { pendingDecision?: PendingDecision; victoryResult?: VictoryState } = {};
   if (
@@ -1473,6 +1483,51 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       return { nextState: state };
     }
 
+    case 'recovery_slide': {
+      // RR-CANON-R110–R115: Recovery action for temporarily eliminated players
+      // Validates that player is eligible and applies the slide + line collapse
+      if (!move.from) {
+        throw new Error('Move.from is required for recovery slide');
+      }
+
+      // Determine the option from the move's metadata
+      const recoveryMove: RecoverySlideMove = {
+        id: move.id,
+        type: 'recovery_slide',
+        player: move.player,
+        from: move.from,
+        to: move.to,
+        timestamp: move.timestamp,
+        thinkTime: move.thinkTime,
+        moveNumber: move.moveNumber,
+        option: (move as any).recoveryOption || 1,
+        collapsePositions: (move as any).collapsePositions,
+        extractionStacks: [], // Will be determined during validation/application
+      };
+
+      // Validate the recovery slide
+      const validationResult = validateRecoverySlide(state, recoveryMove);
+      if (!validationResult.valid) {
+        throw new Error(`Invalid recovery slide: ${validationResult.reason}`);
+      }
+
+      // For Option 1, need to select an extraction stack
+      // For now, auto-select the first stack with a buried ring
+      if (recoveryMove.option === 1) {
+        for (const [stackKey, stack] of state.board.stacks) {
+          const hasBuriedRing = stack.rings.slice(0, -1).includes(move.player);
+          if (hasBuriedRing) {
+            recoveryMove.extractionStacks = [stackKey];
+            break;
+          }
+        }
+      }
+
+      // Apply the recovery slide
+      const outcome = applyRecoverySlide(state, recoveryMove);
+      return { nextState: outcome.nextState };
+    }
+
     case 'overtaking_capture':
     case 'continue_capture_segment': {
       if (!move.from || !move.captureTarget) {
@@ -1529,20 +1584,11 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
 
     case 'no_territory_action': {
       // Explicit no-op in territory_processing phase when no regions exist
-      // for the current player (RR-CANON-R075). Rotate to next player and
-      // start their turn in ring_placement phase.
-      const players = state.players;
-      const currentPlayerIndex = players.findIndex((p) => p.playerNumber === state.currentPlayer);
-      const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
-      const nextPlayer = players[nextPlayerIndex].playerNumber;
-
-      return {
-        nextState: {
-          ...state,
-          currentPlayer: nextPlayer,
-          currentPhase: 'ring_placement' as GamePhase,
-        },
-      };
+      // for the current player (RR-CANON-R075). Do NOT rotate immediately -
+      // the post-move processing needs to check for forced elimination first.
+      // If no forced elimination is needed, processPostMovePhases will handle
+      // the turn rotation.
+      return { nextState: state };
     }
 
     case 'skip_territory_processing': {
@@ -1634,6 +1680,7 @@ function assertPhaseMoveInvariant(state: GameState, move: Move): void {
         'overtaking_capture',
         'continue_capture_segment',
         'no_movement_action',
+        'recovery_slide', // RR-CANON-R110–R115: Recovery action for temporarily eliminated players
       ]);
       break;
     case 'capture':
@@ -1884,6 +1931,7 @@ function isPhaseValidForMoveType(phase: GamePhase, moveType: Move['type']): bool
         'overtaking_capture',
         'continue_capture_segment',
         'no_movement_action',
+        'recovery_slide', // RR-CANON-R110–R115: Recovery action for temporarily eliminated players
       ]);
       break;
     case 'capture':
@@ -2457,7 +2505,68 @@ export function getValidMoves(state: GameState): Move[] {
     case 'movement': {
       const movements = enumerateSimpleMovesForPlayer(state, player);
       const captures = enumerateAllCaptureMoves(state, player);
-      return [...movements, ...captures];
+
+      // RR-CANON-R110–R115: Recovery action for temporarily eliminated players
+      // If player is eligible for recovery, add recovery slide moves
+      const recoveryMoves: Move[] = [];
+      if (isEligibleForRecovery(state, player)) {
+        const recoveryTargets = enumerateRecoverySlideTargets(state, player);
+        const lineLength = getEffectiveLineLengthThreshold(state.board.type, state.players.length);
+        for (const target of recoveryTargets) {
+          // For each target, generate moves for available options
+          // Option 1 (collapse all, cost 1) - requires buried rings (eligibility already ensured)
+          // Option 2 (collapse lineLength, cost 0) - only for overlength lines
+          const baseId = `recovery-${target.from.x},${target.from.y}-${target.to.x},${target.to.y}-${moveNumber}`;
+          if (target.isOverlength) {
+            // For overlength, offer both options
+            // Option 2 (free)
+            recoveryMoves.push({
+              id: `${baseId}-opt2`,
+              type: 'recovery_slide',
+              player,
+              from: target.from,
+              to: target.to,
+              timestamp: new Date(),
+              thinkTime: 0,
+              moveNumber,
+              option: 2,
+              // Default collapse subset: first lineLength positions from the formed line
+              collapsePositions: target.linePositions.slice(0, lineLength),
+              extractionStacks: [],
+            } as Move);
+
+            // Option 1 (cost 1)
+            recoveryMoves.push({
+              id: `${baseId}-opt1`,
+              type: 'recovery_slide',
+              player,
+              from: target.from,
+              to: target.to,
+              timestamp: new Date(),
+              thinkTime: 0,
+              moveNumber,
+              option: 1,
+              extractionStacks: [],
+            } as Move);
+          } else {
+            // Exact length: only Option 1
+            recoveryMoves.push({
+              id: `${baseId}`,
+              type: 'recovery_slide',
+              player,
+              from: target.from,
+              to: target.to,
+              timestamp: new Date(),
+              thinkTime: 0,
+              moveNumber,
+              option: 1,
+              extractionStacks: [],
+            } as Move);
+          }
+        }
+      }
+
+      return [...movements, ...captures, ...recoveryMoves];
     }
 
     case 'capture': {

@@ -178,11 +178,14 @@ However, as long as any stacks remain on the board, it is never legal for the ga
 A player who controls **zero stacks**, has **zero rings in hand**, but has **at least one marker** and **at least one buried ring** (their ring at a non-top position in some stack) may perform a recovery action during the movement phase:
 
 1. **Marker slide:** Move one of your markers to an adjacent empty cell (Moore adjacency for square, hex-adjacency for hex).
-2. **Line requirement:** Legal only if it completes a line of exactly `lineLength` consecutive markers of your colour. Overlength lines (longer than `lineLength`) do **not** satisfy this requirement.
-3. **Buried ring extraction:** To pay self-elimination, extract your bottommost ring from any stack containing your buried rings:
+2. **Line requirement:** Legal only if it completes a line of **at least** `lineLength` consecutive markers of your colour. Overlength lines are permitted.
+3. **Overlength line options:** If the line exceeds `lineLength`:
+   - **Option 1:** Collapse all markers and pay self-elimination (one buried ring extraction).
+   - **Option 2:** Collapse exactly `lineLength` consecutive markers of your choice **without** paying self-elimination.
+4. **Buried ring extraction:** For exact-length lines (or Option 1 on overlength), extract your bottommost ring from any stack containing your buried rings:
    - Ring is permanently eliminated (credited to you).
    - Stack height decreases by 1; control determined by new top ring.
-4. **Cascade processing:** If line collapse creates territory regions, process normally. Each territory's self-elimination cost requires extracting another buried ring from a stack **outside** that region. If no buried rings remain outside claimable regions, those territories cannot be claimed.
+5. **Cascade processing:** If line collapse creates territory regions, process normally. Each territory's self-elimination cost requires extracting another buried ring from a stack **outside** that region. If no buried rings remain outside claimable regions, those territories cannot be claimed.
 
 Move type: `recovery_slide`.
 

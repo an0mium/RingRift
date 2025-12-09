@@ -274,7 +274,7 @@ describe('gameViewModels', () => {
       expect(vm.weirdState).toBeDefined();
       expect(vm.weirdState?.type).toBe('active-no-moves-movement');
       expect(vm.weirdState?.tone).toBe('warning');
-      expect(vm.weirdState?.body).toContain('forced elimination');
+      expect(vm.weirdState?.body).toContain('forced-elimination');
     });
 
     it('sets decisionPhase.canSkip for territory region_order choices that include a skip option', () => {

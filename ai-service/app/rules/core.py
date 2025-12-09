@@ -281,3 +281,97 @@ def hash_game_state(state: GameState) -> str:
             "|".join(board_summary["collapsedSpaces"]),
         ]
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# RECOVERY HELPERS (RR-CANON-R110–R115)
+# Mirrors src/shared/engine/playerStateHelpers.ts
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def player_controls_any_stack(board: BoardState, player_number: int) -> bool:
+    """
+    Check if a player controls any stacks on the board.
+
+    A player controls a stack when their ring is on top (the controlling player).
+    """
+    for stack in board.stacks.values():
+        if stack.controlling_player == player_number:
+            return True
+    return False
+
+
+def player_has_markers(board: BoardState, player_number: int) -> bool:
+    """
+    Check if a player owns any markers on the board.
+
+    Mirrors TS playerStateHelpers.ts:playerHasMarkers
+    """
+    for marker in board.markers.values():
+        if marker.player == player_number:
+            return True
+    return False
+
+
+def count_buried_rings(board: BoardState, player_number: int) -> int:
+    """
+    Count buried rings for a player.
+
+    A buried ring is a ring of the player's colour that is in an opponent-
+    controlled stack (not the top ring). These are used for recovery action
+    costs per RR-CANON-R113.
+
+    Mirrors TS playerStateHelpers.ts:countBuriedRings
+    """
+    count = 0
+    for stack in board.stacks.values():
+        # Only count rings in opponent-controlled stacks
+        if stack.controlling_player == player_number:
+            continue
+
+        # Count rings belonging to this player (excluding top ring)
+        for i in range(len(stack.rings) - 1):
+            if stack.rings[i] == player_number:
+                count += 1
+
+    return count
+
+
+def is_eligible_for_recovery(state: GameState, player_number: int) -> bool:
+    """
+    Check if a player is eligible for recovery action.
+
+    A player is eligible per RR-CANON-R110 if:
+    - They control no stacks
+    - They have no rings in hand
+    - They own at least one marker
+    - They have at least one buried ring
+
+    Mirrors TS playerStateHelpers.ts:isEligibleForRecovery
+    """
+    player = None
+    for p in state.players:
+        if p.player_number == player_number:
+            player = p
+            break
+
+    if not player:
+        return False
+
+    # Must have no rings in hand
+    if player.rings_in_hand > 0:
+        return False
+
+    # Must control no stacks
+    if player_controls_any_stack(state.board, player_number):
+        return False
+
+    # Must own at least one marker
+    if not player_has_markers(state.board, player_number):
+        return False
+
+    # Must have at least one buried ring
+    if count_buried_rings(state.board, player_number) < 1:
+        return False
+
+    return True

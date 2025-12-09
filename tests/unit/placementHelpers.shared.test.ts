@@ -347,7 +347,9 @@ describe('placementHelpers – shared placement application and skip-placement e
       expect(result.code).toBe('NO_LEGAL_ACTIONS');
     });
 
-    it('returns canSkip=true when player has zero rings but has legal moves from stacks', () => {
+    it('returns canSkip=false when player has zero rings in hand (use no_placement_action instead)', () => {
+      // Per canonical rules: when a player has zero rings in hand, they cannot
+      // voluntarily skip placement. The only legal move is `no_placement_action`.
       const state = createTestState('skip-zero-rings');
       addStackToBoard(state, { x: 3, y: 3 }, [1], 1);
 
@@ -358,8 +360,9 @@ describe('placementHelpers – shared placement application and skip-placement e
 
       const result = evaluateSkipPlacementEligibility(state, 1);
 
-      // Should still be eligible to skip - having no rings in hand is fine
-      expect(result.canSkip).toBe(true);
+      // Cannot skip placement when you have no rings - must use no_placement_action
+      expect(result.canSkip).toBe(false);
+      expect(result.code).toBe('NO_RINGS_IN_HAND');
     });
 
     it('evaluates captures as legal actions for skip eligibility', () => {

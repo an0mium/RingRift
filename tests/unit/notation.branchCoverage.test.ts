@@ -294,7 +294,7 @@ describe('notation branch coverage', () => {
       it('uses specified boardType for formatting', () => {
         const move = makeMove({ type: 'place_ring', player: 1, to: pos(0, 0, 0) });
         const result = formatMove(move, { boardType: 'hexagonal' });
-        expect(result).toContain('k11'); // Central hex position
+        expect(result).toContain('m13'); // Central hex position (0,0,0) cube coords
       });
     });
   });
@@ -324,7 +324,7 @@ describe('notation branch coverage', () => {
     it('passes options through to formatMove', () => {
       const moves = [makeMove({ type: 'place_ring', player: 1, to: pos(0, 0, 0) })];
       const result = formatMoveList(moves, { boardType: 'hexagonal' });
-      expect(result[0]).toContain('k11');
+      expect(result[0]).toContain('m13'); // (0,0,0) cube coords -> m13
     });
   });
 });

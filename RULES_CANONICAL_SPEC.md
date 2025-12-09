@@ -599,14 +599,17 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §4.5.2.
 
 - **[RR-CANON-R112] Recovery action line requirement.**
-  - A recovery marker slide is legal **only if** the resulting marker position completes a line of **exactly `lineLength`** consecutive markers of P's colour (as defined by `lineAdjacency` for the board type).
-  - The line must be exactly the minimum required length for the board/player-count configuration:
+  - A recovery marker slide is legal **only if** the resulting marker position completes a line of **at least `lineLength`** consecutive markers of P's colour (as defined by `lineAdjacency` for the board type).
+  - The minimum required length for the board/player-count configuration:
     - `square8` 2-player: 4 markers.
     - `square8` 3-4 player: 3 markers.
     - `square19`: 4 markers.
     - `hexagonal`: 4 markers.
-  - Overlength lines (longer than `lineLength`) do **not** satisfy this requirement; the slide must complete a line of exactly the required length.
-  - If no marker slide can complete an exact-length line, P has no legal recovery action and remains temporarily eliminated.
+  - Overlength lines (longer than `lineLength`) **are permitted**. When an overlength line is formed:
+    - **Option 1** (if chosen): Collapse all markers in the line to territory and pay the self-elimination cost (one buried ring extraction).
+    - **Option 2** (if chosen): Collapse exactly `lineLength` consecutive markers of the player's choice to territory **without** paying any self-elimination cost. The remaining markers stay on the board.
+    - This mirrors normal line reward semantics (RR-CANON-R130–R134).
+  - If no marker slide can complete a line of at least `lineLength`, P has no legal recovery action and remains temporarily eliminated.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §4.5.3.
 
 - **[RR-CANON-R113] Recovery action buried ring extraction.**
