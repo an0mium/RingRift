@@ -388,7 +388,9 @@ describe('TurnOrchestrator core branch coverage', () => {
         expect(result.nextState.gameStatus).toBe('active');
       });
 
-      it('rejects process_territory_region outside territory_processing phase', () => {
+      it('coerces phase for process_territory_region outside territory_processing (replay tolerance)', () => {
+        // Replay-tolerance: process_territory_region in ring_placement/movement/line_processing
+        // is coerced to territory_processing phase to handle TS/Python parity edge cases.
         const state = createBaseState('ring_placement');
         const move = createMove(
           'process_territory_region',
@@ -399,7 +401,9 @@ describe('TurnOrchestrator core branch coverage', () => {
           }
         );
 
-        expect(() => processTurn(state, move)).toThrow('[PHASE_MOVE_INVARIANT]');
+        // Should not throw - phase coercion handles this case
+        const result = processTurn(state, move);
+        expect(['complete', 'awaiting_decision']).toContain(result.status);
       });
     });
 

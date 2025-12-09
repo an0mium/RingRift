@@ -1176,6 +1176,19 @@ export function processTurn(
     // Coerce to the appropriate capture phase based on move type
     const targetPhase = move.type === 'continue_capture_segment' ? 'chain_capture' : 'movement';
     state = { ...state, currentPhase: targetPhase as GamePhase };
+  } else if (
+    // Replay-tolerance for TS/Python parity: When in ring_placement/movement/line_processing
+    // and a territory move comes in, coerce to territory_processing. This happens when
+    // Python records multiple territory moves or TS's bridge processing advanced past territory.
+    state.gameStatus === 'active' &&
+    (state.currentPhase === 'ring_placement' ||
+      state.currentPhase === 'movement' ||
+      state.currentPhase === 'line_processing') &&
+    (move.type === 'process_territory_region' ||
+      move.type === 'no_territory_action' ||
+      move.type === 'eliminate_rings_from_stack')
+  ) {
+    state = { ...state, currentPhase: 'territory_processing' as GamePhase };
   }
 
   // Enforce canonical phase→MoveType mapping for ACTIVE states. This ensures
