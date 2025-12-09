@@ -1,0 +1,733 @@
+{
+  "id": "272ed96f-c734-4ee2-8fb3-7ec604d86389",
+  "boardType": "square8",
+  "numPlayers": 2,
+  "isRated": false,
+  "players": [
+    {
+      "playerNumber": 1,
+      "username": "Player 1",
+      "playerType": "ai",
+      "aiType": "random",
+      "aiDifficulty": 1
+    },
+    {
+      "playerNumber": 2,
+      "username": "Player 2",
+      "playerType": "ai",
+      "aiType": "random",
+      "aiDifficulty": 1
+    }
+  ],
+  "outcome": "ring_elimination",
+  "finalScore": {
+    "ringsEliminated": {
+      "1": 0,
+      "2": 0
+    },
+    "territorySpaces": {
+      "1": 1,
+      "2": 0
+    },
+    "ringsRemaining": {
+      "1": 11,
+      "2": 11
+    }
+  },
+  "startedAt": "2025-12-09T23:14:37.376Z",
+  "endedAt": "2025-12-09T23:14:37.409Z",
+  "totalMoves": 62,
+  "totalDurationMs": 33,
+  "moves": [
+    {
+      "moveNumber": 1,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 1,
+        "y": 4
+      }
+    },
+    {
+      "moveNumber": 2,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 1,
+        "y": 4
+      },
+      "to": {
+        "x": 4,
+        "y": 7
+      }
+    },
+    {
+      "moveNumber": 3,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 4,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 5,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 7,
+        "y": 1
+      }
+    },
+    {
+      "moveNumber": 6,
+      "player": 2,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 7,
+        "y": 1
+      },
+      "to": {
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "moveNumber": 7,
+      "player": 2,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 8,
+      "player": 2,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 9,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 5,
+        "y": 4
+      }
+    },
+    {
+      "moveNumber": 10,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 5,
+        "y": 4
+      },
+      "to": {
+        "x": 0,
+        "y": 4
+      }
+    },
+    {
+      "moveNumber": 11,
+      "player": 1,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 12,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 13,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 14,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 2,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 15,
+      "player": 2,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 0,
+        "y": 1
+      },
+      "to": {
+        "x": 5,
+        "y": 1
+      }
+    },
+    {
+      "moveNumber": 16,
+      "player": 2,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 17,
+      "player": 2,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 18,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 6,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 19,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 6,
+        "y": 2
+      },
+      "to": {
+        "x": 3,
+        "y": 5
+      }
+    },
+    {
+      "moveNumber": 20,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 21,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 22,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 5,
+        "y": 3
+      }
+    },
+    {
+      "moveNumber": 23,
+      "player": 2,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 5,
+        "y": 3
+      },
+      "to": {
+        "x": 0,
+        "y": 3
+      }
+    },
+    {
+      "moveNumber": 24,
+      "player": 2,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 25,
+      "player": 2,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 26,
+      "player": 2,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 27,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 7,
+        "y": 7
+      }
+    },
+    {
+      "moveNumber": 28,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 7,
+        "y": 7
+      },
+      "to": {
+        "x": 7,
+        "y": 6
+      }
+    },
+    {
+      "moveNumber": 29,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 30,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 31,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 4,
+        "y": 5
+      }
+    },
+    {
+      "moveNumber": 32,
+      "player": 2,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 2,
+        "y": 2
+      },
+      "to": {
+        "x": 1,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 33,
+      "player": 2,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 34,
+      "player": 2,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 35,
+      "player": 2,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 36,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 7,
+        "y": 3
+      }
+    },
+    {
+      "moveNumber": 37,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 0,
+        "y": 4
+      },
+      "to": {
+        "x": 0,
+        "y": 5
+      }
+    },
+    {
+      "moveNumber": 38,
+      "player": 1,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 39,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 40,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 41,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 1,
+        "y": 5
+      }
+    },
+    {
+      "moveNumber": 42,
+      "player": 2,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 0,
+        "y": 3
+      },
+      "to": {
+        "x": 3,
+        "y": 3
+      }
+    },
+    {
+      "moveNumber": 43,
+      "player": 2,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 44,
+      "player": 2,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 45,
+      "player": 2,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 46,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 1,
+        "y": 6
+      }
+    },
+    {
+      "moveNumber": 47,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 7,
+        "y": 6
+      },
+      "to": {
+        "x": 6,
+        "y": 7
+      }
+    },
+    {
+      "moveNumber": 48,
+      "player": 1,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 49,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 50,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 51,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 4,
+        "y": 4
+      }
+    },
+    {
+      "moveNumber": 52,
+      "player": 2,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 3,
+        "y": 3
+      },
+      "to": {
+        "x": 4,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 53,
+      "player": 2,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 54,
+      "player": 2,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 55,
+      "player": 2,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 56,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 1,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 57,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 3,
+        "y": 5
+      },
+      "to": {
+        "x": 3,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 58,
+      "player": 1,
+      "type": "skip_capture",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 59,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 60,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 61,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 1,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 62,
+      "player": 2,
+      "type": "overtaking_capture",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 1,
+        "y": 2
+      },
+      "to": {
+        "x": 5,
+        "y": 2
+      },
+      "captureTarget": {
+        "x": 4,
+        "y": 2
+      }
+    }
+  ],
+  "metadata": {
+    "recordVersion": "1.0.0",
+    "createdAt": "2025-12-09T23:14:37.410Z",
+    "source": "self_play",
+    "tags": [
+      "golden",
+      "fsm-canonical",
+      "generated"
+    ]
+  }
+}

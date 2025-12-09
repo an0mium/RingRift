@@ -405,7 +405,7 @@ describe('FSMAdapter', () => {
       expect(result.validEventTypes).toBeDefined();
     });
 
-    it('should return CONVERSION_FAILED for swap_sides', () => {
+    it('should accept swap_sides as a meta-move (allowed in any phase)', () => {
       const state = createTestGameState();
       const move: Move = {
         id: 'test-3',
@@ -419,9 +419,9 @@ describe('FSMAdapter', () => {
 
       const result = validateMoveWithFSM(state, move);
 
-      expect(result.valid).toBe(false);
-      expect(result.errorCode).toBe('CONVERSION_FAILED');
-      expect(result.reason).toContain('swap_sides');
+      // swap_sides is a meta-move that bypasses FSM event conversion
+      // and is allowed in any phase via isMoveTypeValidForPhase
+      expect(result.valid).toBe(true);
     });
 
     it('should accept skip_placement when move hint is trusted (replay parity)', () => {

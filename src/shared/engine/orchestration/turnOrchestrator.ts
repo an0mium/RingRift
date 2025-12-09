@@ -2775,12 +2775,22 @@ function playerHasStacksOnBoard(state: GameState, player: number): boolean {
 /**
  * Identify forced no-op bookkeeping move types that do not count as "real"
  * actions for the purposes of forced_elimination gating.
+ *
+ * Per RR-CANON lpsTracking.ts lines 11-12:
+ *   "Non-real actions (that don't count for LPS): skip_placement, forced elimination,
+ *    line/territory processing decisions."
+ *
+ * SKIP_PLACEMENT is included because it does NOT represent real progress.
+ * When a player skips placement but then has no movement/capture available,
+ * the S-metric (markers + collapsed + eliminated) does not increase, and
+ * forced elimination must trigger to ensure game termination.
  */
 function isNoActionBookkeepingMove(type: MoveType): boolean {
   return (
     type === 'no_placement_action' ||
     type === 'no_movement_action' ||
     type === 'no_line_action' ||
-    type === 'no_territory_action'
+    type === 'no_territory_action' ||
+    type === 'skip_placement' // Per LPS rules: skip_placement is NOT a real action
   );
 }

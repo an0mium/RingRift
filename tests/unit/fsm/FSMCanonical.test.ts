@@ -435,4 +435,43 @@ describe('FSM Canonical Orchestrator', () => {
       expect(result.nextState.currentPhase).toBe('game_over');
     });
   });
+
+  describe('Timeout Move', () => {
+    it('should allow timeout move type in any phase', () => {
+      const phases: GamePhase[] = [
+        'ring_placement',
+        'movement',
+        'chain_capture',
+        'line_processing',
+        'territory_processing',
+      ];
+
+      phases.forEach((phase) => {
+        expect(isMoveTypeValidForPhase(phase, 'timeout')).toBe(true);
+      });
+    });
+
+    it('should validate timeout move through FSM', () => {
+      const state = createGame();
+      const move = makeMove({
+        type: 'timeout',
+        player: 1,
+      });
+
+      const result = validateMoveWithFSM(state, move);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should transition to game_over on timeout via processTurn', () => {
+      const state = createGame();
+      const move = makeMove({
+        type: 'timeout',
+        player: 1,
+      });
+
+      const result = processTurn(state, move);
+      expect(result.nextState.gameStatus).toBe('completed');
+      expect(result.nextState.currentPhase).toBe('game_over');
+    });
+  });
 });

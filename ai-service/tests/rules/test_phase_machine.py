@@ -172,3 +172,163 @@ def test_process_line_with_empty_board_rotates_to_next_player():
     # Empty board: no territory regions, no stacks → turn ends
     assert state.current_player == 2
     assert state.current_phase == GamePhase.RING_PLACEMENT
+
+
+# -----------------------------------------------------------------------------
+# Regression tests for skip_placement bookkeeping classification (GH-FE-FIX)
+# -----------------------------------------------------------------------------
+from app.rules.phase_machine import (
+    _is_no_action_bookkeeping_move,
+    compute_had_any_action_this_turn,
+)
+
+
+def test_skip_placement_is_bookkeeping_move():
+    """
+    SKIP_PLACEMENT must be classified as a bookkeeping move (non-real action).
+
+    Per RR-CANON lpsTracking.ts lines 11-12:
+      "Non-real actions (that don't count for LPS): skip_placement, forced elimination,
+       line/territory processing decisions."
+
+    When a player skips placement but then has no movement/capture available,
+    the S-metric (markers + collapsed + eliminated) does not increase, and
+    forced elimination must trigger to ensure game termination.
+
+    Regression test for 3p infinite loop bug where games got stuck in
+    skip_placement → no_placement_action → no_placement_action cycles.
+    """
+    assert _is_no_action_bookkeeping_move(MoveType.SKIP_PLACEMENT) is True
+
+
+def test_all_no_action_moves_are_bookkeeping():
+    """All NO_*_ACTION move types should be classified as bookkeeping moves."""
+    bookkeeping_types = [
+        MoveType.NO_PLACEMENT_ACTION,
+        MoveType.NO_MOVEMENT_ACTION,
+        MoveType.NO_LINE_ACTION,
+        MoveType.NO_TERRITORY_ACTION,
+        MoveType.SKIP_PLACEMENT,
+    ]
+    for move_type in bookkeeping_types:
+        assert _is_no_action_bookkeeping_move(move_type) is True, (
+            f"{move_type} should be a bookkeeping move"
+        )
+
+
+def test_real_action_moves_are_not_bookkeeping():
+    """Real action move types should NOT be classified as bookkeeping moves."""
+    real_action_types = [
+        MoveType.PLACE_RING,
+        MoveType.MOVE_STACK,
+        MoveType.OVERTAKING_CAPTURE,
+        MoveType.CHAIN_CAPTURE,
+        MoveType.RECOVERY_SLIDE,
+        MoveType.FORCED_ELIMINATION,  # Per LPS rules: FE is a "non-real action" but NOT bookkeeping
+    ]
+    for move_type in real_action_types:
+        assert _is_no_action_bookkeeping_move(move_type) is False, (
+            f"{move_type} should NOT be a bookkeeping move"
+        )
+
+
+def test_compute_had_any_action_returns_false_after_skip_placement_only():
+    """
+    After a turn with only skip_placement + NO_*_ACTION moves, had_any_action should be False.
+
+    This is critical for the forced elimination flow: when a player skips placement
+    and has no movement/capture available, they made zero real progress and FE must
+    trigger if they still have stacks on the board.
+
+    Regression test for 3p infinite loop bug.
+    """
+    state = _make_minimal_state(GamePhase.TERRITORY_PROCESSING, current_player=1)
+    now = datetime.now()
+
+    # Simulate a turn where player 1 made only skip_placement + bookkeeping moves
+    state.move_history = [
+        Move(
+            id="m1",
+            type=MoveType.SKIP_PLACEMENT,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=1,
+        ),
+        Move(
+            id="m2",
+            type=MoveType.NO_MOVEMENT_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=2,
+        ),
+        Move(
+            id="m3",
+            type=MoveType.NO_LINE_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=3,
+        ),
+        Move(
+            id="m4",
+            type=MoveType.NO_TERRITORY_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=4,
+        ),
+    ]
+
+    # With SKIP_PLACEMENT correctly classified as bookkeeping,
+    # compute_had_any_action_this_turn should return False
+    assert compute_had_any_action_this_turn(state) is False
+
+
+def test_compute_had_any_action_returns_true_after_place_ring():
+    """
+    After a turn with PLACE_RING (even followed by NO_*_ACTION), had_any_action should be True.
+
+    PLACE_RING is a real action that counts toward progress, unlike SKIP_PLACEMENT.
+    """
+    state = _make_minimal_state(GamePhase.TERRITORY_PROCESSING, current_player=1)
+    now = datetime.now()
+
+    # Simulate a turn where player 1 placed a ring then had no moves
+    state.move_history = [
+        Move(
+            id="m1",
+            type=MoveType.PLACE_RING,
+            player=1,
+            to=Position(x=3, y=3),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=1,
+        ),
+        Move(
+            id="m2",
+            type=MoveType.NO_MOVEMENT_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=2,
+        ),
+        Move(
+            id="m3",
+            type=MoveType.NO_LINE_ACTION,
+            player=1,
+            to=Position(x=0, y=0),
+            timestamp=now,
+            thinkTime=0,
+            moveNumber=3,
+        ),
+    ]
+
+    # PLACE_RING is a real action, so had_any_action should be True
+    assert compute_had_any_action_this_turn(state) is True

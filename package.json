@@ -67,6 +67,8 @@
     "test:all:quiet:log": "mkdir -p logs/jest && jest --runInBand --silent > logs/jest/latest.log 2>&1",
     "test:python:quiet:log": "cd ai-service && mkdir -p ../logs/pytest && pytest -q > ../logs/pytest/ai-service.latest.log 2>&1",
     "gate:canonical-phases": "cd ai-service && PYTHONPATH=. python -m scripts.scan_canonical_phase_dbs --root data/games --pattern \"*.db\" --model-registry models/registry.json",
+    "curate:golden": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/curate-golden-fixtures.ts",
+    "generate:golden": "TS_NODE_PROJECT=tsconfig.server.json npx ts-node scripts/generate-golden-fixtures.ts",
     "logs:view:jest": "node scripts/safe-view.js logs/jest/latest.log logs/jest/latest.view.txt",
     "logs:view:pytest": "node scripts/safe-view.js logs/pytest/ai-service.latest.log logs/pytest/ai-service.latest.view.txt",
     "test:ts-rules-engine": "jest --runInBand --testPathPattern='(RefactoredEngine|\\.rules\\.|RulesMatrix\\.)'",

@@ -9,9 +9,13 @@ import {
   type GameContext,
   type RingPlacementState,
   type MovementState,
+  type CaptureState,
   type ChainCaptureState,
   type LineProcessingState,
   type TerritoryProcessingState,
+  type ForcedEliminationState,
+  type TurnEndState,
+  type GameOverState,
 } from '../../../src/shared/engine/fsm';
 
 describe('TurnStateMachine', () => {
@@ -589,6 +593,505 @@ describe('TurnStateMachine', () => {
       if (!result.ok) {
         expect(result.error.code).toBe('GUARD_FAILED');
       }
+    });
+
+    it('should reject ELIMINATE_FROM_STACK when no eliminations pending', () => {
+      const state: TerritoryProcessingState = {
+        phase: 'territory_processing',
+        player: 1,
+        disconnectedRegions: [],
+        currentRegionIndex: 0,
+        eliminationsPending: [], // No pending eliminations
+      };
+
+      const event: TurnEvent = { type: 'ELIMINATE_FROM_STACK', target: { x: 1, y: 1 }, count: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('GUARD_FAILED');
+        expect(result.error.message).toContain('No eliminations pending');
+      }
+    });
+
+    it('should allow ELIMINATE_FROM_STACK when eliminations are pending', () => {
+      const state: TerritoryProcessingState = {
+        phase: 'territory_processing',
+        player: 1,
+        disconnectedRegions: [],
+        currentRegionIndex: 0,
+        eliminationsPending: [{ position: { x: 1, y: 1 }, player: 1, count: 1 }],
+      };
+
+      const event: TurnEvent = { type: 'ELIMINATE_FROM_STACK', target: { x: 1, y: 1 }, count: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.actions).toContainEqual({
+          type: 'ELIMINATE_RINGS',
+          target: { x: 1, y: 1 },
+          count: 1,
+        });
+      }
+    });
+  });
+
+  describe('capture phase guards', () => {
+    it('should reject CAPTURE with invalid target', () => {
+      const state: CaptureState = {
+        phase: 'capture',
+        player: 1,
+        pendingCaptures: [
+          { target: { x: 3, y: 3 }, capturingPlayer: 1, isChainCapture: false },
+        ],
+        chainInProgress: false,
+        capturesMade: 0,
+      };
+
+      // Invalid target - not in pendingCaptures
+      const event: TurnEvent = { type: 'CAPTURE', target: { x: 5, y: 5 } };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('GUARD_FAILED');
+        expect(result.error.message).toContain('Invalid capture target');
+      }
+    });
+
+    it('should allow CAPTURE with valid target', () => {
+      const state: CaptureState = {
+        phase: 'capture',
+        player: 1,
+        pendingCaptures: [
+          { target: { x: 3, y: 3 }, capturingPlayer: 1, isChainCapture: false },
+        ],
+        chainInProgress: false,
+        capturesMade: 0,
+      };
+
+      const event: TurnEvent = { type: 'CAPTURE', target: { x: 3, y: 3 } };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('chain_capture');
+        expect(result.actions).toContainEqual({
+          type: 'EXECUTE_CAPTURE',
+          target: { x: 3, y: 3 },
+          capturer: 1,
+        });
+      }
+    });
+
+    it('should allow END_CHAIN in capture phase (skip capture)', () => {
+      const state: CaptureState = {
+        phase: 'capture',
+        player: 1,
+        pendingCaptures: [],
+        chainInProgress: false,
+        capturesMade: 0,
+      };
+
+      const event: TurnEvent = { type: 'END_CHAIN' };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('line_processing');
+      }
+    });
+
+    it('should transition to game_over on RESIGN from capture phase', () => {
+      const state: CaptureState = {
+        phase: 'capture',
+        player: 1,
+        pendingCaptures: [],
+        chainInProgress: false,
+        capturesMade: 0,
+      };
+
+      const event: TurnEvent = { type: 'RESIGN', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+      }
+    });
+
+    it('should transition to game_over on TIMEOUT from capture phase', () => {
+      const state: CaptureState = {
+        phase: 'capture',
+        player: 1,
+        pendingCaptures: [],
+        chainInProgress: false,
+        capturesMade: 0,
+      };
+
+      const event: TurnEvent = { type: 'TIMEOUT', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+        if (result.state.phase === 'game_over') {
+          expect(result.state.reason).toBe('timeout');
+        }
+      }
+    });
+  });
+
+  describe('forced_elimination phase guards', () => {
+    it('should allow FORCED_ELIMINATE and transition to turn_end when complete', () => {
+      const state: ForcedEliminationState = {
+        phase: 'forced_elimination',
+        player: 1,
+        ringsOverLimit: 1,
+        eliminationsDone: 0,
+      };
+
+      const event: TurnEvent = { type: 'FORCED_ELIMINATE', target: { x: 2, y: 2 } };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('turn_end');
+        expect(result.actions).toContainEqual({
+          type: 'FORCED_ELIMINATE',
+          target: { x: 2, y: 2 },
+          player: 1,
+        });
+        expect(result.actions).toContainEqual({ type: 'CHECK_VICTORY' });
+      }
+    });
+
+    it('should stay in forced_elimination when more eliminations needed', () => {
+      const state: ForcedEliminationState = {
+        phase: 'forced_elimination',
+        player: 1,
+        ringsOverLimit: 3,
+        eliminationsDone: 0,
+      };
+
+      const event: TurnEvent = { type: 'FORCED_ELIMINATE', target: { x: 2, y: 2 } };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('forced_elimination');
+        if (result.state.phase === 'forced_elimination') {
+          expect(result.state.eliminationsDone).toBe(1);
+        }
+      }
+    });
+
+    it('should transition to game_over on RESIGN from forced_elimination', () => {
+      const state: ForcedEliminationState = {
+        phase: 'forced_elimination',
+        player: 1,
+        ringsOverLimit: 2,
+        eliminationsDone: 0,
+      };
+
+      const event: TurnEvent = { type: 'RESIGN', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+      }
+    });
+
+    it('should transition to game_over on TIMEOUT from forced_elimination', () => {
+      const state: ForcedEliminationState = {
+        phase: 'forced_elimination',
+        player: 1,
+        ringsOverLimit: 2,
+        eliminationsDone: 0,
+      };
+
+      const event: TurnEvent = { type: 'TIMEOUT', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+        if (result.state.phase === 'game_over') {
+          expect(result.state.reason).toBe('timeout');
+        }
+      }
+    });
+  });
+
+  describe('turn_end phase', () => {
+    it('should transition to ring_placement on _ADVANCE_TURN', () => {
+      const state: TurnEndState = {
+        phase: 'turn_end',
+        completedPlayer: 1,
+        nextPlayer: 2,
+      };
+
+      const event: TurnEvent = { type: '_ADVANCE_TURN' };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('ring_placement');
+        if (result.state.phase === 'ring_placement') {
+          expect(result.state.player).toBe(2);
+        }
+        expect(result.actions).toContainEqual({
+          type: 'ADVANCE_PLAYER',
+          from: 1,
+          to: 2,
+        });
+      }
+    });
+
+    it('should reject non-_ADVANCE_TURN events in turn_end', () => {
+      const state: TurnEndState = {
+        phase: 'turn_end',
+        completedPlayer: 1,
+        nextPlayer: 2,
+      };
+
+      const event: TurnEvent = { type: 'PLACE_RING', to: { x: 0, y: 0 } };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('INVALID_EVENT');
+      }
+    });
+  });
+
+  describe('movement phase CAPTURE and RECOVERY_SLIDE', () => {
+    it('should allow CAPTURE in movement phase', () => {
+      const state: MovementState = {
+        phase: 'movement',
+        player: 1,
+        canMove: true,
+        placedRingAt: { x: 3, y: 3 },
+      };
+
+      const event: TurnEvent = { type: 'CAPTURE', target: { x: 4, y: 4 } };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('line_processing');
+        expect(result.actions).toContainEqual({
+          type: 'EXECUTE_CAPTURE',
+          target: { x: 4, y: 4 },
+          capturer: 1,
+        });
+      }
+    });
+
+    it('should allow RECOVERY_SLIDE in movement phase', () => {
+      const state: MovementState = {
+        phase: 'movement',
+        player: 1,
+        canMove: true,
+        placedRingAt: null,
+      };
+
+      const event: TurnEvent = {
+        type: 'RECOVERY_SLIDE',
+        from: { x: 2, y: 2 },
+        to: { x: 2, y: 4 },
+        option: 1,
+      };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('line_processing');
+        expect(result.actions).toContainEqual({
+          type: 'MOVE_STACK',
+          from: { x: 2, y: 2 },
+          to: { x: 2, y: 4 },
+        });
+      }
+    });
+
+    it('should transition to game_over on TIMEOUT from movement phase', () => {
+      const state: MovementState = {
+        phase: 'movement',
+        player: 1,
+        canMove: true,
+        placedRingAt: { x: 3, y: 3 },
+      };
+
+      const event: TurnEvent = { type: 'TIMEOUT', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+        if (result.state.phase === 'game_over') {
+          expect(result.state.reason).toBe('timeout');
+        }
+      }
+    });
+  });
+
+  describe('timeout events in various phases', () => {
+    it('should transition to game_over on TIMEOUT from ring_placement', () => {
+      const state: RingPlacementState = {
+        phase: 'ring_placement',
+        player: 1,
+        ringsInHand: 1,
+        canPlace: true,
+        validPositions: [{ x: 3, y: 3 }],
+      };
+
+      const event: TurnEvent = { type: 'TIMEOUT', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+        if (result.state.phase === 'game_over') {
+          expect(result.state.reason).toBe('timeout');
+        }
+      }
+    });
+
+    it('should transition to game_over on TIMEOUT from chain_capture', () => {
+      const state: ChainCaptureState = {
+        phase: 'chain_capture',
+        player: 1,
+        attackerPosition: { x: 4, y: 4 },
+        capturedTargets: [{ x: 3, y: 3 }],
+        availableContinuations: [],
+        segmentCount: 1,
+        isFirstSegment: false,
+      };
+
+      const event: TurnEvent = { type: 'TIMEOUT', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+        if (result.state.phase === 'game_over') {
+          expect(result.state.reason).toBe('timeout');
+        }
+      }
+    });
+
+    it('should transition to game_over on TIMEOUT from line_processing', () => {
+      const state: LineProcessingState = {
+        phase: 'line_processing',
+        player: 1,
+        detectedLines: [],
+        currentLineIndex: 0,
+        awaitingReward: false,
+      };
+
+      const event: TurnEvent = { type: 'TIMEOUT', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+        if (result.state.phase === 'game_over') {
+          expect(result.state.reason).toBe('timeout');
+        }
+      }
+    });
+
+    it('should transition to game_over on TIMEOUT from territory_processing', () => {
+      const state: TerritoryProcessingState = {
+        phase: 'territory_processing',
+        player: 1,
+        disconnectedRegions: [],
+        currentRegionIndex: 0,
+        eliminationsPending: [],
+      };
+
+      const event: TurnEvent = { type: 'TIMEOUT', player: 1 };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.state.phase).toBe('game_over');
+        if (result.state.phase === 'game_over') {
+          expect(result.state.reason).toBe('timeout');
+        }
+      }
+    });
+  });
+
+  describe('game_over phase', () => {
+    it('should reject all events in game_over phase', () => {
+      const state: GameOverState = {
+        phase: 'game_over',
+        winner: 2,
+        reason: 'ring_elimination',
+      };
+
+      const events: TurnEvent[] = [
+        { type: 'PLACE_RING', to: { x: 0, y: 0 } },
+        { type: 'MOVE_STACK', from: { x: 0, y: 0 }, to: { x: 1, y: 1 } },
+        { type: 'RESIGN', player: 1 },
+        { type: 'TIMEOUT', player: 1 },
+      ];
+
+      events.forEach((event) => {
+        const result = transition(state, event, context);
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+          expect(result.error.message).toContain('Game is over');
+        }
+      });
+    });
+  });
+
+  describe('phase completion helpers', () => {
+    it('onLineProcessingComplete should return territory_processing when regions exist', () => {
+      const { onLineProcessingComplete } = require('../../../src/shared/engine/fsm');
+      const result = onLineProcessingComplete(true, true, true);
+      expect(result).toBe('territory_processing');
+    });
+
+    it('onLineProcessingComplete should return forced_elimination when no action and has stacks', () => {
+      const { onLineProcessingComplete } = require('../../../src/shared/engine/fsm');
+      const result = onLineProcessingComplete(false, false, true);
+      expect(result).toBe('forced_elimination');
+    });
+
+    it('onLineProcessingComplete should return turn_end when player had action', () => {
+      const { onLineProcessingComplete } = require('../../../src/shared/engine/fsm');
+      const result = onLineProcessingComplete(false, true, true);
+      expect(result).toBe('turn_end');
+    });
+
+    it('onLineProcessingComplete should return turn_end when player has no stacks', () => {
+      const { onLineProcessingComplete } = require('../../../src/shared/engine/fsm');
+      const result = onLineProcessingComplete(false, false, false);
+      expect(result).toBe('turn_end');
+    });
+
+    it('onTerritoryProcessingComplete should return forced_elimination when no action and has stacks', () => {
+      const { onTerritoryProcessingComplete } = require('../../../src/shared/engine/fsm');
+      const result = onTerritoryProcessingComplete(false, true);
+      expect(result).toBe('forced_elimination');
+    });
+
+    it('onTerritoryProcessingComplete should return turn_end when player had action', () => {
+      const { onTerritoryProcessingComplete } = require('../../../src/shared/engine/fsm');
+      const result = onTerritoryProcessingComplete(true, true);
+      expect(result).toBe('turn_end');
+    });
+
+    it('onTerritoryProcessingComplete should return turn_end when player has no stacks', () => {
+      const { onTerritoryProcessingComplete } = require('../../../src/shared/engine/fsm');
+      const result = onTerritoryProcessingComplete(false, false);
+      expect(result).toBe('turn_end');
     });
   });
 });

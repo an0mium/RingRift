@@ -192,38 +192,16 @@ export function isFSMValidationEnabled(): boolean {
 }
 
 /**
- * FSM orchestrator mode selector.
+ * FSM is the canonical orchestrator. Always returns true.
  *
- * RINGRIFT_FSM_ORCHESTRATOR_MODE:
- *   - 'active' : FSM drives phase transitions directly (default, canonical)
- *   - 'off'    : Legacy orchestration (for debugging only, not recommended)
+ * This function exists for backwards compatibility with code that checks
+ * whether FSM orchestration is active. Since FSM is now the only supported
+ * orchestration mode, this always returns true.
  *
- * FSM is the canonical orchestrator. The 'off' mode is retained for
- * debugging edge cases but is not used in CI or production.
- */
-export type FSMOrchestratorMode = 'off' | 'active';
-
-/**
- * Read the current FSM orchestrator mode from the environment.
- * Defaults to 'active' (FSM is the canonical orchestrator).
- *
- * To revert to legacy orchestration for debugging, set RINGRIFT_FSM_ORCHESTRATOR_MODE=off.
- */
-export function getFSMOrchestratorMode(): FSMOrchestratorMode {
-  const modeRaw = readEnv('RINGRIFT_FSM_ORCHESTRATOR_MODE');
-  if (modeRaw === 'off') {
-    return 'off';
-  }
-  // FSM is the canonical orchestrator by default
-  return 'active';
-}
-
-/**
- * True when FSM orchestrator is active (FSM drives transitions).
- * This is the default and canonical mode.
+ * @deprecated FSM is always active. Remove checks for this function over time.
  */
 export function isFSMOrchestratorActive(): boolean {
-  return getFSMOrchestratorMode() === 'active';
+  return true;
 }
 
 /**

@@ -18,20 +18,10 @@ import {
   type InvariantViolation,
 } from './goldenReplayHelpers';
 import type { GameRecord } from '../../src/shared/types/gameRecord';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 describe('Golden Replay Tests', () => {
   const goldenGamesDir = getGoldenGamesDir();
   const goldenGames = loadGoldenGames(goldenGamesDir);
-
-  // TODO(FSM): Golden game fixtures were recorded with legacy orchestration.
-  // FSM orchestration produces different phase transitions that break replay.
-  // Fix: Run `npm run curate:golden` with FSM active to regenerate fixtures.
-  // Then remove this skip block.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - Golden fixtures need regeneration with FSM orchestration', () => {});
-    return;
-  }
 
   // Skip if no fixtures available yet
   if (goldenGames.length === 0) {

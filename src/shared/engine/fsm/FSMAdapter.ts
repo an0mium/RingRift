@@ -140,6 +140,10 @@ export function moveToEvent(move: Move): TurnEvent | null {
     case 'resign':
       return { type: 'RESIGN', player: move.player };
 
+    // Timeout (allowed from any phase)
+    case 'timeout':
+      return { type: 'TIMEOUT', player: move.player };
+
     // Meta/swap (not FSM events)
     case 'swap_sides':
     case 'line_formation':
@@ -1000,6 +1004,15 @@ export function validateMoveWithFSM(
 
   // Check event conversion
   if (!event) {
+    // Meta-moves (swap_sides, line_formation, territory_claim) don't have FSM events
+    // but are allowed in any phase. If the move type is explicitly permitted for the
+    // current phase, let it through - the orchestrator handles meta-moves specially.
+    if (isMoveTypeValidForPhase(fsmState.phase, move.type)) {
+      return makeResult({
+        valid: true,
+        currentPhase: fsmState.phase,
+      });
+    }
     return makeResult({
       valid: false,
       currentPhase: fsmState.phase,
@@ -1140,8 +1153,8 @@ export function getAllowedMoveTypesForPhase(phase: GamePhase): ReadonlyArray<Mov
  * contract used by the orchestrator.
  */
 export function isMoveTypeValidForPhase(phase: GamePhase, moveType: MoveType): boolean {
-  // Resign is allowed from any phase - player can always forfeit.
-  if (moveType === 'resign') {
+  // Resign and timeout are allowed from any phase - player can always forfeit.
+  if (moveType === 'resign' || moveType === 'timeout') {
     return true;
   }
 

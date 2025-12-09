@@ -1,0 +1,217 @@
+{
+  "id": "8840e2e0-c576-4973-a2a4-7b112dd5ebf7",
+  "boardType": "square8",
+  "numPlayers": 2,
+  "isRated": false,
+  "players": [
+    {
+      "playerNumber": 1,
+      "username": "Player 1",
+      "playerType": "ai",
+      "aiType": "random",
+      "aiDifficulty": 1
+    },
+    {
+      "playerNumber": 2,
+      "username": "Player 2",
+      "playerType": "ai",
+      "aiType": "random",
+      "aiDifficulty": 1
+    }
+  ],
+  "outcome": "ring_elimination",
+  "finalScore": {
+    "ringsEliminated": {
+      "1": 0,
+      "2": 0
+    },
+    "territorySpaces": {
+      "1": 0,
+      "2": 0
+    },
+    "ringsRemaining": {
+      "1": 16,
+      "2": 16
+    }
+  },
+  "startedAt": "2025-12-09T23:14:37.416Z",
+  "endedAt": "2025-12-09T23:14:37.418Z",
+  "totalMoves": 14,
+  "totalDurationMs": 2,
+  "moves": [
+    {
+      "moveNumber": 1,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 6,
+        "y": 7
+      }
+    },
+    {
+      "moveNumber": 2,
+      "player": 1,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 6,
+        "y": 7
+      },
+      "to": {
+        "x": 3,
+        "y": 7
+      }
+    },
+    {
+      "moveNumber": 3,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 4,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 5,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 2,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 6,
+      "player": 2,
+      "type": "move_stack",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 2,
+        "y": 0
+      },
+      "to": {
+        "x": 2,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 7,
+      "player": 2,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 8,
+      "player": 2,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 9,
+      "player": 1,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 1,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 10,
+      "player": 1,
+      "type": "overtaking_capture",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 1,
+        "y": 2
+      },
+      "to": {
+        "x": 4,
+        "y": 2
+      },
+      "captureTarget": {
+        "x": 2,
+        "y": 2
+      }
+    },
+    {
+      "moveNumber": 11,
+      "player": 1,
+      "type": "no_line_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 12,
+      "player": 1,
+      "type": "no_territory_action",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "moveNumber": 13,
+      "player": 2,
+      "type": "place_ring",
+      "thinkTimeMs": 0,
+      "to": {
+        "x": 3,
+        "y": 1
+      }
+    },
+    {
+      "moveNumber": 14,
+      "player": 2,
+      "type": "overtaking_capture",
+      "thinkTimeMs": 0,
+      "from": {
+        "x": 3,
+        "y": 1
+      },
+      "to": {
+        "x": 7,
+        "y": 5
+      },
+      "captureTarget": {
+        "x": 4,
+        "y": 2
+      }
+    }
+  ],
+  "metadata": {
+    "recordVersion": "1.0.0",
+    "createdAt": "2025-12-09T23:14:37.418Z",
+    "source": "self_play",
+    "tags": [
+      "golden",
+      "fsm-canonical",
+      "generated"
+    ]
+  }
+}

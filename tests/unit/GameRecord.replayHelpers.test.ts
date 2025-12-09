@@ -1,17 +1,9 @@
 import { reconstructStateAtMove } from '../../src/shared/engine';
 import type { GameRecord } from '../../src/shared/types/gameRecord';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 describe('reconstructStateAtMove', () => {
-  // TODO(FSM): FSM rejects no_movement_action when canMove=true.
-  // After placing a ring at (3,3), the player CAN move it, so no_movement_action fails guard.
-  // Fix: Either (a) place ring at position with no valid moves (blocked),
-  // or (b) test with an actual move_stack instead of no_movement_action,
-  // or (c) add moveHint support to bypass guard for replay scenarios.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - Test data uses FSM-invalid move sequences', () => {});
-    return;
-  }
+  // FSM-compatible test data: uses actual move_stack instead of no_movement_action
+  // because FSM rejects no_movement_action when valid moves exist.
   const baseRecord: GameRecord = {
     id: 'test-game',
     boardType: 'square8',
@@ -20,18 +12,14 @@ describe('reconstructStateAtMove', () => {
     isRated: false,
     players: [
       {
-        number: 1,
-        name: 'P1',
-        type: 'ai',
-        rating: undefined,
-        tags: [],
+        playerNumber: 1,
+        username: 'P1',
+        playerType: 'ai',
       },
       {
-        number: 2,
-        name: 'P2',
-        type: 'ai',
-        rating: undefined,
-        tags: [],
+        playerNumber: 2,
+        username: 'P2',
+        playerType: 'ai',
       },
     ],
     winner: undefined,
@@ -43,52 +31,49 @@ describe('reconstructStateAtMove', () => {
     },
     startedAt: new Date().toISOString(),
     endedAt: new Date().toISOString(),
-    totalMoves: 2,
+    totalMoves: 5,
     totalDurationMs: 0,
     // Per RR-CANON-R075: All phases must be visited with explicit moves.
-    // After place_ring, the turn progresses through movement, line_processing,
-    // and territory_processing with explicit no-op moves before next player.
+    // After place_ring, the turn uses an actual move, then line/territory no-ops.
     moves: [
       {
-        moveNumber: 0,
+        moveNumber: 1,
         player: 1,
         type: 'place_ring',
         from: undefined,
         to: { x: 3, y: 3 },
-        placementCount: 1,
-        thinkTimeMs: 0,
-      },
-      {
-        moveNumber: 1,
-        player: 1,
-        type: 'no_movement_action',
-        from: undefined,
-        to: undefined,
         thinkTimeMs: 0,
       },
       {
         moveNumber: 2,
         player: 1,
-        type: 'no_line_action',
-        from: undefined,
-        to: undefined,
+        type: 'move_stack',
+        from: { x: 3, y: 3 },
+        to: { x: 3, y: 4 },
         thinkTimeMs: 0,
       },
       {
         moveNumber: 3,
         player: 1,
-        type: 'no_territory_action',
+        type: 'no_line_action',
         from: undefined,
-        to: undefined,
+        to: { x: 0, y: 0 },
         thinkTimeMs: 0,
       },
       {
         moveNumber: 4,
+        player: 1,
+        type: 'no_territory_action',
+        from: undefined,
+        to: { x: 0, y: 0 },
+        thinkTimeMs: 0,
+      },
+      {
+        moveNumber: 5,
         player: 2,
         type: 'place_ring',
         from: undefined,
         to: { x: 4, y: 4 },
-        placementCount: 1,
         thinkTimeMs: 0,
       },
     ],
@@ -106,12 +91,17 @@ describe('reconstructStateAtMove', () => {
   });
 
   it('applies moves up to the requested index', () => {
-    // moveIndex 1 = after place_ring by player 1
+    // moveIndex 1 = after place_ring at (3,3) by player 1
     const stateAfterFirst = reconstructStateAtMove(baseRecord, 1);
-    // moveIndex 5 = after place_ring by player 2 (move indices 2-4 are no-op phase moves)
+    // moveIndex 2 = after move_stack to (3,4) by player 1
+    const stateAfterMove = reconstructStateAtMove(baseRecord, 2);
+    // moveIndex 5 = after place_ring by player 2 (move indices 3-4 are no-op phase moves)
     const stateAfterSecond = reconstructStateAtMove(baseRecord, 5);
 
     const positionsAfterFirst = Array.from(stateAfterFirst.board.stacks.values()).map(
+      (s) => `${s.position.x},${s.position.y}`
+    );
+    const positionsAfterMove = Array.from(stateAfterMove.board.stacks.values()).map(
       (s) => `${s.position.x},${s.position.y}`
     );
     const positionsAfterSecond = Array.from(stateAfterSecond.board.stacks.values()).map(
@@ -119,7 +109,8 @@ describe('reconstructStateAtMove', () => {
     );
 
     expect(positionsAfterFirst.sort()).toEqual(['3,3'].sort());
-    expect(positionsAfterSecond.sort()).toEqual(['3,3', '4,4'].sort());
+    expect(positionsAfterMove.sort()).toEqual(['3,4'].sort()); // Stack moved to 3,4
+    expect(positionsAfterSecond.sort()).toEqual(['3,4', '4,4'].sort());
   });
 
   it('clamps moveIndex beyond the number of moves', () => {
@@ -127,7 +118,7 @@ describe('reconstructStateAtMove', () => {
     const positions = Array.from(state.board.stacks.values()).map(
       (s) => `${s.position.x},${s.position.y}`
     );
-    expect(positions.sort()).toEqual(['3,3', '4,4'].sort());
+    expect(positions.sort()).toEqual(['3,4', '4,4'].sort()); // Stack is at 3,4 after movement
   });
 
   it('throws for negative moveIndex', () => {
