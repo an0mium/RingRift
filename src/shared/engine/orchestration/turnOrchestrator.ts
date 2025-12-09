@@ -60,24 +60,15 @@ import type {
 } from './types';
 
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
-import {
-  flagEnabled,
-  debugLog,
-  fsmTraceLog,
-  getFSMValidationMode,
-  getFSMOrchestratorMode,
-  isFSMOrchestratorActive,
-} from '../../utils/envFlags';
+import { flagEnabled, debugLog, fsmTraceLog } from '../../utils/envFlags';
 
-// FSM validation imports
+// FSM imports
 import {
   validateMoveWithFSM,
   isMoveTypeValidForPhase,
   onLineProcessingComplete,
   onTerritoryProcessingComplete,
-  // FSM orchestration
   computeFSMOrchestration,
-  compareFSMWithLegacy,
 } from '../fsm';
 
 // Import from domain aggregates
@@ -1196,19 +1187,13 @@ export function processTurn(
   // no-action move per RR-CANON-R075.
   assertPhaseMoveInvariant(state, move);
 
-  // FSM Validation: Run FSM-based validation either in shadow mode (log only)
-  // or active mode (enforce validation). Controlled by RINGRIFT_FSM_VALIDATION_MODE.
-  const fsmMode = getFSMValidationMode();
-  if (fsmMode !== 'off') {
-    const fsmValidationResult = performFSMValidation(state, move, fsmMode);
-
-    // In active mode, reject invalid moves based on FSM validation
-    if (fsmMode === 'active' && !fsmValidationResult.valid) {
-      const reason = fsmValidationResult.reason || `FSM validation rejected ${move.type} move`;
-      throw new Error(
-        `[FSM] Invalid move: ${reason} (phase=${fsmValidationResult.currentPhase}, errorCode=${fsmValidationResult.errorCode})`
-      );
-    }
+  // FSM Validation: FSM is now the canonical validator - always enforce validation.
+  const fsmValidationResult = performFSMValidation(state, move, 'active');
+  if (!fsmValidationResult.valid) {
+    const reason = fsmValidationResult.reason || `FSM validation rejected ${move.type} move`;
+    throw new Error(
+      `[FSM] Invalid move: ${reason} (phase=${fsmValidationResult.currentPhase}, errorCode=${fsmValidationResult.errorCode})`
+    );
   }
 
   const sInvariantBefore = computeSInvariant(state);
@@ -1427,83 +1412,45 @@ export function processTurn(
     }
   }
 
-  // FSM orchestrator mode check: run FSM orchestration and compare/apply results
-  const fsmOrchestratorMode = getFSMOrchestratorMode();
-  if (fsmOrchestratorMode !== 'off') {
-    try {
-      // Compute FSM orchestration result using pre-move state for FSM transition,
-      // but pass post-move state for chain capture availability checking.
-      const fsmOrchResult = computeFSMOrchestration(state, move, {
-        postMoveStateForChainCheck: finalState,
-      });
+  // FSM orchestrator: compute and apply FSM-derived phase/player transitions.
+  // FSM is now the canonical orchestrator - always apply FSM results.
+  try {
+    // Compute FSM orchestration result using pre-move state for FSM transition,
+    // but pass post-move state for chain capture availability checking.
+    const fsmOrchResult = computeFSMOrchestration(state, move, {
+      postMoveStateForChainCheck: finalState,
+    });
 
-      if (!fsmOrchResult.success) {
-        fsmTraceLog('[FSM_ORCHESTRATOR] ERROR', {
-          moveType: move.type,
-          movePlayer: move.player,
-          error: fsmOrchResult.error,
-          gameId: state.id,
-          moveNumber: state.moveHistory.length + 1,
-          mode: fsmOrchestratorMode,
-        });
-      } else {
-        // Compare FSM result with legacy orchestration
-        const comparison = compareFSMWithLegacy(
-          fsmOrchResult,
-          finalState.currentPhase,
-          finalState.currentPlayer
-        );
-
-        if (comparison.diverged) {
-          fsmTraceLog('[FSM_ORCHESTRATOR] DIVERGENCE', {
-            moveType: move.type,
-            movePlayer: move.player,
-            fsmPhase: comparison.details?.fsmPhase,
-            fsmPlayer: comparison.details?.fsmPlayer,
-            legacyPhase: comparison.details?.legacyPhase,
-            legacyPlayer: comparison.details?.legacyPlayer,
-            phaseDiverged: comparison.phaseDiverged,
-            playerDiverged: comparison.playerDiverged,
-            gameId: state.id,
-            moveNumber: state.moveHistory.length + 1,
-            mode: fsmOrchestratorMode,
-          });
-
-          // In active mode, use FSM-derived state instead of legacy
-          if (isFSMOrchestratorActive()) {
-            // Map turn_end to ring_placement for next player
-            const effectivePhase =
-              fsmOrchResult.nextPhase === 'turn_end'
-                ? 'ring_placement'
-                : (fsmOrchResult.nextPhase as GamePhase);
-
-            finalState = {
-              ...finalState,
-              currentPhase: effectivePhase,
-              currentPlayer: fsmOrchResult.nextPlayer,
-            };
-
-            fsmTraceLog('[FSM_ORCHESTRATOR] ACTIVE_OVERRIDE', {
-              moveType: move.type,
-              movePlayer: move.player,
-              newPhase: effectivePhase,
-              newPlayer: fsmOrchResult.nextPlayer,
-              gameId: state.id,
-              moveNumber: state.moveHistory.length + 1,
-            });
-          }
-        }
-      }
-    } catch (err) {
-      fsmTraceLog('[FSM_ORCHESTRATOR] EXCEPTION', {
+    if (!fsmOrchResult.success) {
+      fsmTraceLog('[FSM_ORCHESTRATOR] ERROR', {
         moveType: move.type,
         movePlayer: move.player,
-        error: err instanceof Error ? err.message : String(err),
+        error: fsmOrchResult.error,
         gameId: state.id,
         moveNumber: state.moveHistory.length + 1,
-        mode: fsmOrchestratorMode,
       });
+    } else {
+      // Map turn_end to ring_placement for next player
+      const effectivePhase =
+        fsmOrchResult.nextPhase === 'turn_end'
+          ? 'ring_placement'
+          : (fsmOrchResult.nextPhase as GamePhase);
+
+      // Apply FSM-derived state
+      finalState = {
+        ...finalState,
+        currentPhase: effectivePhase,
+        currentPlayer: fsmOrchResult.nextPlayer,
+      };
     }
+  } catch (err) {
+    fsmTraceLog('[FSM_ORCHESTRATOR] EXCEPTION', {
+      moveType: move.type,
+      movePlayer: move.player,
+      error: err instanceof Error ? err.message : String(err),
+      gameId: state.id,
+      moveNumber: state.moveHistory.length + 1,
+    });
   }
 
   return {

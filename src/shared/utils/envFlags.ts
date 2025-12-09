@@ -171,7 +171,8 @@ export function getFSMValidationMode(): FSMValidationMode {
     return 'shadow';
   }
 
-  return 'off';
+  // FSM validation is now the canonical validator (RR-CANON compliance)
+  return 'active';
 }
 
 /** True when FSM validation is in shadow mode (run but don't enforce). */
