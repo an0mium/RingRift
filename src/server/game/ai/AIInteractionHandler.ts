@@ -228,6 +228,7 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
             invalidOption: selected,
           }
         );
+        outcome = 'fallback';
       } catch (error) {
         // Service is unavailable or misconfigured for this player. Log a
         // structured warning and fall back to the local heuristic; this is
@@ -324,6 +325,7 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
             invalidOption: selected,
           }
         );
+        outcome = 'fallback';
       } catch (error) {
         // Service is unavailable or misconfigured for this player. Log a
         // structured warning and fall back to the local heuristic.
@@ -427,6 +429,7 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
             invalidOption: selected,
           }
         );
+        outcome = 'fallback';
       } catch (error) {
         // Service is unavailable or misconfigured for this player. Log a
         // structured warning and fall back to the local heuristic.
@@ -535,6 +538,7 @@ export class AIInteractionHandler implements PlayerInteractionHandler {
             invalidOption: selected,
           }
         );
+        outcome = 'fallback';
       } catch (error) {
         const aiErrorType = (error as any)?.aiErrorType;
         outcome = aiErrorType === 'timeout' ? 'timeout' : 'fallback';
