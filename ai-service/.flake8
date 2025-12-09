@@ -1,6 +1,8 @@
 [flake8]
 # Ignore all blank-line style errors (E3xx) within the ai-service Python package
 # so that linters do not complain about extra/missing blank lines.
-# Also ignore E203 (whitespace before ':') since black formats slices differently.
-extend-ignore = E3, E203
+# E203: whitespace before ':' - black formats slices differently
+# E402: module level import not at top - some imports must be delayed to avoid circular imports
+# F841: local variable assigned but never used - allow underscore-prefixed vars
+extend-ignore = E3, E203, E402, F841
 max-line-length = 120

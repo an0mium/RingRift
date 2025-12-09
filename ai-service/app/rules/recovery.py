@@ -27,9 +27,6 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Literal
 from datetime import datetime
 
-# Recovery option type alias
-RecoveryOption = Literal[1, 2]
-
 from app.models import (
     GameState,
     Move,
@@ -46,6 +43,9 @@ from app.rules.core import (
     is_eligible_for_recovery,
     get_effective_line_length,
 )
+
+# Recovery option type alias
+RecoveryOption = Literal[1, 2]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
