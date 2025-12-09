@@ -63,6 +63,7 @@ import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachin
 import {
   flagEnabled,
   debugLog,
+  fsmTraceLog,
   getFSMValidationMode,
   getFSMOrchestratorMode,
   isFSMOrchestratorActive,
@@ -1412,7 +1413,7 @@ export function processTurn(
       });
 
       if (!fsmOrchResult.success) {
-        debugLog(true, '[FSM_ORCHESTRATOR] ERROR', {
+        fsmTraceLog('[FSM_ORCHESTRATOR] ERROR', {
           moveType: move.type,
           movePlayer: move.player,
           error: fsmOrchResult.error,
@@ -1429,7 +1430,7 @@ export function processTurn(
         );
 
         if (comparison.diverged) {
-          debugLog(true, '[FSM_ORCHESTRATOR] DIVERGENCE', {
+          fsmTraceLog('[FSM_ORCHESTRATOR] DIVERGENCE', {
             moveType: move.type,
             movePlayer: move.player,
             fsmPhase: comparison.details?.fsmPhase,
@@ -1457,7 +1458,7 @@ export function processTurn(
               currentPlayer: fsmOrchResult.nextPlayer,
             };
 
-            debugLog(true, '[FSM_ORCHESTRATOR] ACTIVE_OVERRIDE', {
+            fsmTraceLog('[FSM_ORCHESTRATOR] ACTIVE_OVERRIDE', {
               moveType: move.type,
               movePlayer: move.player,
               newPhase: effectivePhase,
@@ -1469,7 +1470,7 @@ export function processTurn(
         }
       }
     } catch (err) {
-      debugLog(true, '[FSM_ORCHESTRATOR] EXCEPTION', {
+      fsmTraceLog('[FSM_ORCHESTRATOR] EXCEPTION', {
         moveType: move.type,
         movePlayer: move.player,
         error: err instanceof Error ? err.message : String(err),
@@ -1863,7 +1864,7 @@ function performFSMValidation(
 
       // Log divergence if FSM and existing disagree
       if (divergence) {
-        debugLog(true, '[FSM_SHADOW_VALIDATION] DIVERGENCE DETECTED', {
+        fsmTraceLog('[FSM_SHADOW_VALIDATION] DIVERGENCE DETECTED', {
           moveType: move.type,
           movePlayer: move.player,
           currentPhase: state.currentPhase,
@@ -1887,7 +1888,7 @@ function performFSMValidation(
       const existingPhaseValid = isPhaseValidForMoveType(state.currentPhase, move.type);
 
       if (fsmPhaseValid !== existingPhaseValid) {
-        debugLog(true, '[FSM_SHADOW_VALIDATION] PHASE_VALIDITY_DIVERGENCE', {
+        fsmTraceLog('[FSM_SHADOW_VALIDATION] PHASE_VALIDITY_DIVERGENCE', {
           moveType: move.type,
           currentPhase: state.currentPhase,
           fsmPhaseValid,
@@ -1925,7 +1926,7 @@ function performFSMValidation(
   } catch (error) {
     // Log FSM validation errors
     const errorMessage = error instanceof Error ? error.message : String(error);
-    debugLog(true, '[FSM_VALIDATION] ERROR', {
+    fsmTraceLog('[FSM_VALIDATION] ERROR', {
       moveType: move.type,
       currentPhase: state.currentPhase,
       error: errorMessage,

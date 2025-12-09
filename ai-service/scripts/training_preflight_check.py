@@ -10,15 +10,22 @@ Usage:
     python scripts/training_preflight_check.py
 """
 
+import argparse
 import json
 import os
 import sys
 import tempfile
 from dataclasses import dataclass, field
-from typing import List, Optional
+from pathlib import Path
+from typing import Dict, List, Optional
 
 # Ensure we can import from app/
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(
+    0,
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+)
+
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
 @dataclass
@@ -925,11 +932,164 @@ class PreflightChecker:
         else:
             print("=== PREFLIGHT CHECK FAILED ===")
             failed = total_checks - total_passed
-            print(f"{failed} of {total_checks} checks failed. " "Please fix issues before training.")
+            print(
+                f"{failed} of {total_checks} checks failed. "
+                "Please fix issues before training."
+            )
 
 
-def main() -> int:
+def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    """Parse CLI arguments for the training preflight checker."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Run RingRift training preflight checks, including canonical "
+            "replay DB gating based on TRAINING_DATA_REGISTRY.md."
+        )
+    )
+    parser.add_argument(
+        "--config",
+        action="append",
+        default=[],
+        help=(
+            "Path to a training pipeline config JSON that may reference "
+            "replay DBs (for example tier_training_pipeline.square8_2p.json). "
+            "May be provided multiple times."
+        ),
+    )
+    parser.add_argument(
+        "--registry",
+        type=str,
+        default=str(AI_SERVICE_ROOT / "TRAINING_DATA_REGISTRY.md"),
+        help=(
+            "Path to TRAINING_DATA_REGISTRY.md. Defaults to the copy under "
+            "ai-service/."
+        ),
+    )
+    parser.add_argument(
+        "--allow-legacy",
+        action="store_true",
+        help=(
+            "Allow non-canonical DBs as training sources. This is intended "
+            "only for explicitly marked legacy/experimental runs."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def _discover_db_paths_from_config(config_path: Path) -> List[Path]:
+    """Discover *.db paths referenced anywhere in a JSON config."""
+    with config_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    found: List[str] = []
+
+    def _walk(node: object) -> None:
+        if isinstance(node, dict):
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                _walk(value)
+        elif isinstance(node, str):
+            if ".db" in node:
+                found.append(node)
+
+    _walk(data)
+
+    db_paths: List[Path] = []
+    for raw in found:
+        raw_str = raw.strip()
+        if not raw_str:
+            continue
+        if os.path.isabs(raw_str):
+            db_paths.append(Path(raw_str))
+        else:
+            db_paths.append(AI_SERVICE_ROOT / raw_str)
+
+    seen: Dict[Path, bool] = {}
+    unique: List[Path] = []
+    for path in db_paths:
+        key = path.resolve()
+        if key in seen:
+            continue
+        seen[key] = True
+        unique.append(path)
+    return unique
+
+
+def _run_canonical_sources_preflight(args: argparse.Namespace) -> bool:
+    """Run canonical replay DB validation based on training configs.
+
+    Returns True when either:
+
+    - No DB paths are discovered, or
+    - All discovered DBs are canonical according to the registry and gate
+      artefacts, or
+    - Problems are found but --allow-legacy is set.
+    """
+    registry_path = Path(args.registry)
+    if not registry_path.is_absolute():
+        registry_path = AI_SERVICE_ROOT / registry_path
+
+    db_paths: List[Path] = []
+    for cfg in args.config or []:
+        cfg_path = Path(cfg)
+        if not cfg_path.is_absolute():
+            cfg_path = AI_SERVICE_ROOT / cfg_path
+        if not cfg_path.exists():
+            print(
+                f"[canonical-source-error] Config file not found: {cfg_path}",
+                file=sys.stderr,
+            )
+            return False
+        db_paths.extend(_discover_db_paths_from_config(cfg_path))
+
+    if not db_paths:
+        # Nothing to validate; treat this as OK but make it explicit so
+        # callers know that no replay DBs were discovered.
+        print(
+            "No replay DB paths discovered in training configs; "
+            "skipping canonical source validation."
+        )
+        return True
+
+    # Import lazily to avoid hard dependency when running preflight in
+    # isolation from the broader training stack.
+    from scripts.validate_canonical_training_sources import (  # type: ignore
+        validate_canonical_sources,
+    )
+
+    result = validate_canonical_sources(registry_path, db_paths)
+    if result.get("ok"):
+        print("Canonical training sources validated:")
+        for checked in result.get("checked", []):
+            print(f"  {checked}")
+        return True
+
+    # Surface all issues with a stable prefix so CI and tooling can grep.
+    for issue in result.get("problems", []):
+        print(f"[canonical-source-error] {issue}", file=sys.stderr)
+
+    if getattr(args, "allow_legacy", False):
+        print(
+            "[canonical-sources] allow-legacy flag set; continuing "
+            "despite canonical-source errors.",
+            file=sys.stderr,
+        )
+        return True
+
+    return False
+
+
+def main(argv: Optional[List[str]] = None) -> int:
     """Main entry point. Returns 0 on success, 1 on failure."""
+    args = _parse_args(argv)
+
+    # Run canonical replay DB gating first so we fail fast when training
+    # configs reference non-canonical or un-gated replay databases.
+    if not _run_canonical_sources_preflight(args):
+        return 1
+
     checker = PreflightChecker()
     all_passed = checker.run_all_checks()
     checker.print_report()

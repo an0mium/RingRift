@@ -263,3 +263,23 @@ export function debugLog(condition: boolean, ...args: any[]): void {
     console.log(...args);
   }
 }
+
+/**
+ * FSM trace logging - only logs when FSM trace debugging is enabled.
+ *
+ * Logs are emitted when:
+ * - RINGRIFT_FSM_TRACE_DEBUG=1 (explicit debug mode), OR
+ * - FSM orchestrator is in shadow mode (for parity debugging)
+ *
+ * In active mode without trace debug, FSM logs are suppressed since
+ * FSM behavior is canonical and divergences are expected (handled).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function fsmTraceLog(tag: string, ...args: any[]): void {
+  const shouldLog = flagEnabled('RINGRIFT_FSM_TRACE_DEBUG') || isFSMOrchestratorShadowEnabled();
+
+  if (shouldLog) {
+    // eslint-disable-next-line no-console
+    console.log(tag, ...args);
+  }
+}

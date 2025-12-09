@@ -149,6 +149,10 @@ class GameRecord:
     # and whether the pie rule was exercised at least once.
     swap_sides_moves: int = 0
     used_pie_rule: bool = False
+    # Training data: moves and initial state for reconstructing games from JSONL
+    # These are optional and only included when --include-training-data is set
+    moves: Optional[List[Dict[str, Any]]] = None
+    initial_state: Optional[Dict[str, Any]] = None
 
 
 def _record_invariant_violation(
@@ -611,6 +615,10 @@ def run_self_play_soak(
     # Default is True (lean enabled), --no-lean-db disables it
     lean_db_enabled = getattr(args, "lean_db", True) and not getattr(args, "no_lean_db", False)
 
+    # Include training data (moves + initial_state) in JSONL output for
+    # instances that can't use database recording (e.g., Vast.ai with limited disk)
+    include_training_data = getattr(args, "include_training_data", False)
+
     env_config = TrainingEnvConfig(
         board_type=board_type,
         num_players=num_players,
@@ -692,8 +700,10 @@ def run_self_play_soak(
             skipped = False  # track games we drop but continue
 
             # Game recording: capture initial state and collect moves
-            initial_state_for_recording = state.model_copy(deep=True) if replay_db else None
-            game_moves_for_recording: List[Any] = [] if replay_db else []
+            # Also track for JSONL training data if include_training_data is enabled
+            should_track_game_data = replay_db or include_training_data
+            initial_state_for_recording = state.model_copy(deep=True) if should_track_game_data else None
+            game_moves_for_recording: List[Any] = []
 
             # Initialise S-invariant / elimination snapshot for this game.
             prev_snapshot = compute_progress_snapshot(state)
@@ -897,12 +907,12 @@ def run_self_play_soak(
                         )
                         skipped = True
                         break
-                    # Collect move for game recording.
+                    # Collect move for game recording (DB or JSONL training data).
                     # Also include any bookkeeping moves (e.g., no_territory_action)
                     # that the host/rules stack may have appended based on phase
                     # requirements per RR-CANON-R075/R076. These are critical for
                     # TS↔Python replay parity.
-                    if replay_db:
+                    if should_track_game_data:
                         game_moves_for_recording.append(move)
                         auto_moves = step_info.get("auto_generated_moves", [])
                         if auto_moves:
@@ -1197,6 +1207,18 @@ def run_self_play_soak(
                     # Snapshotting must never break the soak loop.
                     pass
 
+            # Serialize training data for JSONL if enabled
+            training_moves = None
+            training_initial_state = None
+            if include_training_data and initial_state_for_recording is not None:
+                # Serialize moves to JSON-compatible dicts
+                training_moves = [
+                    m.model_dump(mode="json") if hasattr(m, "model_dump") else m
+                    for m in game_moves_for_recording
+                ]
+                # Serialize initial state
+                training_initial_state = initial_state_for_recording.model_dump(mode="json")
+
             rec = GameRecord(
                 index=game_idx,
                 num_players=num_players,
@@ -1211,6 +1233,8 @@ def run_self_play_soak(
                 invariant_violations_by_type=per_game_violations,
                 swap_sides_moves=swap_sides_moves_for_game,
                 used_pie_rule=swap_sides_moves_for_game > 0,
+                moves=training_moves,
+                initial_state=training_initial_state,
             )
             log_f.write(json.dumps(asdict(rec)) + "\n")
             # Ensure per-game records are visible to tail/analysis tools even
@@ -1966,6 +1990,16 @@ def _parse_args() -> argparse.Namespace:
         "--no-lean-db",
         action="store_true",
         help="Disable lean recording mode; store full state history for debugging.",
+    )
+    parser.add_argument(
+        "--include-training-data",
+        action="store_true",
+        help=(
+            "Include training data (moves and initial_state) in JSONL output. "
+            "This allows reconstructing full games from JSONL alone without a database. "
+            "Increases JSONL file size but enables Vast.ai instances to generate "
+            "training-ready data without database overhead."
+        ),
     )
     return parser.parse_args()
 

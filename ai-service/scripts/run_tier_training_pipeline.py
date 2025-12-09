@@ -20,9 +20,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -85,6 +87,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional RNG seed for reproducible demo runs.",
+    )
+    parser.add_argument(
+        "--pipeline-config",
+        type=str,
+        default="config/tier_training_pipeline.square8_2p.json",
+        help=(
+            "Tier training pipeline config JSON used for canonical source "
+            "preflight (default: config/tier_training_pipeline.square8_2p.json)."
+        ),
+    )
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help=(
+            "Skip canonical training-source preflight. This is intended only "
+            "for explicitly marked legacy/experimental runs."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -361,8 +380,66 @@ def _update_status_json(
         json.dump(status, f, indent=2, sort_keys=True)
 
 
+def _run_training_preflight(args: argparse.Namespace) -> None:
+    """Run canonical training preflight before starting tier training.
+
+    This delegates to scripts/training_preflight_check.py with the tier
+    pipeline config wired through so it can resolve any replay DB paths
+    and validate them against TRAINING_DATA_REGISTRY.md.
+    """
+    if args.skip_preflight:
+        print(
+            "[warning] Skipping training preflight (--skip-preflight set). "
+            "Use only for explicitly legacy/experimental runs.",
+            file=sys.stderr,
+        )
+        return
+
+    scripts_dir = Path(SCRIPT_DIR)
+    preflight_script = scripts_dir / "training_preflight_check.py"
+    if not preflight_script.exists():
+        print(
+            "[warning] training_preflight_check.py not found; "
+            "skipping canonical source preflight.",
+            file=sys.stderr,
+        )
+        return
+
+    # Resolve pipeline config relative to ai-service root when needed.
+    config_path = Path(args.pipeline_config)
+    if not config_path.is_absolute():
+        config_path = Path(PROJECT_ROOT) / config_path
+
+    cmd = [
+        sys.executable,
+        str(preflight_script),
+        "--config",
+        str(config_path),
+        "--registry",
+        "TRAINING_DATA_REGISTRY.md",
+    ]
+
+    print(f"Running training preflight: {' '.join(cmd)}")
+    proc = subprocess.run(
+        cmd,
+        cwd=PROJECT_ROOT,
+        text=True,
+    )
+    if proc.returncode != 0:
+        print(
+            "[ERROR] Training preflight failed due to noncanonical sources "
+            "or environment issues.",
+            file=sys.stderr,
+        )
+        raise SystemExit(proc.returncode)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    # Always run canonical training preflight before doing any heavy work.
+    _run_training_preflight(args)
+
     tier_name = args.tier.upper()
     if tier_name not in {"D2", "D4", "D6", "D8"}:
         raise SystemExit(f"Unsupported tier {args.tier!r}; expected one of D2, D4, D6, D8.")

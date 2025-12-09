@@ -592,6 +592,49 @@ describe('GameHUD', () => {
       expect(countdownPill).not.toHaveAttribute('data-server-capped');
     });
 
+    it('removes the decision banner when the pending choice is cleared on rerender', () => {
+      const gameState = createTestGameState({
+        currentPhase: 'line_processing',
+        currentPlayer: 1,
+      });
+      const choice: PlayerChoice = {
+        id: 'choice-rerender',
+        type: 'line_reward_option',
+        playerNumber: 1,
+        options: ['add_ring', 'add_stack'] as any,
+        timeoutMs: 30_000,
+      } as any;
+
+      const hudWithDecision = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: false,
+        currentUserId: 'p1',
+        pendingChoice: choice,
+        choiceDeadline: Date.now() + 5_000,
+        choiceTimeRemainingMs: 5_000,
+      });
+
+      const { rerender } = render(
+        <GameHUD viewModel={hudWithDecision} timeControl={gameState.timeControl} />
+      );
+
+      expect(screen.getByTestId('decision-phase-banner')).toBeInTheDocument();
+
+      const hudWithoutDecision = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: false,
+        currentUserId: 'p1',
+      });
+
+      rerender(<GameHUD viewModel={hudWithoutDecision} timeControl={gameState.timeControl} />);
+
+      expect(screen.queryByTestId('decision-phase-banner')).toBeNull();
+    });
+
     it('applies warning severity exactly at the 10 second threshold', () => {
       const gameState = createTestGameState({
         currentPhase: 'line_processing',

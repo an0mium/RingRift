@@ -115,12 +115,24 @@ def run_selfplay_soak(
 
 
 def run_parity_check(db_path: Path) -> Dict[str, Any]:
-    """Run the TS↔Python parity harness on a single DB and return the parsed summary."""
+    """Run the TS↔Python parity harness on a single DB and return the parsed summary.
+
+    This always invokes the parity script in **canonical** mode with
+    ``view = post_move`` so that:
+
+      - ``passed_canonical_parity_gate`` in the returned JSON reflects the
+        canonical gate status for this DB, and
+      - the process return code is non-zero whenever the canonical gate fails.
+    """
     cmd = [
         sys.executable,
         "scripts/check_ts_python_replay_parity.py",
         "--db",
         str(db_path),
+        "--mode",
+        "canonical",
+        "--view",
+        "post_move",
     ]
     env_overrides = {"PYTHONPATH": str(AI_SERVICE_ROOT)}
     proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, env_overrides=env_overrides)
@@ -265,23 +277,25 @@ def main() -> None:
         )
         parity_summary = run_parity_check(db_path)
 
-    # Basic gate: soak must succeed and parity must be clean.
+    # Basic gate: soak must succeed and the canonical parity gate must pass.
     #
     # We require:
     #   - soak_returncode == 0 (Python self-play soak did not abort), and
-    #   - no structural issues and no semantic divergences, and
-    #   - at least one game was parity-checked.
+    #   - parity harness reports passed_canonical_parity_gate == True, and
+    #   - underlying parity process exits with code 0.
+    #
+    # For distributed runs (args.hosts), run_parity_checks() aggregates the
+    # per-DB parity summaries; we treat all_pass == True as a requirement that
+    # every DB passed its canonical parity gate.
     passed = False
     soak_rc = soak_result.get("returncode")
     if soak_rc == 0 and "error" not in parity_summary:
         if args.hosts:
             passed = bool(parity_summary.get("all_pass"))
         else:
-            if parity_summary.get("returncode") == 0:
-                struct = int(parity_summary.get("games_with_structural_issues", 0))
-                sem = int(parity_summary.get("games_with_semantic_divergence", 0))
-                total_checked = int(parity_summary.get("total_games_checked", 0))
-                passed = struct == 0 and sem == 0 and total_checked > 0
+            parity_rc = int(parity_summary.get("returncode", 1))
+            passed_gate = bool(parity_summary.get("passed_canonical_parity_gate"))
+            passed = parity_rc == 0 and passed_gate
 
     gate_summary: Dict[str, Any] = {
         "board_type": args.board_type,
