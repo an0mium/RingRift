@@ -105,6 +105,9 @@ from app.metrics import (  # type: ignore  # noqa: E402
 from app.rules.core import compute_progress_snapshot  # noqa: E402
 from app.board_manager import BoardManager  # noqa: E402
 from app.rules import global_actions as ga  # type: ignore  # noqa: E402
+from app.rules.history_contract import (  # noqa: E402
+    validate_canonical_move,
+)
 from app.utils.progress_reporter import SoakProgressReporter  # noqa: E402
 from app.db import (  # noqa: E402
     get_or_create_db,
@@ -818,6 +821,26 @@ def run_self_play_soak(
 
                 if move.type == MoveType.SWAP_SIDES:
                     swap_sides_moves_for_game += 1
+
+                # Canonical phase/move guard: if the selected move is not legal
+                # for the current phase, fail fast and drop the game instead of
+                # recording a mis-ordered trace.
+                phase_check = validate_canonical_move(
+                    state.current_phase.value,
+                    move.type.value,
+                )
+                if not phase_check.ok:
+                    termination_reason = f"phase_move_mismatch:{phase_check.reason}"
+                    skipped = True
+                    _record_invariant_violation(
+                        "PHASE_MOVE_MISMATCH",
+                        state,
+                        game_idx,
+                        move_count,
+                        per_game_violations,
+                        invariant_violation_samples,
+                    )
+                    break
 
                 try:
                     if profile_timing:
