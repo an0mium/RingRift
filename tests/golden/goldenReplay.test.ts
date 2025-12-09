@@ -24,9 +24,10 @@ describe('Golden Replay Tests', () => {
   const goldenGamesDir = getGoldenGamesDir();
   const goldenGames = loadGoldenGames(goldenGamesDir);
 
-  // TODO: Golden game fixtures were recorded with legacy orchestration.
+  // TODO(FSM): Golden game fixtures were recorded with legacy orchestration.
   // FSM orchestration produces different phase transitions that break replay.
-  // Enable once golden fixtures are regenerated with FSM orchestration.
+  // Fix: Run `npm run curate:golden` with FSM active to regenerate fixtures.
+  // Then remove this skip block.
   if (isFSMOrchestratorActive()) {
     it.skip('Skipping - Golden fixtures need regeneration with FSM orchestration', () => {});
     return;

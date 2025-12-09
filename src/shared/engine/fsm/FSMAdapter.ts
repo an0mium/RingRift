@@ -136,6 +136,10 @@ export function moveToEvent(move: Move): TurnEvent | null {
     case 'forced_elimination':
       return { type: 'FORCED_ELIMINATE', target: move.to };
 
+    // Resign (allowed from any phase)
+    case 'resign':
+      return { type: 'RESIGN', player: move.player };
+
     // Meta/swap (not FSM events)
     case 'swap_sides':
     case 'line_formation':
@@ -1136,6 +1140,11 @@ export function getAllowedMoveTypesForPhase(phase: GamePhase): ReadonlyArray<Mov
  * contract used by the orchestrator.
  */
 export function isMoveTypeValidForPhase(phase: GamePhase, moveType: MoveType): boolean {
+  // Resign is allowed from any phase - player can always forfeit.
+  if (moveType === 'resign') {
+    return true;
+  }
+
   // Meta / legacy moves are allowed in any phase for historical compatibility.
   if (
     moveType === 'swap_sides' ||

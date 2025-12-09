@@ -207,3 +207,31 @@ export const territoryFeEdgeRegionForPlayer1: Territory = {
   controllingPlayer: 1,
   isDisconnected: true,
 };
+
+/**
+ * Compact SQ8-A mini-region on the same canonical_square8_regen k90 board.
+ *
+ * Geometry:
+ * - Region spaces: (0,7), (1,7), (1,6)
+ * - Internal stacks (on the serialized k89 board):
+ *   - Player 1 stack at (0,7): [1]
+ *   - Player 2 stacks at (1,6): [2, 2] and (1,7): [2]
+ *
+ * Player 1 also controls multiple stacks outside this mini-region
+ * (e.g., at (4,7), (5,4), (6,1), (6,5)), so the self-elimination
+ * prerequisite (FAQ Q23 / §12.2) is satisfied for this curated patch.
+ *
+ * As with the edge fixture, this region is not produced directly by the
+ * detector in tests; it is a curated slice over the canonical geometry
+ * used to probe applyTerritoryRegion and canProcessTerritoryRegion on a
+ * compact, mixed-color territory patch.
+ */
+export const territoryFeMiniRegionForPlayer1: Territory = {
+  spaces: [
+    { x: 0, y: 7 },
+    { x: 1, y: 7 },
+    { x: 1, y: 6 },
+  ],
+  controllingPlayer: 1,
+  isDisconnected: true,
+};

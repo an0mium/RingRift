@@ -20,8 +20,12 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  * swap_sides meta-move for 2-player games, mirroring backend semantics.
  */
 describe('ClientSandboxEngine swap rule (pie rule)', () => {
-  // TODO: FSM issue - swap_sides triggers bookkeeping moves (no_line_action)
-  // that are rejected in ring_placement phase. Needs FSM fix for meta-moves.
+  // TODO(FSM): swap_sides is a meta-move that returns null from moveToEvent().
+  // After swap_sides, the engine applies bookkeeping moves (no_line_action, no_territory_action)
+  // but these are rejected because FSM phase is ring_placement.
+  // Fix: Either (a) make swap_sides an FSM event that transitions phases correctly,
+  // or (b) allow meta-moves to bypass FSM validation entirely.
+  // Tracking: These tests inject state and rely on legacy orchestration flow.
   if (isFSMOrchestratorActive()) {
     it.skip('Skipping - FSM needs swap_sides meta-move handling', () => {});
     return;

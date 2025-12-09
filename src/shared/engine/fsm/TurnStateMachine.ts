@@ -599,19 +599,15 @@ function handleLineProcessing(
       }
 
       const line = state.detectedLines[event.lineIndex];
-      if (line.requiresChoice) {
-        // Stay in line_processing, awaiting reward choice
-        return ok<LineProcessingState>(
-          {
-            ...state,
-            currentLineIndex: event.lineIndex,
-            awaitingReward: true,
-          },
-          [{ type: 'COLLAPSE_LINE', positions: line.positions }]
-        );
-      }
 
-      // No choice needed, proceed to next line or territory
+      // PROCESS_LINE is an atomic operation that includes any reward choice.
+      // Python's process_line move atomically collapses the line and applies
+      // the reward. Unlike the two-step PROCESS_LINE → CHOOSE_LINE_REWARD flow,
+      // PROCESS_LINE always completes the line processing for this line.
+      // The requiresChoice flag is no longer checked here; if a separate
+      // reward choice is needed, the host should emit CHOOSE_LINE_REWARD instead.
+
+      // Proceed to next line or territory
       const nextIndex = event.lineIndex + 1;
       if (nextIndex < state.detectedLines.length) {
         return ok<LineProcessingState>({ ...state, currentLineIndex: nextIndex }, [

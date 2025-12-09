@@ -40,6 +40,7 @@ import type { GameState, Position, Territory } from '../../src/shared/types/game
 import {
   createTerritoryFeEdgeBoard,
   territoryFeEdgeRegionForPlayer1,
+  territoryFeMiniRegionForPlayer1,
 } from '../fixtures/territoryFeEdgeFixture';
 
 describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
@@ -322,6 +323,80 @@ describe('TerritoryAggregate - Branch Coverage (Edge Cases)', () => {
       // All internal rings are credited to player 1.
       expect(outcome.eliminatedRingsByPlayer[1]).toBe(internalHeight);
       expect(outcome.board.eliminatedRings[1]).toBe(beforeElimsP1 + internalHeight);
+    });
+  });
+
+  // ==========================================================================
+  // territory / FE mini-region fixture from canonical_square8_regen k90 (SQ8-A)
+  // ==========================================================================
+  describe('territory/FE mini-region – canonical_square8_regen k90', () => {
+    it('applies self-elimination prerequisite based on stacks outside the mini-region', () => {
+      const board = createTerritoryFeEdgeBoard();
+      const region = territoryFeMiniRegionForPlayer1;
+
+      // Player 1 controls stacks both inside and outside the mini-region on this board,
+      // so the self-elimination prerequisite should pass.
+      expect(canProcessTerritoryRegion(board, region, { player: 1 })).toBe(true);
+
+      // If we remove all player 1 stacks outside the mini-region, the region is no
+      // longer processable for player 1.
+      const boardNoOutside = createTerritoryFeEdgeBoard();
+      const regionKeys = new Set(region.spaces.map((p) => positionToString(p)));
+
+      for (const [key, stack] of Array.from(boardNoOutside.stacks.entries())) {
+        const isInRegion = regionKeys.has(key);
+        if (stack.controllingPlayer === 1 && !isInRegion) {
+          boardNoOutside.stacks.delete(key);
+        }
+      }
+
+      expect(canProcessTerritoryRegion(boardNoOutside, region, { player: 1 })).toBe(false);
+    });
+
+    it('eliminates internal stacks and credits eliminations on the k90 mini-region fixture', () => {
+      const board = createTerritoryFeEdgeBoard();
+      const region = territoryFeMiniRegionForPlayer1;
+
+      // Choose a representative internal stack in the mini-region (player 2 stack at (1,6)).
+      const internalKey = positionToString({ x: 1, y: 6 });
+      const internalStack = board.stacks.get(internalKey);
+      expect(internalStack).toBeDefined();
+      const internalHeight = internalStack!.stackHeight;
+
+      // Compute the total stack height of all stacks inside the mini-region.
+      let totalInternalHeight = 0;
+      for (const pos of region.spaces) {
+        const key = positionToString(pos);
+        const stack = board.stacks.get(key);
+        if (stack) {
+          totalInternalHeight += stack.stackHeight;
+        }
+      }
+
+      // Sanity check: totalInternalHeight should be at least the representative stack's height.
+      expect(totalInternalHeight).toBeGreaterThanOrEqual(internalHeight);
+
+      const beforeElimsP1 = board.eliminatedRings[1] || 0;
+
+      const outcome = applyTerritoryRegion(board, region, { player: 1 });
+
+      // Original board is not mutated for the representative stack.
+      expect(board.stacks.has(internalKey)).toBe(true);
+
+      // Representative internal stack is removed on the next board.
+      expect(outcome.board.stacks.has(internalKey)).toBe(false);
+
+      // All region spaces are collapsed to player 1 and have no stacks/markers.
+      for (const pos of region.spaces) {
+        const key = positionToString(pos);
+        expect(outcome.board.collapsedSpaces.get(key)).toBe(1);
+        expect(outcome.board.stacks.has(key)).toBe(false);
+        expect(outcome.board.markers.has(key)).toBe(false);
+      }
+
+      // All internal rings (across all stacks in the mini-region) are credited to player 1.
+      expect(outcome.eliminatedRingsByPlayer[1]).toBe(totalInternalHeight);
+      expect(outcome.board.eliminatedRings[1]).toBe(beforeElimsP1 + totalInternalHeight);
     });
   });
 

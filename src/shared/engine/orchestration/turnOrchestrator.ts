@@ -1430,18 +1430,34 @@ export function processTurn(
         moveNumber: state.moveHistory.length + 1,
       });
     } else {
-      // Map turn_end to ring_placement for next player
-      const effectivePhase =
-        fsmOrchResult.nextPhase === 'turn_end'
-          ? 'ring_placement'
-          : (fsmOrchResult.nextPhase as GamePhase);
+      // Handle game_over transition (e.g., from resign)
+      if (fsmOrchResult.nextPhase === 'game_over') {
+        finalState = {
+          ...finalState,
+          currentPhase: 'game_over',
+          gameStatus: 'completed',
+          // Winner would be computed based on resignation - the other player(s)
+          // For 2-player games, winner is the non-resigning player
+          winner:
+            finalState.players.length === 2
+              ? (finalState.players.find((p) => p.playerNumber !== move.player)?.playerNumber ??
+                null)
+              : null,
+        };
+      } else {
+        // Map turn_end to ring_placement for next player
+        const effectivePhase =
+          fsmOrchResult.nextPhase === 'turn_end'
+            ? 'ring_placement'
+            : (fsmOrchResult.nextPhase as GamePhase);
 
-      // Apply FSM-derived state
-      finalState = {
-        ...finalState,
-        currentPhase: effectivePhase,
-        currentPlayer: fsmOrchResult.nextPlayer,
-      };
+        // Apply FSM-derived state
+        finalState = {
+          ...finalState,
+          currentPhase: effectivePhase,
+          currentPlayer: fsmOrchResult.nextPlayer,
+        };
+      }
     }
   } catch (err) {
     fsmTraceLog('[FSM_ORCHESTRATOR] EXCEPTION', {

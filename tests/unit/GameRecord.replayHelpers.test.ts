@@ -3,9 +3,11 @@ import type { GameRecord } from '../../src/shared/types/gameRecord';
 import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 describe('reconstructStateAtMove', () => {
-  // TODO: FSM validation is stricter - rejects no_movement_action when valid moves exist.
-  // These tests use synthetic move sequences that don't satisfy FSM guard conditions.
-  // Update test data to use valid FSM-compliant sequences.
+  // TODO(FSM): FSM rejects no_movement_action when canMove=true.
+  // After placing a ring at (3,3), the player CAN move it, so no_movement_action fails guard.
+  // Fix: Either (a) place ring at position with no valid moves (blocked),
+  // or (b) test with an actual move_stack instead of no_movement_action,
+  // or (c) add moveHint support to bypass guard for replay scenarios.
   if (isFSMOrchestratorActive()) {
     it.skip('Skipping - Test data uses FSM-invalid move sequences', () => {});
     return;
