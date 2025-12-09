@@ -1153,6 +1153,16 @@ export function processTurn(
       currentPhase: 'ring_placement' as GamePhase,
       currentPlayer: move.player,
     };
+  } else if (
+    // Replay-tolerance for TS/Python parity: When in ring_placement/movement
+    // and a forced_elimination move comes in, coerce the phase to forced_elimination.
+    // This happens when Python's phase machine recorded forced_elimination but TS's
+    // replay engine has already advanced to the next turn's start phase.
+    state.gameStatus === 'active' &&
+    (state.currentPhase === 'ring_placement' || state.currentPhase === 'movement') &&
+    move.type === 'forced_elimination'
+  ) {
+    state = { ...state, currentPhase: 'forced_elimination' as GamePhase };
   }
 
   // Enforce canonical phase→MoveType mapping for ACTIVE states. This ensures
@@ -2175,58 +2185,57 @@ function processPostMovePhases(
 
   // Process territory
   if (stateMachine.currentPhase === 'territory_processing') {
-    // After an explicit PROCESS_TERRITORY_REGION move, mirror the Python
-    // phase machine: do not re-surface additional territory decisions in
-    // the same turn. Proceed to victory/turn advancement/rotation below.
-    if (originalMoveType !== 'process_territory_region') {
-      // If the original move was an explicit skip_territory_processing,
-      // treat territory processing as complete for this turn and proceed
-      // directly to victory/turn advancement.
-      if (originalMoveType !== 'skip_territory_processing') {
-        const regions = getProcessableTerritoryRegions(state.board, {
-          player: state.currentPlayer,
-        });
+    // If the original move was an explicit skip_territory_processing,
+    // treat territory processing as complete for this turn and proceed
+    // directly to victory/turn advancement.
+    if (originalMoveType !== 'skip_territory_processing') {
+      // RR-PARITY-FIX-2024-12-09: After ANY move in territory_processing (including
+      // process_territory_region), re-check for remaining regions. This mirrors
+      // Python's phase_machine.py which always checks remaining_regions after each
+      // process_territory_region and stays in territory_processing if more exist.
+      const regions = getProcessableTerritoryRegions(state.board, {
+        player: state.currentPlayer,
+      });
 
-        if (regions.length > 1) {
-          // Multiple regions: player must choose order via explicit
-          // process_territory_region moves constructed by the host.
+      if (regions.length > 1) {
+        // Multiple regions: player must choose order via explicit
+        // process_territory_region moves constructed by the host.
+        return {
+          pendingDecision: createRegionOrderDecision(state, regions),
+        };
+      } else if (regions.length === 1) {
+        // Single region: per RR-CANON-R075/R076, the core rules layer does
+        // not auto-apply PROCESS_TERRITORY_REGION. Surface a region_order
+        // decision even when there is only one region; hosts may auto-select
+        // the only option for live UX but must still emit the explicit move.
+        return {
+          pendingDecision: createRegionOrderDecision(state, regions),
+        };
+      } else {
+        // regions.length === 0: No regions to process.
+        // Per RR-CANON-R075/R076, return a pending decision requiring an explicit
+        // no_territory_action move. The core rules layer does NOT auto-generate moves.
+        // EXCEPTION: If the original move was already a territory-related move
+        // (no_territory_action, process_territory_region, or eliminate_rings_from_stack),
+        // we don't need to return another pending decision - that move IS the territory phase action.
+        const isTerritoryPhaseMove =
+          originalMoveType === 'no_territory_action' ||
+          originalMoveType === 'process_territory_region' ||
+          originalMoveType === 'eliminate_rings_from_stack';
+        if (!isTerritoryPhaseMove) {
           return {
-            pendingDecision: createRegionOrderDecision(state, regions),
-          };
-        } else if (regions.length === 1) {
-          // Single region: per RR-CANON-R075/R076, the core rules layer does
-          // not auto-apply PROCESS_TERRITORY_REGION. Surface a region_order
-          // decision even when there is only one region; hosts may auto-select
-          // the only option for live UX but must still emit the explicit move.
-          return {
-            pendingDecision: createRegionOrderDecision(state, regions),
-          };
-        } else {
-          // regions.length === 0: No regions to process.
-          // Per RR-CANON-R075/R076, return a pending decision requiring an explicit
-          // no_territory_action move. The core rules layer does NOT auto-generate moves.
-          // EXCEPTION: If the original move was already a territory-related move
-          // (no_territory_action, process_territory_region, or eliminate_rings_from_stack),
-          // we don't need to return another pending decision - that move IS the territory phase action.
-          const isTerritoryPhaseMove =
-            originalMoveType === 'no_territory_action' ||
-            originalMoveType === 'process_territory_region' ||
-            originalMoveType === 'eliminate_rings_from_stack';
-          if (!isTerritoryPhaseMove) {
-            return {
-              pendingDecision: {
-                type: 'no_territory_action_required',
-                player: state.currentPlayer,
-                options: [],
-                context: {
-                  description:
-                    'No territory regions to process - explicit no_territory_action required per RR-CANON-R075',
-                },
+            pendingDecision: {
+              type: 'no_territory_action_required',
+              player: state.currentPlayer,
+              options: [],
+              context: {
+                description:
+                  'No territory regions to process - explicit no_territory_action required per RR-CANON-R075',
               },
-            };
-          }
-          // Territory phase move was applied and no more regions, proceed to victory/turn advancement.
+            },
+          };
         }
+        // Territory phase move was applied and no more regions, proceed to victory/turn advancement.
       }
     }
 
