@@ -2148,11 +2148,7 @@ function processPostMovePhases(
       playerHasStacks
     );
 
-    if (phaseAfterLine === 'territory_processing') {
-      // Enter territory_processing; region-order / no_territory_action-required
-      // decisions are handled in the territory block below.
-      stateMachine.transitionTo('territory_processing');
-    } else if (phaseAfterLine === 'forced_elimination') {
+    if (phaseAfterLine === 'forced_elimination') {
       // Player had no actions in any phase this turn but still controls stacks.
       // Enter forced_elimination and surface explicit forced_elimination options.
       stateMachine.transitionTo('forced_elimination');
@@ -2164,10 +2160,17 @@ function processPostMovePhases(
       }
       // If, unexpectedly, no forced_elimination options could be constructed,
       // fall through to global ANM/terminal handling below.
+    } else {
+      // RR-PARITY-FIX-2024-12-09: Per RR-CANON-R075, every phase must be visited
+      // and produce a recorded action. Always transition to territory_processing
+      // regardless of whether there are territory regions. This matches Python's
+      // _on_line_processing_complete which always advances to territory_processing.
+      // The territory_processing block below will surface no_territory_action_required
+      // when there are no regions, ensuring an explicit move is recorded.
+      // This fixes parity divergence where TS would skip directly to turn rotation
+      // while Python stays in territory_processing waiting for no_territory_action.
+      stateMachine.transitionTo('territory_processing');
     }
-    // phaseAfterLine === 'turn_end' – no territory and either the player took
-    // real actions this turn or has no stacks left. Fall through to victory /
-    // turn-rotation logic at the end of this function.
   }
 
   // Process territory

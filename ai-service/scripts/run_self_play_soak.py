@@ -832,6 +832,7 @@ def run_self_play_soak(
                 if not phase_check.ok:
                     termination_reason = f"phase_move_mismatch:{phase_check.reason}"
                     skipped = True
+                    # Log the mismatch for debugging and emit a failure snapshot
                     _record_invariant_violation(
                         "PHASE_MOVE_MISMATCH",
                         state,
@@ -840,6 +841,31 @@ def run_self_play_soak(
                         per_game_violations,
                         invariant_violation_samples,
                     )
+                    try:
+                        failure_dir = os.path.join(
+                            os.path.dirname(args.log_jsonl) or ".",
+                            "failures",
+                        )
+                        os.makedirs(failure_dir, exist_ok=True)
+                        failure_path = os.path.join(
+                            failure_dir,
+                            f"failure_{game_idx}_phase_move_mismatch.json",
+                        )
+                        with open(failure_path, "w", encoding="utf-8") as f:
+                            json.dump(
+                                {
+                                    "game_index": game_idx,
+                                    "move_index": move_count,
+                                    "current_phase": state.current_phase.value,
+                                    "move_type": move.type.value,
+                                    "reason": phase_check.reason,
+                                    "player": move.player,
+                                },
+                                f,
+                            )
+                    except Exception:
+                        # Never let snapshotting crash the soak loop
+                        pass
                     break
 
                 try:

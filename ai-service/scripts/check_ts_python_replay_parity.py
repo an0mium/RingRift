@@ -495,7 +495,7 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
 
     Returns:
       (total_moves_reported_by_ts,
-       mapping from k -> post-move (after any synthesized bridges) summary)
+       mapping from k -> post-move summary)
 
     The TS harness emits several event types:
       - ``ts-replay-initial``: Initial state (k=0) before any moves
@@ -504,18 +504,15 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
       - ``ts-replay-db-move-complete``: State after all bridges for a DB move
       - ``ts-replay-final``: Final state summary
 
-    For parity comparison, we use ``ts-replay-db-move-complete`` events when
-    available. These represent the state AFTER any synthesized bridge moves
-    (like ``no_territory_action``) that the TS harness generates for non-canonical
-    recordings. This matches Python's ``get_state_at_move(N)`` semantics which
-    returns the state after move N including any internal phase transitions.
+    For parity comparison, we use ``ts-replay-step`` events. These represent
+    the state IMMEDIATELY after applying the recorded DB move, BEFORE any
+    synthesized bridge moves. This matches Python's ``get_state_at_move(N)``
+    semantics, which returns the state after applying move N to the engine
+    WITHOUT synthesizing additional bookkeeping moves.
 
-    The mapping is:
-      - TS k=0 (ts-replay-initial) -> Python initial_state
-      - TS db_move_index=N (ts-replay-db-move-complete) -> Python get_state_at_move(N)
-
-    If ``ts-replay-db-move-complete`` is not available for a given move (legacy
-    harness), we fall back to ``ts-replay-step`` at k=N+1.
+    The ``ts-replay-db-move-complete`` events are emitted for debugging but
+    not used for parity comparison since they include synthesized bridges that
+    Python's GameEngine does not generate.
     """
     root = repo_root()
     cmd = [
@@ -550,10 +547,6 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
 
     total_ts_moves = 0
     summaries: Dict[int, StateSummary] = {}
-    # Track ts-replay-step events as fallback (keyed by k)
-    step_summaries: Dict[int, StateSummary] = {}
-    # Track ts-replay-db-move-complete events (keyed by db_move_index)
-    db_move_complete_summaries: Dict[int, StateSummary] = {}
 
     for line in stdout.splitlines():
         line = line.strip()
@@ -576,47 +569,28 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
                 state_hash=summary.get("stateHash"),
             )
         elif kind == "ts-replay-step":
+            # Use ts-replay-step for parity: this is the state immediately
+            # after applying the recorded DB move, BEFORE any synthesized
+            # bridges. This matches Python's get_state_at_move() semantics.
             k = int(payload.get("k", 0))
             summary = payload.get("summary") or {}
-            step_summaries[k] = StateSummary(
+            summaries[k] = StateSummary(
                 move_index=k,
                 current_player=summary.get("currentPlayer"),
                 current_phase=summary.get("currentPhase"),
                 game_status=_canonicalize_status(summary.get("gameStatus")),
                 state_hash=summary.get("stateHash"),
             )
-        elif kind == "ts-replay-db-move-complete":
-            # This is the canonical post-move state for parity comparison.
-            # db_move_index corresponds directly to Python's move index.
-            db_move_idx = int(payload.get("db_move_index", -1))
-            if db_move_idx >= 0:
-                summary = payload.get("summary") or {}
-                # Store with k = db_move_index + 1 to match the existing k convention
-                # (k=0 is initial, k=N is state after move N-1)
-                k = db_move_idx + 1
-                db_move_complete_summaries[k] = StateSummary(
-                    move_index=k,
-                    current_player=summary.get("currentPlayer"),
-                    current_phase=summary.get("currentPhase"),
-                    game_status=_canonicalize_status(summary.get("gameStatus")),
-                    state_hash=summary.get("stateHash"),
-                )
         elif kind == "ts-replay-bridge":
-            # Bridge events are now internal to the harness; we use
-            # ts-replay-db-move-complete for the post-bridge state.
+            # Bridge events are for synthesized bookkeeping moves. Ignored
+            # for parity since Python does not synthesize these.
+            pass
+        elif kind == "ts-replay-db-move-complete":
+            # Post-bridge state for debugging; not used for parity comparison.
             pass
         elif kind == "ts-replay-final":
             # We could cross-check appliedMoves here if needed.
             pass
-
-    # Build final summaries dict: prefer db-move-complete events, fall back to step events
-    # k=0 is already populated from ts-replay-initial
-    for k in range(1, total_ts_moves + 1):
-        if k in db_move_complete_summaries:
-            summaries[k] = db_move_complete_summaries[k]
-        elif k in step_summaries:
-            # Fallback for legacy harness or moves without bridges
-            summaries[k] = step_summaries[k]
 
     return total_ts_moves, summaries
 
