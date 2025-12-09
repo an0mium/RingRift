@@ -34,11 +34,7 @@ from typing import (
 import logging
 from app.ai.neural_net import (
     RingRiftCNN_v2,
-    RingRiftCNN_v2_Lite,
-    HexNeuralNet_v2,
-    HexNeuralNet_v2_Lite,
-    create_model_for_board,
-    get_memory_tier,
+    HexNeuralNet,
     HEX_BOARD_SIZE,
     P_HEX,
     MAX_PLAYERS,
@@ -1440,18 +1436,19 @@ def train_model(
                     "Using standard scalar value head."
                 )
     elif multi_player:
-        # RingRiftCNN_MultiPlayer for multi-player games on square boards
-        model = RingRiftCNN_MultiPlayer(
+        # Multi-player mode: use RingRiftCNN_v2 with multi-player value loss
+        # (dedicated RingRiftCNN_MultiPlayer not yet implemented)
+        model = RingRiftCNN_v2(
             board_size=board_size,
             in_channels=14,  # 14 spatial feature channels per frame
             global_features=20,  # Must match _extract_features() which returns 20 globals
             history_length=config.history_length,
-            max_players=MAX_PLAYERS,
             policy_size=policy_size,
         )
         if not distributed or is_main_process():
-            logger.info(
-                f"Using RingRiftCNN_MultiPlayer with max_players={MAX_PLAYERS}"
+            logger.warning(
+                "Multi-player value head not yet implemented for RingRiftCNN. "
+                f"Using standard RingRiftCNN_v2 with multi_player_value_loss for {MAX_PLAYERS} players."
             )
     else:
         # RingRiftCNN_v2 for square boards

@@ -19,7 +19,7 @@ All logic here operates directly on a mutable GameState instance.
 
 from dataclasses import dataclass
 
-from app.models import GameState, GamePhase, GameStatus, Move, MoveType
+from app.models import GameState, GamePhase, Move, MoveType
 
 
 @dataclass

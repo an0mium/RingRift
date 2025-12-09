@@ -14,7 +14,7 @@
  */
 
 import { useMemo, useState, useCallback } from 'react';
-import type { BoardState, GameState, Position, Move, BoardType } from '../../shared/types/game';
+import type { BoardState, GameState, Position, BoardType } from '../../shared/types/game';
 import type { BoardViewModel } from '../adapters/gameViewModels';
 import { toBoardViewModel, deriveBoardDecisionHighlights } from '../adapters/gameViewModels';
 import type { MoveAnimation } from './useMoveAnimation';

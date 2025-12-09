@@ -24,7 +24,7 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 from datetime import datetime
 
 from .base import BaseAI
@@ -36,7 +36,6 @@ from ..models import (
     BoardState,
     MoveType,
     GamePhase,
-    ChainCaptureState,
 )
 from ..rules.geometry import BoardGeometry
 
@@ -4553,13 +4552,15 @@ HexNeuralNet_Lite = HexNeuralNet_v2_Lite
 
 # Explicit export list for consumers relying on __all__
 __all__ = [
-    "NeuralNet",
+    "NeuralNetAI",
     "HexNeuralNet",
     "HexNeuralNet_Lite",
     "HexNeuralNet_v2",
     "HexNeuralNet_v2_Lite",
     "HexNeuralNet_v3",
     "HexNeuralNet_v3_Lite",
+    "RingRiftCNN_v2",
+    "RingRiftCNN_v3",
     "clear_model_cache",
     "get_cached_model_count",
     "get_policy_size_for_board",

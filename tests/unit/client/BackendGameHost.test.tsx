@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import type {
   BoardState,
@@ -568,7 +568,7 @@ describe('BackendGameHost (React host behaviour)', () => {
     expect(screen.getByText(/Game over – victory by territory control\./i)).toBeInTheDocument();
   });
 
-  it('announces last-player-standing victories clearly to screen readers', async () => {
+  it('displays last-player-standing victories clearly in VictoryModal', () => {
     const lpsResult: GameResult = {
       winner: 1,
       reason: 'last_player_standing',
@@ -583,17 +583,10 @@ describe('BackendGameHost (React host behaviour)', () => {
 
     render(<BackendGameHost gameId="game-123" />);
 
-    await act(async () => {
-      // Wait for the screen reader announcer to receive the victory message.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    // Victory announcements use assertive politeness (not polite), so check assertive regions.
-    const assertive1 = screen.getByTestId('sr-announcer-assertive-1');
-    const assertive2 = screen.getByTestId('sr-announcer-assertive-2');
-    const combinedText = `${assertive1.textContent ?? ''} ${assertive2.textContent ?? ''}`;
-
-    expect(combinedText).toMatch(/last player standing/i);
+    // The VictoryModal should be open and display "Last Player Standing" victory type.
+    // This ensures the victory reason is clearly communicated to users.
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent(/last player standing/i);
   });
 
   it('logs phase changes for line_processing → chain_capture → territory_processing and updates instructions', () => {

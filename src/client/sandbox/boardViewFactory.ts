@@ -120,7 +120,10 @@ export function createBoardView(boardType: BoardType, board: BoardState): Unifie
  * const targets = enumerateSimpleMoveTargetsFromStack(boardType, from, player, view);
  * ```
  */
-export function createMovementBoardView(boardType: BoardType, board: BoardState): MovementBoardView {
+export function createMovementBoardView(
+  boardType: BoardType,
+  board: BoardState
+): MovementBoardView {
   return createBoardView(boardType, board);
 }
 
@@ -209,7 +212,7 @@ export function createSandboxBoardView(boardType: BoardType): SandboxBoardView {
 export function bindSandboxViewToBoard(
   sandboxView: SandboxBoardView,
   board: BoardState,
-  boardType: BoardType
+  _boardType: BoardType
 ): MovementBoardView {
   return {
     isValidPosition: sandboxView.isValidPosition,
@@ -235,11 +238,7 @@ export function bindSandboxViewToBoard(
 /**
  * Check if a position has a stack controlled by the specified player.
  */
-export function hasPlayerStackAt(
-  board: BoardState,
-  pos: Position,
-  playerNumber: number
-): boolean {
+export function hasPlayerStackAt(board: BoardState, pos: Position, playerNumber: number): boolean {
   const key = positionToString(pos);
   const stack = board.stacks.get(key);
   return stack !== undefined && stack.controllingPlayer === playerNumber;

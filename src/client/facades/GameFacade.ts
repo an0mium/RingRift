@@ -25,7 +25,6 @@ import type {
   GameResult,
   Move,
   PlayerChoice,
-  PlayerChoiceResponseFor,
   Position,
 } from '../../shared/types/game';
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';

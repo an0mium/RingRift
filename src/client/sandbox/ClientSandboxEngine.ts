@@ -109,8 +109,6 @@ import {
   mapPendingDecisionToPlayerChoice as mapDecisionToChoice,
   mapPlayerChoiceResponseToMove as mapResponseToMove,
   buildCaptureDirectionChoice,
-  buildRegionOrderChoice,
-  buildRingEliminationChoice,
   type DecisionMappingContext,
 } from './sandboxDecisionMapping';
 

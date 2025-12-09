@@ -680,6 +680,77 @@ describe('GameHUD', () => {
       expect(banner).toHaveTextContent('Choose Territory Region');
     });
 
+    it('surfaces skip hint and territory help during territory_processing decisions', () => {
+      const gameState = createTestGameState({
+        currentPhase: 'territory_processing',
+        currentPlayer: 1,
+      });
+      const choice: PlayerChoice = {
+        id: 'territory-choice-skip',
+        type: 'region_order',
+        playerNumber: 1,
+        options: [
+          { regionId: 'region-a', size: 2, representativePosition: { x: 1, y: 1 } },
+          { regionId: 'skip', size: 0, representativePosition: { x: 0, y: 0 } },
+        ] as any,
+        timeoutMs: 20_000,
+      } as any;
+
+      const hudViewModel = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: false,
+        currentUserId: 'p1',
+        pendingChoice: choice,
+        choiceDeadline: Date.now() + 10_000,
+        choiceTimeRemainingMs: 10_000,
+      });
+
+      render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
+
+      expect(screen.getByTestId('hud-decision-skip-hint')).toBeInTheDocument();
+      expect(screen.getByTestId('hud-territory-help')).toBeInTheDocument();
+    });
+
+    it('renders decision status chip when provided by the view model', () => {
+      const gameState = createTestGameState({
+        currentPhase: 'line_processing',
+        currentPlayer: 1,
+      });
+      const choice: PlayerChoice = {
+        id: 'choice-status-chip',
+        type: 'ring_elimination',
+        playerNumber: 1,
+        options: [
+          { stackPosition: { x: 0, y: 0 }, capHeight: 1, totalHeight: 2 },
+          { stackPosition: { x: 1, y: 1 }, capHeight: 2, totalHeight: 3 },
+        ] as any,
+      } as any;
+
+      const hudViewModel = toHUDViewModel(gameState, {
+        instruction: undefined,
+        connectionStatus: 'connected',
+        lastHeartbeatAt: Date.now(),
+        isSpectator: false,
+        currentUserId: 'p1',
+        pendingChoice: choice,
+        choiceDeadline: Date.now() + 5_000,
+        choiceTimeRemainingMs: 5_000,
+      });
+
+      // Inject a status chip to mimic attention-grabbing decisions.
+      if (hudViewModel.decisionPhase) {
+        hudViewModel.decisionPhase.statusChip = { text: 'Eliminate a stack', tone: 'attention' };
+      }
+
+      render(<GameHUD viewModel={hudViewModel} timeControl={gameState.timeControl} />);
+
+      const chip = screen.getByTestId('hud-decision-status-chip');
+      expect(chip).toBeInTheDocument();
+      expect(chip).toHaveTextContent('Eliminate a stack');
+    });
+
     it('renders phase tooltip with action-focused copy for the active player', () => {
       const gameState = createTestGameState({
         currentPhase: 'movement',

@@ -34,10 +34,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..models import GameState, Move
+    from ..models import Move
 
 
 class MoveTypePriority(IntEnum):

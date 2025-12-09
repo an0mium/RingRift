@@ -31,14 +31,10 @@ class MinimaxAI(BaseAI):
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Dict, Optional, Protocol, TYPE_CHECKING, runtime_checkable
+from dataclasses import dataclass
+from typing import Dict, Optional, Protocol, runtime_checkable
 
 from ..models import GameState, AIConfig
-
-if TYPE_CHECKING:
-    from .heuristic_weights import HeuristicWeightProfile
 
 
 @runtime_checkable

@@ -13,6 +13,7 @@
  *   --limit <n>       Max games per database (default: 50)
  *   --mode <mode>     'shadow' or 'active' (default: both)
  *   --verbose         Show per-game results
+ *   --debug           Enable detailed FSM debug logging
  *   --fail-fast       Stop on first error
  */
 
@@ -24,6 +25,12 @@ import Database from 'better-sqlite3';
 process.env.RINGRIFT_FSM_VALIDATION_MODE = 'shadow';
 
 import { CanonicalReplayEngine } from '../src/shared/replay/CanonicalReplayEngine';
+import {
+  setFSMDebugLogger,
+  consoleFSMDebugLogger,
+  type FSMDebugContext,
+  type FSMValidationResult,
+} from '../src/shared/engine/fsm/FSMAdapter';
 
 interface ValidationResult {
   db: string;
@@ -231,7 +238,14 @@ async function main() {
   let limit = 50;
   let modes: ('shadow' | 'active')[] = ['shadow', 'active'];
   const verbose = args.includes('--verbose');
+  const debug = args.includes('--debug');
   const failFast = args.includes('--fail-fast');
+
+  // Enable debug logging if requested
+  if (debug) {
+    setFSMDebugLogger(consoleFSMDebugLogger);
+    originalConsoleLog('Debug logging enabled - will show detailed FSM validation info');
+  }
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--db' && args[i + 1]) {

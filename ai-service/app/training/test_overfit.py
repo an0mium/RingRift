@@ -5,9 +5,6 @@ Test script to verify training pipeline by overfitting a small batch
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
-import os
-import sys
 
 from app.ai.neural_net import RingRiftCNN
 

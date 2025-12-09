@@ -985,6 +985,7 @@ _CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         "randomness": 0.5,
         "think_time_ms": 150,
         "profile_id": "v1-random-1",
+        "use_neural_net": False,
     },
     2: {
         # Easy: shallow heuristic play with noticeable randomness
@@ -992,6 +993,7 @@ _CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         "randomness": 0.3,
         "think_time_ms": 200,
         "profile_id": "v1-heuristic-2",
+        "use_neural_net": False,
     },
     3: {
         # Lower-mid: minimax with heuristic evaluation only (no neural net)
@@ -1047,6 +1049,7 @@ _CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         "randomness": 0.0,
         "think_time_ms": 12600,
         "profile_id": "v1-descent-9",
+        "use_neural_net": True,
     },
     10: {
         # Grandmaster: strongest Descent configuration
@@ -1054,6 +1057,7 @@ _CANONICAL_DIFFICULTY_PROFILES: Dict[int, DifficultyProfile] = {
         "randomness": 0.0,
         "think_time_ms": 16000,
         "profile_id": "v1-descent-10",
+        "use_neural_net": True,
     },
 }
 

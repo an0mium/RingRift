@@ -8,7 +8,6 @@ import type {
 import { positionToString, enumerateSimpleMoveTargetsFromStack } from '../../shared/engine';
 import {
   enumerateRecoverySlideTargets,
-  isEligibleForRecovery,
   RecoverySlideTarget,
 } from '../../shared/engine/aggregates/RecoveryAggregate';
 import { isEligibleForRecovery as isEligibleHelper } from '../../shared/engine/playerStateHelpers';

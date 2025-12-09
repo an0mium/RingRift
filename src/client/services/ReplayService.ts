@@ -33,14 +33,7 @@ import type {
   GameOutcome,
   PlayerRecordInfo,
 } from '../../shared/types/gameRecord';
-import type {
-  GameState,
-  Move,
-  Position,
-  BoardType,
-  LineInfo,
-  Territory,
-} from '../../shared/types/game';
+import type { Move, Position, BoardType, LineInfo, Territory } from '../../shared/types/game';
 
 /**
  * Get the AI service URL from environment or use default.
@@ -417,17 +410,15 @@ export function adaptHistoryToGameRecord(
 
     const from = isPosition(raw.from) ? (raw.from as Position) : undefined;
     const to = isPosition(raw.to) ? (raw.to as Position) : undefined;
-    const captureTarget = isPosition(raw.captureTarget) ? (raw.captureTarget as Position) : undefined;
+    const captureTarget = isPosition(raw.captureTarget)
+      ? (raw.captureTarget as Position)
+      : undefined;
 
-    const placementCount =
-      typeof raw.placementCount === 'number' ? raw.placementCount : undefined;
-    const placedOnStack =
-      typeof raw.placedOnStack === 'boolean' ? raw.placedOnStack : undefined;
+    const placementCount = typeof raw.placementCount === 'number' ? raw.placementCount : undefined;
+    const placedOnStack = typeof raw.placedOnStack === 'boolean' ? raw.placedOnStack : undefined;
 
     const formedLines =
-      Array.isArray(raw.formedLines) && raw.formedLines.length > 0
-        ? raw.formedLines
-        : undefined;
+      Array.isArray(raw.formedLines) && raw.formedLines.length > 0 ? raw.formedLines : undefined;
     const collapsedMarkers =
       Array.isArray(raw.collapsedMarkers) && raw.collapsedMarkers.length > 0
         ? raw.collapsedMarkers

@@ -21,9 +21,8 @@ instances and prevent memory leaks in long-running sessions.
 
 import gc
 import logging
-import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import torch

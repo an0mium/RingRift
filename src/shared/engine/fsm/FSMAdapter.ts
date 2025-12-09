@@ -12,7 +12,7 @@
  * @module FSMAdapter
  */
 
-import type { Move, GameState, LineInfo, Territory } from '../../types/game';
+import type { Move, GameState, LineInfo, Territory, Position } from '../../types/game';
 import {
   transition,
   type TurnEvent,
@@ -279,7 +279,16 @@ export function eventToMove(event: TurnEvent, player: number, moveNumber: number
  * @param moveHint Optional move being validated - used to ensure state includes relevant context
  */
 export function deriveStateFromGame(gameState: GameState, moveHint?: Move): TurnState {
-  const player = gameState.currentPlayer;
+  // For bookkeeping moves, use the move's player instead of currentPlayer
+  // because these moves may be recorded at turn boundaries where the state's
+  // currentPlayer hasn't been updated yet.
+  const isBookkeepingMove =
+    moveHint?.type === 'no_placement_action' ||
+    moveHint?.type === 'no_movement_action' ||
+    moveHint?.type === 'no_line_action' ||
+    moveHint?.type === 'no_territory_action';
+
+  const player = isBookkeepingMove && moveHint?.player ? moveHint.player : gameState.currentPlayer;
   const phase = gameState.currentPhase;
 
   switch (phase) {
@@ -320,12 +329,24 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
 }
 
 function deriveRingPlacementState(state: GameState, player: number): RingPlacementState {
-  const validMoves = getValidMoves(state);
-  const placementMoves = validMoves.filter((m) => m.type === 'place_ring');
-  const validPositions = placementMoves.map((m) => m.to);
-  const canPlace = validPositions.length > 0;
   const playerObj = state.players.find((p) => p.playerNumber === player);
   const ringsInHand = playerObj?.ringsInHand ?? 0;
+
+  // For placement eligibility, check rings in hand for the specific player.
+  // Note: We can't use getValidMoves here because it uses state.currentPlayer,
+  // which may not match the player we're evaluating for bookkeeping moves.
+  // A player can place if they have rings in hand.
+  // Full position enumeration is expensive, so we just check ring availability.
+  const canPlace = ringsInHand > 0;
+
+  // Only enumerate positions if the player can place (for FSM context)
+  let validPositions: Position[] = [];
+  if (canPlace && state.currentPlayer === player) {
+    // Only enumerate when the player matches to avoid expensive computation
+    const validMoves = getValidMoves(state);
+    const placementMoves = validMoves.filter((m) => m.type === 'place_ring');
+    validPositions = placementMoves.map((m) => m.to);
+  }
 
   return {
     phase: 'ring_placement',
@@ -678,6 +699,172 @@ export function getValidEvents(gameState: GameState): TurnEvent[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// FSM DEBUG LOGGING
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Debug context for FSM validation - captures full state for diagnostics.
+ */
+export interface FSMDebugContext {
+  /** Derived FSM state from game state */
+  fsmState: TurnState;
+  /** Game context used for transition */
+  gameContext: GameContext;
+  /** The event converted from move (or null if conversion failed) */
+  event: TurnEvent | null;
+  /** Move details */
+  move: {
+    type: Move['type'];
+    player: number;
+    to: Position;
+    from?: Position;
+  };
+  /** Game state snapshot */
+  gameStateSnapshot: {
+    currentPhase: string;
+    currentPlayer: number;
+    moveHistoryLength: number;
+    players: Array<{ playerNumber: number; ringsInHand: number }>;
+  };
+  /** Phase-specific derived state details */
+  phaseDetails?: {
+    ringsInHand?: number;
+    canPlace?: boolean;
+    validPositionsCount?: number;
+    canMove?: boolean;
+    detectedLinesCount?: number;
+    disconnectedRegionsCount?: number;
+  };
+}
+
+/**
+ * Logger interface for FSM validation debugging.
+ * Set FSM_DEBUG_LOGGER to enable detailed logging.
+ */
+export interface FSMDebugLogger {
+  /** Log a validation attempt */
+  logValidation(context: FSMDebugContext, result: FSMValidationResult): void;
+  /** Log a divergence between FSM and legacy validation */
+  logDivergence(
+    context: FSMDebugContext,
+    fsmResult: FSMValidationResult,
+    legacyResult: { valid: boolean; reason?: string }
+  ): void;
+}
+
+/** Global debug logger - set this to enable detailed FSM logging */
+export let FSM_DEBUG_LOGGER: FSMDebugLogger | null = null;
+
+/**
+ * Set the FSM debug logger.
+ * @param logger Logger implementation or null to disable
+ */
+export function setFSMDebugLogger(logger: FSMDebugLogger | null): void {
+  FSM_DEBUG_LOGGER = logger;
+}
+
+/**
+ * Console-based debug logger for FSM validation.
+ */
+export const consoleFSMDebugLogger: FSMDebugLogger = {
+  logValidation(context: FSMDebugContext, result: FSMValidationResult): void {
+    const prefix = result.valid ? '✅' : '❌';
+    console.log(
+      `[FSM] ${prefix} ${context.move.type} by P${context.move.player} ` +
+        `in phase=${context.fsmState.phase} ` +
+        `(gamePhase=${context.gameStateSnapshot.currentPhase}, ` +
+        `currentPlayer=${context.gameStateSnapshot.currentPlayer})`
+    );
+    if (!result.valid) {
+      console.log(`  Error: [${result.errorCode}] ${result.reason}`);
+      if (result.validEventTypes) {
+        console.log(`  Expected events: ${result.validEventTypes.join(', ')}`);
+      }
+      if (context.phaseDetails) {
+        console.log(`  Phase details: ${JSON.stringify(context.phaseDetails)}`);
+      }
+    }
+  },
+  logDivergence(
+    context: FSMDebugContext,
+    fsmResult: FSMValidationResult,
+    legacyResult: { valid: boolean; reason?: string }
+  ): void {
+    console.log(
+      `[FSM DIVERGENCE] ${context.move.type} by P${context.move.player} ` +
+        `at k=${context.gameStateSnapshot.moveHistoryLength}`
+    );
+    console.log(`  Game phase: ${context.gameStateSnapshot.currentPhase}`);
+    console.log(`  FSM phase: ${fsmResult.currentPhase}`);
+    console.log(`  FSM: valid=${fsmResult.valid} ${fsmResult.reason || ''}`);
+    console.log(`  Legacy: valid=${legacyResult.valid} ${legacyResult.reason || ''}`);
+    if (context.phaseDetails) {
+      console.log(`  Phase details: ${JSON.stringify(context.phaseDetails)}`);
+    }
+    console.log(`  Players: ${JSON.stringify(context.gameStateSnapshot.players)}`);
+  },
+};
+
+/**
+ * Build debug context from validation inputs.
+ */
+function buildDebugContext(
+  gameState: GameState,
+  move: Move,
+  fsmState: TurnState,
+  gameContext: GameContext,
+  event: TurnEvent | null
+): FSMDebugContext {
+  const context: FSMDebugContext = {
+    fsmState,
+    gameContext,
+    event,
+    move: {
+      type: move.type,
+      player: move.player,
+      to: move.to,
+      from: move.from,
+    },
+    gameStateSnapshot: {
+      currentPhase: gameState.currentPhase,
+      currentPlayer: gameState.currentPlayer,
+      moveHistoryLength: gameState.moveHistory.length,
+      players: gameState.players.map((p) => ({
+        playerNumber: p.playerNumber,
+        ringsInHand: p.ringsInHand,
+      })),
+    },
+  };
+
+  // Add phase-specific details
+  if (fsmState.phase === 'ring_placement') {
+    const placementState = fsmState as RingPlacementState;
+    context.phaseDetails = {
+      ringsInHand: placementState.ringsInHand,
+      canPlace: placementState.canPlace,
+      validPositionsCount: placementState.validPositions.length,
+    };
+  } else if (fsmState.phase === 'movement') {
+    const movementState = fsmState as MovementState;
+    context.phaseDetails = {
+      canMove: movementState.canMove,
+    };
+  } else if (fsmState.phase === 'line_processing') {
+    const lineState = fsmState as LineProcessingState;
+    context.phaseDetails = {
+      detectedLinesCount: lineState.detectedLines.length,
+    };
+  } else if (fsmState.phase === 'territory_processing') {
+    const territoryState = fsmState as TerritoryProcessingState;
+    context.phaseDetails = {
+      disconnectedRegionsCount: territoryState.disconnectedRegions.length,
+    };
+  }
+
+  return context;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // FSM-BASED MOVE VALIDATION
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -690,11 +877,18 @@ export interface FSMValidationResult {
   /** Current FSM phase derived from game state */
   currentPhase: TurnState['phase'];
   /** Error code if invalid */
-  errorCode?: 'INVALID_EVENT' | 'GUARD_FAILED' | 'INVALID_STATE' | 'CONVERSION_FAILED';
+  errorCode?:
+    | 'INVALID_EVENT'
+    | 'GUARD_FAILED'
+    | 'INVALID_STATE'
+    | 'CONVERSION_FAILED'
+    | 'WRONG_PLAYER';
   /** Human-readable reason for rejection */
   reason?: string;
   /** Expected event types for this phase */
   validEventTypes?: TurnEvent['type'][];
+  /** Debug context (populated when debug logging is enabled) */
+  debugContext?: FSMDebugContext;
 }
 
 /**
@@ -705,43 +899,114 @@ export interface FSMValidationResult {
  *
  * @param gameState Current game state
  * @param move The move to validate
+ * @param includeDebugContext If true, includes full debug context in result
  * @returns FSM validation result with phase context
  */
-export function validateMoveWithFSM(gameState: GameState, move: Move): FSMValidationResult {
+export function validateMoveWithFSM(
+  gameState: GameState,
+  move: Move,
+  includeDebugContext = false
+): FSMValidationResult {
   // Derive FSM state and context from game state
   // Pass move as hint to help state derivation include relevant context
   const fsmState = deriveStateFromGame(gameState, move);
-  const context = deriveGameContext(gameState);
+  const gameContext = deriveGameContext(gameState);
 
-  // Convert move to FSM event
+  // Convert move to FSM event (do this early for debug context)
   const event = moveToEvent(move);
+
+  // Build debug context if logging is enabled or requested
+  const debugContext =
+    FSM_DEBUG_LOGGER || includeDebugContext
+      ? buildDebugContext(gameState, move, fsmState, gameContext, event)
+      : undefined;
+
+  // Helper to create result and optionally log
+  const makeResult = (result: FSMValidationResult): FSMValidationResult => {
+    if (includeDebugContext && debugContext) {
+      result.debugContext = debugContext;
+    }
+    if (FSM_DEBUG_LOGGER && debugContext) {
+      FSM_DEBUG_LOGGER.logValidation(debugContext, result);
+    }
+    return result;
+  };
+
+  // Validate player attribution: the move must be from the current player.
+  // Exception: bookkeeping moves (no_*_action) are exempt because they may be
+  // auto-injected at turn boundaries where player rotation has already occurred
+  // in the recording but not yet in the validation state.
+  const isBookkeepingMove =
+    move.type === 'no_placement_action' ||
+    move.type === 'no_movement_action' ||
+    move.type === 'no_line_action' ||
+    move.type === 'no_territory_action';
+
+  if (!isBookkeepingMove && move.player !== gameState.currentPlayer) {
+    return makeResult({
+      valid: false,
+      currentPhase: fsmState.phase,
+      errorCode: 'WRONG_PLAYER',
+      reason: `Not your turn (expected player ${gameState.currentPlayer}, got ${move.player})`,
+    });
+  }
+
+  // Check event conversion
   if (!event) {
-    return {
+    return makeResult({
       valid: false,
       currentPhase: fsmState.phase,
       errorCode: 'CONVERSION_FAILED',
       reason: `Cannot convert move type '${move.type}' to FSM event (meta-move or unsupported)`,
-    };
+    });
   }
 
   // Attempt the transition
-  const result = transition(fsmState, event, context);
+  const result = transition(fsmState, event, gameContext);
 
   if (!result.ok) {
     const error = result.error;
-    return {
+    return makeResult({
       valid: false,
       currentPhase: fsmState.phase,
       errorCode: error.code,
       reason: error.message,
       validEventTypes: getExpectedEventTypes(fsmState),
-    };
+    });
   }
 
-  return {
+  return makeResult({
     valid: true,
     currentPhase: fsmState.phase,
-  };
+  });
+}
+
+/**
+ * Validate a move with FSM and compare against legacy validation.
+ * Logs divergences when they occur.
+ *
+ * @param gameState Current game state
+ * @param move The move to validate
+ * @returns Object containing both validation results
+ */
+export function validateMoveWithFSMAndCompare(
+  gameState: GameState,
+  move: Move
+): {
+  fsmResult: FSMValidationResult;
+  legacyResult: { valid: boolean; reason?: string };
+  divergence: boolean;
+} {
+  const fsmResult = validateMoveWithFSM(gameState, move, true);
+  const legacyResult = validateMove(gameState, move);
+
+  const divergence = fsmResult.valid !== legacyResult.valid;
+
+  if (divergence && FSM_DEBUG_LOGGER && fsmResult.debugContext) {
+    FSM_DEBUG_LOGGER.logDivergence(fsmResult.debugContext, fsmResult, legacyResult);
+  }
+
+  return { fsmResult, legacyResult, divergence };
 }
 
 /**

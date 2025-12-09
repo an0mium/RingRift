@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import type { GameState, GameResult } from '../../shared/types/game';
+import type { GameState } from '../../shared/types/game';
 import type { ClientSandboxEngine } from '../services/ClientSandboxEngine';
 import { getReplayService } from '../services/ReplayService';
 import { storeGameLocally, getPendingCount } from '../services/LocalGameStorage';
@@ -83,9 +83,7 @@ export interface SandboxPersistenceState {
 /**
  * Hook for managing sandbox game persistence and sync.
  */
-export function useSandboxPersistence(
-  options: SandboxPersistenceOptions
-): SandboxPersistenceState {
+export function useSandboxPersistence(options: SandboxPersistenceOptions): SandboxPersistenceState {
   const { engine, playerTypes, numPlayers, defaultAutoSave = true, stateVersion = 0 } = options;
 
   // Derive victory result from engine
@@ -218,7 +216,6 @@ export function useSandboxPersistence(
     };
 
     saveCompletedGame();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoSaveGames, victoryResult, engine, playerTypes, numPlayers, stateVersion]);
 
   return {

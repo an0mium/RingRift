@@ -16,7 +16,6 @@ import {
   ScreenReaderAnnouncer,
   useGameAnnouncements,
   useGameStateAnnouncements,
-  GameAnnouncements,
 } from '../components/ScreenReaderAnnouncer';
 import { gameApi } from '../services/api';
 import {

@@ -64,7 +64,7 @@ class PlayerRecordInfo(BaseModel):
 class MoveRecord(BaseModel):
     """
     Lightweight move record for storage and training data.
-    
+
     This is a simplified version of Move that retains only the fields
     needed for replay, training, and analysis. Full diagnostic fields
     (stackMoved, capturedStacks, etc.) are omitted for space efficiency.
@@ -74,23 +74,23 @@ class MoveRecord(BaseModel):
     type: MoveType
     from_pos: Optional[Position] = Field(None, alias="from")
     to: Optional[Position] = None
-    
+
     # Capture metadata (when applicable)
     capture_target: Optional[Position] = Field(None, alias="captureTarget")
-    
+
     # Placement metadata
     placement_count: Optional[int] = Field(None, alias="placementCount")
     placed_on_stack: Optional[bool] = Field(None, alias="placedOnStack")
-    
+
     # Line/territory processing metadata
     formed_lines: Optional[Tuple[LineInfo, ...]] = Field(None, alias="formedLines")
     collapsed_markers: Optional[Tuple[Position, ...]] = Field(None, alias="collapsedMarkers")
     disconnected_regions: Optional[Tuple[Territory, ...]] = Field(None, alias="disconnectedRegions")
     eliminated_rings: Optional[Tuple[Dict[str, int], ...]] = Field(None, alias="eliminatedRings")
-    
+
     # Timing
     think_time_ms: int = Field(alias="thinkTimeMs")
-    
+
     # Optional RingRift Notation representation
     rrn: Optional[str] = None
 
@@ -145,13 +145,13 @@ class FinalScore(BaseModel):
 class GameRecord(BaseModel):
     """
     Complete record of a finished RingRift game.
-    
+
     This is the canonical format for storing games for:
     - Training data generation (JSONL export)
     - Replay viewing
     - Statistical analysis
     - Historical record keeping
-    
+
     The record is designed to be:
     - Space-efficient (no redundant board snapshots)
     - Self-contained (all info needed to replay without external state)
@@ -159,33 +159,33 @@ class GameRecord(BaseModel):
     """
     # Unique identifier
     id: str
-    
+
     # Game configuration
     board_type: BoardType = Field(alias="boardType")
     num_players: int = Field(alias="numPlayers")
     rng_seed: Optional[int] = Field(None, alias="rngSeed")
     is_rated: bool = Field(alias="isRated")
-    
+
     # Players
     players: List[PlayerRecordInfo]
-    
+
     # Game result
     winner: Optional[int] = None
     outcome: GameOutcome
     final_score: FinalScore = Field(alias="finalScore")
-    
+
     # Timing
     started_at: datetime = Field(alias="startedAt")
     ended_at: datetime = Field(alias="endedAt")
     total_moves: int = Field(alias="totalMoves")
     total_duration_ms: int = Field(alias="totalDurationMs")
-    
+
     # Move history
     moves: List[MoveRecord]
-    
+
     # Record metadata
     metadata: GameRecordMetadata
-    
+
     # Optional extended data
     initial_state_hash: Optional[str] = Field(None, alias="initialStateHash")
     final_state_hash: Optional[str] = Field(None, alias="finalStateHash")
@@ -216,7 +216,7 @@ class GameRecord(BaseModel):
 class RRNCoordinate(BaseModel):
     """
     Coordinate representation for RingRift Notation.
-    
+
     Square boards use algebraic notation: a1-h8 (8x8) or a1-s19 (19x19)
     Hexagonal boards use axial notation: (x,y,z) or simplified (x,y)
     """
@@ -242,7 +242,7 @@ class RRNCoordinate(BaseModel):
     def parse(cls, notation: str, board_type: BoardType) -> Position:
         """Parse RRN coordinate notation to Position."""
         notation = notation.strip()
-        
+
         if board_type == BoardType.HEXAGONAL:
             # Hex notation: (x,y) or (x,y,z)
             if notation.startswith("(") and notation.endswith(")"):
@@ -264,7 +264,7 @@ class RRNCoordinate(BaseModel):
 class RRNMove(BaseModel):
     """
     RingRift Notation representation of a single move.
-    
+
     Notation format:
     - Placement: P{coord} or P{coord}x{count} for multi-ring
     - Movement: {from}-{to}
@@ -274,7 +274,7 @@ class RRNMove(BaseModel):
     - Territory processing: T{coord} (representative position)
     - Skip: -
     - Swap sides: S
-    
+
     Examples:
     - "Pa1"       - Place ring at a1
     - "e4-e6"     - Move stack from e4 to e6
@@ -288,7 +288,7 @@ class RRNMove(BaseModel):
     notation: str
     move_type: MoveType = Field(alias="moveType")
     player: int
-    
+
     @classmethod
     def from_move_record(
         cls, record: MoveRecord, board_type: BoardType
@@ -300,46 +300,46 @@ class RRNMove(BaseModel):
 
 def _generate_rrn(record: MoveRecord, board_type: BoardType) -> str:
     """Generate RingRift Notation string from a MoveRecord."""
-    
+
     def pos_to_str(pos: Optional[Position]) -> str:
         if pos is None:
             return "?"
         return RRNCoordinate.from_position(pos, board_type).notation
-    
+
     t = record.type
-    
+
     if t == MoveType.PLACE_RING:
         base = f"P{pos_to_str(record.to)}"
         if record.placement_count and record.placement_count > 1:
             base += f"x{record.placement_count}"
         return base
-    
+
     elif t == MoveType.SKIP_PLACEMENT:
         return "-"
-    
+
     elif t == MoveType.SWAP_SIDES:
         return "S"
-    
+
     elif t in (MoveType.MOVE_STACK, MoveType.MOVE_RING):
         return f"{pos_to_str(record.from_pos)}-{pos_to_str(record.to)}"
-    
+
     elif t == MoveType.BUILD_STACK:
         return f"{pos_to_str(record.from_pos)}>{pos_to_str(record.to)}"
-    
+
     elif t == MoveType.OVERTAKING_CAPTURE:
         return f"{pos_to_str(record.from_pos)}x{pos_to_str(record.capture_target)}-{pos_to_str(record.to)}"
-    
+
     elif t == MoveType.CONTINUE_CAPTURE_SEGMENT:
         # Chain capture continuation
         return f"{pos_to_str(record.from_pos)}x{pos_to_str(record.capture_target)}-{pos_to_str(record.to)}+"
-    
+
     elif t == MoveType.PROCESS_LINE:
         # Use first marker position from formed line
         if record.formed_lines and len(record.formed_lines) > 0:
             first_pos = record.formed_lines[0].positions[0]
             return f"L{pos_to_str(first_pos)}"
         return "L?"
-    
+
     elif t == MoveType.CHOOSE_LINE_REWARD:
         # O1 for option 1 (collapse all), O2 for option 2 (minimum collapse)
         # Determine from collapsed_markers count vs formed_line length
@@ -351,14 +351,14 @@ def _generate_rrn(record: MoveRecord, board_type: BoardType) -> str:
             else:
                 return "O2"  # Option 2: minimum collapse
         return "O?"
-    
+
     elif t == MoveType.PROCESS_TERRITORY_REGION:
         # Use representative position from disconnected region
         if record.disconnected_regions and len(record.disconnected_regions) > 0:
             rep_pos = record.disconnected_regions[0].spaces[0]
             return f"T{pos_to_str(rep_pos)}"
         return "T?"
-    
+
     elif t == MoveType.ELIMINATE_RINGS_FROM_STACK:
         return f"E{pos_to_str(record.to)}"
 
@@ -377,18 +377,18 @@ def _generate_rrn(record: MoveRecord, board_type: BoardType) -> str:
 def parse_rrn_move(notation: str, board_type: BoardType) -> Tuple[MoveType, Optional[Position], Optional[Position]]:
     """
     Parse a RingRift Notation move string.
-    
+
     Returns (move_type, from_position, to_position).
     For moves without spatial coordinates, positions may be None.
     """
     notation = notation.strip()
-    
+
     if notation == "-":
         return (MoveType.SKIP_PLACEMENT, None, None)
-    
+
     if notation == "S":
         return (MoveType.SWAP_SIDES, None, None)
-    
+
     if notation.startswith("P"):
         # Placement: P{coord} or P{coord}x{count}
         rest = notation[1:]
@@ -398,22 +398,22 @@ def parse_rrn_move(notation: str, board_type: BoardType) -> Tuple[MoveType, Opti
             coord_part = rest
         pos = RRNCoordinate.parse(coord_part, board_type)
         return (MoveType.PLACE_RING, None, pos)
-    
+
     if notation.startswith("L"):
         # Line processing
         pos = RRNCoordinate.parse(notation[1:], board_type)
         return (MoveType.PROCESS_LINE, None, pos)
-    
+
     if notation.startswith("T"):
         # Territory processing
         pos = RRNCoordinate.parse(notation[1:], board_type)
         return (MoveType.PROCESS_TERRITORY_REGION, None, pos)
-    
+
     if notation.startswith("E"):
         # Ring elimination
         pos = RRNCoordinate.parse(notation[1:], board_type)
         return (MoveType.ELIMINATE_RINGS_FROM_STACK, None, pos)
-    
+
     if notation in ("O1", "O2"):
         return (MoveType.CHOOSE_LINE_REWARD, None, None)
 
@@ -434,35 +434,35 @@ def parse_rrn_move(notation: str, board_type: BoardType) -> Tuple[MoveType, Opti
         target_to = rest.split("-")
         # target = target_to[0]  # We don't return target separately
         to_str = target_to[1] if len(target_to) > 1 else target_to[0]
-        
+
         from_pos = RRNCoordinate.parse(from_str, board_type)
         to_pos = RRNCoordinate.parse(to_str, board_type)
-        
+
         if notation.endswith("+"):
             return (MoveType.CONTINUE_CAPTURE_SEGMENT, from_pos, to_pos)
         return (MoveType.OVERTAKING_CAPTURE, from_pos, to_pos)
-    
+
     if "-" in notation:
         # Movement
         parts = notation.split("-")
         from_pos = RRNCoordinate.parse(parts[0], board_type)
         to_pos = RRNCoordinate.parse(parts[1], board_type)
         return (MoveType.MOVE_STACK, from_pos, to_pos)
-    
+
     if ">" in notation:
         # Build stack
         parts = notation.split(">")
         from_pos = RRNCoordinate.parse(parts[0], board_type)
         to_pos = RRNCoordinate.parse(parts[1], board_type)
         return (MoveType.BUILD_STACK, from_pos, to_pos)
-    
+
     raise ValueError(f"Unable to parse RRN: {notation}")
 
 
 def game_record_to_rrn(record: GameRecord) -> str:
     """
     Convert a complete GameRecord to RRN notation string.
-    
+
     Format: {board_type}:{num_players}:{seed?}:{moves...}
     Example: "square8:2:12345:Pa1 Pa8 d4-d6 d8-d4 d6xd5-d4"
     """
@@ -474,12 +474,12 @@ def game_record_to_rrn(record: GameRecord) -> str:
         header_parts.append(str(record.rng_seed))
     else:
         header_parts.append("_")
-    
+
     move_strs = []
     for move in record.moves:
         rrn_move = RRNMove.from_move_record(move, record.board_type)
         move_strs.append(rrn_move.notation)
-    
+
     header = ":".join(header_parts)
     moves = " ".join(move_strs)
     return f"{header}:{moves}"
@@ -490,21 +490,21 @@ def rrn_to_moves(
 ) -> Tuple[BoardType, int, Optional[int], List[Tuple[MoveType, Optional[Position], Optional[Position]]]]:
     """
     Parse an RRN string to extract board config and move list.
-    
+
     Returns (board_type, num_players, rng_seed, moves).
     """
     parts = rrn_string.split(":", 3)
     if len(parts) < 4:
         raise ValueError(f"Invalid RRN format: {rrn_string}")
-    
+
     board_type = BoardType(parts[0])
     num_players = int(parts[1])
     rng_seed = int(parts[2]) if parts[2] != "_" else None
     moves_str = parts[3]
-    
+
     moves = []
     for move_notation in moves_str.split():
         parsed = parse_rrn_move(move_notation, board_type)
         moves.append(parsed)
-    
+
     return (board_type, num_players, rng_seed, moves)

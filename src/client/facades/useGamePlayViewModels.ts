@@ -17,7 +17,7 @@
 import { useMemo } from 'react';
 import type { Position } from '../../shared/types/game';
 import { positionToString } from '../../shared/types/game';
-import type { GameFacade, FacadeDecisionState } from './GameFacade';
+import type { GameFacade } from './GameFacade';
 import {
   toBoardViewModel,
   toHUDViewModel,

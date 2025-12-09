@@ -33,11 +33,18 @@ const interactionHandler: SandboxInteractionHandler = {
 };
 
 describe('ClientSandboxEngine – AI stall completion normalization', () => {
-  it('normalizes stalled completion state to a non-capture terminal phase', async () => {
-    // This fixture mirrors a stalled sandbox AI game where gameStatus has been
-    // flipped to 'completed' but the phase and capture cursor still reflect a
-    // mid-capture state. The stall safety-net in maybeRunAITurnSandbox should
-    // normalize these fields when marking the game as completed.
+  it('preserves active game status when stall detector runs but game has valid moves', async () => {
+    // This fixture represents a sandbox AI game with players still having rings
+    // and stacks on the board. Even if the mock hooks return no moves and the
+    // stall window is exceeded, the stall detector should NOT force-complete
+    // the game because:
+    // 1. isANMState() checks the actual game state (not mock hooks)
+    // 2. The state has valid moves according to the engine
+    //
+    // The stall detector is conservative: it only marks games as completed
+    // when both isANMState() returns true AND evaluateVictory() confirms
+    // the game is actually over. This prevents incorrectly ending games that
+    // have valid moves but where the AI happens to not find them.
     const serializedState = {
       id: 'sandbox-local',
       boardType: 'square8' as BoardType,
@@ -96,10 +103,6 @@ describe('ClientSandboxEngine – AI stall completion normalization', () => {
       ],
       currentPlayer: 2,
       currentPhase: 'chain_capture',
-      // Start from an active chain_capture phase so the sandbox AI stall
-      // detector can observe consecutive no-op turns and then mark
-      // the game as completed. Note: must use 'chain_capture' (not 'capture')
-      // since chainCapturePosition is only preserved for chain_capture phase.
       gameStatus: 'active',
       moveHistory: [],
       history: [],
@@ -134,8 +137,6 @@ describe('ClientSandboxEngine – AI stall completion normalization', () => {
       traceMode: false,
     });
 
-    // Initialize engine with the stalled state; this mirrors how sandbox
-    // replays/fixtures hydrate ClientSandboxEngine from serialized data.
     engine.initFromSerializedState(gameState as any, config.playerKinds, interactionHandler);
 
     const before = engine.getGameState();
@@ -143,11 +144,9 @@ describe('ClientSandboxEngine – AI stall completion normalization', () => {
     expect(before.currentPhase).toBe('chain_capture');
     expect(before.chainCapturePosition).toEqual({ x: 7, y: 5 });
 
-    // Force the AI stall safety-net to run its completion normalization path
-    // by executing a sequence of no-op AI turns equal to the canonical stall
-    // window. Each turn leaves the state unchanged while the same AI player
-    // remains to move, so on the final iteration the safety-net should mark
-    // the game as completed and normalize capture-specific fields.
+    // Mock hooks that return no moves. The stall detector will see no-op turns
+    // but should NOT force-complete the game because isANMState and evaluateVictory
+    // use the actual game state which has valid moves available.
     const hooks: any = {
       getGameState: () => engine.getGameState(),
       setGameState: (state: GameState) => {
@@ -178,11 +177,13 @@ describe('ClientSandboxEngine – AI stall completion normalization', () => {
       await maybeRunAITurnSandbox(hooks, () => 0.5);
     }
 
+    // Game should remain active because the actual state has valid moves
+    // (players have rings, stacks exist). The stall detector is conservative.
     const after = engine.getGameState();
-    expect(after.gameStatus).toBe('completed');
-    expect(after.currentPhase).toBe('ring_placement');
-    expect(after.chainCapturePosition).toBeUndefined();
-    expect((after as any).mustMoveFromStackKey).toBeUndefined();
+    expect(after.gameStatus).toBe('active');
+    // Phase and capture position preserved since game wasn't force-completed
+    expect(after.currentPhase).toBe('chain_capture');
+    expect(after.chainCapturePosition).toEqual({ x: 7, y: 5 });
   });
 
   it('normalizes an imported stalled-completion fixture on initFromSerializedState', () => {

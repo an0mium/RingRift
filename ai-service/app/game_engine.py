@@ -91,7 +91,7 @@ class PhaseRequirement:
     eligible_positions: List[Position]
 from .ai.zobrist import ZobristHash
 from .rules.geometry import BoardGeometry
-from .rules.core import count_rings_in_play_for_player, get_line_length_for_board, get_effective_line_length
+from .rules.core import count_rings_in_play_for_player, get_effective_line_length
 from .rules.capture_chain import enumerate_capture_moves_py
 from .rules.recovery import get_recovery_moves, has_any_recovery_move, apply_recovery_slide
 

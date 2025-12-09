@@ -21,13 +21,14 @@ Evaluation approaches:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import FrozenSet, List, Optional, TYPE_CHECKING
 
-from ..models import GameState, Position, RingStack
+from ..models import GameState, Position
 
 if TYPE_CHECKING:
     from .fast_geometry import FastGeometry
+    from .heuristic_ai import HeuristicAI
 
 
 @dataclass

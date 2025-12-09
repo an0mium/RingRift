@@ -1196,7 +1196,7 @@ class GameReplayDB:
             GameState after the specified move, or None if not found.
         """
         # Import here to avoid circular imports
-        from app.game_engine import GameEngine, PhaseRequirementType
+        from app.game_engine import GameEngine
 
         # Always start from the recorded initial state so that reconstructed
         # trajectories reflect the current canonical rules implementation.
@@ -1240,13 +1240,13 @@ class GameReplayDB:
 
     def _get_game_move_count(self, game_id: str) -> int:
         """Get total number of moves recorded for a game.
-        
+
         Used by get_state_at_move() to determine if we're at the
         final recorded position and should auto-inject bookkeeping moves.
-        
+
         Args:
             game_id: Game identifier
-            
+
         Returns:
             Total number of moves stored for this game
         """
@@ -1271,7 +1271,6 @@ class GameReplayDB:
             Updated game state with bookkeeping moves auto-applied.
         """
         from app.game_engine import GameEngine, PhaseRequirementType
-        from app.models import GameStatus
 
         # Limit iterations to prevent infinite loops in case of bugs
         max_iterations = 10

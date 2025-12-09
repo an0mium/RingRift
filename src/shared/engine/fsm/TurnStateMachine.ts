@@ -350,6 +350,7 @@ function handleRingPlacement(
     }
 
     case 'NO_PLACEMENT_ACTION': {
+      // Strict mode: reject no_placement_action if player can actually place
       if (state.canPlace) {
         return guardFailed(state, event, 'Cannot skip placement when valid placements exist');
       }

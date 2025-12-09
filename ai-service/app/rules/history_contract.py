@@ -149,4 +149,3 @@ def validate_canonical_move(phase: str | None, move_type: str) -> CanonicalMoveC
         )
 
     return CanonicalMoveCheckResult(ok=True, effective_phase=eff_phase, reason=None)
-

@@ -1,10 +1,7 @@
 import os
-import sys
 import numpy as np
-import torch
 from app.ai.descent_ai import DescentAI
-from app.models import AIConfig, GameState
-from app.ai.neural_net import INVALID_MOVE_INDEX
+from app.models import AIConfig
 
 def reanalyze_dataset(
     input_file="data/dataset.npz",

@@ -46,7 +46,6 @@ import {
   ScreenReaderAnnouncer,
   useGameAnnouncements,
   useGameStateAnnouncements,
-  GameAnnouncements,
 } from '../components/ScreenReaderAnnouncer';
 import { gameApi } from '../services/api';
 import { GameSyncService } from '../services/GameSyncService';
@@ -59,7 +58,6 @@ import {
   logSandboxScenarioCompleted,
 } from '../sandbox/sandboxRulesUxTelemetry';
 import { getGameOverBannerText } from '../utils/gameCopy';
-import { serializeGameState } from '../../shared/engine/contracts/serialization';
 import { buildTestFixtureFromGameState, exportGameStateToFile } from '../sandbox/statePersistence';
 import { useIsMobile } from '../hooks/useIsMobile';
 import { useBoardOverlays } from '../hooks/useBoardViewProps';

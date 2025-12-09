@@ -39,12 +39,10 @@ from app.models import (
     BoardState,
     BoardType,
     MarkerInfo,
-    RingStack,
 )
 from app.board_manager import BoardManager
 from app.rules.core import (
     count_buried_rings,
-    player_has_markers,
     is_eligible_for_recovery,
     get_effective_line_length,
 )

@@ -11,11 +11,11 @@
  * @module facades/useCellInteractions
  */
 
-import { useState, useCallback, useMemo } from 'react';
-import type { BoardState, Move, Position } from '../../shared/types/game';
+import { useState, useCallback } from 'react';
+import type { Move, Position } from '../../shared/types/game';
 import { positionToString, positionsEqual } from '../../shared/types/game';
 import type { GameFacade, PartialMove } from './GameFacade';
-import { canSubmitMove, canInteract } from './GameFacade';
+import { canInteract } from './GameFacade';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TYPES

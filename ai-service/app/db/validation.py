@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import List, Optional
 
 from app.db.game_replay import GameReplayDB, _compute_state_hash, _serialize_state
-from app.game_engine import GameEngine
 from app.models import GameState, Move
 
 logger = logging.getLogger(__name__)

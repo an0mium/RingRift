@@ -96,15 +96,12 @@ Unsafe optimizations (may affect play strength):
 from __future__ import annotations
 
 import os
-import random
 from typing import FrozenSet, Optional, List, Dict, Tuple
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
-import numpy as np
 
 from .base import BaseAI
 from .numba_eval import (
-    NUMBA_AVAILABLE,
     evaluate_line_potential_numba,
     prepare_marker_arrays,
 )
