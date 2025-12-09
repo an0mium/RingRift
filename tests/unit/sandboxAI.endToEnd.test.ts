@@ -27,12 +27,6 @@ const FIXTURE_FILES = [
 ];
 
 describe('Sandbox AI End-to-End Regression', () => {
-  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM orchestrator active mode changes phase transitions', () => {});
-    return;
-  }
-
   // Increase timeout for long-running simulations
   jest.setTimeout(30000);
 

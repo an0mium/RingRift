@@ -30,11 +30,6 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  */
 
 test('Sandbox AI regression: square8 / 2p / seed=18 terminates without long no-op stall', async () => {
-  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
-  if (isFSMOrchestratorActive()) {
-    return;
-  }
-
   const boardType: BoardType = 'square8';
   const numPlayers = 2;
   const seed = 18;

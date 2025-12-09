@@ -41,11 +41,6 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  */
 
 test('ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 terminates or logs diagnostics', async () => {
-  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
-  if (isFSMOrchestratorActive()) {
-    return;
-  }
-
   const boardType: BoardType = 'square8';
   const numPlayers = 2;
   const seed = 18; // from fuzz harness: boardIndex=0, playerCountIndex=0, run=17 -> 1+17=18

@@ -20,12 +20,6 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  * swap_sides meta-move for 2-player games, mirroring backend semantics.
  */
 describe('ClientSandboxEngine swap rule (pie rule)', () => {
-  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM orchestrator active mode changes phase transitions', () => {});
-    return;
-  }
-
   const boardType: BoardType = 'square8';
 
   function createEngine(numPlayers: number = 2): ClientSandboxEngine {

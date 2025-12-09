@@ -24,15 +24,6 @@ describe('Golden Replay Tests', () => {
   const goldenGamesDir = getGoldenGamesDir();
   const goldenGames = loadGoldenGames(goldenGamesDir);
 
-  // Skip if FSM active mode is enabled - golden games were recorded with legacy
-  // orchestration and FSM active mode changes phase transitions
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping golden replay tests - FSM orchestrator active mode changes phase transitions', () => {
-      // Golden games were recorded with legacy orchestration
-    });
-    return;
-  }
-
   // Skip if no fixtures available yet
   if (goldenGames.length === 0) {
     it.skip('No golden game fixtures found - run curation script to generate', () => {

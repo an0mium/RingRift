@@ -232,6 +232,7 @@ def get_or_create_db(
     db_path: Optional[str] = None,
     default_path: Optional[str] = None,
     respect_env_disable: bool = True,
+    enforce_canonical_history: bool = True,
 ) -> Optional[GameReplayDB]:
     """Get or create a GameReplayDB instance.
 
@@ -246,6 +247,10 @@ def get_or_create_db(
         respect_env_disable: If True (default), returns None if
                              RINGRIFT_RECORD_SELFPLAY_GAMES is set to disable.
                              Set to False to ignore the global disable flag.
+        enforce_canonical_history: If True (default), validate that recorded moves
+                                   match canonical phase expectations. Set to False
+                                   for training data collection where phase alignment
+                                   may differ from TS canonical rules.
 
     Returns:
         GameReplayDB instance or None if recording is disabled
@@ -267,7 +272,7 @@ def get_or_create_db(
         path = get_default_db_path()
 
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    return GameReplayDB(path)
+    return GameReplayDB(path, enforce_canonical_history=enforce_canonical_history)
 
 
 def should_record_games(cli_no_record: bool = False) -> bool:

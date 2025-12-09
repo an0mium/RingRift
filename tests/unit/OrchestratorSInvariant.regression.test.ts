@@ -108,12 +108,6 @@ function toEngineMove(move: Move): Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
 const REGRESSION_SEEDS: number[] = [786238345, 265064459];
 
 describe('Orchestrator S-invariant – backend harness parity', () => {
-  // Skip when FSM active mode is enabled - changes phase transitions
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM orchestrator active mode changes phase transitions', () => {});
-    return;
-  }
-
   // NOTE: This test is currently marked as skipped because it captures a
   // known orchestrator S-invariant regression (see TODO P0.3). Once the
   // underlying bug is fixed, remove `.skip` to enforce the invariant.

@@ -602,7 +602,9 @@ def run_self_play_soak(
     # Initialize optional game recording database
     # --no-record-db flag overrides --record-db to disable recording
     record_db_path = None if getattr(args, "no_record_db", False) else getattr(args, "record_db", None)
-    replay_db = get_or_create_db(record_db_path) if record_db_path else None
+    # Disable canonical history validation for selfplay - Python engine validates moves
+    # already and training data doesn't need TS phase alignment
+    replay_db = get_or_create_db(record_db_path, enforce_canonical_history=False) if record_db_path else None
     games_recorded = 0
 
     # Lean DB mode: skip storing full state history for each move (~100x smaller)

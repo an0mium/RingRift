@@ -16,11 +16,6 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  */
 
 test('ClientSandboxEngine AI stall regression: square8 / 2 AI / seed=1 plateau does not re-stall', async () => {
-  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
-  if (isFSMOrchestratorActive()) {
-    return;
-  }
-
   // Reproduce a mid-game state near the historical stall plateau.
   const targetActionIndex = 58;
   const {

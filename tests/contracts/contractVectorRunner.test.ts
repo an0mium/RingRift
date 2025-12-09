@@ -264,15 +264,6 @@ function runVector(vector: ContractTestVector): {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('Contract Test Vectors', () => {
-  // Skip contract vectors when FSM active mode is enabled - vectors were created
-  // with legacy orchestration and FSM active mode changes phase transitions
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping contract vectors - FSM orchestrator active mode changes phase transitions', () => {
-      // Vectors were created with legacy orchestration
-    });
-    return;
-  }
-
   describe('Vector Loading', () => {
     it('should load vectors from all bundle files', () => {
       const vectors = loadAllVectors();
@@ -470,12 +461,6 @@ describe('Contract Test Vectors', () => {
 // Auto-complete logic handles multi-phase turns where movement/capture triggers
 // line_processing → territory_processing phases.
 describe('Multi-step contract sequences', () => {
-  // Skip when FSM active mode is enabled - vectors were created with legacy orchestration
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM orchestrator active mode changes phase transitions', () => {});
-    return;
-  }
-
   const allVectors = loadAllVectors();
   const sequences = groupVectorsBySequenceTag(allVectors);
   const sequenceEntries = Array.from(sequences.entries());

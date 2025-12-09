@@ -27,12 +27,6 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  */
 
 describe('RulesMatrix → ClientSandboxEngine territory scenarios (Section 12; FAQ Q23)', () => {
-  // Skip when FSM active mode is enabled - sandbox uses legacy orchestration
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM orchestrator active mode changes phase transitions', () => {});
-    return;
-  }
-
   function createEngine(boardType: BoardType): { engine: ClientSandboxEngine; state: GameState } {
     const config: SandboxConfig = {
       boardType,
