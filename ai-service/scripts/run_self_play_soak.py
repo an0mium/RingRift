@@ -605,6 +605,10 @@ def run_self_play_soak(
     replay_db = get_or_create_db(record_db_path) if record_db_path else None
     games_recorded = 0
 
+    # Lean DB mode: skip storing full state history for each move (~100x smaller)
+    # Default is True (lean enabled), --no-lean-db disables it
+    lean_db_enabled = getattr(args, "lean_db", True) and not getattr(args, "no_lean_db", False)
+
     env_config = TrainingEnvConfig(
         board_type=board_type,
         num_players=num_players,
@@ -1327,6 +1331,9 @@ def run_self_play_soak(
                             # keys like player_{pnum}_ai_type, player_{pnum}_difficulty
                             **per_player_ai_metadata,
                         },
+                        # Lean mode: skip storing full state history for each move
+                        # to reduce DB size ~100x while preserving training data
+                        store_history_entries=not lean_db_enabled,
                     )
                     if profile_timing:
                         timing_totals["db_record"] += time.time() - t_db_start
@@ -1942,6 +1949,21 @@ def _parse_args() -> argparse.Namespace:
         "--no-record-db",
         action="store_true",
         help="Disable game recording to database (overrides --record-db).",
+    )
+    parser.add_argument(
+        "--lean-db",
+        action="store_true",
+        default=True,
+        help=(
+            "Enable lean database recording mode (~100x smaller). Skips storing "
+            "full before/after state snapshots for each move. Still stores initial "
+            "state, moves, and final state needed for training. Default: enabled."
+        ),
+    )
+    parser.add_argument(
+        "--no-lean-db",
+        action="store_true",
+        help="Disable lean recording mode; store full state history for debugging.",
     )
     return parser.parse_args()
 

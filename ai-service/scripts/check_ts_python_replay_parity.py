@@ -1,9 +1,47 @@
 """TS vs Python replay parity checker for GameReplayDB databases.
 
-This script walks all self-play GameReplayDB databases under the repo and,
-for each game, compares Python's GameReplayDB.get_state_at_move against the
-TypeScript ClientSandboxEngine replay path driven via the
-scripts/selfplay-db-ts-replay.ts harness.
+This script walks GameReplayDB databases and, for each game, compares Python's
+GameReplayDB.get_state_at_move against the TypeScript ClientSandboxEngine
+replay path driven via the scripts/selfplay-db-ts-replay.ts harness.
+
+Two orthogonal controls define how it behaves:
+
+1) **View semantics** (``--view post_move|post_bridge``)
+
+   By default it operates in a **post_move** view:
+
+     - Python: GameReplayDB.get_state_at_move(game_id, n) → post_move[n]
+     - TS: ``ts-replay-step`` event at k = n + 1 (state immediately after
+       applying DB move n, before any synthesized bookkeeping).
+
+   An optional ``--view post_bridge`` diagnostic mode is also provided:
+
+     - TS: ``ts-replay-db-move-complete`` events (state after any synthesized
+       bookkeeping needed to bridge from one recorded DB move to the next).
+     - Python: still uses GameReplayDB.get_state_at_move(game_id, n) for now.
+       This mode is intended for tooling and future debugging; canonical
+       gating and training continue to rely on post_move semantics.
+
+2) **Parity mode** (``--mode canonical|legacy``)
+
+   - ``canonical`` (default):
+       * Forces ``--view post_move`` (any other combination is rejected).
+       * Treats any structural issue, non-canonical history, or semantic
+         divergence as a **hard failure** for the database.
+       * The JSON summary includes ``passed_canonical_parity_gate: true`` only
+         when:
+             - games_with_structural_issues == 0
+             - games_with_non_canonical_history == 0
+             - games_with_semantic_divergence == 0
+             - total_games_checked > 0
+       * The CLI exit status is non-zero when the canonical parity gate fails.
+
+   - ``legacy``:
+       * Can be combined with ``--view post_move`` or ``--view post_bridge``.
+       * Allows non-canonical histories and structural issues but clearly
+         records them in the JSON summary.
+       * Does **not** enforce a canonical gate by default; exit status remains
+         zero unless ``--fail-on-divergence`` is supplied (semantic-only).
 
 For each game it checks:
   - That TS replays the same number of moves as Python reports (total_moves).
@@ -67,12 +105,22 @@ class GameParityResult:
     # High-level classification of what differed at diverged_at, e.g.:
     # ['current_player'], ['current_phase', 'game_status'], ['move_count'], ['ts_missing_step']
     mismatch_kinds: List[str] = field(default_factory=list)
-    # Optional free-form context, such as "initial_state" vs "post_move"
+    # Optional free-form context, such as "initial_state" vs "post_move" / "post_bridge"
     mismatch_context: Optional[str] = None
     # True when divergence occurs only at the very last move (end-of-game metadata
     # differences). These are insignificant for training purposes as no AI decisions
     # are made based on the divergent state.
     is_end_of_game_only: bool = False
+
+
+@dataclass
+class TsEventMetadata:
+    """Metadata about a TS replay event used for parity comparison."""
+
+    ts_k: int
+    db_move_index: Optional[int]
+    view: Optional[str]
+    event_kind: str
 
 
 def _canonicalize_status(status: str | None) -> str:
@@ -490,29 +538,38 @@ def _get_python_state_for_ts_k(
     return state
 
 
-def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSummary]]:
+def run_ts_replay(
+    db_path: Path,
+    game_id: str,
+    view_mode: str = "post_move",
+) -> Tuple[int, Dict[int, StateSummary], Dict[int, TsEventMetadata]]:
     """Invoke the TS harness and parse its per-move summaries.
 
     Returns:
       (total_moves_reported_by_ts,
-       mapping from k -> post-move summary)
+       mapping from k -> summary for the selected view,
+       mapping from k -> TsEventMetadata for the selected view)
 
     The TS harness emits several event types:
-      - ``ts-replay-initial``: Initial state (k=0) before any moves
-      - ``ts-replay-step``: State immediately after applying a DB move (pre-bridge)
-      - ``ts-replay-bridge``: State after applying a synthesized bookkeeping move
-      - ``ts-replay-db-move-complete``: State after all bridges for a DB move
-      - ``ts-replay-final``: Final state summary
+      - ``ts-replay-initial``: Initial state (k=0) before any moves.
+      - ``ts-replay-step``: State immediately after applying a DB move
+        (TS "post_move" view).
+      - ``ts-replay-bridge``: State after applying a synthesized bookkeeping
+        move (ignored for parity).
+      - ``ts-replay-db-move-complete``: State after all synthesized bridges
+        associated with a DB move (TS "post_bridge" view).
+      - ``ts-replay-final``: Final state summary.
 
-    For parity comparison, we use ``ts-replay-step`` events. These represent
-    the state IMMEDIATELY after applying the recorded DB move, BEFORE any
-    synthesized bridge moves. This matches Python's ``get_state_at_move(N)``
-    semantics, which returns the state after applying move N to the engine
-    WITHOUT synthesizing additional bookkeeping moves.
+    In ``view_mode == 'post_move'`` (canonical default) we use
+    ``ts-replay-step`` events, which represent the state IMMEDIATELY after
+    applying DB move ``n`` without any additional synthesized bookkeeping.
+    This matches Python's ``get_state_at_move(n)`` semantics.
 
-    The ``ts-replay-db-move-complete`` events are emitted for debugging but
-    not used for parity comparison since they include synthesized bridges that
-    Python's GameEngine does not generate.
+    In ``view_mode == 'post_bridge'`` (diagnostic) we instead use
+    ``ts-replay-db-move-complete`` events, which include any synthesized
+    bookkeeping needed to bridge from one recorded DB move to the next.
+    Python remains on ``get_state_at_move(n)`` (post_move) semantics for now;
+    this mode is intended for tooling and detailed debugging only.
     """
     root = repo_root()
     cmd = [
@@ -546,7 +603,15 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
         )
 
     total_ts_moves = 0
-    summaries: Dict[int, StateSummary] = {}
+
+    # Per-k summaries for each TS view.
+    initial_summary: Optional[StateSummary] = None
+    post_move_summaries: Dict[int, StateSummary] = {}
+    post_bridge_summaries: Dict[int, StateSummary] = {}
+
+    # Per-k metadata for each TS view.
+    meta_post_move: Dict[int, TsEventMetadata] = {}
+    meta_post_bridge: Dict[int, TsEventMetadata] = {}
 
     for line in stdout.splitlines():
         line = line.strip()
@@ -561,38 +626,129 @@ def run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSumm
         if kind == "ts-replay-initial":
             total_ts_moves = int(payload.get("totalRecordedMoves", 0))
             summary = payload.get("summary") or {}
-            summaries[0] = StateSummary(
+            initial_summary = StateSummary(
                 move_index=0,
                 current_player=summary.get("currentPlayer"),
                 current_phase=summary.get("currentPhase"),
                 game_status=_canonicalize_status(summary.get("gameStatus")),
                 state_hash=summary.get("stateHash"),
             )
+            meta = TsEventMetadata(
+                ts_k=0,
+                db_move_index=None,
+                view=(summary.get("view") if isinstance(summary, dict) else None) or "initial",
+                event_kind=kind,
+            )
+            meta_post_move[0] = meta
+            meta_post_bridge[0] = meta
         elif kind == "ts-replay-step":
-            # Use ts-replay-step for parity: this is the state immediately
-            # after applying the recorded DB move, BEFORE any synthesized
-            # bridges. This matches Python's get_state_at_move() semantics.
-            k = int(payload.get("k", 0))
+            # Use ts-replay-step for canonical post_move comparison: this is
+            # the state immediately after applying the recorded DB move,
+            # BEFORE any synthesized bookkeeping moves.
+            k_raw = payload.get("k", 0)
+            try:
+                k = int(k_raw)
+            except Exception:
+                continue
             summary = payload.get("summary") or {}
-            summaries[k] = StateSummary(
+            post_move_summaries[k] = StateSummary(
                 move_index=k,
                 current_player=summary.get("currentPlayer"),
                 current_phase=summary.get("currentPhase"),
                 game_status=_canonicalize_status(summary.get("gameStatus")),
                 state_hash=summary.get("stateHash"),
             )
-        elif kind == "ts-replay-bridge":
-            # Bridge events are for synthesized bookkeeping moves. Ignored
-            # for parity since Python does not synthesize these.
-            pass
-        elif kind == "ts-replay-db-move-complete":
-            # Post-bridge state for debugging; not used for parity comparison.
-            pass
-        elif kind == "ts-replay-final":
-            # We could cross-check appliedMoves here if needed.
-            pass
 
-    return total_ts_moves, summaries
+            db_move_index_raw = payload.get("db_move_index")
+            try:
+                db_move_index = int(db_move_index_raw) if db_move_index_raw is not None else None
+            except Exception:
+                db_move_index = None
+
+            view = summary.get("view") if isinstance(summary, dict) else None
+            meta_post_move[k] = TsEventMetadata(
+                ts_k=k,
+                db_move_index=db_move_index,
+                view=view,
+                event_kind=kind,
+            )
+
+            # Cross-check the explicit db_move_index emitted by the TS harness
+            # against the implicit k->move_index contract (k = db_move_index + 1).
+            #
+            # If they disagree we treat this as a structural anomaly in the TS
+            # trace but do NOT abort parity. The canonical comparison continues
+            # to rely on k (TS step index) ↔ Python get_state_at_move(k-1).
+            if db_move_index is not None:
+                expected = k - 1
+                if db_move_index != expected:
+                    msg = (
+                        "TS replay emitted inconsistent db_move_index="
+                        f"{db_move_index} for k={k} (expected {expected}) "
+                        f"in {db_path} / {game_id}"
+                    )
+                    # Emit to stderr for diagnostics without changing parity
+                    # behaviour for canonical runs.
+                    print(f"[ts-replay-warning] {msg}", file=sys.stderr)
+        elif kind == "ts-replay-db-move-complete":
+            # Post-bridge state: state after closing out canonical DB move
+            # db_move_index (including any synthesized bookkeeping moves).
+            db_move_index_raw = payload.get("db_move_index")
+            try:
+                db_move_index_int = int(db_move_index_raw)
+            except Exception:
+                continue
+
+            # For db_move_index == n this corresponds to TS step k = n + 1,
+            # i.e. the same indexing used for ts-replay-step.
+            k = db_move_index_int + 1
+            summary = payload.get("summary") or {}
+            post_bridge_summaries[k] = StateSummary(
+                move_index=k,
+                current_player=summary.get("currentPlayer"),
+                current_phase=summary.get("currentPhase"),
+                game_status=_canonicalize_status(summary.get("gameStatus")),
+                state_hash=summary.get("stateHash"),
+            )
+
+            view = summary.get("view") if isinstance(summary, dict) else None
+            meta_post_bridge[k] = TsEventMetadata(
+                ts_k=k,
+                db_move_index=db_move_index_int,
+                view=view,
+                event_kind=kind,
+            )
+        else:
+            # ts-replay-bridge / ts-replay-final and any other events are
+            # ignored for parity; they are still present in stdout for
+            # diagnostics but not used for state comparison.
+            continue
+
+    # Build the view-specific summaries and metadata.
+    summaries: Dict[int, StateSummary] = {}
+    if initial_summary is not None:
+        summaries[0] = initial_summary
+
+    if view_mode == "post_bridge":
+        summaries.update(post_bridge_summaries)
+        selected_meta = meta_post_bridge
+    else:
+        # Default / canonical behaviour.
+        summaries.update(post_move_summaries)
+        selected_meta = meta_post_move
+
+    # Ensure we always have at least some metadata entry for k=0 so state
+    # bundles can describe the initial TS snapshot even if the harness did
+    # not emit an explicit initial view tag.
+    if 0 not in selected_meta:
+        selected_meta[0] = TsEventMetadata(
+            ts_k=0,
+            db_move_index=None,
+            view="initial",
+            event_kind="ts-replay-initial",
+        )
+
+    return total_ts_moves, summaries, selected_meta
 
 
 def _dump_ts_states_for_ks(
@@ -647,8 +803,16 @@ def dump_state_bundle(
     game_id: str,
     result: GameParityResult,
     state_bundles_dir: Path,
+    *,
+    view_mode: str,
+    ts_event_metadata: Dict[int, TsEventMetadata] | None = None,
 ) -> None:
-    """Emit a rich TS+Python state bundle around the first divergence for faster debugging."""
+    """Emit a rich TS+Python state bundle around the first divergence for faster debugging.
+
+    The bundle records the selected TS view semantics (``view_mode``) and, for
+    each included TS k, basic metadata about the TS replay event that produced
+    the state used for comparison (event_kind, db_move_index, view).
+    """
     if result.diverged_at is None:
         return
 
@@ -661,6 +825,7 @@ def dump_state_bundle(
 
     py_states: Dict[int, Dict[str, object]] = {}
     ts_states: Dict[int, Dict[str, object]] = {}
+    meta_for_ks: Dict[str, Dict[str, object]] = {}
 
     for ts_k in ks:
         state = _get_python_state_for_ts_k(db, game_id, ts_k, result.total_moves_python)
@@ -686,6 +851,18 @@ def dump_state_bundle(
         except Exception:
             continue
 
+    if ts_event_metadata is not None:
+        for ts_k in ks:
+            meta = ts_event_metadata.get(ts_k)
+            if meta is None:
+                continue
+            meta_for_ks[str(ts_k)] = {
+                "ts_k": meta.ts_k,
+                "db_move_index": meta.db_move_index,
+                "view": meta.view,
+                "event_kind": meta.event_kind,
+            }
+
     safe_game_id = game_id.replace("/", "_")
     diverged_label = str(result.diverged_at)
     bundle_path = state_bundles_dir / f"{Path(db_path).stem}__{safe_game_id}__k{diverged_label}.state_bundle.json"
@@ -698,10 +875,13 @@ def dump_state_bundle(
         "mismatch_context": result.mismatch_context,
         "total_moves_python": result.total_moves_python,
         "total_moves_ts": result.total_moves_ts,
+        "view_mode": view_mode,
         "ts_k_values": ks,
         "python_states": {str(k): py_states.get(k) for k in ks},
         "ts_states": {str(k): ts_states.get(k) for k in ks},
     }
+    if meta_for_ks:
+        bundle["ts_event_metadata"] = meta_for_ks
 
     try:
         state_bundles_dir.mkdir(parents=True, exist_ok=True)
@@ -711,7 +891,12 @@ def dump_state_bundle(
         return
 
 
-def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
+def check_game_parity(
+    db_path: Path,
+    game_id: str,
+    view: str = "post_move",
+    state_bundles_dir: Optional[Path] = None,
+) -> GameParityResult:
     db = GameReplayDB(str(db_path))
     meta = db.get_game_metadata(game_id)
     if not meta:
@@ -759,7 +944,7 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
             ts_summary=None,
         )
 
-    total_moves_ts, ts_summaries = run_ts_replay(db_path, game_id)
+    total_moves_ts, ts_summaries, ts_event_meta = run_ts_replay(db_path, game_id, view_mode=view)
 
     diverged_at: Optional[int] = None
     py_summary_at_diverge: Optional[StateSummary] = None
@@ -798,7 +983,8 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
             mismatch_kinds = init_mismatches
             mismatch_context = "initial_state"
 
-    # Then compare post-move states: TS k ↔ Python get_state_at_move(k-1)
+    # Then compare post-move (or post-bridge) states:
+    #   TS k ↔ Python get_state_at_move(k-1)
     if diverged_at is None:
         max_ts_k = total_moves_ts  # TS k ranges from 1 to total_moves_ts
         for ts_k in range(1, max_ts_k + 1):
@@ -812,7 +998,7 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
                 py_summary_at_diverge = summarize_python_state(db, game_id, py_move_index)
                 ts_summary_at_diverge = None
                 mismatch_kinds = ["ts_missing_step"]
-                mismatch_context = "post_move"
+                mismatch_context = view
                 break
 
             py_summary = summarize_python_state(db, game_id, py_move_index)
@@ -836,7 +1022,7 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
                 py_summary_at_diverge = py_summary
                 ts_summary_at_diverge = ts_summary
                 mismatch_kinds = step_mismatches
-                mismatch_context = "post_move"
+                mismatch_context = view
                 break
 
     # If we had no per-move divergence but move counts differ, record that as a
@@ -860,7 +1046,7 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
             if py_summary_at_diverge.state_hash == ts_summary_at_diverge.state_hash:
                 is_end_of_game_only = True
 
-    return GameParityResult(
+    result = GameParityResult(
         db_path=str(db_path),
         game_id=game_id,
         structure=structure,
@@ -875,8 +1061,34 @@ def check_game_parity(db_path: Path, game_id: str) -> GameParityResult:
         is_end_of_game_only=is_end_of_game_only,
     )
 
+    # Optionally emit a TS+Python state bundle for this game when a semantic
+    # divergence is found. This now threads through the selected view_mode and
+    # TS event metadata so downstream tooling can distinguish post_move vs
+    # post_bridge semantics and see which TS event produced each TS state.
+    if state_bundles_dir is not None and result.diverged_at is not None:
+        try:
+            dump_state_bundle(
+                db=db,
+                db_path=db_path,
+                game_id=game_id,
+                result=result,
+                state_bundles_dir=state_bundles_dir,
+                view_mode=view,
+                ts_event_metadata=ts_event_meta,
+            )
+        except Exception:
+            # Bundle emission is best-effort; parity classification should not fail.
+            pass
 
-def trace_game(db_path: Path, game_id: str, max_k: Optional[int] = None) -> None:
+    return result
+
+
+def trace_game(
+    db_path: Path,
+    game_id: str,
+    max_k: Optional[int] = None,
+    view: str = "post_move",
+) -> None:
     """Emit a per-step TS vs Python trace for a single game.
 
     This is a focused debugging helper: it prints one line per TS step k,
@@ -894,7 +1106,7 @@ def trace_game(db_path: Path, game_id: str, max_k: Optional[int] = None) -> None
     total_moves_py = int(meta.get("total_moves", 0))
 
     try:
-        total_moves_ts, ts_summaries = run_ts_replay(db_path, game_id)
+        total_moves_ts, ts_summaries, _ = run_ts_replay(db_path, game_id, view_mode=view)
     except Exception as exc:
         print("[trace] TS replay failed " f"for db={db_path} game={game_id}: {exc}")
         return
@@ -1106,7 +1318,47 @@ def main() -> None:
             "created if needed. Useful for archiving CI results."
         ),
     )
+    parser.add_argument(
+        "--view",
+        type=str,
+        choices=["post_move", "post_bridge"],
+        default="post_move",
+        help=(
+            "Select TS view semantics for parity comparison. "
+            "'post_move' (default) compares TS 'ts-replay-step' states to "
+            "Python GameReplayDB.get_state_at_move(n). "
+            "'post_bridge' uses TS 'ts-replay-db-move-complete' states, which "
+            "include synthesized bookkeeping between recorded DB moves, while "
+            "Python remains on post_move semantics for now."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["canonical", "legacy"],
+        default="canonical",
+        help=(
+            "Select parity mode. "
+            "'canonical' (default) enforces a strict parity gate using post_move "
+            "semantics only and exits non-zero on any structural, canonical-"
+            "history, or semantic failure. "
+            "'legacy' is a diagnostics-only profile that records structural and "
+            "semantic issues in the JSON summary but only exits non-zero when "
+            "--fail-on-divergence is set."
+        ),
+    )
     args = parser.parse_args()
+    mode = args.mode
+
+    # Enforce mode/view compatibility: canonical parity gate is defined only
+    # for post_move semantics.
+    if mode == "canonical" and args.view != "post_move":
+        print(
+            "check_ts_python_replay_parity: canonical mode requires --view post_move "
+            f"(got --view {args.view!r})",
+            file=sys.stderr,
+        )
+        sys.exit(2)
 
     # Handle JSON input mode: import to temp DB and check single game
     temp_db_path: Optional[Path] = None
@@ -1137,7 +1389,7 @@ def main() -> None:
                 meta = None
             if meta:
                 max_k = args.trace_max_k if args.trace_max_k and args.trace_max_k > 0 else None
-                trace_game(db_path, args.trace_game, max_k=max_k)
+                trace_game(db_path, args.trace_game, max_k=max_k, view=args.view)
                 return
 
         print(f"[trace] game {args.trace_game} not found in any GameReplayDB " f"(searched {len(db_paths)} databases)")
@@ -1151,6 +1403,7 @@ def main() -> None:
     total_semantic_divergent = 0
     total_end_of_game_only = 0
     total_structural_issues = 0
+    games_with_non_canonical_history = 0
 
     fixtures_dir: Optional[Path] = Path(args.emit_fixtures_dir).resolve() if args.emit_fixtures_dir else None
     if fixtures_dir is not None:
@@ -1174,7 +1427,12 @@ def main() -> None:
             game_id = game_meta["game_id"]
             total_games += 1
             try:
-                result = check_game_parity(db_path, game_id)
+                result = check_game_parity(
+                    db_path,
+                    game_id,
+                    view=args.view,
+                    state_bundles_dir=state_bundles_dir,
+                )
             except Exception as exc:  # pragma: no cover - defensive logging
                 structural_issues.append(
                     {
@@ -1194,6 +1452,8 @@ def main() -> None:
             # from game_initial_state table.
             if result.structure not in ("good", "mid_snapshot"):
                 total_structural_issues += 1
+                if result.structure == "non_canonical_history":
+                    games_with_non_canonical_history += 1
                 structural_issues.append(
                     {
                         "db_path": str(db_path),
@@ -1269,18 +1529,6 @@ def main() -> None:
                     with open(fixture_path, "w", encoding="utf-8") as f:
                         json.dump(fixture, f, indent=2, sort_keys=True)
 
-                if state_bundles_dir is not None and result.diverged_at is not None:
-                    try:
-                        dump_state_bundle(
-                            db=db,
-                            db_path=Path(db_path),
-                            game_id=game_id,
-                            result=result,
-                            state_bundles_dir=state_bundles_dir,
-                        )
-                    except Exception:
-                        pass
-
     if args.compact:
         # Compact mode: emit one line per semantic divergence, skip structural issues.
         for entry in semantic_divergences:
@@ -1308,16 +1556,37 @@ def main() -> None:
             shutil.rmtree(temp_db_path.parent, ignore_errors=True)
         return
 
+    # Compute canonical parity gate status. In canonical mode we require:
+    #   - no structural issues
+    #   - no non-canonical histories
+    #   - no semantic divergences
+    #   - at least one game checked
+    is_canonical_mode = mode == "canonical"
+    passed_canonical_parity_gate = False
+    if is_canonical_mode:
+        passed_canonical_parity_gate = (
+            total_games > 0
+            and total_structural_issues == 0
+            and games_with_non_canonical_history == 0
+            and total_semantic_divergent == 0
+        )
+
     summary = {
         "total_databases": len(db_paths),
         "total_games_checked": total_games,
         "games_with_semantic_divergence": total_semantic_divergent,
         "games_with_end_of_game_only_divergence": total_end_of_game_only,
         "games_with_structural_issues": total_structural_issues,
+        "games_with_non_canonical_history": games_with_non_canonical_history,
         "semantic_divergences": semantic_divergences,
         "end_of_game_only_divergences": end_of_game_only_divergences,
         "structural_issues": structural_issues,
         "mismatch_counts_by_dimension": mismatch_counts_by_dimension,
+        "view_mode": args.view,
+        "mode": mode,
+        "canonical_gate": bool(is_canonical_mode),
+        "legacy_mode": bool(mode == "legacy"),
+        "passed_canonical_parity_gate": bool(passed_canonical_parity_gate),
     }
     print(json.dumps(summary, indent=2, sort_keys=True))
 
@@ -1335,13 +1604,37 @@ def main() -> None:
 
         shutil.rmtree(temp_db_path.parent, ignore_errors=True)
 
-    # CI gate: exit with non-zero status if semantic divergences were found
-    if args.fail_on_divergence and total_semantic_divergent > 0:
-        print(
-            f"\n[FAIL] {total_semantic_divergent} game(s) with semantic divergence detected.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    # Exit semantics:
+    #
+    #   - In canonical mode we ALWAYS treat this as a parity gate:
+    #       * non-zero exit when the canonical gate fails
+    #       * zero exit only when passed_canonical_parity_gate is True.
+    #
+    #   - In legacy mode we preserve the old behaviour:
+    #       * structural issues and non-canonical histories are reported but
+    #         do not affect exit status by default;
+    #       * when --fail-on-divergence is supplied, any semantic divergence
+    #         (excluding end-of-game-only) triggers a non-zero exit.
+    if is_canonical_mode:
+        if not passed_canonical_parity_gate:
+            print(
+                (
+                    "\n[FAIL] canonical parity gate failed: "
+                    f"games_with_semantic_divergence={total_semantic_divergent}, "
+                    f"games_with_structural_issues={total_structural_issues}, "
+                    f"games_with_non_canonical_history={games_with_non_canonical_history}, "
+                    f"total_games_checked={total_games}"
+                ),
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    else:
+        if args.fail_on_divergence and total_semantic_divergent > 0:
+            print(
+                f"\n[FAIL] {total_semantic_divergent} game(s) with semantic divergence detected.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
 
 if __name__ == "__main__":

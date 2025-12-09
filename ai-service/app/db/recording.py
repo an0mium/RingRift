@@ -184,6 +184,7 @@ def record_completed_game(
     moves: List[Move],
     metadata: Optional[Dict[str, Any]] = None,
     game_id: Optional[str] = None,
+    store_history_entries: bool = True,
 ) -> str:
     """Record a completed game in one shot.
 
@@ -197,6 +198,9 @@ def record_completed_game(
         moves: List of all moves in the game
         metadata: Optional metadata dict (source, difficulty, etc.)
         game_id: Optional custom game ID
+        store_history_entries: If True (default), store full before/after state
+            snapshots for each move. Set to False for lean recording (~100x smaller)
+            that still stores initial state, moves, and final state for training.
 
     Returns:
         The game ID that was stored
@@ -219,6 +223,7 @@ def record_completed_game(
         final_state=final_state,
         moves=moves,
         metadata=enriched_metadata,
+        store_history_entries=store_history_entries,
     )
     return gid
 
@@ -290,6 +295,7 @@ def record_completed_game_with_parity_check(
     metadata: Optional[Dict[str, Any]] = None,
     game_id: Optional[str] = None,
     parity_mode: Optional[str] = None,
+    store_history_entries: bool = True,
 ) -> str:
     """Record a completed game and optionally validate parity with TS engine.
 
@@ -309,6 +315,9 @@ def record_completed_game_with_parity_check(
             - "off": skip parity validation
             - "warn": log warnings on divergence
             - "strict": raise exception on divergence
+        store_history_entries: If True (default), store full before/after state
+            snapshots for each move. Set to False for lean recording (~100x smaller)
+            that still stores initial state, moves, and final state for training.
 
     Returns:
         The game ID that was stored
@@ -324,6 +333,7 @@ def record_completed_game_with_parity_check(
         moves=moves,
         metadata=metadata,
         game_id=game_id,
+        store_history_entries=store_history_entries,
     )
 
     # Then validate parity if enabled

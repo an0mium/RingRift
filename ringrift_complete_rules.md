@@ -76,6 +76,16 @@ The rule documentation is structured to facilitate different learning approaches
 - **Engine Implementers**: For terse, implementation-ready semantics, pair this doc with `ringrift_compact_rules.md` and `RULES_CANONICAL_SPEC.md`.
   > **Note on Diagrams**: This document includes visual diagrams to illustrate concepts. If you're reading a printed or plain-text version, you can skip these sections without losing essential information—the text descriptions stand alone.
 
+## Canonical clarifications (RR‑CANON alignment)
+
+To align this prose with the canonical spec and engine SSoT, apply these clarifications wherever wording below conflicts or is ambiguous:
+
+- **Square8 line length:** Required line length is **4 for 2-player games** and **3 for 3–4 player games** on 8×8. Any “3+ on 8×8” shorthand without the 2p exception is superseded by this rule.
+- **Capture/movement landing on markers:** Landing after movement or capture may be on an empty space or a marker of **any** colour. If you land on a marker, remove it and eliminate the top ring of the landing stack’s cap. Disregard wording that limits landing to empty or own markers.
+- **Recovery slide legality:** Recovery slides are legal when they slide to an adjacent empty cell and complete a line of the required length; they need not “create” a brand-new line beyond that.
+- **Ring supply accounting:** Hand + on-board rings of a colour can be **less than** the starting supply once eliminations occur. Supply accounting should include eliminated rings (hand + on-board + eliminated = starting supply), not force hand + on-board to remain equal to supply.
+- **Digital/engine semantics:** In the digital/canonical implementation, all phase transitions and forced actions are explicit recorded moves (no silent “automatic” steps). When this document uses “automatic” language, read it as “forced but still recorded” for digital play.
+
 ## Table of Contents
 
 - [RingRift Complete Rules](#ringrift-complete-rules)

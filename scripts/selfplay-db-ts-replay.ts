@@ -692,7 +692,13 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
           JSON.stringify({
             kind: 'ts-replay-db-move-complete',
             db_move_index: i - 1,
-            summary: summarizeState(`db_move_${i - 1}_complete`, currentState),
+            summary: {
+              ...summarizeState(`db_move_${i - 1}_complete`, currentState),
+              // view: 'post_bridge' – state after closing out canonical DB move
+              // db_move_index, including any synthesized bookkeeping moves
+              // required before the next recorded move can be applied.
+              view: 'post_bridge',
+            },
           })
         );
         lastEmittedDbMoveComplete = i - 1;
@@ -733,13 +739,21 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         // Don't throw - try to continue with the original move
         break;
       }
+      const dbMoveIndexForBridge = applied > 0 ? applied - 1 : 0;
       // eslint-disable-next-line no-console
       console.log(
         JSON.stringify({
           kind: 'ts-replay-bridge',
+          db_move_index: dbMoveIndexForBridge,
           synthesizedMoveType: bridgeMove.type,
           synthesizedPlayer: bridgeMove.player,
-          summary: summarizeState('after_bridge', engine.getState() as GameState),
+          summary: {
+            ...summarizeState('after_bridge', engine.getState() as GameState),
+            // view: 'bridge' – state after a synthesized bookkeeping move
+            // associated with db_move_index, bridging phases between canonical
+            // DB moves without changing the underlying engine/rules semantics.
+            view: 'bridge',
+          },
         })
       );
     }
@@ -755,7 +769,13 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         JSON.stringify({
           kind: 'ts-replay-db-move-complete',
           db_move_index: i - 1,
-          summary: summarizeState(`db_move_${i - 1}_complete`, stateForPreviousMove),
+          summary: {
+            ...summarizeState(`db_move_${i - 1}_complete`, stateForPreviousMove),
+            // view: 'post_bridge' – state after closing out canonical DB move
+            // db_move_index, including any synthesized bookkeeping moves
+            // required before the next recorded move can be applied.
+            view: 'post_bridge',
+          },
         })
       );
       lastEmittedDbMoveComplete = i - 1;
@@ -809,15 +829,24 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       }
     }
 
+    const stepDbMoveIndex = applied > 0 ? applied - 1 : null;
     // eslint-disable-next-line no-console
     console.log(
       JSON.stringify({
         kind: 'ts-replay-step',
         k: applied,
+        db_move_index: stepDbMoveIndex,
         moveType: move.type,
         movePlayer: move.player,
         moveNumber: move.moveNumber,
-        summary: summarizeState(`after_move_${applied}`, state as GameState),
+        // view: 'post_move' – state immediately after applying DB move
+        // db_move_index, before any synthesized bookkeeping for subsequent
+        // phases. This is the canonical TS post_move[N] view used for
+        // TS↔Python parity in post_move mode.
+        summary: {
+          ...summarizeState(`after_move_${applied}`, state as GameState),
+          view: 'post_move',
+        },
       })
     );
   }
@@ -831,7 +860,13 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       JSON.stringify({
         kind: 'ts-replay-db-move-complete',
         db_move_index: finalDbMoveIndex,
-        summary: summarizeState(`db_move_${finalDbMoveIndex}_complete`, stateForFinalMove),
+        summary: {
+          ...summarizeState(`db_move_${finalDbMoveIndex}_complete`, stateForFinalMove),
+          // view: 'post_bridge' – state after closing out canonical DB move
+          // db_move_index, including any synthesized bookkeeping moves
+          // required before the next recorded move can be applied.
+          view: 'post_bridge',
+        },
       })
     );
   }
@@ -871,17 +906,26 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
   // Emit a final step summary with the recomputed terminal state. The parity
   // parser keeps the last summary for a given k, so this overrides the
   // pre-recompute summary for the last move.
+  const finalStepDbMoveIndex = recordedMoves.length > 0 ? recordedMoves.length - 1 : null;
   // eslint-disable-next-line no-console
   console.log(
     JSON.stringify({
       kind: 'ts-replay-step',
       k: applied,
+      db_move_index: finalStepDbMoveIndex,
       moveType: recordedMoves.length > 0 ? recordedMoves[recordedMoves.length - 1].type : undefined,
       movePlayer:
         recordedMoves.length > 0 ? recordedMoves[recordedMoves.length - 1].player : undefined,
       moveNumber:
         recordedMoves.length > 0 ? recordedMoves[recordedMoves.length - 1].moveNumber : undefined,
-      summary: summarizeState(`after_move_${applied}_final`, finalState),
+      summary: {
+        ...summarizeState(`after_move_${applied}_final`, finalState),
+        // view: 'post_move' – terminal state after the final DB move's
+        // effects have been applied and victory has been recomputed
+        // canonically. This overrides the earlier post_move summary at the
+        // same k for parity diagnostics.
+        view: 'post_move',
+      },
     })
   );
   // eslint-disable-next-line no-console

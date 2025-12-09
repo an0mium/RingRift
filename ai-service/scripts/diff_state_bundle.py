@@ -71,6 +71,8 @@ def diff_state_from_bundle(bundle_path: Path, ts_k: int | None = None) -> None:
     mismatch_kinds = bundle.get("mismatch_kinds") or []
     mismatch_context = bundle.get("mismatch_context")
     ts_k_values = bundle.get("ts_k_values") or []
+    view_mode = bundle.get("view_mode")
+    ts_event_metadata_all = bundle.get("ts_event_metadata") or {}
 
     # Choose k: explicit argument wins, then diverged_at, then last k in ts_k_values.
     if ts_k is None:
@@ -90,13 +92,26 @@ def diff_state_from_bundle(bundle_path: Path, ts_k: int | None = None) -> None:
     py_raw = py_states.get(str(ts_k))
     ts_raw = ts_states.get(str(ts_k))
 
+    # Extract TS event metadata for the chosen k, if present.
+    ts_meta_for_k = None
+    if isinstance(ts_event_metadata_all, dict):
+        ts_meta_for_k = ts_event_metadata_all.get(str(ts_k))
+
     print(f"Bundle: {bundle_path}")
     print(f"DB:     {db_path}")
     print(f"Game:   {game_id}")
+    print(f"view_mode: {view_mode}")
     print(f"ts_k:   {ts_k}")
     print(f"diverged_at: {diverged_at}")
     print(f"mismatch_kinds: {mismatch_kinds}")
     print(f"mismatch_context: {mismatch_context}")
+    if ts_meta_for_k is not None:
+        print(
+            "ts_event_metadata: "
+            f"event_kind={ts_meta_for_k.get('event_kind')} "
+            f"db_move_index={ts_meta_for_k.get('db_move_index')} "
+            f"view={ts_meta_for_k.get('view')}"
+        )
     print(f"available_ts_k_values: {ts_k_values}")
     print()
 

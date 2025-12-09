@@ -11,6 +11,12 @@
 > exact line lengths on 8×8), treat **this document and RR‑CANON** as
 > authoritative.
 
+Quick canonical reminders:
+
+- On **8×8**, required line length is **4 for 2-player** and **3 for 3–4 player** games.
+- Movement and capture landings may be on empty spaces or markers of **any** colour; if you land on a marker, remove it and eliminate the top ring of the landing stack.
+- In digital/engine play, forced steps are still explicit recorded moves (no silent “automatic” transitions).
+
 ---
 
 ## 1. What Kind of Game Is RingRift?
