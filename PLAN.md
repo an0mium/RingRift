@@ -8,13 +8,13 @@ This plan defines a unified AI training pipeline that orchestrates selfplay, CMA
 
 ### Available Infrastructure
 
-| Resource                         | Role                           | Capabilities         |
-| -------------------------------- | ------------------------------ | -------------------- |
-| **AWS Staging** (54.198.219.106) | Primary selfplay, CMA-ES       | 8 vCPU, 16GB RAM     |
-| **AWS Extra** (selfplay-extra)   | Parallel selfplay, tournaments | 4 vCPU, 8GB RAM      |
-| **Mac Studio** (mac-studio)      | NN training (MPS), NNUE        | M2 Ultra, 192GB, MPS |
-| **M1 Pro** (m1-pro)              | Local selfplay, light training | M1 Pro, 64GB         |
-| **Laptop**                       | Coordination, data aggregation | M3 Max, 64GB         |
+| Resource                  | Role                           | Capabilities         |
+| ------------------------- | ------------------------------ | -------------------- |
+| **AWS Staging** (via SSH) | Primary selfplay, CMA-ES       | 8 vCPU, 16GB RAM     |
+| **AWS Extra** (via SSH)   | Parallel selfplay, tournaments | 4 vCPU, 8GB RAM      |
+| **Mac Studio** (via SSH)  | NN training (MPS), NNUE        | M2 Ultra, 192GB, MPS |
+| **M1 Pro** (via SSH)      | Local selfplay, light training | M1 Pro, 64GB         |
+| **Laptop**                | Coordination, data aggregation | M3 Max, 64GB         |
 
 ### Resource Scheduling
 
@@ -29,10 +29,22 @@ To prevent memory pressure when running concurrent workloads:
 
 CMA-ES on staging should be scheduled during selfplay cooldown periods or run with `--max-workers 2` to limit concurrency.
 
-### Cloud GPU (Future)
+### Cloud GPU
 
-- AWS p3.2xlarge or Lambda Labs for large-scale NN training
-- Used when Mac Studio MPS is insufficient for batch sizes > 512
+| Provider    | Instance   | GPU        | VRAM | Status       |
+| ----------- | ---------- | ---------- | ---- | ------------ |
+| Lambda Labs | On-demand  | NVIDIA A10 | 24GB | **Verified** |
+| AWS         | p3.2xlarge | V100       | 16GB | Available    |
+
+**Lambda Labs Setup (Verified December 2024):**
+
+- Ubuntu 22.04 base image
+- NVIDIA driver 575 + CUDA 13.0 installed via `apt`
+- PyTorch 2.6+ with CUDA 12.4 support
+- Scripts: `lambda_gpu_setup.sh` (one-time setup), `sync_to_lambda.sh` (code sync)
+- SSH config alias: `lambda-gpu` (configure in `~/.ssh/config`)
+
+Used when Mac Studio MPS is insufficient for batch sizes > 512 or when parallel GPU training is needed.
 
 ## Pipeline Architecture
 
@@ -981,9 +993,50 @@ Create `config/pipeline.json`:
 
 ## Phase 5: Cloud GPU Training (Scale-Up)
 
-### 5.1 AWS GPU Instance Setup
+### 5.1 Lambda Labs GPU Setup (Recommended)
 
-For large-scale NN training when Mac Studio is insufficient:
+Lambda Labs provides on-demand A10/A100 GPUs with simple provisioning:
+
+```bash
+# 1. Add SSH config entry (one-time, in ~/.ssh/config):
+# Host lambda-gpu
+#     HostName <your-instance-ip>
+#     User ubuntu
+#     IdentityFile ~/.ssh/your-key
+#     IdentitiesOnly yes
+
+# 2. Run setup script on fresh instance
+ssh lambda-gpu
+curl -sL https://raw.githubusercontent.com/your-repo/ai-service/main/scripts/lambda_gpu_setup.sh | bash
+
+# 3. Sync code from local machine
+./scripts/sync_to_lambda.sh           # Code only
+./scripts/sync_to_lambda.sh --data    # Code + training data
+./scripts/sync_to_lambda.sh --all     # Code + data + models
+
+# 4. Run training on GPU
+ssh lambda-gpu
+cd ~/ringrift/ai-service && source venv/bin/activate
+PYTHONPATH=. python app/training/train.py \
+  --data-path data/training/square8_2p.npz \
+  --board-type square8 \
+  --num-players 2 \
+  --epochs 100 \
+  --batch-size 512 \
+  --device cuda
+```
+
+**Verified Configuration (December 2024):**
+
+- Instance: Lambda Labs A10 (24GB VRAM)
+- OS: Ubuntu 22.04
+- Driver: NVIDIA 575-server
+- CUDA: 13.0
+- PyTorch: 2.6.0+cu124
+
+### 5.2 AWS GPU Instance Setup (Alternative)
+
+For large-scale NN training when Lambda Labs is unavailable:
 
 ```bash
 # Launch p3.2xlarge (V100 GPU)
@@ -997,7 +1050,7 @@ aws ec2 run-instances \
 ssh ringrift-gpu 'pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118'
 ```
 
-### 5.2 Distributed Training with DDP
+### 5.3 Distributed Training with DDP
 
 ```bash
 # Multi-GPU training (future scaling)

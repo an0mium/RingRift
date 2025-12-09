@@ -110,8 +110,8 @@ if [[ "$MODE" == "aws" || "$MODE" == "all" ]]; then
     echo ""
     echo "=== AWS Workers ==="
 
-    # AWS staging
-    collect_from_host "aws-staging" "54.198.219.106" "~/.ssh/ringrift-staging-key.pem" "/home/ubuntu/ringrift" "ubuntu"
+    # AWS staging (uses SSH config alias)
+    collect_from_host "aws-staging" "ringrift-staging" "" "/home/ubuntu/ringrift"
 fi
 
 # Generate summary
