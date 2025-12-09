@@ -341,10 +341,11 @@ function deriveRingPlacementState(
   let canPlace: boolean;
   let validPositions: Position[] = [];
 
-  // Special handling for no_placement_action moves:
-  // If we're validating a no_placement_action, it means the recording indicates
-  // that placements weren't available. Trust this - set canPlace=false.
-  if (moveHint?.type === 'no_placement_action') {
+  // Special handling for skip_placement and no_placement_action moves:
+  // - skip_placement: Player has rings but no valid positions to place them
+  // - no_placement_action: Player has no rings (bookkeeping)
+  // In both cases, the recording indicates placements weren't available. Trust this.
+  if (moveHint?.type === 'skip_placement' || moveHint?.type === 'no_placement_action') {
     canPlace = false;
   } else if (state.currentPlayer === player) {
     // Player matches - we can accurately determine valid placements
@@ -775,7 +776,9 @@ export function setFSMDebugLogger(logger: FSMDebugLogger | null): void {
 
 /**
  * Console-based debug logger for FSM validation.
+ * This logger intentionally uses console.log for debug output.
  */
+/* eslint-disable no-console */
 export const consoleFSMDebugLogger: FSMDebugLogger = {
   logValidation(context: FSMDebugContext, result: FSMValidationResult): void {
     const prefix = result.valid ? '✅' : '❌';
@@ -814,6 +817,7 @@ export const consoleFSMDebugLogger: FSMDebugLogger = {
     console.log(`  Players: ${JSON.stringify(context.gameStateSnapshot.players)}`);
   },
 };
+/* eslint-enable no-console */
 
 /**
  * Build debug context from validation inputs.

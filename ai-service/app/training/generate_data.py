@@ -771,7 +771,7 @@ def generate_dataset(
 
     # Keep legacy references for 2-player backward compatibility (only valid for single mode)
     ai_p1 = ai_players.get(1)
-    ai_p2 = ai_players.get(2, ai_p1)
+    _ai_p2 = ai_players.get(2, ai_p1)  # Reserved for backward-compatible 2P logic
 
     # Track engine statistics for logging
     engine_stats = {"descent": 0, "mcts": 0}

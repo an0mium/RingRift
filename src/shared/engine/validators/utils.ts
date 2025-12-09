@@ -1,4 +1,5 @@
 import { BoardType, Position } from '../../types/game';
+import { debugLog, flagEnabled } from '../../utils/envFlags';
 
 /**
  * Checks if a position is within the bounds of the board.
@@ -23,10 +24,11 @@ export function isValidPosition(pos: Position, boardType: BoardType, boardSize: 
     const sumValid = sum === 0;
 
     // Debug logging to detect when lenient would differ from strict
-    if (process.env.RINGRIFT_DEBUG_VALIDATION === 'true') {
+    const debugValidation = flagEnabled('RINGRIFT_DEBUG_VALIDATION');
+    if (debugValidation) {
       const lenientSumValid = Math.round(sum) === 0;
       if (lenientSumValid !== sumValid) {
-        console.log('[isValidPosition] VALIDATION DISCREPANCY DETECTED:', {
+        debugLog(debugValidation, '[isValidPosition] VALIDATION DISCREPANCY DETECTED:', {
           position: { q, r, s },
           sum,
           strictValid: sumValid,

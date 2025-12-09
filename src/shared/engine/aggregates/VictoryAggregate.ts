@@ -26,6 +26,7 @@
 
 import type { GameState, BoardState, BoardType, Position, Player } from '../../types/game';
 import { positionToString } from '../../types/game';
+import { debugLog, flagEnabled } from '../../utils/envFlags';
 import type { MovementBoardView } from '../core';
 import { hasAnyLegalMoveOrCaptureFromOnBoard } from '../core';
 import { hasGlobalPlacementAction, hasForcedEliminationAction } from '../globalActions';
@@ -340,15 +341,13 @@ export function evaluateVictory(state: GameState): VictoryResult {
     let somePlayerCanAct = false;
 
     // DEBUG: Log the gameStatus and key state facts for stalemate diagnosis
-    const debugTrappedStalemate = process.env.RINGRIFT_DEBUG_STALEMATE === 'true';
-    if (debugTrappedStalemate) {
-      console.log('[VictoryAggregate] Trapped stalemate check:', {
-        gameStatus: state.gameStatus,
-        stackCount: state.board.stacks.size,
-        currentPlayer: state.currentPlayer,
-        currentPhase: state.currentPhase,
-      });
-    }
+    const debugTrappedStalemate = flagEnabled('RINGRIFT_DEBUG_STALEMATE');
+    debugLog(debugTrappedStalemate, '[VictoryAggregate] Trapped stalemate check:', {
+      gameStatus: state.gameStatus,
+      stackCount: state.board.stacks.size,
+      currentPlayer: state.currentPlayer,
+      currentPhase: state.currentPhase,
+    });
 
     for (const p of players) {
       // Check if player has any stacks
@@ -364,27 +363,27 @@ export function evaluateVictory(state: GameState): VictoryResult {
       // Check if player has material (stacks or rings in hand)
       const hasMaterial = playerHasStacks || p.ringsInHand > 0;
       if (!hasMaterial) {
-        if (debugTrappedStalemate) {
-          console.log(`[VictoryAggregate] Player ${p.playerNumber} has no material - skipping`);
-        }
+        debugLog(
+          debugTrappedStalemate,
+          `[VictoryAggregate] Player ${p.playerNumber} has no material - skipping`
+        );
         continue; // Player eliminated, skip
       }
 
-      if (debugTrappedStalemate) {
-        console.log(`[VictoryAggregate] Player ${p.playerNumber} has material:`, {
-          hasStacks: playerHasStacks,
-          stackCount: playerStackPositions.length,
-          stackPositions: playerStackPositions,
-          ringsInHand: p.ringsInHand,
-        });
-      }
+      debugLog(debugTrappedStalemate, `[VictoryAggregate] Player ${p.playerNumber} has material:`, {
+        hasStacks: playerHasStacks,
+        stackCount: playerStackPositions.length,
+        stackPositions: playerStackPositions,
+        ringsInHand: p.ringsInHand,
+      });
 
       // Check if player can place a ring
       const canPlace = hasGlobalPlacementAction(state, p.playerNumber);
       if (canPlace) {
-        if (debugTrappedStalemate) {
-          console.log(`[VictoryAggregate] Player ${p.playerNumber} can place - game not over`);
-        }
+        debugLog(
+          debugTrappedStalemate,
+          `[VictoryAggregate] Player ${p.playerNumber} can place - game not over`
+        );
         somePlayerCanAct = true;
         break;
       }
@@ -422,11 +421,10 @@ export function evaluateVictory(state: GameState): VictoryResult {
         let movableStackPos: string | null = null;
         for (const stack of state.board.stacks.values()) {
           if (stack.controllingPlayer === p.playerNumber && stack.stackHeight > 0) {
-            if (debugTrappedStalemate) {
-              console.log(
-                `[VictoryAggregate] Checking stack at ${positionToString(stack.position)} height=${stack.stackHeight}`
-              );
-            }
+            debugLog(
+              debugTrappedStalemate,
+              `[VictoryAggregate] Checking stack at ${positionToString(stack.position)} height=${stack.stackHeight}`
+            );
             if (
               hasAnyLegalMoveOrCaptureFromOnBoard(boardType, stack.position, p.playerNumber, view, {
                 debug: debugTrappedStalemate,
@@ -439,15 +437,17 @@ export function evaluateVictory(state: GameState): VictoryResult {
           }
         }
 
-        if (debugTrappedStalemate) {
-          console.log(`[VictoryAggregate] Player ${p.playerNumber} movement check:`, {
+        debugLog(
+          debugTrappedStalemate,
+          `[VictoryAggregate] Player ${p.playerNumber} movement check:`,
+          {
             hasForcedEliminationAction: forcedElimResult,
             directMovementCheck,
             movableStackPos,
             gameStatus: state.gameStatus,
             collapsedSpacesCount: state.board.collapsedSpaces.size,
-          });
-        }
+          }
+        );
 
         // Use the direct check instead of relying on hasForcedEliminationAction
         if (directMovementCheck) {
@@ -461,15 +461,14 @@ export function evaluateVictory(state: GameState): VictoryResult {
     }
 
     if (somePlayerCanAct) {
-      if (debugTrappedStalemate) {
-        console.log('[VictoryAggregate] Some player can act - game not over');
-      }
+      debugLog(debugTrappedStalemate, '[VictoryAggregate] Some player can act - game not over');
       return { isGameOver: false };
     }
 
-    if (debugTrappedStalemate) {
-      console.log('[VictoryAggregate] All players trapped - proceeding to stalemate tiebreaker');
-    }
+    debugLog(
+      debugTrappedStalemate,
+      '[VictoryAggregate] All players trapped - proceeding to stalemate tiebreaker'
+    );
     // All players with material are trapped - fall through to stalemate ladder below
   }
 

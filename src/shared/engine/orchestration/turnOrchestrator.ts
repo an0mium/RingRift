@@ -1534,6 +1534,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       const extendedMove = move as Move & ExtendedMoveProperties;
 
       // Determine the option from the move's metadata
+      const collapsePos = extendedMove.collapsePositions || extendedMove.collapse_positions;
       const recoveryMove: RecoverySlideMove = {
         id: move.id,
         type: 'recovery_slide',
@@ -1544,7 +1545,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
         thinkTime: move.thinkTime,
         moveNumber: move.moveNumber,
         option: extendedMove.recoveryOption || extendedMove.option || 1,
-        collapsePositions: extendedMove.collapsePositions || extendedMove.collapse_positions,
+        ...(collapsePos && { collapsePositions: collapsePos }),
         extractionStacks: [], // Will be determined during validation/application
       };
 

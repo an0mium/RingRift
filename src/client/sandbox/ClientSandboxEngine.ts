@@ -3751,7 +3751,8 @@ export class ClientSandboxEngine {
           this.gameState.currentPhase !== beforePhase ||
           this.gameState.currentPlayer !== beforePlayer
         ) {
-          console.log(
+          debugLog(
+            this.traceMode,
             `[lookahead-nochange] Advanced from ${beforePlayer}:${beforePhase} to ${this.gameState.currentPlayer}:${this.gameState.currentPhase} (nextMove=${nextMove.type} by p${nextMove.player})`
           );
         }
