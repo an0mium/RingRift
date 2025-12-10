@@ -1,18 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { authApi, gameApi } from '../services/api';
+import { authApi, gameApi, userApi } from '../services/api';
 import { User } from '../../shared/types/user';
 import { Game, GameResult } from '../../shared/types/game';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { extractErrorMessage } from '../utils/errorReporting';
 import { formatVictoryReason } from '../adapters/gameViewModels';
+import { RatingHistoryChart } from '../components/RatingHistoryChart';
 
 type RecentGame = Game & { resultReason?: GameResult['reason'] };
+
+interface RatingHistoryEntry {
+  date: string;
+  rating: number;
+  change: number;
+  gameId: string | null;
+}
 
 export default function ProfilePage() {
   const { user: currentUser } = useAuth();
   const [profile, setProfile] = useState<User | null>(null);
   const [recentGames, setRecentGames] = useState<RecentGame[]>([]);
+  const [ratingHistory, setRatingHistory] = useState<RatingHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({ username: '' });
@@ -25,12 +34,14 @@ export default function ProfilePage() {
   const fetchProfileData = async () => {
     try {
       setIsLoading(true);
-      const [userData, gamesData] = await Promise.all([
+      const [userData, gamesData, statsData] = await Promise.all([
         authApi.getProfile(),
         gameApi.getGames({ limit: 5 }),
+        userApi.getStats().catch(() => ({ ratingHistory: [] })),
       ]);
       setProfile(userData);
       setRecentGames(gamesData.games as RecentGame[]);
+      setRatingHistory(statsData.ratingHistory || []);
       setEditForm({ username: userData.username });
     } catch (err) {
       console.error('Failed to fetch profile:', err);
@@ -126,30 +137,39 @@ export default function ProfilePage() {
               </div>
             </form>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
-                <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">Rating</div>
-                <div className="text-2xl font-bold text-emerald-400">{profile.rating}</div>
-              </div>
-              <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
-                <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">
-                  Games Played
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                  <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">Rating</div>
+                  <div className="text-2xl font-bold text-emerald-400">{profile.rating}</div>
                 </div>
-                <div className="text-2xl font-bold text-white">{profile.gamesPlayed}</div>
-              </div>
-              <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
-                <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">Wins</div>
-                <div className="text-2xl font-bold text-white">{profile.gamesWon}</div>
-              </div>
-              <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
-                <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">Win Rate</div>
-                <div className="text-2xl font-bold text-white">
-                  {profile.gamesPlayed > 0
-                    ? `${Math.round((profile.gamesWon / profile.gamesPlayed) * 100)}%`
-                    : '0%'}
+                <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                  <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">
+                    Games Played
+                  </div>
+                  <div className="text-2xl font-bold text-white">{profile.gamesPlayed}</div>
+                </div>
+                <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                  <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">Wins</div>
+                  <div className="text-2xl font-bold text-white">{profile.gamesWon}</div>
+                </div>
+                <div className="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                  <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">
+                    Win Rate
+                  </div>
+                  <div className="text-2xl font-bold text-white">
+                    {profile.gamesPlayed > 0
+                      ? `${Math.round((profile.gamesWon / profile.gamesPlayed) * 100)}%`
+                      : '0%'}
+                  </div>
                 </div>
               </div>
-            </div>
+
+              {/* Rating History Chart */}
+              <div className="mt-6">
+                <RatingHistoryChart history={ratingHistory} currentRating={profile.rating} />
+              </div>
+            </>
           )}
         </div>
       </div>
