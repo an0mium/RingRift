@@ -1,17 +1,17 @@
 # RingRift Project Goals
 
-> **Doc Status (2025-12-06): Active (project direction SSoT)**
+> **Doc Status (2025-12-10): Historical alias (superseded by root PROJECT_GOALS.md)**
 >
-> - Single authoritative source for product/technical goals and non-goals.
+> - This file is preserved for historical context only. For the canonical statement of project goals, scope, and success criteria, see the root-level [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:1).
 > - Not a rules or lifecycle SSoT; for rules semantics defer to `ringrift_complete_rules.md` + `RULES_CANONICAL_SPEC.md` + shared TS engine, and for lifecycle semantics defer to `docs/architecture/CANONICAL_ENGINE_API.md` and shared WebSocket types/schemas.
 
-**Version:** 1.0  
-**Created:** November 26, 2025  
-**Status:** Authoritative Source for Project Direction
+**Version:** 1.0
+**Created:** November 26, 2025
+**Status:** Historical snapshot (superseded by root PROJECT_GOALS.md)
 
-> This document is the **single authoritative source** for RingRift’s product and technical goals. When other documents conflict with this one regarding project direction or success criteria, this document takes precedence.
+> This document was originally the **single authoritative source** for RingRift’s product and technical goals. It has been superseded by the root-level [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:1). Content below is retained as a near-duplicate snapshot for archival purposes and may drift from the canonical goals over time.
 >
-> It is intentionally goal-focused: it describes **what we are trying to achieve**, not the live implementation status or detailed rules semantics.
+> Implementers should treat the root-level [`PROJECT_GOALS.md`](../../PROJECT_GOALS.md:1) as the only goals SSoT; do not update this copy except to fix links or clearly mark it as historical.
 
 ## Source of truth and related documents
 

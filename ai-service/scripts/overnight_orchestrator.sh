@@ -1,23 +1,67 @@
 #!/bin/bash
-# Overnight Orchestrator - Keeps AI training pipeline running
-# Run with: nohup ./scripts/overnight_orchestrator.sh >> logs/overnight.log 2>&1 &
+# Overnight Orchestrator - Keeps AI training pipeline running across all hosts
+# Run with: nohup ./scripts/overnight_orchestrator.sh >> logs/overnight/run.log 2>&1 &
 
-set -euo pipefail
+set -uo pipefail  # Removed -e to prevent exit on SSH failures
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$PROJECT_DIR/logs/overnight"
 LOCKFILE="/tmp/overnight_orchestrator.lock"
 
-# Configuration
+# ============================================
+# Host Configuration
+# ============================================
+
+# Lambda Labs instances
 LAMBDA_H100="ubuntu@209.20.157.81"
+LAMBDA_H100_PATH="/home/ubuntu/ringrift/ai-service"
+
 LAMBDA_A10="ubuntu@150.136.65.197"
-CHECK_INTERVAL=300  # 5 minutes
-MAX_RETRIES=3
+LAMBDA_A10_PATH="/home/ubuntu/ringrift/ai-service"
+
+# AWS instances
+AWS_STAGING="ubuntu@54.198.219.106"
+AWS_STAGING_PATH="/home/ubuntu/ringrift/ai-service"
+AWS_STAGING_KEY="$HOME/.ssh/ringrift-staging-key.pem"
+
+# Vast.ai instances (note: custom ports)
+VAST_3090="root@79.116.93.241"
+VAST_3090_PORT=47070
+VAST_3090_PATH="/root/ringrift/ai-service"
+
+VAST_5090_DUAL="root@178.43.61.252"
+VAST_5090_DUAL_PORT=18080
+VAST_5090_DUAL_PATH="/root/ringrift/ai-service"
+
+VAST_5090_QUAD="root@211.72.13.202"
+VAST_5090_QUAD_PORT=45875
+VAST_5090_QUAD_PATH="/root/ringrift/ai-service"
+
+# Mac Cluster (via Tailscale)
+MAC_STUDIO="armand@100.107.168.125"
+MAC_STUDIO_PATH="$HOME/Development/RingRift/ai-service"
+MAC_STUDIO_KEY="$HOME/.ssh/id_cluster"
+
+MBP_16GB="armand@100.66.142.46"
+MBP_16GB_PATH="$HOME/Development/RingRift/ai-service"
+
+MBP_64GB="armand@100.92.222.49"
+MBP_64GB_PATH="$HOME/Development/RingRift/ai-service"
+
+# ============================================
+# Timing Configuration
+# ============================================
+CHECK_INTERVAL=300      # 5 minutes normal interval
+RETRY_INTERVAL=60       # Retry failed hosts after 60 seconds
+SSH_TIMEOUT=15          # Timeout for SSH commands
+MAX_RETRIES=3           # Max consecutive failures before backing off
 
 mkdir -p "$LOG_DIR"
 
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_DIR/orchestrator.log"
+    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    echo "$msg" >> "$LOG_DIR/orchestrator.log"
+    echo "$msg"  # Also to stdout for nohup capture
 }
 
 # Prevent multiple instances
@@ -30,56 +74,178 @@ fi
 echo $$ > "$LOCKFILE"
 trap "rm -f $LOCKFILE" EXIT
 
+# ============================================
+# SSH Helper Functions
+# ============================================
+
+# Standard SSH (no custom port/key)
 check_ssh() {
     local host=$1
-    timeout 10 ssh -o ConnectTimeout=5 -o BatchMode=yes "$host" "echo ok" >/dev/null 2>&1
+    timeout $SSH_TIMEOUT ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no "$host" "echo ok" >/dev/null 2>&1
 }
+
+run_ssh() {
+    local host=$1
+    local cmd=$2
+    timeout $SSH_TIMEOUT ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no "$host" "$cmd" 2>/dev/null
+}
+
+# SSH with custom port (for Vast.ai)
+check_ssh_port() {
+    local host=$1
+    local port=$2
+    timeout $SSH_TIMEOUT ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no -p "$port" "$host" "echo ok" >/dev/null 2>&1
+}
+
+run_ssh_port() {
+    local host=$1
+    local port=$2
+    local cmd=$3
+    timeout $SSH_TIMEOUT ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -p "$port" "$host" "$cmd" 2>/dev/null
+}
+
+# SSH with custom key (for AWS)
+check_ssh_key() {
+    local host=$1
+    local key=$2
+    timeout $SSH_TIMEOUT ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no -i "$key" "$host" "echo ok" >/dev/null 2>&1
+}
+
+run_ssh_key() {
+    local host=$1
+    local key=$2
+    local cmd=$3
+    timeout $SSH_TIMEOUT ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -i "$key" "$host" "$cmd" 2>/dev/null
+}
+
+# ============================================
+# Job Counting Functions
+# ============================================
 
 count_python_jobs() {
     local host=$1
-    ssh -o ConnectTimeout=10 "$host" "ps aux | grep -E 'python.*selfplay|python.*train|python.*cmaes' | grep -v grep | wc -l" 2>/dev/null || echo "0"
+    local result
+    result=$(run_ssh "$host" "ps aux | grep -E 'python.*selfplay|python.*train|python.*cmaes' | grep -v grep | wc -l")
+    echo "${result:-0}"
 }
 
-restart_selfplay_if_needed() {
+count_python_jobs_port() {
+    local host=$1
+    local port=$2
+    local result
+    result=$(run_ssh_port "$host" "$port" "ps aux | grep -E 'python.*selfplay|python.*train|python.*cmaes' | grep -v grep | wc -l")
+    echo "${result:-0}"
+}
+
+count_python_jobs_key() {
+    local host=$1
+    local key=$2
+    local result
+    result=$(run_ssh_key "$host" "$key" "ps aux | grep -E 'python.*selfplay|python.*train|python.*cmaes' | grep -v grep | wc -l")
+    echo "${result:-0}"
+}
+
+# ============================================
+# Selfplay Restart Functions
+# ============================================
+
+restart_selfplay_linux() {
     local host=$1
     local host_name=$2
     local min_jobs=$3
-    
-    local current_jobs=$(count_python_jobs "$host")
+    local path=$4
+    local ssh_func=$5  # "run_ssh", "run_ssh_port:PORT", or "run_ssh_key:KEY"
+
+    local current_jobs
+    if [[ "$ssh_func" == run_ssh_port:* ]]; then
+        local port="${ssh_func#run_ssh_port:}"
+        current_jobs=$(count_python_jobs_port "$host" "$port")
+    elif [[ "$ssh_func" == run_ssh_key:* ]]; then
+        local key="${ssh_func#run_ssh_key:}"
+        current_jobs=$(count_python_jobs_key "$host" "$key")
+    else
+        current_jobs=$(count_python_jobs "$host")
+    fi
+
     log "$host_name: $current_jobs Python jobs running (min: $min_jobs)"
-    
+
     if [ "$current_jobs" -lt "$min_jobs" ]; then
         log "$host_name: Restarting selfplay jobs..."
-        
-        local seed_base=$((RANDOM * 1000))
-        ssh -o ConnectTimeout=30 "$host" "cd /home/ubuntu/ringrift/ai-service && \
+
+        local seed_base=$((RANDOM * 1000 + $(date +%s) % 10000))
+        local cmd="cd $path && \
             nohup python3 scripts/run_hybrid_selfplay.py --num-games 1000 --board-type square8 --num-players 2 --output-dir data/selfplay/sq8_2p --seed $seed_base > /tmp/selfplay_sq8_2p.log 2>&1 & \
             nohup python3 scripts/run_hybrid_selfplay.py --num-games 500 --board-type square8 --num-players 3 --output-dir data/selfplay/sq8_3p --seed $((seed_base+1)) > /tmp/selfplay_sq8_3p.log 2>&1 & \
             nohup python3 scripts/run_hybrid_selfplay.py --num-games 500 --board-type hex --num-players 2 --output-dir data/selfplay/hex_2p --seed $((seed_base+2)) > /tmp/selfplay_hex_2p.log 2>&1 & \
-            echo 'Restarted selfplay jobs'" 2>&1 | while read line; do log "$host_name: $line"; done
+            echo 'Restarted selfplay jobs'"
+
+        local result
+        if [[ "$ssh_func" == run_ssh_port:* ]]; then
+            local port="${ssh_func#run_ssh_port:}"
+            result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -p "$port" "$host" "$cmd" 2>&1) || result="SSH timeout"
+        elif [[ "$ssh_func" == run_ssh_key:* ]]; then
+            local key="${ssh_func#run_ssh_key:}"
+            result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -i "$key" "$host" "$cmd" 2>&1) || result="SSH timeout"
+        else
+            result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no "$host" "$cmd" 2>&1) || result="SSH timeout"
+        fi
+        log "$host_name: $result"
     fi
 }
 
+restart_selfplay_mac() {
+    local host=$1
+    local host_name=$2
+    local min_jobs=$3
+    local path=$4
+
+    local current_jobs
+    current_jobs=$(run_ssh "$host" "ps aux | grep -E 'python.*selfplay' | grep -v grep | wc -l") || current_jobs="0"
+    current_jobs="${current_jobs:-0}"
+
+    log "$host_name: $current_jobs selfplay jobs running (min: $min_jobs)"
+
+    if [ "$current_jobs" -lt "$min_jobs" ]; then
+        log "$host_name: Restarting selfplay jobs..."
+
+        local seed_base=$((RANDOM * 1000 + $(date +%s) % 10000))
+        # Mac uses different activation and path structure
+        local result
+        result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no "$host" "cd $path && \
+            source venv/bin/activate && \
+            nohup python3 scripts/run_hybrid_selfplay.py --num-games 500 --board-type square8 --num-players 2 --output-dir data/selfplay/sq8_2p --seed $seed_base > /tmp/selfplay_sq8_2p.log 2>&1 & \
+            echo 'Restarted selfplay'" 2>&1) || result="SSH timeout"
+        log "$host_name: $result"
+    fi
+}
+
+# ============================================
+# GPU-Specific Functions (H100 only currently)
+# ============================================
+
 check_nnue_training() {
     local host=$1
-    
-    # Check if NNUE training is running
-    local nnue_running=$(ssh -o ConnectTimeout=10 "$host" "ps aux | grep train_nnue | grep -v grep | wc -l" 2>/dev/null || echo "0")
-    
-    if [ "$nnue_running" -eq 0 ]; then
-        # Check if model was created (training completed)
-        local model_exists=$(ssh -o ConnectTimeout=10 "$host" "ls -la /home/ubuntu/ringrift/ai-service/models/nnue/*.pt 2>/dev/null | wc -l" 2>/dev/null || echo "0")
-        
-        if [ "$model_exists" -gt 0 ]; then
+
+    local nnue_running
+    nnue_running=$(run_ssh "$host" "ps aux | grep train_nnue | grep -v grep | wc -l") || nnue_running="0"
+    nnue_running="${nnue_running:-0}"
+
+    if [ "$nnue_running" -eq 0 ] 2>/dev/null; then
+        local model_exists
+        model_exists=$(run_ssh "$host" "ls -la /home/ubuntu/ringrift/ai-service/models/nnue/*.pt 2>/dev/null | wc -l") || model_exists="0"
+        model_exists="${model_exists:-0}"
+
+        if [ "$model_exists" -gt 0 ] 2>/dev/null; then
             log "H100: NNUE training completed! Model exists."
-            # Start training on next config
             log "H100: Starting NNUE training for square8_3p..."
-            ssh -o ConnectTimeout=30 "$host" "cd /home/ubuntu/ringrift/ai-service && \
+            local result
+            result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes "$host" "cd /home/ubuntu/ringrift/ai-service && \
                 nohup python3 scripts/train_nnue.py \
                     --db data/games/lambda_sq8_3p_1.db data/games/lambda_sq8_3p_2.db data/games/lambda_sq8_3p_3.db \
                     --board-type square8 --num-players 3 --epochs 50 --batch-size 1024 \
                     --save-path models/nnue/square8_3p_v1.pt \
-                    > logs/nnue/train_sq8_3p.log 2>&1 &" 2>&1 | while read line; do log "H100: $line"; done
+                    > logs/nnue/train_sq8_3p.log 2>&1 & echo 'NNUE training started'" 2>&1) || result="SSH timeout"
+            log "H100: $result"
         else
             log "H100: NNUE training not running and no model found - may have crashed"
         fi
@@ -91,23 +257,84 @@ check_nnue_training() {
 check_cmaes() {
     local host=$1
 
-    local cmaes_running=$(ssh -o ConnectTimeout=10 "$host" "ps aux | grep cmaes | grep -v grep | wc -l" 2>/dev/null || echo "0")
+    local cmaes_running
+    cmaes_running=$(run_ssh "$host" "ps aux | grep cmaes | grep -v grep | wc -l") || cmaes_running="0"
+    cmaes_running="${cmaes_running:-0}"
 
-    if [ "$cmaes_running" -eq 0 ]; then
+    if [ "$cmaes_running" -eq 0 ] 2>/dev/null; then
         log "H100: CMA-ES not running, starting ITERATIVE version..."
-        ssh -o ConnectTimeout=30 "$host" "cd /home/ubuntu/ringrift/ai-service && \
+        local result
+        result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes "$host" "cd /home/ubuntu/ringrift/ai-service && \
             mkdir -p logs/cmaes/iterative && \
             nohup python3 scripts/run_iterative_cmaes.py \
                 --board square8 --num-players 2 \
                 --generations-per-iter 15 --max-iterations 20 \
                 --population-size 20 --games-per-eval 10 \
                 --improvement-threshold 0.55 \
-                --output-dir logs/cmaes/iterative/overnight_$(date +%Y%m%d) \
-                > logs/cmaes/iterative_overnight.log 2>&1 &" 2>&1 | while read line; do log "H100: $line"; done
+                --output-dir logs/cmaes/iterative/overnight_\$(date +%Y%m%d) \
+                > logs/cmaes/iterative_overnight.log 2>&1 & echo 'CMA-ES started'" 2>&1) || result="SSH timeout"
+        log "H100: $result"
     else
         log "H100: CMA-ES still running"
     fi
 }
+
+check_improvement_loop() {
+    local host=$1
+
+    local loop_running
+    loop_running=$(run_ssh "$host" "ps aux | grep improvement_loop | grep -v grep | wc -l") || loop_running="0"
+    loop_running="${loop_running:-0}"
+
+    if [ "$loop_running" -eq 0 ] 2>/dev/null; then
+        local model_exists
+        model_exists=$(run_ssh "$host" "ls -la /home/ubuntu/ringrift/ai-service/models/nnue/*.pt 2>/dev/null | wc -l") || model_exists="0"
+        model_exists="${model_exists:-0}"
+
+        if [ "$model_exists" -gt 0 ] 2>/dev/null; then
+            log "H100: Starting AlphaZero improvement loop (model found)..."
+            local result
+            result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes "$host" "cd /home/ubuntu/ringrift/ai-service && \
+                mkdir -p logs/improvement && \
+                nohup python3 scripts/run_improvement_loop.py \
+                    --board square8 --players 2 \
+                    --iterations 100 --games-per-iter 50 \
+                    --promotion-threshold 0.55 \
+                    --resume \
+                    > logs/improvement/overnight.log 2>&1 & echo 'Improvement loop started'" 2>&1) || result="SSH timeout"
+            log "H100: $result"
+        else
+            log "H100: No NNUE model yet - waiting for initial training to complete before starting improvement loop"
+        fi
+    else
+        log "H100: Improvement loop still running"
+    fi
+}
+
+# ============================================
+# Vast.ai GPU Training Functions
+# ============================================
+
+check_vast_nnue_training() {
+    local host=$1
+    local port=$2
+    local host_name=$3
+    local path=$4
+
+    local nnue_running
+    nnue_running=$(run_ssh_port "$host" "$port" "ps aux | grep train_nnue | grep -v grep | wc -l") || nnue_running="0"
+    nnue_running="${nnue_running:-0}"
+
+    if [ "$nnue_running" -eq 0 ] 2>/dev/null; then
+        log "$host_name: NNUE training not running - could start training here if needed"
+    else
+        log "$host_name: NNUE training running"
+    fi
+}
+
+# ============================================
+# Data Sync Function
+# ============================================
 
 sync_data() {
     log "Starting data sync from remote instances..."
@@ -120,66 +347,176 @@ sync_data() {
     fi
 }
 
-check_improvement_loop() {
-    local host=$1
+# ============================================
+# Main Loop
+# ============================================
 
-    # Check if improvement loop is running
-    local loop_running=$(ssh -o ConnectTimeout=10 "$host" "ps aux | grep improvement_loop | grep -v grep | wc -l" 2>/dev/null || echo "0")
-
-    if [ "$loop_running" -eq 0 ]; then
-        # Check if there's a trained model to build on
-        local model_exists=$(ssh -o ConnectTimeout=10 "$host" "ls -la /home/ubuntu/ringrift/ai-service/models/nnue/*.pt 2>/dev/null | wc -l" 2>/dev/null || echo "0")
-
-        if [ "$model_exists" -gt 0 ]; then
-            log "H100: Starting AlphaZero improvement loop (model found)..."
-            ssh -o ConnectTimeout=30 "$host" "cd /home/ubuntu/ringrift/ai-service && \
-                mkdir -p logs/improvement && \
-                nohup python3 scripts/run_improvement_loop.py \
-                    --board square8 --players 2 \
-                    --iterations 100 --games-per-iter 50 \
-                    --promotion-threshold 0.55 \
-                    --resume \
-                    > logs/improvement/overnight.log 2>&1 &" 2>&1 | while read line; do log "H100: $line"; done
-        else
-            log "H100: No NNUE model yet - waiting for initial training to complete before starting improvement loop"
-        fi
-    else
-        log "H100: Improvement loop still running"
-    fi
-}
-
-# Main loop
 log "=== Overnight Orchestrator Started ==="
 log "Check interval: ${CHECK_INTERVAL}s"
+log "Managing: Lambda H100/A10, AWS Staging, Vast 3090/5090-Dual/5090-Quad, Mac Cluster"
+
+# Failure counters for each host
+lambda_h100_failures=0
+lambda_a10_failures=0
+aws_staging_failures=0
+vast_3090_failures=0
+vast_5090_dual_failures=0
+vast_5090_quad_failures=0
+mac_studio_failures=0
+mbp_16gb_failures=0
+mbp_64gb_failures=0
 
 iteration=0
 while true; do
     iteration=$((iteration + 1))
     log "--- Iteration $iteration ---"
-    
-    # Check H100
+
+    # ============================================
+    # Lambda H100 - Primary GPU (selfplay + NNUE + CMA-ES + improvement)
+    # ============================================
     if check_ssh "$LAMBDA_H100"; then
-        restart_selfplay_if_needed "$LAMBDA_H100" "H100" 3
+        lambda_h100_failures=0
+        restart_selfplay_linux "$LAMBDA_H100" "Lambda-H100" 3 "$LAMBDA_H100_PATH" "run_ssh"
         check_nnue_training "$LAMBDA_H100"
         check_cmaes "$LAMBDA_H100"
         check_improvement_loop "$LAMBDA_H100"
     else
-        log "H100: SSH connection failed"
+        lambda_h100_failures=$((lambda_h100_failures + 1))
+        log "Lambda-H100: SSH failed (attempt $lambda_h100_failures)"
     fi
-    
-    # Check A10
+
+    # ============================================
+    # Lambda A10 - Secondary GPU (selfplay only)
+    # ============================================
     if check_ssh "$LAMBDA_A10"; then
-        restart_selfplay_if_needed "$LAMBDA_A10" "A10" 2
+        lambda_a10_failures=0
+        restart_selfplay_linux "$LAMBDA_A10" "Lambda-A10" 2 "$LAMBDA_A10_PATH" "run_ssh"
     else
-        log "A10: SSH connection failed"
+        lambda_a10_failures=$((lambda_a10_failures + 1))
+        log "Lambda-A10: SSH failed (attempt $lambda_a10_failures)"
     fi
-    
-    # Sync data every 6 iterations (30 minutes)
+
+    # ============================================
+    # AWS Staging - CPU selfplay (needs key)
+    # ============================================
+    if [ -f "$AWS_STAGING_KEY" ]; then
+        if check_ssh_key "$AWS_STAGING" "$AWS_STAGING_KEY"; then
+            aws_staging_failures=0
+            restart_selfplay_linux "$AWS_STAGING" "AWS-Staging" 2 "$AWS_STAGING_PATH" "run_ssh_key:$AWS_STAGING_KEY"
+        else
+            aws_staging_failures=$((aws_staging_failures + 1))
+            log "AWS-Staging: SSH failed (attempt $aws_staging_failures)"
+        fi
+    else
+        if [ $((iteration % 12)) -eq 1 ]; then  # Log only every hour
+            log "AWS-Staging: SSH key not found at $AWS_STAGING_KEY - skipping"
+        fi
+    fi
+
+    # ============================================
+    # Vast.ai 3090 - GPU training/selfplay
+    # ============================================
+    if check_ssh_port "$VAST_3090" "$VAST_3090_PORT"; then
+        vast_3090_failures=0
+        restart_selfplay_linux "$VAST_3090" "Vast-3090" 2 "$VAST_3090_PATH" "run_ssh_port:$VAST_3090_PORT"
+    else
+        vast_3090_failures=$((vast_3090_failures + 1))
+        if [ $vast_3090_failures -lt $MAX_RETRIES ]; then
+            log "Vast-3090: SSH failed (attempt $vast_3090_failures)"
+        fi
+    fi
+
+    # ============================================
+    # Vast.ai 5090 Dual - GPU training/selfplay
+    # ============================================
+    if check_ssh_port "$VAST_5090_DUAL" "$VAST_5090_DUAL_PORT"; then
+        vast_5090_dual_failures=0
+        restart_selfplay_linux "$VAST_5090_DUAL" "Vast-5090-Dual" 3 "$VAST_5090_DUAL_PATH" "run_ssh_port:$VAST_5090_DUAL_PORT"
+    else
+        vast_5090_dual_failures=$((vast_5090_dual_failures + 1))
+        if [ $vast_5090_dual_failures -lt $MAX_RETRIES ]; then
+            log "Vast-5090-Dual: SSH failed (attempt $vast_5090_dual_failures)"
+        fi
+    fi
+
+    # ============================================
+    # Vast.ai 5090 Quad - Primary GPU training
+    # ============================================
+    if check_ssh_port "$VAST_5090_QUAD" "$VAST_5090_QUAD_PORT"; then
+        vast_5090_quad_failures=0
+        restart_selfplay_linux "$VAST_5090_QUAD" "Vast-5090-Quad" 4 "$VAST_5090_QUAD_PATH" "run_ssh_port:$VAST_5090_QUAD_PORT"
+    else
+        vast_5090_quad_failures=$((vast_5090_quad_failures + 1))
+        if [ $vast_5090_quad_failures -lt $MAX_RETRIES ]; then
+            log "Vast-5090-Quad: SSH failed (attempt $vast_5090_quad_failures)"
+        fi
+    fi
+
+    # ============================================
+    # Mac Studio - MPS training capable (selfplay for now)
+    # ============================================
+    if check_ssh "$MAC_STUDIO"; then
+        mac_studio_failures=0
+        restart_selfplay_mac "$MAC_STUDIO" "Mac-Studio" 2 "$MAC_STUDIO_PATH"
+    else
+        mac_studio_failures=$((mac_studio_failures + 1))
+        if [ $mac_studio_failures -lt $MAX_RETRIES ]; then
+            log "Mac-Studio: SSH failed (attempt $mac_studio_failures) - is Tailscale connected?"
+        fi
+    fi
+
+    # ============================================
+    # MacBook Pro 16GB - Light selfplay
+    # ============================================
+    if check_ssh "$MBP_16GB"; then
+        mbp_16gb_failures=0
+        restart_selfplay_mac "$MBP_16GB" "MBP-16GB" 1 "$MBP_16GB_PATH"
+    else
+        mbp_16gb_failures=$((mbp_16gb_failures + 1))
+        if [ $mbp_16gb_failures -lt $MAX_RETRIES ]; then
+            log "MBP-16GB: SSH failed (attempt $mbp_16gb_failures) - is Tailscale connected?"
+        fi
+    fi
+
+    # ============================================
+    # MacBook Pro 64GB - Selfplay
+    # ============================================
+    if check_ssh "$MBP_64GB"; then
+        mbp_64gb_failures=0
+        restart_selfplay_mac "$MBP_64GB" "MBP-64GB" 2 "$MBP_64GB_PATH"
+    else
+        mbp_64gb_failures=$((mbp_64gb_failures + 1))
+        if [ $mbp_64gb_failures -lt $MAX_RETRIES ]; then
+            log "MBP-64GB: SSH failed (attempt $mbp_64gb_failures) - is Tailscale connected?"
+        fi
+    fi
+
+    # ============================================
+    # Data Sync (every 6 iterations = 30 minutes)
+    # ============================================
     if [ $((iteration % 6)) -eq 0 ]; then
         sync_data &
     fi
-    
-    # Log status summary
-    log "Sleeping for ${CHECK_INTERVAL}s..."
-    sleep "$CHECK_INTERVAL"
+
+    # ============================================
+    # Determine Sleep Interval
+    # ============================================
+    # Shorter interval if any host needs retry
+    any_failures=0
+    for failures in $lambda_h100_failures $lambda_a10_failures $aws_staging_failures \
+                    $vast_3090_failures $vast_5090_dual_failures $vast_5090_quad_failures \
+                    $mac_studio_failures $mbp_16gb_failures $mbp_64gb_failures; do
+        if [ "$failures" -gt 0 ] && [ "$failures" -lt $MAX_RETRIES ]; then
+            any_failures=1
+            break
+        fi
+    done
+
+    if [ $any_failures -eq 1 ]; then
+        log "Retrying failed hosts in ${RETRY_INTERVAL}s..."
+        sleep "$RETRY_INTERVAL"
+    else
+        log "Sleeping for ${CHECK_INTERVAL}s..."
+        sleep "$CHECK_INTERVAL"
+    fi
 done

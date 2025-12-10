@@ -1,3 +1,11 @@
 # Local machine-specific files
 scripts/*.plist
 .coverage
+
+# Host configuration with private IPs and credentials (use .example files as templates)
+config/distributed_hosts.yaml
+config/remote_hosts.yaml
+config/orchestrator_hosts.yaml
+
+# Orchestrator state and logs contain host-specific data
+logs/orchestrator/cluster_state.json
