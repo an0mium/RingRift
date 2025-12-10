@@ -721,6 +721,44 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     // Check if we need to synthesize bookkeeping moves to bridge phases
     const currentState = engine.getState() as GameState;
 
+    // RR-CANON-R073: When ringsInHand == 0, TS starts directly in movement phase.
+    // Skip redundant no_placement_action moves recorded by Python when already in movement.
+    if (
+      move.type === 'no_placement_action' &&
+      currentState.currentPhase === 'movement'
+    ) {
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify({
+          kind: 'ts-replay-skip-redundant',
+          db_move_index: i,
+          moveType: move.type,
+          currentPhase: currentState.currentPhase,
+          reason: 'RR-CANON-R073: already in movement phase, no_placement_action is redundant',
+        })
+      );
+      continue;
+    }
+
+    // Skip redundant no_line_action moves recorded during phases where line processing
+    // doesn't occur (e.g., chain_capture). These are legacy recording artifacts.
+    if (
+      move.type === 'no_line_action' &&
+      currentState.currentPhase !== 'line_processing'
+    ) {
+      // eslint-disable-next-line no-console
+      console.log(
+        JSON.stringify({
+          kind: 'ts-replay-skip-redundant',
+          db_move_index: i,
+          moveType: move.type,
+          currentPhase: currentState.currentPhase,
+          reason: 'no_line_action is only valid in line_processing phase',
+        })
+      );
+      continue;
+    }
+
     // Stop processing if the game is over (legacy recordings may have trailing moves)
     if (currentState.currentPhase === 'game_over' || currentState.gameStatus === 'completed') {
       // Emit db-move-complete for the previous move before stopping

@@ -72,12 +72,11 @@ function addCollapsed(board: BoardState, position: Position, owner: number): voi
 }
 
 // Helper to create a territory/region
-function makeTerritory(spaces: Position[], owner: number = 1): Territory {
+function makeTerritory(spaces: Position[], controllingPlayer: number = 1): Territory {
   return {
-    id: `territory-${Date.now()}`,
     spaces,
-    owner,
-    size: spaces.length,
+    controllingPlayer,
+    isDisconnected: true,
   };
 }
 

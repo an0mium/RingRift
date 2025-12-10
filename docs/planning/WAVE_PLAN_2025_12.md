@@ -307,7 +307,7 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 
 ---
 
-## Wave 10 - Player Experience & UX Polish ✅ MOSTLY COMPLETE (2025-12-10)
+## Wave 10 - Player Experience & UX Polish ✅ COMPLETE (2025-12-10)
 
 **Goal:** Transform developer-oriented UI into player-friendly experience
 
@@ -325,11 +325,11 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 - `TeachingOverlay.tsx` - 13 topics covering all game phases and edge cases
 - `KeyboardShortcutsHelp.tsx` - 4-category keyboard reference
 
-### 10.2 - Game Flow Polish ✅ MOSTLY COMPLETE
+### 10.2 - Game Flow Polish ✅ COMPLETE
 
 - [x] Add phase transition animations (`globals.css` - 30+ CSS animations)
 - [x] Improve invalid-move feedback - visual (`useInvalidMoveFeedback.ts` - shake, toast, 12 error types)
-- [ ] Improve invalid-move feedback - audio (**MISSING** - no sound effects system)
+- [x] Improve invalid-move feedback - audio (`SoundContext.tsx` - Web Audio procedural sounds)
 - [x] Add move confirmation for irreversible actions (`ChoiceDialog.tsx` for decisions)
 - [x] Enhance victory/defeat screens (`VictoryModal.tsx` - confetti, animations, stats)
 
@@ -338,6 +338,14 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 - `useMoveAnimation.ts` - Move, capture, chain capture animations
 - `globals.css` - piece-move, selection-pulse, capture-bounce, confetti, shimmer
 - Reduced motion support via `@media (prefers-reduced-motion: reduce)`
+
+**Sound System (added 2025-12-10):**
+
+- `SoundContext.tsx` - Web Audio API procedural sound generation (no external files)
+- `useGameSounds.ts` - Hook for game event sounds (move, capture, victory, etc.)
+- 16 sound effects: move, place, capture, chain_capture, invalid, select, deselect, phase_change, turn_start, victory, defeat, draw, line_formed, territory_claimed, elimination, tick
+- Mute toggle (M key), volume control, localStorage persistence
+- Browser autoplay policy handling (AudioContext resume on interaction)
 
 ### 10.3 - Spectator & Analysis ✅ FOUNDATION COMPLETE
 
@@ -373,8 +381,6 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 - `-webkit-overflow-scrolling: touch`
 - `100dvh` viewport handling
 - Touch manipulation prevention
-
-**Gap:** Sound effects system not implemented (KeyboardShortcutsHelp references mute key 'M' but no audio backend exists)
 
 ---
 

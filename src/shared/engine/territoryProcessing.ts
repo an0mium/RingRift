@@ -144,13 +144,7 @@ export function filterProcessableTerritoryRegions(
     }
   });
 
-  // RR-PARITY-FIX-2025-12-10: Per Python _get_territory_processing_moves (game_engine.py:2885-2894),
-  // only include regions where region.controllingPlayer === ctx.player. This ensures that players
-  // only process regions attributed to them by the border color, matching canonical behavior.
-  return regions.filter(
-    (region) =>
-      region.controllingPlayer === ctx.player && canProcessTerritoryRegion(board, region, ctx)
-  );
+  return regions.filter((region) => canProcessTerritoryRegion(board, region, ctx));
 }
 
 /**

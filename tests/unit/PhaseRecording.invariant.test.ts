@@ -45,8 +45,12 @@ const MANDATORY_RECORD_PHASES: GamePhase[] = [
 
 /**
  * Map of phases to valid move types that can be recorded in that phase.
+ *
+ * Note: 'game_over' is a terminal pseudo-phase; no moves are recorded there,
+ * so it is intentionally omitted from this mapping and treated as having
+ * no valid move types.
  */
-const PHASE_TO_VALID_MOVE_TYPES: Record<GamePhase, MoveType[]> = {
+const PHASE_TO_VALID_MOVE_TYPES: Partial<Record<GamePhase, MoveType[]>> = {
   ring_placement: ['place_ring', 'skip_placement', 'no_placement_action'],
   movement: ['move_stack', 'move_ring', 'build_stack', 'no_movement_action'],
   capture: ['overtaking_capture', 'skip_capture'],
@@ -81,6 +85,13 @@ interface PhaseRecordingViolation {
 }
 
 /**
+ * Local helper type for tests that annotate moves with an explicit phase.
+ * This mirrors the optional .phase field sometimes present in historical
+ * records while remaining assignable to the core Move type.
+ */
+type PhaseAnnotatedMove = Move & { phase?: GamePhase };
+
+/**
  * Extract phase records from move history, organized by turn and player.
  */
 function extractPhaseRecordsByTurn(moves: Move[]): TurnPhaseRecords[] {
@@ -91,7 +102,7 @@ function extractPhaseRecordsByTurn(moves: Move[]): TurnPhaseRecords[] {
 
   for (const move of moves) {
     const movePlayer = move.player ?? (move as any).playerNumber;
-    const movePhase = move.phase ?? inferPhaseFromMoveType(move.type);
+    const movePhase = (move as any).phase ?? inferPhaseFromMoveType(move.type);
 
     // Detect turn boundary (player change back to first player or explicit turn marker)
     if (movePlayer !== currentPlayer) {
@@ -255,7 +266,7 @@ export function validateGameRecordPhaseRecording(gameRecord: GameRecord): {
   valid: boolean;
   violations: PhaseRecordingViolation[];
 } {
-  const moves = gameRecord.moves ?? [];
+  const moves = (gameRecord.moves ?? []) as unknown as Move[];
   const numPlayers = gameRecord.players?.length ?? 2;
 
   const violations = checkPhaseRecordingInvariant(moves, numPlayers);
@@ -301,62 +312,62 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
       expect(inferPhaseFromMoveType('forced_elimination')).toBe('forced_elimination');
     });
   });
-
-  describe('isMoveValidForPhase', () => {
-    it('validates ring_placement moves', () => {
-      const move: Move = {
-        id: 'm1',
-        type: 'place_ring',
-        player: 1,
-        to: { x: 0, y: 0 },
-        timestamp: new Date(),
-        thinkTime: 0,
-        moveNumber: 1,
-      };
-      expect(isMoveValidForPhase(move, 'ring_placement')).toBe(true);
-      expect(isMoveValidForPhase(move, 'movement')).toBe(false);
-    });
-
-    it('validates no_*_action moves', () => {
-      const noPlacementMove: Move = {
-        id: 'm1',
-        type: 'no_placement_action',
-        player: 1,
-        timestamp: new Date(),
-        thinkTime: 0,
-        moveNumber: 1,
-      };
-      expect(isMoveValidForPhase(noPlacementMove, 'ring_placement')).toBe(true);
-
-      const noMovementMove: Move = {
-        id: 'm2',
-        type: 'no_movement_action',
-        player: 1,
-        timestamp: new Date(),
-        thinkTime: 0,
-        moveNumber: 2,
-      };
-      expect(isMoveValidForPhase(noMovementMove, 'movement')).toBe(true);
-    });
-
-    it('validates forced_elimination moves', () => {
-      const forcedElimMove: Move = {
-        id: 'm1',
-        type: 'forced_elimination',
-        player: 1,
-        to: { x: 0, y: 0 },
-        timestamp: new Date(),
-        thinkTime: 0,
-        moveNumber: 1,
-      };
-      expect(isMoveValidForPhase(forcedElimMove, 'forced_elimination')).toBe(true);
-      expect(isMoveValidForPhase(forcedElimMove, 'movement')).toBe(false);
-    });
+describe('isMoveValidForPhase', () => {
+  it('validates ring_placement moves', () => {
+    const move: Move = {
+      id: 'm1',
+      type: 'place_ring',
+      player: 1,
+      to: { x: 0, y: 0 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1,
+    };
+    expect(isMoveValidForPhase(move, 'ring_placement')).toBe(true);
+    expect(isMoveValidForPhase(move, 'movement')).toBe(false);
   });
 
+  it('validates no_*_action moves', () => {
+    const noPlacementMove: Move = {
+      id: 'm1',
+      type: 'no_placement_action',
+      player: 1,
+      to: { x: 0, y: 0 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1,
+    };
+    expect(isMoveValidForPhase(noPlacementMove, 'ring_placement')).toBe(true);
+
+    const noMovementMove: Move = {
+      id: 'm2',
+      type: 'no_movement_action',
+      player: 1,
+      to: { x: 0, y: 0 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 2,
+    };
+    expect(isMoveValidForPhase(noMovementMove, 'movement')).toBe(true);
+  });
+
+  it('validates forced_elimination moves', () => {
+    const forcedElimMove: Move = {
+      id: 'm1',
+      type: 'forced_elimination',
+      player: 1,
+      to: { x: 0, y: 0 },
+      timestamp: new Date(),
+      thinkTime: 0,
+      moveNumber: 1,
+    };
+    expect(isMoveValidForPhase(forcedElimMove, 'forced_elimination')).toBe(true);
+    expect(isMoveValidForPhase(forcedElimMove, 'movement')).toBe(false);
+  });
+});
   describe('checkPhaseRecordingInvariant', () => {
     it('detects missing ring_placement phase record', () => {
-      const moves: Move[] = [
+      const moves: PhaseAnnotatedMove[] = [
         // Player 1 only has movement, no placement
         {
           id: 'm1',
@@ -377,7 +388,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
     });
 
     it('accepts valid complete turn with all phases', () => {
-      const moves: Move[] = [
+      const moves: PhaseAnnotatedMove[] = [
         // Player 1 complete turn
         {
           id: 'm1',
@@ -405,6 +416,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_line_action',
           player: 1,
           phase: 'line_processing',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 3,
@@ -414,6 +426,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_territory_action',
           player: 1,
           phase: 'territory_processing',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 4,
@@ -425,13 +438,14 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
     });
 
     it('accepts no_*_action markers for players with no material', () => {
-      const moves: Move[] = [
+      const moves: PhaseAnnotatedMove[] = [
         // Player 1 has no material - records all no-action markers
         {
           id: 'm1',
           type: 'no_placement_action',
           player: 1,
           phase: 'ring_placement',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 1,
@@ -441,6 +455,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_movement_action',
           player: 1,
           phase: 'movement',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 2,
@@ -450,6 +465,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_line_action',
           player: 1,
           phase: 'line_processing',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 3,
@@ -459,6 +475,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_territory_action',
           player: 1,
           phase: 'territory_processing',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 4,
@@ -470,13 +487,14 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
     });
 
     it('accepts forced_elimination when player has stacks but no actions', () => {
-      const moves: Move[] = [
+      const moves: PhaseAnnotatedMove[] = [
         // Player 1 blocked in all phases, forced elimination
         {
           id: 'm1',
           type: 'no_placement_action',
           player: 1,
           phase: 'ring_placement',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 1,
@@ -486,6 +504,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_movement_action',
           player: 1,
           phase: 'movement',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 2,
@@ -495,6 +514,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_line_action',
           player: 1,
           phase: 'line_processing',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 3,
@@ -504,6 +524,7 @@ describe('INV-PHASE-RECORDING invariant (RR-CANON-R074/R075)', () => {
           type: 'no_territory_action',
           player: 1,
           phase: 'territory_processing',
+          to: { x: 0, y: 0 },
           timestamp: new Date(),
           thinkTime: 0,
           moveNumber: 4,

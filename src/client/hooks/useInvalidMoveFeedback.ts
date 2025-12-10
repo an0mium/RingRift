@@ -27,6 +27,7 @@ import { useState, useCallback, useRef } from 'react';
 import { toast } from 'react-hot-toast';
 import type { Position, GameState } from '../../shared/types/game';
 import { positionToString } from '../../shared/types/game';
+import { useSoundOptional } from '../contexts/SoundContext';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -241,6 +242,7 @@ export function useInvalidMoveFeedback(
 
   const [shakingCellKey, setShakingCellKey] = useState<string | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sound = useSoundOptional();
 
   // Clear any existing timeout
   const clearExistingTimeout = useCallback(() => {
@@ -261,6 +263,9 @@ export function useInvalidMoveFeedback(
     (position: Position, reason: InvalidMoveReason) => {
       const posKey = positionToString(position);
       const explanation = getReasonExplanation(reason);
+
+      // Play invalid move sound
+      sound?.playSound('invalid');
 
       // Set shake animation
       clearExistingTimeout();
@@ -290,7 +295,7 @@ export function useInvalidMoveFeedback(
       // Screen reader announcement is handled by the toast library's aria-live region
       // and the sr-only announcement in the component if needed
     },
-    [shakeDurationMs, showToast, clearExistingTimeout]
+    [shakeDurationMs, showToast, clearExistingTimeout, sound]
   );
 
   return {
