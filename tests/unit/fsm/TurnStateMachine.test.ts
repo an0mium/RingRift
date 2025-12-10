@@ -406,7 +406,7 @@ describe('TurnStateMachine', () => {
   });
 
   describe('line_processing guards', () => {
-    it('should reject CHOOSE_LINE_REWARD when awaitingReward is false', () => {
+    it('should reject CHOOSE_LINE_REWARD when awaitingReward is false and line does not require choice', () => {
       const state: LineProcessingState = {
         phase: 'line_processing',
         player: 1,
@@ -418,7 +418,7 @@ describe('TurnStateMachine', () => {
               { x: 2, y: 2 },
             ],
             player: 1,
-            requiresChoice: true,
+            requiresChoice: false, // Line does NOT require choice (exact length)
           },
         ],
         currentLineIndex: 0,
@@ -433,6 +433,34 @@ describe('TurnStateMachine', () => {
         expect(result.error.code).toBe('GUARD_FAILED');
         expect(result.error.message).toContain('Not awaiting line reward choice');
       }
+    });
+
+    it('should allow CHOOSE_LINE_REWARD when awaitingReward is false but line requires choice (legacy replay)', () => {
+      // This test verifies legacy replay support: when a line requires a choice,
+      // CHOOSE_LINE_REWARD should be allowed even without a prior PROCESS_LINE event.
+      const state: LineProcessingState = {
+        phase: 'line_processing',
+        player: 1,
+        detectedLines: [
+          {
+            positions: [
+              { x: 0, y: 0 },
+              { x: 1, y: 1 },
+              { x: 2, y: 2 },
+              { x: 3, y: 3 },
+            ],
+            player: 1,
+            requiresChoice: true, // Line requires choice (overlength)
+          },
+        ],
+        currentLineIndex: 0,
+        awaitingReward: false, // Not awaiting reward (legacy replay scenario)
+      };
+
+      const event: TurnEvent = { type: 'CHOOSE_LINE_REWARD', choice: 'eliminate' };
+      const result = transition(state, event, context);
+
+      expect(result.ok).toBe(true);
     });
 
     it('should allow CHOOSE_LINE_REWARD when awaitingReward is true', () => {
@@ -642,9 +670,7 @@ describe('TurnStateMachine', () => {
       const state: CaptureState = {
         phase: 'capture',
         player: 1,
-        pendingCaptures: [
-          { target: { x: 3, y: 3 }, capturingPlayer: 1, isChainCapture: false },
-        ],
+        pendingCaptures: [{ target: { x: 3, y: 3 }, capturingPlayer: 1, isChainCapture: false }],
         chainInProgress: false,
         capturesMade: 0,
       };
@@ -664,9 +690,7 @@ describe('TurnStateMachine', () => {
       const state: CaptureState = {
         phase: 'capture',
         player: 1,
-        pendingCaptures: [
-          { target: { x: 3, y: 3 }, capturingPlayer: 1, isChainCapture: false },
-        ],
+        pendingCaptures: [{ target: { x: 3, y: 3 }, capturingPlayer: 1, isChainCapture: false }],
         chainInProgress: false,
         capturesMade: 0,
       };

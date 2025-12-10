@@ -636,7 +636,13 @@ function handleLineProcessing(
     }
 
     case 'CHOOSE_LINE_REWARD': {
-      if (!state.awaitingReward) {
+      // Allow CHOOSE_LINE_REWARD if:
+      // 1. awaitingReward is true (normal flow after PROCESS_LINE detected overlength), OR
+      // 2. The current line requires a choice (for legacy replay where PROCESS_LINE was
+      //    rewritten to CHOOSE_LINE_REWARD without a preceding PROCESS_LINE event)
+      const currentLine = state.detectedLines[state.currentLineIndex];
+      const lineRequiresChoice = currentLine?.requiresChoice ?? false;
+      if (!state.awaitingReward && !lineRequiresChoice) {
         return guardFailed(state, event, 'Not awaiting line reward choice');
       }
 
