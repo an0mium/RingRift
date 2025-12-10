@@ -60,6 +60,12 @@ from app.ai.gpu_parallel_games import (
     benchmark_parallel_games,
 )
 
+# NOTE: GPU parallel games don't expose full final game state,
+# so we cannot derive victory_type using the shared module.
+# Victory type fields are included as placeholders for when
+# the GPU runner is enhanced to return victory info.
+# from app.utils.victory_type import derive_victory_type
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -226,6 +232,11 @@ class GPUSelfPlayGenerator:
                         "winner": int(results["winners"][i]),
                         "move_count": int(results["move_counts"][i]),
                         "max_moves": self.max_moves,
+                        # Placeholder fields - GPU runner doesn't expose final state
+                        # for victory_type derivation. These are None until the
+                        # ParallelGameRunner is enhanced to return victory info.
+                        "victory_type": None,
+                        "stalemate_tiebreaker": None,
                         "timestamp": datetime.now().isoformat(),
                     }
                     all_records.append(record)
