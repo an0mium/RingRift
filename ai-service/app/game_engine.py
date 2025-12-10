@@ -957,43 +957,46 @@ class GameEngine:
             # seat (after another player's bookkeeping no-ops) from
             # prematurely ending the game before the candidate actually acts,
             # matching TS turn-orchestration semantics.
+            #
+            # The TS evaluateLpsVictory is called at the START of each
+            # interactive turn, whereas Python's _check_victory is called
+            # AFTER each move. To achieve parity, we only declare victory
+            # when the candidate themselves just took an action.
             last_move_player = game_state.move_history[-1].player if game_state.move_history else None
             if last_move_player != candidate:
                 # Defer LPS check until the candidate takes their own action.
+                # DO NOT reset LPS tracking or check others_have_actions here -
+                # just wait for the candidate's next move.
                 pass
             else:
-                game_state.game_status = GameStatus.COMPLETED
-                game_state.winner = candidate
-                game_state.current_player = candidate  # TS parity: winner stays current
-                game_state.current_phase = GamePhase.GAME_OVER
-                return
-            board = game_state.board
-            others_have_actions = False
-            for player in game_state.players:
-                if player.player_number == candidate:
-                    continue
-                has_stacks = any(stack.controlling_player == player.player_number for stack in board.stacks.values())
-                if not has_stacks and player.rings_in_hand <= 0:
-                    continue
-                if GameEngine._has_real_action_for_player(
-                    game_state,
-                    player.player_number,
-                ):
-                    others_have_actions = True
-                    break
+                # Candidate just acted - check if others still have actions
+                board = game_state.board
+                others_have_actions = False
+                for player in game_state.players:
+                    if player.player_number == candidate:
+                        continue
+                    has_stacks = any(stack.controlling_player == player.player_number for stack in board.stacks.values())
+                    if not has_stacks and player.rings_in_hand <= 0:
+                        continue
+                    if GameEngine._has_real_action_for_player(
+                        game_state,
+                        player.player_number,
+                    ):
+                        others_have_actions = True
+                        break
 
-            # If no other player with material has any real action, candidate wins.
-            if not others_have_actions:
-                game_state.game_status = GameStatus.COMPLETED
-                game_state.winner = candidate
-                game_state.current_player = candidate  # TS parity: winner stays current
-                game_state.current_phase = GamePhase.GAME_OVER
-                return
+                # If no other player with material has any real action, candidate wins.
+                if not others_have_actions:
+                    game_state.game_status = GameStatus.COMPLETED
+                    game_state.winner = candidate
+                    game_state.current_player = candidate  # TS parity: winner stays current
+                    game_state.current_phase = GamePhase.GAME_OVER
+                    return
 
-            # Candidate condition failed; require fresh qualifying rounds.
-            game_state.lps_exclusive_player_for_completed_round = None
-            game_state.lps_consecutive_exclusive_rounds = 0
-            game_state.lps_consecutive_exclusive_player = None
+                # Candidate condition failed; require fresh qualifying rounds.
+                game_state.lps_exclusive_player_for_completed_round = None
+                game_state.lps_consecutive_exclusive_rounds = 0
+                game_state.lps_consecutive_exclusive_player = None
 
         # 5. Global structural terminality
         # Fallback termination is triggered when:
