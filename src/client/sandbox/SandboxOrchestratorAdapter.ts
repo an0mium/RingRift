@@ -22,6 +22,7 @@ import {
   type ProcessTurnOptions,
 } from '../../shared/engine/orchestration/turnOrchestrator';
 import { validateMoveWithFSM } from '../../shared/engine/fsm/FSMAdapter';
+import { validatePlacement } from '../../shared/engine/aggregates/PlacementAggregate';
 import type {
   ProcessTurnResult,
   PendingDecision,
@@ -224,6 +225,30 @@ export class SandboxOrchestratorAdapter {
           nextState: initialState,
           error: validation.reason || 'Invalid move',
         };
+      }
+
+      // For place_ring moves, perform additional board-level validation
+      // including no-dead-placement check per RR-CANON-R081/R082.
+      // The FSM validation only checks phase/event compatibility, not
+      // board-level constraints like whether the placement would result
+      // in a stack with no legal moves.
+      if (move.type === 'place_ring' && move.to) {
+        const placementAction = {
+          type: 'PLACE_RING' as const,
+          playerId: move.player,
+          position: move.to,
+          count: move.placementCount ?? 1,
+        };
+        const placementValidation = validatePlacement(initialState, placementAction);
+        if (!placementValidation.valid) {
+          return {
+            success: false,
+            nextState: initialState,
+            error:
+              placementValidation.reason ||
+              `Invalid placement position at (${move.to.x}, ${move.to.y})`,
+          };
+        }
       }
 
       const delegates = this.createProcessingDelegates();
