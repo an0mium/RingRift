@@ -22,7 +22,7 @@
   - Any legal **ring placements** P could make under [`RR-CANON-R080`–`R082`](RULES_CANONICAL_SPEC.md:220) given the current board and `ringsInHand[P]`, even when `currentPhase` is not `ring_placement`.
   - Any legal **forced-elimination** actions for P under [`RR-CANON-R100`](RULES_CANONICAL_SPEC.md:280) when P controls at least one stack but has no placements, movements, or captures.
   - Any legal **recovery actions** for P under [`RR-CANON-R110`–`R115`](RULES_CANONICAL_SPEC.md:579) when P controls no stacks, has no rings in hand, but has markers on the board and buried rings in other stacks.
-- **Real action (for last-player-standing):** As in [`RR-CANON-R172`](RULES_CANONICAL_SPEC.md:438): a ring placement, non-capture movement, overtaking capture, or **recovery action** on the player's own turn. Pure forced eliminations do **not** count as real actions.
+- **Real action (for last-player-standing):** As in [`RR-CANON-R172`](RULES_CANONICAL_SPEC.md:438): a ring placement, non-capture movement, or overtaking capture on the player's own turn. **Recovery actions do NOT count as real actions** for LPS purposes - this creates strategic tension where players with rings in hand have a "survival budget." Forced eliminations also do **not** count as real actions.
 - **Turn-material:** For ANM and phase/turn invariants, a player has turn-material if they either:
   - Control at least one stack (a top ring of their colour on some stack), or
   - Have `ringsInHand[P] > 0`.

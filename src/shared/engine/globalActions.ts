@@ -66,6 +66,49 @@ export function hasTurnMaterial(state: GameState, player: number): boolean {
 }
 
 /**
+ * True when the specified player has at least one ring anywhere:
+ * - Rings in controlled stacks (top ring is player's colour)
+ * - Rings buried inside stacks controlled by other players
+ * - Rings in hand (not yet placed)
+ *
+ * A player with no rings anywhere is permanently eliminated and should
+ * be skipped in turn rotation (RR-CANON-R201). A player who has rings
+ * (even if only buried) is NOT permanently eliminated - they may be
+ * "recovery-eligible" and should receive turns.
+ *
+ * This is different from hasTurnMaterial():
+ * - hasTurnMaterial: controlled stacks OR rings in hand
+ * - playerHasAnyRings: any rings anywhere (including buried)
+ */
+export function playerHasAnyRings(state: GameState, player: number): boolean {
+  const playerState = state.players.find((p) => p.playerNumber === player);
+  if (!playerState) {
+    return false;
+  }
+
+  // Check rings in hand
+  if (playerState.ringsInHand > 0) {
+    return true;
+  }
+
+  // Check all stacks for any ring belonging to this player
+  // This includes both controlled stacks (player is on top) AND
+  // buried rings (player's rings inside stacks controlled by others)
+  for (const stack of state.board.stacks.values()) {
+    if (stack.stackHeight <= 0) {
+      continue;
+    }
+    // Check the rings array for any ring owned by this player
+    // The rings array contains player numbers from bottom to top
+    if (stack.rings && stack.rings.includes(player)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
  * True when at least one legal ring placement exists for `player` in `state`,
  * respecting:
  *

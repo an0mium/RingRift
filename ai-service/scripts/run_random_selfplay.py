@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""
+Run selfplay games using purely random AI (uniform random move selection).
+This explores the game tree more uniformly and may hit rare scenarios like recovery.
+"""
+
+import json
+import random
+import time
+from pathlib import Path
+from datetime import datetime
+from typing import List, Optional
+import argparse
+
+from app.models import GameState, Move, MoveType, GamePhase, GameStatus
+from app.game_engine import GameEngine
+from app.training.generate_data import create_initial_state
+
+
+def play_random_game(
+    board_type: str = "square8",
+    num_players: int = 2,
+    max_moves: int = 500,
+    seed: Optional[int] = None,
+) -> dict:
+    """Play a game using purely random move selection."""
+    if seed is not None:
+        random.seed(seed)
+
+    state = create_initial_state(board_type=board_type, num_players=num_players)
+    moves_played: List[dict] = []
+    recovery_opportunities = 0
+
+    for move_num in range(max_moves):
+        if state.game_status != GameStatus.ACTIVE:
+            break
+
+        current_player = state.current_player
+
+        # Get valid moves
+        valid_moves = GameEngine.get_valid_moves(state, current_player)
+
+        # Check for bookkeeping moves
+        req = GameEngine.get_phase_requirement(state, current_player)
+        bookkeeping = None
+        if req is not None:
+            bookkeeping = GameEngine.synthesize_bookkeeping_move(req, state)
+
+        # If no valid moves, apply bookkeeping
+        if not valid_moves and bookkeeping:
+            move = bookkeeping
+        elif valid_moves:
+            # Check if any recovery moves are available
+            recovery_moves = [m for m in valid_moves if m.type == MoveType.RECOVERY_SLIDE]
+            if recovery_moves:
+                recovery_opportunities += 1
+
+            # Random selection from valid moves
+            move = random.choice(valid_moves)
+        else:
+            # No moves available
+            break
+
+        # Record move
+        move_dict = {
+            'type': move.type.value,
+            'player': move.player,
+        }
+        if move.to:
+            move_dict['to'] = {'x': move.to.x, 'y': move.to.y}
+        if hasattr(move, 'from_pos') and move.from_pos:
+            move_dict['from'] = {'x': move.from_pos.x, 'y': move.from_pos.y}
+        moves_played.append(move_dict)
+
+        # Apply move
+        try:
+            state = GameEngine.apply_move(state, move)
+        except Exception as e:
+            print(f"Error applying move {move_num}: {e}")
+            break
+
+    # Determine winner
+    winner = None
+    victory_type = None
+    if state.game_status == GameStatus.COMPLETED:
+        if hasattr(state, 'winner'):
+            winner = state.winner
+        if hasattr(state, 'victory_type'):
+            victory_type = state.victory_type
+
+    return {
+        'board_type': board_type,
+        'num_players': num_players,
+        'moves': moves_played,
+        'winner': winner,
+        'victory_type': victory_type.value if victory_type else None,
+        'total_moves': len(moves_played),
+        'recovery_opportunities': recovery_opportunities,
+        'completed': state.game_status == GameStatus.COMPLETED,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Run random AI selfplay games')
+    parser.add_argument('--num-games', type=int, default=100, help='Number of games')
+    parser.add_argument('--board-type', default='square8', help='Board type')
+    parser.add_argument('--num-players', type=int, default=2, help='Number of players')
+    parser.add_argument('--output-dir', default='data/selfplay/random_ai', help='Output directory')
+    parser.add_argument('--seed', type=int, default=None, help='Random seed')
+    parser.add_argument('--max-moves', type=int, default=500, help='Max moves per game')
+    args = parser.parse_args()
+
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    games_file = output_dir / "games.jsonl"
+    stats_file = output_dir / "stats.json"
+
+    start_time = time.time()
+    total_recovery = 0
+    games_with_recovery = 0
+    wins = {}
+    victory_types = {}
+
+    print(f"Running {args.num_games} random AI games on {args.board_type} {args.num_players}p...")
+
+    with open(games_file, 'a') as f:
+        for i in range(args.num_games):
+            game_seed = args.seed + i if args.seed else None
+            game = play_random_game(
+                board_type=args.board_type,
+                num_players=args.num_players,
+                max_moves=args.max_moves,
+                seed=game_seed,
+            )
+
+            f.write(json.dumps(game) + '\n')
+
+            # Track stats
+            if game['recovery_opportunities'] > 0:
+                games_with_recovery += 1
+                total_recovery += game['recovery_opportunities']
+
+            if game['winner']:
+                wins[game['winner']] = wins.get(game['winner'], 0) + 1
+            if game['victory_type']:
+                victory_types[game['victory_type']] = victory_types.get(game['victory_type'], 0) + 1
+
+            if (i + 1) % 10 == 0:
+                print(f"  Completed {i+1}/{args.num_games} games, {games_with_recovery} had recovery opportunities")
+
+    elapsed = time.time() - start_time
+
+    stats = {
+        'total_games': args.num_games,
+        'board_type': args.board_type,
+        'num_players': args.num_players,
+        'games_with_recovery_opportunities': games_with_recovery,
+        'total_recovery_opportunities': total_recovery,
+        'wins_by_player': wins,
+        'victory_types': victory_types,
+        'elapsed_seconds': elapsed,
+        'games_per_second': args.num_games / elapsed,
+        'timestamp': datetime.now().isoformat(),
+    }
+
+    with open(stats_file, 'w') as f:
+        json.dump(stats, f, indent=2)
+
+    print(f"\nCompleted in {elapsed:.1f}s ({args.num_games/elapsed:.2f} games/sec)")
+    print(f"Games with recovery opportunities: {games_with_recovery}/{args.num_games}")
+    print(f"Total recovery opportunities: {total_recovery}")
+    print(f"Results saved to {output_dir}")
+
+
+if __name__ == "__main__":
+    main()

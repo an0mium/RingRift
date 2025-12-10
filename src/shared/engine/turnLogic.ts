@@ -104,6 +104,19 @@ export interface TurnLogicDelegates {
    * conventions (e.g. gaps in playerNumber or arbitrary seating maps).
    */
   getNextPlayerNumber(state: GameState, current: number): number;
+
+  /**
+   * True when the player has at least one ring anywhere on the board or in hand.
+   * This includes:
+   * - Rings in controlled stacks (top ring is player's colour)
+   * - Rings buried inside stacks controlled by other players
+   * - Rings in hand (not yet placed)
+   *
+   * A player with no rings anywhere is permanently eliminated and should
+   * be skipped in turn rotation. A player who has rings (even if only
+   * buried) may still be recovery-eligible and should receive turns.
+   */
+  playerHasAnyRings(state: GameState, player: number): boolean;
 }
 
 export interface TurnAdvanceResult {
@@ -218,8 +231,8 @@ export function advanceTurnAndPhase(
         break;
       }
 
-      // Normal turn progression, including skipping players who are
-      // completely out of material (no stacks and no rings in hand).
+      // Normal turn progression. Only skip players who are permanently
+      // eliminated (no rings anywhere - not in stacks, not buried, not in hand).
       const maxSkips = workingState.players.length;
       let skips = 0;
 
@@ -236,6 +249,11 @@ export function advanceTurnAndPhase(
         const stacks = delegates.getPlayerStacks(workingState, currentPlayerNumber);
         const hasStacks = stacks.length > 0;
 
+        // Check if player is permanently eliminated (no rings anywhere).
+        // Players who have rings somewhere (even if only buried) get turns
+        // because they may be recovery-eligible (RR-CANON-R201).
+        const hasAnyRings = delegates.playerHasAnyRings(workingState, currentPlayerNumber);
+
         // Debug logging for parity investigation
         debugLog(
           isTestEnvironment(),
@@ -247,27 +265,30 @@ export function advanceTurnAndPhase(
           stacks.length,
           'ringsInHand=',
           currentPlayer.ringsInHand,
+          'hasAnyRings=',
+          hasAnyRings,
           'willSkip=',
-          !hasStacks && currentPlayer.ringsInHand === 0
+          !hasAnyRings
         );
 
-        if (!hasStacks && currentPlayer.ringsInHand === 0) {
-          // Player currently has no material (no stacks, no rings in hand);
-          // skip them for this turn rotation. They may regain control of
-          // stacks through capture or territory mechanics and will be
-          // re-checked on subsequent turn rotations. Global terminality
-          // (e.g. all players out of material) is handled by host-level
-          // victory logic.
+        if (!hasAnyRings) {
+          // Player is permanently eliminated (no rings anywhere on board
+          // or in hand). Skip them in turn rotation. This is different from
+          // "no turn-material" - a player with buried rings but no stacks
+          // and no rings in hand is NOT skipped because they may be
+          // recovery-eligible.
           const nextPlayerNumber = delegates.getNextPlayerNumber(workingState, currentPlayerNumber);
           // Debug: log skip for parity debugging
           debugLog(
             isTestEnvironment(),
-            '[turnLogic.advanceTurnAndPhase] SKIP player',
+            '[turnLogic.advanceTurnAndPhase] SKIP permanently eliminated player',
             currentPlayerNumber,
             'hasStacks=',
             hasStacks,
             'ringsInHand=',
             currentPlayer.ringsInHand,
+            'hasAnyRings=',
+            hasAnyRings,
             '-> next=',
             nextPlayerNumber
           );
@@ -276,11 +297,11 @@ export function advanceTurnAndPhase(
           continue;
         }
 
-        // Determine the starting phase for the first player in seat
-        // order who still has material.
-        const nextPhase: GamePhase = currentPlayer.ringsInHand > 0 ? 'ring_placement' : 'movement';
-
-        workingState = { ...workingState, currentPhase: nextPhase };
+        // All players always start in ring_placement phase. Players with
+        // ringsInHand == 0 will emit no_placement_action and transition to
+        // movement. This ensures consistent phase traversal per RR-CANON-R075
+        // ("All phases must be visited with explicit moves").
+        workingState = { ...workingState, currentPhase: 'ring_placement' };
         break;
       }
 

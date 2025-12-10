@@ -6,6 +6,7 @@ scripts/*.plist
 config/distributed_hosts.yaml
 config/remote_hosts.yaml
 config/orchestrator_hosts.yaml
+config/orchestrator_hosts.sh
 
 # Orchestrator state and logs contain host-specific data
 logs/orchestrator/cluster_state.json

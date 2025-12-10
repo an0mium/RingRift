@@ -360,7 +360,7 @@ export const RECOVERY_ACTION_TIPS: TeachingTip[] = [
   },
   // LPS interaction
   {
-    text: 'Recovery counts as a REAL ACTION for Last Player Standing purposes. If you can perform recovery, you are not "without moves" and the LPS countdown does not advance against you.',
+    text: 'Recovery does NOT count as a real action for Last Player Standing. If recovery is your only option, the LPS countdown still advances. You must place rings or make other moves to reset LPS - your rings in hand are a "survival budget."',
     category: 'lps',
     emphasis: 'important',
   },

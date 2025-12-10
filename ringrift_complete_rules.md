@@ -562,19 +562,18 @@ This option is available **only once**, immediately after Player 1's first turn,
 • **Action:** The player _must_ eliminate the entire cap (all consecutive top rings of the controlling color) of one of their controlled ring stacks.
 • **Choice:** The choice of which stack's cap to eliminate is up to the player.
 • **Victory Condition:** These eliminated rings are removed from play and count towards the player's total for the Ring Elimination victory condition.
-• **Control-Flip Edge Case:** If the player's only control over a stack was a cap of height 1 (a single ring of their color on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes the player to have **zero controlled stacks** and **zero rings in hand**, they become "temporarily inactive" (see Section 13.3) immediately. Turn rotation should then skip that player and proceed to the next player who has material; the player's turn effectively ends at the moment of forced elimination without any further action.
+• **Control-Flip Edge Case:** If the player's only control over a stack was a cap of height 1 (a single ring of their color on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes the player to have **zero controlled stacks** and **zero rings in hand**, they become "temporarily inactive" (see Section 13.3) for Last Player Standing purposes. However, they still receive turns and must record the canonical no-action moves for each phase. Only players who are **permanently eliminated** (no rings anywhere—not in controlled stacks, not buried in opponent stacks, not in hand) are skipped during turn rotation.
 • **Ensuring the Game Continues:** As long as **any stacks remain on the board**, the game cannot reach a state where no player has any available action. If no player has a legal placement, movement, or capture but at least one stack exists, the player whose turn it is must perform a forced elimination. Successive forced eliminations continue (possibly cycling through multiple players) until **no stacks remain**; only then can the game reach an endgame state resolved by the stalemate rules in Section 13.4.
 • **Phase & recording:** Forced elimination is its own phase (`forced_elimination`) with an explicit move; never apply it silently during territory or line processing.
-• **Last Player Standing:** LPS is determined after post-processing/FE when only one player has turn-material (controlled stack or rings in hand); forced eliminations can trigger LPS by exhausting a player's material.
+• **Last Player Standing:** LPS is determined after post-processing/FE when only one player has real actions available (see Section 13.3). A player has real actions if they have any ring placement, non-capture movement, or overtaking capture available. **Note:** Recovery actions are NOT counted as real actions for LPS purposes - this creates strategic tension where rings in hand become a "survival budget." Forced eliminations can trigger LPS by exhausting a player's real actions.
 
 ### 4.5 Recovery Action
 
-A **recovery action** allows a player who has been temporarily eliminated (no stacks, no rings in hand, but still has markers and buried rings) to take meaningful action during their turn.
+A **recovery action** allows a player who controls no stacks but has markers and buried rings to take meaningful action during their turn. Recovery eligibility is independent of rings in hand; players with rings may choose recovery over placement.
 
 • **Prerequisites:** A player may perform a recovery action during the movement phase if and only if **all** of the following conditions are met:
 
 - The player controls **zero stacks** on the board.
-- The player has **zero rings in hand**.
 - The player has **at least one marker** of their colour on the board.
 - The player has **at least one buried ring** (a ring of their colour at a non-top position in some stack controlled by another player).
 
@@ -1472,7 +1471,7 @@ Note: With more than 50% of territory required for victory, simultaneous victory
 
 • **Last-player-standing Victory:** Last Player Standing is a third victory condition, alongside Ring Elimination and Territory victories.
 
-• **Real actions vs forced elimination:** For Last Player Standing purposes, a player P has a **real action** on their own turn if they have at least one legal ring placement, non-capture movement, overtaking capture, or recovery action (Section 4.5) available at the start of their action. Having only forced elimination available (Section 4.4) does **not** count as having a real action.
+• **Real actions vs forced elimination:** For Last Player Standing purposes, a player P has a **real action** on their own turn if they have at least one legal ring placement, non-capture movement, or overtaking capture available at the start of their action. **Recovery actions (Section 4.5) are NOT counted as real actions** for LPS purposes - this creates strategic tension where players with rings in hand have a "survival budget" and must place at least once every 3 rounds to avoid LPS loss. Having only forced elimination or recovery available does **not** count as having a real action.
 
 • **Full-round condition:** A player P wins by Last Player Standing if all of the following are true:
 
@@ -1487,7 +1486,9 @@ Note: With more than 50% of territory required for victory, simultaneous victory
 - They do control stacks but have no legal placements, no legal moves or overtaking captures, and no other legal other turn actions at all, so their only possible turn action is forced elimination (Section 4.4).
   In this state the player has no real actions for Last Player Standing purposes, but this does **not** mean all of their rings have left the game. They may still have rings buried inside mixed-color stacks controlled by other players; those rings simply cannot act until exposed.
 
-• **Empty/temporarily inactive seats still act:** Seats with no stacks and no rings still take their turns and must record the canonical no-action/FE moves each round per the phase requirements (no skipping empty seats).
+• **Temporarily inactive vs permanently eliminated:** For turn rotation purposes, only players who are **permanently eliminated** (no rings anywhere—not in controlled stacks, not buried in opponent stacks, not in hand) are skipped during turn rotation. Players who are merely "temporarily inactive" (no controlled stacks, no rings in hand, but still have buried rings) still receive turns and must record the canonical no-action moves for each phase. This allows such players to potentially use recovery actions (Section 4.5) during their MOVEMENT phase.
+
+• **Empty/temporarily inactive seats still act:** Seats with no stacks and no rings in hand still take their turns (unless permanently eliminated) and must record the canonical no-action/FE moves each round per the phase requirements.
 
 • **Recovery:** A temporarily inactive player can return to full activity if they regain a real action, most commonly by gaining control of a multicolored stack through its top ring becoming their color, thereby regaining a controlled stack, or by reduction of the height of a stack they control so that it can move again. If any temporarily inactive player regains a real action **before** the three-round condition above has been satisfied, the Last Player Standing condition is not met.
 

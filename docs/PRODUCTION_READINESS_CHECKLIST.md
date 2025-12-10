@@ -94,6 +94,181 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 | Graceful degradation implemented | ✅     | AI fallback, circuit breaker | `AI_SERVICE_DEGRADATION_DRILL.md` |
 | Circuit breakers in place        | ✅     | 5% threshold, 300s window    | Orchestrator config               |
 
+### 2.4 Production Validation Contract (v1.0)
+
+#### 2.4.1 Scope and authority
+
+- This section defines the **single authoritative production-validation contract** for RingRift v1.0 from a performance and reliability perspective.
+- Together with the v1.0 performance SLOs in [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:143), it is the **SSoT** for:
+  - Which load-test scenarios must be executed before launch.
+  - Which SLOs and thresholds must be green for a production go decision.
+  - How existing load-test tooling and reports are interpreted for go/no-go.
+- Subordinate docs such as [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:1), [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:1), [`docs/testing/LOAD_TEST_BASELINE.md`](testing/LOAD_TEST_BASELINE.md:1), and [`docs/testing/LOAD_TEST_BASELINE_REPORT.md`](testing/LOAD_TEST_BASELINE_REPORT.md:1) must **not** introduce conflicting SLO targets or go/no-go rules. When SLO thresholds or required scenarios change:
+  - Update [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:143) §4.1 and this section first.
+  - Then update SLO configs (for example [`tests/load/configs/slo-definitions.json`](../tests/load/configs/slo-definitions.json:1) and [`tests/load/config/thresholds.json`](../tests/load/config/thresholds.json:1)) and subordinate docs to match.
+
+#### 2.4.2 Required validation scenarios
+
+All three scenarios below are required for v1.0. A release is **not production-ready** until each scenario has at least one recent run that satisfies the SLO and result-classification rules in §2.4.3.
+
+| Scenario                               | Scenario ID / config tag        | Purpose                                                                                                                          | Primary tooling                                                                                                                                                                                         |
+| -------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Baseline smoke**                     | `BCAP_STAGING_BASELINE_20G_60P` | Validate basic health of HTTP, WebSocket, and AI at smoke-scale (20 games / 60 players) and establish a healthy-system reference | [`tests/load/scripts/run-baseline.sh`](../tests/load/scripts/run-baseline.sh:1) + k6 scenarios defined in [`tests/load/configs/baseline.json`](../tests/load/configs/baseline.json:1)                   |
+| **Target-scale production validation** | `BCAP_SQ8_3P_TARGET_100G_300P`  | Validate that the system meets v1.0 SLOs at target scale (≈100 concurrent games, ≈300 players) on square8                        | [`tests/load/scripts/run-target-scale.sh`](../tests/load/scripts/run-target-scale.sh:1) + k6 target-scale config in [`tests/load/configs/target-scale.json`](../tests/load/configs/target-scale.json:1) |
+| **AI-heavy validation**                | `BCAP_SQ8_4P_AI_HEAVY_75G_300P` | Validate AI latency, fallback behaviour, and degradation posture under AI-heavy load                                             | [`tests/load/scripts/run-ai-heavy.sh`](../tests/load/scripts/run-ai-heavy.sh:1) + AI-heavy profile under [`tests/load/configs/`](../tests/load/configs:1)                                               |
+
+> **Note:** Exact k6 scenario composition (board-type mix, player counts, AI settings) is defined in the JSON configs under [`tests/load/configs/`](../tests/load/configs:1) and documented in [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:1) and [`docs/testing/LOAD_TEST_BASELINE.md`](testing/LOAD_TEST_BASELINE.md:1). This contract records the **intent and gating rules**, not every per-scenario k6 option.
+
+##### Baseline smoke: 20 games / 60 players (staging)
+
+- **Environment:** staging stack as described in [`docs/STAGING_ENVIRONMENT.md`](STAGING_ENVIRONMENT.md:1).
+- **Concurrency target:** steady state ≈20 concurrent games and ≈60 concurrent virtual players.
+- **Board types / player counts:**
+  - Mix of supported board types and 2–4 player games as defined in [`tests/load/configs/baseline.json`](../tests/load/configs/baseline.json:1).
+  - Must include square8 configurations.
+- **AI / human mix:**
+  - At least some games must include AI seats so that basic AI request/response metrics are exercised.
+  - Exact AI fraction is taken from the baseline config; AI-heavy behaviour is validated separately by the AI-heavy scenario.
+- **Duration and ramp:** Approximately 10 minutes total (warmup, ramp, steady state, ramp down) per [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:80).
+- **SLO focus (staging thresholds):**
+  - All **Critical** and **High** priority SLOs from [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:45) must pass with `--env staging` against the baseline run’s raw k6 JSON (for example `baseline_staging_*.json`).
+  - This includes, at minimum:
+    - Service availability, error rate, contract failures, lifecycle mismatches (Critical).
+    - HTTP p95 latency, move latency p95 (if emitted), WebSocket connect p95 (if WS companion enabled), AI response p95, and staging capacity targets `concurrent_games ≥ 20`, `concurrent_players ≥ 60` (High).
+- **Primary commands:**
+  - Run: `SEED_LOADTEST_USERS=true tests/load/scripts/run-baseline.sh --staging`
+  - Verify SLOs: `npm run slo:verify tests/load/results/<baseline_file>.json -- --env staging`
+  - Optionally aggregate with [`scripts/analyze-load-slos.ts`](../scripts/analyze-load-slos.ts:1) if per-scenario `.summary.json` files are produced.
+
+##### Target-scale production validation: 100 games / 300 players
+
+- **Environment:** staging or dedicated perf stack configured per [`docs/STAGING_ENVIRONMENT.md`](STAGING_ENVIRONMENT.md:1); thresholds evaluated with `--env production`.
+- **Concurrency target (canonical v1.0 scale):**
+  - **Games:** target ≥100 concurrent active games (square8).
+  - **Players:** target ≥300 concurrent seats (≈3 players per game).
+- **Board types / player counts:**
+  - 3-player games on the 8×8 square board (scenario id `SQ8_3P`).
+  - Additional board types may be included by future configs but are not required for the v1.0 gate.
+- **AI / human mix:**
+  - At least one AI seat per game (for example, 1–2 AI seats, 1–2 human seats) so that AI latency and fallback SLOs are exercised alongside human moves.
+- **Duration and ramp:**
+  - Long enough to reach and hold target concurrency in steady state (typically ≥10–15 minutes of steady state as encoded in `target-scale.json`).
+- **SLO focus (production thresholds):**
+  - All **Critical** and **High** priority SLOs from [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:49) must pass with `--env production` against the target-scale raw k6 JSON and any WebSocket companion results.
+  - This includes, at minimum:
+    - Service availability ≥99.9%, error rate ≤0.5%, 0 contract failures, 0 lifecycle mismatches.
+    - HTTP API p95 latency <500ms, move latency p95 <500ms, AI response p95 <1000ms.
+    - WebSocket connection p95 <1000ms and connection success ≥99% (if WS companion run is enabled).
+    - Capacity SLOs `concurrent_games ≥ 100` and `concurrent_players ≥ 300`.
+- **Primary commands:**
+  - Run: `SEED_LOADTEST_USERS=true tests/load/scripts/run-target-scale.sh --staging`
+  - Verify SLOs (HTTP run): `npm run slo:verify tests/load/results/<target_file>.json -- --env production`
+  - Verify SLOs (WebSocket companion, if present): `npm run slo:verify tests/load/results/<target_ws_file>.json -- --env production`
+  - Aggregate scenario summaries with [`scripts/analyze-load-slos.ts`](../scripts/analyze-load-slos.ts:1) when k6 `.summary.json` artifacts are available.
+
+##### AI-heavy validation: 75 games / ~300 players, AI-heavy mix
+
+- **Environment:** staging stack with AI service enabled.
+- **Concurrency target:**
+  - ≈75 concurrent games, ≈300 concurrent seats (4-player games, 3 AI seats each) as described in [`docs/BASELINE_CAPACITY.md`](BASELINE_CAPACITY.md:169).
+- **Board types / player counts:**
+  - 4-player games on square8 (`SQ8_4P`).
+- **AI / human mix (canonical for v1.0):**
+  - 3 AI seats + 1 human seat per game (AI-heavy).
+- **Duration and ramp:**
+  - Similar to target-scale profile but with 75 VUs steady state (see AI-heavy config under [`tests/load/configs/`](../tests/load/configs:1)).
+- **SLO focus (AI-heavy, staging thresholds):**
+  - All **Critical** SLOs from [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:49) must pass with `--env staging`.
+  - AI-specific SLOs must also pass:
+    - AI response p95 <1000ms and p99 <2000ms.
+    - AI fallback rate ≤1%.
+  - WebSocket move latency and stall-rate SLOs (where emitted) should meet the same targets as in the target-scale run; significant degradation under AI-heavy load must be treated as at least a **Conditional** result (see §2.4.3).
+- **Primary commands:**
+  - Run: `SEED_LOADTEST_USERS=true tests/load/scripts/run-ai-heavy.sh --staging`
+  - Verify SLOs (HTTP + AI metrics): `npm run slo:verify tests/load/results/<ai_heavy_file>.json -- --env staging`
+  - Verify SLOs for any WebSocket companion run (if configured) with the same environment flag.
+
+#### 2.4.3 Result classification and go/no-go rules
+
+This contract uses three result classes at both scenario and overall-run level:
+
+- **PASS**
+  - All three required scenarios have been executed against a healthy staging or perf stack within a recent window agreed by the release owner.
+  - For each scenario, all **Critical** SLOs and all **High** priority SLOs (including capacity SLOs) defined in [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:49) pass for the appropriate environment (`staging` for baseline and AI-heavy, `production` for target-scale).
+  - No unexpected regressions are observed in Medium-priority SLOs (p99 latencies, AI fallback rate, game creation p95); any minor deviations are understood and accepted by the owners and tracked in [`KNOWN_ISSUES.md`](../KNOWN_ISSUES.md:1) or equivalent.
+
+- **CONDITIONAL**
+  - All Critical SLOs pass for all three scenarios, but one or more High-priority SLOs are outside targets **by a small and well-understood margin**, or target concurrency (games or players) is slightly below the documented targets while still clearly above 80% of the goal.
+  - AI-heavy runs may show elevated AI latency or fallback within an agreed experimental band (for example, top ladder difficulties) while remaining acceptable for the default v1.0 experience.
+  - A Conditional result requires an explicit, documented risk acceptance and remediation plan and **does not on its own satisfy the v1.0 production-ready bar**.
+
+- **FAIL**
+  - Any Critical SLO fails for any required scenario, or
+  - Any required scenario cannot reach its intended steady-state concurrency (for example, target-scale run never reaches active games or players), or
+  - High-priority SLOs are significantly outside targets (for example, ≥2× latency budgets, error rate well above thresholds) without a clear and acceptable explanation.
+
+For v1.0, the **only acceptable state for a full public production launch is PASS**. Conditional results may be used for internal or friends-and-family deployments but must not be treated as production-ready until remediated and re-validated.
+
+#### 2.4.4 How this maps to existing tools
+
+- **k6 scenarios and helpers**
+  - HTTP and concurrency exercises use the k6 scripts under [`tests/load/scenarios/`](../tests/load/scenarios:1) together with helpers in [`tests/load/helpers/*.js`](../tests/load/helpers/api.js:1).
+  - Baseline, target-scale, and AI-heavy profiles are defined by JSON configs under [`tests/load/configs/`](../tests/load/configs:1) and orchestrated by the shell runners under [`tests/load/scripts/`](../tests/load/scripts/run-baseline.sh:1).
+- **SLO verification**
+  - SLO definitions and priorities are encoded in [`tests/load/configs/slo-definitions.json`](../tests/load/configs/slo-definitions.json:1) and [`tests/load/config/thresholds.json`](../tests/load/config/thresholds.json:1) and enforced by [`tests/load/scripts/verify-slos.js`](../tests/load/scripts/verify-slos.js:1).
+  - npm scripts such as `npm run slo:check`, `npm run slo:verify`, and `npm run slo:dashboard` (see [`docs/SLO_VERIFICATION.md`](SLO_VERIFICATION.md:24)) wrap these helpers.
+- **Aggregated go/no-go artifact**
+  - When per-scenario k6 runs also emit compact `.summary.json` files, [`scripts/analyze-load-slos.ts`](../scripts/analyze-load-slos.ts:1) aggregates them into a single `load_slo_summary.json` file and prints a summary table. For production validation, this aggregated result must reflect PASS per §2.4.3 for the set of required scenarios.
+- **Production preview harness**
+  - The production-preview go/no-go harness in [`scripts/run-prod-preview-go-no-go.ts`](../scripts/run-prod-preview-go-no-go.ts:1) is complementary to this contract:
+    - It validates deployment topology and configuration, auth flows, basic WebSocket and AI behaviour, and AI-service readiness using lightweight drills.
+    - A v1.0 production launch requires **both**:
+      - A PASS result from the production-preview go/no-go harness on the target environment.
+      - A PASS result from the production validation contract runs described in this section.
+
+#### 2.4.5 How to run full production validation (operator checklist)
+
+```mermaid
+flowchart TD
+  A[Deploy staging or perf stack] --> B[Run baseline 20G_60P scenario]
+  B --> C[Run target-scale 100G_300P scenario]
+  C --> D[Run AI-heavy 75G_300P scenario]
+  D --> E[Verify SLOs for each run]
+  E --> F[Aggregate load SLO summaries]
+  F --> G{All critical and high SLOs green}
+  G -->|yes| H[Production validation PASS]
+  G -->|no| I[Production validation CONDITIONAL or FAIL]
+```
+
+Operationally:
+
+1. Deploy or refresh the staging or perf environment per [`docs/STAGING_ENVIRONMENT.md`](STAGING_ENVIRONMENT.md:56).
+2. Run the baseline scenario and SLO verification as described under "Baseline smoke".
+3. Run the target-scale scenario and SLO verification with `--env production`.
+4. Run the AI-heavy scenario and SLO verification.
+5. Optionally, run the production-preview go/no-go harness:
+   - `npx ts-node scripts/run-prod-preview-go-no-go.ts --env prod-preview --baseUrl http://localhost:3000`
+6. Review:
+   - Per-run SLO reports (`*_slo_report.json` / dashboards).
+   - Any aggregated `load_slo_summary.json` from [`scripts/analyze-load-slos.ts`](../scripts/analyze-load-slos.ts:1).
+7. Declare the production validation outcome as PASS / CONDITIONAL / FAIL according to §2.4.3 and record the decision (for example in release notes or an ops runbook).
+
+#### 2.4.6 Open questions / TODOs
+
+These items should be resolved by the project owner before or during PV-2–PV-7 work:
+
+1. **Concurrency target flexibility for initial public rollout.**
+   This contract currently treats 100 concurrent games and 300 concurrent players as the canonical v1.0 target-scale requirement (aligned with [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:219)). If the team decides to allow a smaller initial public rollout with the same SLO shape but lower concurrency, update the target-scale scenario definition and SLO capacity thresholds here and in [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:411) first.
+
+2. **WebSocket gameplay SLO harness parity.**
+   The WebSocket gameplay strategy in [`docs/testing/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md`](testing/LOAD_TEST_WEBSOCKET_MOVE_STRATEGY.md:1) describes future `websocket-gameplay` scenarios and Playwright-based move-latency checks. Once implemented, decide whether a dedicated WebSocket gameplay scenario should be added as a **fourth required scenario** in this contract or treated as an additional guardrail.
+
+3. **Board-type and AI-mix coverage beyond square8.**
+   All three required scenarios currently focus on square8 (for capacity and AI-heavy probes). Confirm whether v1.0 production validation also needs explicit load runs on square19 and hex boards, or whether those are sufficiently covered by other tests and lower-intensity scenarios.
+
+4. **UX-level move latency SLO measurement.**
+   [`PROJECT_GOALS.md`](../PROJECT_GOALS.md:145) defines UI frame rate and move-validation latency targets for user experience. Decide whether these are enforced purely through client-side profiling and E2E tests (for example, Playwright), or whether they should be wired into the production validation contract via additional metrics and checks.
+
 ---
 
 ## 3. Security

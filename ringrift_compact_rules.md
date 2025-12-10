@@ -105,7 +105,7 @@ Each turn of `currentPlayer` is a deterministic state machine:
 4. **Line processing** (zero or more lines)
 5. **Territory disconnection processing** (zero or more regions)
 6. **Victory/termination check**
-7. Advance `currentPlayer` and compute that player’s starting phase (ring_placement or movement) for their next turn.
+7. Advance `currentPlayer` to the next player. All players always start their turn in `ring_placement` phase. Players with `ringsInHand == 0` emit `no_placement_action` and proceed to `movement`.
 
 ### 2.1 Ring placement legality
 
@@ -144,7 +144,7 @@ After placement step, define the set of **controlled stacks** `S = { stacks wher
 
 - If `S` is empty:
   - If `P.ringsInHand > 0`, you must fall back to the ring‑placement rules in Section 2.1/6: your only way to act is by placing a new stack that satisfies the no‑dead‑placement rule.
-  - If `P.ringsInHand == 0`, you have no material under your direct control and therefore no movement or capture action; your turn ends immediately and play passes to the next player. You are temporarily inactive or eliminated according to Section 7.3.
+  - If you have no controlled stacks and you are **recovery-eligible** (you have markers on the board AND at least one buried ring), you may perform a **recovery action** (Section 2.4) instead of a normal movement. Recovery eligibility is independent of rings in hand. Otherwise, proceed to line/territory processing (likely with no actions), then your turn ends and play passes to the next player.
 - Otherwise (`S` non‑empty), compute all legal movement/capture moves from stacks in `S` (Section 3 & 4).
   - If **no legal moves or captures** exist _and_ there is at least one legal placement (per the no‑dead‑placement rule), you must either place (if placement is mandatory) or you may choose to place (if placement is optional).
   - If **no legal moves/captures** and **no legal placements** exist, you are **blocked with stacks** and must go to forced elimination (Section 2.3).
@@ -175,7 +175,7 @@ However, as long as any stacks remain on the board, it is never legal for the ga
 
 ### 2.4 Recovery action
 
-A player who controls **zero stacks**, has **zero rings in hand**, but has **at least one marker** and **at least one buried ring** (their ring at a non-top position in some stack) may perform a recovery action during the movement phase:
+A player who controls **zero stacks**, has **at least one marker**, and has **at least one buried ring** (their ring at a non-top position in some stack) may perform a recovery action during the movement phase. Recovery eligibility is independent of rings in hand; players with rings may choose recovery over placement:
 
 1. **Marker slide:** Move one of your markers to an adjacent empty cell (Moore adjacency for square, hex-adjacency for hex).
 2. **Success criteria:** Legal if **either**:

@@ -243,8 +243,8 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - **movement → line_processing:** After a non-capture movement where no capture segments exist from the landing position, `currentPhase` MUST change to `line_processing`.
     - **line_processing → territory_processing:** After all lines for the current player are processed (or none existed), `currentPhase` MUST change to `territory_processing`.
     - **territory_processing → forced_elimination:** After all territory regions are processed (or none existed), if P had no actions available in any prior phase (no placement, no movement, no capture, no line processing, no territory processing) but P still controls at least one stack, `currentPhase` MUST change to `forced_elimination`.
-    - **territory_processing → ring_placement/movement (next player):** After all territory regions are processed (or none existed), if P performed at least one action in any prior phase OR P has no controlled stacks, the turn ends and the next player's `currentPhase` is set to `ring_placement` (if `ringsInHand > 0`) or `movement` (if `ringsInHand == 0` but stacks exist).
-    - **forced_elimination → ring_placement/movement (next player):** After P executes the `forced_elimination` move, victory checks are performed and the turn ends.
+    - **territory_processing → ring_placement (next player):** After all territory regions are processed (or none existed), if P performed at least one action in any prior phase OR P has no controlled stacks, the turn ends and the next player's `currentPhase` is set to `ring_placement`. Players with `ringsInHand == 0` will emit `no_placement_action` and proceed to `movement`. This ensures all phases are visited with explicit moves per RR-CANON-R075.
+    - **forced_elimination → ring_placement (next player):** After P executes the `forced_elimination` move, victory checks are performed and the turn ends. The next player always starts in `ring_placement`.
   - These transitions are not optional; any engine implementation that does not perform them violates the canonical rules.
   - Note: The `skip_capture` move type exists for cases where a player declines an optional capture opportunity; it explicitly transitions from `capture` to `line_processing` without executing a capture.
   - References: RR-CANON-R070, RR-CANON-R093, RR-CANON-R100, RR-CANON-R103; TS `turnOrchestrator.ts` `processPostMovePhases` and FSM in `src/shared/engine/fsm/` (canonical orchestrator).
@@ -322,12 +322,22 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - A legal **forced-elimination** action for P under RR-CANON-R100 (see RR-CANON-R205).
   - Global legal actions are defined uniformly for all supported board types (`square8`, `square19`, `hexagonal`) and for all supported player counts (2–4 players).
 
-- **[RR-CANON-R201] Turn-material and temporarily eliminated players.**
+- **[RR-CANON-R201] Turn-material, recovery-eligible players, and turn rotation.**
   - A player P has **turn-material** in a state if and only if either:
     - P controls at least one stack (there exists a stack whose top ring has P's colour); or
     - `ringsInHand[P] > 0`.
-  - A player P is **temporarily eliminated for turn rotation** in a state if P has no turn-material (no controlled stacks and `ringsInHand[P] == 0`), regardless of whether P still owns buried rings of their colour inside other players' stacks.
-  - In any state with `gameStatus == ACTIVE`, `currentPlayer` must always be chosen from players who have turn-material. Temporarily eliminated players must not be skipped when rotating the turn order, and should pass through the evaluation of victory or stalemate conditions that immediately terminate the game (RR-CANON-R170–R173).
+  - A player P is **recovery-eligible** in a state if P controls no stacks, owns at least one marker, and has at least one buried ring (their ring at a non-top position in any stack). Recovery eligibility is independent of rings in hand. Players with rings may choose recovery over placement. Such a player may perform recovery actions (RR-CANON-R110–R114) during their movement phase.
+  - A player P is **permanently eliminated** if they have no rings anywhere: no controlled stacks, no rings in hand, and no buried rings. Permanently eliminated players are removed from turn rotation entirely.
+  - **Turn rotation rule:** In any state with `gameStatus == ACTIVE`, the turn rotates to the next player in seat order who is not permanently eliminated. This includes:
+    - Players with turn-material (who can place rings, move stacks, etc.); AND
+    - Players who are recovery-eligible (who can only perform recovery actions in movement phase).
+  - **Recovery-eligible player turn flow:** When a recovery-eligible player receives their turn:
+    - **Ring placement phase**: They may choose `no_placement_action` (forgoing placement) to preserve rings for later, or place a ring and then proceed to movement without recovery options.
+    - **Movement phase**: They may execute a `recovery_slide` move (RR-CANON-R110–R114) or `skip_recovery`, or `no_movement_action` if no recovery moves are available.
+    - **Line processing phase**: They execute `no_line_action` (no controlled stacks to form lines).
+    - **Territory processing phase**: They execute `no_territory_action` (no stacks to disconnect territories).
+  - This ensures that players who meet recovery eligibility conditions can actually exercise recovery moves, rather than being skipped indefinitely until they are permanently eliminated.
+  - Victory and stalemate conditions (RR-CANON-R170–R173) are evaluated at end of turn for all players.
 
 - **[RR-CANON-R202] Active-no-moves (ANM) state.**
   - Given a valid `GameState` with `gameStatus == ACTIVE` and `currentPlayer = P`, define the predicate `ANM(state, P)` ("active-no-moves for P") as:
@@ -357,7 +367,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - **Territory-processing exit.**
       - If `currentPhase == territory_processing` and P has no legal Territory decisions (no `process_territory_region`, `choose_territory_option`, or `eliminate_rings_from_stack` moves), the engine must:
         - transition to `forced_elimination` phase if P had no actions in all prior phases (placement, movement, capture, line, territory) but still controls at least one stack; or
-        - call end-of-turn, rotate `currentPlayer` to the next player with turn-material (RR-CANON-R201), and evaluate victory per RR-CANON-R170–R173.
+        - call end-of-turn, rotate `currentPlayer` to the next non-permanently-eliminated player per RR-CANON-R201, and evaluate victory per RR-CANON-R170–R173.
       - It is illegal to leave the game in `gameStatus == ACTIVE` and `currentPhase == territory_processing` with `ANM(state, P) == true`.
     - **Forced-elimination phase.**
       - Entered only when P had no actions in all prior phases but still controls stacks.
@@ -368,7 +378,8 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
         - If P has rings in hand but no legal placements, P must effectively skip placement and proceed to movement.
         - **If P has no rings in hand (`ringsInHand == 0`) but controls stacks, placement is forbidden (RR-CANON-R080) and the engine must immediately transition to `movement` phase and enumerate movement/capture moves for P's controlled stacks.** This scenario commonly arises mid-game when a player has placed all their rings but still has board presence. The `getValidMoves` enumeration must return movement moves, not `skip_placement` (which requires `ringsInHand > 0`).
         - If P controls stacks but has no legal placement, movement, or capture, forced elimination must be applied (RR-CANON-R072/RR-CANON-R100).
-        - If P has no turn-material at all, they must not remain `currentPlayer` in an ACTIVE state (RR-CANON-R201).
+        - If P has no turn-material but is recovery-eligible (has buried rings), they may perform recovery actions in the movement phase per RR-CANON-R110–R114.
+        - If P is permanently eliminated (no rings anywhere), they must not remain `currentPlayer` in an ACTIVE state (RR-CANON-R201).
 
 - **[RR-CANON-R205] Forced-elimination action taxonomy.**
   - Forced elimination appears in two distinct but related forms:
@@ -579,10 +590,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 - **[RR-CANON-R110] Recovery action eligibility.**
   - A player P may perform a recovery action during the movement phase **if and only if** all of the following conditions are met:
     - P controls **zero stacks** (no cell has a top ring belonging to P).
-    - P has **zero rings in hand** (`ringsInHand[P] == 0`).
     - P has **at least one marker** on the board.
     - P has **at least one buried ring**: a ring of P's colour that is **not** at the top position of any stack (i.e., it is underneath at least one other ring).
-  - A player meeting these conditions is considered "temporarily eliminated" but retains the ability to act via recovery.
+  - Recovery eligibility is independent of rings in hand. Players with rings may choose recovery over placement.
+  - A player meeting these conditions may use recovery to regain board control even if they still have rings in hand.
   - Recovery action is a **real action** for Last-Player-Standing purposes (RR-CANON-R172) because it is an interactive, voluntary move—unlike forced elimination which is mandatory.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §4.5.
 

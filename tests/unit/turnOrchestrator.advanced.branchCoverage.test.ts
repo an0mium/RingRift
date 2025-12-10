@@ -414,8 +414,12 @@ describe('TurnOrchestrator advanced branch coverage', () => {
         }
       );
 
+      // After line processing, phase transitions to territory_processing
+      // The resolveDecision should return a territory processing move
+      const skipTerritoryMove = createMove('skip_territory_processing', 1, { x: 0, y: 0 });
+
       const delegates = {
-        resolveDecision: jest.fn().mockResolvedValue(processLineMove),
+        resolveDecision: jest.fn().mockResolvedValue(skipTerritoryMove),
         onProcessingEvent: jest.fn(),
       };
 

@@ -2626,13 +2626,26 @@ class GameEngine:
         R172 real-action availability predicate for LPS.
 
         A player has a real action if they have at least one legal placement,
-        non-capture movement, overtaking capture, or recovery action available
-        on their turn. Forced elimination and line/territory decision moves do
-        not count.
+        non-capture movement, or overtaking capture available on their turn.
+
+        Recovery actions are NOT counted as real actions for LPS purposes.
+        This creates strategic tension: rings in hand become a "survival budget" -
+        players can use recovery moves but must place at least one ring every 3
+        rounds to avoid LPS loss.
+
+        Forced elimination and line/territory decision moves also do not count.
+
+        NOTE: This differs from _has_valid_actions which DOES include recovery
+        (used for FE eligibility checks).
         """
-        if GameEngine._has_valid_actions(game_state, player_number):
+        # Check placement, movement, capture - but NOT recovery
+        if GameEngine._has_valid_placements(game_state, player_number):
             return True
-        return has_any_recovery_move(game_state, player_number)
+        if GameEngine._has_valid_movements(game_state, player_number, ignore_must_move_key=True):
+            return True
+        if GameEngine._has_valid_captures(game_state, player_number):
+            return True
+        return False
 
     @staticmethod
     def _update_lps_round_tracking_for_current_player(

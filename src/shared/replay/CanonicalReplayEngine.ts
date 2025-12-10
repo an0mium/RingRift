@@ -253,7 +253,10 @@ export class CanonicalReplayEngine {
       // DEBUG: trace mustMoveFromStackKey
       if (process.env.RINGRIFT_TRACE_DEBUG === '1' && move.type === 'place_ring') {
         // eslint-disable-next-line no-console
-        console.log('[CanonicalReplayEngine] BEFORE spread, mustMoveFromStackKey:', this.currentState.mustMoveFromStackKey);
+        console.log(
+          '[CanonicalReplayEngine] BEFORE spread, mustMoveFromStackKey:',
+          this.currentState.mustMoveFromStackKey
+        );
       }
       this.currentState = {
         ...this.currentState,
@@ -261,7 +264,10 @@ export class CanonicalReplayEngine {
       };
       if (process.env.RINGRIFT_TRACE_DEBUG === '1' && move.type === 'place_ring') {
         // eslint-disable-next-line no-console
-        console.log('[CanonicalReplayEngine] AFTER spread, mustMoveFromStackKey:', this.currentState.mustMoveFromStackKey);
+        console.log(
+          '[CanonicalReplayEngine] AFTER spread, mustMoveFromStackKey:',
+          this.currentState.mustMoveFromStackKey
+        );
       }
 
       this.debugHook?.(`after-applyMove-${this.appliedMoveCount}`, this.currentState);
@@ -364,20 +370,15 @@ export class CanonicalReplayEngine {
       this.currentState.gameStatus !== 'completed' &&
       this.currentState.gameStatus !== 'abandoned'
     ) {
-      // Additional terminal guard for ANM/LPS: if all players have zero rings
-      // in hand and no global interactive moves remain, mark the game over to
-      // mirror Python parity endings in ANM loops.
-      const allZeroRings = this.currentState.players.every((p) => p.ringsInHand <= 0);
-      if (allZeroRings) {
-        const anyActions = this.currentState.players.some((p) => {
-          const summary = computeGlobalLegalActionsSummary(this.currentState, p.playerNumber);
-          return (
-            summary.hasGlobalPlacementAction ||
-            summary.hasPhaseLocalInteractiveMove ||
-            summary.hasForcedEliminationAction
-          );
-        });
-        if (!anyActions) {
+      // Additional terminal guard for ANM/LPS: if the board is bare (no stacks)
+      // and all players have zero rings in hand, apply stalemate detection.
+      // When stacks exist, the game is NOT terminal - players with stacks can
+      // always act (via movement/capture or forced elimination per RR-CANON-R072).
+      const hasStacks = this.currentState.board.stacks.size > 0;
+      if (!hasStacks) {
+        const allZeroRings = this.currentState.players.every((p) => p.ringsInHand <= 0);
+        if (allZeroRings) {
+          // Bare board with no rings in hand - apply stalemate tiebreakers.
           this.currentState = {
             ...this.currentState,
             currentPhase: 'game_over',

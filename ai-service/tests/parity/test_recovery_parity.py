@@ -164,8 +164,12 @@ class TestRecoveryEligibility:
 
         assert is_eligible_for_recovery(state, 1) is False
 
-    def test_not_eligible_when_has_rings_in_hand(self):
-        """Player is not eligible if they have rings in hand."""
+    def test_eligible_even_with_rings_in_hand(self):
+        """Player IS eligible even if they have rings in hand.
+
+        Recovery eligibility is independent of rings in hand.
+        Players with rings may choose recovery over placement.
+        """
         state = make_test_state(
             stacks={
                 "7,7": RingStack(
@@ -179,10 +183,12 @@ class TestRecoveryEligibility:
             markers={
                 "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
             },
-            player1_rings_in_hand=5,  # Has rings in hand
+            player1_rings_in_hand=5,  # Has rings in hand - but still eligible
         )
 
-        assert is_eligible_for_recovery(state, 1) is False
+        # Player has: no stacks, markers, buried rings -> eligible
+        # (rings in hand no longer matters)
+        assert is_eligible_for_recovery(state, 1) is True
 
     def test_not_eligible_when_no_markers(self):
         """Player is not eligible if they have no markers."""
@@ -638,10 +644,20 @@ class TestRecoveryMoveApplication:
 
 
 class TestRecoveryLpsIntegration:
-    """Tests for recovery integration with Last Player Standing."""
+    """Tests for recovery integration with Last Player Standing.
 
-    def test_recovery_counts_as_real_action(self):
-        """Recovery move should count as a real action for LPS."""
+    Recovery moves are NOT counted as real actions for LPS purposes.
+    This creates strategic tension: rings in hand become a "survival budget" -
+    players can use recovery moves but must place at least one ring every 3
+    rounds to avoid LPS loss.
+    """
+
+    def test_recovery_does_not_count_as_real_action(self):
+        """Recovery move should NOT count as a real action for LPS.
+
+        Even though player can do recovery, they have no "real" action.
+        This incentivizes using rings in hand strategically as a survival budget.
+        """
         from app.game_engine import GameEngine
 
         state = make_test_state(
@@ -662,12 +678,37 @@ class TestRecoveryLpsIntegration:
             player1_rings_in_hand=0,
         )
 
-        # Player 1 has no stacks, no rings in hand, but can do recovery
+        # Player 1 has no stacks, no rings in hand - can do recovery but that
+        # doesn't count as a real action for LPS purposes
         result = GameEngine._has_real_action_for_player(state, 1)
-        assert result is True
+        assert result is False  # Recovery doesn't count!
 
-    def test_no_recovery_means_no_real_action(self):
-        """Player with no recovery option should have no real action."""
+    def test_player_with_rings_has_real_action(self):
+        """Player with rings in hand has real action (placement)."""
+        from app.game_engine import GameEngine
+
+        state = make_test_state(
+            stacks={
+                "7,7": RingStack(
+                    position=Position(x=7, y=7),
+                    rings=[1, 2],
+                    stack_height=2,
+                    cap_height=2,
+                    controlling_player=2,
+                ),
+            },
+            markers={
+                "2,3": MarkerInfo(position=Position(x=2, y=3), player=1, type="regular"),
+            },
+            player1_rings_in_hand=3,  # Has rings in hand
+        )
+
+        # Player 1 has rings in hand - can place, which IS a real action
+        result = GameEngine._has_real_action_for_player(state, 1)
+        assert result is True  # Placement counts as real action
+
+    def test_no_recovery_no_placement_means_no_real_action(self):
+        """Player with no recovery option and no rings should have no real action."""
         from app.game_engine import GameEngine
 
         state = make_test_state(
@@ -688,7 +729,7 @@ class TestRecoveryLpsIntegration:
             player1_rings_in_hand=0,
         )
 
-        # Player 1 cannot do recovery - no buried rings and no valid slides
+        # Player 1 has no stacks, no rings in hand, can't do recovery
         result = GameEngine._has_real_action_for_player(state, 1)
         assert result is False
 

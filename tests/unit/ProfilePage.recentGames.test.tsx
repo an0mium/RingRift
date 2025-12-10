@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { BrowserRouter } from 'react-router-dom';
 import ProfilePage from '../../src/client/pages/ProfilePage';
-import { authApi, gameApi } from '../../src/client/services/api';
+import { authApi, gameApi, userApi } from '../../src/client/services/api';
 import type { User } from '../../src/shared/types/user';
 import type { GameResult } from '../../src/shared/types/game';
 
@@ -71,6 +71,7 @@ describe('ProfilePage recent games reason labels', () => {
         page: 1,
         totalPages: 1,
       });
+      (userApi.getStats as jest.Mock).mockResolvedValue({ ratingHistory: [] });
 
       render(
         <BrowserRouter>

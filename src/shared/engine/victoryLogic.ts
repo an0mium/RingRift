@@ -1,6 +1,5 @@
 import { BoardState, BoardType, GameState, Position, positionToString } from '../types/game';
 import { MovementBoardView, hasAnyLegalMoveOrCaptureFromOnBoard } from './core';
-import { hasGlobalPlacementAction, hasForcedEliminationAction } from './globalActions';
 
 export type VictoryReason =
   | 'ring_elimination'
@@ -99,44 +98,15 @@ export function evaluateVictory(state: GameState): VictoryResult {
     }
   }
 
-  // 4) Trapped position stalemate: All active players have stacks but no legal actions.
-  // This handles AI vs AI games that stall when both players are blocked.
+  // 4) Stacks present: game is NOT terminal.
+  //
   // Per RR-CANON-R072/R100/R203: players with stacks can ALWAYS act - either with
-  // real moves (placement/movement/capture) or via forced elimination.
+  // real moves (placement/movement/capture) or via forced elimination. Trapped
+  // positions with stacks are resolved by the ANM/FE machinery in the turn
+  // orchestrator, not by victory evaluation. To keep TS aligned with Python,
+  // evaluateVictory must not end the game while stacks remain on the board.
   if (state.board.stacks.size > 0) {
-    let somePlayerCanAct = false;
-
-    for (const p of players) {
-      let playerHasStacks = false;
-      for (const stack of state.board.stacks.values()) {
-        if (stack.controllingPlayer === p.playerNumber) {
-          playerHasStacks = true;
-          break;
-        }
-      }
-
-      const hasMaterial = playerHasStacks || p.ringsInHand > 0;
-      if (!hasMaterial) {
-        continue;
-      }
-
-      if (hasGlobalPlacementAction(state, p.playerNumber)) {
-        somePlayerCanAct = true;
-        break;
-      }
-
-      // A player with stacks can always act: either with real moves (movement/capture)
-      // or via forced elimination (RR-CANON-R072/R100). We only reach stalemate when
-      // ALL players with stacks have neither real moves NOR forced elimination.
-      if (playerHasStacks) {
-        somePlayerCanAct = true;
-        break;
-      }
-    }
-
-    if (somePlayerCanAct) {
-      return { isGameOver: false };
-    }
+    return { isGameOver: false };
   }
 
   // 5) Bare-board structural terminality & global stalemate.

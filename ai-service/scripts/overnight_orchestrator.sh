@@ -1,52 +1,58 @@
 #!/bin/bash
 # Overnight Orchestrator - Keeps AI training pipeline running across all hosts
 # Run with: nohup ./scripts/overnight_orchestrator.sh >> logs/overnight/run.log 2>&1 &
+#
+# CONFIGURATION:
+#   Copy config/orchestrator_hosts.example.sh to config/orchestrator_hosts.sh
+#   and fill in your host details. The config file is gitignored.
 
 set -uo pipefail  # Removed -e to prevent exit on SSH failures
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$PROJECT_DIR/logs/overnight"
 LOCKFILE="/tmp/overnight_orchestrator.lock"
+CONFIG_FILE="$PROJECT_DIR/config/orchestrator_hosts.sh"
 
 # ============================================
-# Host Configuration
+# Load Host Configuration
 # ============================================
 
-# Lambda Labs instances
-LAMBDA_H100="ubuntu@209.20.157.81"
-LAMBDA_H100_PATH="/home/ubuntu/ringrift/ai-service"
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "ERROR: Config file not found: $CONFIG_FILE"
+    echo "Copy config/orchestrator_hosts.example.sh to config/orchestrator_hosts.sh"
+    echo "and fill in your host details."
+    exit 1
+fi
 
-LAMBDA_A10="ubuntu@150.136.65.197"
-LAMBDA_A10_PATH="/home/ubuntu/ringrift/ai-service"
+# shellcheck source=/dev/null
+source "$CONFIG_FILE"
 
-# AWS instances
-AWS_STAGING="ubuntu@54.198.219.106"
-AWS_STAGING_PATH="/home/ubuntu/ringrift/ai-service"
-AWS_STAGING_KEY="$HOME/.ssh/ringrift-staging-key.pem"
+# Build connection strings from config (user@host format)
+LAMBDA_H100="${LAMBDA_H100_USER:-ubuntu}@${LAMBDA_H100_HOST:-disabled}"
+LAMBDA_A10="${LAMBDA_A10_USER:-ubuntu}@${LAMBDA_A10_HOST:-disabled}"
+AWS_STAGING="${AWS_STAGING_USER:-ubuntu}@${AWS_STAGING_HOST:-disabled}"
+VAST_3090="${VAST_3090_USER:-root}@${VAST_3090_HOST:-disabled}"
+VAST_5090_DUAL="${VAST_5090_DUAL_USER:-root}@${VAST_5090_DUAL_HOST:-disabled}"
+VAST_5090_QUAD="${VAST_5090_QUAD_USER:-root}@${VAST_5090_QUAD_HOST:-disabled}"
+MAC_STUDIO="${MAC_STUDIO_USER:-}@${MAC_STUDIO_HOST:-disabled}"
+MBP_16GB="${MBP_16GB_USER:-}@${MBP_16GB_HOST:-disabled}"
+MBP_64GB="${MBP_64GB_USER:-}@${MBP_64GB_HOST:-disabled}"
 
-# Vast.ai instances (note: custom ports)
-VAST_3090="root@79.116.93.241"
-VAST_3090_PORT=47070
-VAST_3090_PATH="/root/ringrift/ai-service"
-
-VAST_5090_DUAL="root@178.43.61.252"
-VAST_5090_DUAL_PORT=18080
-VAST_5090_DUAL_PATH="/root/ringrift/ai-service"
-
-VAST_5090_QUAD="root@211.72.13.202"
-VAST_5090_QUAD_PORT=45875
-VAST_5090_QUAD_PATH="/root/ringrift/ai-service"
-
-# Mac Cluster (via Tailscale)
-MAC_STUDIO="armand@100.107.168.125"
-MAC_STUDIO_PATH="$HOME/Development/RingRift/ai-service"
-MAC_STUDIO_KEY="$HOME/.ssh/id_cluster"
-
-MBP_16GB="armand@100.66.142.46"
-MBP_16GB_PATH="$HOME/Development/RingRift/ai-service"
-
-MBP_64GB="armand@100.92.222.49"
-MBP_64GB_PATH="$HOME/Development/RingRift/ai-service"
+# Set defaults for optional config values
+LAMBDA_H100_MIN_JOBS="${LAMBDA_H100_MIN_JOBS:-3}"
+LAMBDA_A10_MIN_JOBS="${LAMBDA_A10_MIN_JOBS:-2}"
+AWS_STAGING_MIN_JOBS="${AWS_STAGING_MIN_JOBS:-2}"
+AWS_STAGING_KEY="${AWS_STAGING_KEY:-}"
+VAST_3090_PORT="${VAST_3090_PORT:-22}"
+VAST_3090_MIN_JOBS="${VAST_3090_MIN_JOBS:-2}"
+VAST_5090_DUAL_PORT="${VAST_5090_DUAL_PORT:-22}"
+VAST_5090_DUAL_MIN_JOBS="${VAST_5090_DUAL_MIN_JOBS:-3}"
+VAST_5090_QUAD_PORT="${VAST_5090_QUAD_PORT:-22}"
+VAST_5090_QUAD_MIN_JOBS="${VAST_5090_QUAD_MIN_JOBS:-4}"
+MAC_STUDIO_MIN_JOBS="${MAC_STUDIO_MIN_JOBS:-2}"
+MAC_STUDIO_KEY="${MAC_STUDIO_KEY:-}"
+MBP_16GB_MIN_JOBS="${MBP_16GB_MIN_JOBS:-1}"
+MBP_64GB_MIN_JOBS="${MBP_64GB_MIN_JOBS:-2}"
 
 # ============================================
 # Timing Configuration
@@ -198,9 +204,14 @@ restart_selfplay_mac() {
     local host_name=$2
     local min_jobs=$3
     local path=$4
+    local key=${5:-}  # Optional SSH key
 
     local current_jobs
-    current_jobs=$(run_ssh "$host" "ps aux | grep -E 'python.*selfplay' | grep -v grep | wc -l") || current_jobs="0"
+    if [ -n "$key" ]; then
+        current_jobs=$(run_ssh_key "$host" "$key" "ps aux | grep -E 'python.*selfplay' | grep -v grep | wc -l") || current_jobs="0"
+    else
+        current_jobs=$(run_ssh "$host" "ps aux | grep -E 'python.*selfplay' | grep -v grep | wc -l") || current_jobs="0"
+    fi
     current_jobs="${current_jobs:-0}"
 
     log "$host_name: $current_jobs selfplay jobs running (min: $min_jobs)"
@@ -211,7 +222,11 @@ restart_selfplay_mac() {
         local seed_base=$((RANDOM * 1000 + $(date +%s) % 10000))
         # Mac uses different activation and path structure
         local result
-        result=$(timeout 45 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no "$host" "cd $path && \
+        local ssh_opts="-o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no"
+        if [ -n "$key" ]; then
+            ssh_opts="$ssh_opts -i $key"
+        fi
+        result=$(timeout 45 ssh $ssh_opts "$host" "cd $path && \
             source venv/bin/activate && \
             nohup python3 scripts/run_hybrid_selfplay.py --num-games 500 --board-type square8 --num-players 2 --output-dir data/selfplay/sq8_2p --seed $seed_base > /tmp/selfplay_sq8_2p.log 2>&1 & \
             echo 'Restarted selfplay'" 2>&1) || result="SSH timeout"
@@ -374,120 +389,147 @@ while true; do
     # ============================================
     # Lambda H100 - Primary GPU (selfplay + NNUE + CMA-ES + improvement)
     # ============================================
-    if check_ssh "$LAMBDA_H100"; then
-        lambda_h100_failures=0
-        restart_selfplay_linux "$LAMBDA_H100" "Lambda-H100" 3 "$LAMBDA_H100_PATH" "run_ssh"
-        check_nnue_training "$LAMBDA_H100"
-        check_cmaes "$LAMBDA_H100"
-        check_improvement_loop "$LAMBDA_H100"
-    else
-        lambda_h100_failures=$((lambda_h100_failures + 1))
-        log "Lambda-H100: SSH failed (attempt $lambda_h100_failures)"
+    if [ "${LAMBDA_H100_ROLE:-disabled}" != "disabled" ]; then
+        if check_ssh "$LAMBDA_H100"; then
+            lambda_h100_failures=0
+            restart_selfplay_linux "$LAMBDA_H100" "Lambda-H100" "$LAMBDA_H100_MIN_JOBS" "$LAMBDA_H100_PATH" "run_ssh"
+            if [ "${LAMBDA_H100_ROLE:-}" = "primary" ]; then
+                check_nnue_training "$LAMBDA_H100"
+                check_cmaes "$LAMBDA_H100"
+                check_improvement_loop "$LAMBDA_H100"
+            fi
+        else
+            lambda_h100_failures=$((lambda_h100_failures + 1))
+            log "Lambda-H100: SSH failed (attempt $lambda_h100_failures)"
+        fi
     fi
 
     # ============================================
     # Lambda A10 - Secondary GPU (selfplay only)
     # ============================================
-    if check_ssh "$LAMBDA_A10"; then
-        lambda_a10_failures=0
-        restart_selfplay_linux "$LAMBDA_A10" "Lambda-A10" 2 "$LAMBDA_A10_PATH" "run_ssh"
-    else
-        lambda_a10_failures=$((lambda_a10_failures + 1))
-        log "Lambda-A10: SSH failed (attempt $lambda_a10_failures)"
+    if [ "${LAMBDA_A10_ROLE:-disabled}" != "disabled" ]; then
+        if check_ssh "$LAMBDA_A10"; then
+            lambda_a10_failures=0
+            restart_selfplay_linux "$LAMBDA_A10" "Lambda-A10" "$LAMBDA_A10_MIN_JOBS" "$LAMBDA_A10_PATH" "run_ssh"
+        else
+            lambda_a10_failures=$((lambda_a10_failures + 1))
+            log "Lambda-A10: SSH failed (attempt $lambda_a10_failures)"
+        fi
     fi
 
     # ============================================
     # AWS Staging - CPU selfplay (needs key)
     # ============================================
-    if [ -f "$AWS_STAGING_KEY" ]; then
-        if check_ssh_key "$AWS_STAGING" "$AWS_STAGING_KEY"; then
-            aws_staging_failures=0
-            restart_selfplay_linux "$AWS_STAGING" "AWS-Staging" 2 "$AWS_STAGING_PATH" "run_ssh_key:$AWS_STAGING_KEY"
+    if [ "${AWS_STAGING_ROLE:-disabled}" != "disabled" ] && [ -n "$AWS_STAGING_KEY" ]; then
+        if [ -f "$AWS_STAGING_KEY" ]; then
+            if check_ssh_key "$AWS_STAGING" "$AWS_STAGING_KEY"; then
+                aws_staging_failures=0
+                restart_selfplay_linux "$AWS_STAGING" "AWS-Staging" "$AWS_STAGING_MIN_JOBS" "$AWS_STAGING_PATH" "run_ssh_key:$AWS_STAGING_KEY"
+            else
+                aws_staging_failures=$((aws_staging_failures + 1))
+                log "AWS-Staging: SSH failed (attempt $aws_staging_failures)"
+            fi
         else
-            aws_staging_failures=$((aws_staging_failures + 1))
-            log "AWS-Staging: SSH failed (attempt $aws_staging_failures)"
-        fi
-    else
-        if [ $((iteration % 12)) -eq 1 ]; then  # Log only every hour
-            log "AWS-Staging: SSH key not found at $AWS_STAGING_KEY - skipping"
+            if [ $((iteration % 12)) -eq 1 ]; then  # Log only every hour
+                log "AWS-Staging: SSH key not found at $AWS_STAGING_KEY - skipping"
+            fi
         fi
     fi
 
     # ============================================
     # Vast.ai 3090 - GPU training/selfplay
     # ============================================
-    if check_ssh_port "$VAST_3090" "$VAST_3090_PORT"; then
-        vast_3090_failures=0
-        restart_selfplay_linux "$VAST_3090" "Vast-3090" 2 "$VAST_3090_PATH" "run_ssh_port:$VAST_3090_PORT"
-    else
-        vast_3090_failures=$((vast_3090_failures + 1))
-        if [ $vast_3090_failures -lt $MAX_RETRIES ]; then
-            log "Vast-3090: SSH failed (attempt $vast_3090_failures)"
+    if [ "${VAST_3090_ROLE:-disabled}" != "disabled" ]; then
+        if check_ssh_port "$VAST_3090" "$VAST_3090_PORT"; then
+            vast_3090_failures=0
+            restart_selfplay_linux "$VAST_3090" "Vast-3090" "$VAST_3090_MIN_JOBS" "$VAST_3090_PATH" "run_ssh_port:$VAST_3090_PORT"
+        else
+            vast_3090_failures=$((vast_3090_failures + 1))
+            if [ $vast_3090_failures -lt $MAX_RETRIES ]; then
+                log "Vast-3090: SSH failed (attempt $vast_3090_failures)"
+            fi
         fi
     fi
 
     # ============================================
     # Vast.ai 5090 Dual - GPU training/selfplay
     # ============================================
-    if check_ssh_port "$VAST_5090_DUAL" "$VAST_5090_DUAL_PORT"; then
-        vast_5090_dual_failures=0
-        restart_selfplay_linux "$VAST_5090_DUAL" "Vast-5090-Dual" 3 "$VAST_5090_DUAL_PATH" "run_ssh_port:$VAST_5090_DUAL_PORT"
-    else
-        vast_5090_dual_failures=$((vast_5090_dual_failures + 1))
-        if [ $vast_5090_dual_failures -lt $MAX_RETRIES ]; then
-            log "Vast-5090-Dual: SSH failed (attempt $vast_5090_dual_failures)"
+    if [ "${VAST_5090_DUAL_ROLE:-disabled}" != "disabled" ]; then
+        if check_ssh_port "$VAST_5090_DUAL" "$VAST_5090_DUAL_PORT"; then
+            vast_5090_dual_failures=0
+            restart_selfplay_linux "$VAST_5090_DUAL" "Vast-5090-Dual" "$VAST_5090_DUAL_MIN_JOBS" "$VAST_5090_DUAL_PATH" "run_ssh_port:$VAST_5090_DUAL_PORT"
+        else
+            vast_5090_dual_failures=$((vast_5090_dual_failures + 1))
+            if [ $vast_5090_dual_failures -lt $MAX_RETRIES ]; then
+                log "Vast-5090-Dual: SSH failed (attempt $vast_5090_dual_failures)"
+            fi
         fi
     fi
 
     # ============================================
     # Vast.ai 5090 Quad - Primary GPU training
     # ============================================
-    if check_ssh_port "$VAST_5090_QUAD" "$VAST_5090_QUAD_PORT"; then
-        vast_5090_quad_failures=0
-        restart_selfplay_linux "$VAST_5090_QUAD" "Vast-5090-Quad" 4 "$VAST_5090_QUAD_PATH" "run_ssh_port:$VAST_5090_QUAD_PORT"
-    else
-        vast_5090_quad_failures=$((vast_5090_quad_failures + 1))
-        if [ $vast_5090_quad_failures -lt $MAX_RETRIES ]; then
-            log "Vast-5090-Quad: SSH failed (attempt $vast_5090_quad_failures)"
+    if [ "${VAST_5090_QUAD_ROLE:-disabled}" != "disabled" ]; then
+        if check_ssh_port "$VAST_5090_QUAD" "$VAST_5090_QUAD_PORT"; then
+            vast_5090_quad_failures=0
+            restart_selfplay_linux "$VAST_5090_QUAD" "Vast-5090-Quad" "$VAST_5090_QUAD_MIN_JOBS" "$VAST_5090_QUAD_PATH" "run_ssh_port:$VAST_5090_QUAD_PORT"
+        else
+            vast_5090_quad_failures=$((vast_5090_quad_failures + 1))
+            if [ $vast_5090_quad_failures -lt $MAX_RETRIES ]; then
+                log "Vast-5090-Quad: SSH failed (attempt $vast_5090_quad_failures)"
+            fi
         fi
     fi
 
     # ============================================
     # Mac Studio - MPS training capable (selfplay for now)
     # ============================================
-    if check_ssh "$MAC_STUDIO"; then
-        mac_studio_failures=0
-        restart_selfplay_mac "$MAC_STUDIO" "Mac-Studio" 2 "$MAC_STUDIO_PATH"
-    else
-        mac_studio_failures=$((mac_studio_failures + 1))
-        if [ $mac_studio_failures -lt $MAX_RETRIES ]; then
-            log "Mac-Studio: SSH failed (attempt $mac_studio_failures) - is Tailscale connected?"
+    if [ "${MAC_STUDIO_ROLE:-disabled}" != "disabled" ]; then
+        local mac_studio_ssh_ok=false
+        if [ -n "$MAC_STUDIO_KEY" ]; then
+            check_ssh_key "$MAC_STUDIO" "$MAC_STUDIO_KEY" && mac_studio_ssh_ok=true
+        else
+            check_ssh "$MAC_STUDIO" && mac_studio_ssh_ok=true
+        fi
+
+        if $mac_studio_ssh_ok; then
+            mac_studio_failures=0
+            restart_selfplay_mac "$MAC_STUDIO" "Mac-Studio" "$MAC_STUDIO_MIN_JOBS" "$MAC_STUDIO_PATH" "$MAC_STUDIO_KEY"
+        else
+            mac_studio_failures=$((mac_studio_failures + 1))
+            if [ $mac_studio_failures -lt $MAX_RETRIES ]; then
+                log "Mac-Studio: SSH failed (attempt $mac_studio_failures) - is Tailscale connected?"
+            fi
         fi
     fi
 
     # ============================================
     # MacBook Pro 16GB - Light selfplay
     # ============================================
-    if check_ssh "$MBP_16GB"; then
-        mbp_16gb_failures=0
-        restart_selfplay_mac "$MBP_16GB" "MBP-16GB" 1 "$MBP_16GB_PATH"
-    else
-        mbp_16gb_failures=$((mbp_16gb_failures + 1))
-        if [ $mbp_16gb_failures -lt $MAX_RETRIES ]; then
-            log "MBP-16GB: SSH failed (attempt $mbp_16gb_failures) - is Tailscale connected?"
+    if [ "${MBP_16GB_ROLE:-disabled}" != "disabled" ]; then
+        if check_ssh "$MBP_16GB"; then
+            mbp_16gb_failures=0
+            restart_selfplay_mac "$MBP_16GB" "MBP-16GB" "$MBP_16GB_MIN_JOBS" "$MBP_16GB_PATH"
+        else
+            mbp_16gb_failures=$((mbp_16gb_failures + 1))
+            if [ $mbp_16gb_failures -lt $MAX_RETRIES ]; then
+                log "MBP-16GB: SSH failed (attempt $mbp_16gb_failures) - is Tailscale connected?"
+            fi
         fi
     fi
 
     # ============================================
     # MacBook Pro 64GB - Selfplay
     # ============================================
-    if check_ssh "$MBP_64GB"; then
-        mbp_64gb_failures=0
-        restart_selfplay_mac "$MBP_64GB" "MBP-64GB" 2 "$MBP_64GB_PATH"
-    else
-        mbp_64gb_failures=$((mbp_64gb_failures + 1))
-        if [ $mbp_64gb_failures -lt $MAX_RETRIES ]; then
-            log "MBP-64GB: SSH failed (attempt $mbp_64gb_failures) - is Tailscale connected?"
+    if [ "${MBP_64GB_ROLE:-disabled}" != "disabled" ]; then
+        if check_ssh "$MBP_64GB"; then
+            mbp_64gb_failures=0
+            restart_selfplay_mac "$MBP_64GB" "MBP-64GB" "$MBP_64GB_MIN_JOBS" "$MBP_64GB_PATH"
+        else
+            mbp_64gb_failures=$((mbp_64gb_failures + 1))
+            if [ $mbp_64gb_failures -lt $MAX_RETRIES ]; then
+                log "MBP-64GB: SSH failed (attempt $mbp_64gb_failures) - is Tailscale connected?"
+            fi
         fi
     fi
 

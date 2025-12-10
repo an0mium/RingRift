@@ -348,9 +348,11 @@ def is_eligible_for_recovery(state: GameState, player_number: int) -> bool:
 
     A player is eligible per RR-CANON-R110 if:
     - They control no stacks
-    - They have no rings in hand
     - They own at least one marker
     - They have at least one buried ring
+
+    Note: Recovery eligibility is independent of rings in hand.
+    Players with rings may choose recovery over placement.
 
     Mirrors TS playerStateHelpers.ts:isEligibleForRecovery
     """
@@ -361,10 +363,6 @@ def is_eligible_for_recovery(state: GameState, player_number: int) -> bool:
             break
 
     if not player:
-        return False
-
-    # Must have no rings in hand
-    if player.rings_in_hand > 0:
         return False
 
     # Must control no stacks

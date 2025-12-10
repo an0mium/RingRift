@@ -720,19 +720,24 @@ def compute_fsm_orchestration(
     )
 
 
-def _player_has_turn_material(game_state: GameState, player: int) -> bool:
+def _player_has_any_rings(game_state: GameState, player: int) -> bool:
     """
-    Check if a player has turn-material per RR-CANON-R201.
+    Check if a player has any rings anywhere per RR-CANON-R201.
 
-    A player has turn-material if:
-    - They control at least one stack (stack.controlling_player == player), OR
-    - They have rings in hand (rings_in_hand > 0)
+    A player has rings anywhere if:
+    - They have rings in hand (rings_in_hand > 0), OR
+    - They have rings in any stack (controlled or buried)
 
-    Players without turn-material are "temporarily eliminated for turn
-    rotation" and must be skipped when advancing the turn.
+    Players without ANY rings are permanently eliminated and must be skipped
+    when advancing the turn. Players with buried rings (but no controlled
+    stacks and no rings in hand) are NOT skipped - they may be recovery-eligible.
 
-    Mirrors the check in TS turnLogic.ts (lines 254-277):
-        if (!hasStacks && currentPlayer.ringsInHand === 0) { skip... }
+    This is different from "turn-material" (controlled stacks OR rings in hand).
+    The key distinction:
+    - turn-material: used to determine what moves are available
+    - any-rings: used to determine if player is permanently eliminated
+
+    Mirrors the check in TS turnLogic.ts playerHasAnyRings delegate.
     """
     # Check rings in hand first (fast path)
     player_state = next(
@@ -742,9 +747,13 @@ def _player_has_turn_material(game_state: GameState, player: int) -> bool:
     if player_state is not None and player_state.rings_in_hand > 0:
         return True
 
-    # Check for controlled stacks
+    # Check all stacks for any ring belonging to this player
+    # This includes both controlled stacks AND buried rings
     for stack in game_state.board.stacks.values():
-        if stack.controlling_player == player and stack.stack_height > 0:
+        if stack.stack_height <= 0:
+            continue
+        # The rings list contains player numbers from bottom to top
+        if stack.rings and player in stack.rings:
             return True
 
     return False
@@ -752,11 +761,14 @@ def _player_has_turn_material(game_state: GameState, player: int) -> bool:
 
 def _next_active_player(game_state: GameState) -> int:
     """
-    Get the next active player who has turn-material.
+    Get the next active player who has any rings anywhere.
 
-    Per RR-CANON-R201 and TS turnLogic.ts (lines 220-285):
-    - Players without stacks AND no rings in hand are skipped
-    - Continue around the table until finding a player with material
+    Per RR-CANON-R201 and TS turnLogic.ts:
+    - Players without ANY rings (controlled, buried, or in hand) are permanently
+      eliminated and are skipped
+    - Players with buried rings (but no stacks/hand) are NOT skipped - they may
+      be recovery-eligible
+    - Continue around the table until finding a player with rings
     - If all players are exhausted, return the initial next player (terminal state)
 
     This mirrors the TS behavior where workingState.currentPlayer is set to
@@ -786,23 +798,25 @@ def _next_active_player(game_state: GameState) -> int:
     while skips < max_skips:
         candidate = game_state.players[idx]
 
-        # Check if candidate has turn-material (RR-CANON-R201):
-        # - controls at least one stack, OR
-        # - has rings in hand
-        # Players without turn-material are "temporarily eliminated for
-        # turn rotation" and must be skipped.
-        has_material = _player_has_turn_material(
+        # Check if candidate has any rings anywhere (RR-CANON-R201):
+        # - rings in controlled stacks (top ring is player's colour)
+        # - rings buried inside stacks controlled by others
+        # - rings in hand (not yet placed)
+        # Players without ANY rings are permanently eliminated and must be
+        # skipped. Players with buried rings but no stacks/hand are NOT
+        # skipped - they may be recovery-eligible.
+        has_any_rings = _player_has_any_rings(
             game_state, candidate.player_number
         )
 
-        if has_material:
+        if has_any_rings:
             return candidate.player_number
 
-        # Player has no turn-material; skip to next seat
+        # Player has no rings anywhere (permanently eliminated); skip to next seat
         idx = (idx + 1) % num_players
         skips += 1
 
-    # All players exhausted (no one has turn-material). Per TS turnLogic.ts
+    # All players exhausted (no one has any rings). Per TS turnLogic.ts
     # behavior, return the initial next player. Victory logic will handle
     # the global stalemate.
     return initial_next_player

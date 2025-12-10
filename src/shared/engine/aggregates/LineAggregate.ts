@@ -744,19 +744,16 @@ export function enumerateProcessLineMoves(
   }
 
   const boardType = state.board.type as BoardType;
-  const requiredLength = getEffectiveLineLengthThreshold(
-    boardType,
-    state.players.length,
-    state.rulesOptions
-  );
+  const minLineLength = BOARD_CONFIGS[boardType].lineLength;
 
   const nextMoveNumber = computeNextMoveNumber(state);
   const moves: Move[] = [];
 
   playerLines.forEach((line, index) => {
-    // Filter out lines that do not meet the effective threshold (e.g. 3-in-a-row
-    // on 2p 8x8).
-    if (line.length < requiredLength) {
+    // Filter out lines that do not meet the **base** detection threshold for
+    // this board type. For square8 this is 3 markers, matching Python's
+    // BoardManager.find_all_lines behaviour. Shorter patterns are ignored.
+    if (line.length < minLineLength) {
       return;
     }
 
@@ -1086,17 +1083,15 @@ export function applyProcessLineDecision(
   const boardType = state.board.type as BoardType;
   const numPlayers = state.players.length;
   const requiredLength = getEffectiveLineLengthThreshold(boardType, numPlayers, state.rulesOptions);
+  const minLineLength = BOARD_CONFIGS[boardType].lineLength;
 
-  if (line.length < requiredLength) {
-    // Not actually a complete line; treat as no-op
-    return {
-      nextState: state,
-      pendingLineRewardElimination: false,
-    };
-  }
-
-  if (line.length > requiredLength) {
-    // Overlength: requires choose_line_reward, treat as no-op
+  // Python's GameEngine treats any detected line (>= base lineLength) as a
+  // valid PROCESS_LINE target, even when it is shorter than the effective
+  // reward threshold for the current player count (for example, 3-in-a-row on
+  // 2p square8 where requiredLength === 4). Such "mini" lines collapse to
+  // territory but do **not** grant a mandatory elimination reward.
+  if (line.length < minLineLength) {
+    // Not actually a complete line for this board; treat as no-op.
     return {
       nextState: state,
       pendingLineRewardElimination: false,
@@ -1107,8 +1102,11 @@ export function applyProcessLineDecision(
 
   return {
     nextState,
-    // Exact-length line always grants mandatory self-elimination reward
-    pendingLineRewardElimination: true,
+    // Elimination reward is only granted when the collapsed line meets or
+    // exceeds the effective threshold for this board/player-count combination.
+    // Shorter (mini) lines still grant territory but no mandatory
+    // self-elimination.
+    pendingLineRewardElimination: line.length >= requiredLength,
   };
 }
 

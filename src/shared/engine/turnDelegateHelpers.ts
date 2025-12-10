@@ -3,6 +3,7 @@ import { BOARD_CONFIGS } from '../types/game';
 import type { PerTurnState, TurnLogicDelegates } from './turnLogic';
 import { countRingsOnBoardForPlayer } from './core';
 import { validatePlacementOnBoard } from './validators/PlacementValidator';
+import { playerHasAnyRings } from './globalActions';
 
 /**
  * Shared helpers and factory for {@link TurnLogicDelegates} used by the
@@ -261,5 +262,6 @@ export function createDefaultTurnLogicDelegates(
       hasAnyCaptureForPlayer(state, player, turn),
     applyForcedElimination: config.applyForcedElimination,
     getNextPlayerNumber: config.getNextPlayerNumber,
+    playerHasAnyRings: (state: GameState, player: number) => playerHasAnyRings(state, player),
   };
 }

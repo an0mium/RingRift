@@ -100,9 +100,12 @@ export interface ActionAvailabilityDelegates {
  * - Ring placement (place_ring)
  * - Non-capture stack movement (move_stack, move_ring, build_stack)
  * - Overtaking capture (overtaking_capture)
- * - Recovery slide (recovery_slide) - RR-CANON-R110–R115
  *
  * NOT real actions (for LPS purposes):
+ * - Recovery slide (recovery_slide) - player can still use recovery but it
+ *   doesn't reset LPS counter. This creates strategic tension: rings in hand
+ *   become a "survival budget" - players must place at least once every 3
+ *   rounds to avoid LPS loss.
  * - Forced elimination (eliminate_rings_from_stack when stack > 5)
  * - Line processing decisions
  * - Territory processing decisions
@@ -144,10 +147,11 @@ export function hasAnyRealAction(
     return true;
   }
 
-  // Check recovery (marker slide that completes a line; real action for LPS)
-  if (delegates.hasRecovery && delegates.hasRecovery(playerNumber)) {
-    return true;
-  }
+  // NOTE: Recovery is intentionally NOT checked here.
+  // Recovery moves are still valid actions a player can take, but they don't
+  // count as "real actions" for LPS purposes. This creates strategic depth:
+  // players with rings in hand have a "survival budget" - they can do recovery
+  // actions but must place at least one ring every 3 rounds to avoid LPS loss.
 
   return false;
 }
@@ -202,9 +206,11 @@ export function countBuriedRings(board: BoardState, playerNumber: number): numbe
  *
  * A player is eligible per RR-CANON-R110 if:
  * - They control no stacks
- * - They have no rings in hand
  * - They own at least one marker
  * - They have at least one buried ring
+ *
+ * Note: Recovery eligibility is independent of rings in hand.
+ * Players with rings may choose recovery over placement.
  *
  * @param state - Current game state
  * @param playerNumber - Player to check
@@ -213,11 +219,6 @@ export function countBuriedRings(board: BoardState, playerNumber: number): numbe
 export function isEligibleForRecovery(state: GameState, playerNumber: number): boolean {
   const player = state.players.find((p) => p.playerNumber === playerNumber);
   if (!player) {
-    return false;
-  }
-
-  // Must have no rings in hand
-  if (player.ringsInHand > 0) {
     return false;
   }
 

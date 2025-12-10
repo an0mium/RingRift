@@ -169,3 +169,6 @@ ai-service/parity_summary.*.json
 
 # Root-level hypothesis directory (Python property-based testing)
 .hypothesis/
+
+# Private planning docs (contains infrastructure details)
+plan.md

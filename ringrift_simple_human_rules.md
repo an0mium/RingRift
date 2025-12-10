@@ -194,9 +194,10 @@ forced elimination.
 
 ### 3.5 Recovery action
 
-If you have been **temporarily eliminated** (no stacks, no rings in hand) but
-still have **markers on the board** and **buried rings** (your rings at the
-bottom of opponents' stacks), you may perform a **recovery action**:
+If you control **no stacks** but have **markers on the board** and **buried rings**
+(your rings at the bottom of opponents' stacks), you may perform a **recovery action**.
+Recovery eligibility is independent of rings in hand; players with rings may choose
+recovery over placement:
 
 1. **Slide** one of your markers to an adjacent empty cell.
 2. The slide is legal if **either**:
