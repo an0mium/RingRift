@@ -49,6 +49,8 @@ def phase_move_contract() -> Dict[CanonicalPhase, Tuple[str, ...]]:
             "continue_capture_segment",
             # RR‑CANON‑R110–R115: recovery action when eligible.
             "recovery_slide",
+            # RR-CANON-R115: recovery-eligible players may skip recovery to preserve buried rings.
+            "skip_recovery",
             # RR‑CANON‑R075: forced no‑op when no movement/capture is possible.
             "no_movement_action",
         ),

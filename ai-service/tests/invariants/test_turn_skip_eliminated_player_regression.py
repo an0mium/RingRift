@@ -258,10 +258,11 @@ def test_turn_rotation_keeps_player_with_buried_rings_synthetic() -> None:
         f"After rotating from P2's turn, got P{test_state.current_player}"
     )
 
-    # Per RR-CANON-R075: All players start in RING_PLACEMENT phase.
-    # Players with no rings will emit no_placement_action and proceed to movement.
-    assert test_state.current_phase == GamePhase.RING_PLACEMENT, (
-        f"P1 should start in RING_PLACEMENT phase (per RR-CANON-R075), got {test_state.current_phase}"
+    # Per RR-CANON-R073/R204: Players with ringsInHand == 0 auto-advance to MOVEMENT.
+    # The engine skips RING_PLACEMENT phase as no_placement_action is automatic.
+    # This is a UX convenience - the canonical rule is satisfied implicitly.
+    assert test_state.current_phase == GamePhase.MOVEMENT, (
+        f"P1 has no rings in hand and should auto-advance to MOVEMENT phase, got {test_state.current_phase}"
     )
 
 

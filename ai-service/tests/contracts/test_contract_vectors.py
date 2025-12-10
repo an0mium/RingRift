@@ -68,6 +68,12 @@ KNOWN_FAILING_VECTORS = {
     "territory.hex_two_regions_then_elim.step2_regionA",
     # Non-canonical fixture: lines must be formed by markers, not stacks (RR-CANON-R120)
     "territory_line.overlong_line.step1.square8",
+    # Recovery vector: All players start with ringsInHand=0, so after P1's recovery
+    # extracts their only buried ring (cost=1), P1 is permanently eliminated. P3 has
+    # no rings anywhere, so P2 wins by "last player standing" (RR-CANON-R175).
+    # The vector expects gameStatus='active' but should be 'completed' with winner=2.
+    # Vector fixture needs update: P2/P3 should have rings to prevent early victory.
+    "recovery.exact_length_option1",
 }
 
 VECTOR_CATEGORIES = [

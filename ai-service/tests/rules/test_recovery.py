@@ -181,11 +181,14 @@ class TestPlayerControlsAnyStack:
 class TestIsEligibleForRecovery:
     """Tests for is_eligible_for_recovery helper."""
 
-    def test_not_eligible_with_rings_in_hand(self):
+    def test_eligible_with_rings_in_hand(self):
+        """Per RR-CANON-R201: Recovery eligibility is independent of rings in hand."""
         state = create_test_state(rings_in_hand_p1=1)
         add_marker(state, Position(x=3, y=3), 1)
         add_stack(state, Position(x=4, y=4), [1, 2])  # P1 ring buried under P2
-        assert is_eligible_for_recovery(state, 1) is False
+        # Player controls no stacks, has marker, has buried ring -> eligible
+        # Rings in hand do NOT prevent recovery eligibility per RR-CANON-R201
+        assert is_eligible_for_recovery(state, 1) is True
 
     def test_not_eligible_when_controls_stack(self):
         state = create_test_state()
@@ -313,11 +316,12 @@ class TestValidateRecoverySlide:
         assert result.valid is False
         assert "phase" in result.reason.lower()
 
-    def test_invalid_when_not_eligible(self):
-        state = create_test_state(rings_in_hand_p1=5)
-        # Not eligible - has rings in hand
+    def test_invalid_when_not_eligible_due_to_controlled_stack(self):
+        """Player who controls a stack is NOT eligible for recovery."""
+        state = create_test_state(rings_in_hand_p1=0)
+        # Not eligible - P1 controls a stack (top ring is P1)
         add_marker(state, Position(x=3, y=3), 1)
-        add_stack(state, Position(x=0, y=0), [1, 2])
+        add_stack(state, Position(x=0, y=0), [2, 1])  # P1 controls this stack
 
         move = Move(
             id="test",
@@ -391,6 +395,7 @@ class TestApplyRecoverySlide:
         assert "4,3" in state.board.collapsed_spaces
 
     def test_extracts_buried_rings(self):
+        """Per RR-CANON-R113: Extracted rings are self-eliminated, NOT returned to hand."""
         state = create_test_state()
         # Need 4 markers for square8 2-player per RR-CANON-R112
         add_marker(state, Position(x=1, y=3), 1)
@@ -400,7 +405,7 @@ class TestApplyRecoverySlide:
         add_stack(state, Position(x=0, y=0), [1, 2])
 
         initial_buried = count_buried_rings(state.board, 1)
-        initial_hand = state.players[0].rings_in_hand
+        initial_eliminated = state.players[0].eliminated_rings
 
         move = Move(
             id="test",
@@ -421,9 +426,10 @@ class TestApplyRecoverySlide:
         final_buried = count_buried_rings(state.board, 1)
         assert final_buried < initial_buried
 
-        # Rings in hand should increase
-        final_hand = state.players[0].rings_in_hand
-        assert final_hand == initial_hand + outcome.rings_extracted
+        # Per RR-CANON-R113: Extracted rings are ELIMINATED, not returned to hand
+        # This is the mandatory cost for recovery actions
+        final_eliminated = state.players[0].eliminated_rings
+        assert final_eliminated == initial_eliminated + outcome.rings_extracted
 
 
 class TestGetRecoveryMoves:
