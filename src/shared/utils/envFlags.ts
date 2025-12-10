@@ -133,9 +133,12 @@ export function isPythonRulesMode(): boolean {
   return getRulesMode() === 'python';
 }
 
-/** True when running in TS-authoritative, Python-shadow mode. */
+/**
+ * @deprecated Shadow mode has been removed. FSM is now canonical.
+ * This function always returns false. Remove usages and delete this function.
+ */
 export function isRulesShadowMode(): boolean {
-  return getRulesMode() === 'shadow';
+  return false;
 }
 
 /**

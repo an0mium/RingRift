@@ -3057,7 +3057,9 @@ class GameEngine:
         - Merge with any existing stack at destination.
         """
         if not move.from_pos:
-            return
+            raise ValueError(
+                f"Cannot move stack - move.from_pos is None for move by player {move.player}"
+            )
 
         from_key = move.from_pos.to_key()
         to_key = move.to.to_key()
@@ -3065,7 +3067,9 @@ class GameEngine:
 
         source_stack = board.stacks.get(from_key)
         if not source_stack:
-            return
+            raise ValueError(
+                f"Cannot move stack - no stack at source position {from_key} for player {move.player}"
+            )
 
         # Deep-copy source stack to avoid mutating shared instances
         moving_stack = source_stack.model_copy(deep=True)
@@ -3189,8 +3193,14 @@ class GameEngine:
         - Update chain_capture_state so subsequent segments continue from the
           new position.
         """
-        if not move.from_pos or not move.capture_target:
-            return
+        if not move.from_pos:
+            raise ValueError(
+                f"Cannot apply chain capture - move.from_pos is None for player {move.player}"
+            )
+        if not move.capture_target:
+            raise ValueError(
+                f"Cannot apply chain capture - move.capture_target is None for player {move.player}"
+            )
 
         board = game_state.board
         from_pos = move.from_pos
@@ -3203,8 +3213,14 @@ class GameEngine:
 
         attacker = board.stacks.get(from_key)
         target_stack = board.stacks.get(target_key)
-        if not attacker or not target_stack:
-            return
+        if not attacker:
+            raise ValueError(
+                f"Cannot apply chain capture - no attacker stack at {from_key} for player {move.player}"
+            )
+        if not target_stack:
+            raise ValueError(
+                f"Cannot apply chain capture - no target stack at {target_key} for player {move.player}"
+            )
 
         # Deep-copy stacks before modification
         attacker = attacker.model_copy(deep=True)
@@ -3425,7 +3441,10 @@ class GameEngine:
                     break
 
         if target_line is None:
-            return
+            raise ValueError(
+                f"Cannot apply line formation - no target line found at {move.to.to_key()} "
+                f"for player {move.player}"
+            )
 
         # 2. Determine required minimum line length.
         num_players = len(game_state.players)
@@ -3571,11 +3590,10 @@ class GameEngine:
                 )
 
         if not target_region:
-            _debug(
-                "DEBUG: _apply_territory_claim found no matching disconnected "
-                f"region for move at {move_key} by P{player}\n"
+            raise ValueError(
+                f"Cannot apply territory claim - no matching disconnected region "
+                f"found for move at {move_key} by player {player}"
             )
-            return
 
         # 1c. Gather border markers for territory elimination.
 

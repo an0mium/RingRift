@@ -1,9 +1,13 @@
 import type { GameState, GameResult, Move } from '../../shared/engine';
 import { computeProgressSnapshot, hashGameState } from '../../shared/engine';
-import { getRulesMode, isRulesShadowMode } from '../../shared/utils/envFlags';
+import { getRulesMode } from '../../shared/utils/envFlags';
 import { GameEngine } from './GameEngine';
 import { PythonRulesClient, RulesEvalResponse } from '../services/PythonRulesClient';
-import { rulesParityMetrics, logRulesMismatch, recordRulesParityMismatch } from '../utils/rulesParityMetrics';
+import {
+  rulesParityMetrics,
+  logRulesMismatch,
+  recordRulesParityMismatch,
+} from '../utils/rulesParityMetrics';
 
 export interface RulesResult {
   success: boolean;
@@ -14,10 +18,9 @@ export interface RulesResult {
 
 /**
  * Lightweight diagnostics for Python rules engine usage. These counters are
- * incremented when Python evaluation fails (transport/runtime), when the
- * backend falls back to the TS GameEngine in python mode, and when shadow
- * evaluation encounters errors. Game/session layers can aggregate these
- * values to detect rules-service degradation.
+ * incremented when Python evaluation fails (transport/runtime) or when the
+ * backend falls back to the TS GameEngine in python mode. Game/session layers
+ * can aggregate these values to detect rules-service degradation.
  */
 export interface RulesDiagnostics {
   /** Number of Python /rules/evaluate_move calls that threw or failed. */
@@ -27,35 +30,22 @@ export interface RulesDiagnostics {
    * Python evaluation failure while running in python mode.
    */
   pythonBackendFallbacks: number;
-  /**
-   * Number of shadow-evaluation errors encountered while calling Python
-   * in ts or shadow modes. These do not affect authoritative TS rules
-   * behaviour but indicate that parity checks are degraded.
-   */
-  pythonShadowErrors: number;
 }
 
 /**
  * RulesBackendFacade
  *
  * Single entry point for applying moves through the backend rules engine.
+ * FSM is now the canonical validator (RR-CANON compliance).
  *
  * Modes (RINGRIFT_RULES_MODE):
- *   - ts (default):
- *       * TypeScript GameEngine is authoritative.
- *   - shadow:
- *       * TypeScript GameEngine is authoritative.
- *       * Python rules engine is called in shadow for parity checks.
- *   - python:
- *       * For now behaves like ts mode but logs a diagnostic so that
- *         early adopters do not accidentally depend on an incomplete
- *         Python-authoritative implementation.
+ *   - ts (default): TypeScript GameEngine is authoritative.
+ *   - python: Python rules engine validates, with TS fallback on errors.
  */
 export class RulesBackendFacade {
   private diagnostics: RulesDiagnostics = {
     pythonEvalFailures: 0,
     pythonBackendFallbacks: 0,
-    pythonShadowErrors: 0,
   };
 
   constructor(
@@ -338,8 +328,8 @@ export class RulesBackendFacade {
       mode === 'python'
         ? 'runtime_python_mode'
         : isRulesShadowMode()
-        ? 'runtime_shadow'
-        : 'runtime_ts';
+          ? 'runtime_shadow'
+          : 'runtime_ts';
 
     if (tsValid !== pyValid) {
       rulesParityMetrics.validMismatch.inc();

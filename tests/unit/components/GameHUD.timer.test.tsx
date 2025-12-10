@@ -181,10 +181,9 @@ describe('GameHUD player timers', () => {
 
   it('renders local sandbox banner when isLocalSandboxOnly is true', () => {
     const hud = baseHudViewModel();
-    hud.isLocalSandboxOnly = true;
     const state = baseGameState();
 
-    render(<GameHUD viewModel={hud} timeControl={state.timeControl} />);
+    render(<GameHUD viewModel={hud} timeControl={state.timeControl} isLocalSandboxOnly={true} />);
 
     expect(screen.getByTestId('sandbox-local-only-banner')).toBeInTheDocument();
   });
