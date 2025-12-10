@@ -28,7 +28,11 @@ def _make_minimal_state(
     phase: GamePhase,
     current_player: int = 1,
 ) -> GameState:
-    """Create a minimal active GameState for phase-machine tests."""
+    """Create a minimal active GameState for phase-machine tests.
+
+    Default ringsInHand=18 ensures players have turn-material per RR-CANON-R201,
+    avoiding degenerate edge cases where all players would be skipped in turn rotation.
+    """
     board = BoardState(
         type=BoardType.SQUARE8,
         size=8,
@@ -48,7 +52,7 @@ def _make_minimal_state(
             isReady=True,
             timeRemaining=60,
             aiDifficulty=None,
-            ringsInHand=0,
+            ringsInHand=18,  # Realistic starting count for turn-material
             eliminatedRings=0,
             territorySpaces=0,
         ),
@@ -60,7 +64,7 @@ def _make_minimal_state(
             isReady=True,
             timeRemaining=60,
             aiDifficulty=None,
-            ringsInHand=0,
+            ringsInHand=18,  # Realistic starting count for turn-material
             eliminatedRings=0,
             territorySpaces=0,
         ),

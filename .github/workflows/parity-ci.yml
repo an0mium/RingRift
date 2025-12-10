@@ -4,10 +4,14 @@
 # code. It ensures that changes to the rules engine don't introduce semantic
 # divergences between the TypeScript and Python implementations.
 #
-# The check uses canonical_square8.db (a small, pre-verified database) for
-# fast feedback. The full parity healthcheck (contract vectors, plateau
-# snapshots) runs as part of the existing python-parity-healthcheck job in
-# ci.yml.
+# The check uses canonical databases (small, pre-verified databases) for fast
+# feedback:
+#   - canonical_square8.db (2-player)
+#   - canonical_square8_3p.db (3-player)
+#   - canonical_square8_4p.db (4-player)
+#
+# The full parity healthcheck (contract vectors, plateau snapshots) runs as
+# part of the existing python-parity-healthcheck job in ci.yml.
 #
 # Related documentation:
 #   - docs/PARITY_VERIFICATION_RUNBOOK.md
@@ -99,6 +103,114 @@ jobs:
         with:
           name: parity-ci-summary
           path: ai-service/results/parity_ci_summary.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # 3-player parity check (CI-blocking)
+  replay-parity-check-3p:
+    name: TS↔Python Replay Parity (3-player)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        working-directory: ai-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run TS↔Python replay parity check (3-player)
+        working-directory: ai-service
+        env:
+          PYTHONPATH: '.'
+          TS_NODE_PROJECT: '../tsconfig.server.json'
+        run: |
+          if [ -f data/games/canonical_square8_3p.db ]; then
+            python scripts/check_ts_python_replay_parity.py \
+              --db data/games/canonical_square8_3p.db \
+              --fail-on-divergence \
+              --summary-json results/parity_ci_3p_summary.json
+          else
+            echo "canonical_square8_3p.db not found, skipping 3-player parity check"
+          fi
+
+      - name: Upload parity check summary (3-player)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-ci-3p-summary
+          path: ai-service/results/parity_ci_3p_summary.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+  # 4-player parity check (CI-blocking)
+  replay-parity-check-4p:
+    name: TS↔Python Replay Parity (4-player)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        working-directory: ai-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run TS↔Python replay parity check (4-player)
+        working-directory: ai-service
+        env:
+          PYTHONPATH: '.'
+          TS_NODE_PROJECT: '../tsconfig.server.json'
+        run: |
+          if [ -f data/games/canonical_square8_4p.db ]; then
+            python scripts/check_ts_python_replay_parity.py \
+              --db data/games/canonical_square8_4p.db \
+              --fail-on-divergence \
+              --summary-json results/parity_ci_4p_summary.json
+          else
+            echo "canonical_square8_4p.db not found, skipping 4-player parity check"
+          fi
+
+      - name: Upload parity check summary (4-player)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-ci-4p-summary
+          path: ai-service/results/parity_ci_4p_summary.json
           retention-days: 14
           if-no-files-found: ignore
 

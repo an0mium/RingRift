@@ -60,9 +60,13 @@ def _make_game_state(
     current_player: int = 1,
     num_players: int = 2,
     stacks: dict | None = None,
-    rings_in_hand: int = 0,
+    rings_in_hand: int = 18,
 ) -> GameState:
-    """Create a test game state."""
+    """Create a test game state.
+
+    Default rings_in_hand=18 ensures players have turn-material per RR-CANON-R201,
+    avoiding degenerate edge cases where all players would be skipped in turn rotation.
+    """
     board = BoardState(
         type=BoardType.SQUARE8,
         size=8,

@@ -720,10 +720,92 @@ def compute_fsm_orchestration(
     )
 
 
+def _player_has_turn_material(game_state: GameState, player: int) -> bool:
+    """
+    Check if a player has turn-material per RR-CANON-R201.
+
+    A player has turn-material if:
+    - They control at least one stack (stack.controlling_player == player), OR
+    - They have rings in hand (rings_in_hand > 0)
+
+    Players without turn-material are "temporarily eliminated for turn
+    rotation" and must be skipped when advancing the turn.
+
+    Mirrors the check in TS turnLogic.ts (lines 254-277):
+        if (!hasStacks && currentPlayer.ringsInHand === 0) { skip... }
+    """
+    # Check rings in hand first (fast path)
+    player_state = next(
+        (p for p in game_state.players if p.player_number == player),
+        None,
+    )
+    if player_state is not None and player_state.rings_in_hand > 0:
+        return True
+
+    # Check for controlled stacks
+    for stack in game_state.board.stacks.values():
+        if stack.controlling_player == player and stack.stack_height > 0:
+            return True
+
+    return False
+
+
 def _next_active_player(game_state: GameState) -> int:
-    """Get the next active player (simplified - would need full rotation logic)."""
+    """
+    Get the next active player who has turn-material.
+
+    Per RR-CANON-R201 and TS turnLogic.ts (lines 220-285):
+    - Players without stacks AND no rings in hand are skipped
+    - Continue around the table until finding a player with material
+    - If all players are exhausted, return the initial next player (terminal state)
+
+    This mirrors the TS behavior where workingState.currentPlayer is set to
+    initialNextPlayer at the start, then cycles through players. When all are
+    skipped, workingState.currentPlayer ends up back at the initial next player
+    due to how the modular arithmetic works.
+    """
     num_players = len(game_state.players)
-    return (game_state.current_player % num_players) + 1
+    if num_players == 0:
+        return game_state.current_player
+
+    # Find index of the current player in the players list
+    current_index = 0
+    for i, p in enumerate(game_state.players):
+        if p.player_number == game_state.current_player:
+            current_index = i
+            break
+
+    # Compute initial next player (simple modular rotation)
+    initial_next_index = (current_index + 1) % num_players
+    initial_next_player = game_state.players[initial_next_index].player_number
+
+    max_skips = num_players
+    skips = 0
+    idx = initial_next_index
+
+    while skips < max_skips:
+        candidate = game_state.players[idx]
+
+        # Check if candidate has turn-material (RR-CANON-R201):
+        # - controls at least one stack, OR
+        # - has rings in hand
+        # Players without turn-material are "temporarily eliminated for
+        # turn rotation" and must be skipped.
+        has_material = _player_has_turn_material(
+            game_state, candidate.player_number
+        )
+
+        if has_material:
+            return candidate.player_number
+
+        # Player has no turn-material; skip to next seat
+        idx = (idx + 1) % num_players
+        skips += 1
+
+    # All players exhausted (no one has turn-material). Per TS turnLogic.ts
+    # behavior, return the initial next player. Victory logic will handle
+    # the global stalemate.
+    return initial_next_player
 
 
 def compare_fsm_with_legacy(

@@ -710,4 +710,18 @@ describe('GameHUD – view-model props', () => {
     const helpButton = screen.queryByTestId('hud-phase-help-movement');
     expect(helpButton).toBeInTheDocument();
   });
+
+  it('hides victory conditions when hideVictoryConditions is true', () => {
+    const viewModel = createHUDViewModel();
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+        hideVictoryConditions
+      />
+    );
+
+    expect(screen.queryByText(/Victory Conditions/i)).toBeNull();
+  });
 });
