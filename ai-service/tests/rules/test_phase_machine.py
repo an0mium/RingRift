@@ -115,13 +115,14 @@ def test_no_movement_action_advances_to_line_processing():
     assert state.current_phase == GamePhase.LINE_PROCESSING
 
 
-def test_no_line_action_with_empty_board_rotates_to_next_player():
+def test_no_line_action_with_empty_board_enters_territory_processing():
     """
-    NO_LINE_ACTION on empty board should rotate to next player.
+    NO_LINE_ACTION on empty board should advance to TERRITORY_PROCESSING.
 
-    With no territory regions and no stacks (empty board), the phase machine
-    should skip TERRITORY_PROCESSING entirely and rotate to the next player
-    in RING_PLACEMENT. This matches RR-CANON phase transition rules.
+    Per RR-CANON-R075, every phase must be visited and produce a recorded
+    action. After NO_LINE_ACTION, we always enter TERRITORY_PROCESSING so
+    hosts can emit NO_TERRITORY_ACTION when there are no regions. The turn
+    rotation happens after NO_TERRITORY_ACTION is applied.
     """
     state = _make_minimal_state(GamePhase.LINE_PROCESSING, current_player=1)
     move = _make_noop_move(MoveType.NO_LINE_ACTION, player=1)
@@ -129,9 +130,9 @@ def test_no_line_action_with_empty_board_rotates_to_next_player():
     inp = PhaseTransitionInput(game_state=state, last_move=move, trace_mode=False)
     advance_phases(inp)
 
-    # Empty board: no territory regions, no stacks → turn ends
-    assert state.current_player == 2
-    assert state.current_phase == GamePhase.RING_PLACEMENT
+    # Per RR-CANON-R075: always visit TERRITORY_PROCESSING
+    assert state.current_player == 1
+    assert state.current_phase == GamePhase.TERRITORY_PROCESSING
 
 
 def test_no_territory_action_rotates_to_next_player_ring_placement():
@@ -146,13 +147,14 @@ def test_no_territory_action_rotates_to_next_player_ring_placement():
     assert state.current_phase == GamePhase.RING_PLACEMENT
 
 
-def test_process_line_with_empty_board_rotates_to_next_player():
+def test_process_line_with_empty_board_enters_territory_processing():
     """
-    PROCESS_LINE on empty board with no remaining lines should rotate to next player.
+    PROCESS_LINE on empty board with no remaining lines should advance to TERRITORY_PROCESSING.
 
+    Per RR-CANON-R075, every phase must be visited and produce a recorded action.
     With an empty board (no territory regions, no stacks), _get_line_processing_moves
-    returns no interactive moves and _get_territory_processing_moves returns no regions,
-    so the phase machine should skip TERRITORY_PROCESSING and rotate to next player.
+    returns no interactive moves, so we advance to TERRITORY_PROCESSING. Hosts will
+    then emit NO_TERRITORY_ACTION, and the turn rotation happens afterward.
     """
     state = _make_minimal_state(GamePhase.LINE_PROCESSING, current_player=1)
     now = datetime.now()
@@ -169,9 +171,9 @@ def test_process_line_with_empty_board_rotates_to_next_player():
     inp = PhaseTransitionInput(game_state=state, last_move=move, trace_mode=False)
     advance_phases(inp)
 
-    # Empty board: no territory regions, no stacks → turn ends
-    assert state.current_player == 2
-    assert state.current_phase == GamePhase.RING_PLACEMENT
+    # Per RR-CANON-R075: always visit TERRITORY_PROCESSING
+    assert state.current_player == 1
+    assert state.current_phase == GamePhase.TERRITORY_PROCESSING
 
 
 # -----------------------------------------------------------------------------
