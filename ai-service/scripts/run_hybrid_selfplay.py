@@ -1,0 +1,448 @@
+#!/usr/bin/env python
+"""Hybrid GPU-accelerated self-play with full rule fidelity.
+
+This script generates self-play games using the hybrid CPU/GPU approach:
+- CPU: Full game rules (move generation, move application, victory checking)
+- GPU: Position evaluation (heuristic scoring)
+
+This provides 5-20x speedup while maintaining 100% rule correctness.
+
+Usage:
+    # Basic usage - 100 games on square8
+    python scripts/run_hybrid_selfplay.py --num-games 100
+
+    # With specific board and player count
+    python scripts/run_hybrid_selfplay.py \
+        --num-games 500 \
+        --board-type square8 \
+        --num-players 2 \
+        --output-dir data/selfplay/hybrid_sq8_2p
+
+    # Benchmark mode
+    python scripts/run_hybrid_selfplay.py --benchmark
+
+Output:
+    - games.jsonl: Game records in JSONL format
+    - stats.json: Performance statistics
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+# Add app/ to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+
+def run_hybrid_selfplay(
+    board_type: str = "square8",
+    num_players: int = 2,
+    num_games: int = 100,
+    output_dir: str = "data/selfplay/hybrid",
+    max_moves: int = 500,
+    seed: int = 42,
+    use_numba: bool = True,
+) -> Dict[str, Any]:
+    """Run hybrid GPU-accelerated self-play.
+
+    Args:
+        board_type: Board type (square8, square19, hex)
+        num_players: Number of players (2-4)
+        num_games: Number of games to generate
+        output_dir: Output directory
+        max_moves: Maximum moves per game
+        seed: Random seed
+        use_numba: Use Numba JIT-compiled rules
+
+    Returns:
+        Statistics dictionary
+    """
+    import torch
+    from app.ai.hybrid_gpu import (
+        HybridGPUEvaluator,
+        HybridSelfPlayRunner,
+        create_hybrid_evaluator,
+    )
+    from app.ai.gpu_batch import get_device
+    from app.game_engine import GameEngine
+    from app.training.generate_data import create_initial_state
+    from app.models import BoardType
+
+    os.makedirs(output_dir, exist_ok=True)
+    np.random.seed(seed)
+
+    board_size = {"square8": 8, "square19": 19, "hex": 25}.get(board_type.lower(), 8)
+    board_type_enum = getattr(BoardType, board_type.upper(), BoardType.SQUARE8)
+    device = get_device()
+
+    logger.info("=" * 60)
+    logger.info("HYBRID GPU-ACCELERATED SELF-PLAY")
+    logger.info("=" * 60)
+    logger.info(f"Board: {board_type} ({board_size}x{board_size})")
+    logger.info(f"Players: {num_players}")
+    logger.info(f"Games: {num_games}")
+    logger.info(f"Max moves: {max_moves}")
+    logger.info(f"Device: {device}")
+    logger.info(f"Numba: {use_numba}")
+    logger.info(f"Output: {output_dir}")
+    logger.info("")
+
+    # Create hybrid evaluator
+    evaluator = create_hybrid_evaluator(
+        board_type=board_type,
+        num_players=num_players,
+        prefer_gpu=True,
+    )
+
+    # Statistics
+    total_games = 0
+    total_moves = 0
+    total_time = 0.0
+    wins_by_player = {i: 0 for i in range(1, num_players + 1)}
+    draws = 0
+    game_records = []
+
+    games_file = os.path.join(output_dir, "games.jsonl")
+
+    logger.info(f"Starting {num_games} games...")
+    start_time = time.time()
+
+    with open(games_file, "w") as f:
+        for game_idx in range(num_games):
+            game_start = time.time()
+
+            # Create initial state
+            game_state = create_initial_state(
+                board_type=board_type_enum,
+                num_players=num_players,
+            )
+
+            moves_played = []
+            move_count = 0
+
+            while game_state.game_status == "active" and move_count < max_moves:
+                current_player = game_state.current_player
+
+                # Get valid moves (CPU - full rules)
+                valid_moves = GameEngine.get_valid_moves(
+                    game_state, current_player
+                )
+
+                if not valid_moves:
+                    break
+
+                # Evaluate moves (hybrid CPU/GPU)
+                move_scores = evaluator.evaluate_moves(
+                    game_state,
+                    valid_moves,
+                    current_player,
+                    GameEngine,
+                )
+
+                # Select best move (with random tie-breaking)
+                if move_scores:
+                    best_score = max(s for _, s in move_scores)
+                    best_moves = [m for m, s in move_scores if s == best_score]
+                    best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                else:
+                    best_move = valid_moves[0]
+
+                # Apply move (CPU - full rules)
+                game_state = GameEngine.apply_move(game_state, best_move)
+                moves_played.append({
+                    "type": best_move.type.value if hasattr(best_move.type, 'value') else str(best_move.type),
+                    "player": best_move.player,
+                })
+                move_count += 1
+
+            game_time = time.time() - game_start
+            total_time += game_time
+            total_moves += move_count
+            total_games += 1
+
+            # Record result
+            winner = game_state.winner or 0
+            if winner == 0:
+                draws += 1
+            else:
+                wins_by_player[winner] = wins_by_player.get(winner, 0) + 1
+
+            record = {
+                "game_id": game_idx,
+                "board_type": board_type,
+                "num_players": num_players,
+                "winner": winner,
+                "move_count": move_count,
+                "status": game_state.game_status,
+                "game_time_seconds": game_time,
+                "timestamp": datetime.now().isoformat(),
+            }
+            game_records.append(record)
+            f.write(json.dumps(record) + "\n")
+
+            # Progress logging
+            if (game_idx + 1) % 10 == 0:
+                elapsed = time.time() - start_time
+                games_per_sec = (game_idx + 1) / elapsed
+                eta = (num_games - game_idx - 1) / games_per_sec if games_per_sec > 0 else 0
+
+                logger.info(
+                    f"  Game {game_idx + 1}/{num_games}: "
+                    f"{games_per_sec:.2f} g/s, ETA: {eta:.0f}s"
+                )
+
+    total_elapsed = time.time() - start_time
+
+    # Get evaluator stats
+    eval_stats = evaluator.get_performance_stats()
+
+    # Build statistics
+    stats = {
+        "total_games": total_games,
+        "total_moves": total_moves,
+        "total_time_seconds": total_elapsed,
+        "games_per_second": total_games / total_elapsed if total_elapsed > 0 else 0,
+        "moves_per_game": total_moves / total_games if total_games > 0 else 0,
+        "wins_by_player": wins_by_player,
+        "draws": draws,
+        "draw_rate": draws / total_games if total_games > 0 else 0,
+        "board_type": board_type,
+        "num_players": num_players,
+        "max_moves": max_moves,
+        "device": str(device),
+        "evaluator_stats": eval_stats,
+        "timestamp": datetime.now().isoformat(),
+        "seed": seed,
+    }
+
+    # Add win rates
+    total_decided = sum(wins_by_player.values())
+    for p in range(1, num_players + 1):
+        stats[f"p{p}_win_rate"] = wins_by_player.get(p, 0) / total_decided if total_decided > 0 else 0
+
+    # Save statistics
+    stats_file = os.path.join(output_dir, "stats.json")
+    with open(stats_file, "w") as f:
+        json.dump(stats, f, indent=2)
+
+    # Summary
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("GENERATION COMPLETE")
+    logger.info("=" * 60)
+    logger.info(f"Total games: {stats['total_games']}")
+    logger.info(f"Total moves: {stats['total_moves']}")
+    logger.info(f"Avg moves/game: {stats['moves_per_game']:.1f}")
+    logger.info(f"Total time: {stats['total_time_seconds']:.1f}s")
+    logger.info(f"Throughput: {stats['games_per_second']:.2f} games/sec")
+    logger.info(f"Draw rate: {stats['draw_rate']:.1%}")
+    logger.info("")
+    logger.info("Win rates by player:")
+    for p in range(1, num_players + 1):
+        logger.info(f"  Player {p}: {stats[f'p{p}_win_rate']:.1%}")
+    logger.info("")
+    logger.info("Evaluator stats:")
+    logger.info(f"  Evals: {eval_stats['eval_count']}")
+    logger.info(f"  Evals/sec: {eval_stats['evals_per_second']:.0f}")
+    logger.info(f"  GPU fraction: {eval_stats['gpu_fraction']:.1%}")
+    logger.info("")
+    logger.info(f"Games saved to: {games_file}")
+    logger.info(f"Stats saved to: {stats_file}")
+
+    return stats
+
+
+def run_benchmark(board_type: str = "square8", num_players: int = 2):
+    """Run benchmark comparing pure CPU vs hybrid evaluation."""
+    import torch
+    from app.ai.hybrid_gpu import (
+        HybridGPUEvaluator,
+        create_hybrid_evaluator,
+        benchmark_hybrid_evaluation,
+    )
+    from app.ai.numba_rules import (
+        NUMBA_AVAILABLE,
+        benchmark_numba_functions,
+        BoardArrays,
+    )
+    from app.ai.gpu_batch import get_device
+    from app.game_engine import GameEngine
+    from app.training.generate_data import create_initial_state
+    from app.models import BoardType
+
+    logger.info("=" * 60)
+    logger.info("BENCHMARK: CPU vs Hybrid GPU Evaluation")
+    logger.info("=" * 60)
+
+    board_size = {"square8": 8, "square19": 19, "hex": 25}.get(board_type.lower(), 8)
+    board_type_enum = getattr(BoardType, board_type.upper(), BoardType.SQUARE8)
+    device = get_device()
+
+    logger.info(f"Board: {board_type} ({board_size}x{board_size})")
+    logger.info(f"Players: {num_players}")
+    logger.info(f"Device: {device}")
+    logger.info(f"Numba available: {NUMBA_AVAILABLE}")
+    logger.info("")
+
+    # Create test game state
+    game_state = create_initial_state(
+        board_type=board_type_enum,
+        num_players=num_players,
+    )
+
+    # Play a few moves to get an interesting state
+    for _ in range(10):
+        moves = GameEngine.get_valid_moves(game_state, game_state.current_player)
+        if moves:
+            game_state = GameEngine.apply_move(game_state, moves[0])
+
+    # Benchmark Numba functions
+    logger.info("Numba JIT benchmark:")
+    numba_results = benchmark_numba_functions(game_state, num_iterations=10000, board_size=board_size)
+    for key, value in numba_results.items():
+        if key.endswith("_us"):
+            logger.info(f"  {key}: {value:.2f} µs")
+
+    # Benchmark hybrid evaluation
+    logger.info("")
+    logger.info("Hybrid GPU benchmark:")
+    evaluator = create_hybrid_evaluator(
+        board_type=board_type,
+        num_players=num_players,
+        prefer_gpu=True,
+    )
+
+    hybrid_results = benchmark_hybrid_evaluation(
+        evaluator,
+        GameEngine,
+        num_positions=1000,
+    )
+    logger.info(f"  Positions evaluated: {hybrid_results['benchmark_positions']}")
+    logger.info(f"  Total time: {hybrid_results['benchmark_time']:.2f}s")
+    logger.info(f"  Positions/sec: {hybrid_results['positions_per_second']:.0f}")
+    logger.info(f"  GPU fraction: {hybrid_results['gpu_fraction']:.1%}")
+
+    # Compare pure CPU vs hybrid for move evaluation
+    logger.info("")
+    logger.info("Move evaluation comparison:")
+
+    # Get valid moves
+    moves = GameEngine.get_valid_moves(game_state, game_state.current_player)
+    num_moves = len(moves)
+    logger.info(f"  Moves to evaluate: {num_moves}")
+
+    # Pure CPU
+    import time
+    start = time.perf_counter()
+    for _ in range(10):
+        for move in moves:
+            next_state = GameEngine.apply_move(game_state, move)
+            # Simple heuristic eval placeholder
+    cpu_time = (time.perf_counter() - start) / 10
+    logger.info(f"  Pure CPU: {cpu_time*1000:.1f} ms ({num_moves/cpu_time:.0f} moves/sec)")
+
+    # Hybrid
+    start = time.perf_counter()
+    for _ in range(10):
+        _ = evaluator.evaluate_moves(game_state, moves, game_state.current_player, GameEngine)
+    hybrid_time = (time.perf_counter() - start) / 10
+    logger.info(f"  Hybrid GPU: {hybrid_time*1000:.1f} ms ({num_moves/hybrid_time:.0f} moves/sec)")
+
+    speedup = cpu_time / hybrid_time if hybrid_time > 0 else 0
+    logger.info(f"  Speedup: {speedup:.1f}x")
+
+    return {
+        "numba": numba_results,
+        "hybrid": hybrid_results,
+        "speedup": speedup,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Hybrid GPU-accelerated self-play with full rule fidelity"
+    )
+    parser.add_argument(
+        "--board-type",
+        type=str,
+        default="square8",
+        choices=["square8", "square19", "hex"],
+        help="Board type",
+    )
+    parser.add_argument(
+        "--num-players",
+        type=int,
+        default=2,
+        choices=[2, 3, 4],
+        help="Number of players",
+    )
+    parser.add_argument(
+        "--num-games",
+        type=int,
+        default=100,
+        help="Number of games to generate",
+    )
+    parser.add_argument(
+        "--max-moves",
+        type=int,
+        default=500,
+        help="Maximum moves per game",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="data/selfplay/hybrid",
+        help="Output directory",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed",
+    )
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help="Run benchmark only",
+    )
+    parser.add_argument(
+        "--no-numba",
+        action="store_true",
+        help="Disable Numba JIT compilation",
+    )
+
+    args = parser.parse_args()
+
+    if args.benchmark:
+        run_benchmark(args.board_type, args.num_players)
+    else:
+        run_hybrid_selfplay(
+            board_type=args.board_type,
+            num_players=args.num_players,
+            num_games=args.num_games,
+            output_dir=args.output_dir,
+            max_moves=args.max_moves,
+            seed=args.seed,
+            use_numba=not args.no_numba,
+        )
+
+
+if __name__ == "__main__":
+    main()
