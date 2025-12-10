@@ -274,7 +274,7 @@ class NNUETrainer:
             mode="min",
             factor=0.5,
             patience=5,
-            verbose=True,
+            # Note: verbose param removed - deprecated in PyTorch 2.3+
         )
         self.criterion = nn.MSELoss()
 
