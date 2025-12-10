@@ -889,7 +889,43 @@ class GameEngine:
                 game_state.current_phase = GamePhase.GAME_OVER
                 return
 
-        # 3. Early last-player-standing victory (R172).
+        # 3. Early Last-Player-Standing (R172): if exactly one player has stacks
+        # on the board AND all other players have ZERO total rings (board + hand),
+        # that player wins immediately. This matches TS VictoryAggregate.evaluateVictory
+        # early-LPS check (lines 342-363).
+        #
+        # A player's rings on board includes ALL their rings, even if buried
+        # in stacks controlled by other players.
+        #
+        # Note: We only trigger this when there ARE stacks on board. If no stacks
+        # exist, we fall through to the bare-board stalemate logic which handles
+        # global structural terminality.
+        players_with_stacks = set()
+        for stack in game_state.board.stacks.values():
+            players_with_stacks.add(stack.controlling_player)
+
+        # Only consider Early LPS when exactly one player has stacks
+        if len(players_with_stacks) == 1:
+            stack_owner = next(iter(players_with_stacks))
+            # Check if ALL other players have no material (total rings = 0)
+            # This includes rings in hand AND rings on board (even if buried)
+            others_have_material = False
+            for p in game_state.players:
+                if p.player_number == stack_owner:
+                    continue
+                total_rings = count_rings_in_play_for_player(game_state, p.player_number)
+                if total_rings > 0:
+                    others_have_material = True
+                    break
+
+            if not others_have_material:
+                game_state.game_status = GameStatus.COMPLETED
+                game_state.winner = stack_owner
+                game_state.current_player = stack_owner  # TS parity: winner stays current
+                game_state.current_phase = GamePhase.GAME_OVER
+                return
+
+        # 4. Round-based last-player-standing victory (R172).
         # LPS is only evaluated during interactive phases, matching TS
         # lpsTracking.ts LPS_ACTIVE_PHASES.
         # LPS requires THREE consecutive full rounds where the same player is
@@ -953,7 +989,7 @@ class GameEngine:
             game_state.lps_consecutive_exclusive_rounds = 0
             game_state.lps_consecutive_exclusive_player = None
 
-        # 4. Global structural terminality
+        # 5. Global structural terminality
         # Fallback termination is triggered when:
         # (a) No stacks on board AND no rings in hand for any player, OR
         # (b) No stacks on board AND no player with rings in hand has any

@@ -139,10 +139,14 @@ def run_contract_vectors_suite() -> List[ParityCaseResult]:
 
     # Filter out vectors that require orchestrator execution or have known
     # fixture issues (matching the logic in test_contract_vector pytest test)
+    # Orchestrator-tagged vectors may have expected values that assume a different
+    # phase of turn processing (e.g., before victory check runs) and aren't
+    # suitable for single-move apply_move testing.
     vectors = [
         v for v in all_vectors
         if not v.skip
         and "multi_phase" not in v.tags
+        and "orchestrator" not in v.tags
         and v.id not in contract_vectors.KNOWN_FAILING_VECTORS
     ]
 
