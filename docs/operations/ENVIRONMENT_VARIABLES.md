@@ -685,26 +685,25 @@ defaults, see:
 
 These variables control the Finite State Machine (FSM) validation layer that enforces phase/type correctness for all moves.
 
+> **Note:** FSM is now the canonical game state orchestrator (RR-CANON compliance).
+> Shadow mode has been fully removed. See `CANONICAL_ENGINE_API.md` for details.
+
 #### `RINGRIFT_FSM_VALIDATION_MODE`
 
-| Property | Value                     |
-| -------- | ------------------------- |
-| Type     | `enum`                    |
-| Values   | `off`, `shadow`, `active` |
-| Default  | `off`                     |
-| Required | No                        |
+| Property | Value           |
+| -------- | --------------- |
+| Type     | `enum`          |
+| Values   | `off`, `active` |
+| Default  | `active`        |
+| Required | No              |
 
 Controls FSM validation behavior:
 
-- `off`: No FSM validation (legacy mode)
-- `shadow`: FSM runs in parallel, logs divergences without affecting behavior
-- `active`: FSM validation is authoritative, rejects invalid moves
+- `off`: No FSM validation (legacy mode, not recommended)
+- `active`: FSM validation is authoritative, rejects invalid moves (default, canonical)
 
-**Rollout Strategy:**
-
-1. Deploy with `shadow` mode first to monitor divergences
-2. Run validation script: `TS_NODE_PROJECT=tsconfig.server.json npx ts-node -T scripts/validate-fsm-active-mode.ts`
-3. Once validation passes with 0 divergences, switch to `active`
+> **Note:** The `shadow` value was removed when FSM became canonical. FSM is now the
+> single source of truth for game state validation. See `CANONICAL_ENGINE_API.md`.
 
 **Related:**
 
@@ -726,28 +725,26 @@ Enable JSON structured logging for FSM validation events. When enabled, emits on
 {
   "event": "fsm_validation",
   "timestamp": "2025-12-07T...",
-  "mode": "shadow|active",
+  "mode": "active",
   "gameId": "...",
   "moveNumber": 42,
   "moveType": "movement",
   "currentPhase": "main_actions",
-  "fsmValid": true,
-  "divergence": false
+  "fsmValid": true
 }
 ```
 
 Use for production monitoring and metrics collection.
 
-#### `RINGRIFT_FSM_SHADOW_VALIDATION` (Legacy)
+#### `RINGRIFT_FSM_SHADOW_VALIDATION` (Removed)
 
-| Property | Value          |
-| -------- | -------------- |
-| Type     | `boolean`      |
-| Default  | `false`        |
-| Required | No             |
-| Status   | **Deprecated** |
+| Property | Value       |
+| -------- | ----------- |
+| Status   | **Removed** |
 
-Legacy flag for shadow validation. Setting this to `1` is equivalent to `RINGRIFT_FSM_VALIDATION_MODE=shadow`. Use `RINGRIFT_FSM_VALIDATION_MODE` instead.
+This legacy flag has been removed. FSM is now the canonical game state orchestrator
+and shadow validation is no longer supported. Use `RINGRIFT_FSM_VALIDATION_MODE=active`
+(the new default) for authoritative FSM validation.
 
 ---
 

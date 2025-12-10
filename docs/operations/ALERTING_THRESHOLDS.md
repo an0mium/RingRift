@@ -580,7 +580,7 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 1. Check orchestrator error logs and recent deploys (backend `GameEngine` / turn adapter changes).
 2. Verify Python rules and AI services are healthy to rule out dependency cascades.
 3. Follow `docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md`:
-   - Rollout percentage is fixed at 100% (flag removed); focus on shadow mode and circuit breaker posture.
+   - Orchestrator is permanently enabled (100%); focus on circuit breaker posture.
    - Investigate and fix the underlying error pattern.
    - Manually reset the circuit breaker via the admin APIs or config once resolved.
 
@@ -601,26 +601,19 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 
 1. Check `/metrics` and logs for specific orchestrator failure types (validation errors, timeouts, invariant violations).
 2. Correlate with recent code changes or rollout percentage changes.
-3. If errors are increasing, keep rollout at the hardcoded 100% (percentage flag removed) and use shadow mode/circuit-breaker levers per the rollout runbook while triaging.
+3. If errors are increasing, use circuit-breaker levers per the rollout runbook while triaging. FSM is canonical and orchestrator is permanently enabled.
 
 ---
 
-#### OrchestratorShadowMismatches
+#### OrchestratorShadowMismatches (Deprecated)
 
-| Property      | Value                                                    |
-| ------------- | -------------------------------------------------------- |
-| **Severity**  | warning                                                  |
-| **Threshold** | `ringrift_orchestrator_shadow_mismatch_rate > 0.01` (1%) |
-| **Duration**  | 5 minutes                                                |
-| **Impact**    | Possible semantic divergence in shadow mode              |
+| Property   | Value                  |
+| ---------- | ---------------------- |
+| **Status** | **DEPRECATED/REMOVED** |
 
-**Rationale**: When running with `ORCHESTRATOR_SHADOW_MODE_ENABLED=true`, more than 1% mismatches between orchestrator and legacy paths indicates a likely rules or host‑integration bug. This maps to `SLO-STAGE-ORCH-PARITY` / `SLO-PROD-ORCH-PARITY`.
-
-**Response**:
-
-1. Use the shadow comparison dashboards (backed by `ringrift_orchestrator_shadow_mismatch_rate` and related gauges) to inspect mismatch patterns by board type and phase.
-2. Correlate with rules parity alerts (`RulesParity*`) to distinguish orchestrator vs Python divergence.
-3. Hold rollout at current percentage or revert to a safer phase until mismatches are understood and fixed.
+> **Note:** This alert has been deprecated. Shadow mode has been removed - FSM is now
+> the canonical game state orchestrator (RR-CANON compliance). The metric
+> `ringrift_orchestrator_shadow_mismatch_rate` is no longer emitted.
 
 ---
 

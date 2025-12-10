@@ -1,32 +1,37 @@
-# FSM Validation Rollout Runbook
+# FSM Validation Runbook
 
-> **Doc Status (2025-12-07): Active Runbook**
-> **Role:** Step-by-step guide for enabling FSM validation in production
+> **Doc Status (2025-12-09): Active Runbook - FSM Canonical**
+> **Role:** Operational guide for FSM validation (canonical game state orchestrator)
 
 ---
+
+> **RR-CANON Compliance Note:** FSM is now the canonical game state orchestrator.
+> Shadow mode has been fully removed. FSM validation is enabled by default (`active` mode).
+> See `CANONICAL_ENGINE_API.md` for the authoritative API specification.
 
 ## Table of Contents
 
 1. [Overview](#1-overview)
 2. [Pre-Deployment Validation](#2-pre-deployment-validation)
-3. [Rollout Phases](#3-rollout-phases)
-4. [Monitoring](#4-monitoring)
-5. [Rollback Procedure](#5-rollback-procedure)
-6. [Troubleshooting](#6-troubleshooting)
+3. [Monitoring](#3-monitoring)
+4. [Rollback Procedure](#4-rollback-procedure)
+5. [Troubleshooting](#5-troubleshooting)
 
 ---
 
 ## 1. Overview
 
-The FSM (Finite State Machine) validation layer provides phase/type correctness validation for all game moves. It ensures moves are only allowed in their proper game phases.
+The FSM (Finite State Machine) validation layer provides phase/type correctness validation for all game moves. It ensures moves are only allowed in their proper game phases. **FSM is now the canonical game state orchestrator** (RR-CANON compliance).
 
 ### Validation Modes
 
-| Mode     | Behavior                                    | Risk                      |
-| -------- | ------------------------------------------- | ------------------------- |
-| `off`    | No FSM validation (legacy)                  | None                      |
-| `shadow` | FSM runs in parallel, logs divergences      | None (observability only) |
-| `active` | FSM is authoritative, rejects invalid moves | Medium (may reject moves) |
+| Mode     | Behavior                                    | Status                  |
+| -------- | ------------------------------------------- | ----------------------- |
+| `off`    | No FSM validation (legacy)                  | Not recommended         |
+| `active` | FSM is authoritative, rejects invalid moves | **Default (canonical)** |
+
+> **Note:** The `shadow` mode was removed when FSM became canonical. FSM is now the
+> single source of truth for game state validation.
 
 ### Key Files
 
@@ -80,60 +85,7 @@ npm test
 
 ---
 
-## 3. Rollout Phases
-
-### Phase 1: Shadow Mode (Monitor Only)
-
-**Duration:** 1-2 days minimum
-
-```bash
-# Environment configuration
-RINGRIFT_FSM_VALIDATION_MODE=shadow
-RINGRIFT_FSM_STRUCTURED_LOGGING=1
-```
-
-**What to Monitor:**
-
-- Structured logs for divergences (`"divergence": true`)
-- Error rates in application logs
-- Game completion rates
-
-**Success Criteria:**
-
-- [ ] Zero divergences in shadow logs
-- [ ] No increase in error rates
-- [ ] Games completing normally
-
-### Phase 2: Active Mode (Enforcement)
-
-**Prerequisites:**
-
-- Phase 1 completed with 0 divergences
-- Validation script passes: `--mode active`
-
-```bash
-# Environment configuration
-RINGRIFT_FSM_VALIDATION_MODE=active
-RINGRIFT_FSM_STRUCTURED_LOGGING=1
-```
-
-**What to Monitor:**
-
-- FSM rejection errors in logs
-- Player-reported issues
-- Game abandonment rates
-
-### Phase 3: Cleanup (Optional)
-
-After stable operation in active mode:
-
-- Consider removing legacy validation code
-- Remove `RINGRIFT_FSM_SHADOW_VALIDATION` flag support
-- Update documentation
-
----
-
-## 4. Monitoring
+## 3. Monitoring
 
 ### Structured Log Queries
 
@@ -143,42 +95,32 @@ After stable operation in active mode:
 grep '"event":"fsm_validation"' /var/log/ringrift/*.log | jq .
 ```
 
-**Find divergences only:**
+**Find FSM rejections:**
 
 ```bash
-grep '"divergence":true' /var/log/ringrift/*.log | jq .
+grep '"fsmValid":false' /var/log/ringrift/*.log | jq .
 ```
 
-**Count validations by mode:**
+**Count validations:**
 
 ```bash
-grep '"event":"fsm_validation"' /var/log/ringrift/*.log | jq -r '.mode' | sort | uniq -c
+grep '"event":"fsm_validation"' /var/log/ringrift/*.log | wc -l
 ```
 
 ### Key Metrics to Watch
 
-| Metric               | Normal | Warning | Critical |
-| -------------------- | ------ | ------- | -------- |
-| FSM divergence rate  | 0%     | >0.1%   | >1%      |
-| Move rejection rate  | 0%     | >0.01%  | >0.1%    |
-| Game completion rate | >95%   | <95%    | <90%     |
+| Metric                 | Normal | Warning | Critical |
+| ---------------------- | ------ | ------- | -------- |
+| Move rejection rate    | 0%     | >0.01%  | >0.1%    |
+| Game completion rate   | >95%   | <95%    | <90%     |
+| FSM validation latency | <1ms   | >5ms    | >10ms    |
 
 ### Alert Configuration
 
 Add to monitoring alerts:
 
 ```yaml
-# FSM Divergence Alert
-- alert: FSMDivergenceDetected
-  expr: rate(fsm_validation_divergences_total[5m]) > 0
-  for: 1m
-  labels:
-    severity: warning
-  annotations:
-    summary: 'FSM validation divergences detected'
-    description: 'Shadow mode detected FSM/legacy disagreement'
-
-# FSM Rejection Alert (Active Mode)
+# FSM Rejection Alert
 - alert: FSMMoveRejectionHigh
   expr: rate(fsm_validation_rejections_total[5m]) > 0.001
   for: 5m
@@ -186,24 +128,24 @@ Add to monitoring alerts:
     severity: critical
   annotations:
     summary: 'FSM rejecting player moves'
-    description: 'Active mode is rejecting moves at elevated rate'
+    description: 'FSM validation is rejecting moves at elevated rate'
 ```
 
 ---
 
-## 5. Rollback Procedure
+## 4. Rollback Procedure
 
-### Immediate Rollback
+### Emergency Rollback
 
-If issues are detected in active mode:
+If FSM is causing issues, disable it:
 
 ```bash
-# Option 1: Disable FSM completely
+# Disable FSM validation completely (emergency only)
 RINGRIFT_FSM_VALIDATION_MODE=off
-
-# Option 2: Revert to shadow mode (safer for debugging)
-RINGRIFT_FSM_VALIDATION_MODE=shadow
 ```
+
+> **Warning:** Disabling FSM removes canonical game state validation.
+> Only use in emergencies and re-enable after investigation.
 
 **Steps:**
 
@@ -211,36 +153,23 @@ RINGRIFT_FSM_VALIDATION_MODE=shadow
 2. Restart affected services
 3. Verify games are completing normally
 4. Investigate root cause
+5. **Re-enable FSM as soon as possible**
 
 ### Rollback Checklist
 
-- [ ] Set `RINGRIFT_FSM_VALIDATION_MODE=off` or `shadow`
+- [ ] Set `RINGRIFT_FSM_VALIDATION_MODE=off`
 - [ ] Restart services
 - [ ] Verify no more FSM rejections
 - [ ] Check game completion rates returning to normal
 - [ ] Capture logs for post-mortem
+- [ ] Create incident ticket for investigation
+- [ ] Re-enable `RINGRIFT_FSM_VALIDATION_MODE=active` after fix
 
 ---
 
-## 6. Troubleshooting
+## 5. Troubleshooting
 
 ### Common Issues
-
-#### Issue: Shadow Mode Shows Divergences
-
-**Symptom:** Logs show `"divergence": true`
-
-**Investigation:**
-
-1. Check the specific move type causing divergence
-2. Compare FSM phase with expected phase
-3. Review the guard conditions in FSM definition
-
-**Common Causes:**
-
-- FSM guard too strict/lenient
-- Phase transition mismatch
-- Turn tracking discrepancy
 
 #### Issue: Active Mode Rejecting Valid Moves
 
@@ -248,9 +177,9 @@ RINGRIFT_FSM_VALIDATION_MODE=shadow
 
 **Immediate Action:**
 
-1. Rollback to shadow mode
-2. Capture the game state and move that was rejected
-3. Analyze FSM logs for rejection reason
+1. Capture the game state and move that was rejected
+2. Analyze FSM logs for rejection reason
+3. If widespread, consider emergency rollback to `off` mode
 
 **Investigation:**
 
@@ -280,11 +209,12 @@ grep '"fsmValid":false' /var/log/ringrift/*.log | jq '{gameId, moveType, current
 
 ### Environment Variables
 
-| Variable                          | Values                    | Description                         |
-| --------------------------------- | ------------------------- | ----------------------------------- |
-| `RINGRIFT_FSM_VALIDATION_MODE`    | `off`, `shadow`, `active` | FSM validation mode                 |
-| `RINGRIFT_FSM_STRUCTURED_LOGGING` | `1`, `true`               | Enable JSON event logging           |
-| `RINGRIFT_FSM_SHADOW_VALIDATION`  | `1`                       | Legacy: equivalent to `shadow` mode |
+| Variable                          | Values          | Description                           |
+| --------------------------------- | --------------- | ------------------------------------- |
+| `RINGRIFT_FSM_VALIDATION_MODE`    | `off`, `active` | FSM validation mode (default: active) |
+| `RINGRIFT_FSM_STRUCTURED_LOGGING` | `1`, `true`     | Enable JSON event logging             |
+
+> **Note:** `RINGRIFT_FSM_SHADOW_VALIDATION` has been removed. FSM is now canonical.
 
 ### Validation Script Usage
 
@@ -313,5 +243,5 @@ TS_NODE_PROJECT=tsconfig.server.json npx ts-node -T scripts/validate-fsm-active-
 ---
 
 **Document Maintainer:** Claude Code
-**Last Updated:** December 7, 2025
-**Validation Status:** Tested with 686 moves across 9 games, 0 divergences
+**Last Updated:** December 9, 2025
+**FSM Status:** Canonical game state orchestrator (RR-CANON compliant)
