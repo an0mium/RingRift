@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { MobileGameHUD } from '../../../src/client/components/MobileGameHUD';
 import type { HUDViewModel } from '../../../src/client/adapters/gameViewModels';
@@ -30,6 +31,44 @@ function createBaseViewModel(overrides: Partial<HUDViewModel> = {}): HUDViewMode
 }
 
 describe('MobileGameHUD', () => {
+  it('toggles player expansion to show detailed ring stats', async () => {
+    const user = userEvent.setup();
+    const vm = createBaseViewModel({
+      players: [
+        {
+          id: 'p1',
+          username: 'Alice',
+          playerNumber: 1,
+          colorClass: 'bg-blue-500',
+          isCurrentPlayer: true,
+          isUserPlayer: true,
+          timeRemaining: 12_000,
+          ringStats: { inHand: 5, onBoard: 3, eliminated: 1, total: 9 },
+          territorySpaces: 2,
+          aiInfo: {
+            isAI: false,
+            difficulty: 0,
+            difficultyLabel: '',
+            difficultyColor: '',
+            difficultyBgColor: '',
+            aiTypeLabel: '',
+          },
+        },
+      ] as any,
+    });
+
+    render(<MobileGameHUD viewModel={vm} />);
+
+    // Collapsed by default: expanded stats labels are hidden.
+    expect(screen.queryByText('In Hand')).not.toBeInTheDocument();
+
+    // Expand the player row to reveal detailed stats.
+    await user.click(screen.getByRole('button', { name: /You|Alice/ }));
+    expect(screen.getByText('In Hand')).toBeInTheDocument();
+    expect(screen.getByText('On Board')).toBeInTheDocument();
+    expect(screen.getByText('Captured')).toBeInTheDocument();
+  });
+
   it('renders spectator badge with viewer count when spectating', () => {
     const vm = createBaseViewModel({
       isSpectator: true,
@@ -155,5 +194,45 @@ describe('MobileGameHUD', () => {
     const controlsBtn = screen.getByTestId('mobile-controls-button');
     controlsBtn && controlsBtn.click();
     expect(onShowBoardControls).toHaveBeenCalledTimes(1);
+  });
+
+  it('invokes onPlayerTap when a player row is tapped', async () => {
+    const user = userEvent.setup();
+    const onPlayerTap = jest.fn();
+    const vm = createBaseViewModel({
+      players: [
+        {
+          id: 'p1',
+          username: 'Alice',
+          playerNumber: 1,
+          colorClass: 'bg-blue-500',
+          isCurrentPlayer: true,
+          isUserPlayer: true,
+          timeRemaining: 12_000,
+          ringStats: { inHand: 5, onBoard: 3, eliminated: 1, total: 9 },
+          territorySpaces: 2,
+          aiInfo: {
+            isAI: false,
+            difficulty: 0,
+            difficultyLabel: '',
+            difficultyColor: '',
+            difficultyBgColor: '',
+            aiTypeLabel: '',
+          },
+        },
+      ] as any,
+    });
+
+    render(<MobileGameHUD viewModel={vm} onPlayerTap={onPlayerTap} />);
+
+    await user.click(screen.getByRole('button', { name: /You|Alice/ }));
+
+    expect(onPlayerTap).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'p1',
+        username: 'Alice',
+        playerNumber: 1,
+      })
+    );
   });
 });

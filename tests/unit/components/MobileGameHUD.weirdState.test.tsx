@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { MobileGameHUD } from '../../../src/client/components/MobileGameHUD';
 import type { HUDViewModel } from '../../../src/client/adapters/gameViewModels';
@@ -139,6 +140,31 @@ describe('MobileGameHUD – decision timer and weird-state help', () => {
         numPlayers: 2,
         weirdStateType: 'forced-elimination',
         topic: 'forced_elimination',
+      })
+    );
+  });
+
+  it('emits help-open telemetry when phase help is opened', async () => {
+    const vm = baseViewModel();
+
+    render(
+      <MobileGameHUD
+        viewModel={vm}
+        rulesUxContext={{ boardType: 'square8', numPlayers: 2, rulesConcept: 'movement_basic' }}
+      />
+    );
+
+    await userEvent.click(screen.getByTestId('mobile-phase-help-movement'));
+
+    const heading = await screen.findByRole('heading', { name: /Stack Movement/i });
+    expect(heading).toBeInTheDocument();
+
+    expect(sendRulesUxEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'rules_help_open',
+        boardType: 'square8',
+        numPlayers: 2,
+        topic: 'stack_movement',
       })
     );
   });
