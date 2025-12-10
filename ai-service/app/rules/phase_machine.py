@@ -208,15 +208,32 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         # Clear any stale chain_capture_state from previous turns to
         # ensure the first capture is OVERTAKING_CAPTURE (initial), not
         # CONTINUE_CAPTURE_SEGMENT (continuation).
+        #
+        # IMPORTANT: We must enumerate captures ONLY from last_move.to,
+        # NOT from all stacks, to match TS getValidMoves("capture") behavior
+        # which filters by lastMove.to directly. This fixes parity divergence
+        # where Python was not finding captures because must_move_from_stack_key
+        # might not be set/updated correctly for all placement scenarios.
         game_state.chain_capture_state = None
-        capture_moves = GameEngine._get_capture_moves(game_state, current_player)
+
+        # Import here to avoid circular dependency
+        from app.rules.capture_chain import enumerate_capture_moves_py
+
+        attacker_pos = last_move.to
+        capture_moves = enumerate_capture_moves_py(
+            game_state,
+            current_player,
+            attacker_pos,
+            kind="initial",
+        )
+
         # DEBUG: trace capture enumeration after move_stack
         import os
         if os.environ.get("RINGRIFT_TRACE_DEBUG"):
             import sys
-            last_to = last_move.to
             stacks_summary = {k: (s.controlling_player, s.cap_height) for k, s in game_state.board.stacks.items()}
-            print(f"[DEBUG phase_machine] MOVE_STACK landed at {last_to}, player={current_player}, captures={len(capture_moves)}, stacks={stacks_summary}", file=sys.stderr)
+            print(f"[DEBUG phase_machine] MOVE_STACK landed at {attacker_pos}, player={current_player}, captures={len(capture_moves)}, stacks={stacks_summary}", file=sys.stderr)
+
         if capture_moves:
             game_state.current_phase = GamePhase.CAPTURE
         else:
