@@ -1,11 +1,11 @@
 {
   "version": "v2",
-  "generated": "2025-12-10T08:13:56.115Z",
+  "generated": "2025-12-10T10:49:51.421Z",
   "count": 1,
   "categories": ["territory_processing"],
   "vectors": [
     {
-      "id": "territory_processing.mizqg8pf.bvf3",
+      "id": "territory_processing.mizw0rb1.wpbd",
       "version": "v2",
       "category": "territory_processing",
       "description": "Territory region processing (two-space region, square8)",
@@ -17,7 +17,7 @@
         "sequence:territory.region.self_elim.square8"
       ],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:56.115Z",
+      "createdAt": "2025-12-10T10:49:51.421Z",
       "input": {
         "state": {
           "gameId": "contract-territory-composite",
@@ -113,7 +113,7 @@
               "isDisconnected": true
             }
           ],
-          "timestamp": "2025-12-10T08:13:56.112Z",
+          "timestamp": "2025-12-10T10:49:51.418Z",
           "thinkTime": 0,
           "moveNumber": 1
         }
