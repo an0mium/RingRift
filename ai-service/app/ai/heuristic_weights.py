@@ -103,6 +103,11 @@ BASE_V1_BALANCED_WEIGHTS: HeuristicWeights = {
     "WEIGHT_SWAP_OPENING_STRENGTH": 18.71,  # Multiplier for normalized strength
     # v1.4: Training diversity - Swap decision randomness
     "WEIGHT_SWAP_EXPLORATION_TEMPERATURE": -0.83,  # More deterministic swaps
+    # v1.5: Recovery evaluation weights
+    "WEIGHT_RECOVERY_POTENTIAL": 6.0,       # Value of having recovery available
+    "WEIGHT_RECOVERY_ELIGIBILITY": 8.0,     # Bonus/penalty for recovery eligibility status
+    "WEIGHT_BURIED_RING_VALUE": 3.0,        # Value of buried rings as recovery resource
+    "WEIGHT_RECOVERY_THREAT": 5.0,          # Threat from opponent's recovery potential
 }
 
 
@@ -161,6 +166,11 @@ HEURISTIC_WEIGHT_KEYS: list[str] = [
     "WEIGHT_SWAP_OPENING_STRENGTH",
     # v1.4: Training diversity - Swap decision randomness
     "WEIGHT_SWAP_EXPLORATION_TEMPERATURE",
+    # v1.5: Recovery evaluation weights
+    "WEIGHT_RECOVERY_POTENTIAL",
+    "WEIGHT_RECOVERY_ELIGIBILITY",
+    "WEIGHT_BURIED_RING_VALUE",
+    "WEIGHT_RECOVERY_THREAT",
 ]
 
 
