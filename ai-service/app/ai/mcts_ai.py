@@ -745,6 +745,22 @@ class MCTSAI(HeuristicAI):
         if root is None:
             root = MCTSNode(game_state)
             root.untried_moves = list(valid_moves)
+        else:
+            # CRITICAL: When reusing a subtree, the untried_moves may be stale.
+            # Player resources (rings_in_hand) may have changed since the tree
+            # was built. Filter untried_moves to only include moves that are
+            # still valid in the current state. This prevents returning illegal
+            # moves like place_ring when the player has 0 rings.
+            valid_moves_set = {
+                (m.type, m.player, getattr(m, "to", None), getattr(m, "from_pos", None))
+                for m in valid_moves
+            }
+            root.untried_moves = [
+                m
+                for m in root.untried_moves
+                if (m.type, m.player, getattr(m, "to", None), getattr(m, "from_pos", None))
+                in valid_moves_set
+            ]
 
         end_time = time.time() + time_limit
         default_batch_size = 8
@@ -1135,6 +1151,22 @@ class MCTSAI(HeuristicAI):
         if root is None:
             root = MCTSNodeLite()
             root.untried_moves = list(valid_moves)
+        else:
+            # CRITICAL: When reusing a subtree, the untried_moves may be stale.
+            # Player resources (rings_in_hand) may have changed since the tree
+            # was built. Filter untried_moves to only include moves that are
+            # still valid in the current state. This prevents returning illegal
+            # moves like place_ring when the player has 0 rings.
+            valid_moves_set = {
+                (m.type, m.player, getattr(m, "to", None), getattr(m, "from_pos", None))
+                for m in valid_moves
+            }
+            root.untried_moves = [
+                m
+                for m in root.untried_moves
+                if (m.type, m.player, getattr(m, "to", None), getattr(m, "from_pos", None))
+                in valid_moves_set
+            ]
 
         end_time = time.time() + time_limit
         default_batch_size = 8
