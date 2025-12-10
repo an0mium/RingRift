@@ -46,6 +46,7 @@ import { validateMoveWithFSM, type FSMValidationResult } from '../src/shared/eng
 import { connectDatabase, disconnectDatabase } from '../src/server/database/connection';
 import type { PrismaClient } from '@prisma/client';
 import { CanonicalReplayEngine } from '../src/shared/replay/CanonicalReplayEngine';
+import { hasAnyGlobalMovementOrCapture } from '../src/shared/engine/globalActions';
 
 // Known-bad recordings that should be skipped until regenerated.
 const DEFAULT_SKIP_GAME_IDS = new Set<string>([
@@ -404,13 +405,32 @@ const PHASE_ORDER: GamePhase[] = [
 
 /**
  * Get the bookkeeping move type for a phase that has no recorded action.
+ *
+ * For movement, this consults the canonical global movement/capture predicate
+ * so that we only synthesize a forced no_movement_action bridge when TS also
+ * agrees there are no legal moves for the current player. This keeps the
+ * replay bridge aligned with Python's ANM semantics and the FSM guard on
+ * NO_MOVEMENT_ACTION.
  */
-function getBookkeepingMoveType(phase: GamePhase): Move['type'] | null {
+function getBookkeepingMoveType(
+  phase: GamePhase,
+  state: GameState,
+  player: number
+): Move['type'] | null {
   switch (phase) {
     case 'ring_placement':
       return 'no_placement_action';
-    case 'movement':
+    case 'movement': {
+      // Only synthesize a forced no_movement_action bridge when there are no
+      // legal non-capture movements or overtaking captures for this player.
+      // If any such moves exist, the movement phase must be played out via
+      // explicit DB moves and we must not auto-skip it via bookkeeping.
+      const canMove = hasAnyGlobalMovementOrCapture(state, player);
+      if (canMove) {
+        return null;
+      }
       return 'no_movement_action';
+    }
     case 'line_processing':
       return 'no_line_action';
     case 'territory_processing':
@@ -463,12 +483,14 @@ function isMoveValidInPhase(moveType: Move['type'], phase: GamePhase): boolean {
  * @returns Array of bookkeeping moves to inject before nextMove
  */
 function synthesizeBookkeepingMoves(
-  currentPhase: GamePhase,
-  currentPlayer: number,
+  currentState: GameState,
   nextMove: Move,
   moveNumberBase: number
 ): Move[] {
   const synthesized: Move[] = [];
+
+  const currentPhase = currentState.currentPhase;
+  const currentPlayer = currentState.currentPlayer;
 
   // Don't bridge if game is over
   if (currentPhase === 'game_over') {
@@ -490,7 +512,7 @@ function synthesizeBookkeepingMoves(
     // Inject bookkeeping for phases after current until turn ends
     for (let i = currentIdx; i < PHASE_ORDER.length; i++) {
       const phase = PHASE_ORDER[i];
-      const bookkeepingType = getBookkeepingMoveType(phase);
+      const bookkeepingType = getBookkeepingMoveType(phase, currentState, currentPlayer);
       if (bookkeepingType) {
         synthesized.push({
           id: `synthesized-${bookkeepingType}-${moveNumberBase + synthesized.length}`,
@@ -516,7 +538,7 @@ function synthesizeBookkeepingMoves(
     if (nextIdx > currentIdx) {
       for (let i = currentIdx; i < nextIdx; i++) {
         const phase = PHASE_ORDER[i];
-        const bookkeepingType = getBookkeepingMoveType(phase);
+        const bookkeepingType = getBookkeepingMoveType(phase, currentState, currentPlayer);
         if (bookkeepingType) {
           synthesized.push({
             id: `synthesized-${bookkeepingType}-${moveNumberBase + synthesized.length}`,
@@ -716,12 +738,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       );
       break;
     }
-    const bridgeMoves = synthesizeBookkeepingMoves(
-      currentState.currentPhase,
-      currentState.currentPlayer,
-      move,
-      applied + 1
-    );
+    const bridgeMoves = synthesizeBookkeepingMoves(currentState, move, applied + 1);
 
     // Apply any synthesized bookkeeping moves first
     for (const bridgeMove of bridgeMoves) {

@@ -280,26 +280,25 @@ describe('EnvSchema', () => {
       const result = parseEnv(baseValidEnv);
       expect(result.success).toBe(true);
       expect(result.data?.ORCHESTRATOR_ADAPTER_ENABLED).toBe(true);
-      expect(result.data?.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(false);
+      // NOTE: ORCHESTRATOR_SHADOW_MODE_ENABLED removed - FSM is now canonical
       expect(result.data?.ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED).toBe(true);
       expect(result.data?.ORCHESTRATOR_ERROR_THRESHOLD_PERCENT).toBe(5);
       expect(result.data?.ORCHESTRATOR_ERROR_WINDOW_SECONDS).toBe(300);
       expect(result.data?.ORCHESTRATOR_LATENCY_THRESHOLD_MS).toBe(500);
     });
 
-    it('should respect orchestrator shadow mode flag (adapter is permanently enabled)', () => {
+    it('orchestrator adapter is permanently enabled (Phase 3)', () => {
       // Note: ORCHESTRATOR_ADAPTER_ENABLED is permanently hardcoded to true as of 2025-12-01
       // (Phase 3 migration complete). The env var value is ignored.
       // ORCHESTRATOR_ROLLOUT_PERCENTAGE was removed in Phase 3 - orchestrator is always at 100%.
+      // ORCHESTRATOR_SHADOW_MODE_ENABLED was removed - FSM is now canonical.
       const result = parseEnv({
         ...baseValidEnv,
         ORCHESTRATOR_ADAPTER_ENABLED: '0', // Ignored - always returns true
-        ORCHESTRATOR_SHADOW_MODE_ENABLED: '1',
       });
       expect(result.success).toBe(true);
       // Always true - orchestrator is permanently enabled
       expect(result.data?.ORCHESTRATOR_ADAPTER_ENABLED).toBe(true);
-      expect(result.data?.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(true);
     });
   });
 
@@ -348,7 +347,8 @@ describe('EnvSchema', () => {
 
   describe('RINGRIFT_RULES_MODE validation', () => {
     it('should accept valid rules mode values', () => {
-      const validModes = ['ts', 'python', 'shadow'];
+      // NOTE: 'shadow' mode removed - FSM is now canonical
+      const validModes = ['ts', 'python'];
       for (const mode of validModes) {
         const result = parseEnv({ ...baseValidEnv, RINGRIFT_RULES_MODE: mode });
         expect(result.success).toBe(true);
@@ -420,11 +420,11 @@ describe('EnvSchema', () => {
     it('CI orchestrator profile matches orchestrator-ON defaults', () => {
       // Note: ORCHESTRATOR_ROLLOUT_PERCENTAGE was removed in Phase 3 migration.
       // Orchestrator is permanently enabled at 100%.
+      // Note: ORCHESTRATOR_SHADOW_MODE_ENABLED removed - FSM is canonical.
       const env = withBaseEnv({
         NODE_ENV: 'test',
         RINGRIFT_RULES_MODE: 'ts',
         ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_SHADOW_MODE_ENABLED: 'false',
       });
 
       const result = parseEnv(env);
@@ -434,18 +434,17 @@ describe('EnvSchema', () => {
       expect(data.NODE_ENV).toBe('test');
       expect(data.RINGRIFT_RULES_MODE).toBe('ts');
       expect(data.ORCHESTRATOR_ADAPTER_ENABLED).toBe(true);
-      expect(data.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(false);
     });
 
     it('staging Phase 1 (orchestrator-only) profile is valid', () => {
       // Note: ORCHESTRATOR_ROLLOUT_PERCENTAGE was removed in Phase 3 migration.
       // Orchestrator is permanently enabled at 100%.
+      // Note: ORCHESTRATOR_SHADOW_MODE_ENABLED removed - FSM is canonical.
       const env = withBaseEnv({
         NODE_ENV: 'staging',
         RINGRIFT_APP_TOPOLOGY: 'multi-sticky',
         RINGRIFT_RULES_MODE: 'ts',
         ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_SHADOW_MODE_ENABLED: 'false',
       });
 
       const result = parseEnv(env);
@@ -456,40 +455,20 @@ describe('EnvSchema', () => {
       expect(data.RINGRIFT_APP_TOPOLOGY).toBe('multi-sticky');
       expect(data.RINGRIFT_RULES_MODE).toBe('ts');
       expect(data.ORCHESTRATOR_ADAPTER_ENABLED).toBe(true);
-      expect(data.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(false);
     });
 
-    it('production Phase 2 (legacy authoritative + shadow) profile is valid', () => {
-      // Note: ORCHESTRATOR_ROLLOUT_PERCENTAGE was removed in Phase 3 migration.
-      // This test preserves the shadow mode validation but no longer tests rollout percentage.
-      const env = withBaseEnv({
-        NODE_ENV: 'production',
-        RINGRIFT_APP_TOPOLOGY: 'multi-sticky',
-        RINGRIFT_RULES_MODE: 'shadow',
-        ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_SHADOW_MODE_ENABLED: 'true',
-      });
-
-      const result = parseEnv(env);
-      expect(result.success).toBe(true);
-
-      const data = result.data!;
-      expect(data.NODE_ENV).toBe('production');
-      expect(data.RINGRIFT_APP_TOPOLOGY).toBe('multi-sticky');
-      expect(data.RINGRIFT_RULES_MODE).toBe('shadow');
-      expect(data.ORCHESTRATOR_ADAPTER_ENABLED).toBe(true);
-      expect(data.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(true);
-    });
+    // NOTE: Shadow mode test removed - FSM is now canonical and
+    // RINGRIFT_RULES_MODE=shadow is no longer a valid configuration.
 
     it('production profile validates with orchestrator permanently enabled', () => {
       // Note: ORCHESTRATOR_ROLLOUT_PERCENTAGE was removed in Phase 3 migration.
       // Orchestrator is permanently enabled at 100% - incremental rollout no longer supported.
+      // Note: ORCHESTRATOR_SHADOW_MODE_ENABLED removed - FSM is canonical.
       const env = withBaseEnv({
         NODE_ENV: 'production',
         RINGRIFT_APP_TOPOLOGY: 'multi-sticky',
         RINGRIFT_RULES_MODE: 'ts',
         ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_SHADOW_MODE_ENABLED: 'false',
       });
 
       const result = parseEnv(env);
@@ -500,7 +479,7 @@ describe('EnvSchema', () => {
       expect(data.RINGRIFT_APP_TOPOLOGY).toBe('multi-sticky');
       expect(data.RINGRIFT_RULES_MODE).toBe('ts');
       expect(data.ORCHESTRATOR_ADAPTER_ENABLED).toBe(true);
-      expect(data.ORCHESTRATOR_SHADOW_MODE_ENABLED).toBe(false);
+      // NOTE: ORCHESTRATOR_SHADOW_MODE_ENABLED removed - FSM is now canonical
     });
   });
 });

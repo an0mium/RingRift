@@ -77,6 +77,33 @@ describe('ChoiceDialog keyboard + cancel interactions', () => {
     expect(onSelectOption).not.toHaveBeenCalled();
   });
 
+  it('wraps focus to last option when pressing ArrowUp at the top', async () => {
+    render(
+      <ChoiceDialog
+        choice={lineOrderChoice}
+        choiceViewModel={undefined}
+        deadline={Date.now() + 12_000}
+        timeRemainingMs={12_000}
+        isServerCapped={false}
+        onSelectOption={jest.fn()}
+        onCancel={jest.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    const buttons = screen.getAllByRole('option');
+
+    const lastIndex = buttons.length - 1;
+    const lastFocusSpy = jest.spyOn(buttons[lastIndex], 'focus');
+
+    await act(async () => {
+      fireEvent.keyDown(dialog, { key: 'ArrowUp' });
+    });
+
+    expect(lastFocusSpy).toHaveBeenCalled();
+    lastFocusSpy.mockRestore();
+  });
+
   it('invokes onCancel when cancel button is clicked and does not submit options', () => {
     const onSelectOption = jest.fn();
     const onCancel = jest.fn();

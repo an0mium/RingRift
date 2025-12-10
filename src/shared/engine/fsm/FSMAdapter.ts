@@ -45,6 +45,7 @@ import { getValidMoves, validateMove } from '../orchestration/turnOrchestrator';
 import { findLinesForPlayer } from '../lineDetection';
 import { findDisconnectedRegions } from '../territoryDetection';
 import { enumerateChainCaptureSegments } from '../aggregates/CaptureAggregate';
+import { hasAnyGlobalMovementOrCapture } from '../globalActions';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MOVE → EVENT CONVERSION
@@ -407,11 +408,11 @@ function deriveRingPlacementState(
 }
 
 function deriveMovementState(state: GameState, player: number): MovementState {
-  const validMoves = getValidMoves(state);
-  const movementMoves = validMoves.filter(
-    (m) => m.type === 'move_stack' || m.type === 'move_ring' || m.type === 'overtaking_capture'
-  );
-  const canMove = movementMoves.length > 0;
+  // Use canonical global movement/capture semantics (RR-CANON-R200/R205) rather than
+  // phase-local getValidMoves(state), so that MovementState.canMove is derived for the
+  // intended player even when currentPlayer differs during replay. This keeps the
+  // NO_MOVEMENT_ACTION guard aligned with Python's ANM predicate and DB history.
+  const canMove = hasAnyGlobalMovementOrCapture(state, player);
 
   // Get the ring just placed (if any)
   const lastMove =

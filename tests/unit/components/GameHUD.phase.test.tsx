@@ -1,0 +1,137 @@
+import React from 'react';
+import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import { GameHUD } from '../../../src/client/components/GameHUD';
+import type { HUDViewModel } from '../../../src/client/adapters/gameViewModels';
+import type { GameState, Player } from '../../../src/shared/types/game';
+
+function basePlayers(): Player[] {
+  return [
+    {
+      id: 'p1',
+      username: 'Alice',
+      playerNumber: 1,
+      type: 'human',
+      isReady: true,
+      timeRemaining: 60_000,
+      ringsInHand: 5,
+      eliminatedRings: 1,
+      territorySpaces: 2,
+    },
+    {
+      id: 'p2',
+      username: 'Bob',
+      playerNumber: 2,
+      type: 'human',
+      isReady: true,
+      timeRemaining: 60_000,
+      ringsInHand: 4,
+      eliminatedRings: 2,
+      territorySpaces: 0,
+    },
+  ];
+}
+
+function baseGameState(): GameState {
+  const players = basePlayers();
+  return {
+    id: 'g1',
+    boardType: 'square8',
+    board: {
+      stacks: new Map(),
+      markers: new Map(),
+      collapsedSpaces: new Map(),
+      territories: new Map(),
+      formedLines: [],
+      eliminatedRings: {},
+      size: 8,
+      type: 'square8',
+    },
+    players,
+    currentPhase: 'movement',
+    currentPlayer: 1,
+    moveHistory: [],
+    history: [],
+    timeControl: { type: 'rapid', initialTime: 600, increment: 0 },
+    spectators: [],
+    gameStatus: 'active',
+    createdAt: new Date(),
+    lastMoveAt: new Date(),
+    isRated: false,
+    maxPlayers: players.length,
+    totalRingsInPlay: 0,
+    totalRingsEliminated: 0,
+    victoryThreshold: 10,
+    territoryVictoryThreshold: 32,
+  };
+}
+
+function baseHudViewModel(): HUDViewModel {
+  return {
+    phase: {
+      phaseKey: 'movement',
+      label: 'Movement Phase',
+      description: 'Move a stack or capture opponent pieces',
+      icon: '⚡',
+      colorClass: 'bg-green-500',
+      actionHint: 'Select your stack, then click a destination to move',
+      spectatorHint: 'Player is choosing a move',
+    },
+    players: [
+      {
+        id: 'p1',
+        username: 'Alice',
+        playerNumber: 1,
+        colorClass: 'bg-blue-500',
+        isCurrentPlayer: true,
+        isUserPlayer: true,
+        timeRemaining: 60_000,
+        ringStats: { inHand: 5, onBoard: 3, eliminated: 1, total: 9 },
+        territorySpaces: 2,
+        aiInfo: {
+          isAI: false,
+          difficulty: 0,
+          difficultyLabel: '',
+          difficultyColor: '',
+          difficultyBgColor: '',
+          aiTypeLabel: '',
+        },
+      },
+    ],
+    decisions: [],
+    timers: {
+      serverTimeOffsetMs: 0,
+      decisionDeadlineMs: null,
+      reconciledDecisionTimeRemainingMs: null,
+      isServerCapped: false,
+    },
+    connectionStatus: 'connected',
+    isSpectator: false,
+    isLocalSandboxOnly: false,
+  };
+}
+
+describe('GameHUD phase indicator hints', () => {
+  it('shows action hint when user is the current player', () => {
+    const hud = baseHudViewModel();
+    const state = baseGameState();
+
+    render(<GameHUD viewModel={hud} timeControl={state.timeControl} />);
+
+    expect(screen.getByTestId('phase-action-hint')).toHaveTextContent(
+      'Select your stack, then click a destination to move'
+    );
+  });
+
+  it('shows spectator hint instead of action hint when viewing as spectator', () => {
+    const hud = baseHudViewModel();
+    hud.isSpectator = true;
+    const state = baseGameState();
+
+    render(<GameHUD viewModel={hud} timeControl={state.timeControl} isSpectator={true} />);
+
+    // For spectators, the phase contextual hint should use the spectator copy.
+    const hint = screen.getByTestId('phase-action-hint');
+    expect(hint).toHaveTextContent('Player is choosing a move');
+  });
+});
