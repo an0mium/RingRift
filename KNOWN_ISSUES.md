@@ -949,27 +949,27 @@ These issues have been addressed but are kept here for context:
 
 **Component(s):** Python `recovery.py`, TS `RecoveryAggregate.ts`
 **Severity:** P2 (affects rare 4P game scenarios)
-**Status:** Under investigation
+**Status:** ✅ RESOLVED (Dec 10, 2025)
 
-**Symptom:** One 4P game (fa21f59a) fails TS replay at move 316 with error
+**Original Symptom:** One 4P game (fa21f59a) failed TS replay at move 316 with error
 "Invalid recovery slide: Destination has a marker" after the ring array
-convention fix was applied. Python allowed the move; TS rejects it.
+convention fix was applied. Python allowed the move; TS rejected it.
 
-**Rule Reference:** Per RR-CANON-R111, recovery slide destination must be:
+**Investigation Findings:**
 
-- Not collapsed
-- **Empty (no stack, no marker)**
+- Both Python (`recovery.py:215-218`) and TS (`RecoveryAggregate.ts:435-440`)
+  correctly validate that recovery destinations must have no marker
+- The issue was NOT a validation bug but a **state divergence** caused by the
+  ring array convention bugs that were fixed in commit `8532599b`
+- The incorrect `controllingPlayer` calculation and `indexOf` vs `lastIndexOf`
+  usage caused earlier state divergence that manifested as marker differences
 
-**Analysis Needed:**
+**Resolution:**
 
-- Verify whether Python's recovery validation correctly enforces "no marker"
-  constraint per RR-CANON-R111
-- If Python allows sliding to marker destination, this is a Python bug
-- If both engines have the same validation but state diverged earlier,
-  investigate marker placement/removal parity
-
-**Impact:** Affects ~1 in 5+ 4P games with recovery actions. Does not affect
-core game logic correctness for games that don't hit this scenario.
+- The ring array convention fix (commit `8532599b`) resolved this issue
+- Post-fix 4P soak testing shows **9/9 games completed successfully** with
+  no "Destination has a marker" errors
+- Victory types: LPS (6), Territory (2), Elimination (1)
 
 ---
 
