@@ -325,7 +325,7 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
   let phase = gameState.currentPhase;
   if (moveHint?.type === 'process_territory_region') {
     phase = 'territory_processing';
-  } else if (moveHint?.type === 'select_line_reward' || moveHint?.type === 'no_line_action') {
+  } else if (moveHint?.type === 'choose_line_reward' || moveHint?.type === 'no_line_action') {
     phase = 'line_processing';
   }
 
