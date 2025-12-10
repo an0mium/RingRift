@@ -14,6 +14,34 @@ import type { GameEndExplanation } from '../gameEndExplanation';
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+ * FSM-derived decision surface.
+ * Contains the raw data for pending decisions as determined by FSM orchestration.
+ * This is the authoritative source for decision timing per FSM integration.
+ */
+export interface FSMDecisionSurface {
+  /** Type of pending decision if any */
+  pendingDecisionType?:
+    | 'chain_capture'
+    | 'line_order_required'
+    | 'no_line_action_required'
+    | 'region_order_required'
+    | 'no_territory_action_required'
+    | 'forced_elimination';
+
+  /** Detected lines for the current player (line_processing phase) */
+  pendingLines?: Array<{ positions: Position[]; player?: number }>;
+
+  /** Territory regions for the current player (territory_processing phase) */
+  pendingRegions?: Array<{ positions: Position[]; eliminationsRequired?: number }>;
+
+  /** Chain capture continuation targets (chain_capture phase) */
+  chainContinuations?: Array<{ target: Position }>;
+
+  /** Number of rings that must be eliminated (forced_elimination phase) */
+  forcedEliminationCount?: number;
+}
+
+/**
  * Result of processing a turn via the canonical orchestrator.
  */
 export interface ProcessTurnResult {
@@ -31,6 +59,14 @@ export interface ProcessTurnResult {
 
   /** Processing metadata for debugging/logging */
   metadata: ProcessingMetadata;
+
+  /**
+   * FSM-derived decision surface (Phase 2 of FSM integration).
+   * Contains the raw FSM orchestration data for decisions.
+   * Hosts can use this for advanced decision handling or debugging.
+   * The `pendingDecision` field is derived from this surface.
+   */
+  fsmDecisionSurface?: FSMDecisionSurface;
 }
 
 /**

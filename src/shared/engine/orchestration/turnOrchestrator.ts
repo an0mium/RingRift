@@ -56,6 +56,7 @@ import type {
   VictoryState,
   DetectedLineInfo,
   PlayerScore,
+  FSMDecisionSurface,
 } from './types';
 
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
@@ -1466,6 +1467,7 @@ export function processTurn(
   let finalStatus: ProcessTurnResult['status'] = finalPendingDecision
     ? 'awaiting_decision'
     : 'complete';
+  let finalFsmDecisionSurface: FSMDecisionSurface | undefined;
 
   // Territory bookkeeping is fully explicit; do not surface forced elimination
   // immediately after territory decisions. The next player must start in
@@ -1671,6 +1673,40 @@ export function processTurn(
           });
         }
       }
+
+      // Phase 2: Build FSMDecisionSurface for the result.
+      // This exposes the raw FSM orchestration data to hosts.
+      const fsmSurface = fsmOrchResult.decisionSurface;
+      if (fsmOrchResult.pendingDecisionType || fsmSurface) {
+        const surface: FSMDecisionSurface = {};
+        if (fsmOrchResult.pendingDecisionType) {
+          surface.pendingDecisionType = fsmOrchResult.pendingDecisionType;
+        }
+        if (fsmSurface?.pendingLines) {
+          surface.pendingLines = fsmSurface.pendingLines.map((l) => {
+            const lineEntry: { positions: Position[]; player?: number } = {
+              positions: l.positions,
+            };
+            if ('player' in l && typeof (l as { player: number }).player === 'number') {
+              lineEntry.player = (l as { player: number }).player;
+            }
+            return lineEntry;
+          });
+        }
+        if (fsmSurface?.pendingRegions) {
+          surface.pendingRegions = fsmSurface.pendingRegions.map((r) => ({
+            positions: r.positions,
+            eliminationsRequired: r.eliminationsRequired,
+          }));
+        }
+        if (fsmSurface?.chainContinuations) {
+          surface.chainContinuations = fsmSurface.chainContinuations;
+        }
+        if (fsmSurface?.forcedEliminationCount !== undefined) {
+          surface.forcedEliminationCount = fsmSurface.forcedEliminationCount;
+        }
+        finalFsmDecisionSurface = surface;
+      }
     }
   } catch (err) {
     fsmTraceLog('[FSM_ORCHESTRATOR] EXCEPTION', {
@@ -1682,13 +1718,20 @@ export function processTurn(
     });
   }
 
-  return {
+  const processTurnResult: ProcessTurnResult = {
     nextState: finalState,
     status: finalPendingDecision ? 'awaiting_decision' : 'complete',
     pendingDecision: finalPendingDecision,
     victoryResult: finalVictory,
     metadata,
   };
+
+  // Add FSM decision surface if available (Phase 2)
+  if (finalFsmDecisionSurface) {
+    processTurnResult.fsmDecisionSurface = finalFsmDecisionSurface;
+  }
+
+  return processTurnResult;
 }
 
 /**
