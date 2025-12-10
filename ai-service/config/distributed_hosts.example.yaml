@@ -1,0 +1,104 @@
+# Distributed Hosts Configuration Template
+# Copy this file to distributed_hosts.yaml and fill in your host details
+# This file contains private network information and should NOT be committed
+
+hosts:
+  # ============================================
+  # Local Machines (via Tailscale or local network)
+  # ============================================
+
+  local-workstation:
+    # Example: Mac Studio with GPU for training
+    ssh_host: '100.x.x.x' # Tailscale IP or local IP
+    ssh_user: 'yourusername'
+    ssh_key: '~/.ssh/id_rsa' # Optional SSH key path
+    ringrift_path: '~/Development/RingRift/ai-service'
+    venv_activate: 'source ~/Development/RingRift/ai-service/venv/bin/activate'
+    memory_gb: 64
+    cpus: 8
+    gpu: 'Apple M3 Max (MPS)' # Optional, for display
+    role: 'nn_training_mps' # Role: selfplay, nn_training, cmaes, all
+    status: 'ready' # ready, disabled, maintenance
+
+  # ============================================
+  # Cloud GPU Instances
+  # ============================================
+
+  gpu-instance-1:
+    # Example: Lambda Labs or similar GPU cloud
+    ssh_host: 'xxx.xxx.xxx.xxx'
+    ssh_user: 'ubuntu'
+    # ssh_key: "~/.ssh/your-key.pem"  # Uncomment if using key auth
+    ringrift_path: '/home/ubuntu/ringrift/ai-service'
+    venv_activate: 'source /home/ubuntu/ringrift/ai-service/venv/bin/activate'
+    memory_gb: 128
+    cpus: 16
+    gpu: 'NVIDIA A100 (40GB)'
+    role: 'nn_training'
+    status: 'ready'
+
+  # ============================================
+  # Vast.ai Instances (note: custom SSH ports)
+  # ============================================
+
+  vast-gpu-1:
+    # Vast.ai instances use custom SSH ports
+    ssh_host: 'xxx.xxx.xxx.xxx'
+    ssh_port: 12345 # Custom SSH port from Vast.ai dashboard
+    ssh_user: 'root'
+    ringrift_path: '/root/ringrift/ai-service'
+    venv_activate: 'source /root/ringrift/ai-service/venv/bin/activate'
+    memory_gb: 512
+    cpus: 48
+    gpu: 'RTX 4090 (24GB)'
+    role: 'nn_training'
+    storage_type: 'disk' # disk or ram (vast.ai /dev/shm)
+    status: 'ready'
+
+  # ============================================
+  # AWS/GCP/Azure Instances
+  # ============================================
+
+  aws-staging:
+    # AWS instance with specific key file
+    ssh_host: 'xxx.xxx.xxx.xxx' # Elastic IP recommended
+    ssh_user: 'ubuntu'
+    ssh_key: '~/.ssh/your-aws-key.pem' # Required for AWS
+    ringrift_path: '/home/ubuntu/ringrift/ai-service'
+    venv_activate: 'source /home/ubuntu/ringrift/ai-service/venv/bin/activate'
+    memory_gb: 128
+    cpus: 16
+    role: 'selfplay_cmaes'
+    status: 'ready'
+    # Optional: worker endpoint for distributed CMA-ES
+    # worker_url: "http://xxx.xxx.xxx.xxx:8766"
+    # worker_port: 8766
+
+# ============================================
+# Configuration Notes
+# ============================================
+#
+# Roles:
+#   - selfplay: Only runs selfplay games
+#   - selfplay_light: Light selfplay (for lower-memory machines)
+#   - nn_training: Neural network training (requires GPU)
+#   - nn_training_mps: Neural network training with Apple MPS
+#   - nn_training_primary: Primary training host
+#   - cmaes: CMA-ES hyperparameter optimization
+#   - selfplay_cmaes: Selfplay + CMA-ES worker
+#   - all: All tasks
+#
+# Status:
+#   - ready: Host is available for tasks
+#   - disabled: Host is skipped by orchestrator
+#   - maintenance: Host is temporarily unavailable
+#   - ssh_key_issue: Host has SSH key problems
+#
+# SSH Setup:
+#   1. Ensure passwordless SSH is configured
+#   2. Add SSH public key to remote hosts
+#   3. Test with: ssh -o BatchMode=yes user@host "echo ok"
+#
+# Tailscale:
+#   For local machines, use Tailscale IPs (100.x.x.x) for
+#   reliable connectivity across networks
