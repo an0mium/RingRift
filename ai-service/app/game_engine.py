@@ -2765,10 +2765,14 @@ class GameEngine:
             player_number,
         )
 
+        # Filter to regions controlled by the active player, matching TS FSMAdapter:
+        # `const playerRegions = regions.filter((r: Territory) => r.controllingPlayer === player)`
+        # This ensures only regions where the border is the active player's color are processed.
         eligible_regions = [
             region
             for region in (regions or [])
-            if GameEngine._can_process_disconnected_region(
+            if region.controlling_player == player_number
+            and GameEngine._can_process_disconnected_region(
                 game_state,
                 region,
                 player_number,

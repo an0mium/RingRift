@@ -124,13 +124,15 @@ This document tracks the FSM extension roadmap, now largely complete.
 | Add `compare_fsm_with_legacy()` function      | ✅ Done | `ai-service/app/rules/fsm.py`    |
 | Update Python FSM parity tests                | ✅ Done | `tests/rules/test_fsm_parity.py` |
 | Graduate Python FSM as canonical              | ✅ Done | `ai-service/app/rules/fsm.py`    |
+| Wire `GameEngine._update_phase` to FSM        | ✅ Done | `ai-service/app/game_engine.py`  |
 
 **Outcome:**
 
 - Python FSM types mirror TypeScript exactly
-- All 19 Python FSM parity tests pass
+- All 28 Python FSM parity tests pass
 - FSM behavior is canonical in Python (skips empty phases correctly)
-- Legacy phase_machine comparison preserved for regression detection
+- `GameEngine._update_phase` now uses `compute_fsm_orchestration()` for phase transitions
+- Legacy phase_machine kept as fallback (RINGRIFT_FSM_VALIDATION_MODE=off)
 
 ### Phase 5: UI/Telemetry Integration (P2)
 

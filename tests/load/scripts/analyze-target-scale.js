@@ -186,13 +186,87 @@ function percentile(sortedArray, p) {
 }
 
 /**
+ * Derive concurrent games statistics from the concurrent_active_games gauge.
+ *
+ * The underlying k6 metric is a Gauge that is intentionally used in a
+ * "delta-style" fashion across VUs:
+ *   - +1 when a VU transitions from no active game → active game
+ *   - -1 when that VU retires its active game
+ *
+ * We therefore reconstruct an approximate global concurrency timeline by
+ * sorting samples by time and taking a cumulative sum of these deltas.
+ */
+function computeConcurrentGameStats(concurrentGameSamples, startTime, endTime) {
+  const samples = concurrentGameSamples || [];
+  const count = samples.length;
+
+  if (count === 0) {
+    return {
+      max: 0,
+      avg: 0,
+      hasSamples: false,
+    };
+  }
+
+  // Treat each sample value as a delta (+1 / -1) applied to the global
+  // concurrent games counter. This matches how the concurrent-games and
+  // websocket-gameplay scenarios emit the Gauge.
+  const sorted = [...samples].sort((a, b) => a.time - b.time);
+
+  let concurrency = 0;
+  let maxConcurrency = 0;
+  let lastTime = startTime || sorted[0].time;
+  let areaMs = 0;
+
+  for (const point of sorted) {
+    const t = point.time;
+    const dt = t - lastTime;
+
+    if (dt > 0) {
+      // Integrate concurrency over time to approximate an average later.
+      areaMs += concurrency * dt;
+    }
+
+    concurrency += point.value;
+
+    if (concurrency < 0) {
+      // Guard against occasional out-of-order samples or double-decrements.
+      concurrency = 0;
+    }
+
+    if (concurrency > maxConcurrency) {
+      maxConcurrency = concurrency;
+    }
+
+    lastTime = t;
+  }
+
+  const seriesStart = startTime || sorted[0].time;
+  const seriesEnd = endTime || lastTime;
+  const durationMs = seriesEnd - seriesStart;
+
+  if (durationMs > 0) {
+    areaMs += concurrency * Math.max(0, seriesEnd - lastTime);
+  }
+
+  const avgConcurrency = durationMs > 0 ? areaMs / durationMs : maxConcurrency;
+
+  return {
+    max: maxConcurrency,
+    avg: avgConcurrency,
+    hasSamples: true,
+  };
+}
+
+/**
  * Calculate statistics from raw metrics
  */
 function calculateStatistics(metrics) {
   const latencyValues = metrics.http_req_duration.map((d) => d.value);
   const sortedLatencies = [...latencyValues].sort((a, b) => a - b);
   const vusValues = metrics.vus.map((d) => d.value);
-  const concurrentGamesValues = metrics.concurrent_games.map((d) => d.value);
+  const { max: maxConcurrentGames, avg: avgConcurrentGames, hasSamples: hasConcurrentGamesSamples } =
+    computeConcurrentGameStats(metrics.concurrent_games, metrics.startTime, metrics.endTime);
 
   const duration_ms =
     metrics.startTime && metrics.endTime ? metrics.endTime - metrics.startTime : 0;
@@ -234,15 +308,11 @@ function calculateStatistics(metrics) {
         vusValues.length > 0
           ? vusValues.reduce((a, b) => a + b, 0) / vusValues.length
           : 0,
-      max_concurrent_games:
-        concurrentGamesValues.length > 0 ? Math.max(...concurrentGamesValues) : 0,
-      avg_concurrent_games:
-        concurrentGamesValues.length > 0
-          ? concurrentGamesValues.reduce((a, b) => a + b, 0) / concurrentGamesValues.length
-          : 0,
+      max_concurrent_games: maxConcurrentGames,
+      avg_concurrent_games: avgConcurrentGames,
       // Explicit sample flags so callers can distinguish "metric missing" from "0".
       has_concurrent_vus_samples: vusValues.length > 0,
-      has_concurrent_games_samples: concurrentGamesValues.length > 0,
+      has_concurrent_games_samples: hasConcurrentGamesSamples,
     },
 
     throughput: {

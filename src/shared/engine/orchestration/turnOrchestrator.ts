@@ -1252,6 +1252,16 @@ export function processTurn(
 
   stateMachine.updateGameState(applyResult.nextState);
 
+  // DEBUG: Log mustMoveFromStackKey propagation
+  if (process.env.RINGRIFT_TRACE_DEBUG === '1') {
+    // eslint-disable-next-line no-console
+    console.log('[processTurn] after updateGameState, mustMoveFromStackKey:', {
+      moveType: move.type,
+      fromApplyResult: applyResult.nextState.mustMoveFromStackKey,
+      inStateMachine: stateMachine.gameState.mustMoveFromStackKey,
+    });
+  }
+
   // Compute hash after applying move
   const hashAfter = hashGameState(stateMachine.gameState);
   const moveActuallyChangedState = hashBefore !== hashAfter;
@@ -1477,6 +1487,15 @@ export function processTurn(
       error: err instanceof Error ? err.message : String(err),
       gameId: state.id,
       moveNumber: state.moveHistory.length + 1,
+    });
+  }
+
+  // DEBUG: Final mustMoveFromStackKey before return
+  if (process.env.RINGRIFT_TRACE_DEBUG === '1') {
+    // eslint-disable-next-line no-console
+    console.log('[processTurn] FINAL return, mustMoveFromStackKey:', {
+      moveType: move.type,
+      finalStateMustMoveFromStackKey: finalState.mustMoveFromStackKey,
     });
   }
 
@@ -1745,7 +1764,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
     case 'skip_territory_processing': {
       // Explicit skip in territory_processing phase when player opts out of
       // processing available regions. Rotate to next player and start their
-      // turn in ring_placement phase.
+      // turn in ring_placement phase. Clear mustMoveFromStackKey for new turn.
       const players = state.players;
       const currentPlayerIndex = players.findIndex((p) => p.playerNumber === state.currentPlayer);
       const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
@@ -1756,6 +1775,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
           ...state,
           currentPlayer: nextPlayer,
           currentPhase: 'ring_placement' as GamePhase,
+          mustMoveFromStackKey: undefined, // Clear for new turn
         },
       };
     }
@@ -1986,10 +2006,12 @@ function processPostMovePhases(
     // Always begin the next turn in ring_placement. When no legal placements exist
     // (including ringsInHand == 0), hosts must emit a NO_PLACEMENT_ACTION bookkeeping
     // move based on the phase requirements. This matches Python's _end_turn behavior.
+    // Clear mustMoveFromStackKey for new turn.
     stateMachine.updateGameState({
       ...currentState,
       currentPlayer: nextPlayer,
       currentPhase: 'ring_placement',
+      mustMoveFromStackKey: undefined, // Clear for new turn
     });
 
     return {};
@@ -2278,6 +2300,7 @@ function processPostMovePhases(
     }
 
     // Advance explicitly to the next player's ring_placement phase.
+    // Clear mustMoveFromStackKey as it only applies within a single turn.
     const currentState = stateMachine.gameState;
     const players = currentState.players;
     const currentPlayerIndex = players.findIndex(
@@ -2290,6 +2313,7 @@ function processPostMovePhases(
       ...currentState,
       currentPlayer: nextPlayer,
       currentPhase: 'ring_placement',
+      mustMoveFromStackKey: undefined, // Clear for new turn
     });
     return {};
   }
