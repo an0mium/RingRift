@@ -1138,10 +1138,7 @@ export class GameSession {
           const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
           appliedMoveType = engineMove.type;
 
-          result =
-            this.engineSelection === EngineSelection.SHADOW
-              ? await this.applyMoveWithOrchestratorShadow(state, engineMove)
-              : await this.rulesFacade.applyMove(engineMove);
+          result = await this.rulesFacade.applyMove(engineMove);
         } else {
           // Get AI move with timeout
           const aiMove = await this.getAIMoveWithTimeout(
@@ -1167,10 +1164,7 @@ export class GameSession {
           const engineMove = rest as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
           appliedMoveType = engineMove.type;
 
-          result =
-            this.engineSelection === EngineSelection.SHADOW
-              ? await this.applyMoveWithOrchestratorShadow(state, engineMove)
-              : await this.rulesFacade.applyMove(engineMove);
+          result = await this.rulesFacade.applyMove(engineMove);
         }
 
         if (!result.success) {
@@ -1335,10 +1329,7 @@ export class GameSession {
     const fallbackMove = globalAIEngine.getLocalFallbackMove(playerNumber, state, fallbackRng);
 
     if (fallbackMove) {
-      const result =
-        this.engineSelection === EngineSelection.SHADOW
-          ? await this.applyMoveWithOrchestratorShadow(state, fallbackMove)
-          : await this.rulesFacade.applyMove(fallbackMove);
+      const result = await this.rulesFacade.applyMove(fallbackMove);
 
       if (result.success) {
         this.aiRequestState = markCompleted(this.aiRequestState);
@@ -1375,10 +1366,7 @@ export class GameSession {
     const fallbackMove = globalAIEngine.getLocalFallbackMove(playerNumber, state, fallbackRng);
 
     if (fallbackMove) {
-      const result =
-        this.engineSelection === EngineSelection.SHADOW
-          ? await this.applyMoveWithOrchestratorShadow(state, fallbackMove)
-          : await this.rulesFacade.applyMove(fallbackMove);
+      const result = await this.rulesFacade.applyMove(fallbackMove);
 
       if (result.success) {
         this.aiRequestState = markCompleted(this.aiRequestState);
