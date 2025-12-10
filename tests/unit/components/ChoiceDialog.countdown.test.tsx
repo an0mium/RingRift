@@ -62,4 +62,22 @@ describe('ChoiceDialog countdown + server cap styling', () => {
     expect(screen.getByText(/Respond within/i)).toBeInTheDocument();
     expect(screen.getByText(/2s/)).toBeInTheDocument();
   });
+
+  it('falls back to timeout copy when time remaining is unknown', () => {
+    const choice = buildLineRewardChoice();
+
+    render(
+      <ChoiceDialog
+        choice={choice}
+        choiceViewModel={undefined}
+        deadline={Date.now() + 5_000}
+        timeRemainingMs={null}
+        isServerCapped={false}
+        onSelectOption={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('choice-countdown')).toBeInTheDocument();
+    expect(screen.getByText(/Choice timeout active/i)).toBeInTheDocument();
+  });
 });

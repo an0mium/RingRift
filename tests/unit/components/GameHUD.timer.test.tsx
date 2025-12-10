@@ -152,16 +152,30 @@ describe('GameHUD player timers', () => {
     expect(screen.getByText('1:08')).toBeInTheDocument();
   });
 
-  it('highlights low time in red when under one minute', () => {
+  it('marks critical severity when under 3 seconds', () => {
     const hud = baseHudViewModel();
-    // Simulate low time for active player.
-    hud.players[0].timeRemaining = 50_000;
+    // Simulate critical low time for active player.
+    hud.players[0].timeRemaining = 2_000;
     const state = baseGameState();
-    state.players[0].timeRemaining = 50_000;
+    state.players[0].timeRemaining = 2_000;
 
     render(<GameHUD viewModel={hud} timeControl={state.timeControl} />);
 
-    const timer = screen.getByText('0:50');
+    const timer = screen.getByLabelText('Alice time remaining: 0:02');
+    expect(timer).toHaveAttribute('data-severity', 'critical');
     expect(timer).toHaveClass('text-red-600');
+  });
+
+  it('shows warning severity when time is low but above critical threshold', () => {
+    const hud = baseHudViewModel();
+    hud.players[0].timeRemaining = 5_000;
+    const state = baseGameState();
+    state.players[0].timeRemaining = 5_000;
+
+    render(<GameHUD viewModel={hud} timeControl={state.timeControl} />);
+
+    const timer = screen.getByLabelText('Alice time remaining: 0:05');
+    expect(timer).toHaveAttribute('data-severity', 'warning');
+    expect(timer).toHaveClass('text-amber-400');
   });
 });
