@@ -460,13 +460,14 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 
 **Goal:** Ensure TypeScript replay engine perfectly matches Python game recordings
 
-**Validation Results:**
+**Validation Results (Updated 2025-12-10):**
 
-| Database             | Total Games | Passing | Skipped | FSM Failures |
-| -------------------- | ----------- | ------- | ------- | ------------ |
-| canonical_square8.db | 3           | 3       | 0       | 0            |
-| selfplay.db          | 7           | 6       | 1       | 0            |
-| **Total**            | **10**      | **9**   | **1**   | **0**        |
+| Database                | Player Count | Total Games | Passing | FSM Warnings | Status |
+| ----------------------- | ------------ | ----------- | ------- | ------------ | ------ |
+| canonical_square8.db    | 2P           | 3           | 3       | 0-2/game     | ✅     |
+| canonical_square8_3p.db | 3P           | 3           | 3       | 0/game       | ✅     |
+| canonical_square8_4p.db | 4P           | 1           | 1       | 2/game       | ✅     |
+| **Total**               | **All**      | **7**       | **7**   | **N/A**      | ✅     |
 
 **Key Fixes Applied:**
 
@@ -480,7 +481,11 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 2. **turnOrchestrator Phase Transitions (RR-CANON-R073):**
    - Next player starts in `movement` phase when `ringsInHand == 0` (`turnOrchestrator.ts:2256-2275`)
 
-3. **Replay Script Skip Patterns:**
+3. **Replay Tolerance Coercion (RR-CANON-R073/R075/R076) - NEW:**
+   - **2P/3P/4P `no_movement_action` coercion** (`turnOrchestrator.ts:1296-1317`): When `territory_processing` phase receives `no_movement_action` from a different player, coerce to `movement` phase with correct player. This handles Python's turn rotation after `no_territory_action` when TS hasn't advanced yet.
+   - **4P player-skip placement coercion** (`turnOrchestrator.ts:1235-1255`): When placement moves (`place_ring`, `skip_placement`, `no_placement_action`) arrive from a different player while in `territory_processing`, `movement`, `line_processing`, or `ring_placement`, coerce to `ring_placement` with correct player. This handles Python skipping players with no turn-material.
+
+4. **Replay Script Skip Patterns:**
    - Skip redundant `no_placement_action` moves when already in movement phase
    - Skip redundant `no_line_action` moves outside line_processing phase
    - Added 1 legacy game to skip list (chain_capture recording bug)
