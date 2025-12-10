@@ -2650,6 +2650,15 @@ export async function processTurnAsync(
 
 /**
  * Check if a move is valid for the current game state.
+ *
+ * @deprecated Use `validateMoveWithFSM` from `../fsm` instead. This legacy
+ * validator is maintained for backward compatibility but FSM validation is
+ * now the canonical validator used by `processTurn`. FSM validation provides:
+ * - Phase-aware validation per RR-CANON-R070/R075
+ * - Consistent behavior between TypeScript and Python
+ * - Better error messages with FSM state context
+ *
+ * This function may be removed in a future release.
  */
 export function validateMove(state: GameState, move: Move): { valid: boolean; reason?: string } {
   switch (move.type) {
