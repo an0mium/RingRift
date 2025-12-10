@@ -811,6 +811,30 @@ def run_self_play_soak(
                         skipped = True
                         break
 
+                    # Validate that the AI-selected move is in the legal moves list.
+                    # This guards against AI bugs where the AI returns a move that
+                    # isn't actually legal for the current player (e.g., place_ring
+                    # when the player has 0 rings in hand).
+                    move_is_legal = any(
+                        m.type == move.type
+                        and m.player == move.player
+                        and getattr(m, "to", None) == getattr(move, "to", None)
+                        and getattr(m, "from_pos", None) == getattr(move, "from_pos", None)
+                        for m in legal_moves
+                    )
+                    if not move_is_legal:
+                        termination_reason = f"ai_selected_illegal_move:{move.type.value}"
+                        _record_invariant_violation(
+                            "AI_ILLEGAL_MOVE",
+                            state,
+                            game_idx,
+                            move_count,
+                            per_game_violations,
+                            invariant_violation_samples,
+                        )
+                        skipped = True
+                        break
+
                     # If the AI proposes swap_sides during ring_placement when the pie
                     # rule is enabled, treat it as an illegal move for parity runs and
                     # skip the game instead of recording a mis-ordered trace.

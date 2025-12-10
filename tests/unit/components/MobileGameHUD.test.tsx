@@ -140,4 +140,20 @@ describe('MobileGameHUD', () => {
     expect(skipHint).toBeInTheDocument();
     expect(skipHint).toHaveTextContent(/Skip available/i);
   });
+
+  it('surfaces connection status and board controls button in footer', () => {
+    const onShowBoardControls = jest.fn();
+    const vm = createBaseViewModel({
+      connectionStatus: 'reconnecting' as any,
+      isConnectionStale: true,
+    });
+
+    render(<MobileGameHUD viewModel={vm} onShowBoardControls={onShowBoardControls} />);
+
+    expect(screen.getByText(/reconnecting/i)).toBeInTheDocument();
+
+    const controlsBtn = screen.getByTestId('mobile-controls-button');
+    controlsBtn && controlsBtn.click();
+    expect(onShowBoardControls).toHaveBeenCalledTimes(1);
+  });
 });

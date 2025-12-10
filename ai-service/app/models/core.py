@@ -285,6 +285,7 @@ class Move(BaseModel):
     marker_left: Optional[Position] = Field(None, alias="markerLeft")
 
     # Line / territory metadata for decision phases
+    line_index: Optional[int] = Field(None, alias="lineIndex")
     formed_lines: Optional[Tuple[LineInfo, ...]] = Field(
         default=None, alias="formedLines"
     )

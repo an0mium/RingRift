@@ -409,6 +409,9 @@ def test_replay_ts_trace_fixtures_and_assert_python_state_parity() -> None:
                     "validate_move mismatch at step "
                     f"{idx} in {os.path.basename(path)}"
                 )
+                # Skip applying invalid moves - they shouldn't mutate state
+                if not expected["tsValid"]:
+                    continue
 
             # Territory-processing numeric parity is currently known to diverge
             # between Python and the multi-region v2 fixtures (see
@@ -488,6 +491,11 @@ def test_default_engine_matches_game_engine_when_replaying_ts_traces() -> None:
         for idx, step in enumerate(steps):
             # Skip steps marked with skip: true
             if step.get("skip"):
+                continue
+
+            # Skip steps with expected tsValid: false (invalid moves)
+            expected = step.get("expected", {}) or {}
+            if expected.get("tsValid") is False:
                 continue
 
             move_dict = step["move"]

@@ -30,37 +30,27 @@ class LineValidator(Validator):
         ):
             return False
 
-        # 4. Line Existence & Ownership
-        # The move should reference a line that exists in
-        # state.board.formed_lines and belongs to the player.
-        # Note: The Move object for line processing usually contains the line
-        # info or an index/ID. The current Python Move model has `formed_lines`
-        # tuple. We need to verify that the line being processed is actually
-        # present in the board state.
-
-        # For PROCESS_LINE (canonical auto-processing or explicit choice
-        # start), we expect the move to correspond to one of the lines in
-        # board.formed_lines.
-
-        # Since the Python Move model doesn't strictly link to a specific line
-        # ID in the same way the TS one might (TS uses line index or object
-        # equality), we'll check if the player has ANY lines to process.
-
-        player_lines = [
-            line for line in state.board.formed_lines
-            if line.player == move.player
-        ]
-
-        if not player_lines:
+        # 4. Line Index Check (mirrors TS validateProcessLine)
+        # TS requires action.lineIndex to be a valid index into formedLines.
+        if move.line_index is None:
             return False
 
-        # 5. Option Validity for CHOOSE_LINE_REWARD / CHOOSE_LINE_OPTION
+        if move.line_index < 0 or move.line_index >= len(state.board.formed_lines):
+            return False
+
+        line = state.board.formed_lines[move.line_index]
+
+        # 5. Line Ownership Check
+        if line.player != move.player:
+            return False
+
+        # 6. Option Validity for CHOOSE_LINE_REWARD / CHOOSE_LINE_OPTION
         # Mirrors TS LineValidator.validateChooseLineReward:
         # If collapsed_markers provided, validate count & consecutiveness
-        if move.type in (  # noqa: E501
+        if move.type in (
             MoveType.CHOOSE_LINE_REWARD, MoveType.CHOOSE_LINE_OPTION
         ):
-            return self._validate_line_reward_choice(state, move, player_lines)
+            return self._validate_line_reward_choice(state, move, line)
 
         return True
 
@@ -68,7 +58,7 @@ class LineValidator(Validator):
         self,
         state: GameState,
         move: Move,
-        player_lines: list
+        target_line: "LineInfo"  # noqa: F821
     ) -> bool:
         """
         Validate collapsed_markers for line reward choice.
@@ -79,17 +69,6 @@ class LineValidator(Validator):
                                      must be consecutive positions from line
         """
         required_length = get_line_length_for_board(state.board_type)
-
-        # Find the matching line from move.formed_lines or state lines
-        target_line = None
-        if move.formed_lines and len(move.formed_lines) > 0:
-            target_line = move.formed_lines[0]
-        elif player_lines:
-            # Fall back to first player line in state
-            target_line = player_lines[0]
-
-        if target_line is None:
-            return False
 
         # If collapsed_markers is not provided, it's Option 1 (collapse all)
         # which is always valid for any line.

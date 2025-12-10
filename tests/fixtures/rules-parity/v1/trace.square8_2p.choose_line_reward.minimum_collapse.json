@@ -100,6 +100,7 @@
         "id": "fixture-square8-2p-choose-line-reward",
         "type": "choose_line_reward",
         "player": 1,
+        "lineIndex": 0,
         "to": {
           "x": 0,
           "y": 0

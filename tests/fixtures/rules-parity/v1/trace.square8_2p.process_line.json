@@ -1,7 +1,7 @@
 {
   "version": "v1",
   "boardType": "square8",
-  "description": "Tests that process_line validation requires proper line targeting (lineIndex). This fixture has a malformed move without lineIndex - both TS and Python should reject it.",
+  "description": "Tests that process_line validation requires proper line targeting (lineIndex). Move without lineIndex should be rejected by both TS and Python.",
   "initialState": {
     "boardType": "square8",
     "id": "rules-parity-square8-2p",
@@ -79,10 +79,10 @@
   },
   "steps": [
     {
-      "label": "process_line_malformed_no_lineIndex",
-      "description": "Move lacks lineIndex - TS throws error, Python should also reject",
+      "label": "process_line_missing_lineIndex",
+      "description": "Move lacks lineIndex - both TS and Python should reject",
       "move": {
-        "id": "fixture-square8-2p-process-line",
+        "id": "fixture-square8-2p-process-line-missing-index",
         "type": "process_line",
         "player": 1,
         "to": { "x": 0, "y": 0 },
@@ -105,9 +105,37 @@
       },
       "expected": {
         "tsValid": false
+      }
+    },
+    {
+      "label": "process_line_valid_with_lineIndex",
+      "description": "Move with valid lineIndex - both TS and Python should accept",
+      "move": {
+        "id": "fixture-square8-2p-process-line-valid",
+        "type": "process_line",
+        "player": 1,
+        "lineIndex": 0,
+        "to": { "x": 0, "y": 0 },
+        "formedLines": [
+          {
+            "positions": [
+              { "x": 0, "y": 0 },
+              { "x": 0, "y": 1 },
+              { "x": 0, "y": 2 },
+              { "x": 0, "y": 3 }
+            ],
+            "player": 1,
+            "length": 4,
+            "direction": { "x": 0, "y": 1 }
+          }
+        ],
+        "timestamp": "1970-01-01T00:00:00.000Z",
+        "thinkTime": 0,
+        "moveNumber": 2
       },
-      "skip": true,
-      "skipReason": "Python LineValidator does not require lineIndex - different design from TS. Skipping until Python adds line_index support."
+      "expected": {
+        "tsValid": true
+      }
     }
   ]
 }
