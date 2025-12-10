@@ -1,7 +1,7 @@
 {
   "version": "v1",
   "boardType": "square8",
-  "description": "Tests process_line validation with single-line auto-selection. When only one line exists for the player, the adapter auto-selects it (legacy compatibility behavior per moveActionAdapter.ts:270-275). Line length is exactly 3 (the minimum for square8) so process_line is the correct action type.",
+  "description": "Tests process_line validation with canonical fields. Per CANONICAL_ENGINE_API.md, ProcessLineAction requires lineIndex. Line length is exactly 3 (the minimum for square8) so process_line is the correct action type.",
   "initialState": {
     "boardType": "square8",
     "id": "rules-parity-square8-2p",
@@ -77,13 +77,26 @@
   },
   "steps": [
     {
-      "label": "process_line_single_line_auto_select",
-      "description": "Move without explicit lineIndex/formedLines - TS auto-selects single line for player (legacy compatibility per moveActionAdapter.ts:270-275). Line length equals minimum (3) so process_line action applies.",
+      "label": "process_line_canonical",
+      "description": "Canonical process_line with lineIndex=0 and formedLines. Both TS and Python should validate successfully.",
       "move": {
-        "id": "fixture-square8-2p-process-line-auto-select",
+        "id": "fixture-square8-2p-process-line-canonical",
         "type": "process_line",
         "player": 1,
+        "lineIndex": 0,
         "to": { "x": 0, "y": 0 },
+        "formedLines": [
+          {
+            "positions": [
+              { "x": 0, "y": 0 },
+              { "x": 0, "y": 1 },
+              { "x": 0, "y": 2 }
+            ],
+            "player": 1,
+            "length": 3,
+            "direction": { "x": 0, "y": 1 }
+          }
+        ],
         "timestamp": "1970-01-01T00:00:00.000Z",
         "thinkTime": 0,
         "moveNumber": 1
