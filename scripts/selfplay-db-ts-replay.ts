@@ -52,6 +52,8 @@ import { CanonicalReplayEngine } from '../src/shared/replay/CanonicalReplayEngin
 const DEFAULT_SKIP_GAME_IDS = new Set<string>([
   // canonical_square8.db: territory -> no_placement_action off-phase, missing initial state (non-canonical).
   '151ba34a-b7bf-4845-a779-5232221f592e',
+  // selfplay.db: chain_capture interrupted by no_line_action bookkeeping (legacy recording bug).
+  '6b8b1145-7078-476b-a72f-75a35faecb5e',
 ]);
 
 type Mode = 'replay' | 'import';
@@ -723,10 +725,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
     // RR-CANON-R073: When ringsInHand == 0, TS starts directly in movement phase.
     // Skip redundant no_placement_action moves recorded by Python when already in movement.
-    if (
-      move.type === 'no_placement_action' &&
-      currentState.currentPhase === 'movement'
-    ) {
+    if (move.type === 'no_placement_action' && currentState.currentPhase === 'movement') {
       // eslint-disable-next-line no-console
       console.log(
         JSON.stringify({
@@ -742,10 +741,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
     // Skip redundant no_line_action moves recorded during phases where line processing
     // doesn't occur (e.g., chain_capture). These are legacy recording artifacts.
-    if (
-      move.type === 'no_line_action' &&
-      currentState.currentPhase !== 'line_processing'
-    ) {
+    if (move.type === 'no_line_action' && currentState.currentPhase !== 'line_processing') {
       // eslint-disable-next-line no-console
       console.log(
         JSON.stringify({
