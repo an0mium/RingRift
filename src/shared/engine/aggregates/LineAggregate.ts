@@ -744,15 +744,22 @@ export function enumerateProcessLineMoves(
   }
 
   const boardType = state.board.type as BoardType;
-  const minLineLength = BOARD_CONFIGS[boardType].lineLength;
+  // Use the effective line length threshold which accounts for player count
+  // (e.g., square8 2-player requires 4, while 3-4 player requires 3).
+  // This matches Python's BoardManager.find_all_lines and ensures ANM parity.
+  const minLineLength = getEffectiveLineLengthThreshold(
+    boardType,
+    state.players.length,
+    state.rulesOptions
+  );
 
   const nextMoveNumber = computeNextMoveNumber(state);
   const moves: Move[] = [];
 
   playerLines.forEach((line, index) => {
-    // Filter out lines that do not meet the **base** detection threshold for
-    // this board type. For square8 this is 3 markers, matching Python's
-    // BoardManager.find_all_lines behaviour. Shorter patterns are ignored.
+    // Filter out lines that do not meet the effective threshold for this
+    // board type and player count. Per RR-CANON-R120, square8 2-player uses
+    // line length 4, while 3-4 player uses 3.
     if (line.length < minLineLength) {
       return;
     }

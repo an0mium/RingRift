@@ -731,8 +731,17 @@ These issues have been addressed but are kept here for context:
   1. ✅ FIXED: `evaluateVictory()` trapped-position check (lines 102-135) now treats
      players with stacks as "can act" (either real moves or forced elimination).
      Changed `!hasForcedEliminationAction` to just `playerHasStacks` (Dec 10, 2025).
-  2. TODO: Align line detection semantics in `has_phase_local_interactive_move()` between
-     Python and TS for LINE_PROCESSING phase.
+  2. ✅ FIXED: `enumerateProcessLineMoves()` in TS (`src/shared/engine/aggregates/LineAggregate.ts`)
+     now uses `getEffectiveLineLengthThreshold()` instead of base `BOARD_CONFIGS[boardType].lineLength`.
+     This aligns with Python's `BoardManager.find_all_lines()` which uses
+     `get_effective_line_length(board.type, num_players)`. For square8 2-player, both now
+     correctly require line length 4 (per RR-CANON-R120). Dec 10, 2025.
+  3. ✅ FIXED: Python `has_phase_local_interactive_move()` in `ai-service/app/rules/global_actions.py`
+     now calls `GameEngine._get_line_processing_moves()` directly for LINE_PROCESSING phase,
+     matching the TS behavior of using fresh line detection. Dec 10, 2025.
+
+  **Current Status:** ANM parity is now aligned between Python and TS engines. 3-game
+  canonical parity soak shows 0 semantic divergences (down from 3 ANM divergences before fix).
 
 - **4-Player Rotation Parity (Dec 10, 2025 – OPEN)** –
   Multi-player games (especially 4P) show player rotation divergences where

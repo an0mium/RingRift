@@ -117,6 +117,21 @@ def has_phase_local_interactive_move(
     if phase == GamePhase.FORCED_ELIMINATION:
         return has_forced_elimination_action(state, player)
 
+    # LINE_PROCESSING: Call line-processing enumeration directly, matching TS
+    # `enumerateProcessLineMoves(state, player, { detectionMode: 'detect_now' })`.
+    # Per RR-CANON-R204, this uses fresh line detection to determine if any
+    # lines exist for the player. This ensures ANM computation is identical
+    # between Python and TS engines.
+    if phase == GamePhase.LINE_PROCESSING:
+        moves = GameEngine._get_line_processing_moves(state, player)
+        return len(moves) > 0
+
+    # TERRITORY_PROCESSING: Call territory enumeration directly, matching TS
+    # `enumerateProcessTerritoryRegionMoves` + `enumerateTerritoryEliminationMoves`.
+    if phase == GamePhase.TERRITORY_PROCESSING:
+        moves = GameEngine._get_territory_processing_moves(state, player)
+        return len(moves) > 0
+
     # For other phases, consult the canonical move generator. It returns only
     # interactive moves; bookkeeping no_* moves are surfaced via
     # get_phase_requirement / synthesize_bookkeeping_move instead.
@@ -143,18 +158,6 @@ def has_phase_local_interactive_move(
         interactive_types = {
             MoveType.OVERTAKING_CAPTURE,
             MoveType.CONTINUE_CAPTURE_SEGMENT,
-        }
-    elif phase == GamePhase.LINE_PROCESSING:
-        interactive_types = {
-            MoveType.PROCESS_LINE,
-            MoveType.CHOOSE_LINE_REWARD,
-        }
-    elif phase == GamePhase.TERRITORY_PROCESSING:
-        interactive_types = {
-            MoveType.PROCESS_TERRITORY_REGION,
-            MoveType.ELIMINATE_RINGS_FROM_STACK,
-            MoveType.CHOOSE_TERRITORY_OPTION,
-            MoveType.SKIP_TERRITORY_PROCESSING,
         }
     else:
         return False
