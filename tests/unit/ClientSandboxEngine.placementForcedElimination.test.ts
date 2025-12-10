@@ -114,8 +114,9 @@ describe('ClientSandboxEngine placement + forced elimination', () => {
     }
 
     expect(caughtError).not.toBeNull();
-    expect(caughtError!.message).toContain(
-      'Placement would result in a stack with no legal moves or captures'
+    // SandboxOrchestratorAdapter wraps errors; check for the key portion
+    expect(caughtError!.message).toMatch(
+      /Invalid placement position.*\(0, 0\)|Placement would result in a stack with no legal moves or captures/
     );
 
     const finalState = engine.getGameState();

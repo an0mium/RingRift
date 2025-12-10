@@ -163,6 +163,7 @@ ai-service/data/games/synced_*/
 # Selfplay debug artifacts (large state bundles and parity summaries)
 ai-service/data/games/*.state_bundles/
 ai-service/data/games/*.parity_summary.json
+ai-service/data/games/*.parity_gate.json
 ai-service/data/games/failures/
 ai-service/parity_summary.*.json
 

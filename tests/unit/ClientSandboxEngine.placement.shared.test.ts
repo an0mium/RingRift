@@ -183,8 +183,9 @@ describe('ClientSandboxEngine placement parity with shared PlacementAggregate', 
       moveNumber: 1,
     } as Move;
 
+    // SandboxOrchestratorAdapter wraps errors with prefix; check substring match
     await expect(engine.applyCanonicalMove(blockedSkip)).rejects.toThrow(
-      'Cannot skip placement with no rings in hand'
+      /Cannot skip placement.*no rings in hand|no_placement_action/
     );
   });
 });

@@ -1719,12 +1719,17 @@ export function computeFSMOrchestration(
   }
 
   // Extract next phase and player from FSM state
-  const nextPhase = nextState.phase;
+  let nextPhase = nextState.phase;
   let nextPlayer: number;
 
   if (nextState.phase === 'turn_end') {
     // Turn ended - next player is in the state
     nextPlayer = (nextState as { nextPlayer: number }).nextPlayer;
+    // Per RR-CANON: resolve turn_end to actual starting phase based on next player's material
+    // ring_placement if ringsInHand > 0, else movement
+    const nextPlayerIdx = nextPlayer - 1; // 0-indexed
+    const nextPlayerRingsInHand = gameState.players[nextPlayerIdx]?.ringsInHand ?? 0;
+    nextPhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
   } else if (nextState.phase === 'game_over') {
     // Game over - player doesn't matter
     nextPlayer = gameState.currentPlayer;
@@ -1841,11 +1846,22 @@ function isTerritoryPhaseMove(moveType: Move['type']): boolean {
 /**
  * Compare FSM orchestration result with legacy orchestration result.
  * Returns divergence details if they differ.
+ *
+ * Per RR-CANON, when a turn ends (FSM returns `turn_end`), the next player's
+ * starting phase depends on their material:
+ * - ring_placement if ringsInHand > 0
+ * - movement if ringsInHand == 0 but they control at least one stack
+ *
+ * @param fsmResult - The FSM orchestration result
+ * @param legacyPhase - The phase from the legacy/Python orchestration
+ * @param legacyPlayer - The player from the legacy/Python orchestration
+ * @param nextPlayerRingsInHand - Optional: next player's rings in hand for turn_end resolution
  */
 export function compareFSMWithLegacy(
   fsmResult: FSMOrchestrationResult,
   legacyPhase: string,
-  legacyPlayer: number
+  legacyPlayer: number,
+  nextPlayerRingsInHand?: number
 ): {
   diverged: boolean;
   phaseDiverged: boolean;
@@ -1857,9 +1873,21 @@ export function compareFSMWithLegacy(
     legacyPlayer: number;
   };
 } {
-  // Map FSM turn_end to ring_placement for comparison (turn_end means next player starts)
-  const effectiveFSMPhase =
-    fsmResult.nextPhase === 'turn_end' ? 'ring_placement' : fsmResult.nextPhase;
+  // Map FSM turn_end to the actual starting phase based on next player's material
+  // Per RR-CANON: ring_placement if ringsInHand > 0, else movement
+  let effectiveFSMPhase: string;
+  if (fsmResult.nextPhase === 'turn_end') {
+    if (nextPlayerRingsInHand !== undefined && nextPlayerRingsInHand > 0) {
+      effectiveFSMPhase = 'ring_placement';
+    } else if (nextPlayerRingsInHand !== undefined && nextPlayerRingsInHand === 0) {
+      effectiveFSMPhase = 'movement';
+    } else {
+      // Fallback when ringsInHand not provided - assume ring_placement (legacy behavior)
+      effectiveFSMPhase = 'ring_placement';
+    }
+  } else {
+    effectiveFSMPhase = fsmResult.nextPhase;
+  }
 
   const phaseDiverged = effectiveFSMPhase !== legacyPhase;
   const playerDiverged = fsmResult.nextPlayer !== legacyPlayer;
