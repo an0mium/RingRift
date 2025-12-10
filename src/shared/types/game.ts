@@ -910,9 +910,9 @@ export const BOARD_CONFIGS = {
     size: 8,
     totalSpaces: 64,
     ringsPerPlayer: 18,
-    // Line length for 8x8 is always 3 (per RR-CANON-R120).
-    // getEffectiveLineLengthThreshold returns this base value regardless
-    // of player count.
+    // Base line length for 8x8 is 3 (per RR-CANON-R120).
+    // NOTE: getEffectiveLineLengthThreshold returns 4 for 2-player games
+    // and 3 for 3-4 player games. This is the base value.
     lineLength: 3,
     movementAdjacency: 'moore' as AdjacencyType, // 8-direction movement
     lineAdjacency: 'moore' as AdjacencyType, // 8-direction line formation

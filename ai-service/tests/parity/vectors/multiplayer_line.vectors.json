@@ -1,0 +1,434 @@
+{
+  "version": "v2",
+  "generated": "2025-12-10T00:00:00.000Z",
+  "count": 6,
+  "categories": ["line_processing", "multiplayer"],
+  "description": "Contract vectors for multi-player (3-4p) line formation per RR-CANON-R120",
+  "vectors": [
+    {
+      "id": "line.3player.exact_length_3",
+      "version": "v2",
+      "category": "line_processing",
+      "description": "3-player square8: 3-marker line is valid (threshold=3 per RR-CANON-R120)",
+      "tags": ["line", "3player", "exact_length", "square8"],
+      "source": "manual",
+      "createdAt": "2025-12-10T00:00:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "line-3p-exact-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,0": { "position": { "x": 0, "y": 0 }, "player": 1, "type": "regular" },
+              "1,0": { "position": { "x": 1, "y": 0 }, "player": 1, "type": "regular" },
+              "2,0": { "position": { "x": 2, "y": 0 }, "player": 1, "type": "regular" }
+            },
+            "collapsedSpaces": {}
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 16,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 3,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "gameStatus": "active",
+          "moveHistory": [],
+          "totalRingsEliminated": 0,
+          "maxPlayers": 3
+        }
+      },
+      "assertions": {
+        "lineDetection": {
+          "lineCount": 1,
+          "lineLength": 3,
+          "linePlayer": 1,
+          "effectiveThreshold": 3
+        }
+      }
+    },
+    {
+      "id": "line.4player.exact_length_3",
+      "version": "v2",
+      "category": "line_processing",
+      "description": "4-player square8: 3-marker line is valid (threshold=3 per RR-CANON-R120)",
+      "tags": ["line", "4player", "exact_length", "square8"],
+      "source": "manual",
+      "createdAt": "2025-12-10T00:00:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "line-4p-exact-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "2,2": { "position": { "x": 2, "y": 2 }, "player": 1, "type": "regular" },
+              "3,3": { "position": { "x": 3, "y": 3 }, "player": 1, "type": "regular" },
+              "4,4": { "position": { "x": 4, "y": 4 }, "player": 1, "type": "regular" }
+            },
+            "collapsedSpaces": {}
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 16,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 3,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 4,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "gameStatus": "active",
+          "moveHistory": [],
+          "totalRingsEliminated": 0,
+          "maxPlayers": 4
+        }
+      },
+      "assertions": {
+        "lineDetection": {
+          "lineCount": 1,
+          "lineLength": 3,
+          "linePlayer": 1,
+          "effectiveThreshold": 3
+        }
+      }
+    },
+    {
+      "id": "line.2player.3markers_no_line",
+      "version": "v2",
+      "category": "line_processing",
+      "description": "2-player square8: 3 markers do NOT form a line (threshold=4 per RR-CANON-R120)",
+      "tags": ["line", "2player", "below_threshold", "square8"],
+      "source": "manual",
+      "createdAt": "2025-12-10T00:00:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "line-2p-no-line-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,0": { "position": { "x": 0, "y": 0 }, "player": 1, "type": "regular" },
+              "1,0": { "position": { "x": 1, "y": 0 }, "player": 1, "type": "regular" },
+              "2,0": { "position": { "x": 2, "y": 0 }, "player": 1, "type": "regular" }
+            },
+            "collapsedSpaces": {}
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 16,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "gameStatus": "active",
+          "moveHistory": [],
+          "totalRingsEliminated": 0,
+          "maxPlayers": 2
+        }
+      },
+      "assertions": {
+        "lineDetection": {
+          "lineCount": 0,
+          "effectiveThreshold": 4
+        }
+      }
+    },
+    {
+      "id": "line.2player.exact_length_4",
+      "version": "v2",
+      "category": "line_processing",
+      "description": "2-player square8: 4-marker line is valid (threshold=4 per RR-CANON-R120)",
+      "tags": ["line", "2player", "exact_length", "square8"],
+      "source": "manual",
+      "createdAt": "2025-12-10T00:00:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "line-2p-exact-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,0": { "position": { "x": 0, "y": 0 }, "player": 1, "type": "regular" },
+              "1,0": { "position": { "x": 1, "y": 0 }, "player": 1, "type": "regular" },
+              "2,0": { "position": { "x": 2, "y": 0 }, "player": 1, "type": "regular" },
+              "3,0": { "position": { "x": 3, "y": 0 }, "player": 1, "type": "regular" }
+            },
+            "collapsedSpaces": {}
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 14,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "gameStatus": "active",
+          "moveHistory": [],
+          "totalRingsEliminated": 0,
+          "maxPlayers": 2
+        }
+      },
+      "assertions": {
+        "lineDetection": {
+          "lineCount": 1,
+          "lineLength": 4,
+          "linePlayer": 1,
+          "effectiveThreshold": 4
+        }
+      }
+    },
+    {
+      "id": "line.3player.overlength_4",
+      "version": "v2",
+      "category": "line_processing",
+      "description": "3-player square8: 4-marker line is overlength (threshold=3, offers Option 1/2)",
+      "tags": ["line", "3player", "overlength", "square8"],
+      "source": "manual",
+      "createdAt": "2025-12-10T00:00:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "line-3p-overlength-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,0": { "position": { "x": 0, "y": 0 }, "player": 1, "type": "regular" },
+              "1,0": { "position": { "x": 1, "y": 0 }, "player": 1, "type": "regular" },
+              "2,0": { "position": { "x": 2, "y": 0 }, "player": 1, "type": "regular" },
+              "3,0": { "position": { "x": 3, "y": 0 }, "player": 1, "type": "regular" }
+            },
+            "collapsedSpaces": {}
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 14,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 3,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "gameStatus": "active",
+          "moveHistory": [],
+          "totalRingsEliminated": 0,
+          "maxPlayers": 3
+        }
+      },
+      "assertions": {
+        "lineDetection": {
+          "lineCount": 1,
+          "lineLength": 4,
+          "linePlayer": 1,
+          "effectiveThreshold": 3,
+          "isOverlength": true
+        }
+      }
+    },
+    {
+      "id": "line.3player.minimum_collapse_option2",
+      "version": "v2",
+      "category": "line_processing",
+      "description": "3-player square8: MINIMUM_COLLAPSE on 4-marker line collapses only 3 (threshold positions)",
+      "tags": ["line", "3player", "minimum_collapse", "option2", "square8"],
+      "source": "manual",
+      "createdAt": "2025-12-10T00:00:00.000Z",
+      "input": {
+        "state": {
+          "gameId": "line-3p-mincollapse-square8",
+          "board": {
+            "type": "square8",
+            "size": 8,
+            "stacks": {
+              "7,7": {
+                "position": { "x": 7, "y": 7 },
+                "rings": [1, 1],
+                "stackHeight": 2,
+                "capHeight": 2,
+                "controllingPlayer": 1
+              }
+            },
+            "markers": {
+              "0,0": { "position": { "x": 0, "y": 0 }, "player": 1, "type": "regular" },
+              "1,0": { "position": { "x": 1, "y": 0 }, "player": 1, "type": "regular" },
+              "2,0": { "position": { "x": 2, "y": 0 }, "player": 1, "type": "regular" },
+              "3,0": { "position": { "x": 3, "y": 0 }, "player": 1, "type": "regular" }
+            },
+            "collapsedSpaces": {}
+          },
+          "players": [
+            {
+              "playerNumber": 1,
+              "ringsInHand": 14,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 2,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            },
+            {
+              "playerNumber": 3,
+              "ringsInHand": 18,
+              "eliminatedRings": 0,
+              "territorySpaces": 0,
+              "isActive": true
+            }
+          ],
+          "currentPlayer": 1,
+          "currentPhase": "line_processing",
+          "gameStatus": "active",
+          "moveHistory": [],
+          "totalRingsEliminated": 0,
+          "maxPlayers": 3
+        },
+        "action": {
+          "type": "choose_line_reward",
+          "playerId": 1,
+          "lineIndex": 0,
+          "selection": "MINIMUM_COLLAPSE",
+          "collapsedPositions": [
+            { "x": 0, "y": 0 },
+            { "x": 1, "y": 0 },
+            { "x": 2, "y": 0 }
+          ]
+        }
+      },
+      "assertions": {
+        "boardChanges": {
+          "collapsedSpacesAdded": ["0,0", "1,0", "2,0"],
+          "markersRemaining": ["3,0"],
+          "noSelfElimination": true
+        }
+      }
+    }
+  ]
+}

@@ -568,7 +568,11 @@ function deriveChainCaptureState(
   };
 }
 
-function deriveLineProcessingState(state: GameState, player: number): LineProcessingState {
+function deriveLineProcessingState(
+  state: GameState,
+  player: number,
+  moveHint?: Move
+): LineProcessingState {
   // Detect lines from current board state
   const lines: LineInfo[] = findLinesForPlayer(state.board, player);
 
@@ -577,6 +581,20 @@ function deriveLineProcessingState(state: GameState, player: number): LineProces
     player: line.player,
     requiresChoice: line.length >= 3, // Lines of 3+ require reward choice
   }));
+
+  // RR-CANON-R075: Trust recorded no_line_action moves during replay.
+  // If Python recorded no_line_action but TS detects lines (parity divergence due to
+  // line detection timing differences), return empty detectedLines to allow the move.
+  // This mirrors the forced_elimination and process_territory_region trust patterns.
+  if (moveHint?.type === 'no_line_action' && detectedLines.length > 0) {
+    return {
+      phase: 'line_processing',
+      player,
+      detectedLines: [], // Trust Python's decision that no lines existed
+      currentLineIndex: 0,
+      awaitingReward: false,
+    };
+  }
 
   // Check for pending choice from move context
   const validMoves = getValidMoves(state);

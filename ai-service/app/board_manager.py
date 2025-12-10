@@ -118,8 +118,9 @@ class BoardManager:
         Find all marker lines on the board.
 
         Line length thresholds per RR-CANON-R120:
-        - square8: 3
-        - square19 / hexagonal: 4
+        - square8 2-player: 4
+        - square8 3-4 player: 3
+        - square19 / hexagonal: 4 (all player counts)
 
         Mirrors src/shared/engine/lineDetection.findAllLines and the server
         BoardManager.findAllLines implementation:
@@ -127,16 +128,14 @@ class BoardManager:
         - Collapsed spaces and stacks act as hard blockers.
         - Uses canonical line directions per board type to avoid duplicates.
         """
+        from app.rules.core import get_effective_line_length
+
         lines: List[LineInfo] = []
         processed_keys = set()
 
-        # Determine line length based on board type.
-        # Canonical rules (RR-CANON-R120) use board-type-only thresholds.
-        if board.type == BoardType.SQUARE8:
-            min_length = 3
-        else:
-            # square19, hexagonal: 4
-            min_length = 4
+        # Determine line length based on board type AND player count.
+        # Canonical rules (RR-CANON-R120) use player-count-aware thresholds.
+        min_length = get_effective_line_length(board.type, num_players)
 
         directions = BoardManager._get_line_directions(board.type)
 

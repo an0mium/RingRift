@@ -5,18 +5,26 @@ import { BOARD_CONFIGS, BoardType, RulesOptions } from '../types/game';
  * given board + player-count combination.
  *
  * Canonical semantics (RR-CANON-R120):
- * - Base threshold comes from BOARD_CONFIGS[boardType].lineLength.
- * - No special-casing by player count; for square8 this is always 3, and
- *   for square19 / hexagonal this is always 4.
+ * - square8 2-player: line length = 4
+ * - square8 3-4 player: line length = 3
+ * - square19 and hexagonal: line length = 4 (all player counts)
  * - rulesOptions is reserved for future per-game overrides (for example,
  *   per-ruleset lineLength tweaks) and is currently unused.
  */
 export function getEffectiveLineLengthThreshold(
   boardType: BoardType,
-  _numPlayers: number,
+  numPlayers: number,
   _rulesOptions?: RulesOptions
 ): number {
-  const base = BOARD_CONFIGS[boardType].lineLength;
+  // Per RR-CANON-R120: square8 2-player games require line length 4,
+  // while 3-4 player games require line length 3.
+  if (boardType === 'square8' && numPlayers === 2) {
+    return 4;
+  }
 
-  return base;
+  // For all other configurations, use the base line_length from BOARD_CONFIGS:
+  // - square8 3-4p: 3
+  // - square19: 4
+  // - hexagonal: 4
+  return BOARD_CONFIGS[boardType].lineLength;
 }

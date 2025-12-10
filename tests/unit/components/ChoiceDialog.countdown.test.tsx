@@ -80,4 +80,36 @@ describe('ChoiceDialog countdown + server cap styling', () => {
     expect(screen.getByTestId('choice-countdown')).toBeInTheDocument();
     expect(screen.getByText(/Choice timeout active/i)).toBeInTheDocument();
   });
+
+  it('clamps progress bar between 0% and 100%', () => {
+    const choice = buildLineRewardChoice();
+
+    const { rerender } = render(
+      <ChoiceDialog
+        choice={choice}
+        choiceViewModel={undefined}
+        deadline={Date.now() + 25_000}
+        timeRemainingMs={25_000} // greater than total timeout
+        isServerCapped={false}
+        onSelectOption={jest.fn()}
+      />
+    );
+
+    let bar = screen.getByTestId('choice-countdown-bar');
+    expect(bar).toHaveStyle({ width: '100%' });
+
+    rerender(
+      <ChoiceDialog
+        choice={choice}
+        choiceViewModel={undefined}
+        deadline={Date.now() - 1_000}
+        timeRemainingMs={-1_000} // negative time -> clamp to 0
+        isServerCapped={false}
+        onSelectOption={jest.fn()}
+      />
+    );
+
+    bar = screen.getByTestId('choice-countdown-bar');
+    expect(bar).toHaveStyle({ width: '0%' });
+  });
 });

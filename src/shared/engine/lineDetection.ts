@@ -1,5 +1,6 @@
 import {
   BoardState,
+  BoardType,
   LineInfo,
   Position,
   RingStack,
@@ -7,10 +8,16 @@ import {
   positionToString,
   stringToPosition,
 } from '../types/game';
+import { getEffectiveLineLengthThreshold } from './rulesConfig';
 
 /**
- * Detect all marker lines on the board (4+ for 8x8, 4+ for 19x19/hex)
- * according to the canonical RingRift line rules (Section 11.1).
+ * Detect all marker lines on the board according to the canonical
+ * RingRift line rules (Section 11.1).
+ *
+ * Line length thresholds per RR-CANON-R120:
+ * - square8 2-player: 4
+ * - square8 3-4 player: 3
+ * - square19 and hexagonal: 4 (all player counts)
  *
  * This helper is the single source of truth for line geometry used by:
  * - the shared GameEngine (advanced phases),
@@ -18,11 +25,16 @@ import {
  * - the client sandbox line engines.
  *
  * CRITICAL: Lines are formed by MARKERS, not stacks.
+ *
+ * @param board The current board state
+ * @param numPlayers Number of players in the game. Required for determining
+ *   the correct line length threshold. Defaults to 3 (uses base threshold)
+ *   for backward compatibility, but callers should pass the actual value.
  */
-export function findAllLines(board: BoardState): LineInfo[] {
+export function findAllLines(board: BoardState, numPlayers: number = 3): LineInfo[] {
   const lines: LineInfo[] = [];
   const processedLines = new Set<string>();
-  const config = BOARD_CONFIGS[board.type];
+  const requiredLength = getEffectiveLineLengthThreshold(board.type as BoardType, numPlayers);
 
   // Iterate through all MARKERS (not stacks!). If a space currently
   // hosts a stack or has already collapsed to territory, it cannot be
@@ -42,7 +54,7 @@ export function findAllLines(board: BoardState): LineInfo[] {
     for (const direction of directions) {
       const line = findLineInDirection(position, direction, marker.player, board);
 
-      if (line.length >= config.lineLength) {
+      if (line.length >= requiredLength) {
         // Create a unique key for this line (sorted positions to avoid duplicates)
         const lineKey = line
           .map((p) => positionToString(p))

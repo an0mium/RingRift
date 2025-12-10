@@ -23,13 +23,10 @@ describe('rulesConfig – getEffectiveLineLengthThreshold', () => {
     expect(getEffectiveLineLengthThreshold('square8', 4)).toBe(base);
   });
 
-  it('uses same threshold for square8 regardless of player count', () => {
-    const base = BOARD_CONFIGS.square8.lineLength;
-
-    // square8 uses the base lineLength (3) for all player counts.
-    // No elevation to 4-in-a-row for 2-player games.
+  it('elevates square8 threshold to 4-in-a-row for 2-player games', () => {
+    // Per RR-CANON-R120: square8 2-player games require line length 4,
+    // while 3-4 player games require line length 3.
     const effective = getEffectiveLineLengthThreshold('square8', 2);
-    expect(effective).toBe(base);
-    expect(effective).toBe(3); // 3-in-a-row for square8
+    expect(effective).toBe(4); // 4-in-a-row for 2-player square8
   });
 });
