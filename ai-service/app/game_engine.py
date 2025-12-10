@@ -1070,20 +1070,35 @@ class GameEngine:
     @staticmethod
     def _update_phase(game_state: GameState, last_move: Move, *, trace_mode: bool = False):
         """
-        Advance phase after a move using the dedicated phase state machine.
+        Advance phase after a move using the FSM orchestration.
 
-        This is a thin wrapper around :mod:`app.rules.phase_machine`, which
-        centralises all phase/turn transitions. It mutates ``game_state``
-        in-place and does not return a value.
+        FSM is now the canonical orchestrator for phase transitions, mirroring
+        the TypeScript TurnStateMachine. The FSM computes the next phase and
+        player based on move type and game state.
         """
-        from app.rules.phase_machine import PhaseTransitionInput, advance_phases
+        from app.rules.fsm import compute_fsm_orchestration, get_fsm_mode
 
-        inp = PhaseTransitionInput(
-            game_state=game_state,
-            last_move=last_move,
-            trace_mode=trace_mode,
-        )
-        advance_phases(inp)
+        if get_fsm_mode() == "active":
+            # Use FSM orchestration (canonical)
+            result = compute_fsm_orchestration(game_state, last_move)
+            game_state.current_phase = result.next_phase
+            game_state.current_player = result.next_player
+            if trace_mode:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(
+                    f"FSM orchestration: {last_move.type} -> phase={result.next_phase}, player={result.next_player}"
+                )
+        else:
+            # Legacy fallback (deprecated)
+            from app.rules.phase_machine import PhaseTransitionInput, advance_phases
+
+            inp = PhaseTransitionInput(
+                game_state=game_state,
+                last_move=last_move,
+                trace_mode=trace_mode,
+            )
+            advance_phases(inp)
 
     @staticmethod
     def _advance_to_line_processing(game_state: GameState, *, trace_mode: bool = False):
