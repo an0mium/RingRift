@@ -32,6 +32,33 @@ import { hasAnyLegalMoveOrCaptureFromOnBoard } from '../core';
 import { hasGlobalPlacementAction, hasForcedEliminationAction } from '../globalActions';
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Helper Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Count total rings for a player (rings on board + rings in hand).
+ * This matches Python's _count_rings_for_player semantics.
+ *
+ * A player's rings on board includes ALL their rings, even if buried
+ * in stacks controlled by other players.
+ */
+function countTotalRingsForPlayer(state: GameState, playerNumber: number): number {
+  const player = state.players.find((p) => p.playerNumber === playerNumber);
+  const ringsInHand = player?.ringsInHand ?? 0;
+
+  let ringsOnBoard = 0;
+  for (const stack of state.board.stacks.values()) {
+    for (const ringOwner of stack.rings) {
+      if (ringOwner === playerNumber) {
+        ringsOnBoard++;
+      }
+    }
+  }
+
+  return ringsOnBoard + ringsInHand;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Types
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -305,11 +332,15 @@ export function evaluateVictory(state: GameState): VictoryResult {
   }
 
   // 3) Early Last-Player-Standing (R172): if exactly one player has stacks
-  // on the board AND all other players have neither stacks nor rings in hand,
+  // on the board AND all other players have NO RINGS TOTAL (board + hand),
   // that player wins immediately. This matches Python's Early LPS check.
   // Note: We only trigger this when there ARE stacks on board. If no stacks
   // exist, we fall through to the bare-board stalemate logic which handles
   // global structural terminality.
+  //
+  // IMPORTANT: A player's rings on board include ALL their rings, even if
+  // buried in stacks controlled by other players. This is consistent with
+  // Python's _is_player_eliminated which calls _count_rings_for_player.
   const playersWithStacks = new Set<number>();
   for (const stack of state.board.stacks.values()) {
     playersWithStacks.add(stack.controllingPlayer);
@@ -318,11 +349,11 @@ export function evaluateVictory(state: GameState): VictoryResult {
   // Only consider Early LPS when exactly one player has stacks
   if (playersWithStacks.size === 1) {
     const stackOwner = Array.from(playersWithStacks)[0];
-    // Check if ALL other players have no material (no stacks, no rings in hand)
+    // Check if ALL other players have no material (total rings = 0)
+    // This includes rings in hand AND rings on board (even if buried in opponent stacks)
     const othersHaveMaterial = players.some(
       (p) =>
-        p.playerNumber !== stackOwner &&
-        (playersWithStacks.has(p.playerNumber) || p.ringsInHand > 0)
+        p.playerNumber !== stackOwner && countTotalRingsForPlayer(state, p.playerNumber) > 0
     );
     if (!othersHaveMaterial) {
       return {
@@ -567,16 +598,23 @@ export function getRemainingPlayers(state: GameState): Player[] {
     playersWithStacks.add(stack.controllingPlayer);
   }
 
-  // Return players who have either stacks on board or rings in hand
-  return players.filter((p) => p.ringsInHand > 0 || playersWithStacks.has(p.playerNumber));
+  // Return players who have any rings total (board + hand)
+  // This includes rings buried in stacks controlled by other players
+  return players.filter((p) => countTotalRingsForPlayer(state, p.playerNumber) > 0);
 }
 
 /**
  * Check if a specific player has been eliminated.
  *
+ * A player is eliminated when they have 0 total rings (on board + in hand).
+ * This matches Python's _is_player_eliminated semantics.
+ *
+ * IMPORTANT: A player's rings on board include ALL their rings, even if
+ * buried in stacks controlled by other players.
+ *
  * @param state Current game state
  * @param playerNumber Player to check
- * @returns True if player has no rings remaining
+ * @returns True if player has no rings remaining (total rings = 0)
  */
 export function isPlayerEliminated(state: GameState, playerNumber: number): boolean {
   const player = state.players.find((p) => p.playerNumber === playerNumber);
@@ -584,19 +622,8 @@ export function isPlayerEliminated(state: GameState, playerNumber: number): bool
     return true; // Unknown player is treated as eliminated
   }
 
-  // Check if player has rings in hand
-  if (player.ringsInHand > 0) {
-    return false;
-  }
-
-  // Check if player has stacks on board
-  for (const stack of state.board.stacks.values()) {
-    if (stack.controllingPlayer === playerNumber) {
-      return false;
-    }
-  }
-
-  return true;
+  // A player is eliminated when total rings (board + hand) = 0
+  return countTotalRingsForPlayer(state, playerNumber) === 0;
 }
 
 /**

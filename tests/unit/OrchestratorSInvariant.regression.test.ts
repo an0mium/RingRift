@@ -9,7 +9,6 @@ import {
 } from '../../src/shared/types/game';
 import { computeProgressSnapshot, summarizeBoard } from '../../src/shared/engine/core';
 import { SeededRNG } from '../../src/shared/utils/rng';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Targeted reproduction of the orchestrator S-invariant regression surfaced
@@ -107,18 +106,18 @@ function toEngineMove(move: Move): Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
 // can be promoted from soak output into this targeted harness.
 const REGRESSION_SEEDS: number[] = [786238345, 265064459];
 
+/**
+ * Backend GameEngine S-invariant regression tests.
+ *
+ * These tests verify that the progress invariant S (markers + collapsed + eliminated)
+ * is non-decreasing throughout a game when using the backend GameEngine with FSM
+ * orchestration.
+ *
+ * The backend GameEngine now uses FSM for move validation and orchestration via:
+ * - TurnEngineAdapter -> turnOrchestrator.processTurnAsync
+ * - turnOrchestrator uses validateMoveWithFSM and computeFSMOrchestration
+ */
 describe('Orchestrator S-invariant – backend harness parity', () => {
-  // TODO: Backend GameEngine uses legacy orchestration while FSM is now canonical.
-  // This test exercises backend behavior which diverges from FSM-based sandbox.
-  // Enable once Backend GameEngine is updated to use FSM.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - Backend GameEngine needs FSM orchestration for parity', () => {});
-    return;
-  }
-
-  // NOTE: This test is currently marked as skipped because it captures a
-  // known orchestrator S-invariant regression (see TODO P0.3). Once the
-  // underlying bug is fixed, remove `.skip` to enforce the invariant.
   REGRESSION_SEEDS.forEach((seed) => {
     it(`S remains non-decreasing for a short seeded backend orchestrator game (square8, seed=${seed})`, async () => {
       const engine = createBackendOrchestratorHost(`s-invariant-orchestrator-seed-${seed}`, seed);

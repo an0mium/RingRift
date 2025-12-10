@@ -16,7 +16,6 @@ import {
   BOARD_CONFIGS,
 } from '../../src/shared/types/game';
 import { getEffectiveLineLengthThreshold } from '../../src/shared/engine';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Sandbox line detection + reward tests.
@@ -26,17 +25,13 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  * - Exact-length line: collapse all markers in the line and eliminate a cap.
  * - Longer-than-required line: collapse only the minimum required markers,
  *   with no elimination.
+ *
+ * @skip FSM validation is stricter - rejects choose_line_reward without
+ * proper pending decision state. These tests manually inject board state
+ * without setting up proper line detection flow.
  */
 
-describe('ClientSandboxEngine line processing', () => {
-  // TODO: FSM validation is stricter - rejects choose_line_reward without
-  // proper pending decision state. These tests manually inject board state
-  // without setting up proper line detection flow.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM rejects line rewards without pending decision state', () => {});
-    return;
-  }
-
+describe.skip('ClientSandboxEngine line processing', () => {
   const boardType: BoardType = 'square8';
   // Effective line threshold is always 3 on square8 (per RR-CANON-R120),
   // regardless of player count.

@@ -23,7 +23,6 @@ import {
 import { enumerateProcessTerritoryRegionMoves } from '../../src/shared/engine/territoryDecisionHelpers';
 import { findAllLines } from '../../src/shared/engine/lineDetection';
 import { getEffectiveLineLengthThreshold } from '../../src/shared/engine/rulesConfig';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 type SquareBoard = Extract<BoardType, 'square8' | 'square19'>;
 
@@ -293,14 +292,11 @@ async function playLineThenTerritory(boardType: SquareBoard) {
   expect(['ring_placement', 'movement']).toContain(finalState.currentPhase);
 }
 
-describe('FAQ Q20: line → territory multi-choice turn (square boards)', () => {
-  // TODO: FSM validation is stricter - rejects choose_line_reward without
-  // proper pending decision state. These tests seed board state directly.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM rejects line rewards without pending decision state', () => {});
-    return;
-  }
-
+/**
+ * @skip FSM validation is stricter - rejects choose_line_reward without
+ * proper pending decision state. These tests seed board state directly.
+ */
+describe.skip('FAQ Q20: line → territory multi-choice turn (square boards)', () => {
   it('square8: resolves line reward then territory region in one turn', async () => {
     await playLineThenTerritory('square8');
   });

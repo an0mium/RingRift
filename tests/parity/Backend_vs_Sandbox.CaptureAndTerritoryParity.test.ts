@@ -27,7 +27,6 @@ import {
   enumerateProcessLineMoves,
   enumerateChooseLineRewardMoves,
 } from '../../src/shared/engine';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 import {
   createTestBoard,
   createTestGameState,
@@ -613,13 +612,11 @@ function buildLineAndTerritoryBaseState(): {
 // Tests
 // ──────────────────────────────────────────────────────────────────────────────
 
-describe('Backend vs Sandbox advanced-phase parity – capture, line, territory', () => {
-  // TODO: FSM validation is stricter - rejects moves without proper pending decision state.
-  // These tests manually inject state that bypasses FSM guard conditions.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM rejects manually injected state without proper guards', () => {});
-    return;
-  }
+/**
+ * @skip FSM validation is stricter - rejects moves without proper pending decision state.
+ * These tests manually inject state that bypasses FSM guard conditions.
+ */
+describe.skip('Backend vs Sandbox advanced-phase parity – capture, line, territory', () => {
 
   test('line_processing getValidMoves parity – overlength line order/reward decisions (square8)', async () => {
     const { state: baseState, lineInfo } = buildLineAndTerritoryBaseState();

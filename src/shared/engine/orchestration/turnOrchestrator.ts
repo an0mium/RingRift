@@ -1203,6 +1203,18 @@ export function processTurn(
     // Also coerce the currentPlayer to match the move's player if they differ
     const targetPlayer = move.player !== state.currentPlayer ? move.player : state.currentPlayer;
     state = { ...state, currentPhase: targetPhase as GamePhase, currentPlayer: targetPlayer };
+  } else if (
+    // Replay-tolerance for TS/Python parity: When in movement phase but a line-processing
+    // move comes in (no_line_action, process_line, choose_line_reward), coerce to line_processing.
+    // This happens when Python's post-capture processing advanced to line_processing but TS's
+    // replay stayed in movement phase due to timing differences in phase advancement.
+    state.gameStatus === 'active' &&
+    state.currentPhase === 'movement' &&
+    (move.type === 'no_line_action' ||
+      move.type === 'process_line' ||
+      move.type === 'choose_line_reward')
+  ) {
+    state = { ...state, currentPhase: 'line_processing' as GamePhase };
   }
 
   // Enforce canonical phase→MoveType mapping for ACTIVE states. This ensures

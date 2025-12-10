@@ -24,7 +24,6 @@ import { enumerateProcessTerritoryRegionMoves } from '../../src/shared/engine/te
 import { getEffectiveLineLengthThreshold } from '../../src/shared/engine/rulesConfig';
 import { computeProgressSnapshot } from '../../src/shared/engine/core';
 import { processTurn } from '../../src/shared/engine/orchestration/turnOrchestrator';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Orchestrator-centric backend multi-phase scenario + invariant tests.
@@ -64,13 +63,11 @@ function keyFromPositions(positions: Position[]): string {
     .join('|');
 }
 
-describe('Orchestrator.Backend multi-phase scenarios (GameEngine + TurnEngineAdapter)', () => {
-  // TODO: FSM validation is stricter - rejects moves without proper pending decision state.
-  // These tests seed board state directly without going through proper game flow.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM rejects manually seeded state without proper guards', () => {});
-    return;
-  }
+/**
+ * @skip FSM validation is stricter - rejects moves without proper pending decision state.
+ * These tests seed board state directly without going through proper game flow.
+ */
+describe.skip('Orchestrator.Backend multi-phase scenarios (GameEngine + TurnEngineAdapter)', () => {
 
   /**
    * Scenario A – Line reward choice (Option 1 vs Option 2) and explicit

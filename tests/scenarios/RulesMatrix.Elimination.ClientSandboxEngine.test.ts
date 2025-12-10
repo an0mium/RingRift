@@ -14,7 +14,6 @@ import {
 import { computeProgressSnapshot } from '../../src/shared/engine/core';
 import { addStack, pos } from '../utils/fixtures';
 import { territoryRuleScenarios, TerritoryRuleScenario } from './rulesMatrix';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * RulesMatrix → ClientSandboxEngine elimination decision scenarios
@@ -29,15 +28,12 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  *
  * Test #2 sets _pendingTerritorySelfElimination flag to simulate the state
  * where the engine has determined that a self-elimination is required.
+ *
+ * @skip FSM orchestration is now canonical. FSM validation is stricter and rejects
+ * elimination moves without proper pending state. These tests manually inject
+ * territory state and _pendingTerritorySelfElimination flag.
  */
-describe('RulesMatrix → ClientSandboxEngine eliminate_rings_from_stack (territory; Q23)', () => {
-  // TODO: FSM validation is stricter - rejects elimination moves without proper pending state.
-  // These tests manually inject territory state and _pendingTerritorySelfElimination flag.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM rejects elimination without pending decision state', () => {});
-    return;
-  }
-
+describe.skip('RulesMatrix → ClientSandboxEngine eliminate_rings_from_stack (territory; Q23)', () => {
   function createEngine(boardType: BoardType): { engine: ClientSandboxEngine; state: GameState } {
     const config: SandboxConfig = {
       boardType,

@@ -26,7 +26,6 @@ import type {
   Position,
 } from '../../src/shared/types/game';
 import { positionToString } from '../../src/shared/types/game';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 describe('TurnOrchestrator advanced branch coverage', () => {
   const createPlayer = (playerNumber: number, ringsInHand: number = 18): Player => ({

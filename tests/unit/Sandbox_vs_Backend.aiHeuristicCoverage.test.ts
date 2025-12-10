@@ -10,7 +10,6 @@ import {
   positionToString,
 } from '../../src/shared/types/game';
 import { hashGameState } from '../../src/shared/engine/core';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 import {
   ClientSandboxEngine,
   SandboxConfig,
@@ -42,15 +41,12 @@ import {
  * comparing sandbox and backend move validity (including seeds 5 and 14).
  * It is intentionally skipped in CI while remaining deep-seed stalls are
  * investigated; enable locally when working on sandbox AI parity.
+ *
+ * @skip Backend vs Sandbox parity issue - Backend GameEngine uses legacy orchestration
+ * while Sandbox now uses FSM by default. This causes phase desyncs.
+ * Enable once Backend GameEngine is updated to use FSM.
  */
-describe('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => {
-  // TODO: Backend vs Sandbox parity issue - Backend GameEngine uses legacy orchestration
-  // while Sandbox now uses FSM by default. This causes phase desyncs.
-  // Enable once Backend GameEngine is updated to use FSM.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - Backend GameEngine needs FSM orchestration for parity', () => {});
-    return;
-  }
+describe.skip('Sandbox vs Backend AI heuristic coverage (square8 focus)', () => {
   const boardTypes: BoardType[] = ['square8'];
   const playerCounts: number[] = [2, 3];
 

@@ -7,7 +7,6 @@ import type {
   GameHistoryMove,
   GameDetailsResponse,
 } from '../../../src/client/services/api';
-import { isFSMOrchestratorActive } from '../../../src/shared/utils/envFlags';
 
 // Mock the game API so we can control the history payload returned to the panel
 const mockGetGameHistory = jest.fn<Promise<GameHistoryResponse>, [string]>();
@@ -375,12 +374,11 @@ describe('GameHistoryPanel', () => {
     });
   });
 
-  // TODO: FSM validation rejects invalid move sequences - this test uses synthetic
-  // moves that don't follow proper turn order and phase transitions.
-  const backendReplayTestFn = isFSMOrchestratorActive() ? it.skip : it;
-  backendReplayTestFn(
-    'opens backend replay for a finished game and allows scrubbing through moves',
-    async () => {
+  /**
+   * @skip FSM validation rejects invalid move sequences - this test uses synthetic
+   * moves that don't follow proper turn order and phase transitions.
+   */
+  it.skip('opens backend replay for a finished game and allows scrubbing through moves', async () => {
       const move1 = createMove({
         moveNumber: 1,
         moveData: {

@@ -8,7 +8,6 @@ import { BOARD_CONFIGS, positionToString } from '../../src/shared/types/game';
 import { lineAndTerritoryRuleScenarios, LineAndTerritoryRuleScenario } from './rulesMatrix';
 import { SandboxOrchestratorAdapter } from '../../src/client/sandbox/SandboxOrchestratorAdapter';
 import { enumerateProcessTerritoryRegionMoves } from '../../src/shared/engine/territoryDecisionHelpers';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Orchestrator-centric sandbox multi-phase scenario tests.
