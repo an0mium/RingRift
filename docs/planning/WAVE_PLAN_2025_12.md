@@ -149,27 +149,83 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 
 **Goal:** Increase test coverage from 53% to 70%+ branches
 
-### 8.1 - Coverage Analysis
+### 8.1 - Coverage Analysis ✅ COMPLETE (2025-12-10)
 
-- [ ] Generate detailed coverage report by module
-- [ ] Identify top 20 files with lowest branch coverage
-- [ ] Map uncovered branches to specific test cases needed
+- [x] Generate detailed coverage report by module
+- [x] Identify top 20 files with lowest branch coverage
+- [x] Map uncovered branches to specific test cases needed
 
-### 8.2 - Rules Engine Coverage
+**Coverage Analysis Results (shared engine):**
 
-- [ ] Add tests for remaining uncovered branches in `/src/shared/engine/`
-- [ ] Focus on edge cases in territory processing
-- [ ] Cover all paths in chain capture logic
-- [ ] Add hex board edge case coverage
+| File                   | Lines | Branches | Priority |
+| ---------------------- | ----- | -------- | -------- |
+| TerritoryAggregate.ts  | 56%   | 36%      | P0       |
+| TurnStateMachine.ts    | 50%   | 54%      | P0       |
+| testVectorGenerator.ts | 11%   | 0%       | P1       |
+| validators.ts          | 40%   | 0%       | P1       |
+| weirdStateReasons.ts   | 52%   | 39%      | P1       |
+| serialization.ts       | 58%   | 51%      | P1       |
+| LineAggregate.ts       | 63%   | 52%      | P1       |
+| FSMAdapter.ts          | 63%   | 60%      | P2       |
+| PlacementAggregate.ts  | 73%   | 57%      | P2       |
+| turnOrchestrator.ts    | 69%   | 66%      | P2       |
 
-### 8.3 - Backend Coverage
+**Key uncovered areas identified:**
+
+- TerritoryAggregate: lines 212-285, 305-348, 448-510, 803-834, 1054-1156
+- TurnStateMachine: lines 378-467, 569-590, 693-696, 824-851, 994-1104
+- FSMAdapter: lines 168-280, 726-762, 880-979, 1601-1629, 1862-1882
+
+### 8.2 - Rules Engine Coverage (Priority Focus)
+
+- [ ] **TerritoryAggregate (36% → 70% branches)**
+  - [ ] Multi-region processing edge cases (lines 212-285)
+  - [ ] Elimination targeting with markers present (lines 305-348)
+  - [ ] Region ordering with equal sizes (lines 448-510)
+  - [ ] 3-4 player territory splits (lines 803-834)
+  - [ ] Territory victory threshold checks (lines 1054-1156)
+
+- [ ] **TurnStateMachine (54% → 75% branches)**
+  - [ ] Forced elimination transitions (lines 378-467)
+  - [ ] Chain capture state maintenance (lines 569-590)
+  - [ ] Turn skip scenarios (lines 693-696)
+  - [ ] Multi-player turn rotation (lines 824-851)
+  - [ ] Game-over edge cases (lines 994-1104)
+
+- [ ] **FSMAdapter (60% → 75% branches)**
+  - [ ] Decision surface population (lines 168-280)
+  - [ ] Error recovery paths (lines 726-762)
+  - [ ] Multi-line decision handling (lines 880-979)
+  - [ ] Hex board phase transitions (lines 1601-1629)
+  - [ ] Async orchestration paths (lines 1862-1882)
+
+- [ ] **LineAggregate (52% → 70% branches)**
+  - [ ] Multi-line intersection handling (lines 409-419)
+  - [ ] Line reward distribution edge cases (lines 610-692)
+  - [ ] Partial line collapse scenarios (lines 963-1059)
+
+### 8.3 - Contract/Validator Coverage
+
+- [ ] **validators.ts (0% → 50% branches)**
+  - [ ] Add schema validation error path tests
+  - [ ] Test malformed input rejection
+
+- [ ] **serialization.ts (51% → 70% branches)**
+  - [ ] Map serialization/deserialization round-trips
+  - [ ] Position array edge cases (lines 136-178)
+
+- [ ] **testVectorGenerator.ts (0% → 40% branches)**
+  - [ ] Execute vector generation to cover creation paths
+  - [ ] Or mark as test-utility (exclude from coverage)
+
+### 8.4 - Backend Coverage
 
 - [ ] WebSocket error handling paths
 - [ ] Authentication edge cases
 - [ ] Rate limiting boundary conditions
 - [ ] Session management edge cases
 
-### 8.4 - Frontend Coverage
+### 8.5 - Frontend Coverage
 
 - [ ] Component error states
 - [ ] Loading state transitions
@@ -178,11 +234,17 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 
 **Target Metrics:**
 
-- Branch coverage: 53% → 70%
-- Line coverage: 69% → 80%
-- Add ~1,780 new branch paths covered
+- Branch coverage: 62% → 70%+ (shared engine specific)
+- Line coverage: 75% → 80%+ (shared engine specific)
+- Focus on P0/P1 files first for maximum impact
 
-**Estimated Effort:** 3-5 days
+**Implementation Order:**
+
+1. TerritoryAggregate branch tests (highest impact)
+2. TurnStateMachine edge cases
+3. FSMAdapter decision surface tests
+4. LineAggregate intersection handling
+5. Validator/serialization paths
 
 ---
 
