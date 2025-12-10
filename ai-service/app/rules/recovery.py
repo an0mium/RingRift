@@ -727,7 +727,8 @@ def has_any_recovery_move(state: GameState, player: int) -> bool:
     valid_fallback_exists = False
 
     # Check for line recovery or valid fallback
-    for pos_key, marker in board.markers.items():
+    # Use list() to create a snapshot - we modify markers dict during iteration
+    for pos_key, marker in list(board.markers.items()):
         if marker.player != player:
             continue
 
