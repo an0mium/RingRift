@@ -111,9 +111,9 @@ describe('MobileLpsIndicator', () => {
 
     const indicator = screen.getByTestId('mobile-lps-indicator');
     expect(indicator).toBeInTheDocument();
-    // Mobile uses compact format "P1 exclusive" instead of full username
-    expect(indicator).toHaveTextContent('P1 exclusive');
-    expect(indicator).toHaveTextContent('1/3');
+    // Mobile shows username + "exclusive" and progress dots with aria-label
+    expect(indicator).toHaveTextContent('Alice exclusive');
+    expect(screen.getByLabelText('1 of 3 rounds')).toBeInTheDocument();
   });
 
   it('shows correct progress at 2 rounds', () => {
@@ -127,9 +127,8 @@ describe('MobileLpsIndicator', () => {
     render(<MobileGameHUD viewModel={viewModel} />);
 
     const indicator = screen.getByTestId('mobile-lps-indicator');
-    // Mobile uses compact format "P2 exclusive"
-    expect(indicator).toHaveTextContent('P2 exclusive');
-    expect(indicator).toHaveTextContent('2/3');
+    expect(indicator).toHaveTextContent('Bob exclusive');
+    expect(screen.getByLabelText('2 of 3 rounds')).toBeInTheDocument();
   });
 
   it('shows LPS at 3 rounds (per RR-CANON-R172)', () => {
@@ -143,9 +142,8 @@ describe('MobileLpsIndicator', () => {
     render(<MobileGameHUD viewModel={viewModel} />);
 
     const indicator = screen.getByTestId('mobile-lps-indicator');
-    // Mobile uses compact format "P1 exclusive"
-    expect(indicator).toHaveTextContent('P1 exclusive');
-    expect(indicator).toHaveTextContent('3/3');
+    expect(indicator).toHaveTextContent('Alice exclusive');
+    expect(screen.getByLabelText('3 of 3 rounds')).toBeInTheDocument();
   });
 });
 
