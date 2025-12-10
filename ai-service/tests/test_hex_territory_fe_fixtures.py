@@ -449,7 +449,9 @@ def create_hex_single_cell_forced_elimination_state() -> GameState:
             isReady=True,
             timeRemaining=600,
             aiDifficulty=None,
-            ringsInHand=0,
+            # P2 must have rings in hand to avoid immediate elimination/game over.
+            # Without this, the game ends because P2 has no resources.
+            ringsInHand=5,
             eliminatedRings=0,
             territorySpaces=0,
         ),
