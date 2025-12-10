@@ -6,8 +6,6 @@ import {
   Position,
   RingStack,
   positionToString,
-  stringToPosition,
-  BOARD_CONFIGS,
 } from '../../src/shared/types/game';
 import { createInitialGameState } from '../../src/shared/engine/initialState';
 import {
@@ -442,6 +440,7 @@ describe('CaptureAggregate – shared capture chain enumeration and validation',
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
+      capturedThisChain: [],
     };
 
     const info = getChainCaptureContinuationInfo(state, snapshot);
@@ -697,6 +696,7 @@ describe('CaptureAggregate – shared capture chain enumeration and validation',
       const snapshot: ChainCaptureStateSnapshot = {
         player: 1,
         currentPosition: { x: 0, y: 0, z: 0 },
+        capturedThisChain: [],
       };
 
       const moves = enumerateChainCaptureSegments(state, snapshot);
@@ -743,6 +743,7 @@ describe('CaptureAggregate – shared capture chain enumeration and validation',
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
+      capturedThisChain: [],
     };
 
     // Test with moveNumber option to cover the options.moveNumber !== undefined branch
@@ -775,6 +776,7 @@ describe('CaptureAggregate – shared capture chain enumeration and validation',
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
+      capturedThisChain: [],
     };
 
     const moves = enumerateChainCaptureSegments(state, snapshot, { kind: 'initial' });
@@ -797,7 +799,7 @@ describe('CaptureAggregate – shared capture chain enumeration and validation',
     const snapshot1: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
-      visitedTargets: [],
+      capturedThisChain: [],
     };
 
     const moves1 = enumerateChainCaptureSegments(state, snapshot1, { kind: 'initial' });
