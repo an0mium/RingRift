@@ -129,13 +129,15 @@ describe('Recovery Action Contract Vectors', () => {
       }).toThrow();
     });
 
-    it('should not allow recovery when player has rings in hand', () => {
+    it('should allow recovery when player has rings in hand per RR-CANON-R110', () => {
+      // Per RR-CANON-R110: "Recovery eligibility is independent of rings in hand.
+      // Players with rings may choose recovery over placement."
       const vector = vectors.find((v) => v.id === 'recovery.exact_length_option1');
       if (!vector) return;
 
       const state = deserializeGameState(vector.input.state);
 
-      // Give player 1 rings in hand
+      // Give player 1 rings in hand - this should NOT prevent recovery
       const player1 = state.players.find((p) => p.playerNumber === 1);
       if (player1) {
         player1.ringsInHand = 5;
@@ -143,10 +145,10 @@ describe('Recovery Action Contract Vectors', () => {
 
       const move = convertVectorMove(vector.input.initialMove);
 
-      // This should fail validation or throw
+      // Recovery should succeed even with rings in hand
       expect(() => {
         processTurn(state, move);
-      }).toThrow();
+      }).not.toThrow();
     });
   });
 });

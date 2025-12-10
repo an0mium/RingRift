@@ -707,8 +707,9 @@ export function applyRecoverySlide(
       const stack = board.stacks.get(stackKey);
       if (!stack) continue;
 
-      // Find and remove player's bottommost ring (first occurrence = bottommost)
-      const ringIndex = stack.rings.indexOf(player);
+      // Find and remove player's bottommost ring per RR-CANON-R113
+      // rings[0] is top, so lastIndexOf finds the bottommost occurrence
+      const ringIndex = stack.rings.lastIndexOf(player);
       if (ringIndex === -1) continue;
 
       // Remove the ring
@@ -725,7 +726,8 @@ export function applyRecoverySlide(
       if (stack.rings.length === 0) {
         board.stacks.delete(stackKey);
       } else {
-        stack.controllingPlayer = stack.rings[stack.rings.length - 1];
+        // rings[0] is the top ring per game.ts convention
+        stack.controllingPlayer = stack.rings[0];
         stack.capHeight = calculateCapHeight(stack.rings);
       }
     }
@@ -788,8 +790,9 @@ export function applyRecoverySlide(
       const stack = board.stacks.get(stackKey);
       if (!stack) continue;
 
-      // Find and remove player's bottommost ring (first occurrence = bottommost)
-      const ringIndex = stack.rings.indexOf(player);
+      // Find and remove player's bottommost ring per RR-CANON-R113
+      // rings[0] is top, so lastIndexOf finds the bottommost occurrence
+      const ringIndex = stack.rings.lastIndexOf(player);
       if (ringIndex === -1) continue;
 
       // Remove the ring
@@ -807,8 +810,8 @@ export function applyRecoverySlide(
         // Stack is now empty, remove it
         board.stacks.delete(stackKey);
       } else {
-        // Update controlling player (top ring)
-        stack.controllingPlayer = stack.rings[stack.rings.length - 1];
+        // Update controlling player - rings[0] is the top ring per game.ts convention
+        stack.controllingPlayer = stack.rings[0];
         // Recalculate cap height
         stack.capHeight = calculateCapHeight(stack.rings);
       }
