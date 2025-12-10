@@ -1884,11 +1884,9 @@ export function computeFSMOrchestration(
   if (nextState.phase === 'turn_end') {
     // Turn ended - next player is in the state
     nextPlayer = (nextState as { nextPlayer: number }).nextPlayer;
-    // Per RR-CANON: resolve turn_end to actual starting phase based on next player's material
-    // ring_placement if ringsInHand > 0, else movement
-    const nextPlayerIdx = nextPlayer - 1; // 0-indexed
-    const nextPlayerRingsInHand = gameState.players[nextPlayerIdx]?.ringsInHand ?? 0;
-    nextPhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
+    // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+    // NO PHASE SKIPPING - players with ringsInHand == 0 will emit no_placement_action.
+    nextPhase = 'ring_placement';
   } else if (nextState.phase === 'game_over') {
     // Game over - player doesn't matter
     nextPlayer = gameState.currentPlayer;
@@ -2006,20 +2004,24 @@ function isTerritoryPhaseMove(moveType: Move['type']): boolean {
  * Compare FSM orchestration result with legacy orchestration result.
  * Returns divergence details if they differ.
  *
- * Per RR-CANON, when a turn ends (FSM returns `turn_end`), the next player's
- * starting phase depends on their material:
- * - ring_placement if ringsInHand > 0
- * - movement if ringsInHand == 0 but they control at least one stack
+ * Per RR-CANON-R073: ALL players start in ring_placement without exception.
+ * NO PHASE SKIPPING - players with ringsInHand == 0 will emit no_placement_action
+ * which triggers the transition to movement. The engine MUST NOT skip directly
+ * to movement phase based on ringsInHand count.
+ *
+ * When FSM returns `turn_end`, the next player's starting phase is ALWAYS
+ * ring_placement (no phase skipping allowed).
  *
  * @param fsmResult - The FSM orchestration result
  * @param legacyPhase - The phase from the legacy/Python orchestration
  * @param legacyPlayer - The player from the legacy/Python orchestration
- * @param nextPlayerRingsInHand - Optional: next player's rings in hand for turn_end resolution
+ * @param nextPlayerRingsInHand - Optional: next player's rings in hand (retained for API compatibility)
  */
 export function compareFSMWithLegacy(
   fsmResult: FSMOrchestrationResult,
   legacyPhase: string,
   legacyPlayer: number,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   nextPlayerRingsInHand?: number
 ): {
   diverged: boolean;
@@ -2032,18 +2034,12 @@ export function compareFSMWithLegacy(
     legacyPlayer: number;
   };
 } {
-  // Map FSM turn_end to the actual starting phase based on next player's material
-  // Per RR-CANON: ring_placement if ringsInHand > 0, else movement
+  // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+  // NO PHASE SKIPPING - turn_end always maps to ring_placement.
   let effectiveFSMPhase: string;
   if (fsmResult.nextPhase === 'turn_end') {
-    if (nextPlayerRingsInHand !== undefined && nextPlayerRingsInHand > 0) {
-      effectiveFSMPhase = 'ring_placement';
-    } else if (nextPlayerRingsInHand !== undefined && nextPlayerRingsInHand === 0) {
-      effectiveFSMPhase = 'movement';
-    } else {
-      // Fallback when ringsInHand not provided - assume ring_placement (legacy behavior)
-      effectiveFSMPhase = 'ring_placement';
-    }
+    // NO PHASE SKIPPING - always ring_placement regardless of ringsInHand
+    effectiveFSMPhase = 'ring_placement';
   } else {
     effectiveFSMPhase = fsmResult.nextPhase;
   }

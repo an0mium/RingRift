@@ -74,42 +74,27 @@ The remaining gap is limited to legacy/non-interactive backend paths that still 
 
 ### P0.4 – Python FSM: No Legal Moves Returns Empty Instead of Forced Elimination
 
-**Component(s):** Python `game_engine.py`, `phase_machine.py`, `fsm.py`
+**Component(s):** Python `game_engine.py`, `phase_machine.py`, `fsm.py`, `env.py`
 **Severity:** P1 (Rare edge case, affects 3P selfplay ~1/5 games with seed 12346)
-**Status:** OPEN – Requires investigation; phase transition to FORCED_ELIMINATION not triggering correctly in some ANM scenarios.
+**Status:** FIXED (2025-12-10) – Defensive recovery added in `env.legal_moves()`.
 **Discovered:** 2025-12-10 (seed 12346, 3P square8 selfplay)
-**Details:**
+**Fixed:** 2025-12-10
 
-The Python `legal_moves()` function occasionally returns an empty list for an ACTIVE game when the current player has controlled stacks but no legal moves. Per RR-CANON-R072, when a player has controlled stacks and no legal moves in any phase, the FSM should transition to `forced_elimination` phase and return forced elimination moves.
+**Root cause:**
+The CAPTURE and CHAIN_CAPTURE phases don't have `get_phase_requirement()` entries (they're interactive, not bookkeeping). In edge cases where the game entered CAPTURE/CHAIN_CAPTURE but no captures were available (e.g., due to a complex board state), `get_valid_moves()` returned empty and `get_phase_requirement()` returned None, causing `legal_moves()` to return empty.
 
-**Observed symptoms:**
+**Fix:**
+Added defensive recovery in `RingRiftEnv.legal_moves()` (`ai-service/app/training/env.py`):
 
-- Game status remains `ACTIVE` at termination
-- `termination_reason = "no_legal_moves_for_current_player"`
-- `invariant_violations_by_type = {"ACTIVE_NO_MOVES": 1}`
-- 3P games seed 12346: 137 moves then no legal moves
+- When stuck in CAPTURE/CHAIN_CAPTURE phase with no captures available
+- Auto-advance to LINE_PROCESSING per RR-CANON-R073
+- Clear `chain_capture_state` to prevent stale state
+- Re-check for legal moves or phase requirements
 
-**Expected behavior (per RR-CANON-R072/R100):**
+**Verification:**
 
-- When player P has controlled stacks but no legal placement/movement/capture, FSM should transition to `forced_elimination` phase
-- `legal_moves()` should then return valid `FORCED_ELIMINATION` moves targeting P's controlled stacks
-
-**Root cause hypothesis:**
-The phase transition logic in `_on_territory_processing_complete` or `advance_phases` may not be triggering correctly in certain edge cases, possibly when:
-
-1. `compute_had_any_action_this_turn()` returns an unexpected value
-2. `player_has_stacks_on_board()` returns False when stacks exist
-3. The phase transition occurs but `legal_moves()` enumeration doesn't include forced elimination
-
-**Reproduction:**
-
-```bash
-PYTHONPATH=ai-service RINGRIFT_SKIP_SHADOW_CONTRACTS=true python scripts/run_self_play_soak.py \
-  --num-games 5 --board-type square8 --num-players 3 --max-moves 400 --seed 12345 \
-  --record-db /tmp/test.db --log-jsonl /tmp/test.jsonl --engine-mode descent-only --difficulty-band light
-```
-
-Game at index 1 (seed 12346) will reproduce the issue.
+- Seed 12346 with DescentAI now completes at ~167 moves
+- Random moves on seed 12346 complete at ~53 moves
 
 **What’s implemented and tested:**
 

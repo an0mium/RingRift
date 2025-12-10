@@ -492,6 +492,30 @@ class RingRiftEnv:
                     self.state,
                 )
                 moves = [bookkeeping_move]
+            elif self.state.current_phase in (
+                GamePhase.CAPTURE,
+                GamePhase.CHAIN_CAPTURE,
+            ):
+                # Defensive recovery: CAPTURE/CHAIN_CAPTURE phases with no captures
+                # available is an edge case indicating the phase should have transitioned.
+                # Per RR-CANON-R073, when captures are exhausted, advance to LINE_PROCESSING.
+                # We do this here as a defensive measure to prevent stuck states.
+                import logging
+                logging.warning(
+                    f"RingRiftEnv.legal_moves: stuck in {self.state.current_phase.value} "
+                    f"with no captures; auto-advancing to line_processing"
+                )
+                self._state.current_phase = GamePhase.LINE_PROCESSING
+                self._state.chain_capture_state = None
+                # Re-check for line processing moves or requirement
+                moves = GameEngine.get_valid_moves(self.state, self.state.current_player)
+                if not moves:
+                    requirement = GameEngine.get_phase_requirement(
+                        self.state,
+                        self.state.current_player,
+                    )
+                    if requirement is not None:
+                        moves = [GameEngine.synthesize_bookkeeping_move(requirement, self.state)]
 
         # Defensive phase/move invariant: every move returned by this
         # host-level surface must be legal for the current phase.

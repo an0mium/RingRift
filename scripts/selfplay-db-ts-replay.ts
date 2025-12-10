@@ -763,8 +763,10 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     // Check if we need to synthesize bookkeeping moves to bridge phases
     const currentState = engine.getState() as GameState;
 
-    // RR-CANON-R073: When ringsInHand == 0, TS starts directly in movement phase.
-    // Skip redundant no_placement_action moves recorded by Python when already in movement.
+    // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+    // NO PHASE SKIPPING - both TS and Python now always start in ring_placement.
+    // This skip logic is retained for backwards compatibility with old game databases
+    // that were recorded before the no-phase-skipping fix (2025-12).
     if (move.type === 'no_placement_action' && currentState.currentPhase === 'movement') {
       // eslint-disable-next-line no-console
       console.log(
@@ -773,7 +775,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
           db_move_index: i,
           moveType: move.type,
           currentPhase: currentState.currentPhase,
-          reason: 'RR-CANON-R073: already in movement phase, no_placement_action is redundant',
+          reason: 'Legacy DB: already in movement phase, no_placement_action is redundant',
         })
       );
       continue;

@@ -184,7 +184,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       }
     });
 
-    it('advances to movement phase when next player has no rings in hand', () => {
+    it('advances to ring_placement phase even when next player has no rings in hand (no phase skipping)', () => {
       const board = createEmptyBoard(8);
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
@@ -207,9 +207,10 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
-      // If game is still active, should be at movement phase
+      // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+      // NO PHASE SKIPPING - players with ringsInHand == 0 will emit no_placement_action.
       if (result.nextState.gameStatus === 'active' && result.nextState.currentPlayer === 2) {
-        expect(result.nextState.currentPhase).toBe('movement');
+        expect(result.nextState.currentPhase).toBe('ring_placement');
       }
     });
   });
@@ -1024,7 +1025,7 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
       }
     });
 
-    it('advances to movement for player without rings in hand', () => {
+    it('advances to ring_placement for player without rings in hand (no phase skipping)', () => {
       const board = createEmptyBoard(8);
       board.stacks.set('3,3', createStack(1, 2));
       board.stacks.set('5,5', createStack(2, 2));
@@ -1048,9 +1049,11 @@ describe('TurnOrchestrator phase transitions branch coverage', () => {
 
       const result = processTurn(state, move);
       expect(result.nextState).toBeDefined();
+      // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+      // NO PHASE SKIPPING - players with ringsInHand == 0 will emit no_placement_action.
       if (result.nextState.gameStatus === 'active') {
         expect(result.nextState.currentPlayer).toBe(2);
-        expect(result.nextState.currentPhase).toBe('movement');
+        expect(result.nextState.currentPhase).toBe('ring_placement');
       }
     });
   });

@@ -246,6 +246,11 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - **territory_processing → ring_placement (next player):** After all territory regions are processed (or none existed), if P performed at least one action in any prior phase OR P has no controlled stacks, the turn ends and the next player's `currentPhase` is set to `ring_placement`. Players with `ringsInHand == 0` will emit `no_placement_action` and proceed to `movement`. This ensures all phases are visited with explicit moves per RR-CANON-R075.
     - **forced_elimination → ring_placement (next player):** After P executes the `forced_elimination` move, victory checks are performed and the turn ends. The next player always starts in `ring_placement`.
   - These transitions are not optional; any engine implementation that does not perform them violates the canonical rules.
+  - **CRITICAL INVARIANT: NO PHASE SKIPPING.** ALL players MUST enter `ring_placement` phase at the start of their turn without exception. The engine MUST NOT skip directly to `movement` phase based on `ringsInHand` count. Players with `ringsInHand == 0` will naturally emit `no_placement_action` which triggers the transition to `movement`. This explicit phase entry is required for:
+    - Consistent move history recording
+    - Replay parity between TS and Python engines
+    - Proper FSM state tracking
+    - LPS (Least Playing Seat) round tracking accuracy
   - Note: The `skip_capture` move type exists for cases where a player declines an optional capture opportunity; it explicitly transitions from `capture` to `line_processing` without executing a capture.
   - References: RR-CANON-R070, RR-CANON-R093, RR-CANON-R100, RR-CANON-R103; TS `turnOrchestrator.ts` `processPostMovePhases` and FSM in `src/shared/engine/fsm/` (canonical orchestrator).
 

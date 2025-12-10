@@ -1752,12 +1752,11 @@ export class ClientSandboxEngine {
         continue;
       }
 
-      const hasRings = player.ringsInHand > 0;
-      const nextPhase: GamePhase = hasRings ? 'ring_placement' : 'movement';
-
+      // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+      // NO PHASE SKIPPING - players with ringsInHand == 0 will emit no_placement_action.
       this.gameState = {
         ...this.gameState,
-        currentPhase: nextPhase,
+        currentPhase: 'ring_placement', // Always ring_placement - NO PHASE SKIPPING
       };
 
       this._hasPlacedThisTurn = turnState.hasPlacedThisTurn;

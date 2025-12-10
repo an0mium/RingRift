@@ -2077,24 +2077,21 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
     case 'skip_territory_processing': {
       // Explicit skip in territory_processing phase when player opts out of
       // processing available regions. Rotate to next player and start their
-      // turn. Per RR-CANON-R073: ring_placement if ringsInHand > 0, else movement.
+      // turn. Per RR-CANON-R073: ALL players start in ring_placement without exception.
       // Clear mustMoveFromStackKey for new turn.
       // RR-CANON-R201: Skip permanently eliminated players (no rings anywhere).
+      // CRITICAL: NO PHASE SKIPPING - players with ringsInHand == 0 will emit
+      // no_placement_action which transitions to movement, but they MUST enter
+      // ring_placement first.
       const players = state.players;
       const currentPlayerIndex = players.findIndex((p) => p.playerNumber === state.currentPlayer);
-      const { nextPlayerIndex, nextPlayer } = computeNextNonEliminatedPlayer(
-        state,
-        currentPlayerIndex,
-        players
-      );
-      const nextPlayerRingsInHand = players[nextPlayerIndex].ringsInHand;
-      const nextPhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
+      const { nextPlayer } = computeNextNonEliminatedPlayer(state, currentPlayerIndex, players);
 
       return {
         nextState: {
           ...state,
           currentPlayer: nextPlayer,
-          currentPhase: nextPhase as GamePhase,
+          currentPhase: 'ring_placement' as GamePhase, // Always ring_placement - NO PHASE SKIPPING
           mustMoveFromStackKey: undefined, // Clear for new turn
         },
       };
@@ -2345,20 +2342,20 @@ function processPostMovePhases(
       players
     );
 
-    // Per RR-CANON-R073: Next player's starting phase depends on their ringsInHand:
-    // - ring_placement if ringsInHand > 0
-    // - movement if ringsInHand == 0 (they must move an existing stack)
-    // When no legal placements exist (ringsInHand == 0), hosts must emit a
-    // NO_PLACEMENT_ACTION bookkeeping move. But if ringsInHand is already 0,
-    // we start directly in movement phase to match Python's _end_turn behavior.
-    const nextPlayerRingsInHand = players[nextPlayerIndex].ringsInHand;
-    const nextPhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
+    // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+    // CRITICAL: NO PHASE SKIPPING - players with ringsInHand == 0 will emit
+    // no_placement_action which transitions to movement, but they MUST enter
+    // ring_placement first. This ensures:
+    // - Consistent move history recording
+    // - Replay parity between TS and Python engines
+    // - Proper FSM state tracking
+    // - LPS round tracking accuracy
 
     // Clear mustMoveFromStackKey for new turn.
     stateMachine.updateGameState({
       ...currentState,
       currentPlayer: nextPlayer,
-      currentPhase: nextPhase,
+      currentPhase: 'ring_placement', // Always ring_placement - NO PHASE SKIPPING
       mustMoveFromStackKey: undefined, // Clear for new turn
     });
 
@@ -2657,18 +2654,18 @@ function processPostMovePhases(
     const currentPlayerIndex = players.findIndex(
       (p) => p.playerNumber === currentState.currentPlayer
     );
-    const { nextPlayerIndex, nextPlayer } = computeNextNonEliminatedPlayer(
+    const { nextPlayer } = computeNextNonEliminatedPlayer(
       currentState,
       currentPlayerIndex,
       players
     );
-    const nextPlayerRingsInHand = players[nextPlayerIndex].ringsInHand;
-    const nextPhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
+    // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+    // NO PHASE SKIPPING - players with ringsInHand == 0 will emit no_placement_action.
 
     stateMachine.updateGameState({
       ...currentState,
       currentPlayer: nextPlayer,
-      currentPhase: nextPhase,
+      currentPhase: 'ring_placement', // Always ring_placement - NO PHASE SKIPPING
       mustMoveFromStackKey: undefined, // Clear for new turn
     });
     return {};
@@ -2698,19 +2695,17 @@ function processPostMovePhases(
     currentPlayerIndex,
     players
   );
-  // Per RR-CANON-R073: ring_placement if ringsInHand > 0, else movement.
+  // Per RR-CANON-R073: ALL players start in ring_placement without exception.
+  // NO PHASE SKIPPING - players with ringsInHand == 0 will emit no_placement_action.
   // When no legal placements exist (ringsInHand == 0), hosts must emit an
-  // explicit no_placement_action bookkeeping move (or advance directly to
-  // movement via shared turnLogic); the core orchestrator no longer
+  // explicit no_placement_action bookkeeping move; the core orchestrator no longer
   // fabricates this move itself.
   // Clear mustMoveFromStackKey for new turn.
-  const nextPlayerRingsInHand = players[nextPlayerIndex].ringsInHand;
-  const nextPhase: GamePhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
 
   stateMachine.updateGameState({
     ...currentState,
     currentPlayer: nextPlayer,
-    currentPhase: nextPhase,
+    currentPhase: 'ring_placement', // Always ring_placement - NO PHASE SKIPPING
     mustMoveFromStackKey: undefined, // Clear for new turn
   });
 

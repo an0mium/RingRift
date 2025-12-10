@@ -1290,13 +1290,11 @@ class GameEngine:
                 game_state.current_player = candidate.player_number
                 game_state.must_move_from_stack_key = None
 
-                # Per RR-CANON, players with rings_in_hand > 0 start in RING_PLACEMENT.
-                # Players with rings_in_hand == 0 skip directly to MOVEMENT (they may
-                # have recovery moves available if eligible). This matches TS semantics.
-                if candidate.rings_in_hand > 0:
-                    game_state.current_phase = GamePhase.RING_PLACEMENT
-                else:
-                    game_state.current_phase = GamePhase.MOVEMENT
+                # Per RR-CANON-R073: ALL players start in RING_PLACEMENT without exception.
+                # Players with rings_in_hand == 0 will emit no_placement_action and
+                # proceed to movement, but they MUST enter ring_placement first.
+                # NO PHASE SKIPPING IS ALLOWED - this is a core invariant.
+                game_state.current_phase = GamePhase.RING_PLACEMENT
 
                 GameEngine._update_lps_round_tracking_for_current_player(
                     game_state,
@@ -1327,9 +1325,10 @@ class GameEngine:
         - Players with buried rings but no stacks/hand are NOT skipped - they
           may be recovery-eligible.
         - For the next player with rings:
-          * If they have rings in hand, start in RING_PLACEMENT.
-          * If they have no rings in hand, start in MOVEMENT (where recovery
-            moves may be available if eligible).
+          * ALL players start in RING_PLACEMENT without exception (RR-CANON-R073).
+          * Players with rings_in_hand == 0 will emit no_placement_action and
+            proceed to movement, but they MUST enter ring_placement first.
+          * NO PHASE SKIPPING IS ALLOWED - this is a core invariant.
         - If no players have any rings at all, leave current_player unchanged
           and allow _check_victory to resolve global stalemate via tie-breakers.
 
@@ -1385,13 +1384,11 @@ class GameEngine:
                 game_state.current_player = candidate.player_number
                 game_state.must_move_from_stack_key = None
 
-                # Per RR-CANON, players with rings_in_hand > 0 start in RING_PLACEMENT.
-                # Players with rings_in_hand == 0 skip directly to MOVEMENT (they may
-                # have recovery moves available if eligible). This matches TS semantics.
-                if candidate.rings_in_hand > 0:
-                    game_state.current_phase = GamePhase.RING_PLACEMENT
-                else:
-                    game_state.current_phase = GamePhase.MOVEMENT
+                # Per RR-CANON-R073: ALL players start in RING_PLACEMENT without exception.
+                # Players with rings_in_hand == 0 will emit no_placement_action and
+                # proceed to movement, but they MUST enter ring_placement first.
+                # NO PHASE SKIPPING IS ALLOWED - this is a core invariant.
+                game_state.current_phase = GamePhase.RING_PLACEMENT
 
                 GameEngine._update_lps_round_tracking_for_current_player(
                     game_state,
