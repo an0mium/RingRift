@@ -32,6 +32,8 @@ import argparse
 import json
 import logging
 import os
+import shutil
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -39,6 +41,57 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+
+# Disk monitoring thresholds
+DISK_WARNING_THRESHOLD = 85  # Pause selfplay
+DISK_CRITICAL_THRESHOLD = 95  # Abort selfplay
+
+
+def get_disk_usage_percent(path: str = "/") -> int:
+    """Get disk usage percentage for the filesystem containing path."""
+    try:
+        total, used, free = shutil.disk_usage(path)
+        return int((used / total) * 100)
+    except Exception:
+        return 0
+
+
+def run_disk_cleanup() -> bool:
+    """Run disk cleanup script if available, return True if cleanup was run."""
+    cleanup_script = Path(__file__).parent / "disk_monitor.sh"
+    if cleanup_script.exists():
+        try:
+            subprocess.run(
+                ["bash", str(cleanup_script)],
+                capture_output=True,
+                timeout=120,
+            )
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def check_disk_space(logger, output_dir: str) -> str:
+    """Check disk space and return status: 'ok', 'warning', or 'critical'."""
+    usage = get_disk_usage_percent(output_dir)
+
+    if usage >= DISK_CRITICAL_THRESHOLD:
+        logger.error(f"CRITICAL: Disk usage at {usage}% - aborting selfplay")
+        return "critical"
+    elif usage >= DISK_WARNING_THRESHOLD:
+        logger.warning(f"WARNING: Disk usage at {usage}% - running cleanup")
+        if run_disk_cleanup():
+            # Re-check after cleanup
+            new_usage = get_disk_usage_percent(output_dir)
+            logger.info(f"Disk usage after cleanup: {new_usage}%")
+            if new_usage >= DISK_CRITICAL_THRESHOLD:
+                return "critical"
+            elif new_usage >= DISK_WARNING_THRESHOLD:
+                return "warning"
+        return "warning"
+    return "ok"
 
 # Add app/ to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -136,6 +189,15 @@ def run_hybrid_selfplay(
 
     with open(games_file, "w") as f:
         for game_idx in range(num_games):
+            # Check disk space every 10 games
+            if game_idx % 10 == 0:
+                disk_status = check_disk_space(logger, output_dir)
+                if disk_status == "critical":
+                    logger.error(f"Aborting selfplay at game {game_idx} due to critical disk usage")
+                    break
+                elif disk_status == "warning":
+                    logger.warning(f"Disk space low, continuing cautiously at game {game_idx}")
+
             game_start = time.time()
 
             # Create initial state
