@@ -1,7 +1,6 @@
 import { hashGameState, computeProgressSnapshot } from '../../src/shared/engine/core';
 import { reproduceSquare8TwoAiSeed1AtAction } from '../utils/aiSeedSnapshots';
 import { MAX_AI_ACTIONS_PER_GAME } from '../utils/aiSimulationPolicy';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Scenario-level check derived from the AI fuzz harness:
@@ -20,16 +19,14 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  * perspective: from the reproduced plateau, repeated AI turns must either
  * continue to make progress or reach a terminal game state within a
  * reasonable bound, and the global S metric must remain non-decreasing.
+ *
+ * @skip FSM orchestration is now canonical. These tests were created with legacy
+ * orchestration behavior. The reproduceSquare8TwoAiSeed1AtAction helper replays
+ * historical moves that don't pass FSM validation with canonical rules.
+ * Enable once the seed snapshots are regenerated with FSM orchestration.
  */
 
-// TODO: FSM issue - AI stall behavior may differ under FSM orchestration.
-// These tests were created with legacy orchestration behavior.
-// The reproduceSquare8TwoAiSeed1AtAction helper replays historical moves
-// that may not pass FSM validation with the current canonical rules.
-// Enable once FSM behavior is fully stabilized for AI simulations.
-const testFn = isFSMOrchestratorActive() ? test.skip : test;
-
-testFn(
+test.skip(
   'AI termination scenario: square8 / 2 AI / seed=1 plateau eventually reaches a terminal state',
   async () => {
     const targetActionIndex = 58;

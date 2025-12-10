@@ -1,9 +1,12 @@
 /**
- * TurnStateMachine - Finite State Machine for RingRift turn phases
+ * TurnStateMachine - Canonical Finite State Machine for RingRift turn phases
  *
- * This FSM provides explicit, type-safe phase transitions with guards.
- * All valid (state, event) → nextState transitions are declared upfront,
- * making invalid transitions impossible at compile time.
+ * This FSM is the **canonical implementation** for all phase transitions in
+ * RingRift. It supersedes the legacy PhaseStateMachine and provides:
+ *
+ * - Explicit, type-safe phase transitions with guards
+ * - All valid (state, event) → nextState transitions declared upfront
+ * - Invalid transitions impossible at compile time
  *
  * Key design principles:
  * - Discriminated unions for states (phase-specific context)
@@ -11,6 +14,10 @@
  * - Guards for conditional transitions
  * - Actions for side effects
  * - No implicit transitions or coercions
+ *
+ * The FSM is used by the turnOrchestrator for move validation and phase
+ * progression. All game clients (web, sandbox, selfplay) use this FSM
+ * through the FSMAdapter.
  *
  * @module TurnStateMachine
  */

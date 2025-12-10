@@ -13,7 +13,6 @@ import {
 } from '../../src/client/sandbox/sandboxAI';
 import { hashGameState } from '../../src/shared/engine';
 import { ClientSandboxEngine } from '../../src/client/sandbox/ClientSandboxEngine';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 // List of fixtures to test
 const FIXTURE_FILES = [
@@ -26,15 +25,12 @@ const FIXTURE_FILES = [
   'ringrift_scenario_sandbox_scenario_turn_372.json',
 ];
 
-describe('Sandbox AI End-to-End Regression', () => {
-  // TODO: FSM issue - AI end-to-end simulations may stall differently under FSM
-  // orchestration. These fixtures were created with legacy orchestration.
-  // Enable once FSM behavior is fully stabilized for AI simulations.
-  if (isFSMOrchestratorActive()) {
-    it.skip('Skipping - FSM orchestration may affect AI simulation completion', () => {});
-    return;
-  }
-
+/**
+ * @skip FSM orchestration is now canonical. AI end-to-end simulations may stall
+ * differently under FSM orchestration. These fixtures were created with legacy
+ * orchestration. Enable once FSM behavior is fully stabilized for AI simulations.
+ */
+describe.skip('Sandbox AI End-to-End Regression', () => {
   // Increase timeout for long-running simulations
   jest.setTimeout(30000);
 

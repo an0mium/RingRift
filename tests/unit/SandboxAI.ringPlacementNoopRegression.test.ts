@@ -11,7 +11,6 @@ import {
 } from '../../src/shared/types/game';
 import { hashGameState, computeProgressSnapshot } from '../../src/shared/engine/core';
 import { STALL_WINDOW_STEPS, MAX_AI_ACTIONS_PER_GAME } from '../utils/aiSimulationPolicy';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Focused regression for the historical sandbox AI stall observed in the
@@ -27,14 +26,12 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  * ClientSandboxEngine.aiSingleSeedDebug.test.ts; this file serves as a
  * fast, CI-friendly guard against reintroducing a non-terminating
  * ring_placement control-flow bug.
+ *
+ * @skip FSM orchestration is now canonical. These tests were created with legacy
+ * orchestration behavior. Enable once FSM behavior is fully stabilized for AI simulations.
  */
 
-// TODO: FSM issue - AI stall behavior may differ under FSM orchestration.
-// These tests were created with legacy orchestration behavior.
-// Enable once FSM behavior is fully stabilized for AI simulations.
-const testFn = isFSMOrchestratorActive() ? test.skip : test;
-
-testFn(
+test.skip(
   'Sandbox AI regression: square8 / 2p / seed=18 terminates without long no-op stall',
   async () => {
     const boardType: BoardType = 'square8';

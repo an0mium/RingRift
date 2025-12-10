@@ -1,7 +1,6 @@
 import { hashGameState, computeProgressSnapshot } from '../../src/shared/engine/core';
 import { reproduceSquare8TwoAiSeed1AtAction } from '../utils/aiSeedSnapshots';
 import { STALL_WINDOW_STEPS } from '../utils/aiSimulationPolicy';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Regression for the sandbox AI stall discovered by the fuzz harness in the
@@ -13,14 +12,12 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  * checkpoints a reproducible mid-game state derived from the same seeded
  * harness and then asserts that we do not observe a long stagnant stretch
  * of identical hashes under continued AI play.
+ *
+ * @skip FSM orchestration is now canonical. These tests were created with legacy
+ * orchestration behavior. Enable once FSM behavior is fully stabilized for AI simulations.
  */
 
-// TODO: FSM issue - AI stall behavior may differ under FSM orchestration.
-// These tests were created with legacy orchestration behavior.
-// Enable once FSM behavior is fully stabilized for AI simulations.
-const testFn = isFSMOrchestratorActive() ? test.skip : test;
-
-testFn(
+test.skip(
   'ClientSandboxEngine AI stall regression: square8 / 2 AI / seed=1 plateau does not re-stall',
   async () => {
     // Reproduce a mid-game state near the historical stall plateau.

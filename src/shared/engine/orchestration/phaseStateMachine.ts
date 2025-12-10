@@ -5,6 +5,16 @@
  *
  * Manages phase transitions during turn processing.
  * Built on top of the existing turnLogic module.
+ *
+ * @deprecated This module is superseded by the FSM-based orchestration in
+ * `../fsm/TurnStateMachine.ts`. The FSM is now the canonical orchestrator
+ * for all phase transitions and move validation. This module remains for
+ * backwards compatibility but should not be used for new code.
+ *
+ * Migration path:
+ * - Use `validateMoveWithFSM` from `../fsm/FSMAdapter` for move validation
+ * - Use `computeFSMOrchestration` from `../fsm/FSMAdapter` for phase transitions
+ * - Use `determineNextPhaseFromFSM` from `../fsm/FSMAdapter` instead of `determineNextPhase`
  */
 
 import type { GameState, GamePhase, Move, Position } from '../../types/game';
@@ -241,6 +251,9 @@ export function shouldAutoAdvancePhase(phase: GamePhase, context: PhaseContext):
 
 /**
  * The phase state machine that coordinates phase transitions.
+ *
+ * @deprecated Use `TurnStateMachine` from `../fsm/TurnStateMachine` instead.
+ * The FSM provides type-safe phase transitions with explicit guards and actions.
  */
 export class PhaseStateMachine {
   private state: TurnProcessingState;

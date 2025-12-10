@@ -1,5 +1,62 @@
 /**
- * FSM Module - Finite State Machine for RingRift turn phases
+ * FSM Module - Canonical Orchestrator for RingRift turn phases
+ *
+ * This module is the **canonical orchestrator** for all phase transitions and
+ * move validation in RingRift. It implements a finite state machine that
+ * governs the flow of game phases during a turn.
+ *
+ * ## Architecture
+ *
+ * The FSM consists of three main components:
+ *
+ * 1. **TurnStateMachine** - The pure FSM implementation with:
+ *    - Type-safe phase states (RingPlacementState, MovementState, etc.)
+ *    - Event-driven transitions (PLACE_RING, MOVE_STACK, CAPTURE, etc.)
+ *    - Guard conditions that validate move legality
+ *    - Action generation for game state mutations
+ *
+ * 2. **FSMAdapter** - Bridges the FSM with existing game types:
+ *    - Converts Move objects to TurnEvents
+ *    - Derives FSM state from GameState
+ *    - Provides validation functions (validateMoveWithFSM)
+ *    - Computes orchestration results (computeFSMOrchestration)
+ *
+ * 3. **FSMDecisionSurface** - Exposes pending decisions:
+ *    - Lines requiring reward choices
+ *    - Territory regions requiring processing
+ *    - Chain capture continuations
+ *    - Forced elimination targets
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * import {
+ *   validateMoveWithFSM,
+ *   computeFSMOrchestration,
+ *   isMoveTypeValidForPhase,
+ * } from './fsm';
+ *
+ * // Validate a move
+ * const result = validateMoveWithFSM(gameState, move);
+ * if (!result.valid) {
+ *   console.error(result.errorCode, result.reason);
+ * }
+ *
+ * // Compute next phase after a move
+ * const orchestration = computeFSMOrchestration(gameState, move);
+ * if (orchestration.success) {
+ *   // Apply actions and transition to orchestration.nextPhase
+ * }
+ * ```
+ *
+ * ## Migration from Legacy Orchestration
+ *
+ * The FSM replaces the legacy `PhaseStateMachine` in
+ * `../orchestration/phaseStateMachine.ts`. That module is deprecated but
+ * retained for backwards compatibility. New code should always use this
+ * FSM module.
+ *
+ * @module fsm
  */
 
 export {

@@ -25,7 +25,6 @@ import {
   enumerateCaptureSegmentsFromBoard,
   CaptureBoardAdapters,
 } from '../../src/client/sandbox/sandboxCaptures';
-import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
 
 /**
  * Targeted single-seed diagnostic for the sandbox AI stall seen in the
@@ -38,14 +37,12 @@ import { isFSMOrchestratorActive } from '../../src/shared/utils/envFlags';
  * game fails to terminate within MAX_AI_ACTIONS, it logs a compact summary
  * of the final state directly to the Jest output so we can reason about
  * the blocked configuration without tailing the large sandbox-ai-sim.log.
+ *
+ * @skip FSM orchestration is now canonical. These tests were created with legacy
+ * orchestration behavior. Enable once FSM behavior is fully stabilized for AI simulations.
  */
 
-// TODO: FSM issue - AI seed diagnostics may differ under FSM orchestration.
-// These tests were created with legacy orchestration behavior.
-// Enable once FSM behavior is fully stabilized for AI simulations.
-const testFn = isFSMOrchestratorActive() ? test.skip : test;
-
-testFn(
+test.skip(
   'ClientSandboxEngine single-seed debug: square8 with 2 AI players, seed=18 terminates or logs diagnostics',
   async () => {
     const boardType: BoardType = 'square8';

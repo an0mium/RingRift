@@ -42,6 +42,7 @@ import {
   evaluateVictory,
 } from '../src/shared/engine';
 import { serializeGameState } from '../src/shared/engine/contracts/serialization';
+import { validateMoveWithFSM, type FSMValidationResult } from '../src/shared/engine/fsm/FSMAdapter';
 import { connectDatabase, disconnectDatabase } from '../src/server/database/connection';
 import type { PrismaClient } from '@prisma/client';
 import { CanonicalReplayEngine } from '../src/shared/replay/CanonicalReplayEngine';
@@ -674,6 +675,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
   let applied = 0;
   let synthesizedCount = 0;
+  let fsmValidationFailures = 0;
   // Track the last DB move index we've emitted a "complete" state for
   let lastEmittedDbMoveComplete = -1;
 
@@ -724,6 +726,28 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     // Apply any synthesized bookkeeping moves first
     for (const bridgeMove of bridgeMoves) {
       synthesizedCount += 1;
+
+      // FSM parity validation for bridge moves
+      const bridgeStateBeforeMove = engine.getState() as GameState;
+      const bridgeFsmValidation = validateMoveWithFSM(bridgeStateBeforeMove, bridgeMove);
+      if (!bridgeFsmValidation.valid) {
+        fsmValidationFailures += 1;
+        console.error(
+          JSON.stringify({
+            kind: 'ts-replay-fsm-bridge-validation-warning',
+            k: applied,
+            bridgeMove: {
+              type: bridgeMove.type,
+              player: bridgeMove.player,
+            },
+            fsmPhase: bridgeFsmValidation.currentPhase,
+            gamePhase: bridgeStateBeforeMove.currentPhase,
+            errorCode: bridgeFsmValidation.errorCode,
+            reason: bridgeFsmValidation.reason,
+          })
+        );
+      }
+
       const bridgeResult = await engine.applyMove(bridgeMove);
       if (!bridgeResult.success) {
         console.error(
@@ -782,6 +806,34 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     }
 
     applied += 1;
+
+    // FSM parity validation: validate move against FSM before applying
+    // This catches any divergence between the recorded move and FSM rules
+    const stateBeforeMove = engine.getState() as GameState;
+    const fsmValidation = validateMoveWithFSM(stateBeforeMove, move);
+    if (!fsmValidation.valid) {
+      fsmValidationFailures += 1;
+      // Log FSM validation failure but continue - the move may still apply
+      // via the engine's own validation (FSM may be more restrictive)
+      console.error(
+        JSON.stringify({
+          kind: 'ts-replay-fsm-validation-warning',
+          k: applied,
+          db_move_index: i,
+          move: {
+            type: move.type,
+            player: move.player,
+            from: move.from,
+            to: move.to,
+          },
+          fsmPhase: fsmValidation.currentPhase,
+          gamePhase: stateBeforeMove.currentPhase,
+          errorCode: fsmValidation.errorCode,
+          reason: fsmValidation.reason,
+          validEventTypes: fsmValidation.validEventTypes,
+        })
+      );
+    }
 
     const result = await engine.applyMove(move);
 
@@ -934,9 +986,17 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       kind: 'ts-replay-final',
       appliedMoves: applied,
       synthesizedMoves: synthesizedCount,
+      fsmValidationFailures,
       summary: summarizeState('final', finalState),
     })
   );
+
+  // Emit FSM parity summary if there were any validation failures
+  if (fsmValidationFailures > 0) {
+    console.error(
+      `[selfplay-db-ts-replay] FSM parity warning: ${fsmValidationFailures} move(s) failed FSM validation for game ${gameId}`
+    );
+  }
 }
 
 async function hasExistingSelfPlayImport(
