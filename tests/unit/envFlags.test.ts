@@ -225,13 +225,13 @@ describe('envFlags helpers', () => {
 
   describe('orchestrator config presets', () => {
     // NOTE: rolloutPercentage was removed in Phase 3 migration - orchestrator is permanently enabled
+    // NOTE: shadowModeEnabled was removed - FSM is now canonical
     it('config.orchestrator matches CI orchestrator-ON profile (Phase 3)', async () => {
       process.env = {
         ...process.env,
         NODE_ENV: 'test',
         RINGRIFT_RULES_MODE: 'ts',
         ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_SHADOW_MODE_ENABLED: 'false',
       } as any;
 
       jest.resetModules();
@@ -240,20 +240,19 @@ describe('envFlags helpers', () => {
       expect(config.orchestrator.rulesMode).toBe('ts');
       expect(config.orchestrator.adapterEnabled).toBe(true);
       // Phase 3: rolloutPercentage removed - orchestrator permanently enabled
-      expect(config.orchestrator.shadowModeEnabled).toBe(false);
+      // shadowModeEnabled removed - FSM is now canonical
 
       expect(config.featureFlags.orchestrator.adapterEnabled).toBe(true);
       // Phase 3: rolloutPercentage removed from featureFlags
-      expect(config.featureFlags.orchestrator.shadowModeEnabled).toBe(false);
+      // shadowModeEnabled removed - FSM is now canonical
     });
 
-    it('config.orchestrator supports shadow mode (Phase 3)', async () => {
+    it('config.orchestrator with shadow rules mode still uses FSM canonical path', async () => {
       process.env = {
         ...process.env,
         NODE_ENV: 'production',
         RINGRIFT_RULES_MODE: 'shadow',
         ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-        ORCHESTRATOR_SHADOW_MODE_ENABLED: 'true',
       } as any;
 
       jest.resetModules();
@@ -262,11 +261,11 @@ describe('envFlags helpers', () => {
       expect(config.orchestrator.rulesMode).toBe('shadow');
       expect(config.orchestrator.adapterEnabled).toBe(true);
       // Phase 3: rolloutPercentage removed - orchestrator permanently enabled
-      expect(config.orchestrator.shadowModeEnabled).toBe(true);
+      // shadowModeEnabled removed - FSM is now canonical
 
       expect(config.featureFlags.orchestrator.adapterEnabled).toBe(true);
       // Phase 3: rolloutPercentage removed from featureFlags
-      expect(config.featureFlags.orchestrator.shadowModeEnabled).toBe(true);
+      // shadowModeEnabled removed - FSM is now canonical
     });
   });
 });

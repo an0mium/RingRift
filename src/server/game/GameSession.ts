@@ -15,8 +15,7 @@ import { GameOutcome, FinalScore } from '../../shared/types/gameRecord';
 import { getDatabaseClient } from '../database/connection';
 import { logger } from '../utils/logger';
 import { getMetricsService } from '../services/MetricsService';
-import { orchestratorRollout, EngineSelection } from '../services/OrchestratorRolloutService';
-import { createSimpleAdapter, createAutoSelectDecisionHandler } from './turn/TurnEngineAdapter';
+import { orchestratorRollout } from '../services/OrchestratorRolloutService';
 import { config } from '../config';
 import {
   applyDecisionPhaseFixtureIfNeeded,
@@ -176,9 +175,6 @@ export class GameSession {
 
   // Default AI request timeout (can be overridden via config)
   private readonly aiRequestTimeoutMs: number;
-
-  // Engine selection for this session (legacy, orchestrator, or shadow)
-  private engineSelection: EngineSelection = EngineSelection.LEGACY;
 
   constructor(
     gameId: string,
@@ -443,12 +439,9 @@ export class GameSession {
     const userId = primaryHuman?.id;
 
     const decision = orchestratorRollout.selectEngine(this.gameId, userId);
-    this.engineSelection = decision.engine;
 
     // Adapter enablement is now controlled globally via
-    // config.featureFlags.orchestrator.adapterEnabled and is no longer
-    // overridden per session. EngineSelection is retained for observability
-    // and for selecting shadow-comparison behaviour in higher-level services.
+    // config.featureFlags.orchestrator.adapterEnabled (FSM is canonical).
 
     // Record a rollout session selection metric for observability.
     getMetricsService().recordOrchestratorSession(decision.engine, decision.reason);

@@ -5,8 +5,7 @@
  * - Kill switch precedence
  * - Denylist/allowlist targeting
  * - Circuit breaker behavior
- * - Percentage-based rollout with consistent hashing
- * - Shadow mode
+ * - Default enabled mode (Phase 3 - percentage rollout removed)
  */
 
 import {
@@ -27,10 +26,10 @@ jest.mock('../../src/server/utils/logger', () => ({
 }));
 
 // Create a mock config object that we can modify per test
+// Note: shadowModeEnabled has been removed as FSM is now canonical
 const mockOrchestratorConfig = {
   adapterEnabled: true,
   rolloutPercentage: 100,
-  shadowModeEnabled: false,
   allowlistUsers: [] as string[],
   denylistUsers: [] as string[],
   circuitBreaker: {
@@ -42,6 +41,7 @@ const mockOrchestratorConfig = {
 };
 
 // Mock the config module
+// NOTE: shadowModeEnabled has been removed as FSM is now canonical
 jest.mock('../../src/server/config', () => ({
   config: {
     featureFlags: {
@@ -51,9 +51,6 @@ jest.mock('../../src/server/config', () => ({
         },
         get rolloutPercentage() {
           return mockOrchestratorConfig.rolloutPercentage;
-        },
-        get shadowModeEnabled() {
-          return mockOrchestratorConfig.shadowModeEnabled;
         },
         get allowlistUsers() {
           return mockOrchestratorConfig.allowlistUsers;
@@ -76,10 +73,10 @@ describe('OrchestratorRolloutService', () => {
   let service: OrchestratorRolloutService;
 
   // Helper to reset config to defaults
+  // NOTE: shadowModeEnabled removed as FSM is now canonical
   const resetConfig = () => {
     mockOrchestratorConfig.adapterEnabled = true;
     mockOrchestratorConfig.rolloutPercentage = 100;
-    mockOrchestratorConfig.shadowModeEnabled = false;
     mockOrchestratorConfig.allowlistUsers = [];
     mockOrchestratorConfig.denylistUsers = [];
     mockOrchestratorConfig.circuitBreaker = {
@@ -174,15 +171,7 @@ describe('OrchestratorRolloutService', () => {
         expect(decision.reason).toBe('allowlist');
       });
 
-      it('should return SHADOW when allowlisted user and shadow mode enabled', () => {
-        mockOrchestratorConfig.allowlistUsers = ['user-456'];
-        mockOrchestratorConfig.shadowModeEnabled = true;
-
-        const decision = service.selectEngine('session-123', 'user-456');
-
-        expect(decision.engine).toBe(EngineSelection.SHADOW);
-        expect(decision.reason).toBe('allowlist_shadow');
-      });
+      // NOTE: Shadow mode test removed - FSM is now canonical
 
       it('should not apply allowlist when userId is undefined', () => {
         mockOrchestratorConfig.allowlistUsers = ['user-456'];
@@ -242,7 +231,7 @@ describe('OrchestratorRolloutService', () => {
 
     describe('5. Default Enabled (Phase 3 - Percentage Rollout Removed)', () => {
       // NOTE: Phase 3 migration removed percentage-based rollout.
-      // All sessions now default to orchestrator/shadow mode.
+      // All sessions now default to orchestrator (FSM canonical).
 
       it('should return ORCHESTRATOR by default (ignores rolloutPercentage)', () => {
         mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
@@ -262,23 +251,16 @@ describe('OrchestratorRolloutService', () => {
         expect(decision.reason).toBe('default_enabled');
       });
 
-      it('should return SHADOW when shadow mode enabled (ignores rolloutPercentage)', () => {
-        mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
-        mockOrchestratorConfig.shadowModeEnabled = true;
-
-        const decision = service.selectEngine('session-123');
-
-        expect(decision.engine).toBe(EngineSelection.SHADOW);
-        expect(decision.reason).toBe('default_enabled_shadow');
-      });
+      // NOTE: Shadow mode test removed - FSM is now canonical
     });
   });
 
   describe('Phase-like configuration presets', () => {
+    // NOTE: Shadow mode removed - FSM is now canonical
+
     it('Phase 0 / legacy-only posture forces LEGACY via kill switch', () => {
       mockOrchestratorConfig.adapterEnabled = false;
       mockOrchestratorConfig.rolloutPercentage = 100;
-      mockOrchestratorConfig.shadowModeEnabled = false;
 
       const decision = service.selectEngine('any-session', 'any-user');
 
@@ -289,7 +271,6 @@ describe('OrchestratorRolloutService', () => {
     it('Phase 1 / staging orchestrator-only routes typical sessions to ORCHESTRATOR', () => {
       mockOrchestratorConfig.adapterEnabled = true;
       mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
-      mockOrchestratorConfig.shadowModeEnabled = false;
       mockOrchestratorConfig.allowlistUsers = [];
       mockOrchestratorConfig.denylistUsers = [];
       mockOrchestratorConfig.circuitBreaker = {
@@ -307,10 +288,9 @@ describe('OrchestratorRolloutService', () => {
       expect(decision.reason).toBe('default_enabled');
     });
 
-    it('Phase 2 / production shadow uses SHADOW for allowlisted users and SHADOW for others (Phase 3 default)', () => {
+    it('Phase 3 / default enabled with allowlist routes allowlisted users to ORCHESTRATOR', () => {
       mockOrchestratorConfig.adapterEnabled = true;
       mockOrchestratorConfig.rolloutPercentage = 0; // Ignored in Phase 3
-      mockOrchestratorConfig.shadowModeEnabled = true;
       mockOrchestratorConfig.allowlistUsers = ['vip-user'];
       mockOrchestratorConfig.denylistUsers = [];
       mockOrchestratorConfig.circuitBreaker = {
@@ -319,21 +299,20 @@ describe('OrchestratorRolloutService', () => {
         errorWindowSeconds: 300,
       };
 
-      // Allowlisted user sees SHADOW due to shadow-orchestrator path
+      // Allowlisted user sees ORCHESTRATOR via allowlist path
       const allowlisted = service.selectEngine('prod-session-1', 'vip-user');
-      expect(allowlisted.engine).toBe(EngineSelection.SHADOW);
-      expect(allowlisted.reason).toBe('allowlist_shadow');
+      expect(allowlisted.engine).toBe(EngineSelection.ORCHESTRATOR);
+      expect(allowlisted.reason).toBe('allowlist');
 
-      // Phase 3: Non-allowlisted user also gets SHADOW (default enabled with shadow mode)
+      // Phase 3: Non-allowlisted user also gets ORCHESTRATOR (default enabled)
       const regular = service.selectEngine('prod-session-2', 'regular-user');
-      expect(regular.engine).toBe(EngineSelection.SHADOW);
-      expect(regular.reason).toBe('default_enabled_shadow');
+      expect(regular.engine).toBe(EngineSelection.ORCHESTRATOR);
+      expect(regular.reason).toBe('default_enabled');
     });
 
     it('Phase 3 / default enabled honors circuit breaker (percentage ignored)', () => {
       mockOrchestratorConfig.adapterEnabled = true;
       mockOrchestratorConfig.rolloutPercentage = 25; // Ignored in Phase 3
-      mockOrchestratorConfig.shadowModeEnabled = false;
       mockOrchestratorConfig.allowlistUsers = [];
       mockOrchestratorConfig.denylistUsers = [];
       mockOrchestratorConfig.circuitBreaker = {
@@ -695,39 +674,7 @@ describe('OrchestratorRolloutService', () => {
     });
   });
 
-  describe('Shadow Mode', () => {
-    it('should return SHADOW when shadow mode enabled (Phase 3 default)', () => {
-      mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
-      mockOrchestratorConfig.shadowModeEnabled = true;
-
-      const decision = service.selectEngine('session-123');
-
-      expect(decision.engine).toBe(EngineSelection.SHADOW);
-      // Phase 3: default_enabled_shadow instead of percentage_rollout_shadow
-      expect(decision.reason).toBe('default_enabled_shadow');
-    });
-
-    it('should return SHADOW for allowlisted users when shadow mode enabled', () => {
-      mockOrchestratorConfig.allowlistUsers = ['vip-user'];
-      mockOrchestratorConfig.shadowModeEnabled = true;
-
-      const decision = service.selectEngine('session-123', 'vip-user');
-
-      expect(decision.engine).toBe(EngineSelection.SHADOW);
-      expect(decision.reason).toBe('allowlist_shadow');
-    });
-
-    it('should return ORCHESTRATOR when shadow mode is disabled', () => {
-      mockOrchestratorConfig.rolloutPercentage = 100; // Ignored in Phase 3
-      mockOrchestratorConfig.shadowModeEnabled = false;
-
-      const decision = service.selectEngine('session-123');
-
-      expect(decision.engine).toBe(EngineSelection.ORCHESTRATOR);
-      // Phase 3: default_enabled instead of percentage_rollout
-      expect(decision.reason).toBe('default_enabled');
-    });
-  });
+  // NOTE: Shadow Mode tests removed - FSM is now canonical (shadow mode no longer exists)
 
   describe('Logging', () => {
     it('should log debug messages for each decision type', () => {
@@ -851,7 +798,7 @@ describe('OrchestratorRolloutService', () => {
     it('should have correct enum values', () => {
       expect(EngineSelection.LEGACY).toBe('legacy');
       expect(EngineSelection.ORCHESTRATOR).toBe('orchestrator');
-      expect(EngineSelection.SHADOW).toBe('shadow');
+      // SHADOW mode removed as FSM is now canonical
     });
   });
 

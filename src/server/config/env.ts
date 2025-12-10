@@ -374,12 +374,7 @@ export const EnvSchema = z.object({
   // ===================================================================
   // ORCHESTRATOR ROLLOUT CONFIGURATION
   // ===================================================================
-
-  /** Enable shadow mode - run both engines, compare results */
-  ORCHESTRATOR_SHADOW_MODE_ENABLED: z
-    .string()
-    .default('false')
-    .transform((val) => val === 'true' || val === '1'),
+  // NOTE: ORCHESTRATOR_SHADOW_MODE_ENABLED removed - FSM is now canonical
 
   /** Comma-separated list of user IDs to force-enable orchestrator */
   ORCHESTRATOR_ALLOWLIST_USERS: z.string().default(''),

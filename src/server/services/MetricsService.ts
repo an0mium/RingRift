@@ -560,45 +560,6 @@ export class MetricsService {
     });
 
     // ===================
-    // Orchestrator Shadow Mode Metrics
-    // ===================
-
-    this.orchestratorShadowComparisonsCurrent = new Gauge({
-      name: 'ringrift_orchestrator_shadow_comparisons_current',
-      help: 'Current number of shadow mode comparisons held in memory',
-    });
-
-    this.orchestratorShadowMismatchesCurrent = new Gauge({
-      name: 'ringrift_orchestrator_shadow_mismatches_current',
-      help: 'Current number of shadow mode mismatches held in memory',
-    });
-
-    this.orchestratorShadowMismatchRate = new Gauge({
-      name: 'ringrift_orchestrator_shadow_mismatch_rate',
-      help: 'Current mismatch rate for orchestrator shadow comparisons (0.0–1.0)',
-    });
-
-    this.orchestratorShadowOrchestratorErrorsCurrent = new Gauge({
-      name: 'ringrift_orchestrator_shadow_orchestrator_errors_current',
-      help: 'Current number of orchestrator errors in shadow comparisons',
-    });
-
-    this.orchestratorShadowOrchestratorErrorRate = new Gauge({
-      name: 'ringrift_orchestrator_shadow_orchestrator_error_rate',
-      help: 'Current orchestrator error rate in shadow comparisons (0.0–1.0)',
-    });
-
-    this.orchestratorShadowAvgLegacyLatencyMs = new Gauge({
-      name: 'ringrift_orchestrator_shadow_avg_legacy_latency_ms',
-      help: 'Average legacy engine latency across shadow comparisons (milliseconds, rolling window)',
-    });
-
-    this.orchestratorShadowAvgOrchestratorLatencyMs = new Gauge({
-      name: 'ringrift_orchestrator_shadow_avg_orchestrator_latency_ms',
-      help: 'Average orchestrator latency across shadow comparisons (milliseconds, rolling window)',
-    });
-
-    // ===================
     // Orchestrator Rollout Metrics
     // ===================
 
@@ -719,9 +680,6 @@ export class MetricsService {
    * Get metrics in Prometheus text format.
    */
   public async getMetrics(): Promise<string> {
-    // Refresh orchestrator shadow-mode gauges before snapshotting the registry
-    // so that /metrics reflects the latest comparison statistics.
-    this.refreshOrchestratorShadowMetrics();
     return this.registry.metrics();
   }
 
@@ -1033,35 +991,6 @@ export class MetricsService {
     outcome: AIChoiceOutcome
   ): void {
     this.aiChoiceLatencyMs.labels(choiceType, outcome).observe(latencyMs);
-  }
-
-  // ===================
-  // Orchestrator Shadow Mode Helpers
-  // ===================
-
-  /**
-   * Refresh the orchestrator shadow-mode gauges from the latest
-   * ShadowModeComparator snapshot. This is called from getMetrics()
-   * so that /metrics always exposes up-to-date comparison statistics.
-   */
-  public refreshOrchestratorShadowMetrics(): void {
-    let snapshot: ShadowMetrics;
-    try {
-      snapshot = shadowComparator.getMetrics();
-    } catch (err) {
-      logger.warn('Failed to refresh orchestrator shadow metrics', {
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return;
-    }
-
-    this.orchestratorShadowComparisonsCurrent.set(snapshot.totalComparisons);
-    this.orchestratorShadowMismatchesCurrent.set(snapshot.mismatches);
-    this.orchestratorShadowMismatchRate.set(snapshot.mismatchRate);
-    this.orchestratorShadowOrchestratorErrorsCurrent.set(snapshot.orchestratorErrors);
-    this.orchestratorShadowOrchestratorErrorRate.set(snapshot.orchestratorErrorRate);
-    this.orchestratorShadowAvgLegacyLatencyMs.set(snapshot.avgLegacyLatencyMs);
-    this.orchestratorShadowAvgOrchestratorLatencyMs.set(snapshot.avgOrchestratorLatencyMs);
   }
 
   // ===================

@@ -209,13 +209,13 @@ async function startServer() {
       logger.info(`Environment: ${config.nodeEnv}`);
 
       // Log orchestrator adapter mode for observability
+      // FSM is now the canonical validator (RR-CANON compliance)
       const orchestratorEnabled = config.featureFlags.orchestrator.adapterEnabled;
       logger.info(`Orchestrator adapter mode: ${orchestratorEnabled ? 'ENABLED' : 'DISABLED'}`, {
         orchestratorAdapterEnabled: orchestratorEnabled,
-        shadowModeEnabled: config.featureFlags.orchestrator.shadowModeEnabled,
         circuitBreakerEnabled: config.featureFlags.orchestrator.circuitBreaker.enabled,
         engineMode: orchestratorEnabled
-          ? 'TurnEngineAdapter (shared orchestrator)'
+          ? 'TurnEngineAdapter (FSM canonical)'
           : 'TurnEngine (legacy)',
       });
 
@@ -227,7 +227,6 @@ async function startServer() {
           'Orchestrator adapter is DISABLED in production; this should only occur during a documented rollback (see docs/ORCHESTRATOR_ROLLOUT_PLAN.md).',
           {
             orchestratorAdapterEnabled: orchestratorEnabled,
-            shadowModeEnabled: config.featureFlags.orchestrator.shadowModeEnabled,
             rulesMode: config.rules.mode,
           }
         );

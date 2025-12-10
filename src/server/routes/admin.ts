@@ -2,7 +2,6 @@ import { Router } from 'express';
 import type { AuthenticatedRequest } from '../middleware/auth';
 import { authenticate, authorize } from '../middleware/auth';
 import { orchestratorRollout } from '../services/OrchestratorRolloutService';
-import { shadowComparator } from '../services/ShadowModeComparator';
 import { config } from '../config';
 
 const router = Router();
@@ -11,10 +10,10 @@ const router = Router();
  * @openapi
  * /admin/orchestrator/status:
  *   get:
- *     summary: Get orchestrator rollout and shadow-mode status
+ *     summary: Get orchestrator rollout status
  *     description: |
  *       Returns the current orchestrator rollout configuration, circuit breaker
- *       state, error rates, and high-level shadow-mode comparison metrics.
+ *       state, and error rates. FSM is now the canonical validator.
  *       This endpoint is restricted to admin users.
  *     security:
  *       - bearerAuth: []
@@ -30,14 +29,12 @@ router.get(
     const orchestratorConfig = config.featureFlags.orchestrator;
     const cbState = orchestratorRollout.getCircuitBreakerState();
     const errorRatePercent = orchestratorRollout.getErrorRate();
-    const shadowMetrics = shadowComparator.getMetrics();
 
     res.json({
       success: true,
       data: {
         config: {
           adapterEnabled: orchestratorConfig.adapterEnabled,
-          shadowModeEnabled: orchestratorConfig.shadowModeEnabled,
           allowlistUsers: orchestratorConfig.allowlistUsers,
           denylistUsers: orchestratorConfig.denylistUsers,
           circuitBreaker: {
@@ -53,7 +50,6 @@ router.get(
           windowStart: new Date(cbState.windowStart).toISOString(),
           errorRatePercent,
         },
-        shadow: shadowMetrics,
       },
     });
   }

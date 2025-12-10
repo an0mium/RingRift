@@ -1,12 +1,14 @@
 /**
- * Focused branch coverage tests for GameSession AI timeout handling,
- * orchestrator shadow path, and analysis-mode position evaluation.
+ * Focused branch coverage tests for GameSession AI timeout handling
+ * and analysis-mode position evaluation.
+ *
+ * NOTE: Shadow mode tests removed - FSM is now canonical (shadow mode no longer exists)
  */
 
 import type { Server as SocketIOServer } from 'socket.io';
 import { GameSession } from '../../src/server/game/GameSession';
 import type { GameState, Move } from '../../src/shared/types/game';
-import type { RulesResult } from '../../src/server/game/RulesBackendFacade';
+// RulesResult import removed - shadow mode tests no longer exist
 
 // Mocks
 jest.mock('../../src/shared/utils/timeout', () => ({
@@ -32,16 +34,7 @@ jest.mock('../../src/server/services/AIServiceClient', () => ({
   getAIServiceClient: jest.fn(),
 }));
 
-jest.mock('../../src/server/services/ShadowModeComparator', () => ({
-  shadowComparator: {
-    compare: jest.fn(),
-  },
-}));
-
-jest.mock('../../src/server/game/turn/TurnEngineAdapter', () => ({
-  createSimpleAdapter: jest.fn(),
-  createAutoSelectDecisionHandler: jest.fn(),
-}));
+// NOTE: ShadowModeComparator mock removed - FSM is now canonical
 
 jest.mock('../../src/server/utils/logger', () => ({
   logger: {
@@ -85,14 +78,7 @@ const { getAIServiceClient } = require('../../src/server/services/AIServiceClien
   getAIServiceClient: jest.Mock;
 };
 
-const { shadowComparator } = require('../../src/server/services/ShadowModeComparator') as {
-  shadowComparator: { compare: jest.Mock };
-};
-
-const turnAdapterModule = require('../../src/server/game/turn/TurnEngineAdapter') as {
-  createSimpleAdapter: jest.Mock;
-  createAutoSelectDecisionHandler: jest.Mock;
-};
+// NOTE: shadowComparator and turnAdapterModule imports removed - FSM is now canonical
 
 const { logger } = require('../../src/server/utils/logger');
 const { config } = require('../../src/server/config');
@@ -333,123 +319,5 @@ describe('GameSession analysis mode and position evaluation', () => {
   });
 });
 
-describe('GameSession orchestrator shadow path', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
-  it('applyMoveWithOrchestratorShadow delegates through shadow comparator', async () => {
-    const io = createMockIo();
-    const session = new GameSession('shadow-game', io, {} as any, new Map());
-
-    const legacyResult: RulesResult = {
-      success: true,
-      gameState: createMinimalState(),
-    } as any;
-
-    const shadowResult: RulesResult = {
-      success: true,
-      gameState: { ...createMinimalState(), currentPlayer: 2 },
-    } as any;
-
-    (session as any).rulesFacade = {
-      applyMove: jest.fn().mockResolvedValue(legacyResult),
-    };
-
-    const preState = createMinimalState();
-    const engineMove: Omit<Move, 'id' | 'timestamp' | 'moveNumber'> = {
-      player: 1,
-      type: 'place_ring',
-      to: { x: 0, y: 0 },
-      thinkTime: 0,
-    };
-
-    shadowComparator.compare.mockImplementation(
-      async (
-        _gameId: string,
-        _moveNumber: number,
-        legacyFn: () => Promise<RulesResult>,
-        orchestratorFn: () => Promise<RulesResult>
-      ) => {
-        const _legacy = await legacyFn();
-        const shadow = await orchestratorFn();
-        return { result: shadow };
-      }
-    );
-
-    // Replace runOrchestratorShadow to isolate this test from adapter internals.
-    const orchestratorSpy = jest
-      .spyOn(session as any, 'runOrchestratorShadow')
-      .mockResolvedValue(shadowResult);
-
-    const result = await (session as any).applyMoveWithOrchestratorShadow(preState, engineMove);
-
-    expect((session as any).rulesFacade.applyMove).toHaveBeenCalled();
-    expect(shadowComparator.compare).toHaveBeenCalled();
-    expect(orchestratorSpy).toHaveBeenCalled();
-    expect(result).toEqual(shadowResult);
-  });
-
-  it('runOrchestratorShadow builds RulesResult from adapter output', async () => {
-    const io = createMockIo();
-    const session = new GameSession('shadow-game-2', io, {} as any, new Map());
-
-    const preState = createMinimalState();
-    const engineMove: Omit<Move, 'id' | 'timestamp' | 'moveNumber'> = {
-      player: 1,
-      type: 'place_ring',
-      to: { x: 1, y: 1 },
-      thinkTime: 0,
-    };
-
-    const adapterProcessMove = jest.fn().mockResolvedValue({
-      success: false,
-      error: 'shadow mismatch',
-      victoryResult: {
-        winner: 1,
-        reason: 'ring_elimination',
-        finalScore: {
-          ringsEliminated: { 1: 5, 2: 10 },
-          territorySpaces: { 1: 0, 2: 0 },
-          ringsRemaining: { 1: 13, 2: 8 },
-        },
-      },
-    });
-
-    const nextState: GameState = {
-      ...preState,
-      currentPlayer: 2,
-    } as GameState;
-
-    turnAdapterModule.createAutoSelectDecisionHandler.mockReturnValue({});
-    turnAdapterModule.createSimpleAdapter.mockReturnValue({
-      adapter: { processMove: adapterProcessMove },
-      getState: jest.fn(() => nextState),
-    });
-
-    const result: RulesResult = await (session as any).runOrchestratorShadow(
-      preState,
-      engineMove,
-      3
-    );
-
-    expect(turnAdapterModule.createAutoSelectDecisionHandler).toHaveBeenCalled();
-    expect(turnAdapterModule.createSimpleAdapter).toHaveBeenCalledWith(preState, expect.anything());
-    expect(adapterProcessMove).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'shadow-3',
-        moveNumber: 3,
-        type: 'place_ring',
-      })
-    );
-    expect(result.success).toBe(false);
-    expect(result.error).toBe('shadow mismatch');
-    expect(result.gameResult).toEqual(
-      expect.objectContaining({
-        winner: 1,
-        reason: 'ring_elimination',
-      })
-    );
-    expect(result.gameState).toBe(nextState);
-  });
-});
+// NOTE: GameSession orchestrator shadow path tests removed - FSM is now canonical
+// Shadow mode methods (applyMoveWithOrchestratorShadow, runOrchestratorShadow) no longer exist

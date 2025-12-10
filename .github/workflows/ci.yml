@@ -825,3 +825,32 @@ jobs:
             test-results/
             playwright-report/
           retention-days: 7
+
+  load-tests-validation:
+    name: Load Tests Validation (k6 syntax)
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck]
+    # CI Safety: k6 validation is fast, just checking syntax
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install k6
+
+      - name: Validate k6 script syntax
+        working-directory: tests/load
+        run: |
+          k6 version
+          k6 inspect scenarios/game-creation.js
+          k6 inspect scenarios/concurrent-games.js
+          k6 inspect scenarios/player-moves.js
+          k6 inspect scenarios/websocket-stress.js
+          k6 inspect scenarios/websocket-gameplay.js

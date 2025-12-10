@@ -232,7 +232,7 @@ const ConfigSchema = z.object({
     orchestrator: z.object({
       adapterEnabled: z.boolean(),
       // NOTE: rolloutPercentage removed in Phase 3 migration - orchestrator is permanently enabled
-      shadowModeEnabled: z.boolean(),
+      // NOTE: shadowModeEnabled removed - FSM is now canonical
       allowlistUsers: z.array(z.string()),
       denylistUsers: z.array(z.string()),
       circuitBreaker: z.object({
@@ -268,8 +268,7 @@ const ConfigSchema = z.object({
     /** Master switch for using the orchestrator adapter on backend hosts. */
     adapterEnabled: z.boolean(),
     // NOTE: rolloutPercentage removed in Phase 3 migration - orchestrator is permanently enabled
-    /** Whether orchestrator shadow mode is enabled. */
-    shadowModeEnabled: z.boolean(),
+    // NOTE: shadowModeEnabled removed - FSM is now canonical
     /** Whether the orchestrator circuit breaker is enabled. */
     circuitBreakerEnabled: z.boolean(),
   }),
@@ -328,7 +327,7 @@ const preliminaryConfig = {
     rulesMode: getRulesMode(),
     adapterEnabled: env.ORCHESTRATOR_ADAPTER_ENABLED,
     // NOTE: rolloutPercentage removed in Phase 3 migration - orchestrator is permanently enabled
-    shadowModeEnabled: env.ORCHESTRATOR_SHADOW_MODE_ENABLED,
+    // NOTE: shadowModeEnabled removed - FSM is now canonical
     circuitBreakerEnabled: env.ORCHESTRATOR_CIRCUIT_BREAKER_ENABLED,
   },
   decisionPhaseTimeouts: {
@@ -343,7 +342,7 @@ const preliminaryConfig = {
     orchestrator: {
       adapterEnabled: env.ORCHESTRATOR_ADAPTER_ENABLED,
       // NOTE: rolloutPercentage removed in Phase 3 migration - orchestrator is permanently enabled
-      shadowModeEnabled: env.ORCHESTRATOR_SHADOW_MODE_ENABLED,
+      // NOTE: shadowModeEnabled removed - FSM is now canonical
       allowlistUsers: env.ORCHESTRATOR_ALLOWLIST_USERS.split(',').filter(Boolean),
       denylistUsers: env.ORCHESTRATOR_DENYLIST_USERS.split(',').filter(Boolean),
       circuitBreaker: {

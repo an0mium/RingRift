@@ -302,7 +302,7 @@ Some tests duplicate behavior across engines:
 
 ## CI Pipeline Configuration
 
-> **Orchestrator profiles:** Unless explicitly noted otherwise, these commands are assumed to run with `ORCHESTRATOR_ADAPTER_ENABLED=true` and `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`, treating the orchestrator adapter as the default rules path. Legacy/SHADOW profiles (with the adapter disabled or `EngineSelection.LEGACY`/`SHADOW` forced by configuration) should be reserved for targeted parity/regression jobs that focus on legacy behaviour and `ShadowModeComparator` metrics.
+> **Orchestrator profiles:** Unless explicitly noted otherwise, these commands are assumed to run with `ORCHESTRATOR_ADAPTER_ENABLED=true`, treating the orchestrator adapter (FSM canonical) as the default rules path. Legacy profiles (with the adapter disabled or `EngineSelection.LEGACY` forced by configuration) should be reserved for targeted parity/regression jobs. Note: Shadow mode and `ShadowModeComparator` have been removed as FSM is now canonical.
 >
 > **Semantic gates vs diagnostics:**
 >
