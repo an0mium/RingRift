@@ -160,4 +160,33 @@ describe('GameHUD decision countdown', () => {
     // The countdown shows 0:04 - check within the timer element
     expect(timer).toHaveTextContent('0:04');
   });
+
+  it('shows critical severity when under 3 seconds', () => {
+    const hud = baseHudViewModel();
+    hud.decisionPhase = {
+      ...hud.decisionPhase!,
+      timeRemainingMs: 2_000,
+      isServerCapped: false,
+    };
+
+    render(<GameHUD viewModel={hud} timeControl={baseGameState().timeControl} />);
+
+    const timer = screen.getByTestId('decision-phase-countdown');
+    expect(timer).toHaveAttribute('data-severity', 'critical');
+    expect(timer).not.toHaveAttribute('data-server-capped');
+    expect(timer).toHaveTextContent('0:02');
+  });
+
+  it('hides countdown when showCountdown is false', () => {
+    const hud = baseHudViewModel();
+    hud.decisionPhase = {
+      ...hud.decisionPhase!,
+      showCountdown: false,
+      timeRemainingMs: 4_000,
+    };
+
+    render(<GameHUD viewModel={hud} timeControl={baseGameState().timeControl} />);
+
+    expect(screen.queryByTestId('decision-phase-countdown')).toBeNull();
+  });
 });

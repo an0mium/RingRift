@@ -365,6 +365,7 @@ def run_hybrid_selfplay(
         "wins_by_player": wins_by_player,
         "draws": draws,
         "draw_rate": draws / total_games if total_games > 0 else 0,
+        "victory_type_counts": victory_type_counts,
         "board_type": board_type,
         "num_players": num_players,
         "max_moves": max_moves,

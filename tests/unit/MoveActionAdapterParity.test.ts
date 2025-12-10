@@ -711,72 +711,60 @@ describe('Move↔GameAction adapter – capture parity scenario', () => {
 });
 
 /**
- * @skip FSM validation is stricter - rejects eliminate_rings_from_stack
- * when no eliminations are pending. This test manually injects state that
- * bypasses proper elimination setup.
+ * Elimination adapter round-trip test.
+ *
+ * NOTE: This tests the Move↔GameAction adapter conversion logic only,
+ * not the full engine processing. FSM validation is stricter and requires
+ * proper pending decision state for eliminate_rings_from_stack moves.
+ * Full elimination parity is tested via canonical game scenarios in
+ * Backend_vs_Sandbox parity tests.
  */
-describe.skip('Move↔GameAction adapter – elimination parity scenario', () => {
-  it('explicit elimination via eliminate_rings_from_stack + adapter keeps states aligned', async () => {
+describe('Move↔GameAction adapter – elimination round-trip', () => {
+  it('maps eliminate_rings_from_stack to ELIMINATE_STACK and back', () => {
     const players = createPlayers();
-    const boardType: BoardType = 'square8';
-
-    const legacy = new LegacyGameEngine(
-      'adapter-parity-eliminate',
-      boardType,
+    const sharedState = createInitialGameState(
+      'adapter-eliminate-roundtrip',
+      'square8',
       players,
-      timeControl,
-      true
+      timeControl
     );
-    legacy.startGame();
 
-    const legacyAny: any = legacy;
-    const boardManager = legacyAny.boardManager as any;
-    const gameState = legacyAny.gameState as GameState;
-
+    // Set up a stack at (0,0) for the adapter to reference when converting
     const stackPos: Position = { x: 0, y: 0 };
-    const stack = {
+    const key = positionToString(stackPos);
+    (sharedState.board.stacks as any).set(key, {
       position: stackPos,
       rings: [1, 1],
       stackHeight: 2,
       capHeight: 2,
       controllingPlayer: 1,
-    };
-    boardManager.setStack(stackPos, stack, gameState.board);
+    });
 
-    gameState.currentPlayer = 1;
-    gameState.currentPhase = 'territory_processing';
-    gameState.totalRingsEliminated = 0;
-    gameState.board.eliminatedRings[1] = 0;
-    const p1 = gameState.players.find((p) => p.playerNumber === 1)!;
-    p1.eliminatedRings = 0;
-
-    const preLegacy = legacy.getGameState();
-    const shared = new SharedGameEngine(preLegacy as unknown as SharedEngineGameState);
-
-    const eliminationPayload: Omit<Move, 'id' | 'timestamp' | 'moveNumber'> = {
+    const move: Move = {
+      id: 'elim-roundtrip',
       type: 'eliminate_rings_from_stack',
       player: 1,
       to: stackPos,
-      thinkTime: 0,
-    };
-
-    const legacyResult = await legacy.makeMove(eliminationPayload);
-    expect(legacyResult.success).toBe(true);
-
-    const sharedBefore = shared.getGameState() as unknown as SharedEngineGameState;
-    const fullMove: Move = {
-      ...eliminationPayload,
-      id: 'adapter-parity-elim',
+      eliminatedRings: [{ player: 1, count: 2 }],
       timestamp: new Date(),
-      moveNumber: sharedBefore.moveHistory.length + 1,
+      thinkTime: 0,
+      moveNumber: 1,
     };
 
-    const action = moveToGameAction(fullMove, sharedBefore);
-    const event = shared.processAction(action);
-    expect(event.type).toBe('ACTION_PROCESSED');
+    // Test Move → GameAction conversion
+    const action = moveToGameAction(move, sharedState);
+    expect(action).toEqual({
+      type: 'ELIMINATE_STACK',
+      playerId: 1,
+      stackPosition: stackPos,
+    });
 
-    const legacyAfter = legacy.getGameState();
-    const sharedAfter = shared.getGameState() as unknown as GameState;
-    expect(paritySnapshot(sharedAfter)).toEqual(paritySnapshot(legacyAfter));
+    // Test GameAction → Move conversion
+    const back = gameActionToMove(action, sharedState);
+    expect(back.type).toBe('eliminate_rings_from_stack');
+    expect(back.player).toBe(1);
+    expect(back.to).toEqual(stackPos);
+    expect((back as any).eliminationFromStack).toBeDefined();
+    expect((back as any).eliminationFromStack.position).toEqual(stackPos);
   });
 });
