@@ -86,7 +86,7 @@ export class OrchestratorRolloutService {
    * Decision priority:
    * 1. Kill switch - if disabled, always use legacy
    * 2. Denylist - if user is denylisted, use legacy
-   * 3. Allowlist - if user is allowlisted, use orchestrator (or shadow)
+   * 3. Allowlist - if user is allowlisted, use orchestrator
    * 4. Circuit breaker - if open, use legacy
    * 5. Percentage rollout - use consistent hash to determine
    *

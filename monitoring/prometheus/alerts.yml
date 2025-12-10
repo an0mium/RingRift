@@ -654,19 +654,22 @@ groups:
           impact: 'Increased risk of moves failing on the orchestrator path; consider pausing rollout increases.'
 
       # -----------------------------------------------------------------------
-      # Shadow Mode Mismatches (Warning)
+      # Shadow Mode Mismatches (DEPRECATED)
+      # NOTE: Shadow mode has been removed. FSM is now canonical.
+      # This alert is retained for historical reference but will never fire
+      # since the metric is no longer emitted.
       # -----------------------------------------------------------------------
-      - alert: OrchestratorShadowMismatches
-        expr: ringrift_orchestrator_shadow_mismatch_rate > 0.01
-        for: 5m
-        labels:
-          severity: warning
-          team: backend
-        annotations:
-          summary: 'Orchestrator shadow mode showing mismatches'
-          description: 'More than 1% of shadow comparisons show differences between engines. Investigate before increasing rollout.'
-          runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
-          impact: 'Potential semantic divergence between legacy and orchestrator engines.'
+      # - alert: OrchestratorShadowMismatches
+      #   expr: ringrift_orchestrator_shadow_mismatch_rate > 0.01
+      #   for: 5m
+      #   labels:
+      #     severity: warning
+      #     team: backend
+      #   annotations:
+      #     summary: 'Orchestrator shadow mode showing mismatches'
+      #     description: 'More than 1% of shadow comparisons show differences between engines. Investigate before increasing rollout.'
+      #     runbook_url: 'https://github.com/ringrift/ringrift/blob/main/docs/runbooks/ORCHESTRATOR_ROLLOUT_RUNBOOK.md'
+      #     impact: 'Potential semantic divergence between legacy and orchestrator engines.'
 
       # -----------------------------------------------------------------------
       # Orchestrator Invariant Violations – Staging
