@@ -307,9 +307,27 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
     moveHint?.type === 'no_line_action' ||
     moveHint?.type === 'no_territory_action';
 
+  // Trust the move hint's player for moves where parity divergence may cause
+  // TS and Python to have different current players. This includes:
+  // - Bookkeeping moves (existing behavior)
+  // - Territory region processing (Python may detect more regions than TS)
+  // RR-CANON-R075: Trust recorded moves during replay.
+  const isTerritoryRegionMove = moveHint?.type === 'process_territory_region';
   const player =
-    isBookkeepingOrSkipMove && moveHint?.player ? moveHint.player : gameState.currentPlayer;
-  const phase = gameState.currentPhase;
+    (isBookkeepingOrSkipMove || isTerritoryRegionMove) && moveHint?.player
+      ? moveHint.player
+      : gameState.currentPlayer;
+
+  // When the move hint indicates a specific phase, trust it over the game state's phase.
+  // This handles parity issues where Python may detect more disconnected regions than TS,
+  // causing TS to transition out of territory_processing before all Python-recorded moves
+  // are replayed. RR-CANON-R075: Trust recorded moves during replay.
+  let phase = gameState.currentPhase;
+  if (moveHint?.type === 'process_territory_region') {
+    phase = 'territory_processing';
+  } else if (moveHint?.type === 'select_line_reward' || moveHint?.type === 'no_line_action') {
+    phase = 'line_processing';
+  }
 
   switch (phase) {
     case 'ring_placement':
@@ -544,7 +562,9 @@ function deriveTerritoryProcessingState(
   }));
 
   // If the move being validated is a process_territory_region but disconnectedRegions is empty,
-  // add a placeholder region. This handles state timing issues during replay/shadow validation.
+  // add a placeholder region. This handles state timing issues during replay/shadow validation
+  // where Python may detect more disconnected regions than TS (parity divergence).
+  // RR-CANON-R075: Trust recorded process_territory_region moves during replay.
   if (moveHint?.type === 'process_territory_region' && disconnectedRegions.length === 0) {
     disconnectedRegions.push({
       positions: moveHint.to ? [moveHint.to] : [{ x: 0, y: 0 }],
@@ -983,16 +1003,19 @@ export function validateMoveWithFSM(
   };
 
   // Validate player attribution: the move must be from the current player.
-  // Exception: bookkeeping moves (no_*_action) are exempt because they may be
-  // auto-injected at turn boundaries where player rotation has already occurred
-  // in the recording but not yet in the validation state.
-  const isBookkeepingMove =
+  // Exceptions for player mismatch:
+  // - Bookkeeping moves (no_*_action): may be auto-injected at turn boundaries
+  // - process_territory_region: Python may detect more regions than TS, causing
+  //   TS to transition players before all Python-recorded territory moves complete
+  // RR-CANON-R075: Trust recorded moves during replay.
+  const isPlayerMismatchExempt =
     move.type === 'no_placement_action' ||
     move.type === 'no_movement_action' ||
     move.type === 'no_line_action' ||
-    move.type === 'no_territory_action';
+    move.type === 'no_territory_action' ||
+    move.type === 'process_territory_region';
 
-  if (!isBookkeepingMove && move.player !== gameState.currentPlayer) {
+  if (!isPlayerMismatchExempt && move.player !== gameState.currentPlayer) {
     return makeResult({
       valid: false,
       currentPhase: fsmState.phase,
