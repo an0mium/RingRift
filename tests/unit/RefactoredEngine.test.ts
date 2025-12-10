@@ -568,6 +568,11 @@ describe('Refactored GameEngine', () => {
         },
       ];
 
+      // Also seed markers at each line position (required by RR-CANON-R120 validation)
+      for (const pos of linePositions) {
+        initialState.board.markers.set(`${pos.x},${pos.y}`, 1);
+      }
+
       (initialState as any).currentPlayer = 1;
       (initialState as any).currentPhase = 'line_processing';
 
@@ -642,6 +647,11 @@ describe('Refactored GameEngine', () => {
           length: linePositions.length,
         },
       ];
+
+      // Also seed markers at each line position (required by RR-CANON-R120 validation)
+      for (const pos of linePositions) {
+        initialState.board.markers.set(`${pos.x},${pos.y}`, 1);
+      }
 
       (initialState as any).currentPlayer = 1;
       (initialState as any).currentPhase = 'line_processing';
