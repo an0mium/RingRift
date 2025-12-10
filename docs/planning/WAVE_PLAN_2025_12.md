@@ -253,12 +253,27 @@ Wave WS is a supporting multi-step wave series focused on HTTP and WebSocket mov
 
 **Goal:** Enable full AI difficulty spectrum from Random to MCTS
 
-### 9.1 - Minimax/MCTS Production Enablement
+### 9.1 - Minimax/MCTS Production Enablement ✅ COMPLETE (2025-12-10)
 
-- [ ] Wire MinimaxAI for difficulties 6-7
-- [ ] Wire MCTS for difficulties 8-9
-- [ ] Add difficulty-specific configuration profiles
-- [ ] Benchmark AI response times per difficulty
+- [x] Wire MinimaxAI for difficulties 3-4 (D3: heuristic-only, D4: NNUE neural)
+- [x] Wire MCTS for difficulties 5-8 (D5: heuristic, D6-8: neural-guided)
+- [x] Wire Descent for difficulties 9-10 (neural-backed AlphaZero-style)
+- [x] Add difficulty-specific configuration profiles (ladder_config.py + perf_budgets.py)
+- [x] Benchmark AI response times per difficulty (tier_perf_benchmark.py)
+
+**AI Ladder Summary:**
+| Difficulty | AI Type | Think Time | Neural | Notes |
+|------------|-----------|------------|--------|-------|
+| D1 | Random | 150ms | No | Baseline |
+| D2 | Heuristic | 200ms | No | Easy |
+| D3 | Minimax | 1800ms | No | Lower-mid |
+| D4 | Minimax | 2800ms | Yes (NNUE) | Mid |
+| D5 | MCTS | 4000ms | No | Upper-mid |
+| D6 | MCTS | 5500ms | Yes | High |
+| D7 | MCTS | 7500ms | Yes | Expert |
+| D8 | MCTS | 9600ms | Yes | Strong Expert |
+| D9 | Descent | 12600ms | Yes | Master |
+| D10 | Descent | 16000ms | Yes | Grandmaster |
 
 ### 9.2 - Service-Backed Choices Completion
 
