@@ -13,6 +13,7 @@ import {
   newTeachingFlowId,
   TEACHING_TOPICS_COPY,
 } from '../utils/rulesUxTelemetry';
+import type { FSMDecisionSurfaceViewModel } from '../adapters/gameViewModels';
 
 export type TeachingTopic =
   | 'ring_placement'
@@ -253,6 +254,12 @@ export interface TeachingOverlayProps {
   className?: string;
   /** Optional weird-state context when opened from a weird-state help surface. */
   weirdStateOverlayContext?: WeirdStateOverlayContext | null;
+  /**
+   * Optional FSM decision surface for contextual explanations.
+   * When provided, the overlay will include dynamic tips based on the
+   * current FSM decision state (pending lines, regions, chain captures, etc.).
+   */
+  fsmContext?: FSMDecisionSurfaceViewModel | null;
 }
 
 /**
@@ -266,8 +273,65 @@ export function TeachingOverlay({
   position = 'center',
   className = '',
   weirdStateOverlayContext,
+  fsmContext,
 }: TeachingOverlayProps) {
   const content = TEACHING_CONTENT[topic];
+
+  // Generate FSM-aware dynamic tips based on current decision surface
+  const fsmAwareTips = useMemo((): string[] => {
+    if (!fsmContext?.isActive) return [];
+
+    const tips: string[] = [];
+    const {
+      decisionType,
+      summary,
+      actionHint,
+      pendingLineCount,
+      pendingRegionCount,
+      chainContinuationCount,
+      forcedEliminationCount,
+    } = fsmContext;
+
+    // Add contextual tip based on FSM decision type
+    if (summary) {
+      tips.push(`CURRENT STATE: ${summary}`);
+    }
+    if (actionHint) {
+      tips.push(`WHAT TO DO: ${actionHint}`);
+    }
+
+    // Add phase-specific FSM guidance
+    switch (decisionType) {
+      case 'chain_capture':
+        if (chainContinuationCount > 1) {
+          tips.push(
+            `You have ${chainContinuationCount} possible capture targets. Choose wisely - once you start, you must continue until no captures remain.`
+          );
+        }
+        break;
+      case 'line_order_required':
+        if (pendingLineCount > 1) {
+          tips.push(
+            `Processing order matters: which line you resolve first may affect what territory regions form afterward.`
+          );
+        }
+        break;
+      case 'region_order_required':
+        if (pendingRegionCount > 1) {
+          tips.push(
+            `Multiple disconnected regions detected. Each requires eliminating a ring from an outside stack.`
+          );
+        }
+        break;
+      case 'forced_elimination':
+        tips.push(
+          `Forced elimination is required because you have more rings than allowed. This is not optional - you must select a stack.`
+        );
+        break;
+    }
+
+    return tips;
+  }, [fsmContext]);
 
   const relatedScenarios: TeachingScenarioMetadata[] = useMemo(() => {
     const concepts = TOPIC_RULES_CONCEPTS[topic];
@@ -532,6 +596,23 @@ export function TeachingOverlay({
         <div className="px-4 py-3">
           <p className="text-sm text-slate-300 leading-relaxed">{content.description}</p>
         </div>
+
+        {/* FSM-Aware Current Situation (when active) */}
+        {fsmAwareTips.length > 0 && (
+          <div className="px-4 pb-4">
+            <h3 className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-2">
+              Current Situation (FSM)
+            </h3>
+            <ul className="space-y-2 bg-amber-900/20 rounded-lg p-3 border border-amber-700/30">
+              {fsmAwareTips.map((tip, idx) => (
+                <li key={`fsm-${idx}`} className="flex items-start gap-2 text-sm text-amber-200">
+                  <span className="text-amber-400 mt-0.5">→</span>
+                  <span>{tip}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Tips */}
         <div className="px-4 pb-4">

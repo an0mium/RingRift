@@ -42,7 +42,7 @@ import {
   evaluateVictory,
 } from '../src/shared/engine';
 import { serializeGameState } from '../src/shared/engine/contracts/serialization';
-import { validateMoveWithFSM, type FSMValidationResult } from '../src/shared/engine/fsm/FSMAdapter';
+import { validateMoveWithFSM, computeFSMOrchestration } from '../src/shared/engine/fsm/FSMAdapter';
 import { getValidMoves } from '../src/shared/engine/orchestration/turnOrchestrator';
 import { connectDatabase, disconnectDatabase } from '../src/server/database/connection';
 import type { PrismaClient } from '@prisma/client';
@@ -753,11 +753,11 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       break;
     }
     const bridgeMoves = synthesizeBookkeepingMoves(currentState, move, applied + 1);
- 
+
     // Apply any synthesized bookkeeping moves first
     for (const bridgeMove of bridgeMoves) {
       synthesizedCount += 1;
- 
+
       // FSM parity validation for bridge moves
       const bridgeStateBeforeMove = engine.getState() as GameState;
       const bridgeFsmValidation = validateMoveWithFSM(bridgeStateBeforeMove, bridgeMove);
@@ -782,7 +782,7 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         // relative to the DB history when the FSM rejects a synthesized move.
         break;
       }
- 
+
       const bridgeResult = await engine.applyMove(bridgeMove);
       if (!bridgeResult.success) {
         console.error(
@@ -799,6 +799,13 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         // desynchronised state after a failed bridge application.
         return;
       }
+
+      // FSM orchestration trace for bridge moves
+      const bridgeState = engine.getState() as GameState;
+      const bridgeFsmOrch = computeFSMOrchestration(bridgeState, bridgeMove, {
+        postMoveStateForChainCheck: bridgeState,
+      });
+
       const dbMoveIndexForBridge = applied > 0 ? applied - 1 : 0;
       // eslint-disable-next-line no-console
       console.log(
@@ -808,11 +815,20 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
           synthesizedMoveType: bridgeMove.type,
           synthesizedPlayer: bridgeMove.player,
           summary: {
-            ...summarizeState('after_bridge', engine.getState() as GameState),
+            ...summarizeState('after_bridge', bridgeState),
             // view: 'bridge' – state after a synthesized bookkeeping move
             // associated with db_move_index, bridging phases between canonical
             // DB moves without changing the underlying engine/rules semantics.
             view: 'bridge',
+          },
+          // FSM action trace for bridge move
+          fsm: {
+            success: bridgeFsmOrch.success,
+            nextPhase: bridgeFsmOrch.nextPhase,
+            nextPlayer: bridgeFsmOrch.nextPlayer,
+            actions: bridgeFsmOrch.actions.map((a) => a.type),
+            pendingDecisionType: bridgeFsmOrch.pendingDecisionType,
+            ...(bridgeFsmOrch.error && { error: bridgeFsmOrch.error }),
           },
         })
       );
@@ -893,6 +909,12 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
     const state = engine.getState();
 
+    // FSM orchestration trace: compute what the FSM would do after this move
+    // This provides action traces for parity analysis and debugging
+    const fsmOrchestration = computeFSMOrchestration(state as GameState, move, {
+      postMoveStateForChainCheck: state as GameState,
+    });
+
     // Optional debug dump for parity investigation
     if (shouldDumpState && (dumpAll || dumpKSet.has(applied))) {
       try {
@@ -934,6 +956,15 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         summary: {
           ...summarizeState(`after_move_${applied}`, state as GameState),
           view: 'post_move',
+        },
+        // FSM action trace: what the FSM computed for this move
+        fsm: {
+          success: fsmOrchestration.success,
+          nextPhase: fsmOrchestration.nextPhase,
+          nextPlayer: fsmOrchestration.nextPlayer,
+          actions: fsmOrchestration.actions.map((a) => a.type),
+          pendingDecisionType: fsmOrchestration.pendingDecisionType,
+          ...(fsmOrchestration.error && { error: fsmOrchestration.error }),
         },
       })
     );

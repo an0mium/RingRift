@@ -138,15 +138,15 @@ This document tracks the FSM extension roadmap, now largely complete.
 
 **Goal:** Surface FSM state to UI and telemetry systems.
 
-| Task                                      | Status     | Files                                   |
-| ----------------------------------------- | ---------- | --------------------------------------- |
-| Adapter for FSM → GameHUD view model      | ✅ Done    | `src/client/adapters/gameViewModels.ts` |
-| FSM decision surface telemetry events     | ✅ Done    | `src/shared/telemetry/rulesUxEvents.ts` |
-| `FSMDecisionSurfaceViewModel` type        | ✅ Done    | `src/client/adapters/gameViewModels.ts` |
-| `toFSMDecisionSurfaceViewModel()` adapter | ✅ Done    | `src/client/adapters/gameViewModels.ts` |
-| `extractFSMTelemetryFields()` helper      | ✅ Done    | `src/client/adapters/gameViewModels.ts` |
-| FSM action traces in replay harness       | 🔜 Planned |                                         |
-| Teaching overlay FSM-aware explanations   | 🔜 Planned |                                         |
+| Task                                      | Status  | Files                                       |
+| ----------------------------------------- | ------- | ------------------------------------------- |
+| Adapter for FSM → GameHUD view model      | ✅ Done | `src/client/adapters/gameViewModels.ts`     |
+| FSM decision surface telemetry events     | ✅ Done | `src/shared/telemetry/rulesUxEvents.ts`     |
+| `FSMDecisionSurfaceViewModel` type        | ✅ Done | `src/client/adapters/gameViewModels.ts`     |
+| `toFSMDecisionSurfaceViewModel()` adapter | ✅ Done | `src/client/adapters/gameViewModels.ts`     |
+| `extractFSMTelemetryFields()` helper      | ✅ Done | `src/client/adapters/gameViewModels.ts`     |
+| FSM action traces in replay harness       | ✅ Done | `scripts/selfplay-db-ts-replay.ts`          |
+| Teaching overlay FSM-aware explanations   | ✅ Done | `src/client/components/TeachingOverlay.tsx` |
 
 **Outcome:**
 
@@ -155,6 +155,8 @@ This document tracks the FSM extension roadmap, now largely complete.
 - `FSMDecisionSurfaceViewModel` provides UI-ready decision surface data
 - `toFSMDecisionSurfaceViewModel()` transforms FSM orchestration results for HUD consumption
 - `extractFSMTelemetryFields()` prepares low-cardinality metrics for telemetry emission
+- Replay harness emits FSM action traces (`fsm.actions`, `fsm.nextPhase`, `fsm.nextPlayer`) for each step
+- TeachingOverlay accepts optional `fsmContext` prop for dynamic FSM-aware tips
 
 ### Phase 6: Testing & Fixtures (P2) ✅ COMPLETE
 
