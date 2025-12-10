@@ -46,7 +46,49 @@ import { getValidMoves, validateMove } from '../orchestration/turnOrchestrator';
 import { findLinesForPlayer } from '../lineDetection';
 import { findDisconnectedRegions } from '../territoryDetection';
 import { enumerateChainCaptureSegments } from '../aggregates/CaptureAggregate';
-import { hasAnyGlobalMovementOrCapture } from '../globalActions';
+import { hasAnyGlobalMovementOrCapture, playerHasAnyRings } from '../globalActions';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TURN ROTATION HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compute the next player after the given player, skipping permanently eliminated
+ * players (RR-CANON-R201).
+ *
+ * A player is permanently eliminated if they have no rings anywhere:
+ * - No controlled stacks (top ring)
+ * - No buried rings (their rings inside stacks controlled by others)
+ * - No rings in hand
+ *
+ * Such players are removed from turn rotation entirely.
+ *
+ * @param gameState - The current game state (used to check player elimination status)
+ * @param currentPlayer - The player whose turn just ended
+ * @param numPlayers - Total number of players in the game
+ * @returns The next non-eliminated player number
+ */
+function computeNextNonEliminatedPlayer(
+  gameState: GameState,
+  currentPlayer: number,
+  numPlayers: number
+): number {
+  let nextPlayer = (currentPlayer % numPlayers) + 1;
+  let skips = 0;
+
+  // Skip up to numPlayers times to find a non-eliminated player
+  while (skips < numPlayers) {
+    if (playerHasAnyRings(gameState, nextPlayer)) {
+      return nextPlayer;
+    }
+    // Player has no rings anywhere - permanently eliminated, skip
+    nextPlayer = (nextPlayer % numPlayers) + 1;
+    skips += 1;
+  }
+
+  // All players eliminated - return the simple rotation (shouldn't happen in valid games)
+  return (currentPlayer % numPlayers) + 1;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MOVE → EVENT CONVERSION
@@ -1803,7 +1845,12 @@ export function computeFSMOrchestration(
   if (move.type === 'process_territory_region' && nextState.phase === 'territory_processing') {
     // Always transition to turn_end after process_territory_region
     // The orchestrator handles surfacing additional region decisions if needed
-    const computedNextPlayer = (move.player % context.numPlayers) + 1;
+    // Use computeNextNonEliminatedPlayer to skip permanently eliminated players (RR-CANON-R201)
+    const computedNextPlayer = computeNextNonEliminatedPlayer(
+      gameState,
+      move.player,
+      context.numPlayers
+    );
     nextState = {
       phase: 'turn_end',
       completedPlayer: move.player,
@@ -1817,7 +1864,12 @@ export function computeFSMOrchestration(
   if (move.type === 'no_territory_action' && nextState.phase !== 'turn_end') {
     // no_territory_action ends the turn - compute next player and transition to turn_end
     // so the ringsInHand check below can properly resolve to ring_placement or movement
-    const computedNextPlayer = (move.player % context.numPlayers) + 1;
+    // Use computeNextNonEliminatedPlayer to skip permanently eliminated players (RR-CANON-R201)
+    const computedNextPlayer = computeNextNonEliminatedPlayer(
+      gameState,
+      move.player,
+      context.numPlayers
+    );
     nextState = {
       phase: 'turn_end',
       completedPlayer: move.player,

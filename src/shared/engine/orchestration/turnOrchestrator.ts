@@ -46,6 +46,7 @@ import {
   applyForcedEliminationForPlayer,
   computeGlobalLegalActionsSummary,
   enumerateForcedEliminationOptions,
+  playerHasAnyRings,
 } from '../globalActions';
 
 import type {
@@ -132,6 +133,51 @@ interface ExtendedMoveProperties {
 import { isEligibleForRecovery } from '../playerStateHelpers';
 
 import { countRingsOnBoardForPlayer } from '../core';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Turn Rotation Helper
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Compute the next player after the given player, skipping permanently eliminated
+ * players (RR-CANON-R201).
+ *
+ * A player is permanently eliminated if they have no rings anywhere:
+ * - No controlled stacks (top ring)
+ * - No buried rings (their rings inside stacks controlled by others)
+ * - No rings in hand
+ *
+ * Such players are removed from turn rotation entirely.
+ *
+ * @param state - The current game state (used to check player elimination status)
+ * @param currentPlayerIndex - The index of the player whose turn just ended
+ * @param players - Array of player states
+ * @returns Object with nextPlayerIndex and nextPlayer number
+ */
+function computeNextNonEliminatedPlayer(
+  state: GameState,
+  currentPlayerIndex: number,
+  players: GameState['players']
+): { nextPlayerIndex: number; nextPlayer: number } {
+  const numPlayers = players.length;
+  let nextPlayerIndex = (currentPlayerIndex + 1) % numPlayers;
+  let skips = 0;
+
+  // Skip up to numPlayers times to find a non-eliminated player
+  while (skips < numPlayers) {
+    const candidate = players[nextPlayerIndex];
+    if (playerHasAnyRings(state, candidate.playerNumber)) {
+      return { nextPlayerIndex, nextPlayer: candidate.playerNumber };
+    }
+    // Player has no rings anywhere - permanently eliminated, skip
+    nextPlayerIndex = (nextPlayerIndex + 1) % numPlayers;
+    skips += 1;
+  }
+
+  // All players eliminated - return the simple rotation (shouldn't happen in valid games)
+  const fallbackIndex = (currentPlayerIndex + 1) % numPlayers;
+  return { nextPlayerIndex: fallbackIndex, nextPlayer: players[fallbackIndex].playerNumber };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // S-Invariant Computation
@@ -2025,10 +2071,14 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       // processing available regions. Rotate to next player and start their
       // turn. Per RR-CANON-R073: ring_placement if ringsInHand > 0, else movement.
       // Clear mustMoveFromStackKey for new turn.
+      // RR-CANON-R201: Skip permanently eliminated players (no rings anywhere).
       const players = state.players;
       const currentPlayerIndex = players.findIndex((p) => p.playerNumber === state.currentPlayer);
-      const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
-      const nextPlayer = players[nextPlayerIndex].playerNumber;
+      const { nextPlayerIndex, nextPlayer } = computeNextNonEliminatedPlayer(
+        state,
+        currentPlayerIndex,
+        players
+      );
       const nextPlayerRingsInHand = players[nextPlayerIndex].ringsInHand;
       const nextPhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
 
@@ -2269,18 +2319,23 @@ function processPostMovePhases(
       return { victoryResult };
     }
 
-    // Rotate to next player without skipping. This matches Python's _end_turn logic
-    // which does NOT skip empty seats - players with no stacks and no rings in hand
-    // must still traverse phases and record no-action/FE moves per RR-CANON-R075/LPS rules.
+    // Rotate to next player, skipping permanently eliminated players per RR-CANON-R201.
+    // A player is permanently eliminated if they have no rings anywhere (no controlled
+    // stacks, no buried rings, no rings in hand). Such players are removed from turn
+    // rotation entirely. Players with buried rings but no stacks/hand are NOT skipped -
+    // they may be recovery-eligible and must traverse phases.
     const currentState = stateMachine.gameState;
     const players = currentState.players;
     const currentPlayerIndex = players.findIndex(
       (p) => p.playerNumber === currentState.currentPlayer
     );
 
-    // Simply rotate to the next player in turn order (no skipping)
-    const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
-    const nextPlayer = players[nextPlayerIndex].playerNumber;
+    // Skip permanently eliminated players (RR-CANON-R201)
+    const { nextPlayerIndex, nextPlayer } = computeNextNonEliminatedPlayer(
+      currentState,
+      currentPlayerIndex,
+      players
+    );
 
     // Per RR-CANON-R073: Next player's starting phase depends on their ringsInHand:
     // - ring_placement if ringsInHand > 0
@@ -2588,13 +2643,17 @@ function processPostMovePhases(
     // Advance explicitly to the next player's starting phase.
     // Per RR-CANON-R073: ring_placement if ringsInHand > 0, else movement.
     // Clear mustMoveFromStackKey as it only applies within a single turn.
+    // RR-CANON-R201: Skip permanently eliminated players (no rings anywhere).
     const currentState = stateMachine.gameState;
     const players = currentState.players;
     const currentPlayerIndex = players.findIndex(
       (p) => p.playerNumber === currentState.currentPlayer
     );
-    const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
-    const nextPlayer = players[nextPlayerIndex].playerNumber;
+    const { nextPlayerIndex, nextPlayer } = computeNextNonEliminatedPlayer(
+      currentState,
+      currentPlayerIndex,
+      players
+    );
     const nextPlayerRingsInHand = players[nextPlayerIndex].ringsInHand;
     const nextPhase = nextPlayerRingsInHand > 0 ? 'ring_placement' : 'movement';
 
@@ -2620,13 +2679,17 @@ function processPostMovePhases(
   }
 
   // All phases complete - advance to next player's turn
+  // RR-CANON-R201: Skip permanently eliminated players (no rings anywhere).
   const currentState = stateMachine.gameState;
   const players = currentState.players;
   const currentPlayerIndex = players.findIndex(
     (p) => p.playerNumber === currentState.currentPlayer
   );
-  const nextPlayerIndex = (currentPlayerIndex + 1) % players.length;
-  const nextPlayer = players[nextPlayerIndex].playerNumber;
+  const { nextPlayerIndex, nextPlayer } = computeNextNonEliminatedPlayer(
+    currentState,
+    currentPlayerIndex,
+    players
+  );
   // Per RR-CANON-R073: ring_placement if ringsInHand > 0, else movement.
   // When no legal placements exist (ringsInHand == 0), hosts must emit an
   // explicit no_placement_action bookkeeping move (or advance directly to
