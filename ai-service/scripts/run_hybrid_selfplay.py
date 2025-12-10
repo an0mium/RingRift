@@ -94,74 +94,11 @@ def check_disk_space(logger, output_dir: str) -> str:
     return "ok"
 
 
-def derive_victory_type(game_state, max_moves: int) -> str:
-    """Derive the victory type from the final game state.
-
-    Per GAME_RECORD_SPEC.md, canonical termination reasons are:
-    - "ring_elimination": Winner reached ring elimination threshold
-    - "territory": Winner reached territory threshold
-    - "timeout": Game hit max_moves limit
-    - "lps": Last-player-standing (opponent(s) eliminated)
-    - "stalemate": Bare-board stalemate resolved by tiebreaker ladder
-
-    Args:
-        game_state: The final GameState after game completion
-        max_moves: The max_moves limit used for this game
-
-    Returns:
-        One of: "ring_elimination", "territory", "timeout", "lps", "stalemate"
-    """
-    winner = game_state.winner
-    move_count = len(game_state.move_history) if game_state.move_history else 0
-
-    # Check timeout first (max_moves reached without victory)
-    if max_moves and move_count >= max_moves and winner is None:
-        return "timeout"
-
-    # If no winner, it's a stalemate (trapped or drawn, resolved by tiebreakers)
-    if winner is None:
-        return "stalemate"
-
-    # Check ring elimination victory
-    for p in game_state.players:
-        if p.player_number == winner:
-            if p.eliminated_rings >= game_state.victory_threshold:
-                return "ring_elimination"
-            break
-
-    # Check territory victory
-    territory_counts = {}
-    for p_id in game_state.board.collapsed_spaces.values():
-        territory_counts[p_id] = territory_counts.get(p_id, 0) + 1
-
-    winner_territory = territory_counts.get(winner, 0)
-    if winner_territory >= game_state.territory_victory_threshold:
-        return "territory"
-
-    # Check if this is LPS (opponent(s) eliminated - total rings = 0)
-    # vs stalemate (bare board resolved by tiebreaker ladder)
-    def count_total_rings(player_number: int) -> int:
-        """Count total rings for player (on board + in hand)."""
-        player = next((p for p in game_state.players if p.player_number == player_number), None)
-        rings_in_hand = player.rings_in_hand if player else 0
-        rings_on_board = sum(
-            1 for stack in game_state.board.stacks.values()
-            for ring_owner in stack.rings
-            if ring_owner == player_number
-        )
-        return rings_in_hand + rings_on_board
-
-    # If any opponent has 0 total rings, this is LPS
-    for p in game_state.players:
-        if p.player_number != winner and count_total_rings(p.player_number) == 0:
-            return "lps"
-
-    # Otherwise it's a stalemate victory (tiebreaker resolution)
-    return "stalemate"
-
-
 # Add app/ to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Import shared victory type module (must be after path setup)
+from app.utils.victory_type import derive_victory_type
 
 # Configure logging
 logging.basicConfig(
@@ -248,6 +185,7 @@ def run_hybrid_selfplay(
     wins_by_player = {i: 0 for i in range(1, num_players + 1)}
     draws = 0
     victory_type_counts: Dict[str, int] = {}  # Track victory type distribution
+    stalemate_by_tiebreaker: Dict[str, int] = {}  # Track which tiebreaker resolved stalemates
     game_lengths: List[int] = []  # Track individual game lengths for detailed stats
     game_records = []
 
@@ -362,8 +300,12 @@ def run_hybrid_selfplay(
                 wins_by_player[winner] = wins_by_player.get(winner, 0) + 1
 
             # Derive victory type per GAME_RECORD_SPEC.md
-            victory_type = derive_victory_type(game_state, max_moves)
+            victory_type, stalemate_tiebreaker = derive_victory_type(game_state, max_moves)
             victory_type_counts[victory_type] = victory_type_counts.get(victory_type, 0) + 1
+
+            # Track stalemate tiebreaker breakdown
+            if stalemate_tiebreaker:
+                stalemate_by_tiebreaker[stalemate_tiebreaker] = stalemate_by_tiebreaker.get(stalemate_tiebreaker, 0) + 1
 
             record = {
                 "game_id": game_idx,
@@ -373,6 +315,7 @@ def run_hybrid_selfplay(
                 "move_count": move_count,
                 "status": game_state.game_status,
                 "victory_type": victory_type,
+                "stalemate_tiebreaker": stalemate_tiebreaker,  # Which tiebreaker resolved stalemate (or None)
                 "moves": moves_played,  # Full move history for training
                 "game_time_seconds": game_time,
                 "timestamp": datetime.now().isoformat(),
@@ -407,6 +350,7 @@ def run_hybrid_selfplay(
         "draws": draws,
         "draw_rate": draws / total_games if total_games > 0 else 0,
         "victory_type_counts": victory_type_counts,
+        "stalemate_by_tiebreaker": stalemate_by_tiebreaker,  # Breakdown of which tiebreaker resolved stalemates
         "board_type": board_type,
         "num_players": num_players,
         "max_moves": max_moves,
@@ -568,8 +512,8 @@ def main():
         "--board-type",
         type=str,
         default="square8",
-        choices=["square8", "square19", "hex"],
-        help="Board type",
+        choices=["square8", "square19", "hex", "hexagonal"],
+        help="Board type (hexagonal is an alias for hex)",
     )
     parser.add_argument(
         "--num-players",
@@ -614,6 +558,10 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Normalize board type aliases
+    if args.board_type == "hexagonal":
+        args.board_type = "hex"
 
     if args.benchmark:
         run_benchmark(args.board_type, args.num_players)

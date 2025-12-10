@@ -361,11 +361,16 @@ def extract_features_from_mutable(
 # Model Loading
 # =============================================================================
 
-def get_nnue_model_path(board_type: BoardType, model_id: Optional[str] = None) -> Path:
+def get_nnue_model_path(
+    board_type: BoardType,
+    num_players: int = 2,
+    model_id: Optional[str] = None,
+) -> Path:
     """Get the default NNUE model checkpoint path.
 
     Args:
         board_type: The board type for model selection
+        num_players: Number of players (2, 3, or 4)
         model_id: Optional specific model ID
 
     Returns:
@@ -376,13 +381,14 @@ def get_nnue_model_path(board_type: BoardType, model_id: Optional[str] = None) -
     if model_id:
         return models_dir / f"{model_id}.pt"
 
-    # Default model naming: nnue_{board_type}.pt
+    # Default model naming: nnue_{board_type}_{num_players}p.pt
     board_name = board_type.value.lower()
-    return models_dir / f"nnue_{board_name}.pt"
+    return models_dir / f"nnue_{board_name}_{num_players}p.pt"
 
 
 def load_nnue_model(
     board_type: BoardType,
+    num_players: int = 2,
     model_id: Optional[str] = None,
     device: Optional[str] = None,
     allow_fresh: bool = True,
@@ -391,6 +397,7 @@ def load_nnue_model(
 
     Args:
         board_type: The board type for model selection
+        num_players: Number of players (2, 3, or 4)
         model_id: Optional specific model ID
         device: Device to load model on ('cpu', 'cuda', 'mps')
         allow_fresh: If True and no checkpoint exists, return fresh weights
@@ -409,14 +416,14 @@ def load_nnue_model(
         else:
             device = "cpu"
 
-    # Check cache
-    cache_key = (board_type.value, model_id or "default")
+    # Check cache - include num_players in cache key
+    cache_key = (board_type.value, num_players, model_id or "default")
     if cache_key in _NNUE_CACHE:
         model = _NNUE_CACHE[cache_key]
         return model.to(device)
 
     # Try to load checkpoint
-    model_path = get_nnue_model_path(board_type, model_id)
+    model_path = get_nnue_model_path(board_type, num_players, model_id)
 
     model = RingRiftNNUE(board_type=board_type)
 
@@ -482,13 +489,16 @@ class NNUEEvaluator:
         self,
         board_type: BoardType,
         player_number: int,
+        num_players: int = 2,
         model_id: Optional[str] = None,
         allow_fresh: bool = True,
     ):
         self.board_type = board_type
         self.player_number = player_number
+        self.num_players = num_players
         self.model = load_nnue_model(
             board_type=board_type,
+            num_players=num_players,
             model_id=model_id,
             allow_fresh=allow_fresh,
         )

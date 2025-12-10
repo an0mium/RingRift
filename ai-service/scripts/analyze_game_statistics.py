@@ -50,6 +50,8 @@ class GameStats:
     total_time_seconds: float = 0.0
     wins_by_player: dict[str, int] = field(default_factory=dict)
     victory_types: dict[str, int] = field(default_factory=dict)
+    # Stalemate breakdown by tiebreaker type
+    stalemate_by_tiebreaker: dict[str, int] = field(default_factory=dict)
     draws: int = 0
     games_with_recovery: int = 0
     total_recovery_opportunities: int = 0
@@ -98,6 +100,32 @@ class GameStats:
     def victory_type_rate(self, vtype: str) -> float:
         count = self.victory_types.get(vtype, 0)
         return count / self.total_games if self.total_games > 0 else 0.0
+
+    def get_aggregated_victory_counts(self) -> dict[str, int]:
+        """Get aggregated victory counts.
+
+        Aggregation rules:
+        - Territory: territory + stalemate (territory tiebreaker)
+        - Elimination: elimination + ring_elimination + stalemate (ring_elimination tiebreaker)
+        - LPS: lps (last player standing)
+        """
+        territory = self.victory_types.get("territory", 0)
+        stalemate_territory = self.stalemate_by_tiebreaker.get("territory", 0)
+        # If no stalemate breakdown, assume all stalemate are territory
+        if not self.stalemate_by_tiebreaker and self.victory_types.get("stalemate", 0) > 0:
+            stalemate_territory = self.victory_types.get("stalemate", 0)
+
+        elimination = self.victory_types.get("elimination", 0)
+        ring_elim = self.victory_types.get("ring_elimination", 0)
+        stalemate_ring_elim = self.stalemate_by_tiebreaker.get("ring_elimination", 0)
+
+        lps = self.victory_types.get("lps", 0)
+
+        return {
+            "territory": territory + stalemate_territory,
+            "elimination": elimination + ring_elim + stalemate_ring_elim,
+            "lps": lps,
+        }
 
 
 @dataclass
@@ -179,6 +207,13 @@ def collect_stats(data_dir: Path) -> AnalysisReport:
         for vtype, count in victory_types.items():
             stats.victory_types[vtype] = stats.victory_types.get(vtype, 0) + count
 
+        # Merge stalemate tiebreaker breakdown
+        stalemate_tiebreakers = data.get("stalemate_by_tiebreaker", {})
+        for tiebreaker, count in stalemate_tiebreakers.items():
+            stats.stalemate_by_tiebreaker[tiebreaker] = (
+                stats.stalemate_by_tiebreaker.get(tiebreaker, 0) + count
+            )
+
         # Collect individual game lengths if available
         game_lengths = data.get("game_lengths", [])
         if game_lengths:
@@ -205,8 +240,36 @@ def generate_markdown_report(report: AnalysisReport) -> str:
     lines.append(f"**Data Sources:** {len(report.data_sources)}")
     lines.append("")
 
-    # Victory Type Distribution
-    lines.append("## 1. Victory Type Distribution")
+    # Aggregated Victory Categories
+    lines.append("## 1. Aggregated Victory Categories")
+    lines.append("")
+    lines.append("*Categories: Territory (territory + stalemate-territory), ")
+    lines.append("Elimination (elimination + ring_elimination + stalemate-ring_elim), LPS (last player standing)*")
+    lines.append("")
+    lines.append("| Board/Players | Games | Territory | Elimination | LPS |")
+    lines.append("|---------------|-------|-----------|-------------|-----|")
+
+    for (board_type, num_players), stats in sorted(report.stats_by_config.items()):
+        if stats.total_games == 0:
+            continue
+        agg = stats.get_aggregated_victory_counts()
+        territory = agg["territory"]
+        elimination = agg["elimination"]
+        lps = agg["lps"]
+
+        territory_pct = f"{100 * territory / stats.total_games:.1f}%" if territory else "0%"
+        elimination_pct = f"{100 * elimination / stats.total_games:.1f}%" if elimination else "0%"
+        lps_pct = f"{100 * lps / stats.total_games:.1f}%" if lps else "0%"
+
+        lines.append(
+            f"| {board_type} {num_players}p | {stats.total_games} | "
+            f"{territory_pct} ({territory}) | {elimination_pct} ({elimination}) | {lps_pct} ({lps}) |"
+        )
+
+    lines.append("")
+
+    # Detailed Victory Type Distribution (raw)
+    lines.append("## 2. Detailed Victory Type Distribution")
     lines.append("")
     lines.append("| Board/Players | Games | Territory | LPS | Stalemate | Ring Elim | Draw |")
     lines.append("|---------------|-------|-----------|-----|-----------|-----------|------|")
@@ -232,6 +295,33 @@ def generate_markdown_report(report: AnalysisReport) -> str:
         )
 
     lines.append("")
+
+    # Stalemate Tiebreaker Breakdown
+    any_stalemate_data = any(
+        stats.stalemate_by_tiebreaker for stats in report.stats_by_config.values()
+    )
+    if any_stalemate_data:
+        lines.append("### Stalemate Tiebreaker Breakdown")
+        lines.append("")
+        lines.append("| Board/Players | Total Stalemate | Territory | Ring Elim | Other |")
+        lines.append("|---------------|-----------------|-----------|-----------|-------|")
+
+        for (board_type, num_players), stats in sorted(report.stats_by_config.items()):
+            if stats.total_games == 0:
+                continue
+            total_stalemate = stats.victory_types.get("stalemate", 0)
+            if total_stalemate == 0:
+                continue
+            territory_tb = stats.stalemate_by_tiebreaker.get("territory", 0)
+            ring_elim_tb = stats.stalemate_by_tiebreaker.get("ring_elimination", 0)
+            other_tb = total_stalemate - territory_tb - ring_elim_tb
+
+            lines.append(
+                f"| {board_type} {num_players}p | {total_stalemate} | "
+                f"{territory_tb} | {ring_elim_tb} | {other_tb} |"
+            )
+
+        lines.append("")
 
     # Win Distribution by Player Position
     lines.append("## 2. Win Distribution by Player Position")

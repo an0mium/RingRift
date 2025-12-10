@@ -8,5 +8,8 @@ config/remote_hosts.yaml
 config/orchestrator_hosts.yaml
 config/orchestrator_hosts.sh
 
+# Machine-specific sync scripts with private IPs
+scripts/sync_to_mbp64.sh
+
 # Orchestrator state and logs contain host-specific data
 logs/orchestrator/cluster_state.json

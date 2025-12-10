@@ -2,14 +2,16 @@ import sys
 import os
 import time
 import argparse
+import json
 import uuid
 from datetime import datetime
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 
 # Add the parent directory to sys.path to allow imports from app
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.utils.progress_reporter import SoakProgressReporter
+from app.utils.victory_type import derive_victory_type
 
 from app.models import GameState, BoardType, GamePhase, GameStatus, Player, TimeControl, BoardState, AIConfig
 from app.ai.heuristic_ai import HeuristicAI
@@ -86,10 +88,11 @@ def create_game_state(board_type_str: str, p1_config: Dict, p2_config: Dict) -> 
     )
 
 
-def run_game(p1_ai, p2_ai, board_type: str) -> int:
+def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 300) -> Tuple[int, GameState, List[Dict[str, Any]], int]:
     """
     Run a single game between two AI instances.
-    Returns the winner (1 or 2), or 0 for draw.
+    Returns tuple of (winner, final_game_state, move_history, move_count).
+    Winner is 1 or 2, or 0 for draw/timeout.
     """
     # Create fresh game state
     p1_config = {"type": p1_ai.__class__.__name__.replace("AI", ""), "difficulty": p1_ai.config.difficulty}
@@ -99,7 +102,7 @@ def run_game(p1_ai, p2_ai, board_type: str) -> int:
     rules_engine = DefaultRulesEngine()
 
     move_count = 0
-    max_moves = 300  # Prevent infinite games
+    moves_played: List[Dict[str, Any]] = []
 
     print(f"Starting game: {p1_ai.__class__.__name__} (P1) vs " f"{p2_ai.__class__.__name__} (P2) on {board_type}")
 
@@ -117,7 +120,8 @@ def run_game(p1_ai, p2_ai, board_type: str) -> int:
             import traceback
 
             traceback.print_exc()
-            return 2 if current_player_num == 1 else 1
+            winner = 2 if current_player_num == 1 else 1
+            return (winner, game_state, moves_played, move_count)
 
         if not move:
             print(f"No valid moves for Player {current_player_num}. Game Over.")
@@ -133,7 +137,19 @@ def run_game(p1_ai, p2_ai, board_type: str) -> int:
             import traceback
 
             traceback.print_exc()
-            return 2 if current_player_num == 1 else 1
+            winner = 2 if current_player_num == 1 else 1
+            return (winner, game_state, moves_played, move_count)
+
+        # Record move for training data
+        move_record: Dict[str, Any] = {
+            "type": move.type.value if hasattr(move.type, 'value') else str(move.type),
+            "player": move.player,
+        }
+        if hasattr(move, 'to') and move.to is not None:
+            move_record["to"] = {"x": move.to.x, "y": move.to.y}
+        if hasattr(move, 'from_pos') and move.from_pos is not None:
+            move_record["from"] = {"x": move.from_pos.x, "y": move.from_pos.y}
+        moves_played.append(move_record)
 
         # Check victory
         if game_state.game_status == GameStatus.COMPLETED:
@@ -143,10 +159,11 @@ def run_game(p1_ai, p2_ai, board_type: str) -> int:
 
     if game_state.game_status == GameStatus.ACTIVE:
         print("Max moves reached. Draw.")
-        return 0
+        return (0, game_state, moves_played, move_count)
 
-    print(f"Game Over. Winner: Player {game_state.winner}")
-    return game_state.winner if game_state.winner is not None else 0
+    winner = game_state.winner if game_state.winner is not None else 0
+    print(f"Game Over. Winner: Player {winner}")
+    return (winner, game_state, moves_played, move_count)
 
 
 def main():
@@ -157,6 +174,8 @@ def main():
     parser.add_argument("--p2-diff", type=int, default=5, help="Player 2 Difficulty (1-10)")
     parser.add_argument("--board", type=str, default="Square8", choices=BOARD_TYPES.keys(), help="Board Type")
     parser.add_argument("--games", type=int, default=10, help="Number of games to play")
+    parser.add_argument("--output-dir", type=str, default=None, help="Output dir for games.jsonl (optional)")
+    parser.add_argument("--max-moves", type=int, default=300, help="Max moves per game before draw")
 
     args = parser.parse_args()
 
@@ -165,6 +184,9 @@ def main():
     print(f"  Player 2: {args.p2} (Difficulty {args.p2_diff})")
     print(f"  Board: {args.board}")
     print(f"  Games: {args.games}")
+    print(f"  Max moves: {args.max_moves}")
+    if args.output_dir:
+        print(f"  Output: {args.output_dir}")
     print("-" * 40)
 
     # Initialize AIs
@@ -180,6 +202,9 @@ def main():
     ai2 = p2_class(2, AIConfig(difficulty=args.p2_diff, think_time=0, randomness=0, rngSeed=None))
 
     stats = {"p1_wins": 0, "p2_wins": 0, "draws": 0}
+    victory_type_counts: Dict[str, int] = {}
+    stalemate_by_tiebreaker: Dict[str, int] = {}
+    game_records: List[Dict[str, Any]] = []
 
     # Initialize progress reporter for time-based progress output (~10s intervals)
     progress_reporter = SoakProgressReporter(
@@ -188,6 +213,12 @@ def main():
         context_label=f"{args.p1}_vs_{args.p2}_{args.board}",
     )
 
+    # Set up output file if requested
+    output_file = None
+    if args.output_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
+        output_file = open(os.path.join(args.output_dir, "games.jsonl"), "w")
+
     for i in range(args.games):
         game_start_time = time.time()
         print(f"\nMatch {i+1}/{args.games}")
@@ -195,30 +226,70 @@ def main():
         # Swap sides every other game to ensure fairness
         if i % 2 == 0:
             # P1 is Player 1
-            winner = run_game(ai1, ai2, args.board)
+            winner, final_state, moves_played, move_count = run_game(ai1, ai2, args.board, args.max_moves)
             if winner == 1:
                 stats["p1_wins"] += 1
             elif winner == 2:
                 stats["p2_wins"] += 1
             else:
                 stats["draws"] += 1
+            p1_seat, p2_seat = 1, 2
         else:
             # P1 is Player 2 (swap)
             # run_game expects (p1_ai, p2_ai) where p1_ai plays as Player 1
-            winner = run_game(ai2, ai1, args.board)
+            winner, final_state, moves_played, move_count = run_game(ai2, ai1, args.board, args.max_moves)
             if winner == 1:
                 stats["p2_wins"] += 1  # ai2 (P2 originally) won as Player 1
             elif winner == 2:
                 stats["p1_wins"] += 1  # ai1 (P1 originally) won as Player 2
             else:
                 stats["draws"] += 1
+            p1_seat, p2_seat = 2, 1
+
+        # Derive victory type using shared module
+        victory_type, stalemate_tiebreaker = derive_victory_type(final_state, args.max_moves)
+        victory_type_counts[victory_type] = victory_type_counts.get(victory_type, 0) + 1
+        if stalemate_tiebreaker:
+            stalemate_by_tiebreaker[stalemate_tiebreaker] = stalemate_by_tiebreaker.get(stalemate_tiebreaker, 0) + 1
+
+        game_duration = time.time() - game_start_time
+
+        # Build game record
+        record: Dict[str, Any] = {
+            "game_id": i,
+            "board_type": args.board.lower(),
+            "num_players": 2,
+            "winner": winner,
+            "move_count": move_count,
+            "status": final_state.game_status.value if hasattr(final_state.game_status, 'value') else str(final_state.game_status),
+            "victory_type": victory_type,
+            "stalemate_tiebreaker": stalemate_tiebreaker,
+            "p1_ai": args.p1,
+            "p1_difficulty": args.p1_diff,
+            "p2_ai": args.p2,
+            "p2_difficulty": args.p2_diff,
+            "p1_seat": p1_seat,
+            "p2_seat": p2_seat,
+            "moves": moves_played,
+            "game_time_seconds": game_duration,
+            "timestamp": datetime.now().isoformat(),
+        }
+        game_records.append(record)
+
+        # Write to JSONL if output dir specified
+        if output_file:
+            output_file.write(json.dumps(record) + "\n")
+            output_file.flush()
 
         # Record game completion for progress reporting
-        game_duration = time.time() - game_start_time
         progress_reporter.record_game(
-            moves=0,  # Move count not tracked at this level
+            moves=move_count,
             duration_sec=game_duration,
         )
+
+    # Close output file
+    if output_file:
+        output_file.close()
 
     # Emit final progress summary
     progress_reporter.finish()
@@ -228,7 +299,37 @@ def main():
     print(f"  {args.p1} (P1): {stats['p1_wins']} wins")
     print(f"  {args.p2} (P2): {stats['p2_wins']} wins")
     print(f"  Draws: {stats['draws']}")
+    print("")
+    print("Victory Types:")
+    for vt, count in sorted(victory_type_counts.items()):
+        print(f"  {vt}: {count}")
+    if stalemate_by_tiebreaker:
+        print("")
+        print("Stalemate Tiebreakers:")
+        for tb, count in sorted(stalemate_by_tiebreaker.items()):
+            print(f"  {tb}: {count}")
     print("=" * 40)
+
+    # Write stats.json if output dir specified
+    if args.output_dir:
+        stats_path = os.path.join(args.output_dir, "stats.json")
+        with open(stats_path, "w") as f:
+            json.dump({
+                "total_games": args.games,
+                "p1_ai": args.p1,
+                "p1_difficulty": args.p1_diff,
+                "p2_ai": args.p2,
+                "p2_difficulty": args.p2_diff,
+                "board": args.board,
+                "max_moves": args.max_moves,
+                "p1_wins": stats["p1_wins"],
+                "p2_wins": stats["p2_wins"],
+                "draws": stats["draws"],
+                "victory_type_counts": victory_type_counts,
+                "stalemate_by_tiebreaker": stalemate_by_tiebreaker,
+                "timestamp": datetime.now().isoformat(),
+            }, f, indent=2)
+        print(f"\nGame records saved to: {args.output_dir}")
 
 
 if __name__ == "__main__":

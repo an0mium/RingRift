@@ -34,6 +34,7 @@ from typing import (
 import logging
 from app.ai.neural_net import (
     RingRiftCNN_v2,
+    RingRiftCNN_v3,
     HexNeuralNet,
     HEX_BOARD_SIZE,
     P_HEX,
@@ -1247,6 +1248,7 @@ def train_model(
     sampling_weights: str = 'uniform',
     multi_player: bool = False,
     num_players: int = 2,
+    model_version: str = 'v2',
 ):
     """
     Train the RingRift neural network model.
@@ -1439,6 +1441,21 @@ def train_model(
                     "Multi-player value head not yet implemented for HexNeuralNet. "
                     "Using standard scalar value head."
                 )
+    elif model_version == 'v3':
+        # V3 architecture with spatial policy heads and rank distribution output
+        model = RingRiftCNN_v3(
+            board_size=board_size,
+            in_channels=14,  # 14 spatial feature channels per frame
+            global_features=20,  # Must match _extract_features() which returns 20 globals
+            history_length=config.history_length,
+            policy_size=policy_size,
+            num_players=num_players,
+        )
+        if not distributed or is_main_process():
+            logger.info(
+                f"Initializing RingRiftCNN_v3 with board_size={board_size}, "
+                f"policy_size={policy_size}, num_players={num_players}"
+            )
     elif multi_player:
         # Multi-player mode: use RingRiftCNN_v2 with multi-player value loss
         # (dedicated RingRiftCNN_MultiPlayer not yet implemented)

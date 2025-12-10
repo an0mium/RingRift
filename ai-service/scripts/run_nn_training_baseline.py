@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-"""Baseline neural-network training experiment for Square-8 2-player.
+"""Baseline neural-network training experiment for all board types and player counts.
 
 This script provides a small, reproducible NN training entrypoint
-for Square-8 2-player games using the existing training stack:
+for RingRift games using the existing training stack:
 
 - TrainConfig / get_training_config_for_board from
   app.training.config
@@ -58,13 +58,28 @@ from app.training.config import (  # noqa: E402
 from app.training.seed_utils import seed_all  # noqa: E402
 from app.training.train import train_model  # noqa: E402
 
+import numpy as np
+
+
+def _dataset_has_multi_player_values(data_path: str) -> bool:
+    """Check if an NPZ dataset contains multi-player value targets."""
+    try:
+        with np.load(data_path, mmap_mode='r') as f:
+            return 'values_mp' in f and 'num_players' in f
+    except Exception:
+        return False
+
 
 def _parse_board(board: str) -> BoardType:
-    """Map CLI board string to BoardType (Square-8 only for A2)."""
+    """Map CLI board string to BoardType."""
     b = board.lower()
     if b in {"square8", "sq8"}:
         return BoardType.SQUARE8
-    raise SystemExit(f"Unsupported board {board!r}; this baseline script currently " "supports only square8 2-player.")
+    if b in {"square19", "sq19"}:
+        return BoardType.SQUARE19
+    if b in {"hexagonal", "hex"}:
+        return BoardType.HEXAGONAL
+    raise SystemExit(f"Unsupported board {board!r}; valid options: square8, square19, hexagonal")
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
@@ -79,13 +94,15 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--board",
         default="square8",
-        help=("Board identifier (currently only 'square8' is supported)."),
+        choices=["square8", "sq8", "square19", "sq19", "hexagonal", "hex"],
+        help=("Board identifier: square8, square19, or hexagonal."),
     )
     parser.add_argument(
         "--num-players",
         type=int,
         default=2,
-        help=("Number of players (baseline is designed for 2-player only)."),
+        choices=[2, 3, 4],
+        help=("Number of players (2, 3, or 4)."),
     )
     parser.add_argument(
         "--run-dir",
@@ -134,6 +151,18 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
             "this is clamped to 1 epoch."
         ),
     )
+    parser.add_argument(
+        "--model-version",
+        type=str,
+        default="v2",
+        choices=["v2", "v3"],
+        help=(
+            "Model architecture version to use. 'v2' is the standard "
+            "RingRiftCNN_v2 with global average pooling. 'v3' is the new "
+            "architecture with spatial policy heads and rank distribution "
+            "output. Default: v2."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -170,12 +199,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
 
     board_enum = _parse_board(args.board)
-    if args.num_players != 2:
-        print(
-            f"Warning: num_players={args.num_players} is not the canonical "
-            "2-player baseline; proceeding but this script is tuned for 2p.",
-            file=sys.stderr,
-        )
+    num_players = args.num_players
 
     run_dir = os.path.abspath(args.run_dir)
     os.makedirs(run_dir, exist_ok=True)
@@ -231,6 +255,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     # Seed all relevant RNGs for reproducibility.
     seed_all(seed)
 
+    # Auto-detect multi-player value targets in dataset (not in demo mode).
+    use_multi_player = False
+    if not args.demo and os.path.exists(data_path):
+        use_multi_player = _dataset_has_multi_player_values(data_path)
+        if use_multi_player:
+            print(f"Detected multi-player value targets in {data_path}, enabling multi_player mode.")
+
     # Run training. The current train_model implementation does not surface
     # final loss/metrics directly, so we record structural metadata and stub
     # metrics. Future tasks (A3+) can thread richer metrics through.
@@ -243,14 +274,18 @@ def main(argv: Optional[list[str]] = None) -> int:
         checkpoint_interval=train_cfg.epochs_per_iter,
         warmup_epochs=0,
         lr_scheduler="none",
+        multi_player=use_multi_player,
+        num_players=num_players,
+        model_version=args.model_version,
     )
 
     created_at = datetime.now(timezone.utc).isoformat()
     report: Dict[str, Any] = {
-        "board": "square8",
-        "num_players": args.num_players,
+        "board": args.board,
+        "num_players": num_players,
         "mode": mode,
         "model_id": model_id,
+        "model_version": args.model_version,
         "data_path": data_path,
         "model_path": save_path,
         "training_params": {
@@ -261,6 +296,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             "batch_size": train_cfg.batch_size,
             "learning_rate": train_cfg.learning_rate,
             "seed": train_cfg.seed,
+            "model_version": args.model_version,
         },
         # Metrics are intentionally minimal for this baseline demo. We do not
         # currently plumb the final validation loss out of train_model; this

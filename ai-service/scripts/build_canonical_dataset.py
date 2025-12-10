@@ -8,21 +8,26 @@ This is a thin, policy-aware wrapper around scripts/export_replay_dataset.py
 that:
   - Restricts --db inputs to canonical_<board>.db by default.
   - Encourages a clear dataset naming convention under data/training/.
+  - Supports all board types (square8, square19, hexagonal) and player counts (2, 3, 4).
 
 It does not change the underlying NPZ layout, which remains compatible with
 app.training.generate_data and existing training loops.
 
 Usage examples (from ai-service/):
 
-  # Square-8 canonical dataset
+  # Square-8 2-player canonical dataset (default)
   PYTHONPATH=. python scripts/build_canonical_dataset.py \
     --board-type square8 \
     --db data/games/canonical_square8.db \
-    --output data/training/canonical_square8.npz
+    --output data/training/canonical_square8_2p.npz
 
-  # Square-19 and Hex in one go (using defaults for db/output names)
+  # Square-8 4-player dataset
+  PYTHONPATH=. python scripts/build_canonical_dataset.py \
+    --board-type square8 --num-players 4
+
+  # Square-19 and Hex (using defaults for db/output names)
   PYTHONPATH=. python scripts/build_canonical_dataset.py --board-type square19
-  PYTHONPATH=. python scripts/build_canonical_dataset.py --board-type hexagonal
+  PYTHONPATH=. python scripts/build_canonical_dataset.py --board-type hexagonal --num-players 3
 """
 
 import argparse
@@ -41,11 +46,11 @@ def _default_db_for_board(board_type: str) -> Path:
     return (AI_SERVICE_ROOT / "data" / "games" / f"canonical_{board_type}.db").resolve()
 
 
-def _default_output_for_board(board_type: str) -> Path:
-    return (AI_SERVICE_ROOT / "data" / "training" / f"canonical_{board_type}.npz").resolve()
+def _default_output_for_board(board_type: str, num_players: int) -> Path:
+    return (AI_SERVICE_ROOT / "data" / "training" / f"canonical_{board_type}_{num_players}p.npz").resolve()
 
 
-def run_export(board_type: str, db_path: Path, output_path: Path) -> int:
+def run_export(board_type: str, num_players: int, db_path: Path, output_path: Path) -> int:
     """Invoke export_replay_dataset.main(...) with canonical-safe arguments."""
     # Basic guard: insist on canonical_*.db basenames by default.
     if not db_path.name.startswith("canonical_"):
@@ -63,7 +68,7 @@ def run_export(board_type: str, db_path: Path, output_path: Path) -> int:
         "--board-type",
         board_type,
         "--num-players",
-        "2",
+        str(num_players),
         "--require-completed",
         "--min-moves",
         "10",
@@ -84,6 +89,13 @@ def main(argv: List[str] | None = None) -> int:
         help="Board type whose canonical DB should be exported.",
     )
     parser.add_argument(
+        "--num-players",
+        type=int,
+        default=2,
+        choices=[2, 3, 4],
+        help="Number of players (2, 3, or 4). Default: 2.",
+    )
+    parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -93,15 +105,16 @@ def main(argv: List[str] | None = None) -> int:
         "--output",
         type=str,
         default=None,
-        help=("Output NPZ path. Defaults to " "data/training/canonical_<board>.npz."),
+        help=("Output NPZ path. Defaults to " "data/training/canonical_<board>_<num_players>p.npz."),
     )
     args = parser.parse_args(argv)
 
     board_type: str = args.board_type
+    num_players: int = args.num_players
     db_path = Path(args.db).resolve() if args.db else _default_db_for_board(board_type)
-    output_path = Path(args.output).resolve() if args.output else _default_output_for_board(board_type)
+    output_path = Path(args.output).resolve() if args.output else _default_output_for_board(board_type, num_players)
 
-    return run_export(board_type, db_path, output_path)
+    return run_export(board_type, num_players, db_path, output_path)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entrypoint

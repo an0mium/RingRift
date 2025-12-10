@@ -538,7 +538,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     os.makedirs(run_dir, exist_ok=True)
 
     model_id = args.model_id or f"nnue_{board_type.value}_{args.num_players}p"
-    save_path = args.save_path or str(get_nnue_model_path(board_type))
+    save_path = args.save_path or str(get_nnue_model_path(board_type, args.num_players))
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     # Count available samples (unless demo mode)
