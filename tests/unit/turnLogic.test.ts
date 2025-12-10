@@ -91,6 +91,12 @@ describe('turnLogic', () => {
     hasAnyCapture: jest.fn().mockReturnValue(false),
     applyForcedElimination: jest.fn((state) => state),
     getNextPlayerNumber: jest.fn((state, current) => (current === 1 ? 2 : 1)),
+    // Default: players have rings if they have rings in hand or stacks.
+    // More complex checks (buried rings) need specific overrides.
+    playerHasAnyRings: jest.fn((state, player) => {
+      const p = state.players.find((pl: { playerNumber: number }) => pl.playerNumber === player);
+      return p ? p.ringsInHand > 0 : false;
+    }),
     ...overrides,
   });
 
@@ -235,7 +241,10 @@ describe('turnLogic', () => {
         expect(result.nextTurn.mustMoveFromStackKey).toBeUndefined();
       });
 
-      it('should start next player in movement phase when they have no rings', () => {
+      it('should start next player in ring_placement phase (canonical: all players start in ring_placement)', () => {
+        // Per RR-CANON-R075: All phases must be visited with explicit moves.
+        // Even players with no rings in hand start in ring_placement and emit
+        // skip_placement/no_placement_action to advance to movement.
         const state = createGameState({
           currentPhase: 'territory_processing',
           currentPlayer: 1,
@@ -250,12 +259,15 @@ describe('turnLogic', () => {
             .fn()
             .mockReturnValue([{ position: { x: 0, y: 0 }, stackHeight: 1 }]),
           hasAnyPlacement: jest.fn().mockReturnValue(false),
+          // Player 2 has stacks so has rings (even if ringsInHand is 0)
+          playerHasAnyRings: jest.fn().mockReturnValue(true),
         });
 
         const result = advanceTurnAndPhase(state, turn, delegates);
 
         expect(result.nextState.currentPlayer).toBe(2);
-        expect(result.nextState.currentPhase).toBe('movement');
+        // Per RR-CANON-R075: Always start in ring_placement, not movement
+        expect(result.nextState.currentPhase).toBe('ring_placement');
       });
 
       it('should trigger forced elimination when player has stacks but no actions', () => {
@@ -314,7 +326,7 @@ describe('turnLogic', () => {
         expect(result.nextTurn.hasPlacedThisTurn).toBe(false);
       });
 
-      it('should skip player with no stacks and no rings', () => {
+      it('should skip player with no rings anywhere (permanently eliminated)', () => {
         const state = createGameState({
           currentPhase: 'territory_processing',
           currentPlayer: 1,
@@ -331,15 +343,27 @@ describe('turnLogic', () => {
             player === 1 ? [{ position: { x: 0, y: 0 }, stackHeight: 1 }] : []
           );
 
+        // Track next player calls to simulate rotation: 1 -> 2, then 2 -> 1
+        let nextCalls = 0;
+        const getNextPlayerNumber = jest.fn().mockImplementation(() => {
+          nextCalls++;
+          if (nextCalls === 1) return 2; // First call: player 1 -> player 2
+          return 1; // Second call: player 2 -> player 1 (skip player 2)
+        });
+
         const delegates = createDelegates({
           getPlayerStacks,
           hasAnyPlacement: jest.fn().mockReturnValue(true),
-          getNextPlayerNumber: jest.fn().mockReturnValue(1), // Player 2 -> Player 1
+          getNextPlayerNumber,
+          // Player 2 has no rings anywhere (permanently eliminated)
+          playerHasAnyRings: jest.fn().mockImplementation((_state: GameState, player: number) => {
+            return player === 1; // Only player 1 has rings
+          }),
         });
 
         const result = advanceTurnAndPhase(state, turn, delegates);
 
-        // Should skip player 2 and go back to player 1
+        // Should skip player 2 (no rings anywhere) and go back to player 1
         expect(result.nextState.currentPlayer).toBe(1);
         expect(result.nextState.currentPhase).toBe('ring_placement');
       });
@@ -373,11 +397,13 @@ describe('turnLogic', () => {
         });
         const turn = createTurnState();
 
-        // Both players have no material
+        // Both players have no rings anywhere (permanently eliminated)
         const delegates = createDelegates({
           getPlayerStacks: jest.fn().mockReturnValue([]),
           hasAnyPlacement: jest.fn().mockReturnValue(false),
           getNextPlayerNumber: jest.fn((_, current) => (current === 1 ? 2 : 1)),
+          // No player has any rings - both permanently eliminated
+          playerHasAnyRings: jest.fn().mockReturnValue(false),
         });
 
         // Should not hang - the loop has maxSkips = players.length
@@ -457,6 +483,8 @@ describe('turnLogic', () => {
         const delegates = createDelegates({
           getPlayerStacks: jest.fn().mockReturnValue([]),
           hasAnyPlacement: jest.fn().mockReturnValue(true),
+          // Player 2 has rings (ringsInHand: 18 by default in createGameState)
+          playerHasAnyRings: jest.fn().mockReturnValue(true),
         });
 
         const result = advanceTurnAndPhase(state, turn, delegates);
@@ -482,6 +510,8 @@ describe('turnLogic', () => {
           getPlayerStacks: jest.fn().mockReturnValue([]),
           hasAnyPlacement: jest.fn().mockReturnValue(true),
           getNextPlayerNumber: jest.fn().mockReturnValue(2),
+          // All players have rings (18 each)
+          playerHasAnyRings: jest.fn().mockReturnValue(true),
         });
 
         const result = advanceTurnAndPhase(state, turn, delegates);
@@ -501,13 +531,11 @@ describe('turnLogic', () => {
         });
         const turn = createTurnState();
 
-        let currentPlayer = 2; // Start with player 2
+        let nextCalls = 0;
         const getNextPlayerNumber = jest.fn().mockImplementation(() => {
-          if (currentPlayer === 2) {
-            currentPlayer = 3;
-            return 3;
-          }
-          return 1;
+          nextCalls++;
+          if (nextCalls === 1) return 2; // First call: player 1 -> player 2
+          return 3; // Second call: player 2 -> player 3 (skip player 2)
         });
 
         const getPlayerStacks = jest
@@ -520,11 +548,15 @@ describe('turnLogic', () => {
           getPlayerStacks,
           hasAnyPlacement: jest.fn().mockReturnValue(true),
           getNextPlayerNumber,
+          // Player 2 has no rings anywhere (permanently eliminated)
+          playerHasAnyRings: jest.fn().mockImplementation((_state: GameState, player: number) => {
+            return player !== 2; // Players 1 and 3 have rings, player 2 doesn't
+          }),
         });
 
         const result = advanceTurnAndPhase(state, turn, delegates);
 
-        // Should skip player 2 and land on player 3
+        // Should skip player 2 (no rings anywhere) and land on player 3
         expect(result.nextState.currentPlayer).toBe(3);
       });
     });
