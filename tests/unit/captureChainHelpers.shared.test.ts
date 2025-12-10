@@ -6,26 +6,198 @@ import {
   Position,
   RingStack,
   positionToString,
+  stringToPosition,
   BOARD_CONFIGS,
 } from '../../src/shared/types/game';
 import { createInitialGameState } from '../../src/shared/engine/initialState';
 import {
   enumerateChainCaptureSegments,
-  getChainCaptureContinuationInfo,
-  canCapture,
-  getValidCaptureTargets,
-  processChainCapture,
+  enumerateCaptureMoves,
+  applyCaptureSegment,
   ChainCaptureStateSnapshot,
-} from '../../src/shared/engine/captureChainHelpers';
-import { calculateCapHeight } from '../../src/shared/engine/core';
+  CaptureBoardAdapters,
+} from '../../src/shared/engine/aggregates/CaptureAggregate';
+import {
+  calculateCapHeight,
+  validateCaptureSegmentOnBoard,
+  CaptureSegmentBoardView,
+} from '../../src/shared/engine/core';
+import { isValidPosition } from '../../src/shared/engine/validators/utils';
 
 /**
  * Classification: canonical shared capture chain helper tests.
  *
  * These tests verify the capture chain enumeration and validation helpers
  * that support both the backend GameEngine and client sandbox engine.
+ *
+ * Note: This test now uses CaptureAggregate directly per RR-CANON-R070.
+ * The captureChainHelpers.ts wrapper is deprecated.
  */
-describe('captureChainHelpers – shared capture chain enumeration and validation', () => {
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Local Helper Functions (migrated from captureChainHelpers.ts)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Create board adapters from GameState for capture enumeration.
+ */
+function createCaptureBoardAdaptersFromState(state: GameState): CaptureBoardAdapters {
+  const board = state.board;
+  const boardType = state.board.type;
+  const size = board.size;
+
+  return {
+    isValidPosition: (pos: Position) => isValidPosition(pos, boardType, size),
+    isCollapsedSpace: (pos: Position) => board.collapsedSpaces.has(positionToString(pos)),
+    getStackAt: (pos: Position) => {
+      const key = positionToString(pos);
+      const stack = board.stacks.get(key);
+      if (!stack) return undefined;
+      return {
+        controllingPlayer: stack.controllingPlayer,
+        capHeight: stack.capHeight,
+        stackHeight: stack.stackHeight,
+      };
+    },
+    getMarkerOwner: (pos: Position) => {
+      const marker = board.markers.get(positionToString(pos));
+      return marker?.player;
+    },
+  };
+}
+
+/**
+ * Create board view from GameState for capture validation.
+ */
+function createCaptureSegmentViewFromState(state: GameState): CaptureSegmentBoardView {
+  const board = state.board;
+  const boardType = state.board.type;
+  const size = board.size;
+
+  return {
+    isValidPosition: (pos: Position) => isValidPosition(pos, boardType, size),
+    isCollapsedSpace: (pos: Position) => board.collapsedSpaces.has(positionToString(pos)),
+    getStackAt: (pos: Position) => {
+      const key = positionToString(pos);
+      const stack = board.stacks.get(key);
+      if (!stack) return undefined;
+      return {
+        controllingPlayer: stack.controllingPlayer,
+        capHeight: stack.capHeight,
+        stackHeight: stack.stackHeight,
+      };
+    },
+    getMarkerOwner: (pos: Position) => {
+      const marker = board.markers.get(positionToString(pos));
+      return marker?.player;
+    },
+  };
+}
+
+/**
+ * Check if a capture is valid (replaces captureChainHelpers.canCapture).
+ */
+function canCapture(
+  state: GameState,
+  from: Position,
+  target: Position,
+  landing: Position,
+  player: number
+): boolean {
+  const view = createCaptureSegmentViewFromState(state);
+  return validateCaptureSegmentOnBoard(state.boardType, from, target, landing, player, view);
+}
+
+/**
+ * Get all valid capture targets from a position (replaces captureChainHelpers.getValidCaptureTargets).
+ */
+function getValidCaptureTargets(
+  state: GameState,
+  from: Position,
+  player: number
+): Array<{ target: Position; landings: Position[] }> {
+  const adapters = createCaptureBoardAdaptersFromState(state);
+  const moveNumber = state.moveHistory.length + 1;
+
+  const moves = enumerateCaptureMoves(state.boardType, from, player, adapters, moveNumber);
+
+  // Group moves by captureTarget
+  const byTarget = new Map<string, { target: Position; landings: Position[] }>();
+
+  for (const move of moves) {
+    if (!move.captureTarget || !move.to) continue;
+
+    const key = positionToString(move.captureTarget);
+    let entry = byTarget.get(key);
+    if (!entry) {
+      entry = { target: move.captureTarget, landings: [] };
+      byTarget.set(key, entry);
+    }
+    entry.landings.push(move.to);
+  }
+
+  return Array.from(byTarget.values());
+}
+
+/**
+ * Get chain capture continuation info (replaces captureChainHelpers.getChainCaptureContinuationInfo).
+ */
+function getChainCaptureContinuationInfo(
+  state: GameState,
+  snapshot: ChainCaptureStateSnapshot,
+  options?: { disallowRevisitedTargets?: boolean }
+): { hasFurtherCaptures: boolean; segments: ReturnType<typeof enumerateChainCaptureSegments> } {
+  const segments = enumerateChainCaptureSegments(state, snapshot, options);
+  return {
+    hasFurtherCaptures: segments.length > 0,
+    segments,
+  };
+}
+
+/**
+ * Process chain capture (replaces captureChainHelpers.processChainCapture).
+ */
+function processChainCapture(
+  state: GameState,
+  initialFrom: Position,
+  initialTarget: Position,
+  initialLanding: Position,
+  player: number
+): {
+  isValid: boolean;
+  hasContinuation: boolean;
+  continuationOptions: ReturnType<typeof enumerateChainCaptureSegments>;
+} {
+  if (!canCapture(state, initialFrom, initialTarget, initialLanding, player)) {
+    return {
+      isValid: false,
+      hasContinuation: false,
+      continuationOptions: [],
+    };
+  }
+
+  const snapshot: ChainCaptureStateSnapshot = {
+    player,
+    currentPosition: initialLanding,
+    capturedThisChain: [initialTarget],
+  };
+
+  const info = getChainCaptureContinuationInfo(state, snapshot, {
+    disallowRevisitedTargets: true,
+  });
+
+  return {
+    isValid: true,
+    hasContinuation: info.hasFurtherCaptures,
+    continuationOptions: info.segments,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test Suite
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('CaptureAggregate – shared capture chain enumeration and validation', () => {
   const boardType: BoardType = 'square8';
   const timeControl: TimeControl = { initialTime: 600, increment: 0, type: 'blitz' };
   const players: Player[] = [
@@ -106,6 +278,7 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 3, y: 3 },
+      capturedThisChain: [],
     };
 
     const moves = enumerateChainCaptureSegments(state, snapshot);
@@ -121,6 +294,7 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
+      capturedThisChain: [],
     };
 
     const moves = enumerateChainCaptureSegments(state, snapshot);
@@ -139,6 +313,7 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
+      capturedThisChain: [],
     };
 
     const moves = enumerateChainCaptureSegments(state, snapshot, { kind: 'initial' });
@@ -160,6 +335,7 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
+      capturedThisChain: [],
     };
 
     const moves = enumerateChainCaptureSegments(state, snapshot, { kind: 'continuation' });
@@ -180,11 +356,12 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
     // Another target at (0, 2)
     addStack(state, { x: 0, y: 2 }, [2]);
 
-    const visitedTarget = positionToString({ x: 2, y: 0 });
+    const visitedTargetPos = { x: 2, y: 0 };
+    const visitedTarget = positionToString(visitedTargetPos);
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
-      visitedTargets: [visitedTarget],
+      capturedThisChain: [visitedTargetPos],
     };
 
     const movesWithFilter = enumerateChainCaptureSegments(state, snapshot, {
@@ -218,6 +395,7 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 0, y: 0 },
+      capturedThisChain: [],
     };
 
     const moves = enumerateChainCaptureSegments(state, snapshot);
@@ -243,6 +421,7 @@ describe('captureChainHelpers – shared capture chain enumeration and validatio
     const snapshot: ChainCaptureStateSnapshot = {
       player: 1,
       currentPosition: { x: 3, y: 3 },
+      capturedThisChain: [],
     };
 
     const info = getChainCaptureContinuationInfo(state, snapshot);

@@ -112,15 +112,29 @@ sync_from_host() {
 
     if [[ "$DRY_RUN" == "true" ]]; then
         echo "  [DRY-RUN] rsync $ssh_opts -avz $host_alias:$remote_path/*.db $dest/"
+        echo "  [DRY-RUN] rsync $ssh_opts -avz $host_alias:$remote_path/*.jsonl $dest/"
         return 0
     fi
 
+    local synced_any=false
+
+    # Sync DB files
     if rsync -avz --progress "$host_alias:$remote_path/"*.db "$dest/" 2>/dev/null; then
-        local count=$(find "$dest" -name "*.db" 2>/dev/null | wc -l | tr -d ' ')
-        log_success "$host_alias: synced $count database(s)"
+        synced_any=true
+    fi
+
+    # Sync JSONL files (H100 uses this format)
+    if rsync -avz --progress "$host_alias:$remote_path/"*.jsonl "$dest/" 2>/dev/null; then
+        synced_any=true
+    fi
+
+    if [[ "$synced_any" == "true" ]]; then
+        local db_count=$(find "$dest" -name "*.db" 2>/dev/null | wc -l | tr -d ' ')
+        local jsonl_count=$(find "$dest" -name "*.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+        log_success "$host_alias: synced $db_count database(s), $jsonl_count JSONL file(s)"
         ((SYNC_SUCCESS++)) || true
     else
-        log_warning "$host_alias: no databases found or sync failed"
+        log_warning "$host_alias: no data found or sync failed"
         ((SYNC_FAILED++)) || true
     fi
 }
@@ -138,16 +152,29 @@ sync_from_vast() {
 
     if [[ "$DRY_RUN" == "true" ]]; then
         echo "  [DRY-RUN] rsync -e \"ssh -p $port\" -avz root@$host:$remote_path/*.db $dest/"
+        echo "  [DRY-RUN] rsync -e \"ssh -p $port\" -avz root@$host:$remote_path/*.jsonl $dest/"
         return 0
     fi
 
-    # Vast uses /dev/shm for RAM storage
+    local synced_any=false
+
+    # Vast uses /dev/shm for RAM storage - sync DB files
     if rsync -avz --progress -e "ssh -p $port -o ConnectTimeout=15" "root@$host:$remote_path/"*.db "$dest/" 2>/dev/null; then
-        local count=$(find "$dest" -name "*.db" 2>/dev/null | wc -l | tr -d ' ')
-        log_success "$name: synced $count database(s) from RAM storage"
+        synced_any=true
+    fi
+
+    # Also sync JSONL files
+    if rsync -avz --progress -e "ssh -p $port -o ConnectTimeout=15" "root@$host:$remote_path/"*.jsonl "$dest/" 2>/dev/null; then
+        synced_any=true
+    fi
+
+    if [[ "$synced_any" == "true" ]]; then
+        local db_count=$(find "$dest" -name "*.db" 2>/dev/null | wc -l | tr -d ' ')
+        local jsonl_count=$(find "$dest" -name "*.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+        log_success "$name: synced $db_count database(s), $jsonl_count JSONL file(s) from RAM storage"
         ((SYNC_SUCCESS++)) || true
     else
-        log_warning "$name: no databases found or sync failed (instance may be terminated)"
+        log_warning "$name: no data found or sync failed (instance may be terminated)"
         ((SYNC_FAILED++)) || true
     fi
 }
@@ -306,12 +333,13 @@ echo "  Successful: $SYNC_SUCCESS"
 echo "  Failed/Empty: $SYNC_FAILED"
 echo "  Output directory: $SYNC_DIR"
 
-# List all synced databases
+# List all synced files
 TOTAL_DBS=$(find "$SYNC_DIR" -name "*.db" 2>/dev/null | wc -l | tr -d ' ')
-log_info "Total databases synced: $TOTAL_DBS"
+TOTAL_JSONL=$(find "$SYNC_DIR" -name "*.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+log_info "Total synced: $TOTAL_DBS database(s), $TOTAL_JSONL JSONL file(s)"
 
-if [[ "$TOTAL_DBS" -eq 0 ]]; then
-    log_warning "No databases were synced. Check remote hosts and paths."
+if [[ "$TOTAL_DBS" -eq 0 ]] && [[ "$TOTAL_JSONL" -eq 0 ]]; then
+    log_warning "No data was synced. Check remote hosts and paths."
     exit 0
 fi
 
@@ -324,7 +352,23 @@ if [[ "$DO_MERGE" == "true" ]]; then
 
     MERGED_DB="$DATA_DIR/merged_${TIMESTAMP}.db"
 
-    # Build the merge command with all found DBs
+    # Convert JSONL files to DB format first
+    JSONL_COUNT=$(find "$SYNC_DIR" -name "*.jsonl" 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$JSONL_COUNT" -gt 0 ]]; then
+        log_info "Converting $JSONL_COUNT JSONL file(s) to DB format..."
+        while IFS= read -r jsonl; do
+            db_file="${jsonl%.jsonl}.db"
+            if [[ "$DRY_RUN" == "true" ]]; then
+                echo "  [DRY-RUN] python $SCRIPT_DIR/jsonl_to_db.py --input $jsonl --output $db_file"
+            elif python "$SCRIPT_DIR/jsonl_to_db.py" --input "$jsonl" --output "$db_file" 2>/dev/null; then
+                log_success "Converted $(basename "$jsonl") -> $(basename "$db_file")"
+            else
+                log_warning "Failed to convert $(basename "$jsonl")"
+            fi
+        done < <(find "$SYNC_DIR" -name "*.jsonl")
+    fi
+
+    # Build the merge command with all found DBs (including converted ones)
     DB_ARGS=""
     while IFS= read -r db; do
         DB_ARGS="$DB_ARGS --db $db"
