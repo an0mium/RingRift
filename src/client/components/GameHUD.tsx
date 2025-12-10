@@ -519,6 +519,80 @@ function LpsTrackingIndicator({
 }
 
 /**
+ * Victory progress indicator showing ring elimination and territory control progress.
+ * Per RR-CANON-R061: victoryThreshold = floor(totalRings/2)+1
+ * Per RR-CANON-R062: territoryThreshold = floor(totalSpaces/2)+1
+ */
+function VictoryProgressIndicator({
+  victoryProgress,
+  players,
+}: {
+  victoryProgress?: HUDViewModel['victoryProgress'];
+  players: PlayerViewModel[];
+}) {
+  // Only show when there's meaningful progress (at least 20% toward any goal)
+  if (!victoryProgress) return null;
+
+  const { ringElimination, territory } = victoryProgress;
+  const ringLeader = ringElimination.leader;
+  const territoryLeader = territory.leader;
+
+  // Only show if someone has made progress
+  const showRings = ringLeader && ringLeader.percentage >= 20;
+  const showTerritory = territoryLeader && territoryLeader.percentage >= 20;
+
+  if (!showRings && !showTerritory) return null;
+
+  const getPlayerName = (playerNumber: number) => {
+    const player = players.find((p) => p.playerNumber === playerNumber);
+    return player?.username ?? `P${playerNumber}`;
+  };
+
+  return (
+    <div
+      className="mb-2 px-3 py-2 rounded-lg border border-slate-600/50 bg-slate-900/60 text-xs"
+      data-testid="hud-victory-progress"
+    >
+      <div className="text-[10px] uppercase tracking-wide text-slate-400 mb-1">
+        Victory Progress
+      </div>
+      <div className="space-y-1.5">
+        {showRings && ringLeader && (
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 w-16 shrink-0">Rings:</span>
+            <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-rose-500 transition-all duration-300"
+                style={{ width: `${Math.min(ringLeader.percentage, 100)}%` }}
+              />
+            </div>
+            <span className="text-slate-300 text-[10px] w-20 text-right">
+              {getPlayerName(ringLeader.playerNumber)}: {ringLeader.eliminated}/
+              {ringElimination.threshold}
+            </span>
+          </div>
+        )}
+        {showTerritory && territoryLeader && (
+          <div className="flex items-center gap-2">
+            <span className="text-slate-400 w-16 shrink-0">Territory:</span>
+            <div className="flex-1 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${Math.min(territoryLeader.percentage, 100)}%` }}
+              />
+            </div>
+            <span className="text-slate-300 text-[10px] w-20 text-right">
+              {getPlayerName(territoryLeader.playerNumber)}: {territoryLeader.spaces}/
+              {territory.threshold}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Legacy sub-phase details for backward compatibility
  */
 function LegacySubPhaseDetails({ gameState }: { gameState: GameState }) {
@@ -1268,6 +1342,7 @@ function GameHUDFromViewModel({
     decisionPhase,
     weirdState,
     lpsTracking,
+    victoryProgress,
   } = viewModel;
 
   const rulesUxBoardType = rulesUxContext?.boardType;
@@ -1757,6 +1832,8 @@ function GameHUDFromViewModel({
       {weirdState && <WeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />}
       {/* LPS tracking indicator - shows when a player has consecutive exclusive rounds */}
       <LpsTrackingIndicator lpsTracking={lpsTracking} players={players} />
+      {/* Victory progress indicator - shows ring elimination and territory progress */}
+      <VictoryProgressIndicator victoryProgress={victoryProgress} players={players} />
       <PhaseIndicator phase={phase} isMyTurn={isMyTurn} isSpectator={isSpectator} />
       {phaseHelpTopic && (
         <div className="mt-1 flex items-center text-[11px] text-slate-300">

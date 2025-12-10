@@ -218,6 +218,21 @@ export interface HUDViewModel {
         consecutiveExclusivePlayer: number | null;
       }
     | undefined;
+  /**
+   * Victory progress tracking for ring-elimination and territory-control.
+   * Per RR-CANON-R061: victoryThreshold = floor(totalRings/2)+1
+   * Per RR-CANON-R062: territoryThreshold = floor(totalSpaces/2)+1
+   */
+  victoryProgress?: {
+    ringElimination: {
+      threshold: number;
+      leader: { playerNumber: number; eliminated: number; percentage: number } | null;
+    };
+    territory: {
+      threshold: number;
+      leader: { playerNumber: number; spaces: number; percentage: number } | null;
+    };
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -982,6 +997,43 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     }
   }
 
+  // Compute victory progress per RR-CANON-R061 (ring elimination) and RR-CANON-R062 (territory)
+  const ringThreshold = gameState.victoryThreshold;
+  const territoryThreshold = gameState.territoryVictoryThreshold;
+
+  // Find leading player for ring elimination
+  const ringLeader = [...gameState.players]
+    .filter((p) => p.eliminatedRings > 0)
+    .sort((a, b) => b.eliminatedRings - a.eliminatedRings)[0];
+
+  // Find leading player for territory
+  const territoryLeader = [...gameState.players]
+    .filter((p) => p.territorySpaces > 0)
+    .sort((a, b) => b.territorySpaces - a.territorySpaces)[0];
+
+  const victoryProgress = {
+    ringElimination: {
+      threshold: ringThreshold,
+      leader: ringLeader
+        ? {
+            playerNumber: ringLeader.playerNumber,
+            eliminated: ringLeader.eliminatedRings,
+            percentage: Math.round((ringLeader.eliminatedRings / ringThreshold) * 100),
+          }
+        : null,
+    },
+    territory: {
+      threshold: territoryThreshold,
+      leader: territoryLeader
+        ? {
+            playerNumber: territoryLeader.playerNumber,
+            spaces: territoryLeader.territorySpaces,
+            percentage: Math.round((territoryLeader.territorySpaces / territoryThreshold) * 100),
+          }
+        : null,
+    },
+  };
+
   return {
     phase,
     players,
@@ -997,6 +1049,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     decisionPhase,
     weirdState,
     lpsTracking,
+    victoryProgress,
   };
 }
 

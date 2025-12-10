@@ -173,6 +173,77 @@ function MobileLpsIndicator({
 }
 
 /**
+ * Compact mobile victory progress indicator.
+ * Shows ring elimination and territory progress when meaningful.
+ * Per RR-CANON-R061: victoryThreshold = floor(totalRings/2)+1
+ * Per RR-CANON-R062: territoryThreshold = floor(totalSpaces/2)+1
+ */
+function MobileVictoryProgress({
+  victoryProgress,
+  players,
+}: {
+  victoryProgress?: HUDViewModel['victoryProgress'];
+  players: PlayerViewModel[];
+}) {
+  if (!victoryProgress) return null;
+
+  const { ringElimination, territory } = victoryProgress;
+  const ringLeader = ringElimination.leader;
+  const territoryLeader = territory.leader;
+
+  // Only show if someone has meaningful progress (>=25% toward any goal)
+  const showRings = ringLeader && ringLeader.percentage >= 25;
+  const showTerritory = territoryLeader && territoryLeader.percentage >= 25;
+
+  if (!showRings && !showTerritory) return null;
+
+  const getPlayerName = (playerNumber: number) => {
+    const player = players.find((p) => p.playerNumber === playerNumber);
+    return player?.username ?? `P${playerNumber}`;
+  };
+
+  return (
+    <div
+      className="mb-2 px-2 py-1.5 rounded-lg border border-slate-600/50 bg-slate-900/60 text-[10px]"
+      data-testid="mobile-victory-progress"
+    >
+      <div className="flex items-center gap-3">
+        {showRings && ringLeader && (
+          <div className="flex items-center gap-1.5 flex-1">
+            <span className="text-rose-400">⚔</span>
+            <div className="flex-1 h-1 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-rose-500"
+                style={{ width: `${Math.min(ringLeader.percentage, 100)}%` }}
+              />
+            </div>
+            <span className="text-slate-300 whitespace-nowrap">
+              {getPlayerName(ringLeader.playerNumber).slice(0, 6)}: {ringLeader.eliminated}/
+              {ringElimination.threshold}
+            </span>
+          </div>
+        )}
+        {showTerritory && territoryLeader && (
+          <div className="flex items-center gap-1.5 flex-1">
+            <span className="text-emerald-400">🏰</span>
+            <div className="flex-1 h-1 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500"
+                style={{ width: `${Math.min(territoryLeader.percentage, 100)}%` }}
+              />
+            </div>
+            <span className="text-slate-300 whitespace-nowrap">
+              {getPlayerName(territoryLeader.playerNumber).slice(0, 6)}: {territoryLeader.spaces}/
+              {territory.threshold}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Compact turn/phase indicator bar for mobile
  */
 function MobilePhaseBar({
@@ -351,6 +422,7 @@ export function MobileGameHUD({
     decisionPhase,
     weirdState,
     lpsTracking,
+    victoryProgress,
   } = viewModel;
 
   const rulesUxBoardType = rulesUxContext?.boardType;
@@ -615,6 +687,9 @@ export function MobileGameHUD({
 
       {/* LPS tracking indicator (compact) */}
       <MobileLpsIndicator lpsTracking={lpsTracking} players={players} />
+
+      {/* Victory progress indicator (compact) */}
+      <MobileVictoryProgress victoryProgress={victoryProgress} players={players} />
 
       {/* Phase + turn bar */}
       <MobilePhaseBar phase={phase} turnNumber={turnNumber} isMyTurn={isMyTurn} />
