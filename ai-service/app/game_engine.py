@@ -712,6 +712,7 @@ class GameEngine:
                 MoveType.CONTINUE_CAPTURE_SEGMENT,
                 MoveType.NO_MOVEMENT_ACTION,
                 MoveType.RECOVERY_SLIDE,  # RR-CANON-R110-R115
+                MoveType.SKIP_RECOVERY,  # RR-CANON-R112: player may skip recovery
             }
         elif phase == GamePhase.CAPTURE:
             # CAPTURE phase only supports actual capture moves - there is no
