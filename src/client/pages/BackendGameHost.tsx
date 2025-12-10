@@ -1385,6 +1385,8 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     choiceTimeRemainingMs: reconciledDecisionTimeRemainingMs,
     decisionIsServerCapped: decisionCountdown.isServerCapped,
     victoryState,
+    // Pass LPS tracking from server GameState for UI display (RR-CANON-R172)
+    lpsTracking: gameState.lpsTracking,
   });
 
   // Optional-capture HUD chip (backend): when capture is available directly

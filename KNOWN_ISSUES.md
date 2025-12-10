@@ -68,9 +68,48 @@ The remaining gap is limited to legacy/non-interactive backend paths that still 
 
 ### P0.3 – Incomplete Scenario Test Coverage for Rules & FAQ
 
-**Component(s):** GameEngine, RuleEngine, BoardManager, tests  
-**Severity:** Critical for long-term confidence  
+**Component(s):** GameEngine, RuleEngine, BoardManager, tests
+**Severity:** Critical for long-term confidence
 **Status:** Systematic rules/FAQ scenario matrix implemented; Q1–Q24 and the major rules clusters are covered by backend and sandbox scenario suites, with remaining work focused on incremental extensions and future rule additions.
+
+### P0.4 – Python FSM: No Legal Moves Returns Empty Instead of Forced Elimination
+
+**Component(s):** Python `game_engine.py`, `phase_machine.py`, `fsm.py`
+**Severity:** P1 (Rare edge case, affects 3P selfplay ~1/5 games with seed 12346)
+**Status:** OPEN – Requires investigation; phase transition to FORCED_ELIMINATION not triggering correctly in some ANM scenarios.
+**Discovered:** 2025-12-10 (seed 12346, 3P square8 selfplay)
+**Details:**
+
+The Python `legal_moves()` function occasionally returns an empty list for an ACTIVE game when the current player has controlled stacks but no legal moves. Per RR-CANON-R072, when a player has controlled stacks and no legal moves in any phase, the FSM should transition to `forced_elimination` phase and return forced elimination moves.
+
+**Observed symptoms:**
+
+- Game status remains `ACTIVE` at termination
+- `termination_reason = "no_legal_moves_for_current_player"`
+- `invariant_violations_by_type = {"ACTIVE_NO_MOVES": 1}`
+- 3P games seed 12346: 137 moves then no legal moves
+
+**Expected behavior (per RR-CANON-R072/R100):**
+
+- When player P has controlled stacks but no legal placement/movement/capture, FSM should transition to `forced_elimination` phase
+- `legal_moves()` should then return valid `FORCED_ELIMINATION` moves targeting P's controlled stacks
+
+**Root cause hypothesis:**
+The phase transition logic in `_on_territory_processing_complete` or `advance_phases` may not be triggering correctly in certain edge cases, possibly when:
+
+1. `compute_had_any_action_this_turn()` returns an unexpected value
+2. `player_has_stacks_on_board()` returns False when stacks exist
+3. The phase transition occurs but `legal_moves()` enumeration doesn't include forced elimination
+
+**Reproduction:**
+
+```bash
+PYTHONPATH=ai-service RINGRIFT_SKIP_SHADOW_CONTRACTS=true python scripts/run_self_play_soak.py \
+  --num-games 5 --board-type square8 --num-players 3 --max-moves 400 --seed 12345 \
+  --record-db /tmp/test.db --log-jsonl /tmp/test.jsonl --engine-mode descent-only --difficulty-band light
+```
+
+Game at index 1 (seed 12346) will reproduce the issue.
 
 **What’s implemented and tested:**
 
@@ -750,6 +789,38 @@ These issues have been addressed but are kept here for context:
   affected player had a `forced_elimination` move earlier but is still taking
   turns. Investigation pending; may be related to LPS rotation logic or ANM
   round tracking.
+- **LPS Victory Parity (Dec 10, 2025 – OPEN)** –
+  Round-based Last-Player-Standing (LPS) victory detection diverges between
+  Python and TS engines when stacks remain on the board:
+
+  **Root Cause:**
+  - Python implements full LPS tracking in `GameEngine._check_victory()` (lines
+    935-1000 of `ai-service/app/game_engine.py`), using `lps_consecutive_exclusive_rounds`
+    and `lps_consecutive_exclusive_player` state fields.
+  - TypeScript has a complete `lpsTracking.ts` module with `evaluateLpsVictory()` but
+    the TS replay script uses `evaluateVictory()` from `victoryLogic.ts` which returns
+    `{ isGameOver: false }` at line 108 if `state.board.stacks.size > 0`, bypassing
+    round-based LPS entirely.
+  - The result: Python declares LPS victory after 3 consecutive rounds where one player
+    is the exclusive real-action holder, while TS continues the game.
+
+  **Example Divergence (game 7ab05bd4-d850-4c90-a8e9-26dd53d7527c):**
+  - Python: `game_status: completed`, `current_phase: game_over`, winner=1 via LPS
+  - TS: `game_status: active`, `current_phase: territory_processing`
+  - Board states match exactly (7 stacks: P1=4, P2=3; identical rings/territory counts)
+  - State hashes differ due to gameStatus/currentPhase fields
+
+  **Impact:** Games that should end via LPS continue indefinitely in TS replay, causing
+  parity check failures. The canonical rules (RR-CANON-R172) specify that LPS victory
+  can occur while stacks remain on the board.
+
+  **Resolution Path:**
+  1. Integrate `evaluateLpsVictory()` from `lpsTracking.ts` into the TS replay script's
+     turn orchestration, matching the Python engine's LPS check timing.
+  2. Ensure TS `victoryLogic.ts` does not return early when stacks exist if LPS conditions
+     are met (requires passing LPS tracking state to `evaluateVictory()`).
+  3. Add parity test vectors specifically for LPS victory scenarios.
+
 - **Recording Format Enhancements Schema v6 (Dec 4, 2025)** –
   Enhanced game history entries with available moves enumeration and engine
   diagnostics to support deeper parity debugging:

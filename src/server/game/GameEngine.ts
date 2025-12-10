@@ -175,6 +175,19 @@ export class GameEngine {
   }
 
   /**
+   * Returns a lightweight summary of LPS tracking state for client display.
+   * Per RR-CANON-R172, LPS victory requires 3 consecutive rounds where only
+   * one player has real actions available.
+   */
+  public getLpsTrackingSummary(): GameState['lpsTracking'] {
+    return {
+      roundIndex: this._lpsState.roundIndex,
+      consecutiveExclusiveRounds: this._lpsState.consecutiveExclusiveRounds,
+      consecutiveExclusivePlayer: this._lpsState.consecutiveExclusivePlayer,
+    };
+  }
+
+  /**
    * When true, the engine operates in replay mode:
    * - Auto-processing of single-option decisions is disabled.
    * - The decision loop is broken immediately when a decision is required.
@@ -856,6 +869,8 @@ export class GameEngine {
       history: [...state.history],
       players: clonedPlayers,
       spectators: [...state.spectators],
+      // Include LPS tracking summary for client display (RR-CANON-R172)
+      lpsTracking: this.getLpsTrackingSummary(),
     };
   }
 

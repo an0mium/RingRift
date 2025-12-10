@@ -13,3 +13,6 @@ scripts/sync_to_mbp64.sh
 
 # Orchestrator state and logs contain host-specific data
 logs/orchestrator/cluster_state.json
+
+# Experimental selfplay data directories (ephemeral analysis artifacts)
+data/selfplay/

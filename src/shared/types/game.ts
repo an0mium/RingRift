@@ -814,6 +814,23 @@ export interface GameState {
   totalRingsEliminated: number; // Total rings eliminated from game
   victoryThreshold: number; // Rings needed to win (>50% of total)
   territoryVictoryThreshold: number; // Territory spaces needed to win (>50% of board)
+
+  /**
+   * Last-Player-Standing (LPS) tracking state for UI display.
+   * Per RR-CANON-R172, LPS victory requires 3 consecutive rounds where
+   * only one player has real actions available.
+   *
+   * This lightweight summary is populated by server GameEngine and included
+   * in WebSocket broadcasts so clients can display LPS progress indicators.
+   * The full internal LpsTrackingState with Maps is kept in the engine.
+   */
+  lpsTracking?:
+    | {
+        roundIndex: number;
+        consecutiveExclusiveRounds: number;
+        consecutiveExclusivePlayer: number | null;
+      }
+    | undefined;
 }
 
 export interface GameResult {
