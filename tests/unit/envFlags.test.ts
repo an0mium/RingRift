@@ -247,25 +247,7 @@ describe('envFlags helpers', () => {
       // shadowModeEnabled removed - FSM is now canonical
     });
 
-    it('config.orchestrator with shadow rules mode still uses FSM canonical path', async () => {
-      process.env = {
-        ...process.env,
-        NODE_ENV: 'production',
-        RINGRIFT_RULES_MODE: 'shadow',
-        ORCHESTRATOR_ADAPTER_ENABLED: 'true',
-      } as any;
-
-      jest.resetModules();
-      const { config } = await import('../../src/server/config');
-
-      expect(config.orchestrator.rulesMode).toBe('shadow');
-      expect(config.orchestrator.adapterEnabled).toBe(true);
-      // Phase 3: rolloutPercentage removed - orchestrator permanently enabled
-      // shadowModeEnabled removed - FSM is now canonical
-
-      expect(config.featureFlags.orchestrator.adapterEnabled).toBe(true);
-      // Phase 3: rolloutPercentage removed from featureFlags
-      // shadowModeEnabled removed - FSM is now canonical
-    });
+    // Note: Shadow rules mode test removed - FSM is now canonical and
+    // RINGRIFT_RULES_MODE=shadow is no longer a valid configuration.
   });
 });
