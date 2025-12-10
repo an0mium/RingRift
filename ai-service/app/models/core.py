@@ -3,7 +3,7 @@ Pydantic Models for RingRift Game State
 Mirrors TypeScript types from src/shared/types/game.ts
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List, Dict, Tuple
 from enum import Enum
 from datetime import datetime
@@ -132,12 +132,11 @@ class AIType(str, Enum):
 
 class Position(BaseModel):
     """Board position (2D or 3D for hexagonal)"""
+    model_config = ConfigDict(frozen=True)
+
     x: int
     y: int
     z: Optional[int] = None
-
-    class Config:
-        frozen = True
 
     def to_key(self) -> str:
         """Convert position to string key.
@@ -170,35 +169,32 @@ def clear_position_key_cache() -> None:
 
 class LineInfo(BaseModel):
     """Information about a formed line"""
+    model_config = ConfigDict(populate_by_name=True)
+
     positions: List[Position]
     player: int
     length: int
     direction: Position  # Direction vector
 
-    class Config:
-        populate_by_name = True
-
 
 class Territory(BaseModel):
     """Information about a territory region"""
+    model_config = ConfigDict(populate_by_name=True)
+
     spaces: List[Position]
     controlling_player: int = Field(alias="controllingPlayer")
     is_disconnected: bool = Field(alias="isDisconnected")
 
-    class Config:
-        populate_by_name = True
-
 
 class RingStack(BaseModel):
     """Ring stack on the board"""
+    model_config = ConfigDict(populate_by_name=True)
+
     position: Position
     rings: List[int]  # Player numbers from bottom to top
     stack_height: int = Field(alias="stackHeight")
     cap_height: int = Field(alias="capHeight")
     controlling_player: int = Field(alias="controllingPlayer")
-
-    class Config:
-        populate_by_name = True
 
 
 class MarkerInfo(BaseModel):
@@ -210,6 +206,8 @@ class MarkerInfo(BaseModel):
 
 class Player(BaseModel):
     """Player state"""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     username: str
     type: str
@@ -221,18 +219,14 @@ class Player(BaseModel):
     eliminated_rings: int = Field(alias="eliminatedRings")
     territory_spaces: int = Field(alias="territorySpaces")
 
-    class Config:
-        populate_by_name = True
-
 
 class TimeControl(BaseModel):
     """Time control settings"""
+    model_config = ConfigDict(populate_by_name=True)
+
     initial_time: int = Field(alias="initialTime")
     increment: int
     type: str
-
-    class Config:
-        populate_by_name = True
 
 
 class Move(BaseModel):
@@ -252,6 +246,7 @@ class Move(BaseModel):
       construct canonical `process_line` and `process_territory_region`
       Moves that match the TS engines.
     """
+    model_config = ConfigDict(populate_by_name=True, frozen=True)
 
     id: str
     type: MoveType
@@ -317,13 +312,11 @@ class Move(BaseModel):
     think_time: int = Field(alias="thinkTime")
     move_number: int = Field(alias="moveNumber")
 
-    class Config:
-        populate_by_name = True
-        frozen = True
-
 
 class BoardState(BaseModel):
     """Current board state"""
+    model_config = ConfigDict(populate_by_name=True)
+
     type: BoardType
     size: int
     stacks: Dict[str, RingStack] = Field(default_factory=dict)
@@ -341,23 +334,21 @@ class BoardState(BaseModel):
         default_factory=dict, alias="territories"
     )
 
-    class Config:
-        populate_by_name = True
-
 
 class ChainCaptureSegment(BaseModel):
     """Segment of a chain capture"""
+    model_config = ConfigDict(populate_by_name=True)
+
     from_pos: Position = Field(alias="from")
     target: Position
     landing: Position
     captured_cap_height: int = Field(alias="capturedCapHeight")
 
-    class Config:
-        populate_by_name = True
-
 
 class ChainCaptureState(BaseModel):
     """State of an ongoing chain capture"""
+    model_config = ConfigDict(populate_by_name=True)
+
     player_number: int = Field(alias="playerNumber")
     start_position: Position = Field(alias="startPosition")
     current_position: Position = Field(alias="currentPosition")
@@ -365,12 +356,11 @@ class ChainCaptureState(BaseModel):
     available_moves: List[Move] = Field(alias="availableMoves")
     visited_positions: List[str] = Field(alias="visitedPositions")
 
-    class Config:
-        populate_by_name = True
-
 
 class GameState(BaseModel):
     """Complete game state"""
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     board_type: BoardType = Field(alias="boardType")
     rng_seed: Optional[int] = Field(None, alias="rngSeed")
@@ -432,9 +422,6 @@ class GameState(BaseModel):
         alias="rulesOptions",
     )
 
-    class Config:
-        populate_by_name = True
-
 
 class AIConfig(BaseModel):
     """AI configuration.
@@ -482,6 +469,8 @@ class AIConfig(BaseModel):
     evaluation. When unset, callers retain the current behaviour (neural nets
     enabled where available).
     """
+    model_config = ConfigDict(populate_by_name=True)
+
     difficulty: int = Field(ge=1, le=10)
     think_time: Optional[int] = None
     randomness: Optional[float] = Field(None, ge=0, le=1)
@@ -512,9 +501,6 @@ class AIConfig(BaseModel):
         "affects HeuristicAI in training contexts; other AIs ignore this."
     )
 
-    class Config:
-        populate_by_name = True
-
 
 class LineRewardChoiceOption(str, Enum):
     """Line reward choice options, mirroring TypeScript LineRewardChoice."""
@@ -530,6 +516,7 @@ class LineRewardChoiceRequest(BaseModel):
     required for the initial implementation but can be added later if we
     want the Python service to make more context-aware decisions.
     """
+    model_config = ConfigDict(populate_by_name=True)
 
     game_state: Optional[GameState] = Field(None, alias="gameState")
     player_number: int = Field(alias="playerNumber")
@@ -537,19 +524,14 @@ class LineRewardChoiceRequest(BaseModel):
     ai_type: Optional[AIType] = Field(None, alias="aiType")
     options: List[LineRewardChoiceOption]
 
-    class Config:
-        populate_by_name = True
-
 
 class LineRewardChoiceResponse(BaseModel):
     """Response model for AI-backed line reward choices."""
+    model_config = ConfigDict(populate_by_name=True)
 
     selected_option: LineRewardChoiceOption = Field(alias="selectedOption")
     ai_type: str = Field(alias="aiType")
     difficulty: int
-
-    class Config:
-        populate_by_name = True
 
 
 class RingEliminationChoiceOption(BaseModel):
@@ -558,13 +540,11 @@ class RingEliminationChoiceOption(BaseModel):
     Mirrors the TypeScript RingEliminationChoice option shape:
     { stackPosition, capHeight, totalHeight }.
     """
+    model_config = ConfigDict(populate_by_name=True)
 
     stack_position: Position = Field(alias="stackPosition")
     cap_height: int = Field(alias="capHeight")
     total_height: int = Field(alias="totalHeight")
-
-    class Config:
-        populate_by_name = True
 
 
 class RingEliminationChoiceRequest(BaseModel):
@@ -573,6 +553,7 @@ class RingEliminationChoiceRequest(BaseModel):
     Carries the same metadata as LineRewardChoiceRequest plus the
     ring-elimination specific option list.
     """
+    model_config = ConfigDict(populate_by_name=True)
 
     game_state: Optional[GameState] = Field(None, alias="gameState")
     player_number: int = Field(alias="playerNumber")
@@ -580,21 +561,16 @@ class RingEliminationChoiceRequest(BaseModel):
     ai_type: Optional[AIType] = Field(None, alias="aiType")
     options: List[RingEliminationChoiceOption]
 
-    class Config:
-        populate_by_name = True
-
 
 class RingEliminationChoiceResponse(BaseModel):
     """Response model for AI-backed ring elimination choices."""
+    model_config = ConfigDict(populate_by_name=True)
 
     selected_option: RingEliminationChoiceOption = Field(
         alias="selectedOption"
     )
     ai_type: str = Field(alias="aiType")
     difficulty: int
-
-    class Config:
-        populate_by_name = True
 
 
 class RegionOrderChoiceOption(BaseModel):
@@ -603,13 +579,11 @@ class RegionOrderChoiceOption(BaseModel):
     Mirrors the TypeScript RegionOrderChoice option shape:
     { regionId, size, representativePosition }.
     """
+    model_config = ConfigDict(populate_by_name=True)
 
     region_id: str = Field(alias="regionId")
     size: int
     representative_position: Position = Field(alias="representativePosition")
-
-    class Config:
-        populate_by_name = True
 
 
 class ProgressSnapshot(BaseModel):
@@ -625,6 +599,7 @@ class ProgressSnapshot(BaseModel):
 
 class RegionOrderChoiceRequest(BaseModel):
     """Request model for AI-backed region order choices."""
+    model_config = ConfigDict(populate_by_name=True)
 
     game_state: Optional[GameState] = Field(None, alias="gameState")
     player_number: int = Field(alias="playerNumber")
@@ -632,19 +607,14 @@ class RegionOrderChoiceRequest(BaseModel):
     ai_type: Optional[AIType] = Field(None, alias="aiType")
     options: List[RegionOrderChoiceOption]
 
-    class Config:
-        populate_by_name = True
-
 
 class RegionOrderChoiceResponse(BaseModel):
     """Response model for AI-backed region order choices."""
+    model_config = ConfigDict(populate_by_name=True)
 
     selected_option: RegionOrderChoiceOption = Field(alias="selectedOption")
     ai_type: str = Field(alias="aiType")
     difficulty: int
-
-    class Config:
-        populate_by_name = True
 
 
 class LineOrderChoiceLine(BaseModel):
@@ -653,12 +623,10 @@ class LineOrderChoiceLine(BaseModel):
     Mirrors the TypeScript LineOrderChoice option shape:
     { lineId, markerPositions }.
     """
+    model_config = ConfigDict(populate_by_name=True)
 
     line_id: str = Field(alias="lineId")
     marker_positions: List[Position] = Field(alias="markerPositions")
-
-    class Config:
-        populate_by_name = True
 
 
 class LineOrderChoiceRequest(BaseModel):
@@ -668,6 +636,7 @@ class LineOrderChoiceRequest(BaseModel):
     current implementation does not require full GameState but accepts
     it for future, more context-aware heuristics.
     """
+    model_config = ConfigDict(populate_by_name=True)
 
     game_state: Optional[GameState] = Field(None, alias="gameState")
     player_number: int = Field(alias="playerNumber")
@@ -675,19 +644,14 @@ class LineOrderChoiceRequest(BaseModel):
     ai_type: Optional[AIType] = Field(None, alias="aiType")
     options: List[LineOrderChoiceLine]
 
-    class Config:
-        populate_by_name = True
-
 
 class LineOrderChoiceResponse(BaseModel):
     """Response model for AI-backed line order choices."""
+    model_config = ConfigDict(populate_by_name=True)
 
     selected_option: LineOrderChoiceLine = Field(alias="selectedOption")
     ai_type: str = Field(alias="aiType")
     difficulty: int
-
-    class Config:
-        populate_by_name = True
 
 
 class CaptureDirectionChoiceOption(BaseModel):
@@ -696,17 +660,16 @@ class CaptureDirectionChoiceOption(BaseModel):
     Mirrors the TypeScript CaptureDirectionChoice option shape:
     { targetPosition, landingPosition, capturedCapHeight }.
     """
+    model_config = ConfigDict(populate_by_name=True)
 
     target_position: Position = Field(alias="targetPosition")
     landing_position: Position = Field(alias="landingPosition")
     captured_cap_height: int = Field(alias="capturedCapHeight")
 
-    class Config:
-        populate_by_name = True
-
 
 class CaptureDirectionChoiceRequest(BaseModel):
     """Request model for AI-backed capture direction choices."""
+    model_config = ConfigDict(populate_by_name=True)
 
     game_state: Optional[GameState] = Field(None, alias="gameState")
     player_number: int = Field(alias="playerNumber")
@@ -714,18 +677,13 @@ class CaptureDirectionChoiceRequest(BaseModel):
     ai_type: Optional[AIType] = Field(None, alias="aiType")
     options: List[CaptureDirectionChoiceOption]
 
-    class Config:
-        populate_by_name = True
-
 
 class CaptureDirectionChoiceResponse(BaseModel):
     """Response model for AI-backed capture direction choices."""
+    model_config = ConfigDict(populate_by_name=True)
 
     selected_option: CaptureDirectionChoiceOption = Field(
         alias="selectedOption"
     )
     ai_type: str = Field(alias="aiType")
     difficulty: int
-
-    class Config:
-        populate_by_name = True

@@ -345,4 +345,34 @@ describe('DecisionUI harness → ChoiceDialog integration', () => {
     expect(countdown).toHaveAttribute('data-severity', 'critical');
     expect(screen.getByText(/Respond within/i)).toBeInTheDocument();
   });
+
+  it('renders a provided choice view model and respects its copy', async () => {
+    mockedUsePendingChoice.mockReturnValue({
+      pendingChoice: captureChoice,
+      pendingChoiceView: {
+        viewModel: {
+          type: 'capture_direction',
+          kind: 'capture_direction',
+          copy: {
+            title: 'Custom Capture Title',
+            description: 'Custom capture description',
+            shortLabel: 'Custom capture',
+            spectatorLabel: () => 'Watching capture',
+          },
+          timeout: { showCountdown: true, warningThresholdMs: 4_000 },
+        },
+      } as any,
+      choiceDeadline: Date.now() + 6_000,
+      reconciledDecisionTimeRemainingMs: 6_000,
+      decisionIsServerCapped: false,
+    } as any);
+
+    render(<DecisionUIHarness />);
+
+    expect(await screen.findByText('Custom Capture Title')).toBeInTheDocument();
+    expect(screen.getByText(/Custom capture description/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText(/Direction 1/));
+    expect(respondToChoice).toHaveBeenCalledTimes(1);
+  });
 });

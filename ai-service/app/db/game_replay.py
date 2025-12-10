@@ -368,16 +368,13 @@ class GameWriter:
             self._turn_count += 1
             self._current_player = move.player
 
-        # When we have a reliable "before" state (either explicitly provided
-        # by the caller or tracked via _prev_state for history entries),
-        # thread its current_phase through to the DB writer so that the
-        # canonical (phase, moveType) contract can be enforced at write time.
+        # Phase derivation: Use move-type-derived canonical phase rather than
+        # game state's current_phase. The game state's phase (e.g., RING_PLACEMENT)
+        # is the high-level game phase, but individual moves have their own
+        # canonical phases (movement, capture, etc.) within a turn. The canonical
+        # phase is derived from the move type by the DB writer via history_contract.
+        # Passing None allows validate_canonical_move to derive the correct phase.
         phase_hint: Optional[str] = None
-        source_state: Optional[GameState] = state_before or self._prev_state
-        if source_state is not None:
-            phase_enum = getattr(source_state, "current_phase", None)
-            if phase_enum is not None:
-                phase_hint = getattr(phase_enum, "value", str(phase_enum))
 
         self._db._store_move(
             game_id=self._game_id,
@@ -958,14 +955,10 @@ class GameReplayDB:
                     turn_number += 1
                     current_player = move.player
 
-                # Use the current phase of prev_state (state BEFORE this move)
-                # as the canonical phase hint for validate_canonical_move so
-                # that territory / forced-elimination moves are only recorded
-                # when they occur in their dedicated phases.
+                # Phase derivation: Use move-type-derived canonical phase rather than
+                # game state's current_phase. The canonical phase is derived from
+                # the move type by the DB writer via history_contract.
                 phase_hint: Optional[str] = None
-                phase_enum = getattr(prev_state, "current_phase", None)
-                if phase_enum is not None:
-                    phase_hint = getattr(phase_enum, "value", str(phase_enum))
 
                 self._store_move_conn(
                     conn,

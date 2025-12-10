@@ -176,7 +176,7 @@ For initial and final states, and optionally at checkpoints:
   "outcome": {
     "status": "finished" | "abandoned" | "timeout" | "error",
     "winner": 1 | 2 | null,
-    "termination_reason": "ring_elimination" | "territory" | "resignation" | "timeout" | "stalemate",
+    "termination_reason": "ring_elimination" | "territory" | "resignation" | "timeout" | "stalemate" | "lps",
 
     "final_scores": {
       "player1": {
