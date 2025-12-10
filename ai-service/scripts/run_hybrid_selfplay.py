@@ -101,14 +101,15 @@ def derive_victory_type(game_state, max_moves: int) -> str:
     - "ring_elimination": Winner reached ring elimination threshold
     - "territory": Winner reached territory threshold
     - "timeout": Game hit max_moves limit
-    - "stalemate": Last-player-standing or trapped stalemate
+    - "lps": Last-player-standing (opponent(s) eliminated)
+    - "stalemate": Bare-board stalemate resolved by tiebreaker ladder
 
     Args:
         game_state: The final GameState after game completion
         max_moves: The max_moves limit used for this game
 
     Returns:
-        One of: "ring_elimination", "territory", "timeout", "stalemate"
+        One of: "ring_elimination", "territory", "timeout", "lps", "stalemate"
     """
     winner = game_state.winner
     move_count = len(game_state.move_history) if game_state.move_history else 0
@@ -117,7 +118,7 @@ def derive_victory_type(game_state, max_moves: int) -> str:
     if max_moves and move_count >= max_moves and winner is None:
         return "timeout"
 
-    # If no winner, it's a stalemate (trapped or drawn)
+    # If no winner, it's a stalemate (trapped or drawn, resolved by tiebreakers)
     if winner is None:
         return "stalemate"
 
@@ -137,7 +138,25 @@ def derive_victory_type(game_state, max_moves: int) -> str:
     if winner_territory >= game_state.territory_victory_threshold:
         return "territory"
 
-    # Otherwise it's a stalemate victory (last-player-standing)
+    # Check if this is LPS (opponent(s) eliminated - total rings = 0)
+    # vs stalemate (bare board resolved by tiebreaker ladder)
+    def count_total_rings(player_number: int) -> int:
+        """Count total rings for player (on board + in hand)."""
+        player = next((p for p in game_state.players if p.player_number == player_number), None)
+        rings_in_hand = player.rings_in_hand if player else 0
+        rings_on_board = sum(
+            1 for stack in game_state.board.stacks.values()
+            for ring_owner in stack.rings
+            if ring_owner == player_number
+        )
+        return rings_in_hand + rings_on_board
+
+    # If any opponent has 0 total rings, this is LPS
+    for p in game_state.players:
+        if p.player_number != winner and count_total_rings(p.player_number) == 0:
+            return "lps"
+
+    # Otherwise it's a stalemate victory (tiebreaker resolution)
     return "stalemate"
 
 
