@@ -1222,7 +1222,7 @@ export function processTurn(
   assertPhaseMoveInvariant(state, move);
 
   // FSM Validation: FSM is now the canonical validator - always enforce validation.
-  const fsmValidationResult = performFSMValidation(state, move, 'active');
+  const fsmValidationResult = performFSMValidation(state, move);
   if (!fsmValidationResult.valid) {
     const reason = fsmValidationResult.reason || `FSM validation rejected ${move.type} move`;
     throw new Error(
@@ -1790,19 +1790,18 @@ interface FSMValidationInternalResult {
 /**
  * Structured FSM validation event for production monitoring.
  * Emits JSON logs that can be easily parsed by log aggregators.
+ *
+ * FSM is now the canonical validator (RR-CANON compliance).
  */
 interface FSMValidationEvent {
   event: 'fsm_validation';
   timestamp: string;
-  mode: 'shadow' | 'active';
   gameId: string;
   moveNumber: number;
   moveType: string;
   movePlayer: number;
   currentPhase: string;
   fsmValid: boolean;
-  existingValid?: boolean | undefined;
-  divergence: boolean;
   errorCode?: string | undefined;
   reason?: string | undefined;
   durationMs?: number | undefined;
@@ -1811,8 +1810,7 @@ interface FSMValidationEvent {
 /**
  * Emit a structured FSM validation event for monitoring.
  * In production, these can be aggregated to track:
- * - Divergence rate between FSM and existing validation
- * - FSM rejection rate in active mode
+ * - FSM rejection rate
  * - Validation performance
  */
 function emitFSMValidationEvent(event: FSMValidationEvent): void {
@@ -1829,21 +1827,14 @@ function emitFSMValidationEvent(event: FSMValidationEvent): void {
 /**
  * Perform FSM validation on a move.
  *
- * In shadow mode: runs FSM validation in parallel with existing validation
- * and logs any divergences without affecting game behavior.
- *
- * In active mode: returns the FSM validation result for the caller to enforce.
+ * FSM is now the canonical validator (RR-CANON compliance).
+ * Returns the FSM validation result for the caller to enforce.
  *
  * @param state - The current game state
  * @param move - The move to validate
- * @param mode - 'shadow' for logging only, 'active' for enforcement
  * @returns FSM validation result
  */
-function performFSMValidation(
-  state: GameState,
-  move: Move,
-  mode: 'shadow' | 'active'
-): FSMValidationInternalResult {
+function performFSMValidation(state: GameState, move: Move): FSMValidationInternalResult {
   const startTime = Date.now();
   const moveNumber = state.moveHistory.length + 1;
 
@@ -1851,65 +1842,16 @@ function performFSMValidation(
     // Run FSM validation
     const fsmResult = validateMoveWithFSM(state, move);
 
-    // In shadow mode, also run existing validation for comparison and log divergences
-    let existingValid: boolean | undefined;
-    let divergence = false;
-
-    if (mode === 'shadow') {
-      const existingResult = validateMove(state, move);
-      existingValid = existingResult.valid;
-      divergence = fsmResult.valid !== existingResult.valid;
-
-      // Log divergence if FSM and existing disagree
-      if (divergence) {
-        fsmTraceLog('[FSM_SHADOW_VALIDATION] DIVERGENCE DETECTED', {
-          moveType: move.type,
-          movePlayer: move.player,
-          currentPhase: state.currentPhase,
-          fsmResult: {
-            valid: fsmResult.valid,
-            currentPhase: fsmResult.currentPhase,
-            errorCode: fsmResult.errorCode,
-            reason: fsmResult.reason,
-          },
-          existingResult: {
-            valid: existingResult.valid,
-            reason: existingResult.reason,
-          },
-          gameId: state.id,
-          moveNumber,
-        });
-      }
-
-      // Also check phase validity
-      const fsmPhaseValid = isMoveTypeValidForPhase(state.currentPhase, move.type);
-      const existingPhaseValid = isPhaseValidForMoveType(state.currentPhase, move.type);
-
-      if (fsmPhaseValid !== existingPhaseValid) {
-        fsmTraceLog('[FSM_SHADOW_VALIDATION] PHASE_VALIDITY_DIVERGENCE', {
-          moveType: move.type,
-          currentPhase: state.currentPhase,
-          fsmPhaseValid,
-          existingPhaseValid,
-          gameId: state.id,
-          moveNumber,
-        });
-      }
-    }
-
     // Emit structured event for monitoring
     emitFSMValidationEvent({
       event: 'fsm_validation',
       timestamp: new Date().toISOString(),
-      mode,
       gameId: state.id,
       moveNumber,
       moveType: move.type,
       movePlayer: move.player,
       currentPhase: state.currentPhase,
       fsmValid: fsmResult.valid,
-      existingValid,
-      divergence,
       errorCode: fsmResult.errorCode,
       reason: fsmResult.reason,
       durationMs: Date.now() - startTime,
@@ -1929,31 +1871,24 @@ function performFSMValidation(
       currentPhase: state.currentPhase,
       error: errorMessage,
       gameId: state.id,
-      mode,
     });
 
     // Emit error event
     emitFSMValidationEvent({
       event: 'fsm_validation',
       timestamp: new Date().toISOString(),
-      mode,
       gameId: state.id,
       moveNumber,
       moveType: move.type,
       movePlayer: move.player,
       currentPhase: state.currentPhase,
       fsmValid: false,
-      divergence: false,
       errorCode: 'FSM_ERROR',
       reason: errorMessage,
       durationMs: Date.now() - startTime,
     });
 
-    // In shadow mode, don't propagate errors - just mark as valid to continue
-    // In active mode, treat errors as validation failures
-    if (mode === 'shadow') {
-      return { valid: true };
-    }
+    // Treat errors as validation failures (FSM is canonical)
     return {
       valid: false,
       currentPhase: state.currentPhase,
@@ -1961,16 +1896,6 @@ function performFSMValidation(
       reason: errorMessage,
     };
   }
-}
-
-/**
- * Check if a move type is valid for the current phase (existing logic).
- * Used for comparison with FSM phase validation.
- */
-function isPhaseValidForMoveType(phase: GamePhase, moveType: Move['type']): boolean {
-  // Thin wrapper retained for local callers/tests; the canonical mapping now
-  // lives in FSMAdapter.isMoveTypeValidForPhase.
-  return isMoveTypeValidForPhase(phase, moveType as MoveType);
 }
 
 /**

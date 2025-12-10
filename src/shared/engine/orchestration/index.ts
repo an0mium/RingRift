@@ -24,16 +24,12 @@ export {
   hasValidMoves,
 } from './turnOrchestrator';
 
-// Phase state machine (internal, but exposed for adapters)
+// Phase state machine - minimal exports for internal orchestrator use only
+// NOTE: phaseStateMachine.ts is deprecated in favor of FSM-based orchestration.
+// Only PhaseStateMachine and createTurnProcessingState are still used internally.
 export {
   PhaseStateMachine,
   createTurnProcessingState,
-  determineNextPhase,
-  toPerTurnState,
-  updateFlagsFromPerTurnState,
-  createTurnLogicDelegates,
-  phaseRequiresDecision,
-  shouldAutoAdvancePhase,
   type PhaseContext,
 } from './phaseStateMachine';
 

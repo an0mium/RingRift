@@ -142,42 +142,25 @@ export function isRulesShadowMode(): boolean {
  * FSM validation mode selector.
  *
  * RINGRIFT_FSM_VALIDATION_MODE:
- *   - 'off'    : No FSM validation (legacy mode)
- *   - 'shadow' : FSM runs in parallel, logs divergences without affecting behavior
- *   - 'active' : FSM validation is authoritative, rejects invalid moves
+ *   - 'off'    : No FSM validation (legacy mode, not recommended)
+ *   - 'active' : FSM validation is authoritative (default, canonical)
  *
- * For backwards compatibility, RINGRIFT_FSM_SHADOW_VALIDATION=1 is equivalent
- * to setting mode='shadow'.
+ * FSM is now the canonical game state orchestrator (RR-CANON compliance).
+ * The 'shadow' mode has been removed as FSM is now authoritative.
  */
-export type FSMValidationMode = 'off' | 'shadow' | 'active';
+export type FSMValidationMode = 'off' | 'active';
 
 /**
  * Read the current FSM validation mode from the environment.
- * Defaults to 'off' when unset or invalid.
- *
- * For backwards compatibility:
- * - RINGRIFT_FSM_SHADOW_VALIDATION=1 implies 'shadow' mode
- * - RINGRIFT_FSM_VALIDATION_MODE takes precedence if set
+ * Defaults to 'active' (FSM is canonical).
  */
 export function getFSMValidationMode(): FSMValidationMode {
-  // Explicit mode takes precedence
   const modeRaw = readEnv('RINGRIFT_FSM_VALIDATION_MODE');
-  if (modeRaw === 'shadow' || modeRaw === 'active' || modeRaw === 'off') {
-    return modeRaw;
+  if (modeRaw === 'off') {
+    return 'off';
   }
-
-  // Backwards compat: legacy shadow flag
-  if (flagEnabled('RINGRIFT_FSM_SHADOW_VALIDATION')) {
-    return 'shadow';
-  }
-
-  // FSM validation is now the canonical validator (RR-CANON compliance)
+  // FSM validation is the canonical validator (RR-CANON compliance)
   return 'active';
-}
-
-/** True when FSM validation is in shadow mode (run but don't enforce). */
-export function isFSMShadowMode(): boolean {
-  return getFSMValidationMode() === 'shadow';
 }
 
 /** True when FSM validation is active and authoritative. */
@@ -185,10 +168,9 @@ export function isFSMActiveMode(): boolean {
   return getFSMValidationMode() === 'active';
 }
 
-/** True when any FSM validation is enabled (shadow or active). */
+/** True when FSM validation is enabled. */
 export function isFSMValidationEnabled(): boolean {
-  const mode = getFSMValidationMode();
-  return mode === 'shadow' || mode === 'active';
+  return getFSMValidationMode() === 'active';
 }
 
 /**

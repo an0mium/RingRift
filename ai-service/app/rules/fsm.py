@@ -6,11 +6,11 @@ appropriate for the current game phase. It mirrors the semantics of the
 TypeScript TurnStateMachine in src/shared/engine/fsm/TurnStateMachine.ts.
 
 Modes:
-- off: No validation (default for backwards compatibility)
-- shadow: Logs violations but allows processing to continue
-- active: Raises FSMValidationError on violations (fail-fast)
+- off: No validation (not recommended, legacy only)
+- active: Raises FSMValidationError on violations (default, canonical)
 
 Environment variable RINGRIFT_FSM_VALIDATION_MODE controls the mode.
+FSM is now the canonical game state orchestrator (RR-CANON compliance).
 """
 
 from __future__ import annotations
@@ -25,16 +25,19 @@ from app.rules.history_contract import phase_move_contract
 
 logger = logging.getLogger(__name__)
 
-FSMValidationMode = Literal["off", "shadow", "active"]
+FSMValidationMode = Literal["off", "active"]
 
 
 def get_fsm_mode() -> FSMValidationMode:
-    """Get the FSM validation mode from environment variable."""
-    mode = os.environ.get("RINGRIFT_FSM_VALIDATION_MODE", "off").lower()
-    if mode in ("off", "shadow", "active"):
-        return mode  # type: ignore[return-value]
-    logger.warning(f"Invalid RINGRIFT_FSM_VALIDATION_MODE={mode}, defaulting to 'off'")
-    return "off"
+    """Get the FSM validation mode from environment variable.
+
+    Defaults to 'active' (FSM is canonical).
+    """
+    mode = os.environ.get("RINGRIFT_FSM_VALIDATION_MODE", "active").lower()
+    if mode == "off":
+        return "off"
+    # FSM validation is canonical (RR-CANON compliance)
+    return "active"
 
 
 class FSMValidationError(Exception):
@@ -206,15 +209,15 @@ class TurnFSM:
     Python Turn FSM for validating phase transitions.
 
     This class provides a stateful FSM that validates moves against the
-    current phase. It supports off/shadow/active modes controlled by
+    current phase. It supports off/active modes controlled by
     the RINGRIFT_FSM_VALIDATION_MODE environment variable.
 
     Usage:
         fsm = TurnFSM(mode="active")
         fsm.validate_and_send(game_state.current_phase, move, game_state)
 
-    In shadow mode, validation failures are logged but don't raise.
-    In active mode, validation failures raise FSMValidationError.
+    In active mode (default), validation failures raise FSMValidationError.
+    In off mode, validation is skipped entirely.
     """
 
     def __init__(self, mode: Optional[FSMValidationMode] = None):
@@ -256,20 +259,14 @@ class TurnFSM:
 
         if not result.ok:
             self.violation_count += 1
-
-            if self.mode == "shadow":
-                logger.warning(
-                    f"[FSM shadow] Violation #{self.violation_count}: {result.code} - {result.message} "
-                    f"(phase={phase.value}, move={move.type.value}, player={move.player})"
-                )
-            elif self.mode == "active":
-                raise FSMValidationError(
-                    code=result.code or "UNKNOWN",
-                    message=result.message or "Unknown error",
-                    current_phase=phase.value,
-                    move_type=move.type.value,
-                    player=move.player,
-                )
+            # In active mode (default), raise FSMValidationError
+            raise FSMValidationError(
+                code=result.code or "UNKNOWN",
+                message=result.message or "Unknown error",
+                current_phase=phase.value,
+                move_type=move.type.value,
+                player=move.player,
+            )
 
         self.history.append((phase, move))
         return result
