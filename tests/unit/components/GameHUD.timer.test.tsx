@@ -178,4 +178,14 @@ describe('GameHUD player timers', () => {
     expect(timer).toHaveAttribute('data-severity', 'warning');
     expect(timer).toHaveClass('text-amber-400');
   });
+
+  it('renders local sandbox banner when isLocalSandboxOnly is true', () => {
+    const hud = baseHudViewModel();
+    hud.isLocalSandboxOnly = true;
+    const state = baseGameState();
+
+    render(<GameHUD viewModel={hud} timeControl={state.timeControl} />);
+
+    expect(screen.getByTestId('sandbox-local-only-banner')).toBeInTheDocument();
+  });
 });
