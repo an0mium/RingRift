@@ -1,2 +1,3 @@
 # Local machine-specific files
 scripts/*.plist
+.coverage
