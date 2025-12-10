@@ -663,14 +663,32 @@ These issues have been addressed but are kept here for context:
   The border color (`controllingPlayer`) determines which markers get collapsed
   during processing, NOT who can process the region. Both TS and Python engines
   now correctly use only the self-elimination check per canonical rules.
-- **ANM State Parity (Dec 10, 2025 – OPEN)** –
+- **ANM State Parity (Dec 10, 2025 – INVESTIGATED)** –
   After regenerating canonical DBs with the territory filtering fix, parity
   checks show `dims=anm_state` divergences where Python and TS disagree on
-  whether the current state is ANM (Active No Moves). The divergences occur
-  despite matching state hashes and do NOT cause FSM validation failures in
-  TS replay. This suggests the divergence is in the ANM classification logic
-  rather than actual game state. Investigation pending; this is lower priority
-  since FSM validation passes and game outcomes remain correct.
+  whether the current state is ANM (Active No Moves). Investigation findings:
+
+  **Root Cause Analysis:**
+  - Most divergences occur in `line_processing` phase where state hashes match
+  - Python computes `is_anm: true`, TS computes `is_anm: false`
+  - The issue is in `has_phase_local_interactive_move()` for LINE_PROCESSING:
+    - TS uses `enumerateProcessLineMoves(state, player, { detectionMode: 'detect_now' })`
+      which runs fresh line detection via `findAllLines(board)`
+    - Python uses `GameEngine.get_valid_moves()` filtered by move type
+  - Line detection timing/semantics may differ between engines
+
+  **One Serious Divergence (game 916dacc0):**
+  - At move 72, TS ends the game with `gameStatus: completed`, `winner: null`
+  - Python continues with `line_processing` phase
+  - Both players still have stacks (5 and 6), no victory threshold reached
+  - Likely a TS FSM boundary issue or stalemate detection difference
+
+  **Impact:** FSM validation passes in TS replay, game outcomes are correct.
+  The divergence is a classification discrepancy rather than rules violation.
+
+  **Resolution Path:** Requires aligning line detection semantics between
+  `has_phase_local_interactive_move()` in Python and TS.
+
 - **4-Player Rotation Parity (Dec 10, 2025 – OPEN)** –
   Multi-player games (especially 4P) show player rotation divergences where
   Python skips a player that TS believes is still active. Observed at k=310
