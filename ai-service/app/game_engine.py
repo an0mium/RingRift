@@ -163,9 +163,16 @@ class GameEngine:
         # board + players is identical. This avoids subtle cross-board-type
         # bleed-through in tests and training while preserving the underlying
         # hash_game_state semantics used for TS↔Python parity tooling.
+        #
+        # CRITICAL: must_move_from_stack_key affects which stacks can move/capture
+        # during the movement phase after a ring placement. Two states with identical
+        # board/phase/player but different must_move_from_stack_key have different
+        # legal move sets. Without including it in the cache key, the cache would
+        # return stale moves from a state where this constraint was different.
         state_hash = BoardManager.hash_game_state(game_state)
         board = game_state.board
-        cache_key = f"{board.type.value}:{board.size}:{state_hash}:{player_number}"
+        must_move_key = game_state.must_move_from_stack_key or ""
+        cache_key = f"{board.type.value}:{board.size}:{state_hash}:{player_number}:{must_move_key}"
 
         if cache_key in GameEngine._move_cache:
             GameEngine._cache_hits += 1
