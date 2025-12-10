@@ -5,12 +5,25 @@ This module provides a Finite State Machine for validating that moves are
 appropriate for the current game phase. It mirrors the semantics of the
 TypeScript TurnStateMachine in src/shared/engine/fsm/TurnStateMachine.ts.
 
+Architecture Note (2025-12-09):
+-------------------------------
+FSM validation and phase orchestration are separate concerns:
+
+1. FSM Validation (validate_move_for_phase): ACTIVE and canonical
+   - Validates that moves are appropriate for current phase
+   - Raises FSMValidationError on violations
+   - Enabled by default (RINGRIFT_FSM_VALIDATION_MODE=active)
+
+2. Phase Orchestration: Uses phase_machine.py (proven, stable)
+   - The compute_fsm_orchestration() function below is EXPERIMENTAL
+   - Phase transitions use app.rules.phase_machine.advance_phases()
+   - This maintains parity with proven Python phase transition logic
+
 Modes:
 - off: No validation (not recommended, legacy only)
 - active: Raises FSMValidationError on violations (default, canonical)
 
 Environment variable RINGRIFT_FSM_VALIDATION_MODE controls the mode.
-FSM is now the canonical game state orchestrator (RR-CANON compliance).
 """
 
 from __future__ import annotations
@@ -459,6 +472,11 @@ class FSMOrchestrationResult:
 # ═══════════════════════════════════════════════════════════════════════════
 # FSM TRANSITION FUNCTION (mirrors TurnStateMachine.transition)
 # ═══════════════════════════════════════════════════════════════════════════
+#
+# EXPERIMENTAL: This function is not currently used for phase transitions.
+# Phase orchestration uses app.rules.phase_machine.advance_phases() instead.
+# See the module docstring for architecture details.
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 def compute_fsm_orchestration(
@@ -466,7 +484,11 @@ def compute_fsm_orchestration(
     last_move: Move,
 ) -> FSMOrchestrationResult:
     """
-    Compute the next phase and player using FSM transition logic.
+    EXPERIMENTAL: Compute the next phase and player using FSM transition logic.
+
+    WARNING: This function is experimental and not currently used for production
+    phase transitions. The proven phase_machine.advance_phases() is used instead.
+    This function may have incomplete parity with TypeScript FSM orchestration.
 
     This mirrors the TypeScript computeFSMOrchestration function from FSMAdapter.ts.
     It determines the next phase based on the current phase and move type.
