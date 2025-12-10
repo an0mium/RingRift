@@ -106,14 +106,35 @@ export const UserSearchQuerySchema = z.object({
 export type UserSearchQueryInput = z.infer<typeof UserSearchQuerySchema>;
 
 /**
+ * Time period filter for leaderboard queries.
+ * - 'all': All time (default)
+ * - 'week': Last 7 days
+ * - 'month': Last 30 days
+ * - 'year': Last 365 days
+ */
+export const TimePeriodSchema = z.enum(['all', 'week', 'month', 'year']).default('all');
+
+/**
+ * Board type filter for leaderboard queries.
+ */
+export const BoardTypeFilterSchema = z
+  .enum(['all', 'square8', 'square19', 'hexagonal'])
+  .default('all');
+
+/**
  * Leaderboard query parameters schema.
+ * Supports filtering by board type and time period.
  */
 export const LeaderboardQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
+  boardType: BoardTypeFilterSchema.optional(),
+  timePeriod: TimePeriodSchema.optional(),
 });
 
 export type LeaderboardQueryInput = z.infer<typeof LeaderboardQuerySchema>;
+export type TimePeriod = z.infer<typeof TimePeriodSchema>;
+export type BoardTypeFilter = z.infer<typeof BoardTypeFilterSchema>;
 
 // ====================================================================
 // SANITIZATION UTILITIES

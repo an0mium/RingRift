@@ -471,7 +471,7 @@ function LpsTrackingIndicator({
 
   const { consecutiveExclusiveRounds, consecutiveExclusivePlayer } = lpsTracking;
   const exclusivePlayer = players.find((p) => p.playerNumber === consecutiveExclusivePlayer);
-  const playerName = exclusivePlayer?.name ?? `Player ${consecutiveExclusivePlayer}`;
+  const playerName = exclusivePlayer?.username ?? `Player ${consecutiveExclusivePlayer}`;
 
   // Color progression: amber (1), orange (2), red (3 = victory imminent)
   const colorClass =
