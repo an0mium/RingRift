@@ -622,14 +622,9 @@ describe('GameSession Core Operations', () => {
     });
   });
 
-  describe('Engine Selection', () => {
-    it('defaults to legacy engine selection', () => {
-      const io = createMockIo();
-      const session = new GameSession('test-game-id', io, {} as any, new Map());
-
-      expect((session as any).engineSelection).toBe('legacy');
-    });
-  });
+  // NOTE: Engine selection is now globally controlled via
+  // config.featureFlags.orchestrator.adapterEnabled (Phase A rollout).
+  // The per-session engineSelection property was removed.
 
   describe('AI Request Timeout', () => {
     it('uses default AI request timeout from config', () => {

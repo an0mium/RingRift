@@ -28,7 +28,6 @@ import {
 } from '../../server/game/turn/TurnEngineAdapter';
 import { hashGameStateSHA256 } from '../engine';
 import { evaluateVictory, type VictoryResult } from '../engine';
-import { computeGlobalLegalActionsSummary } from '../engine/globalActions';
 import { createInitialGameState } from '../engine/initialState';
 import { deserializeGameState } from '../engine/contracts/serialization';
 

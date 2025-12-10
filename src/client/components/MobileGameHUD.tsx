@@ -120,6 +120,59 @@ function MobileWeirdStateBanner({
 }
 
 /**
+ * Mobile LPS (Last-Player-Standing) tracking indicator.
+ * Compact version showing progress toward LPS victory.
+ * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
+ */
+function MobileLpsIndicator({
+  lpsTracking,
+  players,
+}: {
+  lpsTracking?: HUDViewModel['lpsTracking'];
+  players: PlayerViewModel[];
+}) {
+  // Only show when there's progress toward LPS (at least 1 consecutive exclusive round)
+  if (!lpsTracking || lpsTracking.consecutiveExclusiveRounds < 1) {
+    return null;
+  }
+
+  const { consecutiveExclusiveRounds, consecutiveExclusivePlayer } = lpsTracking;
+  const exclusivePlayer = players.find((p) => p.playerNumber === consecutiveExclusivePlayer);
+  const playerName = exclusivePlayer?.name ?? `P${consecutiveExclusivePlayer}`;
+
+  // Color progression: amber (1), orange (2), red (3 = victory imminent)
+  const colorClass =
+    consecutiveExclusiveRounds >= 3
+      ? 'border-red-400/80 bg-red-950/80 text-red-50'
+      : consecutiveExclusiveRounds >= 2
+        ? 'border-orange-400/80 bg-orange-950/80 text-orange-50'
+        : 'border-amber-400/80 bg-amber-950/80 text-amber-50';
+
+  return (
+    <div
+      className={`mb-2 px-2 py-1.5 rounded-lg border text-[11px] flex items-center gap-2 ${colorClass}`}
+      role="status"
+      aria-live="polite"
+      data-testid="mobile-lps-indicator"
+    >
+      <span aria-hidden="true">🏆</span>
+      <span className="font-semibold truncate flex-1">{playerName} exclusive</span>
+      {/* Progress dots */}
+      <div className="flex gap-0.5" aria-label={`${consecutiveExclusiveRounds} of 3 rounds`}>
+        {[1, 2, 3].map((n) => (
+          <span
+            key={n}
+            className={`w-1.5 h-1.5 rounded-full ${
+              n <= consecutiveExclusiveRounds ? 'bg-current' : 'bg-current/30'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Compact turn/phase indicator bar for mobile
  */
 function MobilePhaseBar({
@@ -297,6 +350,7 @@ export function MobileGameHUD({
     spectatorCount,
     decisionPhase,
     weirdState,
+    lpsTracking,
   } = viewModel;
 
   const rulesUxBoardType = rulesUxContext?.boardType;
@@ -558,6 +612,9 @@ export function MobileGameHUD({
       {weirdState && (
         <MobileWeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />
       )}
+
+      {/* LPS tracking indicator (compact) */}
+      <MobileLpsIndicator lpsTracking={lpsTracking} players={players} />
 
       {/* Phase + turn bar */}
       <MobilePhaseBar phase={phase} turnNumber={turnNumber} isMyTurn={isMyTurn} />

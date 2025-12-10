@@ -714,6 +714,25 @@ export class ClientSandboxEngine {
   }
 
   /**
+   * Get the current Last-Player-Standing (LPS) tracking state.
+   * Used by UI to display LPS round counter and progress toward LPS victory.
+   * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
+   */
+  public getLpsTrackingState(): {
+    roundIndex: number;
+    consecutiveExclusiveRounds: number;
+    consecutiveExclusivePlayer: number | null;
+    exclusivePlayerForCompletedRound: number | null;
+  } {
+    return {
+      roundIndex: this._lpsState.roundIndex,
+      consecutiveExclusiveRounds: this._lpsState.consecutiveExclusiveRounds,
+      consecutiveExclusivePlayer: this._lpsState.consecutiveExclusivePlayer,
+      exclusivePlayerForCompletedRound: this._lpsState.exclusivePlayerForCompletedRound,
+    };
+  }
+
+  /**
    * Sandbox-only helper: return and clear the most recently-collapsed line
    * positions for the current game. The sandbox host uses this to render a
    * brief visual cue after automatic line processing, without embedding any

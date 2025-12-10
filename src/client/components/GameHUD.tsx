@@ -449,6 +449,76 @@ function SubPhaseDetails({ detail }: { detail?: string | undefined }) {
 }
 
 /**
+ * LPS (Last-Player-Standing) tracking indicator.
+ * Shows round counter and progress toward LPS victory when a player has consecutive exclusive rounds.
+ * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
+ */
+function LpsTrackingIndicator({
+  lpsTracking,
+  players,
+}: {
+  lpsTracking?: {
+    roundIndex: number;
+    consecutiveExclusiveRounds: number;
+    consecutiveExclusivePlayer: number | null;
+  };
+  players: PlayerViewModel[];
+}) {
+  // Only show when there's progress toward LPS (at least 1 consecutive exclusive round)
+  if (!lpsTracking || lpsTracking.consecutiveExclusiveRounds < 1) {
+    return null;
+  }
+
+  const { consecutiveExclusiveRounds, consecutiveExclusivePlayer } = lpsTracking;
+  const exclusivePlayer = players.find((p) => p.playerNumber === consecutiveExclusivePlayer);
+  const playerName = exclusivePlayer?.name ?? `Player ${consecutiveExclusivePlayer}`;
+
+  // Color progression: amber (1), orange (2), red (3 = victory imminent)
+  const colorClass =
+    consecutiveExclusiveRounds >= 3
+      ? 'border-red-400/80 bg-red-950/70 text-red-50'
+      : consecutiveExclusiveRounds >= 2
+        ? 'border-orange-400/80 bg-orange-950/70 text-orange-50'
+        : 'border-amber-400/80 bg-amber-950/70 text-amber-50';
+
+  const roundsLeft = Math.max(0, 3 - consecutiveExclusiveRounds);
+  const statusText =
+    consecutiveExclusiveRounds >= 3
+      ? 'LPS Victory!'
+      : `${roundsLeft} round${roundsLeft !== 1 ? 's' : ''} until LPS`;
+
+  return (
+    <div
+      className={`mb-3 px-3 py-2 rounded-lg border text-xs flex items-center gap-2 ${colorClass}`}
+      role="status"
+      aria-live="polite"
+      data-testid="hud-lps-indicator"
+    >
+      <span className="text-base" aria-hidden="true">
+        🏆
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="font-semibold text-sm">{playerName} has exclusive actions</div>
+        <div className="text-[11px] opacity-90">
+          {statusText} • Round {consecutiveExclusiveRounds}/3
+        </div>
+      </div>
+      {/* Progress dots */}
+      <div className="flex gap-1" aria-label={`${consecutiveExclusiveRounds} of 3 rounds`}>
+        {[1, 2, 3].map((n) => (
+          <span
+            key={n}
+            className={`w-2 h-2 rounded-full ${
+              n <= consecutiveExclusiveRounds ? 'bg-current' : 'bg-current/30'
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Legacy sub-phase details for backward compatibility
  */
 function LegacySubPhaseDetails({ gameState }: { gameState: GameState }) {
@@ -1197,6 +1267,7 @@ function GameHUDFromViewModel({
     subPhaseDetail,
     decisionPhase,
     weirdState,
+    lpsTracking,
   } = viewModel;
 
   const rulesUxBoardType = rulesUxContext?.boardType;
@@ -1684,6 +1755,8 @@ function GameHUDFromViewModel({
 
       {/* Phase Indicator & weird-state banner */}
       {weirdState && <WeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />}
+      {/* LPS tracking indicator - shows when a player has consecutive exclusive rounds */}
+      <LpsTrackingIndicator lpsTracking={lpsTracking} players={players} />
       <PhaseIndicator phase={phase} isMyTurn={isMyTurn} isSpectator={isSpectator} />
       {phaseHelpTopic && (
         <div className="mt-1 flex items-center text-[11px] text-slate-300">

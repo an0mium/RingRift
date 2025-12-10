@@ -1,4 +1,4 @@
-import type { GameState, GamePhase, Position } from '../types/game';
+import type { GameState, Position } from '../types/game';
 import { isTestEnvironment, flagEnabled, debugLog } from '../utils/envFlags';
 
 /**

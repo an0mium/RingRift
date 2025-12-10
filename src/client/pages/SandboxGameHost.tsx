@@ -1483,6 +1483,7 @@ export const SandboxGameHost: React.FC = () => {
   ].filter(Boolean) as string[];
 
   // Create unified HUD view model using toHUDViewModel (matches backend host pattern)
+  const sandboxLpsTracking = sandboxEngine?.getLpsTrackingState();
   let sandboxHudVM = sandboxGameState
     ? toHUDViewModel(sandboxGameState, {
         connectionStatus: 'connected',
@@ -1494,6 +1495,7 @@ export const SandboxGameHost: React.FC = () => {
         choiceTimeRemainingMs: sandboxDecisionTimeRemainingMs,
         victoryState: sandboxVictoryResult,
         gameEndExplanation: sandboxGameEndExplanation,
+        lpsTracking: sandboxLpsTracking,
       })
     : null;
 

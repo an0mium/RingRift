@@ -33,10 +33,7 @@ import type {
   PlayerChoice,
   PlayerChoiceType,
 } from '../../shared/types/game';
-import type {
-  FSMDecisionSurface,
-  FSMOrchestrationResult,
-} from '../../shared/engine/fsm';
+import type { FSMDecisionSurface, FSMOrchestrationResult } from '../../shared/engine/fsm';
 import { positionToString, positionsEqual } from '../../shared/types/game';
 import type { ConnectionStatus } from '../domain/GameAPI';
 import { getChoiceViewModel, getChoiceViewModelForType } from './choiceViewModels';
@@ -209,6 +206,18 @@ export interface HUDViewModel {
    * a prominent explanation panel above the phase indicator.
    */
   weirdState?: HUDWeirdStateViewModel | undefined;
+  /**
+   * LPS (Last-Player-Standing) tracking state for UI display.
+   * Shows round counter and progress toward LPS victory.
+   * Per RR-CANON-R172, LPS requires 3 consecutive rounds where only 1 player has real actions.
+   */
+  lpsTracking?:
+    | {
+        roundIndex: number;
+        consecutiveExclusiveRounds: number;
+        consecutiveExclusivePlayer: number | null;
+      }
+    | undefined;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -686,6 +695,17 @@ export interface ToHUDViewModelOptions {
    * the HUD when the game has ended.
    */
   gameEndExplanation?: GameEndExplanation | null | undefined;
+  /**
+   * Optional LPS tracking state from sandbox engine. Per RR-CANON-R172, LPS
+   * requires 3 consecutive rounds where only 1 player has real actions.
+   */
+  lpsTracking?:
+    | {
+        roundIndex: number;
+        consecutiveExclusiveRounds: number;
+        consecutiveExclusivePlayer: number | null;
+      }
+    | undefined;
 }
 
 /**
@@ -704,6 +724,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     decisionIsServerCapped,
     victoryState,
     gameEndExplanation,
+    lpsTracking,
   } = options;
 
   const HEARTBEAT_STALE_THRESHOLD_MS = 8000;
@@ -975,6 +996,7 @@ export function toHUDViewModel(gameState: GameState, options: ToHUDViewModelOpti
     subPhaseDetail,
     decisionPhase,
     weirdState,
+    lpsTracking,
   };
 }
 
@@ -1834,9 +1856,7 @@ export function toFSMDecisionSurfaceViewModel(
   switch (decisionType) {
     case 'line_order_required':
       summary =
-        pendingLineCount === 1
-          ? '1 line to process'
-          : `${pendingLineCount} lines to process`;
+        pendingLineCount === 1 ? '1 line to process' : `${pendingLineCount} lines to process`;
       actionHint = 'Choose which line to process first, then select your reward';
       break;
     case 'no_line_action_required':
