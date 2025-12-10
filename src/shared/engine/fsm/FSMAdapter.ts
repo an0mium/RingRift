@@ -140,10 +140,6 @@ export function moveToEvent(move: Move): TurnEvent | null {
     case 'resign':
       return { type: 'RESIGN', player: move.player };
 
-    // Timeout (allowed from any phase)
-    case 'timeout':
-      return { type: 'TIMEOUT', player: move.player };
-
     // Meta/swap (not FSM events)
     case 'swap_sides':
     case 'line_formation':
@@ -1007,11 +1003,19 @@ export function validateMoveWithFSM(
     // Meta-moves (swap_sides, line_formation, territory_claim) don't have FSM events
     // but are allowed in any phase. If the move type is explicitly permitted for the
     // current phase, let it through - the orchestrator handles meta-moves specially.
-    if (isMoveTypeValidForPhase(fsmState.phase, move.type)) {
-      return makeResult({
-        valid: true,
-        currentPhase: fsmState.phase,
-      });
+    //
+    // TurnState['phase'] includes internal pseudo-phases such as 'turn_end' that are
+    // not part of the public GamePhase contract. Only call isMoveTypeValidForPhase
+    // when we are in a real GamePhase to keep types sound and avoid leaking
+    // pseudo-phases into the shared phase↔MoveType mapping.
+    if (fsmState.phase !== 'game_over' && fsmState.phase !== 'turn_end') {
+      const phaseForMoveCheck = fsmState.phase as GamePhase;
+      if (isMoveTypeValidForPhase(phaseForMoveCheck, move.type as MoveType)) {
+        return makeResult({
+          valid: true,
+          currentPhase: fsmState.phase,
+        });
+      }
     }
     return makeResult({
       valid: false,
@@ -1153,8 +1157,11 @@ export function getAllowedMoveTypesForPhase(phase: GamePhase): ReadonlyArray<Mov
  * contract used by the orchestrator.
  */
 export function isMoveTypeValidForPhase(phase: GamePhase, moveType: MoveType): boolean {
-  // Resign and timeout are allowed from any phase - player can always forfeit.
-  if (moveType === 'resign' || moveType === 'timeout') {
+  // Resign is allowed from any phase - player can always forfeit.
+  // TIMEOUT is modelled at the FSM-event layer and does not currently flow
+  // through MoveType in canonical recordings; hosts that surface timeout as a
+  // Move should either map it to 'resign' or handle it out-of-band.
+  if (moveType === 'resign') {
     return true;
   }
 

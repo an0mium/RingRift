@@ -1026,7 +1026,7 @@ describe('VictoryAggregate branch coverage', () => {
   // Trapped position stalemate with gameStatus === 'completed'
   // ==========================================================================
   describe('trapped position stalemate detection', () => {
-    it('detects stalemate when all players have stacks but no moves even with gameStatus completed', () => {
+    it('does NOT declare terminal stalemate when trapped stacks remain, even with gameStatus completed', () => {
       // This is the critical test case: gameStatus is 'completed' but evaluateVictory
       // is still being called (e.g., for victory probe). Both players have stacks but
       // are completely trapped with no legal moves.
@@ -1063,12 +1063,12 @@ describe('VictoryAggregate branch coverage', () => {
 
       const result = evaluateVictory(state);
 
-      // The fix ensures that even with gameStatus === 'completed',
-      // we correctly detect that all players are trapped and trigger stalemate
-      expect(result.isGameOver).toBe(true);
-      // Player 1 should win via territory tiebreaker (3 vs 2)
-      expect(result.winner).toBe(1);
-      expect(result.reason).toBe('territory_control');
+      // Under canonical Python semantics, positions with stacks remaining are
+      // non-terminal even if everyone is currently trapped; they must be
+      // resolved via ANM/FE, and bare-board stalemate only applies once all
+      // stacks are gone. TS evaluateVictory should therefore *not* report a
+      // terminal stalemate here, regardless of state.gameStatus.
+      expect(result.isGameOver).toBe(false);
     });
 
     it('correctly identifies player can move when paths exist even with gameStatus completed', () => {

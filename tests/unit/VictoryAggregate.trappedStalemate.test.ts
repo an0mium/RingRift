@@ -98,7 +98,7 @@ function createStack(
 
 describe('VictoryAggregate - Trapped Position Stalemate', () => {
   describe('when both players have stacks but no legal moves', () => {
-    it('should detect stalemate when all players are trapped', () => {
+    it('should NOT declare game over when all players are trapped with stacks remaining', () => {
       // Create a scenario where:
       // - Both players have stacks on the board
       // - Both players have 0 rings in hand
@@ -154,11 +154,10 @@ describe('VictoryAggregate - Trapped Position Stalemate', () => {
 
       const result = evaluateVictory(state);
 
-      // Game should be over
-      expect(result.isGameOver).toBe(true);
-      // Player 1 should win via territory tiebreaker (3 > 2)
-      expect(result.winner).toBe(1);
-      expect(result.reason).toBe('territory_control');
+      // With stacks still on the board, this position is NOT terminal under
+      // canonical Python semantics; it must be resolved via ANM/FE rather
+      // than bare-board stalemate tie-breakers.
+      expect(result.isGameOver).toBe(false);
     });
 
     it('should use eliminated rings tiebreaker when territory is tied', () => {
@@ -209,10 +208,9 @@ describe('VictoryAggregate - Trapped Position Stalemate', () => {
 
       const result = evaluateVictory(state);
 
-      expect(result.isGameOver).toBe(true);
-      // Player 1 should win via eliminated rings tiebreaker (5 > 3)
-      expect(result.winner).toBe(1);
-      expect(result.reason).toBe('ring_elimination');
+      // Trapped positions with stacks remaining are not terminal; ANM/FE must
+      // resolve them instead of immediate stalemate.
+      expect(result.isGameOver).toBe(false);
     });
 
     it('should use markers tiebreaker when territory and eliminations are tied', () => {
@@ -269,10 +267,9 @@ describe('VictoryAggregate - Trapped Position Stalemate', () => {
 
       const result = evaluateVictory(state);
 
-      expect(result.isGameOver).toBe(true);
-      // Player 2 should win via markers tiebreaker (2 > 1)
-      expect(result.winner).toBe(2);
-      expect(result.reason).toBe('last_player_standing');
+      // Trapped positions with stacks remaining are not terminal; markers-based
+      // tie-breakers only apply in bare-board structural stalemate.
+      expect(result.isGameOver).toBe(false);
     });
   });
 
@@ -490,12 +487,10 @@ describe('VictoryAggregate - Trapped Position Stalemate', () => {
 
       const result = evaluateVictory(state);
 
-      // Both stacks are trapped (all adjacent spaces collapsed)
-      // Game should be over with stalemate resolution
-      expect(result.isGameOver).toBe(true);
-      // Player 1 wins via territory tiebreaker (3 > 2)
-      expect(result.winner).toBe(1);
-      expect(result.reason).toBe('territory_control');
+      // Both stacks are trapped (all adjacent spaces collapsed), but with stacks
+      // still on the board the position is not structurally terminal. Python
+      // resolves this via ANM/FE rather than an immediate stalemate.
+      expect(result.isGameOver).toBe(false);
     });
 
     it('should NOT detect stalemate on hex board when a stack can move', () => {
@@ -669,10 +664,9 @@ describe('Validation consistency diagnostics', () => {
 
     const result = evaluateVictory(state);
 
-    // Both stacks cannot move (need 11 spaces, max available is ~8)
-    // This should trigger stalemate with territory tiebreaker
-    expect(result.isGameOver).toBe(true);
-    expect(result.winner).toBe(1); // Has more territory
-    expect(result.reason).toBe('territory_control');
+    // Both stacks cannot move (need 11 spaces, max available is ~8), but with
+    // stacks still present this is not a terminal stalemate under canonical
+    // rules. ANM/FE must resolve or the game must continue.
+    expect(result.isGameOver).toBe(false);
   });
 });

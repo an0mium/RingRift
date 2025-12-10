@@ -1230,11 +1230,24 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     }
 
     // === Movement / capture phase: canonical capture + movement candidates ===
-    if (gameState.currentPhase !== 'movement' && gameState.currentPhase !== 'capture') {
+    // Re-read state to ensure we have the latest phase/player after any
+    // prior phase processing (e.g., ring placement may have advanced phases).
+    const movementState = hooks.getGameState();
+    const movementPlayer = movementState.players.find(
+      (p) => p.playerNumber === movementState.currentPlayer
+    );
+
+    // Early exit if phase has advanced past movement/capture or it's not an AI's turn
+    if (
+      (movementState.currentPhase !== 'movement' && movementState.currentPhase !== 'capture') ||
+      !movementPlayer ||
+      movementPlayer.type !== 'ai' ||
+      movementState.gameStatus !== 'active'
+    ) {
       return;
     }
 
-    const playerNumber = current.playerNumber;
+    const playerNumber = movementPlayer.playerNumber;
 
     // Enumerate canonical movement/capture candidates via the host's
     // getValidMoves surface so sandbox AI stays aligned with backend
@@ -1242,7 +1255,7 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
     const allMoves = hooks.getValidMovesForCurrentPlayer();
     let movementCandidates: Move[] = [];
 
-    if (gameState.currentPhase === 'movement') {
+    if (movementState.currentPhase === 'movement') {
       movementCandidates = allMoves.filter(
         (m) => m.type === 'overtaking_capture' || m.type === 'move_stack' || m.type === 'move_ring'
       );
@@ -1252,7 +1265,7 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       // enumeration mismatches in deep seeds while keeping the primary path
       // aligned with backend getValidMoves().
       if (movementCandidates.length === 0) {
-        const fallback = buildSandboxMovementCandidates(gameState, hooks, rng);
+        const fallback = buildSandboxMovementCandidates(movementState, hooks, rng);
         if (fallback.candidates.length > 0) {
           movementCandidates = fallback.candidates;
         }
@@ -1274,7 +1287,7 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
 
     if (movementCandidates.length === 0) {
       const mustMoveFromStackKey = hooks.getMustMoveFromStackKey();
-      let stacksForDebug = hooks.getPlayerStacks(playerNumber, gameState.board);
+      let stacksForDebug = hooks.getPlayerStacks(playerNumber, movementState.board);
       if (mustMoveFromStackKey) {
         stacksForDebug = stacksForDebug.filter(
           (s) => positionToString(s.position) === mustMoveFromStackKey
@@ -1290,12 +1303,12 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
           hasAnyAction: hooks.hasAnyLegalMoveOrCaptureFrom(
             s.position,
             playerNumber,
-            gameState.board
+            movementState.board
           ),
         }));
         // eslint-disable-next-line no-console
         console.log('[Sandbox AI Debug] No moves found', {
-          phase: gameState.currentPhase,
+          phase: movementState.currentPhase,
           mustMoveFromStackKey,
           stacksCount: stacksForDebug.length,
           captureCount,
@@ -1309,7 +1322,7 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       // are in movement phase. In capture phase, an empty canonical
       // move surface would indicate a deeper host bug; for now treat it
       // as a no-op so stall diagnostics can surface it.
-      if (gameState.currentPhase === 'movement') {
+      if (movementState.currentPhase === 'movement') {
         const beforeElimState = hooks.getGameState();
         const beforeElimHash = hashGameState(beforeElimState);
 
@@ -1329,14 +1342,14 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
             console.warn(
               '[Sandbox AI Stall Diagnostic] No captures/moves, forced elimination did not change state',
               {
-                boardType: gameState.boardType,
-                currentPlayer: gameState.currentPlayer,
-                currentPhase: gameState.currentPhase,
-                ringsInHand: gameState.players.map((p) => ({
+                boardType: movementState.boardType,
+                currentPlayer: movementState.currentPlayer,
+                currentPhase: movementState.currentPhase,
+                ringsInHand: movementState.players.map((p) => ({
                   playerNumber: p.playerNumber,
                   type: p.type,
                   ringsInHand: p.ringsInHand,
-                  stacks: hooks.getPlayerStacks(p.playerNumber, gameState.board).length,
+                  stacks: hooks.getPlayerStacks(p.playerNumber, movementState.board).length,
                 })),
               }
             );
@@ -1347,7 +1360,12 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
       return;
     }
 
-    const selectedMove = selectSandboxMovementMove(gameState, movementCandidates, rng, parityMode);
+    const selectedMove = selectSandboxMovementMove(
+      movementState,
+      movementCandidates,
+      rng,
+      parityMode
+    );
 
     if (!selectedMove) {
       return;
@@ -1355,6 +1373,17 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
 
     if (selectedMove.type === 'overtaking_capture') {
       const stateBeforeCapture = hooks.getGameState();
+
+      // Validate we're still in the expected phase and it's still our turn before applying
+      if (
+        stateBeforeCapture.currentPlayer !== selectedMove.player ||
+        (stateBeforeCapture.currentPhase !== 'movement' &&
+          stateBeforeCapture.currentPhase !== 'capture')
+      ) {
+        // State has changed since we enumerated moves - abort this iteration
+        return;
+      }
+
       const firstMoveNumber = stateBeforeCapture.history.length + 1;
 
       const firstMove: Move = {
@@ -1396,7 +1425,12 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
           break;
         }
 
-        const options = hooks.enumerateCaptureSegmentsFrom(chainPosition, playerNumber);
+        // Re-read current state to ensure we have the latest player after any
+        // phase transitions that may have occurred during the chain capture.
+        const stateForChain = hooks.getGameState();
+        const chainPlayer = stateForChain.currentPlayer;
+
+        const options = hooks.enumerateCaptureSegmentsFrom(chainPosition, chainPlayer);
         if (options.length === 0) {
           break;
         }
@@ -1424,7 +1458,7 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
         const continuationMove: Move = {
           id: '',
           type: 'continue_capture_segment',
-          player: playerNumber,
+          player: chainPlayer,
           from: chainPosition,
           captureTarget: nextSeg.target,
           to: nextSeg.landing,
@@ -1442,6 +1476,15 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
 
     if (selectedMove.type === 'skip_capture') {
       const stateForMove = hooks.getGameState();
+
+      // Validate we're still in capture phase and it's still our turn
+      if (
+        stateForMove.currentPlayer !== selectedMove.player ||
+        stateForMove.currentPhase !== 'capture'
+      ) {
+        return;
+      }
+
       const moveNumber = stateForMove.history.length + 1;
 
       const skipMove: Move = {
@@ -1460,6 +1503,15 @@ export async function maybeRunAITurnSandbox(hooks: SandboxAIHooks, rng: LocalAIR
 
     if (selectedMove.type === 'move_stack' || selectedMove.type === 'move_ring') {
       const stateBeforeMove = hooks.getGameState();
+
+      // Validate we're still in movement phase and it's still our turn
+      if (
+        stateBeforeMove.currentPlayer !== selectedMove.player ||
+        stateBeforeMove.currentPhase !== 'movement'
+      ) {
+        return;
+      }
+
       const moveNumber = stateBeforeMove.history.length + 1;
 
       const movementMove: Move = {

@@ -334,145 +334,22 @@ export function evaluateVictory(state: GameState): VictoryResult {
     }
   }
 
-  // 4) Trapped position stalemate: All active players have stacks but no legal actions.
-  // This handles AI vs AI games that stall when both players are blocked.
+  // 4) Bare-board structural terminality & global stalemate.
+  //
+  // At this point no primary thresholds (rings/territory) or early-LPS
+  // conditions have fired. Python's GameEngine._check_victory only applies
+  // structural stalemate once there are **no stacks on the board**; trapped
+  // positions with stacks are resolved canonically via ANM + forced
+  // elimination (R200–R205), not by declaring an immediate stalemate.
+  //
+  // To keep TS aligned with Python, evaluateVictory must not end the game
+  // while stacks remain on the board solely because all players are
+  // currently blocked. Those positions are still non-terminal and must
+  // be handled by the ANM/FE machinery in the turn orchestrator.
   if (state.board.stacks.size > 0) {
-    // Check if any player with material can still make progress
-    let somePlayerCanAct = false;
-
-    // DEBUG: Log the gameStatus and key state facts for stalemate diagnosis
-    const debugTrappedStalemate = flagEnabled('RINGRIFT_DEBUG_STALEMATE');
-    debugLog(debugTrappedStalemate, '[VictoryAggregate] Trapped stalemate check:', {
-      gameStatus: state.gameStatus,
-      stackCount: state.board.stacks.size,
-      currentPlayer: state.currentPlayer,
-      currentPhase: state.currentPhase,
-    });
-
-    for (const p of players) {
-      // Check if player has any stacks
-      let playerHasStacks = false;
-      const playerStackPositions: string[] = [];
-      for (const stack of state.board.stacks.values()) {
-        if (stack.controllingPlayer === p.playerNumber) {
-          playerHasStacks = true;
-          playerStackPositions.push(positionToString(stack.position));
-        }
-      }
-
-      // Check if player has material (stacks or rings in hand)
-      const hasMaterial = playerHasStacks || p.ringsInHand > 0;
-      if (!hasMaterial) {
-        debugLog(
-          debugTrappedStalemate,
-          `[VictoryAggregate] Player ${p.playerNumber} has no material - skipping`
-        );
-        continue; // Player eliminated, skip
-      }
-
-      debugLog(debugTrappedStalemate, `[VictoryAggregate] Player ${p.playerNumber} has material:`, {
-        hasStacks: playerHasStacks,
-        stackCount: playerStackPositions.length,
-        stackPositions: playerStackPositions,
-        ringsInHand: p.ringsInHand,
-      });
-
-      // Check if player can place a ring
-      const canPlace = hasGlobalPlacementAction(state, p.playerNumber);
-      if (canPlace) {
-        debugLog(
-          debugTrappedStalemate,
-          `[VictoryAggregate] Player ${p.playerNumber} can place - game not over`
-        );
-        somePlayerCanAct = true;
-        break;
-      }
-
-      // If player has stacks, check if they can move/capture DIRECTLY
-      // NOTE: hasForcedEliminationAction has an early exit when gameStatus !== 'active'
-      // So we need to check movement capability directly using hasAnyLegalMoveOrCaptureFromOnBoard
-      if (playerHasStacks) {
-        const forcedElimResult = hasForcedEliminationAction(state, p.playerNumber);
-
-        // Direct movement check that doesn't depend on gameStatus
-        const boardType = state.board.type;
-        const view: MovementBoardView = {
-          isValidPosition: (pos) => isValidBoardPosition(boardType, state.board.size, pos),
-          isCollapsedSpace: (pos) => state.board.collapsedSpaces.has(positionToString(pos)),
-          getStackAt: (pos) => {
-            const key = positionToString(pos);
-            const stack = state.board.stacks.get(key);
-            if (!stack) return undefined;
-            return {
-              controllingPlayer: stack.controllingPlayer,
-              capHeight: stack.capHeight,
-              stackHeight: stack.stackHeight,
-            };
-          },
-          getMarkerOwner: (pos) => {
-            const key = positionToString(pos);
-            const marker = state.board.markers.get(key);
-            return marker?.player;
-          },
-        };
-
-        // Check if ANY of this player's stacks can move
-        let directMovementCheck = false;
-        let movableStackPos: string | null = null;
-        for (const stack of state.board.stacks.values()) {
-          if (stack.controllingPlayer === p.playerNumber && stack.stackHeight > 0) {
-            debugLog(
-              debugTrappedStalemate,
-              `[VictoryAggregate] Checking stack at ${positionToString(stack.position)} height=${stack.stackHeight}`
-            );
-            if (
-              hasAnyLegalMoveOrCaptureFromOnBoard(boardType, stack.position, p.playerNumber, view, {
-                debug: debugTrappedStalemate,
-              })
-            ) {
-              directMovementCheck = true;
-              movableStackPos = positionToString(stack.position);
-              break;
-            }
-          }
-        }
-
-        debugLog(
-          debugTrappedStalemate,
-          `[VictoryAggregate] Player ${p.playerNumber} movement check:`,
-          {
-            hasForcedEliminationAction: forcedElimResult,
-            directMovementCheck,
-            movableStackPos,
-            gameStatus: state.gameStatus,
-            collapsedSpacesCount: state.board.collapsedSpaces.size,
-          }
-        );
-
-        // Use the direct check instead of relying on hasForcedEliminationAction
-        if (directMovementCheck) {
-          somePlayerCanAct = true;
-          break;
-        }
-      }
-
-      // If playerHasStacks && no movement possible: player is trapped
-      // If !playerHasStacks && cannot place: player has rings but nowhere to place = trapped
-    }
-
-    if (somePlayerCanAct) {
-      debugLog(debugTrappedStalemate, '[VictoryAggregate] Some player can act - game not over');
-      return { isGameOver: false };
-    }
-
-    debugLog(
-      debugTrappedStalemate,
-      '[VictoryAggregate] All players trapped - proceeding to stalemate tiebreaker'
-    );
-    // All players with material are trapped - fall through to stalemate ladder below
+    return { isGameOver: false };
   }
 
-  // 5) Bare-board structural terminality & global stalemate.
   const anyRingsInHand = players.some((p) => p.ringsInHand > 0);
   let treatHandAsEliminated = false;
   let handCountsAsEliminated = false;
