@@ -1052,28 +1052,51 @@ class MCTSAI(HeuristicAI):
         self, root: MCTSNode, valid_moves: List[Move]
     ) -> Tuple[Optional[Move], Optional[Dict[str, float]]]:
         """Select best move from legacy tree based on visit counts."""
-        if root.children:
-            total_visits = sum(c.visits for c in root.children)
+        # Build a set of valid move signatures for efficient lookup.
+        # Include player attribute to catch stale moves from tree reuse where
+        # the acting player or their resources (e.g., rings_in_hand) changed.
+        valid_moves_set = {
+            (m.type, m.player, getattr(m, "to", None), getattr(m, "from_pos", None))
+            for m in valid_moves
+        }
+
+        # Filter children to only those with currently valid moves.
+        # This is critical for tree reuse scenarios where children were
+        # expanded when a different player had the turn or when player
+        # resources have changed (e.g., rings_in_hand depleted).
+        valid_children = [
+            c for c in root.children
+            if c.move is not None and (
+                c.move.type, c.move.player,
+                getattr(c.move, "to", None), getattr(c.move, "from_pos", None)
+            ) in valid_moves_set
+        ]
+
+        if valid_children:
+            total_visits = sum(c.visits for c in valid_children)
             policy: Dict[str, float] = {}
             if total_visits > 0:
-                for child in root.children:
+                for child in valid_children:
                     policy[str(child.move)] = child.visits / total_visits
             else:
-                uniform = 1.0 / len(root.children)
-                for child in root.children:
+                uniform = 1.0 / len(valid_children)
+                for child in valid_children:
                     policy[str(child.move)] = uniform
 
-            best_child = max(root.children, key=lambda c: c.visits)
+            best_child = max(valid_children, key=lambda c: c.visits)
             selected = best_child.move
 
             self.last_root = best_child
             self.last_root.parent = None
 
-            # CRITICAL: Validate selected move is in valid_moves.
-            # This catches edge cases where tree reuse or phase transitions
-            # result in an invalid move being selected.
+            # Extra validation: ensure selected move matches a valid move.
+            # This should always pass given the filtering above, but we keep
+            # it as a safety net.
             if selected is not None:
-                is_valid = any(_moves_match(selected, vm) for vm in valid_moves)
+                is_valid = (
+                    selected.type, selected.player,
+                    getattr(selected, "to", None), getattr(selected, "from_pos", None)
+                ) in valid_moves_set
                 if not is_valid:
                     logger.warning(
                         "MCTS legacy selected invalid move %s "
@@ -1496,30 +1519,53 @@ class MCTSAI(HeuristicAI):
         self, root: MCTSNodeLite, valid_moves: List[Move]
     ) -> Tuple[Optional[Move], Optional[Dict[str, float]]]:
         """Select best move from incremental tree based on visit counts."""
-        if root.children:
-            total_visits = sum(c.visits for c in root.children)
+        # Build a set of valid move signatures for efficient lookup.
+        # Include player attribute to catch stale moves from tree reuse where
+        # the acting player or their resources (e.g., rings_in_hand) changed.
+        valid_moves_set = {
+            (m.type, m.player, getattr(m, "to", None), getattr(m, "from_pos", None))
+            for m in valid_moves
+        }
+
+        # Filter children to only those with currently valid moves.
+        # This is critical for tree reuse scenarios where children were
+        # expanded when a different player had the turn or when player
+        # resources have changed (e.g., rings_in_hand depleted).
+        valid_children = [
+            c for c in root.children
+            if c.move is not None and (
+                c.move.type, c.move.player,
+                getattr(c.move, "to", None), getattr(c.move, "from_pos", None)
+            ) in valid_moves_set
+        ]
+
+        if valid_children:
+            total_visits = sum(c.visits for c in valid_children)
             policy: Dict[str, float] = {}
             if total_visits > 0:
-                for child in root.children:
+                for child in valid_children:
                     if child.move is not None:
                         policy[str(child.move)] = child.visits / total_visits
             else:
-                uniform = 1.0 / len(root.children)
-                for child in root.children:
+                uniform = 1.0 / len(valid_children)
+                for child in valid_children:
                     if child.move is not None:
                         policy[str(child.move)] = uniform
 
-            best_child = max(root.children, key=lambda c: c.visits)
+            best_child = max(valid_children, key=lambda c: c.visits)
             selected = best_child.move
 
             self.last_root_lite = best_child
             self.last_root_lite.parent = None
 
-            # CRITICAL: Validate selected move is in valid_moves.
-            # This catches edge cases where tree reuse or phase transitions
-            # result in an invalid move being selected.
+            # Extra validation: ensure selected move matches a valid move.
+            # This should always pass given the filtering above, but we keep
+            # it as a safety net.
             if selected is not None:
-                is_valid = any(_moves_match(selected, vm) for vm in valid_moves)
+                is_valid = (
+                    selected.type, selected.player,
+                    getattr(selected, "to", None), getattr(selected, "from_pos", None)
+                ) in valid_moves_set
                 if not is_valid:
                     logger.warning(
                         "MCTS incremental selected invalid move %s "
