@@ -1,6 +1,6 @@
 {
   "version": "v2",
-  "generated": "2025-12-10T08:13:48.743Z",
+  "generated": "2025-12-10T11:21:21.547Z",
   "count": 4,
   "categories": ["chain_capture", "territory_processing"],
   "vectors": [
@@ -18,7 +18,7 @@
         "edge"
       ],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:48.736Z",
+      "createdAt": "2025-12-10T11:21:21.542Z",
       "input": {
         "state": {
           "gameId": "contract-hex-edge-chain",
@@ -148,7 +148,7 @@
         "edge"
       ],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:48.736Z",
+      "createdAt": "2025-12-10T11:21:21.543Z",
       "input": {
         "state": {
           "gameId": "contract-hex-edge-chain",
@@ -275,7 +275,7 @@
       "description": "Hex corner region territory (case 1)",
       "tags": ["territory_processing", "orchestrator", "parity", "hex", "corner", "territory"],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:48.739Z",
+      "createdAt": "2025-12-10T11:21:21.545Z",
       "input": {
         "state": {
           "gameId": "contract-hex-corner-region",
@@ -363,7 +363,7 @@
       "description": "3-player forced elimination on hexagonal board",
       "tags": ["territory_processing", "orchestrator", "parity", "hex", "forced_elimination", "3p"],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:48.743Z",
+      "createdAt": "2025-12-10T11:21:21.547Z",
       "input": {
         "state": {
           "gameId": "contract-hex-forced-elim-3p",

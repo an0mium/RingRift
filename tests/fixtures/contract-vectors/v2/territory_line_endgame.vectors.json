@@ -1,6 +1,6 @@
 {
   "version": "v2",
-  "generated": "2025-12-10T08:13:48.735Z",
+  "generated": "2025-12-10T11:21:21.541Z",
   "count": 3,
   "categories": ["line_processing", "territory_processing"],
   "vectors": [
@@ -19,7 +19,7 @@
         "overlong"
       ],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:48.733Z",
+      "createdAt": "2025-12-10T11:21:21.539Z",
       "input": {
         "state": {
           "gameId": "contract-territory-line-overlong-square8",
@@ -142,7 +142,7 @@
       "description": "Single point territory swing (square19)",
       "tags": ["territory_processing", "orchestrator", "parity", "territory", "swing", "endgame"],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:48.735Z",
+      "createdAt": "2025-12-10T11:21:21.541Z",
       "input": {
         "state": {
           "gameId": "contract-territory-line-swing-square19",
@@ -235,7 +235,7 @@
         "endgame"
       ],
       "source": "generated",
-      "createdAt": "2025-12-10T08:13:48.735Z",
+      "createdAt": "2025-12-10T11:21:21.541Z",
       "input": {
         "state": {
           "gameId": "contract-territory-decision-auto-exit-square8",

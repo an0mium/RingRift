@@ -1063,6 +1063,7 @@ function buildForcedEliminationANMGuardVectors(): ContractTestVector[] {
 /**
  * Build all Family B forced elimination vectors.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildForcedEliminationVectors(): ContractTestVector[] {
   const vectors: ContractTestVector[] = [];
 
