@@ -259,18 +259,32 @@ def generate_markdown_report(report: AnalysisReport) -> str:
     # Game Length Statistics
     lines.append("## 3. Game Length Statistics")
     lines.append("")
-    lines.append("| Configuration | Avg Moves/Game | Games/Second | Total Time |")
-    lines.append("|--------------|----------------|--------------|------------|")
+    lines.append("| Configuration | Avg Moves | Min | Max | Median | Std Dev | Games/Sec | Total Time |")
+    lines.append("|--------------|-----------|-----|-----|--------|---------|-----------|------------|")
 
     for (board_type, num_players), stats in sorted(report.stats_by_config.items()):
         if stats.total_games == 0:
             continue
         avg_moves = stats.moves_per_game
+        min_moves = stats.min_moves
+        max_moves = stats.max_moves
+        median_moves = stats.median_moves
+        std_moves = stats.std_moves
         gps = stats.games_per_second
         total_time = stats.total_time_seconds
 
         time_str = f"{total_time:.1f}s" if total_time < 60 else f"{total_time / 60:.1f}m"
-        lines.append(f"| {board_type} {num_players}p | {avg_moves:.1f} | {gps:.3f} | {time_str} |")
+        # Show detailed stats if game_lengths data is available
+        if stats.game_lengths:
+            lines.append(
+                f"| {board_type} {num_players}p | {avg_moves:.1f} | {min_moves} | {max_moves} | "
+                f"{median_moves:.1f} | {std_moves:.1f} | {gps:.3f} | {time_str} |"
+            )
+        else:
+            lines.append(
+                f"| {board_type} {num_players}p | {avg_moves:.1f} | - | - | "
+                f"- | - | {gps:.3f} | {time_str} |"
+            )
 
     lines.append("")
 
@@ -384,7 +398,7 @@ def generate_json_report(report: AnalysisReport) -> dict[str, Any]:
 
     for (board_type, num_players), stats in report.stats_by_config.items():
         key = f"{board_type}_{num_players}p"
-        result["configurations"][key] = {
+        config_data: dict[str, Any] = {
             "board_type": board_type,
             "num_players": num_players,
             "total_games": stats.total_games,
@@ -402,6 +416,15 @@ def generate_json_report(report: AnalysisReport) -> dict[str, Any]:
             "games_with_recovery": stats.games_with_recovery,
             "games_with_fe": stats.games_with_fe,
         }
+        # Add detailed game length statistics if available
+        if stats.game_lengths:
+            config_data["game_length_stats"] = {
+                "min": stats.min_moves,
+                "max": stats.max_moves,
+                "median": stats.median_moves,
+                "std_dev": stats.std_moves,
+            }
+        result["configurations"][key] = config_data
 
     return result
 
