@@ -49,7 +49,9 @@ describe('useMatchmaking', () => {
     localStorage.clear();
   });
 
-  const createPreferences = (overrides?: Partial<MatchmakingPreferences>): MatchmakingPreferences => ({
+  const createPreferences = (
+    overrides?: Partial<MatchmakingPreferences>
+  ): MatchmakingPreferences => ({
     boardType: 'square8',
     timeControl: { min: 300, max: 600 },
     ratingRange: { min: 1000, max: 1200 },

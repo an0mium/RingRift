@@ -407,6 +407,18 @@ export const userApi = {
     const response = await api.get('/users/leaderboard', { params });
     return response.data;
   },
+
+  async getStats(): Promise<{
+    ratingHistory: Array<{
+      date: string;
+      rating: number;
+      change: number;
+      gameId: string | null;
+    }>;
+  }> {
+    const response = await api.get('/users/stats');
+    return response.data;
+  },
 };
 
 export default api;

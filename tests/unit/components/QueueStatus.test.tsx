@@ -14,7 +14,9 @@ import { QueueStatus } from '@/client/components/QueueStatus';
 import type { MatchmakingPreferences } from '@/shared/types/websocket';
 
 describe('QueueStatus', () => {
-  const createPreferences = (overrides?: Partial<MatchmakingPreferences>): MatchmakingPreferences => ({
+  const createPreferences = (
+    overrides?: Partial<MatchmakingPreferences>
+  ): MatchmakingPreferences => ({
     boardType: 'square8',
     timeControl: { min: 300, max: 600 },
     ratingRange: { min: 1000, max: 1200 },
@@ -85,9 +87,7 @@ describe('QueueStatus', () => {
 
     it('should display search criteria when provided', () => {
       const preferences = createPreferences({ boardType: 'square8' });
-      render(
-        <QueueStatus {...defaultProps} inQueue={true} searchCriteria={preferences} />
-      );
+      render(<QueueStatus {...defaultProps} inQueue={true} searchCriteria={preferences} />);
       expect(screen.getByText('Square 8×8')).toBeInTheDocument();
       expect(screen.getByText('1000–1200 Rating')).toBeInTheDocument();
     });

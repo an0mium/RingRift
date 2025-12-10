@@ -14,6 +14,8 @@ import {
   sendDifficultyCalibrationEvent,
   storeDifficultyCalibrationSession,
 } from '../utils/difficultyCalibrationTelemetry';
+import { useMatchmaking } from '../hooks/useMatchmaking';
+import { QueueStatus } from '../components/QueueStatus';
 
 interface FormState {
   boardType: BoardType;
@@ -452,6 +454,20 @@ export default function LobbyPage() {
   const [showDifficultyInfo, setShowDifficultyInfo] = useState(false);
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string>('');
+  const [showFindMatchForm, setShowFindMatchForm] = useState(false);
+  const [matchmakingBoardType, setMatchmakingBoardType] = useState<BoardType>('square8');
+
+  // Matchmaking hook
+  const {
+    inQueue,
+    estimatedWaitTime,
+    queuePosition,
+    searchCriteria,
+    matchFound,
+    error: matchmakingError,
+    joinQueue,
+    leaveQueue,
+  } = useMatchmaking();
 
   const selectedDifficultyDescriptor =
     getDifficultyDescriptor(form.aiDifficulty) ??
@@ -701,6 +717,26 @@ export default function LobbyPage() {
     }
   };
 
+  const handleFindMatch = () => {
+    // Get user rating from localStorage or default to 1200
+    const storedRating = localStorage.getItem('userRating');
+    const userRating = storedRating ? parseInt(storedRating, 10) : 1200;
+    const ratingRange = 200; // +/- 200 rating points
+
+    joinQueue({
+      boardType: matchmakingBoardType,
+      ratingRange: {
+        min: Math.max(0, userRating - ratingRange),
+        max: userRating + ratingRange,
+      },
+      timeControl: {
+        min: 300, // 5 minutes minimum
+        max: 1800, // 30 minutes maximum
+      },
+    });
+    setShowFindMatchForm(false);
+  };
+
   const filteredGames = filterGames(availableGames, filters);
   const sortedGames = sortGames(filteredGames, sortBy);
   const hasFilters = Object.keys(filters).some(
@@ -730,6 +766,15 @@ export default function LobbyPage() {
             <Button
               type="button"
               size="lg"
+              variant="outline"
+              onClick={() => setShowFindMatchForm(!showFindMatchForm)}
+              disabled={inQueue}
+            >
+              {inQueue ? 'In Queue...' : 'Find Match'}
+            </Button>
+            <Button
+              type="button"
+              size="lg"
               variant="secondary"
               onClick={handleGuidedIntro}
               data-testid="guided-intro-button"
@@ -739,6 +784,58 @@ export default function LobbyPage() {
           </div>
         </div>
       </header>
+
+      {/* Queue Status - shown when in matchmaking queue */}
+      {(inQueue || matchFound) && (
+        <QueueStatus
+          inQueue={inQueue}
+          estimatedWaitTime={estimatedWaitTime}
+          queuePosition={queuePosition}
+          searchCriteria={searchCriteria}
+          matchFound={matchFound}
+          onLeaveQueue={leaveQueue}
+        />
+      )}
+
+      {/* Matchmaking error */}
+      {matchmakingError && (
+        <div className="p-3 text-sm text-red-300 bg-red-900/40 border border-red-700 rounded-lg">
+          {matchmakingError}
+        </div>
+      )}
+
+      {/* Find Match Form */}
+      {showFindMatchForm && !inQueue && (
+        <section className="bg-slate-800/70 rounded-2xl border border-slate-700 p-6 shadow-xl">
+          <h2 className="text-xl font-semibold text-white mb-4">Find a Match</h2>
+          <p className="text-sm text-slate-300 mb-6">
+            Join the matchmaking queue to be paired with an opponent of similar skill level.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-1 text-slate-100">Board Type</label>
+              <Select
+                value={matchmakingBoardType}
+                onChange={(e) => setMatchmakingBoardType(e.target.value as BoardType)}
+              >
+                <option value="square8">8x8 (compact)</option>
+                <option value="square19">19x19 (full)</option>
+                <option value="hexagonal">Hexagonal</option>
+              </Select>
+            </div>
+
+            <div className="flex gap-3">
+              <Button type="button" onClick={handleFindMatch}>
+                Start Searching
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setShowFindMatchForm(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {showCreateForm ? (
         <section className="bg-slate-800/70 rounded-2xl border border-slate-700 p-6 shadow-xl">
