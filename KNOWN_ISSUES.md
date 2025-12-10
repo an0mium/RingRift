@@ -925,9 +925,53 @@ These issues have been addressed but are kept here for context:
   - `turnOrchestrator.ts`: Fixed buried ring check from `slice(0,-1)` to `slice(1)`.
     Added `recoveryMode` and `extractionStacks` propagation for Python replay.
 
+  **Additional Fixes (commit `8532599b`):**
+  - `RecoveryAggregate.ts` (lines 728, 811): Fixed `controllingPlayer` assignment
+    from `rings[rings.length-1]` to `rings[0]` (top ring per game.ts convention).
+  - `RecoveryAggregate.ts` (lines 711, 793): Fixed ring extraction index from
+    `indexOf(player)` to `lastIndexOf(player)` per RR-CANON-R113 (bottommost ring
+    extraction requirement). `rings[0]` is top, so `lastIndexOf` finds bottommost.
+  - `Recovery.contractVectors.test.ts`: Fixed incorrect test that expected recovery
+    to fail when player has rings in hand. Per RR-CANON-R110: "Recovery eligibility
+    is independent of rings in hand. Players with rings may choose recovery over
+    placement."
+
   **Impact:** Resolves "Player is not eligible for recovery action" parity
-  failures when replaying Python-generated games through TS engine. 4 of 5
-  fresh soak games now pass TS replay with 0 FSM validation failures.
+  failures when replaying Python-generated games through TS engine. 4P soak
+  tests now complete successfully. 3P/4P games with recovery actions now
+  maintain correct `controllingPlayer` state after extraction.
+
+---
+
+## 🔵 Open Investigation Items
+
+### INV-001 – Recovery Slide Marker Destination Parity (Dec 10, 2025)
+
+**Component(s):** Python `recovery.py`, TS `RecoveryAggregate.ts`
+**Severity:** P2 (affects rare 4P game scenarios)
+**Status:** Under investigation
+
+**Symptom:** One 4P game (fa21f59a) fails TS replay at move 316 with error
+"Invalid recovery slide: Destination has a marker" after the ring array
+convention fix was applied. Python allowed the move; TS rejects it.
+
+**Rule Reference:** Per RR-CANON-R111, recovery slide destination must be:
+
+- Not collapsed
+- **Empty (no stack, no marker)**
+
+**Analysis Needed:**
+
+- Verify whether Python's recovery validation correctly enforces "no marker"
+  constraint per RR-CANON-R111
+- If Python allows sliding to marker destination, this is a Python bug
+- If both engines have the same validation but state diverged earlier,
+  investigate marker placement/removal parity
+
+**Impact:** Affects ~1 in 5+ 4P games with recovery actions. Does not affect
+core game logic correctness for games that don't hit this scenario.
+
+---
 
 For a more narrative description of what works today vs what remains, see
 [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md).
