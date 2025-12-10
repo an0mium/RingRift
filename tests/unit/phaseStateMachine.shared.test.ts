@@ -5,6 +5,13 @@
  * Covers: determineNextPhase, createTurnLogicDelegates, toPerTurnState,
  * updateFlagsFromPerTurnState, phaseRequiresDecision, shouldAutoAdvancePhase,
  * PhaseStateMachine class, createTurnProcessingState
+ *
+ * @deprecated These tests cover phaseStateMachine.ts which is deprecated.
+ * The FSM-based orchestration in TurnStateMachine.ts is now canonical for
+ * phase transitions and validation (RR-CANON-R070). These tests remain to
+ * ensure backward compatibility while phaseStateMachine is still used by
+ * processPostMovePhases(). When that function is fully migrated to FSM,
+ * these tests can be removed along with phaseStateMachine.ts.
  */
 
 import {

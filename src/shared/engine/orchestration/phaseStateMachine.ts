@@ -114,6 +114,9 @@ export function determineNextPhase(
  * - Check for available placements/movements/captures
  * - Apply forced elimination
  * - Get next player number
+ *
+ * @deprecated Part of the deprecated phaseStateMachine module.
+ * The FSM-based orchestration in TurnStateMachine.ts is now canonical.
  */
 export function createTurnLogicDelegates(
   _processingState: TurnProcessingState,
@@ -154,6 +157,8 @@ export function createTurnLogicDelegates(
 
 /**
  * Convert per-turn flags to the PerTurnState format expected by turnLogic.
+ *
+ * @deprecated Part of the deprecated phaseStateMachine module.
  */
 export function toPerTurnState(flags: PerTurnFlags): PerTurnState {
   return {
@@ -164,6 +169,8 @@ export function toPerTurnState(flags: PerTurnFlags): PerTurnState {
 
 /**
  * Update per-turn flags from a PerTurnState.
+ *
+ * @deprecated Part of the deprecated phaseStateMachine module.
  */
 export function updateFlagsFromPerTurnState(
   flags: PerTurnFlags,
@@ -182,6 +189,9 @@ export function updateFlagsFromPerTurnState(
 
 /**
  * Check if a phase requires player decisions before proceeding.
+ *
+ * @deprecated Part of the deprecated phaseStateMachine module.
+ * Use FSM's `decisionSurface.pendingDecisionType` to determine if decisions are needed.
  */
 export function phaseRequiresDecision(phase: GamePhase, context: PhaseContext): boolean {
   switch (phase) {
@@ -221,6 +231,9 @@ export interface PhaseContext {
  * Determine if the current phase should auto-advance.
  *
  * Some phases auto-advance when there's only one option or no options.
+ *
+ * @deprecated Part of the deprecated phaseStateMachine module.
+ * Use FSM's `decisionSurface.pendingDecisionType` to determine if auto-advance is needed.
  */
 export function shouldAutoAdvancePhase(phase: GamePhase, context: PhaseContext): boolean {
   switch (phase) {
@@ -395,6 +408,9 @@ export class PhaseStateMachine {
 
 /**
  * Create a fresh turn processing state.
+ *
+ * @deprecated Part of the deprecated phaseStateMachine module.
+ * The FSM-based orchestration handles processing state internally.
  */
 export function createTurnProcessingState(gameState: GameState, move: Move): TurnProcessingState {
   return {
