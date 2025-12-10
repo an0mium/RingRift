@@ -262,7 +262,7 @@ const ConfigSchema = z.object({
   orchestrator: z.object({
     /**
      * High-level rules mode selector taken from RINGRIFT_RULES_MODE.
-     * Note: current values are 'ts' | 'python' | 'shadow'; see RulesModeSchema.
+     * Note: current values are 'ts' | 'python'. Shadow mode has been removed.
      */
     rulesMode: RulesModeSchema,
     /** Master switch for using the orchestrator adapter on backend hosts. */

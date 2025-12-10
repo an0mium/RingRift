@@ -110,11 +110,12 @@ export function isLocalAIHeuristicModeEnabled(): boolean {
  * Global rules-backend mode selector.
  *
  * RINGRIFT_RULES_MODE:
- *   - 'ts'     : TypeScript backend rules are authoritative
+ *   - 'ts'     : TypeScript backend rules are authoritative (default)
  *   - 'python' : Python AI-service rules are authoritative
- *   - 'shadow' : TS authoritative, Python evaluated in shadow for parity
+ *
+ * NOTE: 'shadow' mode has been removed. FSM is now canonical.
  */
-export type RulesMode = 'ts' | 'python' | 'shadow';
+export type RulesMode = 'ts' | 'python';
 
 /**
  * Read the current rules-backend mode from the environment.
@@ -122,9 +123,10 @@ export type RulesMode = 'ts' | 'python' | 'shadow';
  */
 export function getRulesMode(): RulesMode {
   const raw = readEnv('RINGRIFT_RULES_MODE');
-  if (raw === 'python' || raw === 'shadow') {
+  if (raw === 'python') {
     return raw;
   }
+  // NOTE: 'shadow' is no longer valid - treat as 'ts'
   return 'ts';
 }
 

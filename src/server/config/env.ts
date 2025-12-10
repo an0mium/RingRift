@@ -25,8 +25,9 @@ export type AppTopology = z.infer<typeof AppTopologySchema>;
 
 /**
  * Rules engine mode schema.
+ * NOTE: 'shadow' mode has been removed. FSM is now canonical.
  */
-export const RulesModeSchema = z.enum(['ts', 'python', 'shadow']);
+export const RulesModeSchema = z.enum(['ts', 'python']);
 export type RulesMode = z.infer<typeof RulesModeSchema>;
 
 /**

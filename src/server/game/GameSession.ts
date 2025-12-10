@@ -577,13 +577,15 @@ export class GameSession {
 
   /**
    * Update aggregated diagnostics for a player
+   *
+   * NOTE: Shadow mode has been removed. FSM is now canonical.
+   * pythonEvalFailures now used instead of pythonShadowErrors.
    */
   updateDiagnostics(playerNumber: number): void {
     // Get rules facade diagnostics
     const rulesDiag = this.rulesFacade?.getDiagnostics?.() ?? {
       pythonEvalFailures: 0,
       pythonBackendFallbacks: 0,
-      pythonShadowErrors: 0,
     };
 
     // Get AI engine diagnostics for this player
@@ -593,8 +595,8 @@ export class GameSession {
     };
 
     this.diagnosticsSnapshot = {
-      rulesServiceFailureCount: rulesDiag.pythonShadowErrors,
-      rulesShadowErrorCount: rulesDiag.pythonShadowErrors,
+      rulesServiceFailureCount: rulesDiag.pythonEvalFailures,
+      rulesShadowErrorCount: 0, // Shadow mode removed - FSM is canonical
       aiServiceFailureCount: aiDiag.serviceFailureCount,
       aiFallbackMoveCount: aiDiag.localFallbackCount,
       aiQualityMode: this.computeAIQualityMode(rulesDiag, aiDiag),
@@ -602,10 +604,11 @@ export class GameSession {
   }
 
   private computeAIQualityMode(
-    rulesDiag: { pythonShadowErrors: number },
+    rulesDiag: { pythonEvalFailures: number },
     aiDiag: AIDiagnostics
   ): 'normal' | 'fallbackLocalAI' | 'rulesServiceDegraded' {
-    if (rulesDiag.pythonShadowErrors > 0) {
+    // NOTE: Shadow mode removed - now checking pythonEvalFailures instead
+    if (rulesDiag.pythonEvalFailures > 0) {
       return 'rulesServiceDegraded';
     }
     if (aiDiag.localFallbackCount > 0) {

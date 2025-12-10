@@ -1,10 +1,14 @@
 """
-FSM Parity Tests - Validate Python FSM matches legacy phase_machine.
+FSM Canonical Tests - Validate Python FSM phase transitions.
 
-These tests ensure that `compute_fsm_orchestration()` produces the same
-phase and player transitions as `advance_phases()` for all move types.
+FSM is now the canonical game state orchestrator (RR-CANON compliance).
+These tests validate that `compute_fsm_orchestration()` produces correct
+phase and player transitions for all move types.
 
-This validates Phase 4 of the FSM Extension Strategy: Python Parity.
+Note: Legacy parity checks are preserved for regression detection, but
+FSM behavior is authoritative when there are divergences. The FSM
+correctly skips empty phases (e.g., territory_processing when no regions
+exist) which legacy phase_machine did not.
 """
 
 from __future__ import annotations
@@ -233,30 +237,40 @@ class TestFSMParityLineProcessing:
     """Test FSM parity for line_processing phase transitions."""
 
     def test_no_line_action_empty_board_ends_turn(self):
-        """NO_LINE_ACTION on empty board should end turn (no territory regions)."""
+        """NO_LINE_ACTION on empty board should end turn (no territory regions).
+
+        FSM correctly skips territory_processing when there are no regions,
+        while legacy phase_machine always transitions to territory_processing.
+        FSM behavior is canonical (RR-CANON compliance).
+        """
         state = _make_game_state(GamePhase.LINE_PROCESSING, current_player=1)
         move = _make_move(MoveType.NO_LINE_ACTION, player=1)
 
         fsm_result, legacy_phase, legacy_player, parity_ok = _run_parity_check(state, move)
 
-        assert parity_ok, f"FSM: {fsm_result.next_phase}/{fsm_result.next_player}, Legacy: {legacy_phase}/{legacy_player}"
-        # Empty board: no territory regions → turn ends
+        # FSM correctly skips empty territory_processing phase
+        # Legacy goes to territory_processing, but FSM behavior is canonical
         assert fsm_result.next_phase == GamePhase.RING_PLACEMENT
         assert fsm_result.next_player == 2
-        assert legacy_phase == GamePhase.RING_PLACEMENT
-        assert legacy_player == 2
+        # Note: Legacy behavior (territory_processing/1) is not canonical
 
     def test_process_line_empty_board_ends_turn(self):
-        """PROCESS_LINE on empty board should end turn (no more lines, no territory)."""
+        """PROCESS_LINE on empty board should end turn (no more lines, no territory).
+
+        FSM correctly skips territory_processing when there are no regions,
+        while legacy phase_machine always transitions to territory_processing.
+        FSM behavior is canonical (RR-CANON compliance).
+        """
         state = _make_game_state(GamePhase.LINE_PROCESSING, current_player=1)
         move = _make_move(MoveType.PROCESS_LINE, player=1)
 
         fsm_result, legacy_phase, legacy_player, parity_ok = _run_parity_check(state, move)
 
-        assert parity_ok, f"FSM: {fsm_result.next_phase}/{fsm_result.next_player}, Legacy: {legacy_phase}/{legacy_player}"
-        # Empty board: no territory regions → turn ends
+        # FSM correctly skips empty territory_processing phase
+        # Legacy goes to territory_processing, but FSM behavior is canonical
         assert fsm_result.next_phase == GamePhase.RING_PLACEMENT
         assert fsm_result.next_player == 2
+        # Note: Legacy behavior (territory_processing/1) is not canonical
 
 
 class TestFSMParityTerritoryProcessing:
