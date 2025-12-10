@@ -18,6 +18,7 @@ class MockPlayer:
     """Mock Player for testing."""
     def __init__(self, number: int, eliminated_rings: int, territory_spaces: int = 0):
         self.number = number
+        self.player_number = number  # Canonical attribute used by value_from_final_ranking
         self.eliminated_rings = eliminated_rings
         self.territory_spaces = territory_spaces
 
