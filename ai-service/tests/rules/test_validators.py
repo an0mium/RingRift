@@ -127,12 +127,18 @@ def test_line_validator(empty_game_state):
     empty_game_state.current_phase = GamePhase.LINE_PROCESSING
 
     # Setup line
-    from app.models import LineInfo
+    from app.models import LineInfo, MarkerInfo
     line = LineInfo(
         positions=[Position(x=0, y=i) for i in range(5)],
         player=1, length=5, direction=Position(x=0, y=1)
     )
     empty_game_state.board.formed_lines.append(line)
+
+    # Seed markers at line positions (required by RR-CANON-R120)
+    for pos in line.positions:
+        empty_game_state.board.markers[f"{pos.x},{pos.y}"] = MarkerInfo(
+            player=1, position=pos, type="regular"
+        )
 
     # Valid line process with line_index=0 (first line)
     move = Move(
@@ -215,7 +221,7 @@ def test_line_validator_line_ownership(empty_game_state):
     validator = LineValidator()
     empty_game_state.current_phase = GamePhase.LINE_PROCESSING
 
-    from app.models import LineInfo
+    from app.models import LineInfo, MarkerInfo
     # Line owned by player 2
     line_p2 = LineInfo(
         positions=[Position(x=0, y=i) for i in range(4)],
@@ -227,6 +233,16 @@ def test_line_validator_line_ownership(empty_game_state):
         player=1, length=4, direction=Position(x=0, y=1)
     )
     empty_game_state.board.formed_lines = [line_p2, line_p1]
+
+    # Seed markers at line positions (required by RR-CANON-R120)
+    for pos in line_p2.positions:
+        empty_game_state.board.markers[f"{pos.x},{pos.y}"] = MarkerInfo(
+            player=2, position=pos, type="regular"
+        )
+    for pos in line_p1.positions:
+        empty_game_state.board.markers[f"{pos.x},{pos.y}"] = MarkerInfo(
+            player=1, position=pos, type="regular"
+        )
 
     # Player 1 trying to process player 2's line (index 0) should fail
     move_wrong_owner = Move(
@@ -252,7 +268,7 @@ def test_line_validator_multiple_lines(empty_game_state):
     validator = LineValidator()
     empty_game_state.current_phase = GamePhase.LINE_PROCESSING
 
-    from app.models import LineInfo
+    from app.models import LineInfo, MarkerInfo
     # Multiple lines for player 1
     lines = [
         LineInfo(
@@ -269,6 +285,13 @@ def test_line_validator_multiple_lines(empty_game_state):
         ),
     ]
     empty_game_state.board.formed_lines = lines
+
+    # Seed markers at all line positions (required by RR-CANON-R120)
+    for line in lines:
+        for pos in line.positions:
+            empty_game_state.board.markers[f"{pos.x},{pos.y}"] = MarkerInfo(
+                player=1, position=pos, type="regular"
+            )
 
     # Each valid index should work
     for idx in range(3):
