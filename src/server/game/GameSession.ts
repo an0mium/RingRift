@@ -16,7 +16,6 @@ import { getDatabaseClient } from '../database/connection';
 import { logger } from '../utils/logger';
 import { getMetricsService } from '../services/MetricsService';
 import { orchestratorRollout, EngineSelection } from '../services/OrchestratorRolloutService';
-import { shadowComparator } from '../services/ShadowModeComparator';
 import { createSimpleAdapter, createAutoSelectDecisionHandler } from './turn/TurnEngineAdapter';
 import { config } from '../config';
 import {
@@ -462,68 +461,6 @@ export class GameSession {
     });
   }
 
-  /**
-   * Apply a move when this session is running in SHADOW mode: the legacy
-   * GameEngine/RulesBackendFacade path remains authoritative, while the
-   * orchestrator adapter runs in parallel on a cloned state via
-   * ShadowModeComparator for comparison and metrics.
-   */
-  private async applyMoveWithOrchestratorShadow(
-    preState: GameState,
-    engineMove: Omit<Move, 'id' | 'timestamp' | 'moveNumber'>
-  ): Promise<RulesResult> {
-    const moveNumber = preState.moveHistory.length + 1;
-
-    const { result } = await shadowComparator.compare(
-      this.gameId,
-      moveNumber,
-      async () => this.rulesFacade.applyMove(engineMove),
-      async () => this.runOrchestratorShadow(preState, engineMove, moveNumber)
-    );
-
-    return result as RulesResult;
-  }
-
-  /**
-   * Run the shared orchestrator adapter on a cloned snapshot of the
-   * pre-move GameState for shadow comparison. This never mutates the
-   * authoritative GameEngine instance.
-   */
-  private async runOrchestratorShadow(
-    preState: GameState,
-    engineMove: Omit<Move, 'id' | 'timestamp' | 'moveNumber'>,
-    moveNumber: number
-  ): Promise<RulesResult> {
-    const fullMove: Move = {
-      ...engineMove,
-      id: `shadow-${moveNumber}`,
-      timestamp: new Date(),
-      thinkTime: 0,
-      moveNumber,
-    };
-
-    // Use the simple in-memory adapter so the orchestrator operates on a
-    // detached copy of the GameState for shadow evaluation.
-    const decisionHandler = createAutoSelectDecisionHandler();
-    const { adapter, getState } = createSimpleAdapter(preState, decisionHandler);
-    const adapterResult = await adapter.processMove(fullMove);
-    const nextState = getState();
-
-    const result: RulesResult = {
-      success: adapterResult.success,
-      gameState: nextState,
-    };
-
-    if (adapterResult.error) {
-      result.error = adapterResult.error;
-    }
-    if (adapterResult.victoryResult) {
-      result.gameResult = adapterResult.victoryResult;
-    }
-
-    return result;
-  }
-
   private replayMove(move: PrismaMove): void {
     let from: Position | undefined;
     let to: Position | undefined;
@@ -823,13 +760,7 @@ export class GameSession {
       thinkTime: 0,
     } as Omit<Move, 'id' | 'timestamp' | 'moveNumber'>;
 
-    // Capture a pre-move snapshot for shadow-mode orchestrator comparison.
-    const preState = this.gameEngine.getGameState();
-
-    const result =
-      this.engineSelection === EngineSelection.SHADOW
-        ? await this.applyMoveWithOrchestratorShadow(preState, engineMove)
-        : await this.rulesFacade.applyMove(engineMove);
+    const result = await this.rulesFacade.applyMove(engineMove);
     if (!result.success) {
       logger.warn('Engine rejected move', {
         gameId: this.gameId,

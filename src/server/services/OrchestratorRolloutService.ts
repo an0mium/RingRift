@@ -21,14 +21,14 @@ import { getMetricsService } from './MetricsService';
 
 /**
  * Engine selection result.
+ *
+ * Note: SHADOW mode has been removed as FSM is now the canonical validator.
  */
 export enum EngineSelection {
   /** Use the legacy TypeScript rules engine */
   LEGACY = 'legacy',
-  /** Use the new orchestrator adapter */
+  /** Use the orchestrator adapter (now default, FSM-validated) */
   ORCHESTRATOR = 'orchestrator',
-  /** Shadow mode: run both engines, compare results, use legacy */
-  SHADOW = 'shadow',
 }
 
 /**
@@ -121,7 +121,7 @@ export class OrchestratorRolloutService {
 
     // 3. Allowlist check
     if (userId && orchestratorConfig.allowlistUsers.includes(userId)) {
-      const decision = this.shadowOrOrchestrator('allowlist');
+      const decision = this.selectOrchestrator('allowlist');
       logger.debug('Engine selection: user in allowlist', {
         sessionId,
         userId,
@@ -143,9 +143,9 @@ export class OrchestratorRolloutService {
       return decision;
     }
 
-    // 5. Orchestrator permanently enabled (Phase 3 migration - percentage rollout removed)
-    // All sessions not caught by earlier guards proceed to orchestrator/shadow mode
-    const decision = this.shadowOrOrchestrator('default_enabled');
+    // 5. Orchestrator permanently enabled (FSM is canonical)
+    // All sessions not caught by earlier guards proceed to orchestrator
+    const decision = this.selectOrchestrator('default_enabled');
     logger.debug('Engine selection: orchestrator enabled by default', {
       sessionId,
       userId,
@@ -156,15 +156,13 @@ export class OrchestratorRolloutService {
   }
 
   /**
-   * Returns SHADOW if shadow mode is enabled, otherwise ORCHESTRATOR.
+   * Returns ORCHESTRATOR engine selection.
+   * Shadow mode has been removed as FSM is now the canonical validator.
    *
-   * @param baseReason - The base reason for the decision (will be suffixed with _shadow if applicable)
-   * @returns The appropriate engine selection
+   * @param baseReason - The reason for the decision
+   * @returns The orchestrator engine selection
    */
-  private shadowOrOrchestrator(baseReason: string): RolloutDecision {
-    if (config.featureFlags.orchestrator.shadowModeEnabled) {
-      return { engine: EngineSelection.SHADOW, reason: `${baseReason}_shadow` };
-    }
+  private selectOrchestrator(baseReason: string): RolloutDecision {
     return { engine: EngineSelection.ORCHESTRATOR, reason: baseReason };
   }
 
