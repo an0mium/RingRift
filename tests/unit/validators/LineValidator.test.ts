@@ -32,23 +32,39 @@ describe('LineValidator', () => {
     ...overrides,
   });
 
-  const createMockState = (overrides: Partial<GameState> = {}): GameState =>
-    ({
+  // Helper to create markers for line positions (RR-CANON-R120 requirement)
+  const createMarkersForLines = (lines: FormedLine[]): Map<string, number> => {
+    const markers = new Map<string, number>();
+    for (const line of lines) {
+      for (const pos of line.positions) {
+        markers.set(`${pos.x},${pos.y}`, line.player);
+      }
+    }
+    return markers;
+  };
+
+  const createMockState = (overrides: Partial<GameState> = {}): GameState => {
+    const formedLines = (overrides.board?.formedLines as FormedLine[]) ?? [createFormedLine()];
+    const markers = createMarkersForLines(formedLines);
+
+    return {
       currentPhase: 'line_processing' as GamePhase,
       currentPlayer: 1,
       board: {
         type: 'square8',
         size: 8,
         stacks: new Map(),
-        markers: new Map(),
+        markers,
         collapsedSpaces: new Map(),
         territories: new Map(),
-        formedLines: [createFormedLine()],
+        formedLines,
         eliminatedRings: {},
+        ...(overrides.board ?? {}),
       },
       players: [{ playerNumber: 1 }, { playerNumber: 2 }],
       ...overrides,
-    }) as unknown as GameState;
+    } as unknown as GameState;
+  };
 
   describe('validateProcessLine', () => {
     it('should return valid for correct process line action', () => {

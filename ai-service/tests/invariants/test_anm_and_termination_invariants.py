@@ -21,7 +21,9 @@ if ROOT not in sys.path:
     sys.path.append(ROOT)
 
 from app.models import (  # noqa: E402
+    GamePhase,
     GameStatus,
+    MoveType,
     Player,
     Position,
     RingStack,
@@ -31,9 +33,16 @@ from app.rules import global_actions as ga  # noqa: E402
 from app.rules.global_actions import (  # noqa: E402
     apply_forced_elimination_for_player,
 )
+from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
 from tests.rules.helpers import (  # noqa: E402
     _make_base_game_state,
     _make_place_ring_move,
+)
+from tests.parity.test_anm_global_actions_parity import (  # noqa: E402
+    make_anm_scen01_movement_no_moves_but_fe_available,
+    make_anm_scen02_movement_placements_only,
+    make_anm_scen03_movement_current_player_fully_eliminated,
+    make_anm_scen06_global_stalemate_bare_board,
 )
 
 
@@ -142,8 +151,82 @@ def test_forced_elimination_chain_is_monotone_and_finite() -> None:
         assert outcome.eliminated_count >= 1
         assert state.total_rings_eliminated > total_before
 
+        if state.game_status == GameStatus.ACTIVE:
+            assert ga.is_anm_state(state) is False
+
         total_before = state.total_rings_eliminated
         steps += 1
 
     assert steps > 0
     assert apply_forced_elimination_for_player(state, 1) is None
+
+
+def test_is_anm_state_basic_logical_invariants() -> None:
+    """Basic logical properties of is_anm_state and global action summary."""
+
+    # If a player has no turn material, ANM(state) must be false.
+    state = make_anm_scen03_movement_current_player_fully_eliminated()
+    player = state.current_player
+    summary = ga.global_legal_actions_summary(state, player)
+
+    assert summary.has_turn_material is False
+    assert ga.is_anm_state(state) is False
+
+    # If any global action exists (placement / phase-local / FE), ANM must be
+    # false.
+    state2 = make_anm_scen02_movement_placements_only()
+    player2 = state2.current_player
+    summary2 = ga.global_legal_actions_summary(state2, player2)
+
+    assert (
+        summary2.has_global_placement_action
+        or summary2.has_phase_local_interactive_move
+        or summary2.has_forced_elimination_action
+    )
+    assert ga.is_anm_state(state2) is False
+
+
+def test_global_stalemate_is_terminal_not_anm() -> None:
+    """Only bare-board global stalemate may have an empty global surface."""
+
+    state = make_anm_scen06_global_stalemate_bare_board()
+
+    for player in state.players:
+        summary = ga.global_legal_actions_summary(state, player.player_number)
+        assert summary.has_turn_material is True
+        assert summary.has_global_placement_action is False
+        assert summary.has_phase_local_interactive_move is False
+        assert summary.has_forced_elimination_action is False
+
+    assert ga.is_anm_state(state) is False
+
+    GameEngine._check_victory(state)  # type: ignore[attr-defined]
+
+    assert state.game_status != GameStatus.ACTIVE
+    assert state.current_phase == GamePhase.GAME_OVER
+    assert state.winner in {p.player_number for p in state.players}
+
+
+def test_no_movement_action_sequence_does_not_hit_anm() -> None:
+    """NO_MOVEMENT_ACTION bookkeeping does not leave ANM ACTIVE states."""
+
+    state = make_anm_scen02_movement_placements_only()
+    player = state.current_player
+
+    # Starting shape is not ANM by construction.
+    assert ga.is_anm_state(state) is False
+
+    engine = DefaultRulesEngine(mutator_first=False, skip_shadow_contracts=True)
+    moves = engine.get_valid_moves(state, player)
+
+    assert moves, "Expected at least one bookkeeping move"
+
+    no_move_actions = [
+        m for m in moves if m.type == MoveType.NO_MOVEMENT_ACTION
+    ]
+    assert len(no_move_actions) == 1
+
+    next_state = engine.apply_move(state, no_move_actions[0])
+
+    if next_state.game_status == GameStatus.ACTIVE:
+        assert ga.is_anm_state(next_state) is False

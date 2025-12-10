@@ -1,6 +1,6 @@
 # Recovery Action Implementation Plan
 
-> **Doc Status (2025-12-08): Active – P0, P1, P2, P3 Complete**
+> **Doc Status (2025-12-10): Active – P0, P1, P2, P3 Complete**
 >
 > **Purpose:** Complete implementation plan for the Recovery Action rule feature.
 >
@@ -56,9 +56,11 @@ A player P is eligible for recovery if **ALL** conditions hold:
 - Hexagonal boards: Hex-adjacency (6 directions)
 - Destination must be: valid, empty (no stack/marker), not collapsed
 
-### 1.3 Line Requirement (RR-CANON-R112) – **UPDATED**
+### 1.3 Success Criteria (RR-CANON-R112) – **UPDATED**
 
-The slide is legal **only if** it completes a line of **at least `lineLength`** consecutive markers:
+The slide is legal if **either**: (a) completes a line of **at least `lineLength`** consecutive markers, OR (b) if no line-forming slide exists, any slide that does **not** cause territory disconnection (fallback). Note: Territory disconnection is **not** a valid criterion.
+
+**Line length requirements:**
 
 | Board Type | Players | `lineLength` |
 | ---------- | ------- | ------------ |
@@ -74,11 +76,12 @@ The slide is legal **only if** it completes a line of **at least `lineLength`** 
 
 ### 1.4 Buried Ring Extraction (RR-CANON-R113) – **UPDATED**
 
-| Line Type             | Cost                     |
+| Recovery Type         | Cost                     |
 | --------------------- | ------------------------ |
-| Exact length          | 1 buried ring extraction |
+| Exact length line     | 1 buried ring extraction |
 | Overlength + Option 1 | 1 buried ring extraction |
 | Overlength + Option 2 | 0 (no extraction)        |
+| Fallback slide        | 1 buried ring extraction |
 
 Extraction process:
 

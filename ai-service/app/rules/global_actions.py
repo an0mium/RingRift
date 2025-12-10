@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from app.models import GameState, GameStatus, GamePhase, Position
+from app.models import GameState, GameStatus, GamePhase, MoveType, Position
 from app.game_engine import GameEngine
 
 """
@@ -82,7 +82,27 @@ def has_phase_local_interactive_move(
     state: GameState,
     player: int,
 ) -> bool:
-    """Return True if player has an interactive move in the current phase."""
+    """Return True if player has an interactive move in the current phase.
+
+    Interactive moves exclude host-synthesised ``no_*_action`` bookkeeping
+    moves. This mirrors the TS helper in
+    ``src/shared/engine/globalActions.ts``:
+
+    - ``ring_placement``:
+        ``place_ring`` or ``skip_placement``.
+    - ``movement`` / ``capture`` / ``chain_capture``:
+        movement, capture, or ``recovery_slide`` moves.
+    - ``line_processing``:
+        ``process_line`` or ``choose_line_reward``.
+    - ``territory_processing``:
+        ``process_territory_region``, ``eliminate_rings_from_stack``,
+        ``choose_territory_option``, or ``skip_territory_processing``.
+    - ``forced_elimination``:
+        availability of forced-elimination options for the player.
+
+    For non-active games or non-current players this helper always returns
+    False.
+    """
 
     if state.game_status != GameStatus.ACTIVE:
         return False
@@ -92,45 +112,54 @@ def has_phase_local_interactive_move(
 
     phase = state.current_phase
 
-    if phase == GamePhase.RING_PLACEMENT:
-        # During RING_PLACEMENT, the player ALWAYS has a valid move:
-        # either an interactive PLACE_RING/SKIP_PLACEMENT move,
-        # or a NO_PLACEMENT_ACTION bookkeeping move synthesized by the host.
-        # This prevents false positive ANM (Active No Moves) violations.
-        return True
+    # Forced elimination is its own phase; treat the existence of any FE option
+    # as an interactive choice for this predicate.
+    if phase == GamePhase.FORCED_ELIMINATION:
+        return has_forced_elimination_action(state, player)
 
-    if phase == GamePhase.MOVEMENT:
-        # During MOVEMENT, the player ALWAYS has a valid move:
-        # either an interactive MOVE_STACK/CAPTURE move,
-        # or a NO_MOVEMENT_ACTION bookkeeping move synthesized by the host.
-        # This prevents false positive ANM (Active No Moves) violations.
-        return True
-
-    if phase in (
-        GamePhase.CAPTURE,
-        GamePhase.CHAIN_CAPTURE,
-    ):
-        # CAPTURE and CHAIN_CAPTURE phases only occur when captures are
-        # available, so we check for actual capture moves here.
-        if GameEngine._has_valid_captures(state, player):
-            return True
+    # For other phases, consult the canonical move generator. It returns only
+    # interactive moves; bookkeeping no_* moves are surfaced via
+    # get_phase_requirement / synthesize_bookkeeping_move instead.
+    moves = GameEngine.get_valid_moves(state, player)
+    if not moves:
         return False
 
-    if phase == GamePhase.LINE_PROCESSING:
-        # During LINE_PROCESSING, the player ALWAYS has a valid move:
-        # either an interactive PROCESS_LINE/CHOOSE_LINE_REWARD move,
-        # or a NO_LINE_ACTION bookkeeping move synthesized by the host.
-        # This prevents false positive ANM (Active No Moves) violations.
-        return True
+    if phase == GamePhase.RING_PLACEMENT:
+        interactive_types = {
+            MoveType.PLACE_RING,
+            MoveType.SKIP_PLACEMENT,
+        }
+    elif phase == GamePhase.MOVEMENT:
+        interactive_types = {
+            MoveType.MOVE_STACK,
+            MoveType.MOVE_RING,
+            MoveType.BUILD_STACK,
+            MoveType.OVERTAKING_CAPTURE,
+            MoveType.CONTINUE_CAPTURE_SEGMENT,
+            MoveType.CHAIN_CAPTURE,
+            MoveType.RECOVERY_SLIDE,
+        }
+    elif phase in (GamePhase.CAPTURE, GamePhase.CHAIN_CAPTURE):
+        interactive_types = {
+            MoveType.OVERTAKING_CAPTURE,
+            MoveType.CONTINUE_CAPTURE_SEGMENT,
+        }
+    elif phase == GamePhase.LINE_PROCESSING:
+        interactive_types = {
+            MoveType.PROCESS_LINE,
+            MoveType.CHOOSE_LINE_REWARD,
+        }
+    elif phase == GamePhase.TERRITORY_PROCESSING:
+        interactive_types = {
+            MoveType.PROCESS_TERRITORY_REGION,
+            MoveType.ELIMINATE_RINGS_FROM_STACK,
+            MoveType.CHOOSE_TERRITORY_OPTION,
+            MoveType.SKIP_TERRITORY_PROCESSING,
+        }
+    else:
+        return False
 
-    if phase == GamePhase.TERRITORY_PROCESSING:
-        # During TERRITORY_PROCESSING, the player ALWAYS has a valid move:
-        # either an interactive PROCESS_TERRITORY_REGION move,
-        # or a NO_TERRITORY_ACTION bookkeeping move synthesized by the host.
-        # This prevents false positive ANM violations.
-        return True
-
-    return False
+    return any(move.type in interactive_types for move in moves)
 
 
 def has_forced_elimination_action(state: GameState, player: int) -> bool:

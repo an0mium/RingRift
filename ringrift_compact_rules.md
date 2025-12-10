@@ -178,16 +178,21 @@ However, as long as any stacks remain on the board, it is never legal for the ga
 A player who controls **zero stacks**, has **zero rings in hand**, but has **at least one marker** and **at least one buried ring** (their ring at a non-top position in some stack) may perform a recovery action during the movement phase:
 
 1. **Marker slide:** Move one of your markers to an adjacent empty cell (Moore adjacency for square, hex-adjacency for hex).
-2. **Line requirement:** Legal only if it completes a line of **at least** `lineLength` consecutive markers of your colour. Overlength lines are permitted.
-3. **Overlength line options:** If the line exceeds `lineLength`:
+2. **Success criteria:** Legal if **either**:
+   - **(a) Line formation:** Completes a line of **at least** `lineLength` consecutive markers of your colour.
+   - **(b) Fallback:** If no line-forming slide exists, any slide that **does not** cause territory disconnection.
+   - **Note:** Territory disconnection is **not** a valid criterion for recovery.
+3. **Skip option:** You may skip recovery entirely, preserving buried rings for later.
+4. **Line recovery (condition a):** If the line exceeds `lineLength`:
    - **Option 1:** Collapse all markers and pay self-elimination (one buried ring extraction).
    - **Option 2:** Collapse exactly `lineLength` consecutive markers of your choice **without** paying self-elimination.
-4. **Buried ring extraction:** For exact-length lines (or Option 1 on overlength), extract your bottommost ring from any stack containing your buried rings:
+5. **Fallback recovery (condition b):** Costs one buried ring extraction, no line processing.
+6. **Buried ring extraction:** Extract your bottommost ring from any stack containing your buried rings:
    - Ring is permanently eliminated (credited to you).
    - Stack height decreases by 1; control determined by new top ring.
-5. **Cascade processing:** If line collapse creates territory regions, process normally. Each territory's self-elimination cost requires extracting another buried ring from a stack **outside** that region. If no buried rings remain outside claimable regions, those territories cannot be claimed.
+7. **Cascade processing (line recovery only):** If line collapse creates territory regions, process normally. Each territory's self-elimination cost requires extracting another buried ring from a stack **outside** that region. If no buried rings remain outside claimable regions, those territories cannot be claimed.
 
-Move type: `recovery_slide`.
+Move types: `recovery_slide` (with `recoveryMode: 'line' | 'fallback'`), `skip_recovery`.
 
 ---
 

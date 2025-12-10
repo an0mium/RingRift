@@ -1233,13 +1233,16 @@ export function processTurn(
   ) {
     state = { ...state, currentPhase: 'ring_placement' as GamePhase };
   } else if (
-    // Replay-tolerance for TS/Python parity: When in territory_processing and
-    // a placement move comes in for a different player, this indicates Python
-    // completed the turn via no_territory_action but TS's post-move processing
-    // didn't run. Coerce to ring_placement and update the current player.
-    // This handles cases where Python's phase machine implicitly advanced.
+    // Replay-tolerance for TS/Python parity: When in territory_processing, movement,
+    // line_processing, or ring_placement and a placement move comes in for a different
+    // player, this indicates Python skipped intermediate players (who had no turn-material)
+    // and advanced to the next active player. Coerce to ring_placement and update the
+    // current player. This handles RR-CANON-R073 turn rotation and player-skip semantics.
     state.gameStatus === 'active' &&
-    state.currentPhase === 'territory_processing' &&
+    (state.currentPhase === 'territory_processing' ||
+      state.currentPhase === 'movement' ||
+      state.currentPhase === 'line_processing' ||
+      state.currentPhase === 'ring_placement') &&
     (move.type === 'place_ring' ||
       move.type === 'skip_placement' ||
       move.type === 'no_placement_action') &&
@@ -1290,19 +1293,23 @@ export function processTurn(
     // move comes in from the next player (due to async state synchronization), coerce back to
     // the appropriate phase and player. This happens when sandbox AI enumerates moves before
     // the orchestrator has fully advanced through all post-move phases.
+    // Also handles no_movement_action for TS/Python parity: when Python's turn rotation advances
+    // past territory_processing but TS's post-move phases didn't run (RR-CANON-R073).
     state.gameStatus === 'active' &&
     state.currentPhase === 'territory_processing' &&
     (move.type === 'overtaking_capture' ||
       move.type === 'continue_capture_segment' ||
       move.type === 'move_stack' ||
-      move.type === 'move_ring')
+      move.type === 'move_ring' ||
+      move.type === 'no_movement_action')
   ) {
     const targetPhase =
       move.type === 'continue_capture_segment'
         ? 'chain_capture'
         : move.type === 'overtaking_capture' ||
             move.type === 'move_stack' ||
-            move.type === 'move_ring'
+            move.type === 'move_ring' ||
+            move.type === 'no_movement_action'
           ? 'movement'
           : state.currentPhase;
     // Also coerce the currentPlayer to match the move's player if they differ

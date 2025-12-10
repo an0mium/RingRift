@@ -22,19 +22,33 @@ import type { Position, BoardType } from '../../src/shared/types/game';
 // Helper to create a position
 const pos = (x: number, y: number): Position => ({ x, y });
 
+// Helper to create markers for line positions (RR-CANON-R120 requirement)
+function makeMarkersForLines(lines: FormedLine[]): Map<string, number> {
+  const markers = new Map<string, number>();
+  for (const line of lines) {
+    for (const p of line.positions) {
+      markers.set(`${p.x},${p.y}`, line.player);
+    }
+  }
+  return markers;
+}
+
 // Helper to create a minimal game state for testing
 function makeGameState(overrides: Partial<GameState> = {}): GameState {
   // Use square19 board type because lineLength=4, matching our test lines.
   // square8 has lineLength=3, so 4+ position lines would have different validation.
+  const formedLines = (overrides.board?.formedLines as FormedLine[]) ?? [];
+  const markers = makeMarkersForLines(formedLines);
+
   const defaultState: GameState = {
     id: 'test-game',
     board: {
       type: 'square19' as BoardType,
       size: 19,
       stacks: new Map(),
-      markers: new Map(),
+      markers,
       collapsedSpaces: new Map(),
-      formedLines: [],
+      formedLines,
       territories: new Map(),
       eliminatedRings: { 1: 0, 2: 0 },
     },
@@ -74,6 +88,13 @@ function makeGameState(overrides: Partial<GameState> = {}): GameState {
   return { ...defaultState, ...overrides } as GameState;
 }
 
+// Helper to set formedLines AND auto-populate markers (RR-CANON-R120)
+function setLinesWithMarkers(state: GameState, lines: FormedLine[]): void {
+  state.board.formedLines = lines;
+  // Clear and repopulate markers
+  state.board.markers = makeMarkersForLines(lines);
+}
+
 // Helper to create a formed line
 function makeFormedLine(player: number, positions: Position[]): FormedLine {
   return {
@@ -101,7 +122,9 @@ describe('LineValidator branch coverage', () => {
 
       it('accepts when in line_processing phase', () => {
         const state = makeGameState({ currentPhase: 'line_processing' });
-        state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ProcessLineAction = {
           type: 'process_line',
           playerId: 1,
@@ -116,7 +139,9 @@ describe('LineValidator branch coverage', () => {
     describe('turn check', () => {
       it('rejects when it is not the acting player turn', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ProcessLineAction = {
           type: 'process_line',
           playerId: 2,
@@ -132,7 +157,9 @@ describe('LineValidator branch coverage', () => {
     describe('line index bounds', () => {
       it('rejects negative line index', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ProcessLineAction = {
           type: 'process_line',
           playerId: 1,
@@ -146,7 +173,9 @@ describe('LineValidator branch coverage', () => {
 
       it('rejects line index >= formedLines.length', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ProcessLineAction = {
           type: 'process_line',
           playerId: 1,
@@ -160,10 +189,10 @@ describe('LineValidator branch coverage', () => {
 
       it('accepts valid line index at boundary', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
           makeFormedLine(1, [pos(0, 1), pos(1, 1), pos(2, 1), pos(3, 1)]),
-        ];
+        ]);
         const action: ProcessLineAction = {
           type: 'process_line',
           playerId: 1,
@@ -178,7 +207,9 @@ describe('LineValidator branch coverage', () => {
     describe('line ownership', () => {
       it('rejects processing opponent line', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         state.currentPlayer = 1;
         const action: ProcessLineAction = {
           type: 'process_line',
@@ -213,7 +244,9 @@ describe('LineValidator branch coverage', () => {
     describe('turn check', () => {
       it('rejects when it is not the acting player turn', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 2, // Not current player
@@ -261,7 +294,9 @@ describe('LineValidator branch coverage', () => {
     describe('line ownership', () => {
       it('rejects processing opponent line', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(2, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -279,7 +314,9 @@ describe('LineValidator branch coverage', () => {
       it('rejects MINIMUM_COLLAPSE for exact length line', () => {
         const state = makeGameState();
         // For square19, minimum line length is 4
-        state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -295,7 +332,9 @@ describe('LineValidator branch coverage', () => {
 
       it('accepts COLLAPSE_ALL for exact length line', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -312,9 +351,9 @@ describe('LineValidator branch coverage', () => {
       it('rejects when collapsedPositions is missing', () => {
         const state = makeGameState();
         // 5-space line (> minimum of 4)
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -330,9 +369,9 @@ describe('LineValidator branch coverage', () => {
 
       it('rejects when position count is wrong', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -348,9 +387,9 @@ describe('LineValidator branch coverage', () => {
 
       it('rejects when position is not part of line', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -366,9 +405,9 @@ describe('LineValidator branch coverage', () => {
 
       it('rejects non-consecutive positions', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -384,9 +423,9 @@ describe('LineValidator branch coverage', () => {
 
       it('accepts valid consecutive positions', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -401,9 +440,9 @@ describe('LineValidator branch coverage', () => {
 
       it('accepts positions in any order as long as consecutive in line', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -421,9 +460,9 @@ describe('LineValidator branch coverage', () => {
     describe('COLLAPSE_ALL validation', () => {
       it('accepts COLLAPSE_ALL for longer line', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0), pos(5, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -437,9 +476,9 @@ describe('LineValidator branch coverage', () => {
 
       it('accepts COLLAPSE_ALL without collapsedPositions', () => {
         const state = makeGameState();
-        state.board.formedLines = [
+        setLinesWithMarkers(state, [
           makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0), pos(4, 0)]),
-        ];
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,
@@ -456,7 +495,9 @@ describe('LineValidator branch coverage', () => {
     describe('edge cases', () => {
       it('handles line with all positions collapsed', () => {
         const state = makeGameState();
-        state.board.formedLines = [makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)])];
+        setLinesWithMarkers(state, [
+          makeFormedLine(1, [pos(0, 0), pos(1, 0), pos(2, 0), pos(3, 0)]),
+        ]);
         const action: ChooseLineRewardAction = {
           type: 'choose_line_reward',
           playerId: 1,

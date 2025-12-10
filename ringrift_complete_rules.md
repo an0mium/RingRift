@@ -580,22 +580,31 @@ A **recovery action** allows a player who has been temporarily eliminated (no st
 
 • **Marker Slide:** The player moves one of their markers to an adjacent empty cell (using Moore neighbourhood adjacency for square boards, or hex-adjacency for hexagonal boards).
 
-• **Line Requirement:** The marker slide is legal **only if** it completes a line of **at least** `lineLength` consecutive markers of the player's colour. The slide must create the line; it cannot merely extend or modify an existing line. (For `lineLength`, use the same threshold as for normal line processing: 4 for 8×8 2-player, 3 for 8×8 3–4 player, 4 for 19×19 and Hex.)
+• **Success Criteria:** A recovery marker slide is legal if **either** of these conditions is satisfied:
 
-• **Overlength Lines:** If the completed line is longer than the minimum required length, the player chooses between:
+- **(a) Line formation:** The slide completes a line of **at least** `lineLength` consecutive markers of the player's colour. The slide must create the line; it cannot merely extend or modify an existing line. (For `lineLength`, use the same threshold as for normal line processing: 4 for 8×8 2-player, 3 for 8×8 3–4 player, 4 for 19×19 and Hex.)
+- **(b) Fallback repositioning:** If no slide satisfies condition (a), any adjacent slide that **does not** cause territory disconnection is permitted.
+
+• **Note:** Territory disconnection is **not** a valid criterion for recovery. Territory may be disconnected as a side effect of line formation, but cannot be the primary reason for a recovery slide.
+
+• **Skip Option:** The player may elect to skip recovery entirely, preserving buried rings for a future turn.
+
+• **Line Recovery (Condition a):** If the completed line is longer than the minimum required length, the player chooses between:
 
 - **Option 1:** Collapse all markers in the line to territory and pay the self-elimination cost (one buried ring extraction).
 - **Option 2:** Collapse exactly `lineLength` consecutive markers of the player's choice to territory **without** paying any self-elimination cost. The remaining markers stay on the board.
   This mirrors normal line reward semantics and increases the strategic value of recovery actions.
 
-• **Buried Ring Extraction (Self-Elimination Payment):** To pay the mandatory self-elimination cost for the line collapse:
+• **Fallback Recovery (Condition b):** If no line-forming slide exists, the player may slide any marker to an adjacent empty cell, provided the slide does not cause territory disconnection. This costs one buried ring extraction but does not trigger line processing.
+
+• **Buried Ring Extraction (Self-Elimination Payment):** To pay the self-elimination cost:
 
 - The player selects any stack containing at least one of their buried rings.
 - The player's **bottommost ring** in that stack is extracted and permanently eliminated (removed from the game and credited to the player's eliminated rings total).
 - The stack's height decreases by 1. Remaining rings shift down. Stack control is determined by the new top ring.
 - If the stack becomes empty, it is removed from the board.
 
-• **Cascade Processing:** If the line collapse creates disconnected territory regions (per Section 12), process them normally:
+• **Cascade Processing (Line Recovery Only):** If the line collapse creates disconnected territory regions (per Section 12), process them normally:
 
 - For each territory region the player chooses to claim, all rings inside are eliminated (credited to the player).
 - For each territory's self-elimination cost, the player must extract another buried ring from a stack **outside** that region.
@@ -603,7 +612,7 @@ A **recovery action** allows a player who has been temporarily eliminated (no st
 
 • **Victory Check:** After all processing, check victory conditions as normal. A well-positioned recovery action can trigger dramatic comebacks, potentially winning the game through ring elimination or territory thresholds.
 
-• **Phase and Recording:** Recovery action is recorded as move type `recovery_slide` with the marker's original position, destination, and the stack from which the buried ring was extracted.
+• **Phase and Recording:** Recovery action is recorded as move type `recovery_slide` with the marker's original position, destination, the stack from which the buried ring was extracted, and `recoveryMode` indicating which criterion was met ('line' or 'fallback'). Skip recovery is recorded as `skip_recovery`.
 
 • **Strategic Note:** Recovery actions transform temporarily eliminated players from passive spectators into latent threats. Buried rings become a strategic resource, and marker placement during active play gains importance even in losing positions.
 

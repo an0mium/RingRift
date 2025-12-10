@@ -742,7 +742,13 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
 
     // Skip redundant no_line_action moves recorded during phases where line processing
     // doesn't occur (e.g., chain_capture). These are legacy recording artifacts.
-    if (move.type === 'no_line_action' && currentState.currentPhase !== 'line_processing') {
+    // IMPORTANT: Only skip if the move is for the SAME player as current state.
+    // If the move is for a different player, we need to apply it to trigger turn rotation.
+    if (
+      move.type === 'no_line_action' &&
+      move.player === currentState.currentPlayer &&
+      currentState.currentPhase !== 'line_processing'
+    ) {
       // eslint-disable-next-line no-console
       console.log(
         JSON.stringify({
@@ -759,8 +765,11 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     // Skip redundant no_movement_action moves recorded during phases where movement
     // doesn't occur (e.g., territory_processing, line_processing). These are legacy
     // recording artifacts from older Python versions.
+    // IMPORTANT: Only skip if the move is for the SAME player as current state.
+    // If the move is for a different player, we need to apply it to trigger turn rotation.
     if (
       move.type === 'no_movement_action' &&
+      move.player === currentState.currentPlayer &&
       currentState.currentPhase !== 'movement' &&
       currentState.currentPhase !== 'capture' &&
       currentState.currentPhase !== 'chain_capture'

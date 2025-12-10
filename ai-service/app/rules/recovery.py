@@ -49,9 +49,9 @@ RecoveryOption = Literal[1, 2]
 
 # Recovery mode type alias (which success criterion was met per RR-CANON-R112)
 # - "line": Condition (a) - completes a line of at least lineLength markers
-# - "territory": Condition (b) - causes territory disconnection
-# - "fallback": Condition (c) - no line or territory, but any adjacent slide is legal
-RecoveryMode = Literal["line", "territory", "fallback"]
+# - "fallback": Condition (b) - no line available, but any adjacent slide is legal
+# Note: Territory disconnection was removed as a recovery criterion
+RecoveryMode = Literal["line", "fallback"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -113,26 +113,23 @@ class EligibleExtractionStack:
 @dataclass
 class ExpandedRecoveryTarget:
     """
-    An expanded recovery target supporting all three success criteria (RR-CANON-R112).
+    An expanded recovery target supporting line and fallback criteria (RR-CANON-R112).
 
     This replaces RecoverySlideTarget for the expanded recovery rules.
+    Note: Territory disconnection was removed as a recovery criterion.
     """
 
     from_pos: Position
     to_pos: Position
-    recovery_mode: RecoveryMode  # "line", "territory", or "fallback"
+    recovery_mode: RecoveryMode  # "line" or "fallback"
 
     # Line recovery fields (mode == "line")
     markers_in_line: int = 0
     is_overlength: bool = False
     line_positions: List[Position] = field(default_factory=list)
 
-    # Territory recovery fields (mode == "territory")
-    disconnected_region_count: int = 0
-
     # Cost information
     # - Line: Option 1 = 1, Option 2 (overlength only) = 0
-    # - Territory: 1 per region claimed
     # - Fallback: 1
     min_cost: int = 1  # Minimum buried rings needed
 
@@ -592,11 +589,11 @@ def enumerate_expanded_recovery_targets(
 
     A recovery slide is legal if ANY of these conditions are satisfied:
     (a) Line formation: Completes a line of at least lineLength markers
-    (b) Territory disconnection: Causes at least one territory region to disconnect
-    (c) Fallback repositioning: If no slide satisfies (a) or (b), any slide is legal
+    (b) Fallback repositioning: If no slide satisfies (a), any slide is legal
 
-    This function first finds all line and territory recovery options, then
-    adds fallback options if no better options exist.
+    Note: Territory disconnection is NOT a recovery criterion. Territory may be
+    disconnected as a side effect of line formation, but cannot be the primary
+    reason for a recovery slide.
 
     Args:
         state: Current game state
@@ -619,8 +616,8 @@ def enumerate_expanded_recovery_targets(
         if marker.player == player:
             player_marker_positions.append(marker.position)
 
-    # Check each marker for line or territory recovery
-    has_line_or_territory = False
+    # Check each marker for line recovery
+    has_line_recovery = False
 
     for marker_pos in player_marker_positions:
         directions = _get_moore_directions(board.type)
@@ -648,7 +645,7 @@ def enumerate_expanded_recovery_targets(
                 board, player, to_pos, line_length
             )
 
-            # Restore marker for territory check
+            # Restore marker
             del board.markers[to_pos.to_key()]
             board.markers[marker_pos.to_key()] = original_marker
 
@@ -672,37 +669,26 @@ def enumerate_expanded_recovery_targets(
                             min_cost=min_cost,
                         )
                     )
-                    has_line_or_territory = True
-                continue  # Line recovery found, don't check territory for this slide
+                    has_line_recovery = True
 
-            # Check for territory disconnection (condition b)
-            causes_disconnect, region_count = _would_cause_territory_disconnection(
-                board, player, marker_pos, to_pos
+    # If no line recovery options exist, add fallback options (condition b)
+    # Fallback slides must NOT cause territory disconnection
+    if not has_line_recovery and buried_ring_count >= 1:
+        for from_pos, to_pos in all_valid_slides:
+            # Check if this slide would cause territory disconnection
+            causes_disconnect, _ = _would_cause_territory_disconnection(
+                board, player, from_pos, to_pos
             )
-
-            if causes_disconnect and buried_ring_count >= 1:
+            # Only allow fallback moves that don't disconnect territory
+            if not causes_disconnect:
                 targets.append(
                     ExpandedRecoveryTarget(
-                        from_pos=marker_pos,
+                        from_pos=from_pos,
                         to_pos=to_pos,
-                        recovery_mode="territory",
-                        disconnected_region_count=region_count,
-                        min_cost=1,  # At least 1 for first region
+                        recovery_mode="fallback",
+                        min_cost=1,
                     )
                 )
-                has_line_or_territory = True
-
-    # If no line or territory recovery options exist, add fallback options (condition c)
-    if not has_line_or_territory and buried_ring_count >= 1:
-        for from_pos, to_pos in all_valid_slides:
-            targets.append(
-                ExpandedRecoveryTarget(
-                    from_pos=from_pos,
-                    to_pos=to_pos,
-                    recovery_mode="fallback",
-                    min_cost=1,
-                )
-            )
 
     return targets
 
@@ -714,9 +700,11 @@ def has_any_recovery_move(state: GameState, player: int) -> bool:
     This is an optimized check that can short-circuit early.
 
     Uses the expanded recovery criteria (RR-CANON-R112):
-    (a) Line formation
-    (b) Territory disconnection
-    (c) Fallback repositioning (always available if buried rings exist)
+    (a) Line formation - completes a line of lineLength markers
+    (b) Fallback repositioning - if no line available, any slide that doesn't
+        cause territory disconnection
+
+    Note: Territory disconnection is NOT a valid recovery criterion.
 
     Args:
         state: Current game state
@@ -729,20 +717,54 @@ def has_any_recovery_move(state: GameState, player: int) -> bool:
     if not is_eligible_for_recovery(state, player):
         return False
 
-    # With expanded rules, if player has buried rings and markers,
-    # they can always do fallback recovery (condition c)
     buried_ring_count = count_buried_rings(state.board, player)
-    if buried_ring_count >= 1:
-        # Check if there's at least one valid slide destination
-        for pos_key, marker in state.board.markers.items():
-            if marker.player == player:
-                directions = _get_moore_directions(state.board.type)
-                for direction in directions:
-                    to_pos = _add_direction(marker.position, direction, 1)
-                    if _can_marker_slide_to(state.board, marker.position, to_pos, player):
-                        return True  # Fallback recovery is always available
+    if buried_ring_count < 1:
+        return False
 
-    return False
+    board = state.board
+    line_length = get_effective_line_length(board.type, len(state.players))
+    has_line_recovery = False
+    valid_fallback_exists = False
+
+    # Check for line recovery or valid fallback
+    for pos_key, marker in board.markers.items():
+        if marker.player != player:
+            continue
+
+        directions = _get_moore_directions(board.type)
+        for direction in directions:
+            to_pos = _add_direction(marker.position, direction, 1)
+            if not _can_marker_slide_to(board, marker.position, to_pos, player):
+                continue
+
+            # Check for line formation
+            original_marker = board.markers.get(marker.position.to_key())
+            del board.markers[marker.position.to_key()]
+            board.markers[to_pos.to_key()] = MarkerInfo(
+                position=to_pos,
+                player=player,
+                type="regular",
+            )
+
+            completes, _, _ = _would_complete_line_at(board, player, to_pos, line_length)
+
+            # Restore marker
+            del board.markers[to_pos.to_key()]
+            board.markers[marker.position.to_key()] = original_marker
+
+            if completes:
+                return True  # Line recovery found
+
+            # Check if this could be a valid fallback (no territory disconnect)
+            if not valid_fallback_exists:
+                causes_disconnect, _ = _would_cause_territory_disconnection(
+                    board, player, marker.position, to_pos
+                )
+                if not causes_disconnect:
+                    valid_fallback_exists = True
+
+    # If no line recovery, but a valid fallback exists
+    return valid_fallback_exists
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1164,10 +1186,13 @@ def get_expanded_recovery_moves(state: GameState, player: int) -> List[Move]:
     Get all valid recovery moves using the expanded criteria (RR-CANON-R112).
 
     This includes:
-    - Line recovery moves (condition a)
-    - Territory disconnection recovery moves (condition b)
-    - Fallback repositioning moves (condition c)
+    - Line recovery moves (condition a) - forms a line of lineLength markers
+    - Fallback repositioning moves (condition b) - if no line available
     - Skip recovery option (pass turn without action)
+
+    Note: Territory disconnection is NOT a recovery criterion. Territory may be
+    disconnected as a side effect of line formation, but cannot be the primary
+    reason for a recovery slide.
 
     Args:
         state: Current game state
@@ -1229,15 +1254,6 @@ def get_expanded_recovery_moves(state: GameState, player: int) -> List[Move]:
                         **base_kwargs,
                     )
                 )
-
-        elif target.recovery_mode == "territory":
-            # Territory disconnection recovery
-            moves.append(
-                Move(
-                    recoveryMode="territory",
-                    **base_kwargs,
-                )
-            )
 
         elif target.recovery_mode == "fallback":
             # Fallback repositioning

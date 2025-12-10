@@ -48,6 +48,14 @@ import { isEligibleForRecovery, countBuriedRings } from '../playerStateHelpers';
 export type RecoveryOption = 1 | 2;
 
 /**
+ * Recovery mode type - which success criterion was met (RR-CANON-R112).
+ * - "line": Condition (a) - completes a line of at least lineLength markers
+ * - "fallback": Condition (b) - no line available, any adjacent slide that doesn't disconnect territory
+ * Note: Territory disconnection is NOT a valid recovery criterion.
+ */
+export type RecoveryMode = 'line' | 'fallback';
+
+/**
  * A valid recovery slide move.
  */
 export interface RecoverySlideMove extends Move {
@@ -58,7 +66,13 @@ export interface RecoverySlideMove extends Move {
   /** Adjacent destination (empty cell) */
   to: Position;
   /**
-   * Which option to use for overlength lines.
+   * Which recovery criterion was satisfied (RR-CANON-R112).
+   * - "line": Completed a line of lineLength markers
+   * - "fallback": No line available, repositioning without territory disconnection
+   */
+  recoveryMode?: RecoveryMode;
+  /**
+   * Which option to use for overlength lines (line mode only).
    * - Option 1: Collapse all markers, pay 1 buried ring
    * - Option 2: Collapse exactly lineLength markers, pay 0 (free)
    * Required for overlength lines. For exact-length lines, this is ignored (always Option 1).
@@ -71,8 +85,9 @@ export interface RecoverySlideMove extends Move {
   collapsePositions?: Position[];
   /**
    * Stacks from which to extract buried rings for self-elimination cost.
-   * - For Option 1: Length must be 1
-   * - For Option 2: Length must be 0 (empty array)
+   * - For line mode Option 1: Length must be 1
+   * - For line mode Option 2: Length must be 0 (empty array)
+   * - For fallback mode: Length must be 1
    * Each string is a position key (e.g., "3,4").
    */
   extractionStacks: string[];
@@ -226,9 +241,12 @@ export function enumerateRecoverySlideTargets(
  * This is a quick check for LPS purposes - returns true if at least one
  * recovery slide is available.
  *
- * Cost Model (Option 1 / Option 2):
- * - Exact-length: need 1 buried ring for Option 1
- * - Overlength: Option 2 is free, so always legal
+ * Uses the expanded recovery criteria (RR-CANON-R112):
+ * (a) Line formation - completes a line of lineLength markers
+ * (b) Fallback repositioning - if no line available, any slide that doesn't
+ *     cause territory disconnection
+ *
+ * Note: Territory disconnection is NOT a valid recovery criterion.
  *
  * @param state - Current game state
  * @param playerNumber - Player to check
@@ -240,10 +258,15 @@ export function hasAnyRecoveryMove(state: GameState, playerNumber: number): bool
     return false;
   }
 
+  const buriedRingCount = countBuriedRings(state.board, playerNumber);
+  if (buriedRingCount < 1) {
+    return false;
+  }
+
   // Use early-exit enumeration
   const lineLength = getEffectiveLineLengthThreshold(state.board.type, state.players.length);
-  const buriedRingCount = countBuriedRings(state.board, playerNumber);
   const directions = getAdjacencyDirections(state.board.type);
+  let validFallbackExists = false;
 
   for (const [posKey, marker] of state.board.markers) {
     if (marker.player !== playerNumber) continue;
@@ -262,18 +285,21 @@ export function hasAnyRecoveryMove(state: GameState, playerNumber: number): bool
       const formedLineLength = lineInfo.length;
 
       if (formedLineLength >= lineLength) {
-        const isOverlength = formedLineLength > lineLength;
+        // Line recovery found
+        return true;
+      }
 
-        // For exact-length: need 1 buried ring (Option 1 only)
-        // For overlength: Option 2 is free, so always legal
-        if (isOverlength || buriedRingCount >= 1) {
-          return true; // Early exit
-        }
+      // Check if this could be a valid fallback (no territory disconnect)
+      // TODO: Add territory disconnection check when implemented
+      // For now, we assume all non-line slides are valid fallbacks
+      if (!validFallbackExists) {
+        validFallbackExists = true;
       }
     }
   }
 
-  return false;
+  // If no line recovery found, but valid fallback exists
+  return validFallbackExists;
 }
 
 /**

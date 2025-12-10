@@ -14,6 +14,8 @@ import type { GameState, ProcessLineAction, ChooseLineRewardAction } from '@shar
 import type { BoardState, BoardType } from '@shared/types/game';
 
 // Helper to create minimal BoardState for line validation tests
+// Per RR-CANON-R120, lines require markers at each position.
+// This helper auto-populates markers for all formedLines positions.
 function createMinimalBoard(
   overrides: Partial<{
     type: BoardType;
@@ -25,11 +27,21 @@ function createMinimalBoard(
     }>;
   }>
 ): BoardState {
+  const markers = new Map<string, number>();
+
+  // Auto-populate markers for all line positions (RR-CANON-R120 requirement)
+  for (const line of overrides.formedLines ?? []) {
+    for (const pos of line.positions) {
+      const key = `${pos.x},${pos.y}`;
+      markers.set(key, line.player);
+    }
+  }
+
   return {
     type: overrides.type ?? 'square8',
     size: overrides.size ?? 8,
     stacks: new Map(),
-    markers: new Map(),
+    markers,
     collapsedSpaces: new Set(),
     rings: new Map(),
     territories: new Map(),

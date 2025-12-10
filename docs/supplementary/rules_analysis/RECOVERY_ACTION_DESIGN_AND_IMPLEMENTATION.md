@@ -71,21 +71,30 @@ The destination cell must be:
 - Within board bounds
 - Empty (no stack, no marker, not collapsed territory)
 
-### RR-CANON-R112: Line Requirement
+### RR-CANON-R112: Success Criteria
 
-A marker slide is **legal only if** it completes a line of **at least** `lineLength` consecutive markers of P's color:
+A marker slide is legal if **either** of these conditions is satisfied:
+
+- **(a) Line formation:** Completes a line of **at least** `lineLength` consecutive markers of P's color
+- **(b) Fallback repositioning:** If no slide satisfies (a), any slide that **does not** cause territory disconnection
+
+**Note:** Territory disconnection is **not** a valid criterion for recovery. Territory may be disconnected as a side effect of line formation, but cannot be the primary reason for a recovery slide.
+
+**Skip option:** P may elect to skip recovery entirely, preserving buried rings for a future turn.
+
+**Line length requirements:**
 
 - `lineLength = 3` for 8×8 (3-4 player) or as configured
 - `lineLength = 4` for 19×19, hexagonal, and 8×8 (2-player)
 
-The slid marker, in its new position, must participate in the completed line.
-
-**Overlength lines are permitted.** When an overlength line is formed, the player chooses between:
+**Line recovery (condition a):** The slid marker, in its new position, must participate in the completed line. Overlength lines are permitted. When an overlength line is formed, the player chooses between:
 
 - **Option 1:** Collapse all markers in the line to territory and pay the self-elimination cost (one buried ring extraction).
 - **Option 2:** Collapse exactly `lineLength` consecutive markers of the player's choice to territory **without** paying any self-elimination cost. The remaining markers stay on the board.
 
-This mirrors normal line reward semantics (RR-CANON-R130–R134), ensuring consistency and increasing the strategic value of recovery actions.
+This mirrors normal line reward semantics (RR-CANON-R130–R134).
+
+**Fallback recovery (condition b):** If no line-forming slide exists, P may slide any marker to an adjacent empty cell, provided the slide does not cause territory disconnection. This costs one buried ring extraction but does not trigger line processing.
 
 ### RR-CANON-R113: Buried Ring Extraction Cost
 
@@ -457,14 +466,14 @@ A player P is eligible for recovery if ALL hold:
 **RR-CANON-R111: Marker Slide**
 Slide one marker to an adjacent empty cell (Moore for square, hex-adjacent for hex).
 
-**RR-CANON-R112: Line Requirement**
-Slide is legal only if it completes a line of ≥ `lineLength` consecutive markers.
+**RR-CANON-R112: Success Criteria**
+Slide is legal if **either**: (a) completes a line of ≥ `lineLength` consecutive markers, OR (b) if no line-forming slide exists, any slide that does **not** cause territory disconnection (fallback). Note: Territory disconnection is **not** a valid criterion.
 
 **RR-CANON-R113: Buried Ring Cost**
-Cost = 1 + max(0, actualLineLength - lineLength)
+For line formation: Cost = 1 + max(0, actualLineLength - lineLength). Fallback slides cost 1 buried ring.
 
 **RR-CANON-R114: Cascade Processing**
-After slide: collapse line → extract buried ring(s) → territory cascade → victory check
+For line formation: collapse line → extract buried ring(s) → territory cascade → victory check. Fallback slides only extract 1 buried ring (no line collapse).
 
 **RR-CANON-R115: Recording & LPS**
 

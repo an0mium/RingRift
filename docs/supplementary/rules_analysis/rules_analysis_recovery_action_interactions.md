@@ -1,6 +1,6 @@
 # Recovery Action Interactions Analysis
 
-> **Doc Status (2025-12-08): Active (derived analysis)**
+> **Doc Status (2025-12-10): Active (derived analysis)**
 >
 > **Purpose:** Detailed analysis of how recovery action interacts with other game systems and its impact on game balance.
 >
@@ -17,7 +17,12 @@
 3. They have at least one **marker** on the board
 4. They have **buried rings** in opponent-controlled stacks
 
-**Action:** Slide one marker to an adjacent empty cell. Legal **only if** it completes a line of **at least** `lineLength` consecutive markers.
+**Action:** Slide one marker to an adjacent empty cell. Legal if **either**:
+
+- **(a) Line formation:** Completes a line of **at least** `lineLength` consecutive markers
+- **(b) Fallback:** If no line-forming slide exists, any slide that **does not** cause territory disconnection
+
+**Note:** Territory disconnection is **not** a valid criterion for recovery.
 
 **Overlength Lines:** Overlength lines (longer than `lineLength`) **are permitted**. When an overlength line is formed, the player chooses:
 
@@ -125,8 +130,8 @@ Global Legal Actions = {
 
 **Critical Distinction:** Having markers + buried rings is NECESSARY but NOT SUFFICIENT for recovery:
 
-- Must also have a valid marker slide that completes at least `lineLength` AND sufficient buried rings to pay the cost
-- If no such slide exists (or insufficient buried rings for any valid slide), player has no global legal actions → effectively fully eliminated
+- Must also have either (a) a valid marker slide that completes at least `lineLength` with sufficient buried rings for cost, OR (b) any slide that does not cause territory disconnection
+- If no such slide exists, player has no global legal actions → effectively fully eliminated
 
 **ANM Invariant:**
 
@@ -168,7 +173,7 @@ function shouldSkipPlayer(state: GameState, playerNumber: number): boolean {
 **Implications:**
 
 - Turn rotation must enumerate recovery moves to determine if player is skipped
-- Player's "alive" status depends on board geometry (can they form ≥`lineLength`?) AND buried ring count (can they afford the cost?)
+- Player's "alive" status depends on board geometry (can they form line or fallback slide?) AND buried ring count for line cost
 - Multi-player games: "eliminated" players may remain active via recovery
 
 ---
@@ -356,17 +361,17 @@ def get_legal_moves(state: GameState, player: int) -> List[Move]:
 
 ## 4. Edge Cases
 
-| Scenario                                                    | Outcome                                                             |
-| ----------------------------------------------------------- | ------------------------------------------------------------------- |
-| Recovery slide lands on opponent marker                     | **Illegal** - must land on empty cell                               |
-| Recovery creates disconnected region                        | Process line collapse → check regions → territory cascade           |
-| Recovery extracts ring, emptying stack                      | Stack removed; may create new disconnected regions                  |
-| Player has markers but no valid slide forming ≥`lineLength` | No recovery available; treated as fully eliminated for turn         |
-| Overlength line but insufficient buried rings               | That specific slide is **illegal**; try other slides or no recovery |
-| Recovery during line processing phase                       | **Illegal** - recovery only during movement phase                   |
-| Multiple buried rings in same stack                         | Can extract from any; bottommost ring of player's colour extracted  |
-| Recovery + territory cascade exhausts all buried rings      | Recovery completes; further claims impossible                       |
-| Line of 5 with `lineLength = 3`, player has 2 buried rings  | **Illegal** - needs 3 buried rings (1 + 2 overlength)               |
+| Scenario                                                       | Outcome                                                             |
+| -------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Recovery slide lands on opponent marker                        | **Illegal** - must land on empty cell                               |
+| Recovery creates disconnected region                           | Process line collapse → check regions → territory cascade           |
+| Recovery extracts ring, emptying stack                         | Stack removed; may create new disconnected regions                  |
+| Player has markers but no valid line-forming or fallback slide | No recovery available; treated as fully eliminated for turn         |
+| Overlength line but insufficient buried rings                  | That specific slide is **illegal**; try other slides or no recovery |
+| Recovery during line processing phase                          | **Illegal** - recovery only during movement phase                   |
+| Multiple buried rings in same stack                            | Can extract from any; bottommost ring of player's colour extracted  |
+| Recovery + territory cascade exhausts all buried rings         | Recovery completes; further claims impossible                       |
+| Line of 5 with `lineLength = 3`, player has 2 buried rings     | **Illegal** - needs 3 buried rings (1 + 2 overlength)               |
 
 ---
 
@@ -374,7 +379,7 @@ def get_legal_moves(state: GameState, player: int) -> List[Move]:
 
 - [ ] Add `recovery_slide` MoveType (TS + Python)
 - [ ] Implement `isEligibleForRecovery()` predicate
-- [ ] Implement `enumerateRecoverySlides()` - check for lines ≥`lineLength` AND sufficient buried rings for cost
+- [ ] Implement `enumerateRecoverySlides()` - check for (a) lines ≥`lineLength` with sufficient buried rings, OR (b) fallback slides that don't disconnect territory
 - [ ] Implement `calculateRecoveryCost(lineLength, actualLineLength)` → number of buried rings required
 - [ ] Update `hasAnyRealAction()` for LPS to include recovery
 - [ ] Update turn rotation to check recovery availability

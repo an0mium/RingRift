@@ -7,7 +7,96 @@
     "rngSeed": 1883725888,
     "board": {
       "stacks": {},
-      "markers": {},
+      "markers": {
+        "8,9": {
+          "player": 1,
+          "position": {
+            "x": 8,
+            "y": 9
+          },
+          "type": "regular"
+        },
+        "9,9": {
+          "player": 1,
+          "position": {
+            "x": 9,
+            "y": 9
+          },
+          "type": "regular"
+        },
+        "10,9": {
+          "player": 1,
+          "position": {
+            "x": 10,
+            "y": 9
+          },
+          "type": "regular"
+        },
+        "11,9": {
+          "player": 1,
+          "position": {
+            "x": 11,
+            "y": 9
+          },
+          "type": "regular"
+        },
+        "9,8": {
+          "player": 1,
+          "position": {
+            "x": 9,
+            "y": 8
+          },
+          "type": "regular"
+        },
+        "9,10": {
+          "player": 1,
+          "position": {
+            "x": 9,
+            "y": 10
+          },
+          "type": "regular"
+        },
+        "9,11": {
+          "player": 1,
+          "position": {
+            "x": 9,
+            "y": 11
+          },
+          "type": "regular"
+        },
+        "5,5": {
+          "player": 2,
+          "position": {
+            "x": 5,
+            "y": 5
+          },
+          "type": "regular"
+        },
+        "6,6": {
+          "player": 2,
+          "position": {
+            "x": 6,
+            "y": 6
+          },
+          "type": "regular"
+        },
+        "7,7": {
+          "player": 2,
+          "position": {
+            "x": 7,
+            "y": 7
+          },
+          "type": "regular"
+        },
+        "8,8": {
+          "player": 2,
+          "position": {
+            "x": 8,
+            "y": 8
+          },
+          "type": "regular"
+        }
+      },
       "collapsedSpaces": {},
       "territories": {},
       "formedLines": [

@@ -598,18 +598,23 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - The marker slide does **not** create a departure marker at the original position; the original cell becomes empty.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §4.5.2.
 
-- **[RR-CANON-R112] Recovery action line requirement.**
-  - A recovery marker slide is legal **only if** the resulting marker position completes a line of **at least `lineLength`** consecutive markers of P's colour (as defined by `lineAdjacency` for the board type).
-  - The minimum required length for the board/player-count configuration:
+- **[RR-CANON-R112] Recovery action success criteria.**
+  - A recovery marker slide is legal if **either** of these conditions is satisfied:
+    - **(a) Line formation:** The resulting marker position completes a line of **at least `lineLength`** consecutive markers of P's colour (as defined by `lineAdjacency` for the board type).
+    - **(b) Fallback repositioning:** If no slide satisfies condition (a), any adjacent slide that **does not** cause territory disconnection is permitted.
+  - **Note:** Territory disconnection is **not** a valid criterion for recovery. Territory may be disconnected as a side effect of line formation, but cannot be the primary reason for a recovery slide.
+  - The minimum required length for line formation:
     - `square8` 2-player: 4 markers.
     - `square8` 3-4 player: 3 markers.
     - `square19`: 4 markers.
     - `hexagonal`: 4 markers.
-  - Overlength lines (longer than `lineLength`) **are permitted**. When an overlength line is formed:
+  - **Line recovery (condition a):** Overlength lines (longer than `lineLength`) are permitted. When an overlength line is formed:
     - **Option 1** (if chosen): Collapse all markers in the line to territory and pay the self-elimination cost (one buried ring extraction).
     - **Option 2** (if chosen): Collapse exactly `lineLength` consecutive markers of the player's choice to territory **without** paying any self-elimination cost. The remaining markers stay on the board.
     - This mirrors normal line reward semantics (RR-CANON-R130–R134).
-  - If no marker slide can complete a line of at least `lineLength`, P has no legal recovery action and remains temporarily eliminated.
+  - **Fallback recovery (condition b):** If no line-forming slide exists, P may slide any marker to an adjacent empty cell, provided the slide does not cause territory disconnection. This costs one buried ring extraction but does not trigger line processing.
+  - **Skip option:** P may elect to skip recovery entirely, preserving buried rings for a future turn.
+  - If no slide satisfies (a) or (b), and P does not skip, P has no legal recovery action and remains temporarily eliminated.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §4.5.3.
 
 - **[RR-CANON-R113] Recovery action buried ring extraction.**
@@ -643,23 +648,39 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
         type: 'recovery_slide',
         markerFrom: PosKey,        // source marker position
         markerTo: PosKey,          // adjacent destination
-        extractionStack: PosKey    // stack for buried ring extraction
+        extractionStack: PosKey,   // stack for buried ring extraction
+        recoveryMode: 'line' | 'fallback'  // which success criterion was met
       }
       ```
 
-    - Effect of `recovery_slide`:
-      - Marker moves from `markerFrom` to `markerTo`.
-      - Original cell becomes empty (no departure marker).
-      - Line of exactly `lineLength` is detected and collapsed.
-      - All markers in the line become collapsed spaces owned by P.
-      - Buried ring extracted from `extractionStack` (self-elimination for line).
-      - P's `territorySpaces` increases by `lineLength`.
-      - P's `eliminatedRingsTotal` increases by 1.
+    - The `skip_recovery` move allows P to pass without performing a recovery slide:
 
-  - **Line processing bundled into `recovery_slide`:**
-    - Because recovery requires exactly one line of exactly `lineLength` (no choice about which line or how to process it), the line collapse and self-elimination are bundled into the `recovery_slide` move effect.
+      ```json
+      {
+        "type": "skip_recovery"
+      }
+      ```
+
+    - Effect of `recovery_slide` depends on `recoveryMode`:
+      - **When `recoveryMode == 'line'`:**
+        - Marker moves from `markerFrom` to `markerTo`.
+        - Original cell becomes empty (no departure marker).
+        - Line of at least `lineLength` is detected and collapsed.
+        - All markers in the line become collapsed spaces owned by P.
+        - Buried ring extracted from `extractionStack` (self-elimination for line).
+        - P's `territorySpaces` increases by line length.
+        - P's `eliminatedRingsTotal` increases by 1.
+      - **When `recoveryMode == 'fallback'`:**
+        - Marker moves from `markerFrom` to `markerTo`.
+        - Original cell becomes empty (no departure marker).
+        - No line processing occurs.
+        - Buried ring extracted from `extractionStack` (self-elimination cost).
+        - P's `eliminatedRingsTotal` increases by 1.
+
+  - **Line processing bundled into `recovery_slide` (line mode only):**
+    - For `recoveryMode == 'line'`, the line collapse and self-elimination are bundled into the `recovery_slide` move effect.
     - This is analogous to how `move_stack` bundles marker interactions along the movement path.
-    - After `recovery_slide`, the engine does **not** enter a separate `line_processing` phase.
+    - After `recovery_slide`, the engine does **not** enter a separate `line_processing` phase (unless overlength).
   - **Phase: `territory_processing` (if cascades exist)**
     - If the line collapse creates disconnected territory regions per RR-CANON-R140–R142, the engine enters `territory_processing` as usual.
     - P processes each claimable region via standard `process_territory_region` decisions.

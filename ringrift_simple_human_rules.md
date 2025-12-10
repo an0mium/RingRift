@@ -199,17 +199,19 @@ still have **markers on the board** and **buried rings** (your rings at the
 bottom of opponents' stacks), you may perform a **recovery action**:
 
 1. **Slide** one of your markers to an adjacent empty cell.
-2. The slide is legal **only if** it completes a line of **at least** `lineLength`
-   of your markers (3 for 8×8, 4 for 19×19/Hex).
-3. **Overlength lines** (longer than the required length) follow standard
-   Option 1 / Option 2 semantics:
+2. The slide is legal if **either**:
+   - **(a) Line formation:** Completes a line of **at least** `lineLength` of your markers (3 for 8×8, 4 for 19×19/Hex).
+   - **(b) Fallback:** If no line-forming slide exists, any slide that **doesn't disconnect territory**.
+   - **Note:** You cannot use territory disconnection as the reason for a recovery slide.
+3. **Skip option:** You may skip recovery entirely to save your buried rings.
+4. **Line recovery (a):** Overlength lines follow standard Option 1 / Option 2 semantics:
    - **Option 1:** Collapse all markers; pay one buried ring extraction.
    - **Option 2:** Collapse exactly `lineLength` markers of your choice; pay nothing.
-4. **For exact-length lines** (or Option 1 on overlength), **pay the cost** by
-   extracting your bottommost ring from any stack containing your buried rings:
+5. **Fallback recovery (b):** Costs one buried ring extraction, no line processing.
+6. **Pay the cost** by extracting your bottommost ring from any stack containing your buried rings:
    - That ring is permanently eliminated (credited to you).
    - The stack shrinks by 1; its new top ring determines control.
-5. If the line collapse creates **territory regions**, you may claim them by
+7. **Line recovery only:** If the line collapse creates **territory regions**, you may claim them by
    extracting additional buried rings (one per region, from stacks outside
    each region).
 

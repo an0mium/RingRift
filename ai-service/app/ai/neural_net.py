@@ -233,7 +233,8 @@ SQUARE8_TERRITORY_CLAIM_SPAN = 8 * 8  # 64
 SQUARE8_SPECIAL_BASE = SQUARE8_TERRITORY_CLAIM_BASE + SQUARE8_TERRITORY_CLAIM_SPAN
 SQUARE8_SKIP_PLACEMENT_IDX = SQUARE8_SPECIAL_BASE  # 4096
 SQUARE8_SWAP_SIDES_IDX = SQUARE8_SPECIAL_BASE + 1  # 4097
-SQUARE8_LINE_CHOICE_BASE = SQUARE8_SPECIAL_BASE + 2  # 4098
+SQUARE8_SKIP_RECOVERY_IDX = SQUARE8_SPECIAL_BASE + 2  # 4098 (RR-CANON-R112)
+SQUARE8_LINE_CHOICE_BASE = SQUARE8_SPECIAL_BASE + 3  # 4099
 SQUARE8_LINE_CHOICE_SPAN = 4
 SQUARE8_TERRITORY_CHOICE_BASE = SQUARE8_LINE_CHOICE_BASE + SQUARE8_LINE_CHOICE_SPAN
 SQUARE8_TERRITORY_CHOICE_SPAN = 8 * 8 * TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS  # 2,048
@@ -245,9 +246,10 @@ SQUARE8_TERRITORY_CHOICE_SPAN = 8 * 8 * TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_P
 #   Territory Claim: [54511, 54871] = 19 * 19 = 361
 #   Skip Placement:  [54872]        = 1
 #   Swap Sides:      [54873]        = 1
-#   Line Choice:     [54874, 54877] = 4
-#   Territory Choice:[54878, 66429] = 361 * 8 * 4 = 11,552
-#   Total: 66,430 (POLICY_SIZE_19x19 = 67000 with padding)
+#   Skip Recovery:   [54874]        = 1 (RR-CANON-R112)
+#   Line Choice:     [54875, 54878] = 4
+#   Territory Choice:[54879, 66430] = 361 * 8 * 4 = 11,552
+#   Total: 66,431 (POLICY_SIZE_19x19 = 67000 with padding)
 
 SQUARE19_PLACEMENT_SPAN = 3 * 19 * 19  # 1,083
 SQUARE19_MOVEMENT_BASE = SQUARE19_PLACEMENT_SPAN
@@ -259,7 +261,8 @@ SQUARE19_TERRITORY_CLAIM_SPAN = 19 * 19  # 361
 SQUARE19_SPECIAL_BASE = SQUARE19_TERRITORY_CLAIM_BASE + SQUARE19_TERRITORY_CLAIM_SPAN
 SQUARE19_SKIP_PLACEMENT_IDX = SQUARE19_SPECIAL_BASE  # 54872
 SQUARE19_SWAP_SIDES_IDX = SQUARE19_SPECIAL_BASE + 1  # 54873
-SQUARE19_LINE_CHOICE_BASE = SQUARE19_SPECIAL_BASE + 2  # 54874
+SQUARE19_SKIP_RECOVERY_IDX = SQUARE19_SPECIAL_BASE + 2  # 54874 (RR-CANON-R112)
+SQUARE19_LINE_CHOICE_BASE = SQUARE19_SPECIAL_BASE + 3  # 54875
 SQUARE19_LINE_CHOICE_SPAN = 4
 SQUARE19_TERRITORY_CHOICE_BASE = SQUARE19_LINE_CHOICE_BASE + SQUARE19_LINE_CHOICE_SPAN
 SQUARE19_TERRITORY_CHOICE_SPAN = 19 * 19 * TERRITORY_SIZE_BUCKETS * TERRITORY_MAX_PLAYERS  # 11,552
@@ -884,8 +887,8 @@ class RingRiftCNN_v3(nn.Module):
         # Territory choice head: [B, 32, H, W] for (cell, size_bucket, player)
         self.territory_choice_conv = nn.Conv2d(num_filters, self.territory_choice_channels, kernel_size=1)
 
-        # Special actions FC: skip_placement (1) + swap_sides (1) + line_choice (4) = 6
-        self.special_fc = nn.Linear(num_filters + global_features, 6)
+        # Special actions FC: skip_placement (1) + swap_sides (1) + skip_recovery (1) + line_choice (4) = 7
+        self.special_fc = nn.Linear(num_filters + global_features, 7)
 
     def _register_policy_indices(self, board_size: int) -> None:
         """
@@ -977,10 +980,12 @@ class RingRiftCNN_v3(nn.Module):
         if board_size == 8:
             self.skip_placement_idx = SQUARE8_SKIP_PLACEMENT_IDX
             self.swap_sides_idx = SQUARE8_SWAP_SIDES_IDX
+            self.skip_recovery_idx = SQUARE8_SKIP_RECOVERY_IDX
             self.line_choice_base = SQUARE8_LINE_CHOICE_BASE
         else:
             self.skip_placement_idx = SQUARE19_SKIP_PLACEMENT_IDX
             self.swap_sides_idx = SQUARE19_SWAP_SIDES_IDX
+            self.skip_recovery_idx = SQUARE19_SKIP_RECOVERY_IDX
             self.line_choice_base = SQUARE19_LINE_CHOICE_BASE
 
     def _scatter_policy_logits(
@@ -1001,7 +1006,7 @@ class RingRiftCNN_v3(nn.Module):
             line_form_logits: [B, 4, H, W]
             territory_claim_logits: [B, 1, H, W]
             territory_choice_logits: [B, 32, H, W]
-            special_logits: [B, 6] (skip_placement, swap_sides, line_choice[4])
+            special_logits: [B, 7] (skip_placement, swap_sides, skip_recovery, line_choice[4])
 
         Returns:
             policy_logits: [B, policy_size] flat policy vector
@@ -1041,7 +1046,8 @@ class RingRiftCNN_v3(nn.Module):
         # Add special action logits
         policy[:, self.skip_placement_idx] = special_logits[:, 0]
         policy[:, self.swap_sides_idx] = special_logits[:, 1]
-        policy[:, self.line_choice_base : self.line_choice_base + 4] = special_logits[:, 2:6]
+        policy[:, self.skip_recovery_idx] = special_logits[:, 2]  # RR-CANON-R112
+        policy[:, self.line_choice_base : self.line_choice_base + 4] = special_logits[:, 3:7]
 
         return policy
 
@@ -1305,10 +1311,12 @@ class RingRiftCNN_v3_Lite(nn.Module):
         if board_size == 8:
             self.skip_placement_idx = SQUARE8_SKIP_PLACEMENT_IDX
             self.swap_sides_idx = SQUARE8_SWAP_SIDES_IDX
+            self.skip_recovery_idx = SQUARE8_SKIP_RECOVERY_IDX
             self.line_choice_base = SQUARE8_LINE_CHOICE_BASE
         else:
             self.skip_placement_idx = SQUARE19_SKIP_PLACEMENT_IDX
             self.swap_sides_idx = SQUARE19_SWAP_SIDES_IDX
+            self.skip_recovery_idx = SQUARE19_SKIP_RECOVERY_IDX
             self.line_choice_base = SQUARE19_LINE_CHOICE_BASE
 
     def _scatter_policy_logits(
@@ -1351,7 +1359,8 @@ class RingRiftCNN_v3_Lite(nn.Module):
         # Special actions
         policy[:, self.skip_placement_idx] = special_logits[:, 0]
         policy[:, self.swap_sides_idx] = special_logits[:, 1]
-        policy[:, self.line_choice_base : self.line_choice_base + 4] = special_logits[:, 2:6]
+        policy[:, self.skip_recovery_idx] = special_logits[:, 2]  # RR-CANON-R112
+        policy[:, self.line_choice_base : self.line_choice_base + 4] = special_logits[:, 3:7]
 
         return policy
 
@@ -2783,9 +2792,14 @@ class NeuralNetAI(BaseAI):
         if move.type == "swap_sides":
             return swap_sides_index
 
+        # Skip recovery (RR-CANON-R112): player elects not to perform recovery action
+        skip_recovery_index = swap_sides_index + 1  # 54874 (sq19) / 4098 (sq8)
+        if move.type == "skip_recovery":
+            return skip_recovery_index
+
         # Choice moves: line and territory decision options
         # Line choices: 4 slots (options 0-3, typically option 1 = partial, 2 = full)
-        line_choice_base = swap_sides_index + 1  # 54874
+        line_choice_base = skip_recovery_index + 1  # 54875 (sq19) / 4099 (sq8)
 
         if move.type in ("choose_line_reward", "choose_line_option"):
             # Line choice uses placement_count to indicate option (1-based)
@@ -3030,9 +3044,23 @@ class NeuralNetAI(BaseAI):
             }
             return Move(**move_data)
 
+        # Skip recovery (RR-CANON-R112): player elects not to perform recovery action
+        skip_recovery_index = swap_sides_index + 1
+        if index == skip_recovery_index:
+            move_data = {
+                "id": "decoded",
+                "type": "skip_recovery",
+                "player": game_state.current_player,
+                "to": {"x": 0, "y": 0},
+                "timestamp": datetime.now(),
+                "thinkTime": 0,
+                "moveNumber": 0,
+            }
+            return Move(**move_data)
+
         # Choice moves: line and territory options
-        line_choice_base = swap_sides_index + 1  # 54874
-        territory_choice_base = line_choice_base + 4  # 54878
+        line_choice_base = skip_recovery_index + 1  # 54875
+        territory_choice_base = line_choice_base + 4  # 54879
 
         # Line choice (indices 54874-54877)
         if line_choice_base <= index < territory_choice_base:

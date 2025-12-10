@@ -1,6 +1,22 @@
 import { GameState, ProcessLineAction, ChooseLineRewardAction, ValidationResult } from '../types';
-import { positionToString, BoardType } from '../../types/game';
+import { positionToString, BoardType, MarkerInfo } from '../../types/game';
 import { getEffectiveLineLengthThreshold } from '../rulesConfig';
+
+/**
+ * Helper to extract player number from marker value.
+ * Markers can be stored as either:
+ * - A number (player ID directly)
+ * - A MarkerInfo object with a `player` property
+ */
+function getMarkerPlayer(marker: number | MarkerInfo | undefined): number | undefined {
+  if (marker === undefined) {
+    return undefined;
+  }
+  if (typeof marker === 'number') {
+    return marker;
+  }
+  return marker.player;
+}
 
 export function validateProcessLine(state: GameState, action: ProcessLineAction): ValidationResult {
   // 1. Phase Check
@@ -23,6 +39,29 @@ export function validateProcessLine(state: GameState, action: ProcessLineAction)
   // 4. Line Ownership Check
   if (line.player !== action.playerId) {
     return { valid: false, reason: 'Cannot process opponent line', code: 'NOT_YOUR_LINE' };
+  }
+
+  // 5. Marker Existence Check (RR-CANON-R120)
+  // Per RR-CANON-R120: "Each pi currently contains a marker of P (no stacks, no collapsed spaces)."
+  // Verify that markers actually exist at the line positions on the board.
+  for (const pos of line.positions) {
+    const key = positionToString(pos);
+    const marker = state.board.markers.get(key);
+    const markerPlayer = getMarkerPlayer(marker);
+    if (markerPlayer === undefined) {
+      return {
+        valid: false,
+        reason: 'Line position does not have a marker on the board',
+        code: 'MISSING_MARKER',
+      };
+    }
+    if (markerPlayer !== action.playerId) {
+      return {
+        valid: false,
+        reason: 'Line position has opponent marker, not yours',
+        code: 'WRONG_MARKER_OWNER',
+      };
+    }
   }
 
   return { valid: true };
@@ -48,12 +87,35 @@ export function validateChooseLineReward(
   }
 
   const line = state.board.formedLines[action.lineIndex];
- 
+
   // 4. Line Ownership Check
   if (line.player !== action.playerId) {
     return { valid: false, reason: 'Cannot process opponent line', code: 'NOT_YOUR_LINE' };
   }
- 
+
+  // 5. Marker Existence Check (RR-CANON-R120)
+  // Per RR-CANON-R120: "Each pi currently contains a marker of P (no stacks, no collapsed spaces)."
+  // Verify that markers actually exist at the line positions on the board.
+  for (const pos of line.positions) {
+    const key = positionToString(pos);
+    const marker = state.board.markers.get(key);
+    const markerPlayer = getMarkerPlayer(marker);
+    if (markerPlayer === undefined) {
+      return {
+        valid: false,
+        reason: 'Line position does not have a marker on the board',
+        code: 'MISSING_MARKER',
+      };
+    }
+    if (markerPlayer !== action.playerId) {
+      return {
+        valid: false,
+        reason: 'Line position has opponent marker, not yours',
+        code: 'WRONG_MARKER_OWNER',
+      };
+    }
+  }
+
   // Effective threshold depends on board + player count. The current engine
   // GameState type does not carry per-game rulesOptions (those are host-level),
   // but the only active variant (2p 8x8 → 4-in-a-row) is determined purely by

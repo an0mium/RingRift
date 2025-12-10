@@ -2,13 +2,18 @@ from typing import Set
 
 from app.models import GameState, Move, GamePhase, MoveType, Position
 from app.rules.interfaces import Validator
-from app.rules.core import get_line_length_for_board
+from app.rules.core import get_effective_line_length
 
 
 def _position_to_string(pos: Position) -> str:
     """Convert position to string key for comparison."""
     if pos.z is not None:
         return f"{pos.x},{pos.y},{pos.z}"
+    return f"{pos.x},{pos.y}"
+
+
+def _position_to_marker_key(pos: Position) -> str:
+    """Convert position to marker key (always x,y format, no z)."""
     return f"{pos.x},{pos.y}"
 
 
@@ -44,7 +49,21 @@ class LineValidator(Validator):
         if line.player != move.player:
             return False
 
-        # 6. Option Validity for CHOOSE_LINE_REWARD / CHOOSE_LINE_OPTION
+        # 6. Marker Existence Check (RR-CANON-R120)
+        # Per RR-CANON-R120: "Each pi currently contains a marker of P"
+        # Verify that markers actually exist at the line positions on the board.
+        for pos in line.positions:
+            # Use x,y format for marker lookup (markers don't include z coord)
+            pos_key = _position_to_marker_key(pos)
+            marker = state.board.markers.get(pos_key)
+            if marker is None:
+                return False
+            # marker can be int (player number) or dict/MarkerInfo with .player
+            marker_player = marker.player if hasattr(marker, 'player') else marker
+            if marker_player != move.player:
+                return False
+
+        # 7. Option Validity for CHOOSE_LINE_REWARD / CHOOSE_LINE_OPTION
         # Mirrors TS LineValidator.validateChooseLineReward:
         # If collapsed_markers provided, validate count & consecutiveness
         if move.type in (
@@ -68,7 +87,7 @@ class LineValidator(Validator):
         Option 2 (minimum collapse): collapsed_markers == required_length,
                                      must be consecutive positions from line
         """
-        required_length = get_line_length_for_board(state.board_type)
+        required_length = get_effective_line_length(state.board_type, len(state.players))
 
         # If collapsed_markers is not provided, it's Option 1 (collapse all)
         # which is always valid for any line.
