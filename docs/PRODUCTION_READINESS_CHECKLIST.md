@@ -8,9 +8,16 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 - **Wave 2:** Test hygiene, TS/Python parity fixes, component tests, type safety
 - **Wave 3:** Production validation infrastructure (k6 load tests, SLO framework, staging environment)
 
-**Last Updated:** 2025-12-07
+**Last Updated:** 2025-12-10
 **Target Launch:** v1.0 Production
-**Current Status:** 48/67 items complete (72%)
+**Current Status:** 52/67 items complete (78%)
+
+**Recent Updates (2025-12-10):**
+
+- Wave 8 Branch Coverage complete (all P0/P1 targets met)
+- Latency SLOs validated at smoke scale (10ms p95, 50x headroom)
+- Error rate: 0% (16,600 requests), Availability: 100%
+- Target-scale (100G/300P) validation still pending
 
 ### Status Legend
 
@@ -75,24 +82,24 @@ This checklist documents all requirements for launching RingRift v1.0 to product
 
 ### 2.2 Latency SLOs
 
-| Metric                   | Target (Staging) | Target (Prod) | Status |
-| ------------------------ | ---------------- | ------------- | ------ |
-| HTTP API p95             | <800ms           | <500ms        | ⏳     |
-| HTTP API p99             | <1500ms          | <2000ms       | ⏳     |
-| WebSocket connection p95 | <1000ms          | <1000ms       | ⏳     |
-| Move latency p95         | <300ms           | <200ms        | ⏳     |
-| AI response p95          | <1500ms          | <1000ms       | ⏳     |
+| Metric                   | Target (Staging) | Target (Prod) | Observed (Smoke) | Status |
+| ------------------------ | ---------------- | ------------- | ---------------- | ------ |
+| HTTP API p95             | <800ms           | <500ms        | **10ms**         | ✅     |
+| HTTP API p99             | <1500ms          | <2000ms       | **11ms**         | ✅     |
+| WebSocket connection p95 | <1000ms          | <1000ms       | ~100ms           | ✅     |
+| Move latency p95         | <300ms           | <200ms        | **~15ms**        | ✅     |
+| AI response p95          | <1500ms          | <1000ms       | TBD              | ⏳     |
 
-**Note:** Load test results from Wave 7 showed excellent headroom (53x-100x) at developer-scale loads. Target scale validation pending.
+**Note:** Smoke-scale baseline (2025-12-08) shows excellent headroom (50x-180x under targets). Target-scale (100G/300P) validation still pending - first attempt failed during setup.
 
 ### 2.3 Reliability
 
-| Item                             | Status | Target                       | Evidence                          |
-| -------------------------------- | ------ | ---------------------------- | --------------------------------- |
-| Error rate target achievable     | ⏳     | <1% (staging), <0.5% (prod)  | SLO framework ready               |
-| Availability target achievable   | ⏳     | 99.9%                        | Pending validation                |
-| Graceful degradation implemented | ✅     | AI fallback, circuit breaker | `AI_SERVICE_DEGRADATION_DRILL.md` |
-| Circuit breakers in place        | ✅     | 5% threshold, 300s window    | Orchestrator config               |
+| Item                             | Status | Target                       | Evidence                                    |
+| -------------------------------- | ------ | ---------------------------- | ------------------------------------------- |
+| Error rate target achievable     | ✅     | <1% (staging), <0.5% (prod)  | **0% errors** in baseline (16,600 requests) |
+| Availability target achievable   | ✅     | 99.9%                        | **100% availability** in baseline           |
+| Graceful degradation implemented | ✅     | AI fallback, circuit breaker | `AI_SERVICE_DEGRADATION_DRILL.md`           |
+| Circuit breakers in place        | ✅     | 5% threshold, 300s window    | Orchestrator config                         |
 
 ### 2.4 Production Validation Contract (v1.0)
 
