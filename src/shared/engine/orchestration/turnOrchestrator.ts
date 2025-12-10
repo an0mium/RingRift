@@ -68,6 +68,7 @@ import {
   onLineProcessingComplete,
   onTerritoryProcessingComplete,
   computeFSMOrchestration,
+  type FSMOrchestrationResult,
 } from '../fsm';
 
 // Import from domain aggregates
@@ -1049,6 +1050,109 @@ function createChainCaptureDecision(state: GameState, continuations: Move[]): Pe
   };
 }
 
+/**
+ * Derive a PendingDecision from FSM orchestration result.
+ *
+ * This function converts the FSM's pendingDecisionType and decisionSurface
+ * into the legacy PendingDecision structure used by hosts. This allows FSM
+ * to be the sole authority for decision surfacing while maintaining backward
+ * compatibility with existing host code.
+ *
+ * @param state - Current game state (used to enumerate concrete move options)
+ * @param fsmResult - FSM orchestration result containing decision surface
+ * @returns PendingDecision if FSM indicates a decision is needed, undefined otherwise
+ */
+function derivePendingDecisionFromFSM(
+  state: GameState,
+  fsmResult: FSMOrchestrationResult
+): PendingDecision | undefined {
+  if (!fsmResult.pendingDecisionType || !fsmResult.decisionSurface) {
+    return undefined;
+  }
+
+  const player = fsmResult.nextPlayer;
+
+  switch (fsmResult.pendingDecisionType) {
+    case 'chain_capture': {
+      // Enumerate chain capture continuation moves from current position
+      const chainPos = state.chainCapturePosition;
+      if (!chainPos) {
+        return undefined;
+      }
+      const info = getChainCaptureContinuationInfo(state, player, chainPos);
+      if (!info.mustContinue || info.availableContinuations.length === 0) {
+        return undefined;
+      }
+      return createChainCaptureDecision(state, info.availableContinuations);
+    }
+
+    case 'line_order_required': {
+      // Enumerate process_line moves for detected lines
+      const lines = fsmResult.decisionSurface.pendingLines;
+      if (lines.length === 0) {
+        return undefined;
+      }
+      const detectedLines: DetectedLineInfo[] = lines.map((l) => {
+        // Compute direction from first two positions if available
+        const direction: Position =
+          l.positions.length >= 2
+            ? {
+                x: l.positions[1].x - l.positions[0].x,
+                y: l.positions[1].y - l.positions[0].y,
+              }
+            : { x: 1, y: 0 }; // Default direction
+        return {
+          positions: l.positions,
+          player: 'player' in l ? (l as { player: number }).player : player,
+          length: l.positions.length,
+          direction,
+          collapseOptions: [],
+        };
+      });
+      return createLineOrderDecision(state, detectedLines);
+    }
+
+    case 'no_line_action_required': {
+      return {
+        type: 'no_line_action_required',
+        player,
+        options: [],
+        context: {
+          description: 'No lines to process - explicit no_line_action required per RR-CANON-R075',
+        },
+      };
+    }
+
+    case 'region_order_required': {
+      // Enumerate process_territory_region moves
+      const regions = getProcessableTerritoryRegions(state.board, { player });
+      if (regions.length === 0) {
+        return undefined;
+      }
+      return createRegionOrderDecision(state, regions);
+    }
+
+    case 'no_territory_action_required': {
+      return {
+        type: 'no_territory_action_required',
+        player,
+        options: [],
+        context: {
+          description:
+            'No territory regions to process - explicit no_territory_action required per RR-CANON-R075',
+        },
+      };
+    }
+
+    case 'forced_elimination': {
+      return createForcedEliminationDecision(state);
+    }
+
+    default:
+      return undefined;
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Process Turn (Synchronous Entry Point)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1431,9 +1535,10 @@ export function processTurn(
   // Additional terminal guard: if all players have zero rings in hand and no
   // global interactive moves remain (placements, movement, captures), treat the
   // position as terminal rather than advancing to another ring_placement loop.
-  // This mirrors Python’s ANM/LPS termination observed in parity bundles.
+  // This mirrors Python's ANM/LPS termination observed in parity bundles.
   // FSM orchestrator: compute and apply FSM-derived phase/player transitions.
   // FSM is now the canonical orchestrator - always apply FSM results.
+  // Phase 1 of FSM Integration: FSM also drives pending decisions.
   try {
     // Compute FSM orchestration result using the post-move state for FSM
     // transition. This keeps phase/player orchestration aligned with the
@@ -1478,6 +1583,93 @@ export function processTurn(
           currentPhase: effectivePhase,
           currentPlayer: fsmOrchResult.nextPlayer,
         };
+      }
+
+      // Phase 1: Use FSM decision surface as the canonical source for pending decisions.
+      // Derive PendingDecision from FSM orchestration result.
+      const fsmDerivedDecision = derivePendingDecisionFromFSM(finalState, fsmOrchResult);
+
+      // Compare FSM-derived decision with legacy decision for debugging.
+      // This comparison logging helps verify FSM decision parity during the transition.
+      const legacyDecisionType = finalPendingDecision?.type;
+      const fsmDecisionType = fsmDerivedDecision?.type;
+      if (TRACE_DEBUG_ENABLED && legacyDecisionType !== fsmDecisionType) {
+        fsmTraceLog('[FSM_ORCHESTRATOR] DECISION_DIVERGENCE', {
+          moveType: move.type,
+          movePlayer: move.player,
+          legacyDecisionType: legacyDecisionType ?? 'none',
+          fsmDecisionType: fsmDecisionType ?? 'none',
+          fsmPendingDecisionType: fsmOrchResult.pendingDecisionType ?? 'none',
+          gameId: state.id,
+          moveNumber: state.moveHistory.length + 1,
+        });
+      }
+
+      // Phase 1 Decision Strategy:
+      // The FSM doesn't have access to board state, so it can't always determine
+      // if regions/lines exist. Use FSM decision when it provides concrete
+      // options (e.g., chain_capture, forced_elimination), but prefer legacy
+      // for region/line decisions where FSM says "no action" but legacy found data.
+      //
+      // IMPORTANT: During the transition period, we only use FSM decisions when
+      // they match or improve upon legacy decisions. We don't introduce NEW
+      // decisions that legacy didn't surface (like no_*_action_required when
+      // legacy had no decision), to maintain backward compatibility.
+      //
+      // Specifically:
+      // - If FSM says region_order_required/line_order_required with data → use FSM
+      // - If FSM says no_*_action_required but legacy found data → use legacy
+      // - If FSM says no_*_action_required and legacy had no decision → keep legacy (no decision)
+      // - For chain_capture/forced_elimination → always use FSM (board-aware)
+      const shouldUseFsmDecision = (() => {
+        if (!fsmDerivedDecision) return false;
+
+        // FSM-driven decisions that don't need board context
+        if (fsmDecisionType === 'chain_capture' || fsmDecisionType === 'elimination_target') {
+          return true;
+        }
+
+        // For no-action decisions, only use FSM if legacy ALSO surfaced this decision.
+        // Don't introduce new decisions that legacy didn't have.
+        if (
+          fsmDecisionType === 'no_line_action_required' ||
+          fsmDecisionType === 'no_territory_action_required'
+        ) {
+          // If legacy found actual data (region_order, line_order), prefer legacy
+          if (legacyDecisionType === 'region_order' || legacyDecisionType === 'line_order') {
+            return false;
+          }
+          // If legacy also had the same no-action decision, use FSM (they agree)
+          if (legacyDecisionType === fsmDecisionType) {
+            return true;
+          }
+          // Legacy had no decision - don't introduce a new one
+          return false;
+        }
+
+        // For data-bearing decisions (line_order, region_order), use FSM if it has options
+        if (fsmDerivedDecision.options.length > 0) {
+          return true;
+        }
+
+        // FSM has no options, prefer legacy if it has any
+        return !finalPendingDecision || (finalPendingDecision.options?.length ?? 0) === 0;
+      })();
+
+      if (shouldUseFsmDecision && fsmDerivedDecision) {
+        finalPendingDecision = fsmDerivedDecision;
+        finalStatus = 'awaiting_decision';
+      } else if (fsmOrchResult.pendingDecisionType && !fsmDerivedDecision) {
+        // FSM indicated a decision is needed but we couldn't derive concrete options.
+        // This can happen for empty decision surfaces. Log for debugging.
+        if (TRACE_DEBUG_ENABLED) {
+          fsmTraceLog('[FSM_ORCHESTRATOR] EMPTY_DECISION_SURFACE', {
+            moveType: move.type,
+            fsmPendingDecisionType: fsmOrchResult.pendingDecisionType,
+            fsmPhase: fsmOrchResult.nextPhase,
+            gameId: state.id,
+          });
+        }
       }
     }
   } catch (err) {
@@ -2583,11 +2775,19 @@ export function getValidMoves(state: GameState): Move[] {
         // DEBUG: Log after filtering
         if (process.env.RINGRIFT_TRACE_DEBUG === '1') {
           // eslint-disable-next-line no-console
-          console.log('[getValidMoves] after filtering:', JSON.stringify({
-            movementsAfter: movements.length,
-            capturesAfter: captures.length,
-            captureDetails: captures.map(c => ({from: c.from, captureTarget: c.captureTarget, to: c.to, type: c.type})),
-          }));
+          console.log(
+            '[getValidMoves] after filtering:',
+            JSON.stringify({
+              movementsAfter: movements.length,
+              capturesAfter: captures.length,
+              captureDetails: captures.map((c) => ({
+                from: c.from,
+                captureTarget: c.captureTarget,
+                to: c.to,
+                type: c.type,
+              })),
+            })
+          );
         }
       }
 
