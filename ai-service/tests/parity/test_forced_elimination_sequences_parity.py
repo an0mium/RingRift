@@ -180,18 +180,19 @@ class TestForcedEliminationStackSelection:
 class TestForcedEliminationMultiPlayer:
     """Tests for multi-player forced elimination rotation."""
 
-    def test_fully_eliminated_player_gets_turn_for_no_action_markers(self) -> None:
-        """Per RR-CANON-R074/R075, players with no material still get their turn.
+    def test_fully_eliminated_player_skipped_per_turn_material_invariant(self) -> None:
+        """Per INV-ANM-TURN-MATERIAL-SKIP, players without turn-material are skipped.
 
-        They will emit no-action markers (no_placement_action, no_movement_action)
-        to record that each phase was visited, maintaining the phase recording invariant.
+        Turn rotation never leaves a fully eliminated player (no stacks, no rings)
+        as currentPlayer in an ACTIVE state. They are skipped in favor of the next
+        player who has turn-material.
         """
         state = _make_multiplayer_game_state(3)
         state.current_player = 1
 
-        # P1: has stack (will trigger FE based on conditions)
-        # P2: no stacks, no rings (fully eliminated - gets turn for no-action markers)
-        # P3: has rings in hand
+        # P1: has stack (has turn-material)
+        # P2: no stacks, no rings (no turn-material - should be skipped)
+        # P3: has rings in hand (has turn-material)
 
         pos1 = Position(x=0, y=0)
         state.board.stacks[pos1.to_key()] = RingStack(
@@ -203,17 +204,17 @@ class TestForcedEliminationMultiPlayer:
         )
         state.players[0].rings_in_hand = 0  # P1: stack only
 
-        state.players[1].rings_in_hand = 0  # P2: fully eliminated
+        state.players[1].rings_in_hand = 0  # P2: fully eliminated (no turn-material)
 
         state.players[2].rings_in_hand = 5  # P3: has rings
 
         # Run end turn from P1
         GameEngine._end_turn(state)
 
-        # Per RR-CANON-R074/R075, P2 gets their turn (to emit no-action markers)
-        # They are NOT skipped; they traverse all phases and emit no-action moves
-        assert state.current_player == 2, (
-            f"Expected P2 (for no-action markers), got P{state.current_player}"
+        # Per INV-ANM-TURN-MATERIAL-SKIP (RR-CANON-R201), P2 is skipped
+        # because they have no turn-material. P3 becomes current player.
+        assert state.current_player == 3, (
+            f"Expected P3 (P2 has no turn-material and is skipped), got P{state.current_player}"
         )
 
     def test_forced_elimination_chain_terminates(self) -> None:

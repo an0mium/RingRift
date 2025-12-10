@@ -380,7 +380,9 @@ class TestApplyRecoverySlide:
         outcome = apply_recovery_slide(state, move)
         assert outcome.success is True
         assert "4,2" not in state.board.markers
-        assert "4,3" in state.board.markers
+        # After recovery slide, the line is completed and markers are collapsed
+        # into territory (collapsed_spaces), not remaining as markers.
+        assert "4,3" in state.board.collapsed_spaces
 
     def test_extracts_buried_rings(self):
         state = create_test_state()
