@@ -111,7 +111,8 @@ describe('MobileLpsIndicator', () => {
 
     const indicator = screen.getByTestId('mobile-lps-indicator');
     expect(indicator).toBeInTheDocument();
-    expect(indicator).toHaveTextContent('Alice');
+    // Mobile uses compact format "P1 exclusive" instead of full username
+    expect(indicator).toHaveTextContent('P1 exclusive');
     expect(indicator).toHaveTextContent('1/3');
   });
 
@@ -126,7 +127,8 @@ describe('MobileLpsIndicator', () => {
     render(<MobileGameHUD viewModel={viewModel} />);
 
     const indicator = screen.getByTestId('mobile-lps-indicator');
-    expect(indicator).toHaveTextContent('Bob');
+    // Mobile uses compact format "P2 exclusive"
+    expect(indicator).toHaveTextContent('P2 exclusive');
     expect(indicator).toHaveTextContent('2/3');
   });
 
@@ -141,7 +143,8 @@ describe('MobileLpsIndicator', () => {
     render(<MobileGameHUD viewModel={viewModel} />);
 
     const indicator = screen.getByTestId('mobile-lps-indicator');
-    expect(indicator).toHaveTextContent('Alice');
+    // Mobile uses compact format "P1 exclusive"
+    expect(indicator).toHaveTextContent('P1 exclusive');
     expect(indicator).toHaveTextContent('3/3');
   });
 });
