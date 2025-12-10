@@ -159,3 +159,10 @@ ai-service-sync.zip
 
 # Large synced selfplay databases (too large for GitHub)
 ai-service/data/games/synced_*/
+
+# Selfplay debug artifacts (large state bundles and parity summaries)
+ai-service/data/games/*.state_bundles/
+ai-service/data/games/*.parity_summary.json
+
+# Root-level hypothesis directory (Python property-based testing)
+.hypothesis/
