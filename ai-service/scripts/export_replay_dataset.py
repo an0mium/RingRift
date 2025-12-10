@@ -288,6 +288,7 @@ def export_replay_dataset(
     max_moves: Optional[int] = None,
     use_rank_aware_values: bool = True,
     parity_fixtures_dir: Optional[str] = None,
+    exclude_recovery: bool = False,
 ) -> None:
     """
     Export training samples from a single GameReplayDB into an NPZ dataset.
@@ -380,17 +381,30 @@ def export_replay_dataset(
         filter_desc.append(f"min {min_moves} moves")
     if max_moves is not None:
         filter_desc.append(f"max {max_moves} moves")
+    if exclude_recovery:
+        filter_desc.append("excluding recovery games")
     if filter_desc:
         print(f"Quality filters: {', '.join(filter_desc)}")
     print(f"Value targets: {'rank-aware' if use_rank_aware_values else 'binary winner/loser'}")
 
     games_processed = 0
     games_skipped = 0
+    games_skipped_recovery = 0
     for meta, initial_state, moves in games_iter:
         game_id = meta.get("game_id")
         total_moves = int(meta.get("total_moves", len(moves)))
         if total_moves <= 0 or not moves:
             continue
+
+        # Skip games with recovery moves if exclude_recovery is set
+        if exclude_recovery:
+            has_recovery = any(
+                "recovery" in str(m.get("type", "")).lower()
+                for m in moves
+            )
+            if has_recovery:
+                games_skipped_recovery += 1
+                continue
 
         # If parity cutoffs are available, truncate this game to a safe
         # pre-divergence prefix, dropping any samples whose state_before
@@ -700,6 +714,14 @@ def _parse_args() -> argparse.Namespace:
             "pre-divergence states per game."
         ),
     )
+    parser.add_argument(
+        "--exclude-recovery",
+        action="store_true",
+        help=(
+            "Exclude games that contain recovery slide moves. "
+            "Use this for training data purity when recovery rules have changed."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -725,6 +747,7 @@ def main() -> None:
         max_moves=args.max_moves,
         use_rank_aware_values=not args.no_rank_aware_values,
         parity_fixtures_dir=args.parity_fixtures_dir,
+        exclude_recovery=args.exclude_recovery,
     )
 
 
