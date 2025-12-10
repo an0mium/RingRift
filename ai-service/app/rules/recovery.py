@@ -997,8 +997,7 @@ def apply_recovery_slide(
     3. Collapse markers based on option:
        - Option 1: Collapse all markers in the line
        - Option 2: Collapse only the specified lineLength consecutive markers
-    4. Extract buried rings (Option 1 only, cost = 1)
-    5. Return extracted rings to player's hand
+    4. Extract buried rings as self-elimination cost (Option 1 = 1 ring, Option 2 = 0)
 
     Cost Model (Option 1 / Option 2):
     - Option 1 (collapse all): 1 buried ring extraction
@@ -1145,12 +1144,14 @@ def apply_recovery_slide(
                 del board.stacks[stack_key]
 
     # Extracted rings are eliminated (self-elimination cost)
+    # Per RR-CANON-R113: Extracted ring is credited as self-eliminated, NOT returned
+    # to hand. This is the mandatory cost for recovery actions.
     if rings_extracted > 0:
         for p in state.players:
             if p.player_number == player:
                 p.eliminated_rings = getattr(p, "eliminated_rings", 0) + rings_extracted
-                # Also return extracted rings to hand (legacy/tests expect this)
-                p.rings_in_hand += rings_extracted
+                # NOTE: Do NOT add to rings_in_hand - extracted rings are eliminated,
+                # not returned. This was a bug that caused ring count divergence vs TS.
                 break
 
     return RecoveryApplicationOutcome(

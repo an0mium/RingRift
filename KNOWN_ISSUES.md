@@ -792,6 +792,52 @@ These issues have been addressed but are kept here for context:
   - Default `max_moves` in soak scripts: 200 → 400
   - This resolves game non-termination issues where games hit the move limit
     before reaching a natural victory condition.
+- **TS Replay Parity Soak Results (Dec 10, 2025)** –
+  Ran 13-game soak test with TS replay verification. Results:
+  - **9 games PASS** (69%): TS reaches `game_over` with 0 FSM failures
+  - **3 games ANM divergence** (23%): TS ends with `gameStatus: active` while Python
+    recorded completed game. All moves apply, 0 FSM failures - indicates victory
+    detection difference, not rules violation
+  - **1 game FATAL ERROR** (8%): "No stack at origin" at k=109. Root cause:
+    - At k=107, TS has 0 ringsInHand for both players (correctly depleted)
+    - Python recorded `place_ring` at (5,3) at k=108, followed by `move_stack`
+      from (5,3) at k=109
+    - TS couldn't place ring (none in hand) so no stack exists at (5,3)
+    - Investigation shows state divergence occurred earlier in game - TS and
+      Python diverged on ring accounting before k=90
+    - Stack counts diverge: TS has 4 stacks at k=107, Python final state has 1
+  - **4P games show excellent parity**: All 3 tested games pass with `game_over`,
+    including one with 18 synthesized moves (player-skip coercion working)
+  - **ANM divergence pattern**: Occurs in ~25% of 2P/3P games, typically in
+    `movement` or `territory_processing` phase. 4P appears more reliable.
+  - **Root cause of fatal error**: Likely territory processing or line collapse
+    differences causing ring count divergence. Not related to coercion logic
+    (which is working correctly). Further investigation would require per-move
+    state hash comparison to identify exact divergence point.
+- **Recovery Ring Refund Bug Fix (Dec 10, 2025)** –
+  **Root Cause:** Fixed critical bug in Python recovery action implementation
+  (`ai-service/app/rules/recovery.py` lines 1147-1154) where extracted buried
+  rings were incorrectly being returned to the player's hand:
+
+  ```python
+  # BUG: This line violated RR-CANON-R113
+  p.rings_in_hand += rings_extracted  # REMOVED
+  ```
+
+  Per RR-CANON-R113, extracted rings during recovery are ELIMINATED (credited
+  as self-elimination), NOT returned to hand. The TS implementation was already
+  correct. This bug caused ring count divergence in games with recovery actions,
+  allowing Python players to place more rings than permitted (e.g., 19 instead
+  of 18 for a 2-player game).
+
+  **Impact:** This was the root cause of the "No stack at origin" fatal parity
+  errors seen in some soak games - Python accumulated extra rings from recovery,
+  leading to state divergence vs TS.
+
+  **Fix:** Removed the buggy `p.rings_in_hand += rings_extracted` line. Updated
+  test fixtures in `test_recovery_parity.py` and `recovery_action.vectors.json`
+  to work with correct behavior. All 136 parity tests pass, all recovery
+  contract vectors pass.
 
 For a more narrative description of what works today vs what remains, see
 [CURRENT_STATE_ASSESSMENT.md](./CURRENT_STATE_ASSESSMENT.md).

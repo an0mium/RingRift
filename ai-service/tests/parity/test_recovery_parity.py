@@ -335,8 +335,8 @@ class TestRecoveryPhaseTransition:
                 "2,0": MarkerInfo(position=Position(x=2, y=0), player=1, type="regular"),
                 "4,0": MarkerInfo(position=Position(x=4, y=0), player=1, type="regular"),  # Will slide to 3,0
             },
-            player1_rings_in_hand=0,
-            player2_rings_in_hand=0,
+            player1_rings_in_hand=5,  # Need rings so game doesn't end immediately
+            player2_rings_in_hand=10,
         )
 
         move = Move(

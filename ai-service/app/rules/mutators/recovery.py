@@ -21,8 +21,10 @@ class RecoveryMutator(Mutator):
 
         Steps:
         1. Move the marker from from_pos to to_pos
-        2. Extract buried rings (cost = 1 + overlength)
-        3. Return extracted rings to player's hand
+        2. If line formed (mode="line"), collapse markers
+        3. Extract buried ring(s) as self-elimination cost (Option 1: 1 ring, Option 2: free)
+
+        Per RR-CANON-R113: Extracted rings are eliminated, NOT returned to hand.
 
         The line collapse and territory processing are handled by
         the turn orchestrator after the move is applied.

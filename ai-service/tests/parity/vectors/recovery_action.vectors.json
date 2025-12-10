@@ -37,21 +37,21 @@
           "players": [
             {
               "playerNumber": 1,
-              "ringsInHand": 0,
+              "ringsInHand": 5,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
             },
             {
               "playerNumber": 2,
-              "ringsInHand": 0,
+              "ringsInHand": 10,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
             },
             {
               "playerNumber": 3,
-              "ringsInHand": 0,
+              "ringsInHand": 10,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
@@ -79,6 +79,12 @@
         "boardChanges": {
           "collapsedSpacesAdded": ["0,0", "1,0", "2,0"],
           "markersRemaining": []
+        },
+        "playerChanges": {
+          "1": {
+            "eliminatedRings": 1,
+            "ringsInHand": 5
+          }
         }
       }
     },
@@ -116,21 +122,21 @@
           "players": [
             {
               "playerNumber": 1,
-              "ringsInHand": 0,
+              "ringsInHand": 5,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
             },
             {
               "playerNumber": 2,
-              "ringsInHand": 0,
+              "ringsInHand": 10,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
             },
             {
               "playerNumber": 3,
-              "ringsInHand": 0,
+              "ringsInHand": 10,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
@@ -158,6 +164,12 @@
         "boardChanges": {
           "collapsedSpacesAdded": ["0,0", "1,0", "2,0", "3,0"],
           "markersRemaining": []
+        },
+        "playerChanges": {
+          "1": {
+            "eliminatedRings": 1,
+            "ringsInHand": 5
+          }
         }
       }
     },
@@ -195,21 +207,21 @@
           "players": [
             {
               "playerNumber": 1,
-              "ringsInHand": 0,
+              "ringsInHand": 5,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
             },
             {
               "playerNumber": 2,
-              "ringsInHand": 0,
+              "ringsInHand": 10,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
             },
             {
               "playerNumber": 3,
-              "ringsInHand": 0,
+              "ringsInHand": 10,
               "eliminatedRings": 0,
               "territorySpaces": 0,
               "isActive": true
@@ -242,6 +254,12 @@
         "boardChanges": {
           "collapsedSpacesAdded": ["1,0", "2,0", "3,0"],
           "markersRemaining": ["0,0"]
+        },
+        "playerChanges": {
+          "1": {
+            "eliminatedRings": 0,
+            "ringsInHand": 5
+          }
         }
       }
     }
