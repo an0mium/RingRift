@@ -717,17 +717,18 @@ function deriveUxCopyKeys(
  * forced_elimination move. This is a pure inspection helper used only for
  * explanation/UX enrichment; it does not affect rules semantics or victory
  * evaluation.
+ *
+ * NOTE: FSM is now canonical, so state.history is always populated.
+ * The legacy moveHistory fallback has been removed.
  */
 function hasForcedEliminationMove(state: GameState): boolean {
-  // Prefer structured history when available.
+  // FSM canonical: structured history is always available
   if (state.history && state.history.length > 0) {
-    if (state.history.some((entry) => entry.action && entry.action.type === 'forced_elimination')) {
-      return true;
-    }
+    return state.history.some(
+      (entry) => entry.action && entry.action.type === 'forced_elimination'
+    );
   }
-
-  // Fallback to legacy moveHistory.
-  return state.moveHistory.some((move) => move.type === 'forced_elimination');
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

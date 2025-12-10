@@ -362,8 +362,10 @@ describe('FSM Canonical Orchestrator', () => {
 
     it('should return INVALID_EVENT for wrong phase moves', () => {
       const state = createGame();
+      // Use process_line which is only valid in line_processing phase
+      // (process_territory_region is now trusted during replay for parity tolerance)
       const move = makeMove({
-        type: 'process_territory_region',
+        type: 'process_line',
         player: 1,
         to: { x: 0, y: 0 },
       });
@@ -372,6 +374,22 @@ describe('FSM Canonical Orchestrator', () => {
       expect(result.valid).toBe(false);
       // FSM returns INVALID_EVENT when move type doesn't match expected events
       expect(result.errorCode).toBe('INVALID_EVENT');
+    });
+
+    it('should trust process_territory_region during replay (parity tolerance)', () => {
+      // process_territory_region is trusted during replay because Python may detect
+      // more disconnected regions than TypeScript. This allows replaying Python-recorded
+      // moves even when TS has already transitioned out of territory_processing.
+      const state = createGame();
+      const move = makeMove({
+        type: 'process_territory_region',
+        player: 1,
+        to: { x: 0, y: 0 },
+      });
+
+      const result = validateMoveWithFSM(state, move);
+      // Should be valid (trusted) even though we're in ring_placement phase
+      expect(result.valid).toBe(true);
     });
   });
 

@@ -71,9 +71,11 @@ export type MarkerType = 'regular' | 'collapsed';
  * Discriminant for the canonical {@link Move} type.
  *
  * Notes:
- * - Some values (e.g. 'move_ring', 'line_formation', 'territory_claim') are
- *   legacy/experimental. New code should prefer their canonical equivalents
- *   ('move_stack', explicit line/territory processing moves).
+ * - Some values (e.g. 'move_ring') are legacy aliases. New code should prefer
+ *   their canonical equivalents ('move_stack').
+ * - Deprecated move types ('line_formation', 'territory_claim', 'skip_placement')
+ *   are retained only for backwards compatibility with historical game recordings.
+ *   New code should use the canonical FSM-based equivalents.
  * - The phase → MoveType contract is documented above in {@link GamePhase}.
  */
 export type MoveType =
@@ -130,9 +132,17 @@ export type MoveType =
   | 'resign'
   // Game termination: player ran out of time. Valid from any phase.
   | 'timeout'
-  // Legacy / experimental move types (not used by the unified Move model).
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DEPRECATED MOVE TYPES - Retained for backwards compatibility only
+  // ═══════════════════════════════════════════════════════════════════════════
+  // @deprecated Use 'process_line' + 'choose_line_reward' instead.
+  // Retained for historical game recordings and UI display.
   | 'line_formation'
+  // @deprecated Use 'process_territory_region' + 'skip_territory_processing' instead.
+  // Retained for historical game recordings and UI display.
   | 'territory_claim'
+  // @deprecated Use 'no_placement_action' for no-op, or omit if no rings in hand.
+  // Retained for historical game recordings.
   | 'skip_placement';
 export type PlayerType = 'human' | 'ai';
 export type CaptureType = 'overtaking' | 'elimination';
