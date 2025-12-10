@@ -1,0 +1,1 @@
+{"index": 0, "num_players": 3, "board_type": "square8", "engine_mode": "descent-only", "seed": 5000, "length": 168, "status": "completed", "winner": 3, "termination_reason": "status:completed:lps", "skipped": false, "invariant_violations_by_type": {}, "swap_sides_moves": 0, "used_pie_rule": false, "moves": null, "initial_state": null}
