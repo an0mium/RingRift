@@ -26,10 +26,8 @@
 
 import type { GameState, BoardState, BoardType, Position, Player } from '../../types/game';
 import { positionToString } from '../../types/game';
-import { debugLog, flagEnabled } from '../../utils/envFlags';
 import type { MovementBoardView } from '../core';
 import { hasAnyLegalMoveOrCaptureFromOnBoard } from '../core';
-import { hasGlobalPlacementAction, hasForcedEliminationAction } from '../globalActions';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Helper Functions
@@ -352,8 +350,7 @@ export function evaluateVictory(state: GameState): VictoryResult {
     // Check if ALL other players have no material (total rings = 0)
     // This includes rings in hand AND rings on board (even if buried in opponent stacks)
     const othersHaveMaterial = players.some(
-      (p) =>
-        p.playerNumber !== stackOwner && countTotalRingsForPlayer(state, p.playerNumber) > 0
+      (p) => p.playerNumber !== stackOwner && countTotalRingsForPlayer(state, p.playerNumber) > 0
     );
     if (!othersHaveMaterial) {
       return {

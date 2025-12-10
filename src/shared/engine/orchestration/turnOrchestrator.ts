@@ -45,7 +45,6 @@ import {
   isANMState,
   applyForcedEliminationForPlayer,
   computeGlobalLegalActionsSummary,
-  hasAnyGlobalActionZeroRingAware,
   enumerateForcedEliminationOptions,
 } from '../globalActions';
 
