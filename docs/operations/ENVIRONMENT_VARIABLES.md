@@ -762,23 +762,11 @@ For recommended combinations of `NODE_ENV`, `RINGRIFT_APP_TOPOLOGY`,
 production phases, see the env/phase presets table in
 [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1](./architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#811-environment-and-flag-presets-by-phase).
 
-#### `ORCHESTRATOR_SHADOW_MODE_ENABLED`
+#### `ORCHESTRATOR_SHADOW_MODE_ENABLED` (REMOVED)
 
-| Property | Value     |
-| -------- | --------- |
-| Type     | `boolean` |
-| Default  | `false`   |
-| Required | No        |
-
-When `true`, the orchestrator runs in **shadow mode**:
-
-- Legacy turn processing remains authoritative for gameplay.
-- The orchestrator runs in parallel for the same turns and its results are
-  compared against the legacy engine.
-- Divergences are logged and surfaced via metrics for safe production testing.
-
-Use this in staging / early rollout phases to validate orchestrator behaviour
-under real traffic before switching to full production mode.
+> **DEPRECATED (2025-12-09):** This environment variable has been removed.
+> FSM is now the canonical game state orchestrator (RR-CANON compliance).
+> Shadow mode is no longer available.
 
 #### `ORCHESTRATOR_ALLOWLIST_USERS`
 
