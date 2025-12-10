@@ -724,4 +724,21 @@ describe('GameHUD – view-model props', () => {
 
     expect(screen.queryByText(/Victory Conditions/i)).toBeNull();
   });
+
+  it('exposes board controls button and invokes callback when provided', () => {
+    const onShowBoardControls = jest.fn();
+    const viewModel = createHUDViewModel();
+
+    render(
+      <GameHUD
+        viewModel={viewModel}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+        onShowBoardControls={onShowBoardControls}
+      />
+    );
+
+    const controlsBtn = screen.getByTestId('board-controls-button');
+    fireEvent.click(controlsBtn);
+    expect(onShowBoardControls).toHaveBeenCalledTimes(1);
+  });
 });
