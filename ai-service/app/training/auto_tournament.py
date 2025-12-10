@@ -16,7 +16,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.training.model_versioning import (
@@ -51,7 +51,7 @@ class RegisteredModel:
 
     def __post_init__(self) -> None:
         if not self.registered_at:
-            self.registered_at = datetime.utcnow().isoformat()
+            self.registered_at = datetime.now(timezone.utc).isoformat()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -87,7 +87,7 @@ class MatchResult:
 
     def __post_init__(self) -> None:
         if not self.played_at:
-            self.played_at = datetime.utcnow().isoformat()
+            self.played_at = datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
@@ -139,7 +139,7 @@ class ChallengerResult:
 
     def __post_init__(self) -> None:
         if not self.evaluation_time:
-            self.evaluation_time = datetime.utcnow().isoformat()
+            self.evaluation_time = datetime.now(timezone.utc).isoformat()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -344,7 +344,7 @@ class AutoTournamentPipeline:
                 model_id: model.to_dict()
                 for model_id, model in self._models.items()
             },
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
         with open(self.registry_file, "w") as f:
@@ -480,9 +480,9 @@ class AutoTournamentPipeline:
             f"{games_per_match} games per match"
         )
 
-        ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
         tournament_id = f"tournament_{ts}"
-        started_at = datetime.utcnow().isoformat()
+        started_at = datetime.now(timezone.utc).isoformat()
         matches: List[MatchResult] = []
         victory_reasons: Dict[str, int] = {
             reason: 0 for reason in VICTORY_REASONS
@@ -583,7 +583,7 @@ class AutoTournamentPipeline:
             final_elo_ratings=final_elo_ratings,
             final_standings=final_standings,
             started_at=started_at,
-            finished_at=datetime.utcnow().isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
             victory_reasons=victory_reasons,
         )
 
@@ -735,7 +735,7 @@ class AutoTournamentPipeline:
         self._save_registry()
 
         # Save evaluation result
-        ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
         result_filename = f"challenge_{challenger_id}_{ts}.json"
         result_path = os.path.join(self.results_dir, result_filename)
         with open(result_path, "w") as f:
@@ -830,7 +830,7 @@ class AutoTournamentPipeline:
         lines = [
             "# AI Tournament Performance Report",
             "",
-            f"**Generated:** {datetime.utcnow().isoformat()}",
+            f"**Generated:** {datetime.now(timezone.utc).isoformat()}",
             "",
             "## Current Champion",
             "",
@@ -952,7 +952,7 @@ class AutoTournamentPipeline:
             Path to the saved report.
         """
         if filename is None:
-            ts = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+            ts = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
             filename = f"report_{ts}.md"
 
         report_path = os.path.join(self.results_dir, filename)

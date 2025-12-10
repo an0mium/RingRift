@@ -76,7 +76,7 @@ import sys
 import time
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure app.* imports resolve
@@ -372,7 +372,7 @@ def save_checkpoint(
         "games_completed": games_completed,
         "samples_generated": samples_generated,
         "wins_by_player": wins_by_player,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     try:

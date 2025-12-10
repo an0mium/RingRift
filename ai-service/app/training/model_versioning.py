@@ -17,7 +17,7 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
 import torch
@@ -153,7 +153,7 @@ class ModelMetadata:
     # Use a method to get default timestamp to avoid mutable default
     def __post_init__(self) -> None:
         if not self.created_at:
-            self.created_at = datetime.utcnow().isoformat()
+            self.created_at = datetime.now(timezone.utc).isoformat()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -388,7 +388,7 @@ class ModelVersionManager:
             model_class=model.__class__.__name__,
             config=get_model_config(model),
             training_info=training_info or {},
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             checksum=compute_state_dict_checksum(state_dict),
             parent_checkpoint=parent_checkpoint,
         )
@@ -588,7 +588,7 @@ class ModelVersionManager:
             model_class="Unknown",
             config={},
             training_info={"legacy": True},
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             checksum=compute_state_dict_checksum(state_dict),
         )
 
@@ -748,9 +748,9 @@ class ModelVersionManager:
             config=config,
             training_info=training_info or {
                 "migrated_from": legacy_path,
-                "migration_date": datetime.utcnow().isoformat(),
+                "migration_date": datetime.now(timezone.utc).isoformat(),
             },
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             checksum=compute_state_dict_checksum(state_dict),
             parent_checkpoint=legacy_path,
         )

@@ -14,7 +14,7 @@ a comprehensive statistical analysis report including:
 import json
 import math
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -512,7 +512,7 @@ def generate_report(results_dir: Path, output_path: Path) -> Dict:
     # Build report
     report = {
         "metadata": {
-            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "generated_at": datetime.now(timezone.utc).isoformat() + "Z",
             "results_directory": str(results_dir),
             "files_analyzed": [r.source_file for r in all_results],
             "statistical_methods": {

@@ -41,7 +41,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 # Allow imports from app/ when run from the ai-service root.
@@ -531,7 +531,7 @@ def run_axis_aligned_tournament(
                 total_moves = stats.pop("total_moves", 0)
                 stats["avg_moves"] = float(total_moves) / games if games > 0 else 0.0
 
-    created_at = datetime.utcnow().isoformat() + "Z"
+    created_at = datetime.now(timezone.utc).isoformat() + "Z"
 
     payload: Dict[str, Any] = {
         "meta": {
@@ -662,7 +662,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     if args.output:
         output_path = args.output
     else:
-        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         os.makedirs(DEFAULT_RESULTS_DIR, exist_ok=True)
         output_path = os.path.join(
             DEFAULT_RESULTS_DIR,

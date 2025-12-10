@@ -21,7 +21,7 @@ import json
 import os
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, quantiles
 
@@ -610,7 +610,7 @@ def run_all_heuristic_tiers(
     if not tiers:
         raise ValueError("No heuristic tiers selected for evaluation")
 
-    timestamp = datetime.utcnow()
+    timestamp = datetime.now(timezone.utc)
     ts_str = timestamp.strftime("%Y%m%dT%H%M%SZ")
     run_id = f"heuristic_tier_eval_{ts_str}"
 
@@ -687,7 +687,7 @@ if __name__ == "__main__":  # pragma: no cover - CLI entrypoint
 
     out_dir = Path("results") / "ai_eval"
     out_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_path = out_dir / f"tier_eval_{ts}.json"
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(f"Wrote tier eval report to {out_path}")

@@ -395,6 +395,11 @@ def _run_training_preflight(args: argparse.Namespace) -> None:
         )
         return
 
+    # Demo mode uses stub/synthetic data, not actual training databases.
+    # Skip preflight checks that validate real canonical training sources.
+    if getattr(args, "demo", False):
+        return
+
     scripts_dir = Path(SCRIPT_DIR)
     preflight_script = scripts_dir / "training_preflight_check.py"
     if not preflight_script.exists():

@@ -28,7 +28,7 @@ import os
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -260,7 +260,7 @@ class S3Storage(StorageBackend):
             return
 
         # Generate partition key
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         ext = ".jsonl.gz" if self._compress else ".jsonl"
         key = f"{self._prefix}/{self._worker_id}/part_{self._current_partition:06d}_{timestamp}{ext}"
 
@@ -389,7 +389,7 @@ class GCSStorage(StorageBackend):
         if not self._buffer:
             return
 
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         ext = ".jsonl.gz" if self._compress else ".jsonl"
         blob_name = f"{self._prefix}/{self._worker_id}/part_{self._current_partition:06d}_{timestamp}{ext}"
 

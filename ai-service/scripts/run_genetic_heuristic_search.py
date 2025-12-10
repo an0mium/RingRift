@@ -49,7 +49,7 @@ import argparse
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -290,7 +290,7 @@ def _save_best_weights(
     payload = {
         "generation": generation,
         "fitness": best.fitness,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "weights": best.weights,
     }
     with open(out_path, "w", encoding="utf-8") as f:
@@ -452,7 +452,7 @@ def main() -> None:
 
     rng = np.random.default_rng(args.seed)
 
-    run_id = args.run_id or datetime.utcnow().strftime("ga_%Y%m%d_%H%M%S")
+    run_id = args.run_id or datetime.now(timezone.utc).strftime("ga_%Y%m%d_%H%M%S")
     run_dir = os.path.join(args.output_dir, "runs", run_id)
     os.makedirs(run_dir, exist_ok=True)
 

@@ -20,7 +20,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -458,7 +458,7 @@ def _run_tournament_on_pool(
         "total_games": total_games,
         "avg_game_length": avg_game_length_all,
         "results": scenario_results,
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "created_at": datetime.now(timezone.utc).isoformat() + "Z",
     }
     return report
 

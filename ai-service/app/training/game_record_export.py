@@ -12,7 +12,7 @@ They are intended for:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from app.models import (
@@ -133,7 +133,7 @@ def build_training_game_record(
             total_duration_ms = 0
     else:
         # Fallback to "now" if timestamps are missing or invalid.
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         started_at = started_at or now
         ended_at = ended_at or now
         total_duration_ms = 0

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -189,8 +189,8 @@ def _build_game_state_from_snapshot(snapshot: Dict[str, Any]) -> GameState:
         spectators=[],
         game_status=game_status,
         winner=None,
-        created_at=datetime.utcfromtimestamp(0),
-        last_move_at=datetime.utcfromtimestamp(0),
+        created_at=datetime.fromtimestamp(0, timezone.utc),
+        last_move_at=datetime.fromtimestamp(0, timezone.utc),
         is_rated=False,
         max_players=len(players),
         total_rings_in_play=snapshot["totalRingsInPlay"],

@@ -582,7 +582,11 @@ def test_run_full_tier_gating_rejects_when_tier_mismatch(tmp_path, monkeypatch) 
 
 
 def test_tier_training_pipeline_runs_preflight_by_default(tmp_path, monkeypatch) -> None:
-    """Training pipeline should invoke the canonical preflight unless skipped."""
+    """Training pipeline should invoke the canonical preflight in non-demo mode.
+
+    Note: demo mode intentionally skips preflight since it uses synthetic/stub
+    data and doesn't need real canonical training sources validated.
+    """
     run_dir = tmp_path / "d2_preflight"
     called: dict[str, Any] = {}
 
@@ -590,6 +594,49 @@ def test_tier_training_pipeline_runs_preflight_by_default(tmp_path, monkeypatch)
         called["cmd"] = cmd
         called["cwd"] = cwd
         called["text"] = text
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(tier_train.subprocess, "run", fake_run)
+
+    # Mock out the heavy training functions to avoid actual work.
+    def mock_run_training(*args, **kwargs):
+        return {"status": "completed", "metrics": {}}
+
+    monkeypatch.setattr(tier_train, "_run_d2_training", mock_run_training)
+    monkeypatch.setattr(tier_train, "_run_d4_training", mock_run_training)
+
+    argv = [
+        "--tier",
+        "D2",
+        "--board",
+        "square8",
+        "--num-players",
+        "2",
+        "--run-dir",
+        str(run_dir),
+        # No --demo flag - testing real preflight invocation
+    ]
+
+    rc = tier_train.main(argv)
+    assert rc == 0
+    assert "cmd" in called
+    assert any("training_preflight_check.py" in part for part in called["cmd"])
+    config_arg = called["cmd"][called["cmd"].index("--config") + 1]
+    assert os.path.isabs(config_arg)
+    assert called["cwd"] == tier_train.PROJECT_ROOT
+
+
+def test_tier_training_pipeline_demo_skips_preflight(tmp_path, monkeypatch) -> None:
+    """Demo mode should skip preflight since it uses synthetic/stub data."""
+    run_dir = tmp_path / "d2_demo_no_preflight"
+    preflight_called = {"count": 0}
+
+    def fake_run(cmd: list[str], cwd: str | None = None, text: bool | None = None):
+        preflight_called["count"] += 1
 
         class Result:
             returncode = 0
@@ -612,11 +659,8 @@ def test_tier_training_pipeline_runs_preflight_by_default(tmp_path, monkeypatch)
 
     rc = tier_train.main(argv)
     assert rc == 0
-    assert "cmd" in called
-    assert any("training_preflight_check.py" in part for part in called["cmd"])
-    config_arg = called["cmd"][called["cmd"].index("--config") + 1]
-    assert os.path.isabs(config_arg)
-    assert called["cwd"] == tier_train.PROJECT_ROOT
+    # Preflight subprocess should NOT have been called in demo mode
+    assert preflight_called["count"] == 0
 
 
 def test_tier_training_pipeline_skip_preflight(monkeypatch, tmp_path) -> None:

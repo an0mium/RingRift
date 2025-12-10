@@ -32,7 +32,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 # Ensure app.* imports resolve when run from the ai-service root.
@@ -443,7 +443,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if not candidates:
         raise SystemExit("No candidates found. Provide --candidates-dir and/or " "--candidate-weights.")
 
-    created_at = datetime.utcnow().isoformat() + "Z"
+    created_at = datetime.now(timezone.utc).isoformat() + "Z"
 
     print("=== Policy-equivalence diagnostic ===")
     print(f"State pool: {args.state_pool} ({len(states)} states loaded)")
@@ -486,7 +486,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if args.output:
         output_path = args.output
     else:
-        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
         output_path = os.path.join(
             DEFAULT_OUTPUT_DIR,
