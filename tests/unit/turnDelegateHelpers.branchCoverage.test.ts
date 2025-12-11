@@ -1,10 +1,10 @@
 /**
  * turnDelegateHelpers.branchCoverage.test.ts
  *
- * Branch coverage tests for turnDelegateHelpers.ts targeting uncovered branches:
+ * Branch coverage tests for turnDelegateHelpers.ts targeting:
  * - hasAnyPlacementForPlayer: player check, board config, cap check, board iteration
- * - hasAnyMovementForPlayer: stub error
- * - hasAnyCaptureForPlayer: stub error
+ * - hasAnyMovementForPlayer: stack enumeration, mustMoveFromStackKey constraint
+ * - hasAnyCaptureForPlayer: capture enumeration, mustMoveFromStackKey constraint
  * - createDefaultTurnLogicDelegates: stack filtering, delegates
  */
 
@@ -197,24 +197,118 @@ describe('turnDelegateHelpers branch coverage', () => {
   });
 
   describe('hasAnyMovementForPlayer', () => {
-    it('throws design-time stub error', () => {
+    it('returns false when player has no stacks', () => {
       const state = makeGameState();
-      const turn = { mustMoveFrom: undefined };
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
 
-      expect(() => hasAnyMovementForPlayer(state, 1, turn)).toThrow(
-        'TODO(P0-HELPERS): hasAnyMovementForPlayer is a design-time stub'
-      );
+      const result = hasAnyMovementForPlayer(state, 1, turn);
+      expect(result).toBe(false);
+    });
+
+    it('returns true when player has a stack with valid moves', () => {
+      const state = makeGameState();
+      // Place a stack at center with height 2 (can move 2 spaces)
+      addStack(state, pos(4, 4), 1, [1, 1]);
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+      const result = hasAnyMovementForPlayer(state, 1, turn);
+      expect(result).toBe(true);
+    });
+
+    it('returns false when player has stack but mustMoveFromStackKey points elsewhere', () => {
+      const state = makeGameState();
+      addStack(state, pos(4, 4), 1, [1, 1]);
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: '0,0' }; // Different position
+
+      const result = hasAnyMovementForPlayer(state, 1, turn);
+      expect(result).toBe(false);
+    });
+
+    it('returns true when mustMoveFromStackKey matches stack with valid moves', () => {
+      const state = makeGameState();
+      addStack(state, pos(4, 4), 1, [1, 1]);
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: '4,4' };
+
+      const result = hasAnyMovementForPlayer(state, 1, turn);
+      expect(result).toBe(true);
+    });
+
+    it('returns false when stack is surrounded and cannot move', () => {
+      const state = makeGameState();
+      // Place a height-1 stack at corner with adjacent stacks blocking all moves
+      addStack(state, pos(0, 0), 1, [1]); // Can move 1 space
+      addStack(state, pos(1, 0), 2, [2]); // Block right
+      addStack(state, pos(0, 1), 2, [2]); // Block down
+      addStack(state, pos(1, 1), 2, [2]); // Block diagonal
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+      const result = hasAnyMovementForPlayer(state, 1, turn);
+      expect(result).toBe(false);
     });
   });
 
   describe('hasAnyCaptureForPlayer', () => {
-    it('throws design-time stub error', () => {
+    it('returns false when player has no stacks', () => {
       const state = makeGameState();
-      const turn = { mustMoveFrom: undefined };
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
 
-      expect(() => hasAnyCaptureForPlayer(state, 1, turn)).toThrow(
-        'TODO(P0-HELPERS): hasAnyCaptureForPlayer is a design-time stub'
-      );
+      const result = hasAnyCaptureForPlayer(state, 1, turn);
+      expect(result).toBe(false);
+    });
+
+    it('returns false when player has stack but no capturable targets', () => {
+      const state = makeGameState();
+      addStack(state, pos(4, 4), 1, [1, 1]); // Player 1 stack
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+      const result = hasAnyCaptureForPlayer(state, 1, turn);
+      expect(result).toBe(false);
+    });
+
+    it('returns true when player can capture an enemy stack', () => {
+      const state = makeGameState();
+      // Player 1 stack with cap height 2
+      addStack(state, pos(4, 4), 1, [1, 1]);
+      // Player 2 stack with cap height 1 at distance 2 (player 1 can reach)
+      addStack(state, pos(4, 6), 2, [2]);
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+      const result = hasAnyCaptureForPlayer(state, 1, turn);
+      expect(result).toBe(true);
+    });
+
+    it('returns false when cap height insufficient for capture', () => {
+      const state = makeGameState();
+      // Player 1 stack with cap height 1 cannot capture a height 2 enemy
+      addStack(state, pos(4, 4), 1, [1]);
+      // Player 2 stack with cap height 2 - can't be captured by cap height 1
+      addStack(state, pos(4, 5), 2, [2, 2]);
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+      // RR-CANON-R070: Attacker cap height must be >= target cap height
+      const result = hasAnyCaptureForPlayer(state, 1, turn);
+      expect(result).toBe(false);
+    });
+
+    it('returns false when mustMoveFromStackKey points to stack without captures', () => {
+      const state = makeGameState();
+      addStack(state, pos(4, 4), 1, [1, 1]);
+      addStack(state, pos(0, 0), 1, [1]); // Another stack with no captures
+      addStack(state, pos(4, 6), 2, [2]); // Target reachable from 4,4 only
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: '0,0' };
+
+      const result = hasAnyCaptureForPlayer(state, 1, turn);
+      expect(result).toBe(false);
+    });
+
+    it('returns true when mustMoveFromStackKey matches stack with captures', () => {
+      const state = makeGameState();
+      addStack(state, pos(4, 4), 1, [1, 1]);
+      addStack(state, pos(4, 6), 2, [2]); // Target reachable from 4,4
+      const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: '4,4' };
+
+      const result = hasAnyCaptureForPlayer(state, 1, turn);
+      expect(result).toBe(true);
     });
   });
 
@@ -294,22 +388,47 @@ describe('turnDelegateHelpers branch coverage', () => {
     });
 
     describe('hasAnyMovement delegate', () => {
-      it('throws stub error when called', () => {
+      it('delegates to hasAnyMovementForPlayer', () => {
         const delegates = createDefaultTurnLogicDelegates(mockConfig);
         const state = makeGameState();
-        const turn = { mustMoveFrom: undefined };
+        const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
 
-        expect(() => delegates.hasAnyMovement(state, 1, turn)).toThrow(/design-time stub/);
+        // No stacks = no movement
+        const result = delegates.hasAnyMovement(state, 1, turn);
+        expect(result).toBe(false);
+      });
+
+      it('returns true when player has movable stacks', () => {
+        const delegates = createDefaultTurnLogicDelegates(mockConfig);
+        const state = makeGameState();
+        addStack(state, pos(4, 4), 1, [1, 1]);
+        const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+        const result = delegates.hasAnyMovement(state, 1, turn);
+        expect(result).toBe(true);
       });
     });
 
     describe('hasAnyCapture delegate', () => {
-      it('throws stub error when called', () => {
+      it('delegates to hasAnyCaptureForPlayer', () => {
         const delegates = createDefaultTurnLogicDelegates(mockConfig);
         const state = makeGameState();
-        const turn = { mustMoveFrom: undefined };
+        const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
 
-        expect(() => delegates.hasAnyCapture(state, 1, turn)).toThrow(/design-time stub/);
+        // No stacks = no captures
+        const result = delegates.hasAnyCapture(state, 1, turn);
+        expect(result).toBe(false);
+      });
+
+      it('returns true when player can capture', () => {
+        const delegates = createDefaultTurnLogicDelegates(mockConfig);
+        const state = makeGameState();
+        addStack(state, pos(4, 4), 1, [1, 1]);
+        addStack(state, pos(4, 6), 2, [2]);
+        const turn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
+
+        const result = delegates.hasAnyCapture(state, 1, turn);
+        expect(result).toBe(true);
       });
     });
   });

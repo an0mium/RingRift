@@ -1,41 +1,32 @@
 import type { GameState, BoardType, Position } from '../types/game';
-import { BOARD_CONFIGS } from '../types/game';
+import { BOARD_CONFIGS, positionToString } from '../types/game';
 import type { PerTurnState, TurnLogicDelegates } from './turnLogic';
 import { countRingsOnBoardForPlayer } from './core';
 import { validatePlacementOnBoard } from './validators/PlacementValidator';
 import { playerHasAnyRings } from './globalActions';
+import { enumerateSimpleMovesForPlayer } from './aggregates/MovementAggregate';
+import { enumerateAllCaptureMoves } from './aggregates/CaptureAggregate';
 
 /**
  * Shared helpers and factory for {@link TurnLogicDelegates} used by the
  * phase/turn sequencer in [`turnLogic.ts`](src/shared/engine/turnLogic.ts:1).
  *
- * The goal of this module is to:
+ * This module provides the **canonical** way to answer the three action-availability
+ * questions used by the sequencer:
  *
- * - Document a **canonical** way to answer the three action-availability
- *   questions used by the sequencer:
- *   - "Does this player have any legal placement?"
- *   - "Does this player have any legal non-capturing movement?"
- *   - "Does this player have any legal overtaking capture?"
- * - Provide a small factory that backend and sandbox hosts can use to build
- *   {@link TurnLogicDelegates} instances that share the same underlying
- *   reachability semantics instead of each host maintaining its own
- *   `hasValidMovements` / `hasValidCaptures` implementations.
+ * - "Does this player have any legal placement?" → {@link hasAnyPlacementForPlayer}
+ * - "Does this player have any legal non-capturing movement?" → {@link hasAnyMovementForPlayer}
+ * - "Does this player have any legal overtaking capture?" → {@link hasAnyCaptureForPlayer}
  *
- * For P0 Task #21 these functions are intentionally left as **design-time
- * stubs**: they encode the intended signatures and semantics in docstrings
- * but are not yet wired into any host engine, so they do not change runtime
- * behaviour. Later tasks (P0 #7–#9) will port the concrete logic from:
+ * It also provides a factory {@link createDefaultTurnLogicDelegates} that backend
+ * and sandbox hosts can use to build {@link TurnLogicDelegates} instances that
+ * share the same underlying reachability semantics.
  *
- * - Backend:
- *   - `GameEngine.hasValidPlacements`,
- *   - `GameEngine.hasValidMovements`,
- *   - `GameEngine.hasValidCaptures`, and
- *   - `TurnEngine.advanceGameForCurrentPlayer` forced-elimination helpers.
- * - Sandbox:
- *   - `sandboxTurnEngine.hasAnyPlacementForCurrentPlayer`,
- *   - `sandboxTurnEngine.hasAnyMovementForCurrentPlayer`,
- *   - `sandboxTurnEngine.hasAnyCaptureForCurrentPlayer`, and
- *   - `sandboxTurnEngine.maybeProcessForcedEliminationForCurrentPlayer`.
+ * Implementation notes:
+ * - Placement: Uses validatePlacementOnBoard for no-dead-placement rule
+ * - Movement: Delegates to enumerateSimpleMovesForPlayer from MovementAggregate
+ * - Capture: Delegates to enumerateAllCaptureMoves from CaptureAggregate
+ * - All three respect mustMoveFromStackKey constraints from PerTurnState
  */
 
 /**
@@ -131,7 +122,7 @@ export function hasAnyPlacementForPlayer(state: GameState, player: number): bool
  * Canonical "has any non-capturing movement?" predicate for the shared
  * turn/phase sequencer.
  *
- * Target semantics:
+ * Semantics:
  *
  * - Returns true if at least one legal **non-capturing** stack move exists
  *   for `player` in `state`, respecting:
@@ -142,56 +133,76 @@ export function hasAnyPlacementForPlayer(state: GameState, player: number): bool
  * - Capture opportunities are **not** considered here; those are handled by
  *   {@link hasAnyCaptureForPlayer}.
  *
- * At implementation time this helper is expected to:
- *
- * - Build a lightweight {@code MovementBoardView} from `state.board`, and
- * - Delegate the actual reachability checks to either:
- *   - [`enumerateSimpleMoveTargetsFromStack`](src/shared/engine/movementLogic.ts:55), or
- *   - [`hasAnyLegalMoveOrCaptureFromOnBoard`](src/shared/engine/core.ts:367) with capture
- *     reachability disabled.
+ * Implementation:
+ * - Delegates to `enumerateSimpleMovesForPlayer` from MovementAggregate
+ * - Filters by mustMoveFromStackKey constraint if present in PerTurnState
  */
 export function hasAnyMovementForPlayer(
   state: GameState,
   player: number,
   turn: PerTurnState
 ): boolean {
-  void state;
-  void player;
-  void turn;
-  throw new Error(
-    'TODO(P0-HELPERS): hasAnyMovementForPlayer is a design-time stub. ' +
-      'See P0_TASK_21_SHARED_HELPER_MODULES_DESIGN.md for intended semantics.'
-  );
+  // Get all simple (non-capturing) moves for the player
+  const allMoves = enumerateSimpleMovesForPlayer(state, player);
+
+  if (allMoves.length === 0) {
+    return false;
+  }
+
+  // If there's a must-move-from constraint, filter to only those moves
+  if (turn.mustMoveFromStackKey) {
+    const mustMoveFrom = turn.mustMoveFromStackKey;
+    const constrainedMoves = allMoves.filter((move) => {
+      if (!move.from) return false;
+      return positionToString(move.from) === mustMoveFrom;
+    });
+    return constrainedMoves.length > 0;
+  }
+
+  return true;
 }
 
 /**
  * Canonical "has any overtaking capture?" predicate for the shared
  * turn/phase sequencer.
  *
- * Target semantics:
+ * Semantics:
  *
  * - Returns true if at least one legal overtaking capture (initial or
  *   continuation) exists for `player` in `state`, respecting any per-turn
  *   constraints encoded in {@link PerTurnState}.
  * - Builds on the same capture geometry used everywhere else via
- *   [`enumerateCaptureMoves`](src/shared/engine/captureLogic.ts:26) and
- *   [`validateCaptureSegmentOnBoard`](src/shared/engine/core.ts:202).
+ *   `enumerateAllCaptureMoves` from CaptureAggregate.
  *
- * As with {@link hasAnyMovementForPlayer}, this helper is pure and must not
- * mutate `state`.
+ * Implementation:
+ * - Delegates to `enumerateAllCaptureMoves` from CaptureAggregate
+ * - Filters by mustMoveFromStackKey constraint if present in PerTurnState
+ *
+ * This helper is pure and does not mutate `state`.
  */
 export function hasAnyCaptureForPlayer(
   state: GameState,
   player: number,
   turn: PerTurnState
 ): boolean {
-  void state;
-  void player;
-  void turn;
-  throw new Error(
-    'TODO(P0-HELPERS): hasAnyCaptureForPlayer is a design-time stub. ' +
-      'See P0_TASK_21_SHARED_HELPER_MODULES_DESIGN.md for intended semantics.'
-  );
+  // Get all capture moves for the player
+  const allCaptures = enumerateAllCaptureMoves(state, player);
+
+  if (allCaptures.length === 0) {
+    return false;
+  }
+
+  // If there's a must-move-from constraint, filter to only captures from that stack
+  if (turn.mustMoveFromStackKey) {
+    const mustMoveFrom = turn.mustMoveFromStackKey;
+    const constrainedCaptures = allCaptures.filter((move) => {
+      if (!move.from) return false;
+      return positionToString(move.from) === mustMoveFrom;
+    });
+    return constrainedCaptures.length > 0;
+  }
+
+  return true;
 }
 
 /**
@@ -237,10 +248,6 @@ export interface DefaultTurnDelegatesConfig {
  *   elimination semantics), and
  * - the sandbox turn engine, once both are refactored to drive the shared
  *   [`advanceTurnAndPhase`](src/shared/engine/turnLogic.ts:135) helper.
- *
- * For P0 Task #21 the returned delegates will still throw at runtime because
- * they call the stubbed action-availability helpers above. Hosts are **not**
- * yet wired to use this factory; doing so is part of later refactor tasks.
  */
 export function createDefaultTurnLogicDelegates(
   config: DefaultTurnDelegatesConfig
