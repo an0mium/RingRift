@@ -1106,7 +1106,7 @@ describe('enumerateRecoverySlideTargets', () => {
     );
     expect(slideTarget).toBeDefined();
     expect(slideTarget?.formedLineLength).toBe(4);
-    expect(slideTarget?.cost).toBe(1); // Exact length = 1
+    expect(slideTarget?.option1Cost).toBe(1); // Option 1 always costs 1 buried ring
   });
 });
 

@@ -335,9 +335,12 @@ Deprecated functions still exported, design-time stubs that throw, unused helper
 - [x] ClientSandboxEngine dead code removed (2025-12-11)
   - Removed `hasAnyMovementOrCaptureForPlayer` (replaced by shared predicates)
   - ~25 lines removed
+- [x] RecoverySlideTarget.cost deprecated field removed (2025-12-11)
+  - Replaced by `option1Cost` and `option2Cost` fields
+  - Test updated to use `option1Cost`
 - [ ] Deprecated exports inventoried
 - [ ] Dependencies verified
-- [ ] Remaining cleanup pending
+- [ ] Remaining cleanup pending (phaseStateMachine.ts depends on P1)
 
 ---
 

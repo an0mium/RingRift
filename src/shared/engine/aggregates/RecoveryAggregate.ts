@@ -120,11 +120,6 @@ export interface RecoverySlideTarget {
   option2Cost: 0;
   /** Positions of all markers in the formed line */
   linePositions: Position[];
-  /**
-   * @deprecated Use option1Cost or option2Cost instead.
-   * Kept for backwards compatibility during transition.
-   */
-  cost: number;
 }
 
 /**
@@ -231,8 +226,6 @@ export function enumerateRecoverySlideTargets(
             option2Available: isOverlength,
             option2Cost: 0,
             linePositions: lineInfo.positions,
-            // Deprecated: keep for backwards compatibility
-            cost: 1, // Minimum cost is always 1 for Option 1
           });
         }
       }
