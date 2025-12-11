@@ -510,6 +510,8 @@ export function enumerateTerritoryEliminationMoves(
         capHeight,
         totalHeight: stack.stackHeight,
       },
+      // Territory processing requires entire cap elimination (RR-CANON-R145)
+      eliminationContext: 'territory',
       timestamp: new Date(),
       thinkTime: 0,
       moveNumber: nextMoveNumber,
