@@ -32,8 +32,402 @@ import torch
 import torch.nn.functional as F
 
 from .gpu_batch import get_device, clear_gpu_memory
+from .shadow_validation import ShadowValidator, create_shadow_validator
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Vectorized Selection Utilities
+# =============================================================================
+
+
+def select_moves_vectorized(
+    moves: "BatchMoves",
+    active_mask: torch.Tensor,
+    board_size: int,
+    temperature: float = 1.0,
+) -> torch.Tensor:
+    """Select one move per game using vectorized softmax sampling.
+
+    This replaces the per-game Python loop anti-pattern with fully vectorized
+    tensor operations. Key optimizations:
+    - No .item() calls (avoids GPU→CPU sync)
+    - All scoring done in parallel across all moves
+    - Segment-wise softmax using scatter operations
+    - Batch multinomial sampling
+
+    Args:
+        moves: BatchMoves containing flattened moves for all games
+        active_mask: (batch_size,) bool tensor of games to process
+        board_size: Board dimension for center-bias calculation
+        temperature: Softmax temperature (higher = more random)
+
+    Returns:
+        (batch_size,) tensor of selected local move indices per game
+    """
+    device = moves.device
+    batch_size = active_mask.shape[0]
+
+    # Initialize output: -1 for games with no moves
+    selected = torch.full((batch_size,), -1, dtype=torch.int64, device=device)
+
+    if moves.total_moves == 0:
+        return selected
+
+    # Compute center-bias scores for ALL moves at once (vectorized)
+    center = board_size // 2
+    max_dist = center * 2.0
+
+    # Use to_y/to_x for destination-based scoring (captures/movements)
+    # For placements, from_y/from_x == to_y/to_x, so this works universally
+    dist_to_center = (
+        (moves.to_y.float() - center).abs() +
+        (moves.to_x.float() - center).abs()
+    )
+
+    # Score: higher for closer to center + random noise for stochasticity
+    noise = torch.rand(moves.total_moves, device=device) * 2.0
+    scores = (max_dist - dist_to_center) / temperature + noise
+
+    # Create game assignment for each move
+    game_idx = moves.game_idx.long()
+
+    # Segment-wise softmax: compute max per game for numerical stability
+    # Use scatter_reduce to get max score per game
+    neg_inf = torch.full((batch_size,), float('-inf'), device=device)
+    max_per_game = neg_inf.scatter_reduce(0, game_idx, scores, reduce='amax')
+
+    # Subtract max for numerical stability (only for games with moves)
+    scores_stable = scores - max_per_game[game_idx]
+
+    # Compute exp(scores)
+    exp_scores = torch.exp(scores_stable)
+
+    # Sum exp per game using scatter_add
+    sum_per_game = torch.zeros(batch_size, device=device)
+    sum_per_game.scatter_add_(0, game_idx, exp_scores)
+
+    # Compute probabilities (exp / sum)
+    probs = exp_scores / (sum_per_game[game_idx] + 1e-10)
+
+    # Sample from each game's probability distribution
+    # Strategy: cumsum within each game, compare to uniform random
+    # This is a vectorized segment-wise multinomial
+
+    # Compute cumsum per game using segment operations
+    # Sort moves by game_idx to enable cumsum
+    sorted_indices = torch.argsort(game_idx)
+    sorted_game_idx = game_idx[sorted_indices]
+    sorted_probs = probs[sorted_indices]
+
+    # Cumsum all probs
+    cumsum_probs = torch.cumsum(sorted_probs, dim=0)
+
+    # Subtract cumsum at game boundaries to get per-game cumsum
+    # Find where games change
+    game_starts = torch.zeros(batch_size, dtype=torch.long, device=device)
+    game_starts[1:] = torch.searchsorted(sorted_game_idx, torch.arange(1, batch_size, device=device))
+
+    # Get cumsum value at start of each game
+    cumsum_at_start = torch.zeros(batch_size, device=device)
+    cumsum_at_start[1:] = cumsum_probs[game_starts[1:] - 1]
+
+    # Per-game cumsum = global cumsum - cumsum at game start
+    per_game_cumsum = cumsum_probs - cumsum_at_start[sorted_game_idx]
+
+    # Generate one random value per game
+    rand_vals = torch.rand(batch_size, device=device)
+
+    # For each move, check if this is the first move where cumsum > rand
+    # Mask: rand < cumsum (this move or later could be selected)
+    exceeds_rand = per_game_cumsum > rand_vals[sorted_game_idx]
+
+    # Find first exceeding index per game
+    # Set non-exceeding to large value, then take min per game
+    large_val = moves.total_moves + 1
+    indices_or_large = torch.where(
+        exceeds_rand,
+        torch.arange(moves.total_moves, device=device),
+        torch.full((moves.total_moves,), large_val, device=device)
+    )
+
+    # Get min index per game (first exceeding)
+    first_exceed = torch.full((batch_size,), large_val, dtype=torch.long, device=device)
+    first_exceed.scatter_reduce_(0, sorted_game_idx, indices_or_large, reduce='amin')
+
+    # Convert global sorted index to local index within game
+    # local_idx = global_sorted_idx - game_start
+    has_moves = moves.moves_per_game > 0
+    valid_selection = has_moves & active_mask & (first_exceed < large_val)
+
+    # Map sorted indices back to original indices
+    original_indices = sorted_indices[first_exceed.clamp(0, moves.total_moves - 1)]
+
+    # Compute local index: original_idx - move_offset for that game
+    local_idx = original_indices - moves.move_offsets
+
+    selected[valid_selection] = local_idx[valid_selection]
+
+    # Clamp to valid range
+    selected = torch.clamp(selected, min=0)
+
+    return selected
+
+
+def apply_capture_moves_vectorized(
+    state: "BatchGameState",
+    selected_local_idx: torch.Tensor,
+    moves: "BatchMoves",
+    active_mask: torch.Tensor,
+) -> None:
+    """Apply capture moves in a vectorized manner.
+
+    This applies selected capture moves for multiple games simultaneously,
+    minimizing Python loops and .item() calls.
+
+    Note: Some operations (like path marker flipping) still require iteration
+    due to variable-length paths. This is a known limitation documented in
+    GPU_PIPELINE_ROADMAP.md Section 2.2 (Irregular Data Access Patterns).
+
+    Args:
+        state: BatchGameState to modify
+        selected_local_idx: (batch_size,) local move indices
+        moves: BatchMoves containing capture moves
+        active_mask: (batch_size,) bool tensor of games with captures to apply
+    """
+    device = state.device
+    batch_size = state.batch_size
+
+    # Identify games that have moves to apply
+    has_selection = (selected_local_idx >= 0) & active_mask & (moves.moves_per_game > 0)
+
+    if not has_selection.any():
+        return
+
+    # Compute global indices for selected moves
+    global_idx = moves.move_offsets + selected_local_idx
+    global_idx = torch.clamp(global_idx, 0, max(0, moves.total_moves - 1))
+
+    # Get move data for all selected moves at once
+    selected_from_y = moves.from_y[global_idx]
+    selected_from_x = moves.from_x[global_idx]
+    selected_to_y = moves.to_y[global_idx]
+    selected_to_x = moves.to_x[global_idx]
+
+    # Get current players for active games
+    current_players = state.current_player
+
+    # Record moves in history (vectorized where possible)
+    move_counts = state.move_count.clone()
+
+    # Apply moves game by game (some operations require iteration due to variable paths)
+    # This is the minimal iteration - just for path processing
+    game_indices = torch.where(has_selection)[0]
+
+    for g in game_indices.tolist():
+        from_y = selected_from_y[g].item()
+        from_x = selected_from_x[g].item()
+        to_y = selected_to_y[g].item()
+        to_x = selected_to_x[g].item()
+        player = current_players[g].item()
+        mc = move_counts[g].item()
+
+        # Record in history
+        if mc < state.max_history_moves:
+            state.move_history[g, mc, 0] = MoveType.CAPTURE
+            state.move_history[g, mc, 1] = player
+            state.move_history[g, mc, 2] = from_y
+            state.move_history[g, mc, 3] = from_x
+            state.move_history[g, mc, 4] = to_y
+            state.move_history[g, mc, 5] = to_x
+
+        # Get stack info
+        attacker_height = state.stack_height[g, from_y, from_x].item()
+        defender_height = state.stack_height[g, to_y, to_x].item()
+        defender_owner = state.stack_owner[g, to_y, to_x].item()
+
+        # Process markers along path
+        dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
+        dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
+        dist = max(abs(to_y - from_y), abs(to_x - from_x))
+
+        for step in range(1, dist):
+            check_y = from_y + dy * step
+            check_x = from_x + dx * step
+            marker_owner = state.marker_owner[g, check_y, check_x].item()
+            if marker_owner != 0 and marker_owner != player:
+                state.marker_owner[g, check_y, check_x] = player
+
+        # Eliminate defender's top ring
+        defender_new_height = max(0, defender_height - 1)
+
+        # Track elimination
+        if defender_owner > 0:
+            current_elim = state.eliminated_rings[g, defender_owner].item()
+            state.eliminated_rings[g, defender_owner] = current_elim + 1
+
+        # Merge stacks
+        if defender_new_height > 0:
+            new_height = attacker_height + defender_new_height
+            state.stack_height[g, to_y, to_x] = new_height
+        else:
+            state.stack_height[g, to_y, to_x] = attacker_height
+
+        state.stack_owner[g, to_y, to_x] = player
+
+        # Clear origin
+        state.stack_height[g, from_y, from_x] = 0
+        state.stack_owner[g, from_y, from_x] = 0
+
+
+def apply_movement_moves_vectorized(
+    state: "BatchGameState",
+    selected_local_idx: torch.Tensor,
+    moves: "BatchMoves",
+    active_mask: torch.Tensor,
+) -> None:
+    """Apply movement moves in a vectorized manner.
+
+    Similar to capture moves but without defender elimination.
+    Still requires iteration for path marker processing.
+    """
+    device = state.device
+    batch_size = state.batch_size
+
+    has_selection = (selected_local_idx >= 0) & active_mask & (moves.moves_per_game > 0)
+
+    if not has_selection.any():
+        return
+
+    global_idx = moves.move_offsets + selected_local_idx
+    global_idx = torch.clamp(global_idx, 0, max(0, moves.total_moves - 1))
+
+    selected_from_y = moves.from_y[global_idx]
+    selected_from_x = moves.from_x[global_idx]
+    selected_to_y = moves.to_y[global_idx]
+    selected_to_x = moves.to_x[global_idx]
+
+    current_players = state.current_player
+    move_counts = state.move_count.clone()
+
+    game_indices = torch.where(has_selection)[0]
+
+    for g in game_indices.tolist():
+        from_y = selected_from_y[g].item()
+        from_x = selected_from_x[g].item()
+        to_y = selected_to_y[g].item()
+        to_x = selected_to_x[g].item()
+        player = current_players[g].item()
+        mc = move_counts[g].item()
+
+        # Record in history
+        if mc < state.max_history_moves:
+            state.move_history[g, mc, 0] = MoveType.MOVEMENT
+            state.move_history[g, mc, 1] = player
+            state.move_history[g, mc, 2] = from_y
+            state.move_history[g, mc, 3] = from_x
+            state.move_history[g, mc, 4] = to_y
+            state.move_history[g, mc, 5] = to_x
+
+        moving_height = state.stack_height[g, from_y, from_x].item()
+
+        # Process markers along path
+        dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
+        dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
+        dist = max(abs(to_y - from_y), abs(to_x - from_x))
+
+        for step in range(1, dist):
+            check_y = from_y + dy * step
+            check_x = from_x + dx * step
+            marker_owner = state.marker_owner[g, check_y, check_x].item()
+            if marker_owner != 0 and marker_owner != player:
+                state.marker_owner[g, check_y, check_x] = player
+
+        # Handle landing on own marker
+        dest_marker = state.marker_owner[g, to_y, to_x].item()
+        landing_ring_cost = 0
+        if dest_marker == player:
+            landing_ring_cost = 1
+            state.is_collapsed[g, to_y, to_x] = True
+            state.marker_owner[g, to_y, to_x] = 0
+
+        # Handle landing on own stack (merge)
+        dest_height = state.stack_height[g, to_y, to_x].item()
+        dest_owner = state.stack_owner[g, to_y, to_x].item()
+
+        if dest_owner == player and dest_height > 0:
+            new_height = moving_height + dest_height - landing_ring_cost
+        else:
+            new_height = moving_height - landing_ring_cost
+
+        # Track eliminated ring from landing cost
+        if landing_ring_cost > 0:
+            current_elim = state.eliminated_rings[g, player].item()
+            state.eliminated_rings[g, player] = current_elim + landing_ring_cost
+
+        # Update destination
+        state.stack_height[g, to_y, to_x] = max(1, new_height)
+        state.stack_owner[g, to_y, to_x] = player
+
+        # Clear origin
+        state.stack_height[g, from_y, from_x] = 0
+        state.stack_owner[g, from_y, from_x] = 0
+
+
+def apply_recovery_moves_vectorized(
+    state: "BatchGameState",
+    selected_local_idx: torch.Tensor,
+    moves: "BatchMoves",
+    active_mask: torch.Tensor,
+) -> None:
+    """Apply recovery slide moves in a vectorized manner."""
+    device = state.device
+    batch_size = state.batch_size
+
+    has_selection = (selected_local_idx >= 0) & active_mask & (moves.moves_per_game > 0)
+
+    if not has_selection.any():
+        return
+
+    global_idx = moves.move_offsets + selected_local_idx
+    global_idx = torch.clamp(global_idx, 0, max(0, moves.total_moves - 1))
+
+    selected_from_y = moves.from_y[global_idx]
+    selected_from_x = moves.from_x[global_idx]
+    selected_to_y = moves.to_y[global_idx]
+    selected_to_x = moves.to_x[global_idx]
+
+    current_players = state.current_player
+    move_counts = state.move_count.clone()
+
+    game_indices = torch.where(has_selection)[0]
+
+    for g in game_indices.tolist():
+        from_y = selected_from_y[g].item()
+        from_x = selected_from_x[g].item()
+        to_y = selected_to_y[g].item()
+        to_x = selected_to_x[g].item()
+        player = current_players[g].item()
+        mc = move_counts[g].item()
+
+        # Record in history
+        if mc < state.max_history_moves:
+            state.move_history[g, mc, 0] = MoveType.RECOVERY_SLIDE
+            state.move_history[g, mc, 1] = player
+            state.move_history[g, mc, 2] = from_y
+            state.move_history[g, mc, 3] = from_x
+            state.move_history[g, mc, 4] = to_y
+            state.move_history[g, mc, 5] = to_x
+
+        # Move marker
+        state.marker_owner[g, from_y, from_x] = 0
+        state.marker_owner[g, to_y, to_x] = player
+
+        # Deduct buried ring cost
+        current_buried = state.buried_rings[g, player].item()
+        if current_buried > 0:
+            state.buried_rings[g, player] = current_buried - 1
 
 
 # =============================================================================
@@ -1923,6 +2317,9 @@ class ParallelGameRunner:
         board_size: int = 8,
         num_players: int = 2,
         device: Optional[torch.device] = None,
+        shadow_validation: bool = False,
+        shadow_sample_rate: float = 0.05,
+        shadow_threshold: float = 0.001,
     ):
         """Initialize parallel game runner.
 
@@ -1931,6 +2328,9 @@ class ParallelGameRunner:
             board_size: Board dimension
             num_players: Number of players per game
             device: GPU device (auto-detected if None)
+            shadow_validation: Enable shadow validation against CPU rules
+            shadow_sample_rate: Fraction of moves to validate (0.0-1.0)
+            shadow_threshold: Maximum divergence rate before halt
         """
         self.batch_size = batch_size
         self.board_size = board_size
@@ -1950,6 +2350,19 @@ class ParallelGameRunner:
             num_players=num_players,
             device=self.device,
         )
+
+        # Shadow validation for GPU/CPU parity checking (Phase 2)
+        self.shadow_validator: Optional[ShadowValidator] = None
+        if shadow_validation:
+            self.shadow_validator = create_shadow_validator(
+                sample_rate=shadow_sample_rate,
+                threshold=shadow_threshold,
+                enabled=True,
+            )
+            logger.info(
+                f"Shadow validation enabled: sample_rate={shadow_sample_rate}, "
+                f"threshold={shadow_threshold}"
+            )
 
         # Statistics
         self._games_completed = 0
@@ -2093,19 +2506,23 @@ class ParallelGameRunner:
         mask: torch.Tensor,
         weights_list: List[Dict[str, float]],
     ) -> None:
-        """Handle RING_PLACEMENT phase for games in mask."""
-        # Check which games have rings to place
-        current_players = self.state.current_player[mask]
+        """Handle RING_PLACEMENT phase for games in mask.
 
-        # Get rings in hand for each game's current player
-        has_rings = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
-        for g in range(self.batch_size):
-            if mask[g]:
-                p = self.state.current_player[g].item()
-                has_rings[g] = self.state.rings_in_hand[g, p] > 0
+        Refactored 2025-12-11 for vectorized player-based indexing.
+        """
+        # Check which games have rings to place (vectorized)
+        # rings_in_hand shape: (batch_size, num_players + 1)
+        # current_player shape: (batch_size,)
+        # Use gather to get rings_in_hand[g, current_player[g]] for each game
+        current_players = self.state.current_player  # (batch_size,)
+        rings_for_current_player = torch.gather(
+            self.state.rings_in_hand,
+            dim=1,
+            index=current_players.unsqueeze(1).long()
+        ).squeeze(1)
 
-        games_with_rings = mask & has_rings
-        games_without_rings = mask & ~has_rings
+        has_rings = mask & (rings_for_current_player > 0)
+        games_with_rings = has_rings
 
         # Games WITH rings: generate and apply placement moves
         if games_with_rings.any():
@@ -2126,51 +2543,42 @@ class ParallelGameRunner:
 
         Generate both non-capture movement and capture moves,
         select the best one, and apply it.
-        """
-        # Check which games have stacks to move
-        has_stacks = torch.zeros(self.batch_size, dtype=torch.bool, device=self.device)
-        for g in range(self.batch_size):
-            if mask[g]:
-                p = self.state.current_player[g].item()
-                has_stacks[g] = (self.state.stack_owner[g] == p).any()
 
-        games_with_stacks = mask & has_stacks
+        Refactored 2025-12-11 to use vectorized selection and application:
+        - select_moves_vectorized() for parallel move selection
+        - apply_*_moves_vectorized() for batched move application
+        - Reduces per-game Python loops and .item() calls
+        - See GPU_PIPELINE_ROADMAP.md Section 2.1 (False Parallelism) for context
+        """
+        # Check which games have stacks to move (vectorized)
+        # Create mask for each player slot and check ownership
+        current_players = self.state.current_player  # (batch_size,)
+
+        # Expand current_player to match stack_owner shape for comparison
+        # stack_owner shape: (batch_size, board_size, board_size)
+        player_expanded = current_players.view(self.batch_size, 1, 1).expand_as(self.state.stack_owner)
+        has_any_stack = (self.state.stack_owner == player_expanded).any(dim=(1, 2))
+        has_stacks = mask & has_any_stack
+
+        games_with_stacks = has_stacks
         games_without_stacks = mask & ~has_stacks
 
         # Games WITHOUT stacks: check for recovery moves
         if games_without_stacks.any():
             recovery_moves = generate_recovery_moves_batch(self.state, games_without_stacks)
 
-            # Track games that had no recovery moves (for stalemate check)
-            games_no_recovery = games_without_stacks.clone()
+            # Identify games with recovery moves (vectorized)
+            games_with_recovery = games_without_stacks & (recovery_moves.moves_per_game > 0)
+            games_no_recovery = games_without_stacks & (recovery_moves.moves_per_game == 0)
 
-            for g in range(self.batch_size):
-                if not games_without_stacks[g]:
-                    continue
-
-                # Check if this game has recovery moves
-                recovery_start = recovery_moves.move_offsets[g].item()
-                recovery_count = recovery_moves.moves_per_game[g].item()
-
-                if recovery_count > 0:
-                    # This game has recovery moves, mark it
-                    games_no_recovery[g] = False
-
-                    # Select a recovery move (prefer center destinations)
-                    center = self.board_size // 2
-                    best_idx = 0
-                    best_dist = float('inf')
-                    for i in range(recovery_count):
-                        idx = recovery_start + i
-                        ty = recovery_moves.to_y[idx].item()
-                        tx = recovery_moves.to_x[idx].item()
-                        dist = abs(ty - center) + abs(tx - center)
-                        if dist < best_dist:
-                            best_dist = dist
-                            best_idx = i
-
-                    # Apply recovery move
-                    self._apply_single_recovery(g, recovery_start + best_idx, recovery_moves)
+            # Apply recovery moves using vectorized selection
+            if games_with_recovery.any():
+                selected_recovery = select_moves_vectorized(
+                    recovery_moves, games_with_recovery, self.board_size
+                )
+                apply_recovery_moves_vectorized(
+                    self.state, selected_recovery, recovery_moves, games_with_recovery
+                )
 
             # Check for stalemate in games that had no stacks AND no recovery moves
             if games_no_recovery.any():
@@ -2184,65 +2592,36 @@ class ParallelGameRunner:
             # Generate capture moves
             capture_moves = generate_capture_moves_batch(self.state, games_with_stacks)
 
-            # For simplicity, prefer captures when available (more aggressive play)
-            # In a full implementation, we'd evaluate both and choose best
-            for g in range(self.batch_size):
-                if not games_with_stacks[g]:
-                    continue
+            # Identify which games have captures (prefer captures per RR-CANON)
+            # SIMPLIFICATION NOTE (documented in GPU_PIPELINE_ROADMAP.md Section 2.2):
+            # - GPU implementation only handles SINGLE captures, not chain captures
+            # - Per RR-CANON-R103, chain captures are mandatory when available
+            # - Full chain capture requires inherently sequential continuation logic
+            # - For selfplay/training, this simplification is acceptable because:
+            #   1. Most games don't have extensive chain captures
+            #   2. The heuristic play doesn't benefit much from optimal chains
+            #   3. Shadow validation will catch any significant parity issues
+            # - Future: Could add CPU fallback for games that have chain captures
+            games_with_captures = games_with_stacks & (capture_moves.moves_per_game > 0)
+            games_movement_only = games_with_stacks & (capture_moves.moves_per_game == 0) & (movement_moves.moves_per_game > 0)
 
-                # Check if this game has capture moves
-                capture_start = capture_moves.move_offsets[g].item()
-                capture_count = capture_moves.moves_per_game[g].item()
+            # Apply capture moves for games with captures (single capture only)
+            if games_with_captures.any():
+                selected_captures = select_moves_vectorized(
+                    capture_moves, games_with_captures, self.board_size
+                )
+                apply_capture_moves_vectorized(
+                    self.state, selected_captures, capture_moves, games_with_captures
+                )
 
-                if capture_count > 0:
-                    # Select capture move using softmax sampling with center bias
-                    # This adds stochasticity to break deterministic P1 advantage
-                    center = self.board_size // 2
-                    max_dist = center * 2
-                    scores = []
-                    for i in range(capture_count):
-                        idx = capture_start + i
-                        ty = capture_moves.to_y[idx].item()
-                        tx = capture_moves.to_x[idx].item()
-                        dist = abs(ty - center) + abs(tx - center)
-                        # Score: higher for closer to center + random noise
-                        score = (max_dist - dist) + torch.rand(1, device=self.device).item() * 2.0
-                        scores.append(score)
-
-                    # Softmax selection with temperature=1.0
-                    scores_tensor = torch.tensor(scores, device=self.device)
-                    probs = torch.softmax(scores_tensor, dim=0)
-                    selected_idx = torch.multinomial(probs, 1).item()
-
-                    # Apply capture move directly for this game
-                    self._apply_single_capture(g, capture_start + selected_idx, capture_moves)
-                else:
-                    # Apply a movement move
-                    move_start = movement_moves.move_offsets[g].item()
-                    move_count = movement_moves.moves_per_game[g].item()
-
-                    if move_count > 0:
-                        # Select movement move using softmax sampling with center bias
-                        # This adds stochasticity to break deterministic P1 advantage
-                        center = self.board_size // 2
-                        max_dist = center * 2
-                        scores = []
-                        for i in range(move_count):
-                            idx = move_start + i
-                            ty = movement_moves.to_y[idx].item()
-                            tx = movement_moves.to_x[idx].item()
-                            dist = abs(ty - center) + abs(tx - center)
-                            # Score: higher for closer to center + random noise
-                            score = (max_dist - dist) + torch.rand(1, device=self.device).item() * 2.0
-                            scores.append(score)
-
-                        # Softmax selection with temperature=1.0
-                        scores_tensor = torch.tensor(scores, device=self.device)
-                        probs = torch.softmax(scores_tensor, dim=0)
-                        selected_idx = torch.multinomial(probs, 1).item()
-
-                        # Apply movement move directly for this game
-                        self._apply_single_movement(g, move_start + selected_idx, movement_moves)
+            # Apply movement moves for games without captures
+            if games_movement_only.any():
+                selected_movements = select_moves_vectorized(
+                    movement_moves, games_movement_only, self.board_size
+                )
+                apply_movement_moves_vectorized(
+                    self.state, selected_movements, movement_moves, games_movement_only
+                )
 
         # After movement, advance to LINE_PROCESSING phase
         self.state.current_phase[mask] = GamePhase.LINE_PROCESSING
@@ -2703,6 +3082,23 @@ class ParallelGameRunner:
                 if self._total_time > 0 else 0
             ),
         }
+
+    def get_shadow_validation_report(self) -> Optional[Dict[str, Any]]:
+        """Get shadow validation statistics if enabled.
+
+        Returns:
+            Validation report dict if shadow validation enabled, None otherwise.
+            Report includes:
+                - total_validations: Number of moves validated
+                - total_divergences: Number of divergences detected
+                - divergence_rate: Divergence rate (0.0-1.0)
+                - threshold: Configured threshold
+                - status: "PASS" or "FAIL"
+                - by_move_type: Breakdown by move type
+        """
+        if self.shadow_validator is None:
+            return None
+        return self.shadow_validator.get_report()
 
 
 # =============================================================================

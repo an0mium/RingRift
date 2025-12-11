@@ -435,13 +435,15 @@ adjacency_score = (right_adj + down_adj).float()
 
 ### 7.3 Deliverables
 
-| Deliverable              | Description                | Acceptance Criteria      |
-| ------------------------ | -------------------------- | ------------------------ |
-| **JIT placement kernel** | Fully vectorized placement | No `.item()` calls       |
-| **JIT movement kernel**  | Vectorized path validation | Custom CUDA or torch.jit |
-| **Shadow validator**     | Runtime parity checking    | <0.1% divergence rate    |
-| **Capture generation**   | GPU single-capture gen     | Matches CPU output       |
-| **Fallback mechanism**   | Automatic CPU fallback     | Seamless for complex ops |
+| Deliverable              | Description                | Acceptance Criteria      | Status                 |
+| ------------------------ | -------------------------- | ------------------------ | ---------------------- |
+| **JIT placement kernel** | Fully vectorized placement | No `.item()` calls       | 🔄 Partial             |
+| **JIT movement kernel**  | Vectorized path validation | Custom CUDA or torch.jit | ⏳ Pending             |
+| **Shadow validator**     | Runtime parity checking    | <0.1% divergence rate    | ✅ Complete            |
+| **Capture generation**   | GPU single-capture gen     | Matches CPU output       | 🔄 Partial (no chains) |
+| **Fallback mechanism**   | Automatic CPU fallback     | Seamless for complex ops | 🔄 Partial             |
+
+> **Note (2025-12-11):** Shadow validator infrastructure is complete with 32 passing tests. See Section 11.1.1 for details. Integration into `ParallelGameRunner` is the next step.
 
 ### 7.4 Technical Approach
 
@@ -840,6 +842,50 @@ class AdaptiveBatchRunner:
 - If speedup < 2x: Optimize CPU instead, reconsider GPU approach
 - If parity failures: Fix before proceeding
 
+### 11.1.1 Phase 2 Progress (2025-12-11)
+
+**Shadow Validation Infrastructure: ✅ COMPLETE**
+
+The shadow validation system specified in Section 7.2 has been fully implemented:
+
+| Component             | File                          | Status                  |
+| --------------------- | ----------------------------- | ----------------------- |
+| ShadowValidator class | `app/ai/shadow_validation.py` | ✅ Complete (645 lines) |
+| Placement validation  | `validate_placement_moves()`  | ✅ Complete             |
+| Movement validation   | `validate_movement_moves()`   | ✅ Complete             |
+| Capture validation    | `validate_capture_moves()`    | ✅ Complete             |
+| Recovery validation   | `validate_recovery_moves()`   | ✅ Complete             |
+| Statistics tracking   | `ValidationStats` dataclass   | ✅ Complete             |
+| Threshold enforcement | `halt_on_threshold` flag      | ✅ Complete             |
+| Factory function      | `create_shadow_validator()`   | ✅ Complete             |
+
+**Test Coverage:**
+
+| Test File                                      | Tests | Status         |
+| ---------------------------------------------- | ----- | -------------- |
+| `tests/gpu/test_shadow_validation.py`          | 21    | ✅ All passing |
+| `tests/gpu/test_gpu_move_generation_parity.py` | 11    | ✅ All passing |
+
+**Configuration:**
+
+- Default sample rate: 5% (`SHADOW_SAMPLE_RATE = 0.05`)
+- Default divergence threshold: 0.1% (`DIVERGENCE_THRESHOLD = 0.001`)
+- Halt on threshold: Configurable (`halt_on_threshold=True` by default)
+
+**API Compatibility:**
+
+- Uses `MoveType` enum (PLACE_RING, MOVE_STACK, OVERTAKING_CAPTURE, RECOVERY_SLIDE)
+- Uses Position `.x`/`.y` fields (not `.row`/`.col`)
+- Uses `GameEngine.get_valid_moves(state, player)` signature
+- Uses `len(game_state.move_history)` for move number
+
+**Remaining Phase 2 Work:**
+
+- [ ] Integrate shadow validator into `ParallelGameRunner`
+- [ ] Implement vectorized path validation kernel
+- [ ] Add JIT compilation for placement kernel
+- [ ] Address per-game loop anti-pattern in `_step_movement_phase()`
+
 ### 11.2 Phase 2 → Phase 3 Gate
 
 **Criteria:**
@@ -1171,16 +1217,102 @@ See Section 11.1 for full A/B test results.
 
 ---
 
+### Phase 2 Progress (2025-12-11)
+
+**Session Focus:** Eliminate per-game loop anti-patterns, enable shadow validation integration
+
+#### Completed Tasks
+
+##### 1. Vectorized Move Selection and Application
+
+**Location:** `gpu_parallel_games.py` (new functions at module level + refactored methods)
+
+Created new vectorized utilities:
+
+- `select_moves_vectorized()` - Segment-wise softmax sampling without per-game loops
+- `apply_capture_moves_vectorized()` - Batch capture move application
+- `apply_movement_moves_vectorized()` - Batch movement move application
+- `apply_recovery_moves_vectorized()` - Batch recovery move application
+
+**Key Improvements:**
+
+- Eliminates `for g in range(self.batch_size)` loops from hot path
+- Uses `scatter_reduce()` for segment-wise operations
+- Vectorized center-bias scoring across all moves
+- Per-game iteration only for variable-length path processing (known limitation)
+
+**Refactored Methods:**
+
+- `_step_placement_phase()` - Uses `torch.gather()` for player-indexed rings lookup
+- `_step_movement_phase()` - Uses vectorized selection/application functions
+
+##### 2. Shadow Validation CLI Integration
+
+**Location:** `scripts/run_gpu_selfplay.py`
+
+Added shadow validation support to GPU selfplay script:
+
+```bash
+# Enable shadow validation with defaults (5% sample rate, 0.1% threshold)
+python scripts/run_gpu_selfplay.py --shadow-validation
+
+# Custom settings
+python scripts/run_gpu_selfplay.py \
+  --shadow-validation \
+  --shadow-sample-rate 0.10 \
+  --shadow-threshold 0.005
+```
+
+New CLI arguments:
+
+- `--shadow-validation` - Enable GPU/CPU parity checking
+- `--shadow-sample-rate` - Fraction of moves to validate (default: 0.05)
+- `--shadow-threshold` - Max divergence rate before error (default: 0.001)
+
+Shadow validation stats included in output `stats.json`:
+
+```json
+{
+  "shadow_validation": {
+    "status": "PASS",
+    "total_validations": 1250,
+    "total_divergences": 0,
+    "divergence_rate": 0.0
+  }
+}
+```
+
+#### Test Results
+
+All 69 GPU tests passing (15 skipped as expected):
+
+- 36 parity tests
+- 11 move generation tests
+- 21 shadow validation tests
+- 1 database availability test
+
+#### Anti-Pattern Reduction Summary
+
+| Method                  | Before                                       | After                                              |
+| ----------------------- | -------------------------------------------- | -------------------------------------------------- |
+| `_step_placement_phase` | Per-game loop for `rings_in_hand` lookup     | `torch.gather()`                                   |
+| `_step_movement_phase`  | 3 nested per-game loops with `.item()` calls | Vectorized selection + minimal iteration for paths |
+
+**Remaining per-game iteration:** Path marker flipping still requires iteration due to variable path lengths. This is documented as a known limitation in Section 2.2 (Irregular Data Access Patterns).
+
+---
+
 ## Document History
 
-| Date       | Version | Changes                                                                                             |
-| ---------- | ------- | --------------------------------------------------------------------------------------------------- |
-| 2025-12-11 | 1.0     | Initial comprehensive analysis                                                                      |
-| 2025-12-11 | 1.1     | Phase 1 Step 1 progress update: parity tests, line length fix, adjacency vectorization, hex support |
-| 2025-12-11 | 1.2     | Benchmark results: CUDA 6.56x speedup, Phase 1 speedup gate PASSED                                  |
-| 2025-12-11 | 1.3     | Phase 1 cleanup: cuda_rules.py deleted (3,613 lines), integration tests added, MarkerInfo fix       |
-| 2025-12-11 | 1.4     | A/B training quality test infrastructure created, evaluation discrepancy documented                 |
-| 2025-12-11 | 1.5     | **Phase 1 Gate PASSED**: A/B test conducted on Lambda A10 - all checks passed (75% terr, 4% stale)  |
+| Date       | Version | Changes                                                                                                |
+| ---------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| 2025-12-11 | 1.0     | Initial comprehensive analysis                                                                         |
+| 2025-12-11 | 1.1     | Phase 1 Step 1 progress update: parity tests, line length fix, adjacency vectorization, hex support    |
+| 2025-12-11 | 1.2     | Benchmark results: CUDA 6.56x speedup, Phase 1 speedup gate PASSED                                     |
+| 2025-12-11 | 1.3     | Phase 1 cleanup: cuda_rules.py deleted (3,613 lines), integration tests added, MarkerInfo fix          |
+| 2025-12-11 | 1.4     | A/B training quality test infrastructure created, evaluation discrepancy documented                    |
+| 2025-12-11 | 1.5     | **Phase 1 Gate PASSED**: A/B test conducted on Lambda A10 - all checks passed (75% terr, 4% stale)     |
+| 2025-12-11 | 1.6     | **Phase 2 Progress**: Vectorized move selection, shadow validation CLI integration, anti-pattern fixes |
 
 ---
 

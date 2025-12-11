@@ -113,7 +113,19 @@ def load_weights_from_profile(
 
 
 class GPUSelfPlayGenerator:
-    """Generate self-play games using GPU parallel simulation."""
+    """Generate self-play games using GPU parallel simulation.
+
+    Shadow Validation (Phase 2):
+        When enabled, a subset of GPU-generated moves are validated against
+        the canonical CPU rules engine. This catches GPU/CPU divergence early.
+
+        Configuration:
+            shadow_validation: Enable shadow validation
+            shadow_sample_rate: Fraction of moves to validate (default 0.05 = 5%)
+            shadow_threshold: Max divergence rate before error (default 0.001 = 0.1%)
+
+        See GPU_PIPELINE_ROADMAP.md Section 7.4.2 for architecture details.
+    """
 
     def __init__(
         self,
@@ -124,6 +136,9 @@ class GPUSelfPlayGenerator:
         device: Optional[torch.device] = None,
         weights: Optional[Dict[str, float]] = None,
         engine_mode: str = "heuristic-only",
+        shadow_validation: bool = False,
+        shadow_sample_rate: float = 0.05,
+        shadow_threshold: float = 0.001,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -131,6 +146,7 @@ class GPUSelfPlayGenerator:
         self.max_moves = max_moves
         self.device = device or get_device()
         self.engine_mode = engine_mode
+        self.shadow_validation = shadow_validation
         # For random-only mode, use None weights (uniform random)
         # For heuristic-only mode, use provided weights or defaults
         if engine_mode == "random-only":
@@ -143,7 +159,16 @@ class GPUSelfPlayGenerator:
             board_size=board_size,
             num_players=num_players,
             device=self.device,
+            shadow_validation=shadow_validation,
+            shadow_sample_rate=shadow_sample_rate,
+            shadow_threshold=shadow_threshold,
         )
+
+        # Log shadow validation status
+        if shadow_validation:
+            logger.info(f"Shadow validation ENABLED: sample_rate={shadow_sample_rate}, threshold={shadow_threshold}")
+        else:
+            logger.info("Shadow validation disabled")
 
         # Statistics
         self.total_games = 0
@@ -295,6 +320,15 @@ class GPUSelfPlayGenerator:
             wins = self.wins_by_player.get(p, 0)
             stats[f"p{p}_win_rate"] = wins / total_decided if total_decided > 0 else 0
 
+        # Add shadow validation stats if enabled
+        shadow_report = self.runner.get_shadow_validation_report()
+        if shadow_report:
+            stats["shadow_validation"] = shadow_report
+            logger.info(f"Shadow validation report: {shadow_report['status']}")
+            if shadow_report.get("divergence_rate", 0) > 0:
+                logger.warning(f"  Divergence rate: {shadow_report['divergence_rate']:.4%}")
+                logger.warning(f"  Total divergences: {shadow_report.get('total_divergences', 0)}")
+
         return stats
 
 
@@ -313,6 +347,9 @@ def run_gpu_selfplay(
     weights: Optional[Dict[str, float]] = None,
     engine_mode: str = "heuristic-only",
     seed: int = 42,
+    shadow_validation: bool = False,
+    shadow_sample_rate: float = 0.05,
+    shadow_threshold: float = 0.001,
 ) -> Dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
@@ -326,6 +363,9 @@ def run_gpu_selfplay(
         weights: Heuristic weights (ignored in random-only mode)
         engine_mode: Engine mode (random-only or heuristic-only)
         seed: Random seed
+        shadow_validation: Enable shadow validation (GPU/CPU parity checking)
+        shadow_sample_rate: Fraction of moves to validate (default 5%)
+        shadow_threshold: Max divergence rate before error (default 0.1%)
 
     Returns:
         Statistics dict
@@ -345,6 +385,10 @@ def run_gpu_selfplay(
     logger.info(f"Engine mode: {engine_mode}")
     logger.info(f"Batch size: {batch_size}")
     logger.info(f"Max moves: {max_moves}")
+    logger.info(f"Shadow validation: {shadow_validation}")
+    if shadow_validation:
+        logger.info(f"  Sample rate: {shadow_sample_rate:.1%}")
+        logger.info(f"  Threshold: {shadow_threshold:.2%}")
     logger.info(f"Output: {output_dir}")
     logger.info("")
 
@@ -356,6 +400,9 @@ def run_gpu_selfplay(
         max_moves=max_moves,
         weights=weights,
         engine_mode=engine_mode,
+        shadow_validation=shadow_validation,
+        shadow_sample_rate=shadow_sample_rate,
+        shadow_threshold=shadow_threshold,
     )
 
     # Generate games
@@ -468,6 +515,25 @@ def main():
         help="Only run GPU benchmark",
     )
 
+    # Shadow validation options
+    parser.add_argument(
+        "--shadow-validation",
+        action="store_true",
+        help="Enable shadow validation (GPU/CPU parity checking)",
+    )
+    parser.add_argument(
+        "--shadow-sample-rate",
+        type=float,
+        default=0.05,
+        help="Fraction of moves to validate against CPU (default: 0.05 = 5%%)",
+    )
+    parser.add_argument(
+        "--shadow-threshold",
+        type=float,
+        default=0.001,
+        help="Max divergence rate before error (default: 0.001 = 0.1%%)",
+    )
+
     args = parser.parse_args()
 
     if args.benchmark_only:
@@ -504,6 +570,9 @@ def main():
         weights=weights,
         engine_mode=args.engine_mode,
         seed=args.seed,
+        shadow_validation=args.shadow_validation,
+        shadow_sample_rate=args.shadow_sample_rate,
+        shadow_threshold=args.shadow_threshold,
     )
 
 
