@@ -1240,10 +1240,13 @@ def detect_lines_batch(
     player: int,
     game_mask: Optional[torch.Tensor] = None,
 ) -> List[List[Tuple[int, int]]]:
-    """Detect lines of 4+ same-owner stacks for a player.
+    """Detect lines of consecutive same-owner stacks for a player.
 
-    Per RR-CANON-R120: A line is 4+ consecutive stacks controlled by same player
-    in horizontal, vertical, or diagonal direction.
+    Per RR-CANON-R120: Line length requirement is player-count-aware:
+    - square8 (board_size=8) with 2 players: 4 consecutive stacks
+    - square8 (board_size=8) with 3-4 players: 3 consecutive stacks
+    - square19 (board_size=19): 4 consecutive stacks (all player counts)
+    - hexagonal (board_size=13): 4 consecutive stacks (all player counts)
 
     Args:
         state: Current batch game state
@@ -1255,6 +1258,14 @@ def detect_lines_batch(
     """
     batch_size = state.batch_size
     board_size = state.board_size
+    num_players = state.num_players
+
+    # Per RR-CANON-R120: Determine required line length based on board and player count
+    # square8 (8x8) with 3-4 players uses line length 3, all others use 4
+    if board_size == 8 and num_players >= 3:
+        required_line_length = 3
+    else:
+        required_line_length = 4
 
     if game_mask is None:
         game_mask = torch.ones(batch_size, dtype=torch.bool, device=state.device)
@@ -1292,8 +1303,8 @@ def detect_lines_batch(
                         else:
                             break
 
-                    # If line is 4+, record it
-                    if len(line) >= 4:
+                    # If line meets required length, record it
+                    if len(line) >= required_line_length:
                         for pos in line:
                             visited.add(pos)
                             if pos not in lines_per_game[g]:
@@ -1525,12 +1536,13 @@ def evaluate_positions_batch(
     max_dist = center_dist.max()
     center_bonus = (max_dist - center_dist) / max_dist  # 1.0 at center, 0.0 at corners
 
-    # Victory thresholds - derived from board size per BOARD_CONFIGS
+    # Victory thresholds - derived from board size per BOARD_CONFIGS (RR-CANON)
     # Territory: floor(totalSpaces/2) + 1; Ring supply per player
     # square8: 64 spaces, 18 rings; square19: 361 spaces, 48 rings; hex: 469 spaces, 72 rings
-    total_spaces = board_size * board_size  # Works for square boards
-    territory_victory_threshold = (total_spaces // 2) + 1  # 33 for 8x8, 181 for 19x19
-    rings_per_player = {8: 18, 19: 48}.get(board_size, 18)  # Per BOARD_CONFIGS
+    # Note: Hexagonal board uses size 13 but has 469 total spaces (not 13*13=169)
+    total_spaces = {8: 64, 19: 361, 13: 469}.get(board_size, board_size * board_size)
+    territory_victory_threshold = (total_spaces // 2) + 1  # 33 for 8x8, 181 for 19x19, 235 for hex
+    rings_per_player = {8: 18, 19: 48, 13: 72}.get(board_size, 18)  # Per BOARD_CONFIGS
     # Per RR-CANON-R061: victoryThreshold = round((1/3)*ownStartingRings + (2/3)*opponentsCombinedStartingRings)
     # Simplified: round(ringsPerPlayer * (1/3 + 2/3*(numPlayers-1)))
     ring_victory_threshold = round(rings_per_player * (1 / 3 + (2 / 3) * (num_players - 1)))
@@ -1573,20 +1585,13 @@ def evaluate_positions_batch(
         tall_stacks = ((state.stack_height >= 3) & player_stacks).sum(dim=(1, 2)).float()
 
         # === ADJACENCY METRICS ===
-        # Count adjacent pairs of controlled stacks
-        adjacency_score = torch.zeros(batch_size, device=device)
-        for g in range(batch_size):
-            adj_count = 0.0
-            ps = player_stacks[g]
-            for y in range(board_size):
-                for x in range(board_size):
-                    if ps[y, x]:
-                        # Check right and down neighbors only to avoid double counting
-                        if x + 1 < board_size and ps[y, x + 1]:
-                            adj_count += 1.0
-                        if y + 1 < board_size and ps[y + 1, x]:
-                            adj_count += 1.0
-            adjacency_score[g] = adj_count
+        # Count adjacent pairs of controlled stacks (vectorized)
+        # Check horizontal adjacency: player_stacks[:, :, :-1] AND player_stacks[:, :, 1:]
+        player_stacks_float = player_stacks.float()
+        horizontal_adj = (player_stacks_float[:, :, :-1] * player_stacks_float[:, :, 1:]).sum(dim=(1, 2))
+        # Check vertical adjacency: player_stacks[:, :-1, :] AND player_stacks[:, 1:, :]
+        vertical_adj = (player_stacks_float[:, :-1, :] * player_stacks_float[:, 1:, :]).sum(dim=(1, 2))
+        adjacency_score = horizontal_adj + vertical_adj
 
         # === MARKER METRICS ===
         marker_count = (state.marker_owner == p).sum(dim=(1, 2)).float()

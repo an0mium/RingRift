@@ -1203,29 +1203,22 @@ class GameReplayDB:
     ) -> Optional[GameState]:
         """Reconstruct state at a specific move number.
 
-        This method intentionally **replays moves from the initial state**
-        using the current GameEngine implementation rather than trusting
-        any cached snapshots. Older databases may contain snapshots that
-        were produced by previous engine versions with subtly different
-        rules semantics (e.g., forced elimination or line rewards), and
-        using them directly would corrupt TS↔Python parity checks.
+        This method replays moves from the initial state using the current
+        GameEngine implementation. It expects the recorded moves to be
+        **complete and canonical** - every phase transition should have an
+        explicit recorded move. No auto-bridging or gap-filling is performed.
 
-        We still use the database's initial_state record as the starting
-        point, but all intermediate states are derived by applying the
-        recorded move sequence with ``trace_mode=True`` so that:
+        All intermediate states are derived by applying the recorded move
+        sequence with ``trace_mode=True`` so that:
 
         - Automatic forced elimination between turns is disabled, and
         - All eliminations/decisions must be represented as explicit
           moves in the history, matching TS ``traceMode`` semantics.
 
-        **RR-PARITY-FIX (2024-12):** After applying each recorded move,
-        this method auto-injects NO_LINE_ACTION and NO_TERRITORY_ACTION
-        bookkeeping moves when the game lands in those phases without
-        interactive options. This matches TypeScript's replay behavior
-        where the SandboxOrchestratorAdapter auto-generates these moves
-        to complete turn traversal. Without this, Python would remain
-        stuck in line_processing/territory_processing waiting for
-        explicit moves that aren't in the database.
+        **IMPORTANT**: This method requires canonical recordings. Databases
+        created with older recorders that have gaps (missing bookkeeping moves)
+        will fail with phase/move invariant errors. Use regenerated canonical
+        databases with complete recordings.
 
         Args:
             game_id: Game identifier
@@ -1233,6 +1226,9 @@ class GameReplayDB:
 
         Returns:
             GameState after the specified move, or None if not found.
+
+        Raises:
+            RuntimeError: If recorded moves are not canonical (have phase gaps).
         """
         # Import here to avoid circular imports
         from app.game_engine import GameEngine
@@ -1246,39 +1242,11 @@ class GameReplayDB:
         if move_number < 0:
             return state
 
-        # Replay moves 0..move_number (inclusive) with trace_mode=True so
-        # that host-level forced elimination and decision phases behave
-        # like the TS sandbox replay path used by the parity harness.
-        #
-        # RR-PARITY-FIX-2024-12: Auto-inject bookkeeping moves BEFORE each
-        # recorded move to handle phase transitions that weren't recorded
-        # in the database. For example, after NO_LINE_ACTION the state is
-        # in territory_processing, but if the next recorded move is PLACE_RING
-        # (for a different player), we need to inject NO_TERRITORY_ACTION
-        # first to advance through the territory phase.
+        # Pure replay: apply exactly the recorded moves with no bridging.
+        # This requires canonical recordings with no gaps.
         moves = self.get_moves(game_id, start=0, end=move_number + 1)
         for move in moves:
-            # Auto-inject any missing bookkeeping moves before the recorded move
-            state = self._auto_inject_before_move(state, move)
             state = GameEngine.apply_move(state, move, trace_mode=True)
-
-        # RR-PARITY-FIX-2024-12-09: Auto-inject bookkeeping moves AFTER the
-        # recorded move ONLY at the final recorded move position.
-        #
-        # The parity checker compares Python's get_state_at_move(N) with TS's
-        # ts-replay-step k=N+1, which represents the state IMMEDIATELY AFTER
-        # applying move N (pre-bridge). TS only emits the pre-bridge state in
-        # ts-replay-step; any bridges needed for the NEXT move are applied
-        # later and recorded in ts-replay-bridge (which the parity checker
-        # ignores for comparison purposes).
-        #
-        # Therefore, Python should NOT do lookahead bridging at intermediate
-        # positions. Only at the final recorded move do we auto-inject to
-        # advance through remaining phases (for training data completeness).
-        total_moves = self._get_game_move_count(game_id)
-        if move_number >= total_moves - 1:
-            # At or past the last recorded move - safe to auto-inject
-            state = self._auto_inject_no_action_moves(state)
 
         return state
 
@@ -1300,6 +1268,57 @@ class GameReplayDB:
                 (game_id,),
             ).fetchone()
             return row["count"] if row else 0
+
+    def _is_move_redundant_for_phase(self, state: GameState, move: "Move") -> bool:
+        """Check if a move is redundant (invalid) for the current phase.
+
+        This matches TS's ts-replay-skip-redundant behavior where certain
+        bookkeeping moves are skipped if they don't apply to the current phase.
+
+        For example:
+        - no_movement_action is only valid in movement/capture phases
+        - no_line_action is only valid in line_processing phase
+        - no_territory_action is only valid in territory_processing phase
+        - no_placement_action is only valid in ring_placement phase
+
+        If the current phase doesn't match, the move is considered redundant
+        and should be skipped to match TS replay behavior.
+
+        Args:
+            state: Current game state
+            move: The move to check
+
+        Returns:
+            True if the move should be skipped, False if it should be applied
+        """
+        current_phase = (
+            state.current_phase.value
+            if hasattr(state.current_phase, "value")
+            else str(state.current_phase)
+        )
+
+        move_type = (
+            move.type.value
+            if hasattr(move.type, "value")
+            else str(move.type)
+        )
+
+        # Define which phases each bookkeeping move type is valid in
+        # (matching TS's skip-redundant logic)
+        valid_phases = {
+            "no_placement_action": ("ring_placement",),
+            "no_movement_action": ("movement", "capture", "chain_capture"),
+            "no_line_action": ("line_processing",),
+            "no_territory_action": ("territory_processing",),
+        }
+
+        # If this move type has phase constraints, check if current phase matches
+        if move_type in valid_phases:
+            if current_phase not in valid_phases[move_type]:
+                # Move is not valid for current phase - skip it
+                return True
+
+        return False
 
     def _auto_inject_before_move(self, state: GameState, next_move: "Move") -> GameState:
         """Auto-inject bookkeeping moves BEFORE applying a recorded move.
@@ -1353,20 +1372,18 @@ class GameReplayDB:
                 break  # Phase is now correct, exit loop
 
             # RR-PARITY-FIX-2025-12-11: When in ring_placement but the player has
-            # no rings to place (rings_in_hand == 0), and the next move is a movement
-            # or capture phase move, inject NO_PLACEMENT_ACTION to advance through
+            # no rings to place (rings_in_hand == 0), and the next move is NOT a
+            # placement move, inject NO_PLACEMENT_ACTION to advance through
             # ring_placement. This handles canonical recordings where the placement
             # phase was skipped because the player had exhausted their rings.
-            # Movement-phase moves include: move_stack, no_movement_action, recovery_slide
-            # Capture-phase moves include: overtaking_capture, continue_capture_segment, skip_capture
-            movement_and_capture_moves = (
-                "move_stack", "no_movement_action", "recovery_slide",
-                "overtaking_capture", "continue_capture_segment", "skip_capture"
-            )
+            # The next move could be from any later phase (movement, capture, line,
+            # territory) - after injecting NO_PLACEMENT_ACTION we continue the loop
+            # to handle further bridging as needed.
+            placement_moves = ("place_ring", "no_placement_action")
             if current_phase == "ring_placement":
                 player_idx = state.current_player - 1
                 rings_in_hand = state.players[player_idx].rings_in_hand
-                if rings_in_hand == 0 and next_type in movement_and_capture_moves:
+                if rings_in_hand == 0 and next_type not in placement_moves:
                     no_placement_move = Move(
                         id="auto-inject-no-placement",
                         type=MoveType.NO_PLACEMENT_ACTION,
@@ -1380,6 +1397,32 @@ class GameReplayDB:
                     continue  # Re-check phase after injection
                 else:
                     # Player has rings or next move is a placement move - no injection needed
+                    break
+
+            # RR-PARITY-FIX-2025-12-11: When in movement phase but the next move is
+            # from a later phase (line_processing, territory_processing), inject
+            # NO_MOVEMENT_ACTION to advance. This bridges the gap when recordings
+            # skip the movement phase (e.g., player has no stacks to move).
+            movement_moves = (
+                "move_stack", "no_movement_action", "recovery_slide",
+                "overtaking_capture", "continue_capture_segment", "skip_capture"
+            )
+            if current_phase == "movement":
+                if next_type not in movement_moves:
+                    # Next move is from a later phase - need to bridge
+                    no_movement_move = Move(
+                        id="auto-inject-no-movement",
+                        type=MoveType.NO_MOVEMENT_ACTION,
+                        player=state.current_player,
+                        to=Position(x=0, y=0),
+                        timestamp=datetime.now(),
+                        thinkTime=0,
+                        moveNumber=0,
+                    )
+                    state = GameEngine.apply_move(state, no_movement_move, trace_mode=True)
+                    continue  # Re-check phase after injection
+                else:
+                    # Next move is a movement/capture move, no bridging needed
                     break
 
             # Check if we're in a no-action phase that needs auto-advancing

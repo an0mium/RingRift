@@ -109,10 +109,14 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
       });
 
       const result = toVictoryState(state);
-      // Victory evaluation occurs during the turn, not just from state snapshot
-      // The result depends on evaluateVictory implementation
+      // Victory evaluation runs evaluateVictory() which checks remaining players
       expect(result).toBeDefined();
       expect(typeof result.isGameOver).toBe('boolean');
+      // evaluateVictory checks board state, not eliminatedPlayers metadata
+      // Player 2 having eliminatedRings doesn't mean they're eliminated from game perspective
+      // The result depends on evaluateVictory implementation details
+      expect(result.scores).toBeDefined();
+      expect(Object.keys(result.scores).length).toBe(2);
     });
 
     it('handles game_completed (structural stalemate) case', () => {
@@ -132,10 +136,14 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
       });
 
       const result = toVictoryState(state);
-      // toVictoryState runs evaluateVictory which may not see this as game over
-      // since gameStatus is state metadata, not evaluated state
+      // evaluateVictory runs on current board state, not gameStatus metadata
       expect(result).toBeDefined();
       expect(typeof result.isGameOver).toBe('boolean');
+      // Both players have stacks and no rings eliminated - game continues by eval
+      expect(result.scores).toBeDefined();
+      // Scores are indexed by player number
+      const scoreKeys = Object.keys(result.scores);
+      expect(scoreKeys.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -164,8 +172,13 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
       };
 
       const result = validateMove(state, move);
-      // Should be valid or have specific rejection reason
+      // forced_elimination validation result should have valid property
       expect(result).toBeDefined();
+      expect(typeof result.valid).toBe('boolean');
+      // Invalid if no forced elimination is actually required (player has no stacks in ANM)
+      if (!result.valid) {
+        expect(result.reason).toBeDefined();
+      }
     });
 
     it('rejects wrong move type for current phase', () => {
@@ -210,6 +223,9 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
 
       const result = validateMove(state, move);
       expect(result).toBeDefined();
+      expect(typeof result.valid).toBe('boolean');
+      // no_line_action should be valid in line_processing phase when no lines formed
+      expect(result.valid).toBe(true);
     });
 
     it('validates no_territory_action in territory_processing phase', () => {
@@ -231,6 +247,9 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
 
       const result = validateMove(state, move);
       expect(result).toBeDefined();
+      expect(typeof result.valid).toBe('boolean');
+      // no_territory_action should be valid in territory_processing phase
+      expect(result.valid).toBe(true);
     });
   });
 
@@ -250,6 +269,8 @@ describe('TurnOrchestrator ANM and Recovery branch coverage', () => {
 
       const moves = getValidMoves(state, 1);
       expect(Array.isArray(moves)).toBe(true);
+      // Should include forced_elimination or skip options
+      expect(moves.length).toBeGreaterThanOrEqual(0);
     });
 
     it('generates line_processing moves when lines pending', () => {

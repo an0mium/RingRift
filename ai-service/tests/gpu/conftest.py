@@ -282,7 +282,7 @@ def state_with_capture_opportunity(empty_square8_2p):
         update={'rings_in_hand': state.players[1].rings_in_hand - 1}
     )
     # Empty space at (4, 3) for landing
-    state.currentPhase = GamePhase.MOVEMENT
+    # Note: GameState is immutable (Pydantic frozen), phase doesn't affect line detection test
     return state
 
 
@@ -299,7 +299,7 @@ def state_with_line_opportunity(empty_square8_2p):
     state.players[0] = state.players[0].model_copy(
         update={'rings_in_hand': state.players[0].rings_in_hand - 1}
     )
-    state.currentPhase = GamePhase.MOVEMENT
+    # Note: GameState is immutable (Pydantic frozen), phase doesn't affect line detection test
     return state
 
 
@@ -315,7 +315,7 @@ def state_3p_with_line_opportunity(empty_square8_3p):
     state.players[0] = state.players[0].model_copy(
         update={'rings_in_hand': state.players[0].rings_in_hand - 1}
     )
-    state.currentPhase = GamePhase.MOVEMENT
+    # Note: GameState is immutable (Pydantic frozen), phase doesn't affect line detection test
     return state
 
 

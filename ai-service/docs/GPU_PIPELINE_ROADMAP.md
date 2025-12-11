@@ -45,17 +45,17 @@ This document outlines an incremental strategy to achieve full GPU-accelerated g
 
 ### 1.2 Component Status Matrix
 
-| Component                | Implementation    | Correctness                      | Performance              |
-| ------------------------ | ----------------- | -------------------------------- | ------------------------ |
-| **Placement Move Gen**   | JIT kernel exists | Correct                          | Good                     |
-| **Movement Move Gen**    | Python loops      | Correct                          | Poor (serialized)        |
-| **Capture Move Gen**     | Python loops      | Simplified (no chains)           | Poor                     |
-| **Recovery Move Gen**    | Python loops      | Simplified                       | Poor                     |
-| **Line Detection**       | Python loops      | **INCORRECT** (hardcoded length) | Poor                     |
-| **Territory Processing** | Stub only         | Missing                          | N/A                      |
-| **Heuristic Evaluation** | 45 weights        | Correct                          | Medium (adjacency loops) |
-| **Victory Checking**     | Python iteration  | Correct                          | Poor                     |
-| **FSM Phase Handling**   | Per-game loops    | Simplified                       | Poor                     |
+| Component                | Implementation    | Correctness                     | Performance          |
+| ------------------------ | ----------------- | ------------------------------- | -------------------- |
+| **Placement Move Gen**   | JIT kernel exists | Correct                         | Good                 |
+| **Movement Move Gen**    | Python loops      | Correct                         | Poor (serialized)    |
+| **Capture Move Gen**     | Python loops      | Simplified (no chains)          | Poor                 |
+| **Recovery Move Gen**    | Python loops      | Simplified                      | Poor                 |
+| **Line Detection**       | Python loops      | ✅ Correct (player-count-aware) | Poor                 |
+| **Territory Processing** | Stub only         | Missing                         | N/A                  |
+| **Heuristic Evaluation** | 45 weights        | Correct                         | ✅ Good (vectorized) |
+| **Victory Checking**     | Python iteration  | Correct                         | Poor                 |
+| **FSM Phase Handling**   | Per-game loops    | Simplified                      | Poor                 |
 
 ### 1.3 Integration Points
 
@@ -140,24 +140,25 @@ def _step_movement_phase(self, mask, weights_list):
 
 ### 3.1 Critical Rule Deviations
 
-| Rule                            | Canonical Spec                                                | GPU Implementation   | Impact                                            |
-| ------------------------------- | ------------------------------------------------------------- | -------------------- | ------------------------------------------------- |
-| **Line length (8×8)**           | 4 for 2-player, 3 for 3-4 player (RR-CANON-R120)              | Hardcoded to 4       | **CRITICAL:** 3-4 player games detect wrong lines |
-| **Overlength line choice**      | Option 1 (all + eliminate) or Option 2 (subset, no eliminate) | Always Option 1      | Training learns suboptimal line play              |
-| **Chain capture continuation**  | Must continue until no captures available                     | Single capture only  | Misses multi-capture sequences                    |
-| **Cap eligibility (territory)** | Multicolor OR single-color height>1; NOT height-1             | Any controlled stack | Allows invalid eliminations                       |
-| **Cap eligibility (line)**      | Any controlled stack including height-1                       | Same as territory    | Correct by accident                               |
-| **Cap eligibility (forced)**    | Any controlled stack including height-1                       | Same                 | Correct                                           |
-| **Recovery cascade**            | Territory processing after recovery line                      | Not implemented      | Misses territory gains                            |
-| **Marker removal on landing**   | Remove marker, eliminate top ring                             | Simplified           | May miss eliminations                             |
+| Rule                            | Canonical Spec                                                | GPU Implementation    | Impact                               |
+| ------------------------------- | ------------------------------------------------------------- | --------------------- | ------------------------------------ |
+| **Line length (8×8)**           | 4 for 2-player, 3 for 3-4 player (RR-CANON-R120)              | ✅ Player-count-aware | ~~CRITICAL~~ **FIXED 2025-12-11**    |
+| **Overlength line choice**      | Option 1 (all + eliminate) or Option 2 (subset, no eliminate) | Always Option 1       | Training learns suboptimal line play |
+| **Chain capture continuation**  | Must continue until no captures available                     | Single capture only   | Misses multi-capture sequences       |
+| **Cap eligibility (territory)** | Multicolor OR single-color height>1; NOT height-1             | Any controlled stack  | Allows invalid eliminations          |
+| **Cap eligibility (line)**      | Any controlled stack including height-1                       | Same as territory     | Correct by accident                  |
+| **Cap eligibility (forced)**    | Any controlled stack including height-1                       | Same                  | Correct                              |
+| **Recovery cascade**            | Territory processing after recovery line                      | Not implemented       | Misses territory gains               |
+| **Marker removal on landing**   | Remove marker, eliminate top ring                             | Simplified            | May miss eliminations                |
 
 ### 3.2 Locations of Rule Simplifications
 
 ```
 gpu_parallel_games.py:
-  Line 1152-1216: detect_lines_batch()
-    - Hardcodes line length to 4 (line 1209: `if len(line) >= 4`)
-    - Should use get_effective_line_length(board_type, num_players)
+  Line 1238-1313: detect_lines_batch()
+    - ✅ FIXED: Now uses player-count-aware line length per RR-CANON-R120
+    - Was: `if len(line) >= 4` (hardcoded)
+    - Now: Uses required_line_length based on board_size and num_players
 
   Line 2104-2125: _step_movement_phase() capture handling
     - Applies single capture only
@@ -167,6 +168,10 @@ gpu_parallel_games.py:
     - No Option 1/Option 2 choice
     - Always collapses all markers
 
+  Line 1586-1593: evaluate_positions_batch() adjacency
+    - ✅ FIXED: Now uses vectorized tensor operations
+    - Was: Nested Python loops defeating GPU parallelism
+
 gpu_kernels.py:
   Line 471-476: evaluate_positions_batch()
     - Line detection for scoring uses hardcoded patterns
@@ -175,11 +180,13 @@ gpu_kernels.py:
 
 ### 3.3 Correctness Status by Board Type
 
-| Board         | 2-Player                                  | 3-Player                                  | 4-Player                                  |
-| ------------- | ----------------------------------------- | ----------------------------------------- | ----------------------------------------- |
-| **square8**   | Line length wrong (uses 4, should be 4) ✓ | Line length wrong (uses 4, should be 3) ✗ | Line length wrong (uses 4, should be 3) ✗ |
-| **square19**  | Correct (4) ✓                             | Correct (4) ✓                             | Correct (4) ✓                             |
-| **hexagonal** | Correct (4) ✓                             | Correct (4) ✓                             | Correct (4) ✓                             |
+| Board         | 2-Player       | 3-Player       | 4-Player       |
+| ------------- | -------------- | -------------- | -------------- |
+| **square8**   | ✅ Correct (4) | ✅ Correct (3) | ✅ Correct (3) |
+| **square19**  | ✅ Correct (4) | ✅ Correct (4) | ✅ Correct (4) |
+| **hexagonal** | ✅ Correct (4) | ✅ Correct (4) | ✅ Correct (4) |
+
+> **Note:** Line length detection was fixed on 2025-12-11 to be player-count-aware per RR-CANON-R120.
 
 ---
 
@@ -913,11 +920,182 @@ tests/
 
 ---
 
+## Implementation Progress
+
+### Phase 1 Progress Summary
+
+**Status:** In Progress (Step 1 Complete)
+**Last Updated:** 2025-12-11
+
+#### Completed Tasks
+
+##### 1. Parity Test Infrastructure (P0) ✅
+
+Created comprehensive GPU/CPU parity testing framework:
+
+| File                               | Purpose                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| `tests/gpu/__init__.py`            | Package initialization with test category documentation                 |
+| `tests/gpu/conftest.py`            | Pytest fixtures for game states, board configs, comparison utilities    |
+| `tests/gpu/test_gpu_cpu_parity.py` | 36 parity tests covering evaluation, line detection, victory thresholds |
+
+**Test Results:** 36 passed, 6 skipped (move generation tests await Phase 2 GPU API)
+
+Key fixtures created:
+
+- `empty_square8_2p/3p/4p` - Empty board states for all player counts
+- `empty_square19_2p`, `empty_hexagonal_2p` - Additional board types
+- `state_with_single_stack`, `state_with_capture_opportunity` - Game scenarios
+- `state_with_line_opportunity`, `state_3p_with_line_opportunity` - Line formation scenarios
+- `board_player_combo` - Parameterized fixture for all board/player combinations
+- Helper functions: `add_stack_to_state()`, `add_marker_to_state()`, `add_collapsed_space()`
+- Comparison utilities: `moves_to_comparable_set()`, `assert_moves_equal()`, `assert_scores_close()`
+
+##### 2. Line Length Fix (P0) ✅
+
+**Location:** `gpu_parallel_games.py:1238-1313` (`detect_lines_batch()`)
+
+**Problem:** Line length was hardcoded to `>= 4`, incorrect for 3-4 player 8×8 games per RR-CANON-R120.
+
+**Fix:** Added player-count-aware line length detection:
+
+```python
+# Determine required line length based on board size and player count
+# Per RR-CANON-R120: 8x8 with 3-4 players uses line length 3
+if board_size == 8 and num_players >= 3:
+    required_line_length = 3
+else:
+    required_line_length = 4
+
+# Applied at line 1303:
+if len(line) >= required_line_length:
+```
+
+**Verification:** Added parameterized tests for all board/player combinations confirming correct line lengths.
+
+##### 3. Vectorize Adjacency Calculation (P1) ✅
+
+**Location:** `gpu_parallel_games.py:1586-1593` (`evaluate_positions_batch()`)
+
+**Problem:** Adjacency scoring used nested Python loops, defeating GPU parallelism.
+
+**Before (slow):**
+
+```python
+for g in range(batch_size):
+    adj_count = 0.0
+    ps = player_stacks[g]
+    for y in range(board_size):
+        for x in range(board_size):
+            if ps[y, x]:
+                if x + 1 < board_size and ps[y, x + 1]:
+                    adj_count += 1.0
+                if y + 1 < board_size and ps[y + 1, x]:
+                    adj_count += 1.0
+    adjacency_score[g] = adj_count
+```
+
+**After (vectorized):**
+
+```python
+player_stacks_float = player_stacks.float()
+horizontal_adj = (player_stacks_float[:, :, :-1] * player_stacks_float[:, :, 1:]).sum(dim=(1, 2))
+vertical_adj = (player_stacks_float[:, :-1, :] * player_stacks_float[:, 1:, :]).sum(dim=(1, 2))
+adjacency_score = horizontal_adj + vertical_adj
+```
+
+**Verification:** Added `test_adjacency_bonus_vectorized` confirming adjacent stacks score higher than isolated.
+
+##### 4. Hex Board Support (P1) ✅
+
+**Location:** `gpu_parallel_games.py:1539-1545` (`evaluate_positions_batch()`)
+
+**Problem:** `total_spaces` and `rings_per_player` were calculated incorrectly for hexagonal boards.
+
+**Before (incorrect):**
+
+```python
+total_spaces = board_size * board_size  # Wrong: 13*13=169, actual hex has 469 spaces
+rings_per_player = {8: 18, 19: 48}.get(board_size, 18)  # Missing hex config
+```
+
+**After (correct):**
+
+```python
+total_spaces = {8: 64, 19: 361, 13: 469}.get(board_size, board_size * board_size)
+rings_per_player = {8: 18, 19: 48, 13: 72}.get(board_size, 18)
+```
+
+**Verification:** Added hex board types to parameterized victory threshold tests.
+
+##### 5. BatchGameState.from_single_game() ✅
+
+**Location:** `gpu_parallel_games.py:188-272`
+
+Added classmethod to convert CPU `GameState` to GPU `BatchGameState` for parity testing:
+
+```python
+@classmethod
+def from_single_game(
+    cls,
+    game_state: "GameState",
+    device: Optional[torch.device] = None,
+) -> "BatchGameState":
+    """Create a BatchGameState from a single CPU GameState for parity testing."""
+```
+
+Key features:
+
+- Handles Pydantic snake_case field access (`game_state.board_type`, not `game_state.boardType`)
+- Maps CPU `GamePhase` enum to GPU `GamePhase` IntEnum
+- Correctly initializes all tensor fields (stacks, markers, collapsed spaces, etc.)
+- Supports all board types (square8, square19, hexagonal)
+
+#### Bugs Fixed During Implementation
+
+| Bug                                     | Location              | Fix                                                            |
+| --------------------------------------- | --------------------- | -------------------------------------------------------------- |
+| `GameStatus.IN_PROGRESS` doesn't exist  | conftest.py           | Changed to `GameStatus.ACTIVE`                                 |
+| `TimeControl` wrong field names         | conftest.py           | `timePerPlayer` → `initialTime`, `timeIncrement` → `increment` |
+| `GameState` missing required fields     | conftest.py           | Added `boardType`, `gameStatus`, `spectators`, `lps*` fields   |
+| Pydantic snake_case vs camelCase        | gpu_parallel_games.py | Use `game_state.board_type` not `game_state.boardType`         |
+| `RingStack` missing `stackHeight`       | conftest.py           | Added `stackHeight=len(rings)` to constructor                  |
+| `GamePhase.TERRITORY_EXPANSION` invalid | gpu_parallel_games.py | Changed to `GamePhase.TERRITORY_PROCESSING`                    |
+| `GameState` is frozen (immutable)       | conftest.py           | Use `model_copy(update={...})` instead of direct assignment    |
+
+#### Updated Component Status Matrix
+
+| Component                | Before                      | After       | Notes                                    |
+| ------------------------ | --------------------------- | ----------- | ---------------------------------------- |
+| **Line Detection**       | ❌ INCORRECT (hardcoded)    | ✅ Correct  | Player-count-aware per RR-CANON-R120     |
+| **Heuristic Evaluation** | ⚠️ Medium (adjacency loops) | ✅ Good     | Vectorized adjacency calculation         |
+| **Hex Board Support**    | ❌ Missing                  | ✅ Complete | Correct space count (469) and rings (72) |
+| **Parity Test Suite**    | ❌ None                     | ✅ 36 tests | Foundation for Phase 2 validation        |
+
+#### Remaining Phase 1 Tasks
+
+| Task                             | Status  | Notes                                     |
+| -------------------------------- | ------- | ----------------------------------------- |
+| Integration tests for full games | Pending | Needs deterministic replay infrastructure |
+| Benchmark CPU vs Hybrid          | Pending | Create `scripts/benchmark_gpu_cpu.py`     |
+| Training quality A/B test setup  | Pending | Lower priority for Phase 1                |
+
+#### Decision Gate Status (Phase 1 → Phase 2)
+
+- [x] Parity test infrastructure created (36 tests passing)
+- [ ] All parity tests pass (100%) - 6 skipped awaiting Phase 2 GPU API
+- [ ] Speedup ≥ 3x over CPU-only - Benchmark not yet run
+- [ ] No regression in model training quality - A/B test not yet conducted
+- [ ] Benchmark results documented - Pending
+
+---
+
 ## Document History
 
-| Date       | Version | Changes                        |
-| ---------- | ------- | ------------------------------ |
-| 2025-12-11 | 1.0     | Initial comprehensive analysis |
+| Date       | Version | Changes                                                                                             |
+| ---------- | ------- | --------------------------------------------------------------------------------------------------- |
+| 2025-12-11 | 1.0     | Initial comprehensive analysis                                                                      |
+| 2025-12-11 | 1.1     | Phase 1 Step 1 progress update: parity tests, line length fix, adjacency vectorization, hex support |
 
 ---
 

@@ -117,6 +117,9 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = processTurn(state, move);
 
       expect(result.nextState).toBeDefined();
+      // no_line_action transitions from line_processing to territory_processing
+      expect(result.nextState.currentPhase).toBe('territory_processing');
+      expect(result.status).toBe('awaiting_decision');
     });
   });
 
@@ -138,6 +141,10 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = processTurn(state, move);
 
       expect(result.nextState).toBeDefined();
+      // skip_territory_processing completes the turn and advances to next player
+      expect(result.nextState.currentPlayer).toBe(2);
+      expect(result.nextState.currentPhase).toBe('ring_placement');
+      expect(result.status).toBe('complete');
     });
 
     it('handles territory processing with no_territory_action', () => {
@@ -151,6 +158,9 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = processTurn(state, move);
 
       expect(result.nextState).toBeDefined();
+      // no_territory_action completes territory processing and ends turn
+      expect(result.nextState.currentPlayer).toBe(2);
+      expect(result.status).toBe('complete');
     });
   });
 
@@ -199,6 +209,13 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = processTurn(state, move);
 
       expect(result.nextState).toBeDefined();
+      // overtaking_capture should transition to chain_capture or end capture phase
+      expect([
+        'chain_capture',
+        'line_processing',
+        'territory_processing',
+        'ring_placement',
+      ]).toContain(result.nextState.currentPhase);
     });
 
     it('handles skip_capture move', () => {
@@ -229,6 +246,9 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = processTurn(state, move);
 
       expect(result.nextState).toBeDefined();
+      // skip_capture should advance to line_processing phase
+      expect(result.nextState.currentPhase).toBe('line_processing');
+      expect(result.status).toBe('awaiting_decision');
     });
 
     it('handles chain capture with chainCapturePosition', () => {
@@ -267,6 +287,10 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = processTurn(state, move);
 
       expect(result.nextState).toBeDefined();
+      // chain capture continuation should stay in chain_capture or proceed to next phase
+      expect(['chain_capture', 'line_processing', 'territory_processing']).toContain(
+        result.nextState.currentPhase
+      );
     });
 
     // DELETED 2025-12-06: 'handles end_chain_capture move' tested obsolete move type.
@@ -426,6 +450,8 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = await processTurnAsync(state, processLineMove, delegates);
 
       expect(result.nextState).toBeDefined();
+      // Async processing should complete and advance to next player
+      expect(result.status).toBe('complete');
     });
 
     it('handles territory processing decision asynchronously', async () => {
@@ -440,6 +466,9 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = await processTurnAsync(state, skipMove, delegates);
 
       expect(result.nextState).toBeDefined();
+      // Territory skip should complete turn and advance player
+      expect(result.status).toBe('complete');
+      expect(result.nextState.currentPlayer).toBe(2);
     });
   });
 
@@ -538,6 +567,10 @@ describe('TurnOrchestrator advanced branch coverage', () => {
       const result = processTurn(state, continueMove);
 
       expect(result.nextState).toBeDefined();
+      // Chain capture should either continue chain or proceed to next phase
+      expect(['chain_capture', 'line_processing', 'territory_processing']).toContain(
+        result.nextState.currentPhase
+      );
     });
   });
 

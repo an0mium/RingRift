@@ -559,6 +559,34 @@ export {
 } from './aggregates/RecoveryAggregate';
 
 // =============================================================================
+// ELIMINATION AGGREGATE
+// =============================================================================
+// Location: aggregates/EliminationAggregate.ts
+// Rule Reference: RR-CANON R022, R100, R113, R122, R145
+// Single source of truth for all elimination semantics
+
+export type {
+  EliminationContext,
+  EliminationReason,
+  EliminationParams,
+  EliminationResult,
+  EliminationAuditEvent,
+  StackEligibility,
+} from './aggregates/EliminationAggregate';
+
+export {
+  // Core functions
+  eliminateFromStack,
+  isStackEligibleForElimination,
+  // Enumeration
+  enumerateEligibleStacks,
+  hasEligibleEliminationTarget,
+  // Utilities
+  calculateCapHeight as calculateCapHeightElimination,
+  getRingsToEliminate,
+} from './aggregates/EliminationAggregate';
+
+// =============================================================================
 // GLOBAL ACTIONS &amp; ANM HELPERS
 // =============================================================================
 // Location: globalActions.ts

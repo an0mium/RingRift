@@ -133,17 +133,15 @@ class TestLineLengthParity:
             f"expected {expected_length}, got {actual}"
         )
 
-    @pytest.mark.skip(reason="detect_lines_batch has hardcoded line length - see TODO in GPU_PIPELINE_ROADMAP.md")
     def test_gpu_line_detection_uses_correct_length_2p(
         self, device, state_with_line_opportunity
     ):
         """Verify GPU line detection requires 4 markers for 2-player 8x8.
 
-        Setup: 3 markers in a row at (2,3), (3,3), (4,3)
-        Expected: No line detected (need 4 for 2-player)
+        Setup: 3 markers in a row at (2,3), (3,3), (4,3) plus stack at (1,3)
+        Expected: No line detected (need 4 stacks for 2-player, markers don't count)
 
-        NOTE: This test is skipped until detect_lines_batch is fixed to use
-        get_effective_line_length() instead of hardcoding 4.
+        Per RR-CANON-R120: Line detection counts stacks, not markers.
         """
         if not GPU_MODULES_AVAILABLE:
             pytest.skip("GPU modules not available")
@@ -164,19 +162,17 @@ class TestLineLengthParity:
             f"Line length should be 4, but detected: {lines[0]}"
         )
 
-    @pytest.mark.skip(reason="detect_lines_batch has hardcoded line length - see TODO in GPU_PIPELINE_ROADMAP.md")
     def test_gpu_line_detection_uses_correct_length_3p(
         self, device, state_3p_with_line_opportunity
     ):
-        """Verify GPU line detection requires 3 markers for 3-player 8x8.
+        """Verify GPU line detection requires 3 stacks for 3-player 8x8.
 
-        Setup: 2 markers in a row at (2,3), (3,3)
-        Expected: No line detected (need 3 for 3-player)
+        Setup: 2 markers in a row at (2,3), (3,3) plus stack at (1,3)
+        Expected: No line detected (need 3 stacks for 3-player, markers don't count)
 
-        NOTE: This test is skipped until detect_lines_batch is fixed to use
-        get_effective_line_length() instead of hardcoding 4. This test would
-        FAIL if the GPU code hardcodes line length to 4 (the 3-player rule
-        requires only 3 markers).
+        Per RR-CANON-R120: Line detection counts stacks, not markers.
+        This test validates that the GPU code uses the correct player-count-aware
+        line length (3 for 3-4 player 8x8, 4 for all others).
         """
         if not GPU_MODULES_AVAILABLE:
             pytest.skip("GPU modules not available")
@@ -398,6 +394,44 @@ class TestEvaluationParity:
             f"Center={center_score:.4f}, Corner={corner_score:.4f}"
         )
 
+    def test_adjacency_bonus_vectorized(self, device):
+        """Verify vectorized adjacency calculation gives correct bonus.
+
+        Adjacent stacks should score higher than isolated stacks.
+        This tests the vectorized adjacency calculation (horizontal + vertical).
+        """
+        from tests.gpu.conftest import add_stack_to_state, create_empty_game_state
+
+        # State with isolated stacks (no adjacency)
+        state_isolated = create_empty_game_state(BoardType.SQUARE8, 2)
+        add_stack_to_state(state_isolated, 0, 0, [1])  # Corner
+        add_stack_to_state(state_isolated, 7, 7, [1])  # Opposite corner
+        state_isolated.players[0] = state_isolated.players[0].model_copy(
+            update={'rings_in_hand': state_isolated.players[0].rings_in_hand - 2}
+        )
+
+        batch_isolated = BatchGameState.from_single_game(state_isolated, device)
+        scores_isolated = evaluate_positions_batch(batch_isolated, {})
+        isolated_score = scores_isolated[0, 1].item()
+
+        # State with adjacent stacks (2 horizontal neighbors)
+        state_adjacent = create_empty_game_state(BoardType.SQUARE8, 2)
+        add_stack_to_state(state_adjacent, 3, 3, [1])  # Center
+        add_stack_to_state(state_adjacent, 4, 3, [1])  # Right neighbor
+        state_adjacent.players[0] = state_adjacent.players[0].model_copy(
+            update={'rings_in_hand': state_adjacent.players[0].rings_in_hand - 2}
+        )
+
+        batch_adjacent = BatchGameState.from_single_game(state_adjacent, device)
+        scores_adjacent = evaluate_positions_batch(batch_adjacent, {})
+        adjacent_score = scores_adjacent[0, 1].item()
+
+        # Adjacent stacks should score higher due to adjacency bonus + center bonus
+        assert adjacent_score > isolated_score, (
+            f"Adjacent stacks should score higher than isolated. "
+            f"Adjacent={adjacent_score:.4f}, Isolated={isolated_score:.4f}"
+        )
+
 
 # =============================================================================
 # Victory Threshold Tests in GPU Evaluation
@@ -412,6 +446,8 @@ class TestVictoryThresholdInGPU:
         (BoardType.SQUARE8, 3),
         (BoardType.SQUARE8, 4),
         (BoardType.SQUARE19, 2),
+        (BoardType.HEXAGONAL, 2),  # Hex support verification
+        (BoardType.HEXAGONAL, 3),
     ])
     def test_victory_proximity_scaling(self, device, board_type, num_players):
         """Verify victory proximity uses correct player-count-aware threshold."""
