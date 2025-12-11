@@ -870,10 +870,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
        - For empty regions (containing no stacks), this step eliminates zero rings, but processing remains valid.
     4. **Mandatory self-elimination:**
        - Eliminate the **entire cap** (all consecutive top rings of P's colour) from a P-controlled stack that lies outside R.
-       - **Cap definition:** The cap consists of all consecutive rings of P's colour counting from the top of the stack. Valid cap elimination scenarios:
+       - **Cap definition:** The cap consists of all consecutive rings of P's colour counting from the top of the stack. **Eligible** cap elimination targets for territory processing:
          - **(i) Mixed-colour stack:** For a stack where P controls (top rings are P's colour) but other players' rings are buried beneath (e.g., `[P, P, Q, P]` from top to bottom), the cap is the top consecutive P rings (2 in this example). Eliminating this cap removes P's control while preserving the buried rings.
          - **(ii) Single-colour stack of height > 1:** For a stack consisting entirely of P's rings with height > 1 (e.g., `[P, P, P]`), the entire stack is the cap and must be eliminated. This removes the stack from the board entirely.
-         - **(iii) Height-1 stack:** A standalone single ring is also a valid cap target (cap height = 1).
+         - **Height-1 standalone rings are NOT eligible** as cap targets for territory processing. A player must have at least one eligible stack (multicolour or single-colour height > 1) outside the region to process it.
        - **Exception for recovery actions:** When territory processing is triggered by a recovery action (RR-CANON-R114), the self-elimination cost is one buried ring extraction instead of an entire stack cap.
     5. Update all counts and recompute regions.
   - All eliminated rings from steps 3 and 4 are credited to P.

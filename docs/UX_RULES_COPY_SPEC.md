@@ -185,9 +185,9 @@ Used in [`SandboxGameHost.PHASE_COPY.capture`](src/client/pages/SandboxGameHost.
 
 - Lines are formed by **markers**, not rings.
 - A contiguous run of your markers of length ≥ the board’s configured `lineLength` is a completed line.
-- **Exact‑length line:** all markers in the line must collapse into your territory, and you must eliminate one ring (or an entire cap) from a stack you control.
+- **Exact‑length line:** all markers in the line must collapse into your territory, and you must eliminate the entire cap from an eligible controlled stack. Eligible caps: (1) multicolour stacks you control (with other players' rings buried beneath), or (2) single-colour stacks of height > 1 consisting entirely of your colour. Height-1 standalone rings are NOT eligible.
 - **Overlength line:** you choose between:
-  - (A) Collapse the whole line into territory **and** eliminate a ring/cap, or
+  - (A) Collapse the whole line into territory **and** eliminate the entire cap from an eligible stack, or
   - (B) Collapse only a contiguous segment of length `lineLength` into territory and **skip elimination**.
 
 **TeachingOverlay – Lines description**

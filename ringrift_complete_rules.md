@@ -2183,8 +2183,8 @@ Turn Flow Summary:
 2.  Move that ring (or any ring/stack you control if you skipped placing).
 3.  (Optional) Begin Overtaking from the landing position if a capture is possible from there.
 4.  Chain Overtaking until no more captures.
-5.  Check Lines of **3** (orthogonal or diagonal). Collapse them, Eliminate one ring or cap of one controlled ring stack for each (with graduated reward for 4+).
-6.  Check Territory (using Von Neumann neighborhood). Collapse disconnected regions, Eliminate one ring or cap of one controlled ring stack for each.
+5.  Check Lines of **3** (orthogonal or diagonal). Collapse them, Eliminate the entire cap from an eligible controlled stack for each (with graduated reward for 4+).
+6.  Check Territory (using Von Neumann neighborhood). Collapse disconnected regions, Eliminate the entire cap from an eligible controlled stack for each.
 7.  Check for Win or pass to next player.
 
 #### 16.5.1 Movement (8×8)
@@ -2367,8 +2367,8 @@ Overtaking (Stack Capture)
 Elimination Captures
 • Occurs via:
 
-1.  **Line collapses (4+ markers on 19×19/Hex):** Collapsing the line (with graduated reward for 5+), Eliminating one ring or the cap of one stack of your own per line (unless choosing Option 2 for 5+ lines).
-2.  **Territory:** Surrounded or disconnected regions are collapsed; you must Eliminate one ring or the cap of one of your controlled ring stacks per region, and all rings within that region are also Eliminated.
+1.  **Line collapses (4+ markers on 19×19/Hex):** Collapsing the line (with graduated reward for 5+), Eliminating the entire cap from an eligible controlled stack per line (unless choosing Option 2 for 5+ lines).
+2.  **Territory:** Surrounded or disconnected regions are collapsed; you must Eliminate the entire cap from an eligible controlled stack per region, and all rings within that region are also Eliminated.
     • All Eliminated rings count toward the ring Elimination victory threshold.
     • Important Notes:
     - Eliminated rings are permanently removed from play
@@ -2382,8 +2382,8 @@ _Note: The general rules for line formation and collapse, including the graduate
 
 • If you have ≥4 consecutive markers in any of the 8 directions (19×19) or 3 axes (Hex), you must:
 
-1.  **For exactly 4 markers:** Collapse all 4 markers to your color's collapsed spaces AND remove one ring or the cap of one ring stack you control (Elimination).
-2.  **For 5+ markers:** Choose Option 1 (collapse all, eliminate 1 ring/cap) or Option 2 (collapse exactly 4 consecutive markers of your choice, eliminate 0 rings/caps).
+1.  **For exactly 4 markers:** Collapse all 4 markers to your color's collapsed spaces AND eliminate the entire cap from an eligible controlled stack.
+2.  **For 5+ markers:** Choose Option 1 (collapse all, eliminate entire cap) or Option 2 (collapse exactly 4 consecutive markers of your choice, no elimination).
     • Important Notes:
     - Process each line in its full extent (unless choosing Option 2 for 5+ lines).
     - Moving player chooses which of their rings/stack caps to Eliminate when required.

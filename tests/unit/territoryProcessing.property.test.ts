@@ -225,7 +225,9 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
           fc.integer({ min: 1, max: 3 }),
           fc.integer({ min: 1, max: 3 })
         ),
-        fc.integer({ min: 1, max: 4 }),
+        // RR-CANON-R082: Must be >= 2 to be an eligible cap target (height-1
+        // standalone rings are NOT eligible for self-elimination prerequisite).
+        fc.integer({ min: 2, max: 4 }),
         (x0, y0, heights, outsideHeight) => {
           const { state, regionSpaces, expectedInternalRings, expectedBorder } =
             buildRandomQ23LikeState(
@@ -306,7 +308,7 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
     );
   });
 
-  it('after processing a region, enumerateTerritoryEliminationMoves surfaces exactly the stacks with positive capHeight and applyEliminateRingsFromStackDecision updates elimination counters', () => {
+  it('after processing a region, enumerateTerritoryEliminationMoves surfaces exactly the eligible cap targets and applyEliminateRingsFromStackDecision updates elimination counters', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 2, max: 4 }),
@@ -318,7 +320,9 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
           fc.integer({ min: 1, max: 3 })
         ),
         // Randomise the outside-stack height to vary self-elimination cost.
-        fc.integer({ min: 1, max: 4 }),
+        // RR-CANON-R082: Must be >= 2 to be an eligible cap target (height-1
+        // standalone rings are NOT eligible).
+        fc.integer({ min: 2, max: 4 }),
         (x0, y0, heights, outsideHeight) => {
           const { state } = buildRandomQ23LikeState(
             x0,
@@ -334,11 +338,17 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
 
           const boardAfterRegion = nextState.board;
 
+          // RR-CANON-R082: Only eligible cap targets are surfaced:
+          // (1) Multicolor stacks (stackHeight > capHeight), OR
+          // (2) Single-color stacks with height > 1
           const stacksForPlayer: Array<{ key: string; cap: number }> = [];
           for (const [key, stack] of boardAfterRegion.stacks.entries()) {
             if (stack.controllingPlayer !== movingPlayer) continue;
             const capHeight = calculateCapHeight(stack.rings);
-            if (capHeight > 0) {
+            if (capHeight <= 0) continue;
+            const isMulticolor = stack.stackHeight > capHeight;
+            const isSingleColorTall = stack.stackHeight === capHeight && stack.stackHeight > 1;
+            if (isMulticolor || isSingleColorTall) {
               stacksForPlayer.push({ key, cap: capHeight });
             }
           }

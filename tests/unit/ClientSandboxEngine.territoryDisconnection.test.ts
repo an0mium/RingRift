@@ -93,8 +93,9 @@ describe('ClientSandboxEngine territory disconnection (square19)', () => {
     borderCoords.forEach((p) => addMarker(board, p, 1)); // A markers (player 1)
 
     // Player 1 stack outside the region (for self-elimination).
+    // RR-CANON-R082: Must be height >= 2 to be an eligible cap target.
     const outsideP1 = pos(1, 1);
-    addStack(board, outsideP1, 1, 1);
+    addStack(board, outsideP1, 1, 2);
 
     // Player 3 active elsewhere but not inside the region.
     const outsideP3 = pos(0, 0);
@@ -140,9 +141,9 @@ describe('ClientSandboxEngine territory disconnection (square19)', () => {
     const stacksInRegion = Array.from(finalBoard.stacks.keys()).filter((k) => interiorKeys.has(k));
     expect(stacksInRegion.length).toBe(0);
 
-    // 5. Eliminated rings: 9 internal B stacks (one ring each) plus one
-    //    self-elimination for player 1.
-    const expectedDeltaForP1 = 10;
+    // 5. Eliminated rings: 9 internal B stacks (one ring each) plus two
+    //    self-elimination rings for player 1 (entire cap of height-2 stack).
+    const expectedDeltaForP1 = 11;
     const finalP1Eliminated = player1.eliminatedRings;
     expect(finalP1Eliminated).toBe(initialP1Eliminated + expectedDeltaForP1);
     expect(finalState.totalRingsEliminated).toBe(initialTotalEliminated + expectedDeltaForP1);
@@ -192,10 +193,11 @@ describe('ClientSandboxEngine territory disconnection (square19)', () => {
     addStack(board, pos(0, 0), 3, 1);
 
     // Player 1 has stacks outside both regions (for self-elimination across both).
+    // RR-CANON-R082: Must be height >= 2 to be eligible cap targets.
     const outsideP1A = pos(1, 1);
     const outsideP1B = pos(15, 15);
-    addStack(board, outsideP1A, 1, 1);
-    addStack(board, outsideP1B, 1, 1);
+    addStack(board, outsideP1A, 1, 2);
+    addStack(board, outsideP1B, 1, 2);
 
     expect(board.collapsedSpaces.size).toBe(0);
 
@@ -245,10 +247,10 @@ describe('ClientSandboxEngine territory disconnection (square19)', () => {
     expect(stacksInRegions.length).toBe(0);
 
     // 5. Eliminated ring counts: start with 18 B rings inside the two regions
-    //    and two P1 rings outside. Each region collapse eliminates 9 internal
-    //    rings plus one self-elim for P1, so total eliminated rings credited
-    //    to P1 should be 20.
-    const expectedEliminatedForP1 = 20;
+    //    and four P1 rings outside (two height-2 stacks). Each region collapse
+    //    eliminates 9 internal rings plus two self-elim rings for P1 (entire cap
+    //    of height-2 stack), so total eliminated rings credited to P1 should be 22.
+    const expectedEliminatedForP1 = 22;
     const finalP1Eliminated = player1.eliminatedRings;
     expect(finalP1Eliminated).toBe(initialP1Eliminated + expectedEliminatedForP1);
     expect(finalState.totalRingsEliminated).toBe(initialTotalEliminated + expectedEliminatedForP1);
@@ -300,10 +302,11 @@ describe('ClientSandboxEngine territory disconnection (square19)', () => {
     }
 
     // --- 3. Provide P1 stacks: one for line elimination, one for territory self-elim.
+    // RR-CANON-R082: Must be height >= 2 to be eligible cap targets.
     const lineStackPos = pos(1, 1);
     const territoryStackPos = pos(15, 15);
-    addStack(board, lineStackPos, 1, 1);
-    addStack(board, territoryStackPos, 1, 1);
+    addStack(board, lineStackPos, 1, 2);
+    addStack(board, territoryStackPos, 1, 2);
 
     // Sanity: no collapsed spaces and no eliminated rings yet.
     expect(board.collapsedSpaces.size).toBe(0);
@@ -358,10 +361,10 @@ describe('ClientSandboxEngine territory disconnection (square19)', () => {
 
     // 6. Eliminated ring counts should combine line + territory contributions:
     //    - 1 internal B stack (one ring) eliminated when P1 processes territory
-    //    - 1 ring from a P1 stack self-eliminated for the line
-    //    - 1 ring from a P1 stack self-eliminated for territory processing
-    //    Total: 3 rings attributed to player 1.
-    const expectedEliminatedForP1 = 3;
+    //    - 2 rings from P1 stack self-eliminated for the line (entire cap of height-2)
+    //    - 2 rings from P1 stack self-eliminated for territory (entire cap of height-2)
+    //    Total: 5 rings attributed to player 1.
+    const expectedEliminatedForP1 = 5;
     const finalP1Eliminated = player1.eliminatedRings;
     expect(finalP1Eliminated).toBe(expectedEliminatedForP1);
     expect(finalState.board.eliminatedRings[1]).toBe(expectedEliminatedForP1);
