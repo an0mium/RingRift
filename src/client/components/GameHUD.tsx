@@ -608,11 +608,13 @@ function LegacySubPhaseDetails({ gameState }: { gameState: GameState }) {
 
   // For territory processing, we don't have a direct count in GameState,
   // but we can show a generic message
+  // RR-CANON-R022/R082: Territory processing requires entire cap from eligible stacks only
+  // (multicolor or single-color height > 1; standalone rings NOT eligible)
   if (gameState.currentPhase === 'territory_processing') {
     return (
       <div className="text-sm text-gray-600 mt-1">
-        Processing disconnected regions; you must eliminate the entire cap from an outside stack per
-        region.
+        Processing disconnected regions; you must eliminate the entire cap from an eligible stack
+        outside each region (multicolor or height {'>'} 1; standalone rings not eligible).
       </div>
     );
   }
@@ -1202,7 +1204,7 @@ export function VictoryConditionsPanel({ className = '' }: { className?: string 
               </span>
               <Tooltip
                 content={
-                  'Territory spaces are collapsed cells you permanently own.\nIf your territory spaces exceed 50% of all board spaces during territory processing, you win immediately.\nClaiming a region usually requires eliminating rings from a stack you control outside that region.'
+                  'Territory spaces are collapsed cells you permanently own.\nIf your territory spaces exceed 50% of all board spaces during territory processing, you win immediately.\nClaiming a region requires eliminating the entire cap from an eligible stack outside that region (multicolor stacks or single-color stacks height > 1; standalone rings are NOT eligible).'
                 }
               >
                 <span

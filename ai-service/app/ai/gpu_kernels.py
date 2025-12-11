@@ -470,8 +470,9 @@ def evaluate_positions_kernel(
 
         # Victory proximity
         # Per RR-CANON-R061: threshold = round(ringsPerPlayer × (1/3 + 2/3 × (numPlayers - 1)))
-        # For 2p: 8×8=18, 19×19=48; for 3p: 8×8=30, 19×19=80; for 4p: 8×8=42, 19×19=112
-        rings_per_player = 18 if board_size == 8 else 48
+        # Per BOARD_CONFIGS: 8×8=18, 19×19=48, hex(13)=72 rings per player
+        # For 2p: 8×8=18, 19×19=48, hex=72; for 3p: 8×8=30, 19×19=80, hex=120
+        rings_per_player = {8: 18, 19: 48, 13: 72}.get(board_size, 18)
         victory_threshold = round(rings_per_player * (1/3 + 2/3 * (num_players - 1)))
         proximity = eliminated / victory_threshold
         victory_w = get_weight('WEIGHT_VICTORY_PROXIMITY', 1.0)
@@ -582,8 +583,9 @@ def check_victory_conditions_kernel(
     batch_size = eliminated_rings.shape[0]
 
     # Per RR-CANON-R061: threshold = round(ringsPerPlayer × (1/3 + 2/3 × (numPlayers - 1)))
-    # For 2p: 8×8=18, 19×19=48; for 3p: 8×8=30, 19×19=80; for 4p: 8×8=42, 19×19=112
-    rings_per_player = 18 if board_size == 8 else 48
+    # Per BOARD_CONFIGS: 8×8=18, 19×19=48, hex(13)=72 rings per player
+    # For 2p: 8×8=18, 19×19=48, hex=72; for 3p: 8×8=30, 19×19=80, hex=120
+    rings_per_player = {8: 18, 19: 48, 13: 72}.get(board_size, 18)
     victory_threshold = round(rings_per_player * (1/3 + 2/3 * (num_players - 1)))
 
     winner = torch.zeros(batch_size, dtype=torch.int32, device=device)

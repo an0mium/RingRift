@@ -129,20 +129,18 @@ def create_initial_state(
     if num_players > 4:
         num_players = 4
 
-    # Board configuration aligned with src/shared/types/game.ts BOARD_CONFIGS.
-    if board_type == BoardType.SQUARE8:
-        size = 8
-        rings_per_player = 18
-        total_spaces = 64
-    elif board_type == BoardType.SQUARE19:
-        size = 19
-        rings_per_player = 48
-        total_spaces = 361
-    elif board_type == BoardType.HEXAGONAL:
-        # Hex boards use radius 13 and 72 rings per player in TS.
-        size = 13
-        rings_per_player = 72
-        total_spaces = 469
+    # Use centralized BOARD_CONFIGS from app.rules.core (mirrors TS BOARD_CONFIGS)
+    from app.rules.core import (
+        BOARD_CONFIGS,
+        get_victory_threshold,
+        get_territory_victory_threshold,
+    )
+
+    if board_type in BOARD_CONFIGS:
+        config = BOARD_CONFIGS[board_type]
+        size = config.size
+        rings_per_player = config.rings_per_player
+        total_spaces = config.total_spaces
     else:
         # Fallback to square8-style defaults if an unknown board is passed.
         size = 8
@@ -150,13 +148,9 @@ def create_initial_state(
         total_spaces = 64
 
     # Victory thresholds per RR-CANON-R061 and RR-CANON-R062
-    # Ring elimination: victoryThreshold = round((1/3)*ownRings + (2/3)*opponentsRings)
-    # Simplified: round(ringsPerPlayer * (1/3 + 2/3*(numPlayers-1)))
-    # Territory: > 50% of total spaces
     total_rings = rings_per_player * num_players
-    # Per RR-CANON-R061: victoryThreshold = round((1/3)*ownStartingRings + (2/3)*opponentsCombinedStartingRings)
-    victory_threshold = round(rings_per_player * (1 / 3 + (2 / 3) * (num_players - 1)))
-    territory_threshold = (total_spaces // 2) + 1
+    victory_threshold = get_victory_threshold(board_type, num_players)
+    territory_threshold = get_territory_victory_threshold(board_type)
 
     players = [
         Player(

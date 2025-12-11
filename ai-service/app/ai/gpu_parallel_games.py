@@ -1439,9 +1439,12 @@ def evaluate_positions_batch(
     max_dist = center_dist.max()
     center_bonus = (max_dist - center_dist) / max_dist  # 1.0 at center, 0.0 at corners
 
-    # Victory thresholds
-    territory_victory_threshold = 33 if board_size == 8 else 100
-    rings_per_player = 18 if board_size == 8 else 48  # Matches BOARD_CONFIGS
+    # Victory thresholds - derived from board size per BOARD_CONFIGS
+    # Territory: floor(totalSpaces/2) + 1; Ring supply per player
+    # square8: 64 spaces, 18 rings; square19: 361 spaces, 48 rings; hex: 469 spaces, 72 rings
+    total_spaces = board_size * board_size  # Works for square boards
+    territory_victory_threshold = (total_spaces // 2) + 1  # 33 for 8x8, 181 for 19x19
+    rings_per_player = {8: 18, 19: 48}.get(board_size, 18)  # Per BOARD_CONFIGS
     # Per RR-CANON-R061: victoryThreshold = round((1/3)*ownStartingRings + (2/3)*opponentsCombinedStartingRings)
     # Simplified: round(ringsPerPlayer * (1/3 + 2/3*(numPlayers-1)))
     ring_victory_threshold = round(rings_per_player * (1 / 3 + (2 / 3) * (num_players - 1)))

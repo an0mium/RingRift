@@ -436,10 +436,13 @@ def deserialize_game_state(data: Dict[str, Any]) -> GameState:
         lastMoveAt=now,
         isRated=False,
         maxPlayers=2,
-        totalRingsInPlay=data.get("totalRingsInPlay", 36),  # Default for 2-player square8
+        # Fallback defaults for 2-player square8 when fields are missing from data.
+        # For actual calculations, use get_victory_threshold() and
+        # get_territory_victory_threshold() from app.rules.core.
+        totalRingsInPlay=data.get("totalRingsInPlay", 36),  # 2 × 18 for 2p square8
         totalRingsEliminated=data.get("totalRingsEliminated", 0),
-        victoryThreshold=data.get("victoryThreshold", 18),  # RR-CANON-R061 (default for 2p square8)
-        territoryVictoryThreshold=data.get("territoryVictoryThreshold", 33),
+        victoryThreshold=data.get("victoryThreshold", 18),  # Per RR-CANON-R061: = ringsPerPlayer for 2p
+        territoryVictoryThreshold=data.get("territoryVictoryThreshold", 33),  # floor(64/2)+1
         chainCaptureState=chain_capture_state,
         mustMoveFromStackKey=None,
         zobristHash=None,

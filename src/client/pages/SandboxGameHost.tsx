@@ -303,12 +303,12 @@ const PHASE_COPY: Record<
   line_processing: {
     label: 'Line Completion',
     summary:
-      'Resolve completed marker lines into Territory and choose whether to take or skip any ring-elimination reward.',
+      'Resolve completed marker lines into Territory; pay the line cost (one ring from any stack you control, including standalone rings).',
   },
   territory_processing: {
     label: 'Territory Claim',
     summary:
-      'Evaluate disconnected regions, collapse them into Territory, and pay any required self-elimination cost; territory wins are checked here.',
+      'Collapse disconnected regions into Territory; pay the entire cap from an eligible stack outside each region (multicolor or height > 1; standalone rings not eligible).',
   },
 };
 

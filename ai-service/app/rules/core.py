@@ -69,6 +69,70 @@ def get_effective_line_length(board_type: BoardType, num_players: int) -> int:
     return BOARD_CONFIGS[board_type].line_length
 
 
+def get_victory_threshold(board_type: BoardType, num_players: int) -> int:
+    """
+    Calculate the ring elimination victory threshold for the given board and player count.
+
+    Per RR-CANON-R061:
+    victoryThreshold = round(ringsPerPlayer × (1/3 + 2/3 × (numPlayers - 1)))
+
+    For 2-player games, this equals ringsPerPlayer.
+    For 3-player: 30 (8×8), 80 (19×19), 120 (hex)
+    For 4-player: 42 (8×8), 112 (19×19), 168 (hex)
+    """
+    rings_per_player = BOARD_CONFIGS[board_type].rings_per_player
+    return round(rings_per_player * (1/3 + (2/3) * (num_players - 1)))
+
+
+def get_territory_victory_threshold(board_type: BoardType) -> int:
+    """
+    Calculate the territory victory threshold for the given board type.
+
+    Per RR-CANON-R062:
+    territoryVictoryThreshold = floor(totalSpaces / 2) + 1
+
+    This is >50% of all board spaces.
+    """
+    total_spaces = BOARD_CONFIGS[board_type].total_spaces
+    return (total_spaces // 2) + 1
+
+
+def get_rings_per_player(board_type: BoardType) -> int:
+    """
+    Return the starting ring supply per player for the given board type.
+
+    Per BOARD_CONFIGS:
+    - square8: 18
+    - square19: 48
+    - hexagonal: 72
+    """
+    return BOARD_CONFIGS[board_type].rings_per_player
+
+
+def get_board_size(board_type: BoardType) -> int:
+    """
+    Return the board size for the given board type.
+
+    Per BOARD_CONFIGS:
+    - square8: 8
+    - square19: 19
+    - hexagonal: 13 (radius)
+    """
+    return BOARD_CONFIGS[board_type].size
+
+
+def get_total_spaces(board_type: BoardType) -> int:
+    """
+    Return the total number of spaces for the given board type.
+
+    Per BOARD_CONFIGS:
+    - square8: 64
+    - square19: 361
+    - hexagonal: 469
+    """
+    return BOARD_CONFIGS[board_type].total_spaces
+
+
 class BoardView(Protocol):
     """Minimal interface for board access needed by core validators."""
     def is_valid_position(self, pos: Position) -> bool: ...

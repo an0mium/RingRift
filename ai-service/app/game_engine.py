@@ -1565,20 +1565,17 @@ class GameEngine:
         """
         TS-aligned per-player ring cap.
 
-        Mirrors BOARD_CONFIGS[boardType].ringsPerPlayer from the shared TS
-        types:
+        Uses centralized BOARD_CONFIGS from app.rules.core which mirrors
+        BOARD_CONFIGS[boardType].ringsPerPlayer from the shared TS types:
 
         - square8   → 18 rings per player
         - square19  → 48 rings per player
-        - hexagonal → 60 rings per player
+        - hexagonal → 72 rings per player
         """
+        from app.rules.core import BOARD_CONFIGS
         board_type = game_state.board.type
-        if board_type == BoardType.SQUARE8:
-            return 18
-        if board_type == BoardType.SQUARE19:
-            return 48
-        if board_type == BoardType.HEXAGONAL:
-            return 60
+        if board_type in BOARD_CONFIGS:
+            return BOARD_CONFIGS[board_type].rings_per_player
         # Fallback for unknown types: use totalRingsInPlay as a safe
         # upper bound to avoid underestimating.
         return game_state.total_rings_in_play
