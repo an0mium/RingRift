@@ -1501,9 +1501,17 @@ class MutableGameState:
             self._make_eliminate_top_ring(move.to, move.player, undo)
 
     def _make_forced_elimination(self, move: Move, undo: MoveUndo) -> None:
-        """Apply FORCED_ELIMINATION move.
+        """Apply FORCED_ELIMINATION move (RR-CANON-R070).
 
-        Same as ELIMINATE_RINGS_FROM_STACK - eliminates the cap from the stack.
+        Eliminates the **entire cap** from the stack at move.to position.
+
+        FORCED ELIMINATION vs TERRITORY PROCESSING (RR-CANON-R022):
+        - Forced elimination: ANY controlled stack is eligible, including
+          height-1 standalone rings.
+        - Territory processing: Only multicolor stacks or single-color stacks
+          with height > 1 are eligible (standalone rings NOT eligible).
+
+        Both use the same underlying cap elimination logic.
         """
         self._make_eliminate_rings_from_stack(move, undo)
 

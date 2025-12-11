@@ -187,17 +187,19 @@ function shouldSkipPlayer(state: GameState, playerNumber: number): boolean {
 
 **Line Length Requirements:**
 
-| Line Type                    | Normal Line Processing       | Recovery Slide                                          |
-| ---------------------------- | ---------------------------- | ------------------------------------------------------- |
-| Exactly `lineLength`         | Collapse all, pay 1 ring/cap | **LEGAL** (1 buried ring)                               |
-| Overlength (> `lineLength`)  | Option 1 or Option 2         | **LEGAL** (1 + N buried rings, where N = extra markers) |
-| Underlength (< `lineLength`) | No collapse                  | **ILLEGAL**                                             |
+| Line Type                    | Normal Line Processing                  | Recovery Slide                                          |
+| ---------------------------- | --------------------------------------- | ------------------------------------------------------- |
+| Exactly `lineLength`         | Collapse all, pay 1 ring from any stack | **LEGAL** (1 buried ring)                               |
+| Overlength (> `lineLength`)  | Option 1 or Option 2                    | **LEGAL** (1 + N buried rings, where N = extra markers) |
+| Underlength (< `lineLength`) | No collapse                             | **ILLEGAL**                                             |
+
+**Line Elimination Cost (Normal Play):** Eliminate ONE ring from the top of any controlled stack (including standalone rings). Any controlled stack is an eligible target.
 
 **Overlength Recovery Cost:**
 
 - Unlike normal play (which offers Option 1/Option 2 choice), recovery always collapses the **entire line**
 - Cost scales with line length: `1 + max(0, actualLength - lineLength)` buried ring extractions
-- This mirrors normal overlength Option 1 cost (1 ring/cap per extra marker)
+- This mirrors normal overlength Option 1 cost (1 ring per extra marker)
 - Player must have sufficient buried rings for the slide to be legal
 
 **No Cascading Lines:**

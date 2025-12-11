@@ -97,7 +97,8 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       // GAP-LINE-01: When lines form
       'WHEN LINES FORM: A line forms when 5+ same-colored markers align orthogonally (horizontally, vertically, or diagonally). On hex boards, you need 6+ markers.',
       'Lines are formed from markers, not rings – horizontal, vertical, and diagonal lines all count.',
-      'Exact-length lines always collapse fully into Territory and require you to eliminate one ring from any stack you control.',
+      'LINE ELIMINATION COST: You must eliminate ONE ring from the top of any stack you control (including standalone rings). Any controlled stack is an eligible target.',
+      'Exact-length lines always collapse fully into Territory and require you to pay the line elimination cost (one ring).',
       'Overlength lines can trade safety for value: you may collapse a shorter scoring segment with no elimination, or collapse the full line and pay the ring cost.',
     ],
     relatedPhases: ['line_processing'],
@@ -129,9 +130,11 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
       'Once a space becomes Territory it cannot be captured back or undone.',
       'Crossing the territory threshold ends the game immediately, even if other wins were possible.',
       // GAP-TERR-04: Self-elimination cost explanation (FAQ Q23)
-      'WHY DID I LOSE MY OWN RING? Processing a disconnected region eliminates all interior rings (scoring for you), but you MUST also eliminate one cap from a stack OUTSIDE the region.',
+      'TERRITORY ELIMINATION COST: Processing a disconnected region eliminates all interior rings (scoring for you), but you MUST also eliminate your ENTIRE CAP from an eligible stack OUTSIDE the region.',
+      // RR-CANON-R082: Eligible cap targets for territory processing
+      'ELIGIBLE STACKS FOR TERRITORY: Only multicolor stacks you control (with buried rings of other colors) OR single-color stacks of height > 1 are eligible. Standalone rings (height 1) are NOT eligible for territory processing.',
       // GAP-TERR-03: Eligibility indicator
-      "CAN'T PROCESS A REGION? You must have a stack OUTSIDE the pending region to pay the elimination cost. If all your stacks are inside or on the border, you cannot process.",
+      "CAN'T PROCESS A REGION? You must have an ELIGIBLE stack OUTSIDE the pending region. If all your outside stacks are standalone rings (height 1), you cannot process the territory.",
       // Explicit rules/FAQ reference for mini-regions
       'For the canonical mini-region pattern and numeric example, see FAQ Q23 "What happens if I cannot eliminate any rings when processing a disconnected region?" in ringrift_complete_rules §12.2.',
     ],
@@ -161,8 +164,9 @@ const TEACHING_CONTENT: Record<TeachingTopic, TeachingContent> = {
     // UX_RULES_COPY_SPEC.md §10.4 – teaching.forced_elimination description
     description: TEACHING_TOPICS_COPY.forced_elimination.body,
     tips: [
+      'FORCED ELIMINATION COST: Your ENTIRE CAP is removed from a controlled stack. Unlike territory processing, ANY controlled stack is eligible—including standalone rings (height 1).',
       'Rings removed by forced elimination are permanently eliminated and count toward global Ring Elimination victory, just like eliminations from movement onto markers, line rewards, or territory processing.',
-      'Forced elimination does not count as a “real move” for Last Player Standing, even though each step is recorded as a forced_elimination move in its own phase.',
+      'Forced elimination does not count as a "real move" for Last Player Standing, even though each step is recorded as a forced_elimination move in its own phase.',
       'You cannot skip forced elimination when its conditions are met; the rules may let you choose the stack, but some legal forced_elimination move must be recorded.',
       // Explicit rules reference for FE triggers
       'Formal FE triggers and guarantees are defined in ringrift_complete_rules §4.4 "Forced elimination when blocked" and in RULES_RULESET_CLARIFICATIONS under the FE invariants.',

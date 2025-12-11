@@ -53,6 +53,20 @@ Semantics must always match:
 - Forced elimination and automatic line/territory processing are **not** real moves for LPS.
 - Last‑Player‑Standing is determined only by availability of real moves across a full round.
 
+**Elimination cost distinctions (RR-CANON-R022)**
+
+There are three distinct elimination contexts with different costs and eligible targets:
+
+| Context                  | Cost            | Eligible Stacks                                                                             |
+| ------------------------ | --------------- | ------------------------------------------------------------------------------------------- |
+| **Line Processing**      | 1 ring from top | Any controlled stack (including standalone rings)                                           |
+| **Territory Processing** | Entire cap      | Multicolor stacks OR single-color stacks height > 1 only. **Standalone rings NOT eligible** |
+| **Forced Elimination**   | Entire cap      | Any controlled stack (including standalone rings)                                           |
+
+- _Line processing_ is the most permissive: any stack you control can lose one ring from the top.
+- _Territory processing_ requires an "entire cap" from eligible stacks only—you cannot process a territory if your only outside stacks are standalone rings.
+- _Forced elimination_ also removes entire caps but accepts any controlled stack, including standalone rings.
+
 ## 3. Victory conditions copy
 
 This section defines the canonical labels and one‑liners used by:
@@ -184,10 +198,11 @@ Used in [`SandboxGameHost.PHASE_COPY.capture`](src/client/pages/SandboxGameHost.
 **Core semantics (R120–R122)**
 
 - Lines are formed by **markers**, not rings.
-- A contiguous run of your markers of length ≥ the board’s configured `lineLength` is a completed line.
-- **Exact‑length line:** all markers in the line must collapse into your territory, and you must eliminate **one ring** from the top of any stack you control (including height-1 standalone rings). Any controlled stack is an eligible target.
+- A contiguous run of your markers of length ≥ the board's configured `lineLength` is a completed line.
+- **Line elimination cost:** Eliminate **one ring** from the top of any stack you control (including height-1 standalone rings). Any controlled stack is an eligible target for line processing.
+- **Exact‑length line:** all markers in the line must collapse into your territory, and you must pay the line elimination cost (one ring).
 - **Overlength line:** you choose between:
-  - (A) Collapse the whole line into territory **and** eliminate one ring from a controlled stack, or
+  - (A) Collapse the whole line into territory **and** pay the line elimination cost (one ring), or
   - (B) Collapse only a contiguous segment of length `lineLength` into territory and **skip elimination**.
 
 **TeachingOverlay – Lines description**
@@ -214,7 +229,8 @@ For scenarios like `learn.lines.formation.Rules_11_2_Q7_Q20` in [`curated.json`]
 - When you process a region you control:
   - All spaces in that region become your Territory spaces (collapsed).
   - All rings in the region are eliminated and credited to you.
-  - You must eliminate rings from a stack you control **outside** the region to pay the cost, if required by board config.
+  - You must pay the **territory elimination cost** from a stack you control **outside** the region.
+- **Territory elimination cost:** Eliminate the **entire cap** from an eligible stack. Eligible targets must be either: (1) a **multicolor stack** you control (with other players' rings buried beneath your cap), or (2) a **single-color stack of height > 1** consisting entirely of your colour. **Height-1 standalone rings are NOT eligible for territory processing.**
 - Territory victory is checked whenever territory processing completes and your territory spaces exceed the threshold.
 
 **TeachingOverlay – Territory description**

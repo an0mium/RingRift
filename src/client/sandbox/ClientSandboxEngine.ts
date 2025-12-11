@@ -1923,15 +1923,19 @@ export class ClientSandboxEngine {
   }
 
   /**
-   * Unconditional cap elimination for line rewards - eliminates a cap from the
+   * Unconditional ring elimination for line rewards - eliminates ONE ring from the
    * player's stacks without checking forced elimination preconditions. Used
    * for exact-length lines and collapse-all line reward options.
+   *
+   * Per RR-CANON-R122: Line processing requires eliminating exactly ONE ring
+   * from any controlled stack (including standalone rings).
    */
-  private eliminateCapForLineReward(playerNumber: number): void {
+  private eliminateRingForLineReward(playerNumber: number): void {
     const { board, players } = this.gameState;
     const stacks = this.getPlayerStacks(playerNumber, board);
 
-    const result = forceEliminateCapOnBoard(board, players, playerNumber, stacks);
+    // Pass 'line' context to eliminate only ONE ring per RR-CANON-R122
+    const result = forceEliminateCapOnBoard(board, players, playerNumber, stacks, 'line');
     if (result.totalRingsEliminatedDelta <= 0) {
       return;
     }
@@ -3053,7 +3057,7 @@ export class ClientSandboxEngine {
     //
     // Automatic sandbox behaviour remains:
     // - Exact-length lines: collapse all markers and immediately eliminate
-    //   a cap via eliminateCapForLineReward.
+    //   a cap via eliminateRingForLineReward.
     // - Overlength lines: default to Option 2 (minimum contiguous subset of
     //   length L, no elimination) for the first available line.
     //
@@ -3166,7 +3170,7 @@ export class ClientSandboxEngine {
       // when the shared helper reports a pending line-reward elimination
       // (exact-length lines and collapse-all rewards).
       if (outcome.pendingLineRewardElimination) {
-        this.eliminateCapForLineReward(moveToApply.player);
+        this.eliminateRingForLineReward(moveToApply.player);
       }
 
       // Record the canonical decision in history so that parity harnesses

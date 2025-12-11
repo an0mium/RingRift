@@ -288,6 +288,41 @@ describe('initialState', () => {
       expect(state.victoryThreshold).toBe(30);
     });
 
+    it('should handle 4 players', () => {
+      const players: Player[] = [
+        ...createPlayers(),
+        {
+          id: 'p3',
+          username: 'Player3',
+          type: 'human',
+          playerNumber: 0,
+          isReady: false,
+          timeRemaining: 0,
+          ringsInHand: 0,
+          eliminatedRings: 0,
+          territorySpaces: 0,
+        },
+        {
+          id: 'p4',
+          username: 'Player4',
+          type: 'human',
+          playerNumber: 0,
+          isReady: false,
+          timeRemaining: 0,
+          ringsInHand: 0,
+          eliminatedRings: 0,
+          territorySpaces: 0,
+        },
+      ];
+      const state = createInitialGameState('game-1', 'square8', players, timeControl);
+
+      expect(state.players).toHaveLength(4);
+      expect(state.players[3].playerNumber).toBe(4);
+      expect(state.maxPlayers).toBe(4);
+      // Per RR-CANON-R061: round(18 * (1/3 + 2/3 * 3)) = round(18 * 7/3) = 42
+      expect(state.victoryThreshold).toBe(42);
+    });
+
     it('should handle mixed human/AI players', () => {
       const players: Player[] = [
         { ...createPlayers()[0], type: 'human' },

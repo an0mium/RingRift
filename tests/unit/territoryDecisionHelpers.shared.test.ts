@@ -321,4 +321,338 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
     // S-invariant is non-decreasing after elimination.
     expect(afterS).toBeGreaterThanOrEqual(beforeS);
   });
+
+  /**
+   * RR-CANON-R022, R122: Line vs Territory Elimination Distinction Tests
+   *
+   * These tests verify the canonical distinction between:
+   * - Line elimination (RR-CANON-R122): Eliminates exactly ONE ring from ANY controlled stack
+   *   (including height-1 standalone rings)
+   * - Territory elimination (RR-CANON-R145): Eliminates entire cap from ELIGIBLE stacks only
+   *   (multicolor stacks or single-color stacks with height > 1)
+   */
+  describe('Line vs Territory Elimination Distinction (RR-CANON-R022, R122, R145)', () => {
+    it('line elimination context includes height-1 standalone rings as eligible targets', () => {
+      const state = createEmptyState('line-elim-height-1');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Single height-1 ring controlled by player 1
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      } as any);
+
+      // Line elimination context: height-1 rings ARE eligible (per RR-CANON-R122)
+      const lineMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'line',
+      });
+      expect(lineMoves.length).toBe(1);
+      expect(lineMoves[0].eliminationContext).toBe('line');
+
+      // Territory elimination context: height-1 rings are NOT eligible (per RR-CANON-R145)
+      const territoryMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'territory',
+      });
+      expect(territoryMoves.length).toBe(0);
+    });
+
+    it('line elimination removes exactly ONE ring, not entire cap', () => {
+      const state = createEmptyState('line-elim-one-ring');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Height-3 stack controlled by player 1
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1, 1, 1],
+        stackHeight: 3,
+        capHeight: 3,
+        controllingPlayer: 1,
+      } as any);
+
+      state.board.eliminatedRings = { 1: 0 };
+      state.totalRingsEliminated = 0;
+
+      const lineMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'line',
+      });
+      expect(lineMoves.length).toBe(1);
+
+      const lineMove = lineMoves[0];
+      expect(lineMove.eliminationContext).toBe('line');
+      expect(lineMove.eliminatedRings![0].count).toBe(1); // Only 1 ring listed
+
+      // Apply the line elimination
+      const outcome = applyEliminateRingsFromStackDecision(state, lineMove);
+      const next = outcome.nextState;
+
+      // Stack should still exist with 2 remaining rings
+      expect(next.board.stacks.has(aKey)).toBe(true);
+      const remainingStack = next.board.stacks.get(aKey)!;
+      expect(remainingStack.stackHeight).toBe(2);
+      expect(remainingStack.rings).toEqual([1, 1]);
+
+      // Only 1 ring was eliminated
+      expect(next.board.eliminatedRings[1]).toBe(1);
+      expect(next.totalRingsEliminated).toBe(1);
+    });
+
+    it('territory elimination removes entire cap', () => {
+      const state = createEmptyState('territory-elim-full-cap');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Height-3 stack controlled by player 1
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1, 1, 1],
+        stackHeight: 3,
+        capHeight: 3,
+        controllingPlayer: 1,
+      } as any);
+
+      state.board.eliminatedRings = { 1: 0 };
+      state.totalRingsEliminated = 0;
+
+      const territoryMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'territory',
+      });
+      expect(territoryMoves.length).toBe(1);
+
+      const territoryMove = territoryMoves[0];
+      expect(territoryMove.eliminationContext).toBe('territory');
+
+      // Apply the territory elimination
+      const outcome = applyEliminateRingsFromStackDecision(state, territoryMove);
+      const next = outcome.nextState;
+
+      // Stack should be completely removed (entire cap eliminated)
+      expect(next.board.stacks.has(aKey)).toBe(false);
+
+      // All 3 rings were eliminated
+      expect(next.board.eliminatedRings[1]).toBe(3);
+      expect(next.totalRingsEliminated).toBe(3);
+    });
+
+    it('line elimination on multicolor stack removes exactly 1 ring from cap', () => {
+      const state = createEmptyState('line-elim-multicolor');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Multicolor stack: player 1 controls cap (2 rings), player 2's ring buried
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1, 1, 2],
+        stackHeight: 3,
+        capHeight: 2,
+        controllingPlayer: 1,
+      } as any);
+
+      state.board.eliminatedRings = { 1: 0, 2: 0 };
+      state.totalRingsEliminated = 0;
+
+      const lineMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'line',
+      });
+      expect(lineMoves.length).toBe(1);
+
+      const lineMove = lineMoves[0];
+      const outcome = applyEliminateRingsFromStackDecision(state, lineMove);
+      const next = outcome.nextState;
+
+      // Stack should still exist with 2 remaining rings
+      expect(next.board.stacks.has(aKey)).toBe(true);
+      const remainingStack = next.board.stacks.get(aKey)!;
+      expect(remainingStack.stackHeight).toBe(2);
+      expect(remainingStack.rings).toEqual([1, 2]); // One ring removed from top
+
+      // Only 1 ring was eliminated
+      expect(next.board.eliminatedRings[1]).toBe(1);
+      expect(next.totalRingsEliminated).toBe(1);
+    });
+
+    it('territory elimination on multicolor stack removes entire cap exposing buried rings', () => {
+      const state = createEmptyState('territory-elim-multicolor');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Multicolor stack: player 1 controls cap (2 rings), player 2's ring buried
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1, 1, 2],
+        stackHeight: 3,
+        capHeight: 2,
+        controllingPlayer: 1,
+      } as any);
+
+      state.board.eliminatedRings = { 1: 0, 2: 0 };
+      state.totalRingsEliminated = 0;
+
+      const territoryMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'territory',
+      });
+      expect(territoryMoves.length).toBe(1);
+
+      const territoryMove = territoryMoves[0];
+      const outcome = applyEliminateRingsFromStackDecision(state, territoryMove);
+      const next = outcome.nextState;
+
+      // Stack should still exist but now controlled by player 2
+      expect(next.board.stacks.has(aKey)).toBe(true);
+      const remainingStack = next.board.stacks.get(aKey)!;
+      expect(remainingStack.stackHeight).toBe(1);
+      expect(remainingStack.rings).toEqual([2]); // Only buried ring remains
+      expect(remainingStack.controllingPlayer).toBe(2);
+
+      // 2 rings of player 1's cap were eliminated
+      expect(next.board.eliminatedRings[1]).toBe(2);
+      expect(next.totalRingsEliminated).toBe(2);
+    });
+
+    it('forced elimination context allows any stack including height-1', () => {
+      const state = createEmptyState('forced-elim-height-1');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Single height-1 ring
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      } as any);
+
+      // Forced elimination: height-1 rings ARE eligible (per RR-CANON-R100)
+      const forcedMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'forced',
+      });
+      expect(forcedMoves.length).toBe(1);
+      expect(forcedMoves[0].eliminationContext).toBe('forced');
+    });
+
+    it('forced elimination removes entire cap like territory elimination', () => {
+      const state = createEmptyState('forced-elim-full-cap');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Height-2 stack
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1, 1],
+        stackHeight: 2,
+        capHeight: 2,
+        controllingPlayer: 1,
+      } as any);
+
+      state.board.eliminatedRings = { 1: 0 };
+      state.totalRingsEliminated = 0;
+
+      const forcedMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'forced',
+      });
+      expect(forcedMoves.length).toBe(1);
+
+      const forcedMove = forcedMoves[0];
+      const outcome = applyEliminateRingsFromStackDecision(state, forcedMove);
+      const next = outcome.nextState;
+
+      // Stack should be completely removed
+      expect(next.board.stacks.has(aKey)).toBe(false);
+
+      // All 2 rings were eliminated
+      expect(next.board.eliminatedRings[1]).toBe(2);
+      expect(next.totalRingsEliminated).toBe(2);
+    });
+
+    it('default elimination context (undefined) behaves like territory elimination', () => {
+      const state = createEmptyState('default-elim-context');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 };
+      const aKey = positionToString(a);
+
+      // Height-1 stack should NOT be eligible with default context
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      } as any);
+
+      // No scope provided means default to territory rules
+      const defaultMoves = enumerateTerritoryEliminationMoves(state, 1);
+      expect(defaultMoves.length).toBe(0); // Height-1 not eligible
+    });
+
+    it('multiple stacks with mixed eligibility are correctly filtered by context', () => {
+      const state = createEmptyState('mixed-eligibility');
+      const board = state.board;
+
+      const a: Position = { x: 0, y: 0 }; // height-1 standalone
+      const b: Position = { x: 1, y: 0 }; // height-2 single color (eligible for both)
+      const c: Position = { x: 2, y: 0 }; // multicolor (eligible for both)
+
+      const aKey = positionToString(a);
+      const bKey = positionToString(b);
+      const cKey = positionToString(c);
+
+      board.stacks.set(aKey, {
+        position: a,
+        rings: [1],
+        stackHeight: 1,
+        capHeight: 1,
+        controllingPlayer: 1,
+      } as any);
+
+      board.stacks.set(bKey, {
+        position: b,
+        rings: [1, 1],
+        stackHeight: 2,
+        capHeight: 2,
+        controllingPlayer: 1,
+      } as any);
+
+      board.stacks.set(cKey, {
+        position: c,
+        rings: [1, 2],
+        stackHeight: 2,
+        capHeight: 1,
+        controllingPlayer: 1,
+      } as any);
+
+      // Line context: all 3 stacks eligible
+      const lineMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'line',
+      });
+      expect(lineMoves.length).toBe(3);
+
+      // Territory context: only b and c eligible (not height-1 standalone at a)
+      const territoryMoves = enumerateTerritoryEliminationMoves(state, 1, {
+        eliminationContext: 'territory',
+      });
+      expect(territoryMoves.length).toBe(2);
+      const territoryKeys = territoryMoves.map((m) => positionToString(m.to!)).sort();
+      expect(territoryKeys).toEqual([bKey, cKey].sort());
+    });
+  });
 });

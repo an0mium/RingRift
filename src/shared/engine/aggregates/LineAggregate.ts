@@ -141,6 +141,10 @@ export interface LineDecisionApplicationOutcome {
    * - exact-length lines processed via `process_line`, and
    * - overlength lines when using the collapse-all reward option.
    *
+   * LINE ELIMINATION COST (RR-CANON-R022): The player must eliminate ONE ring
+   * from the top of any controlled stack. Any controlled stack is an eligible
+   * target for line processing, including height-1 standalone rings.
+   *
    * The choice of *where* to eliminate from and how that elimination is
    * surfaced (explicit move vs automatic from hand) remains a host concern;
    * this flag exists purely to keep bookkeeping consistent across engines.

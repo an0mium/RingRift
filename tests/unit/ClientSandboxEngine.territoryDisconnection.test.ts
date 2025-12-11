@@ -361,10 +361,10 @@ describe('ClientSandboxEngine territory disconnection (square19)', () => {
 
     // 6. Eliminated ring counts should combine line + territory contributions:
     //    - 1 internal B stack (one ring) eliminated when P1 processes territory
-    //    - 2 rings from P1 stack self-eliminated for the line (entire cap of height-2)
+    //    - 1 ring from P1 stack self-eliminated for the line (per RR-CANON-R122: line costs 1 ring)
     //    - 2 rings from P1 stack self-eliminated for territory (entire cap of height-2)
-    //    Total: 5 rings attributed to player 1.
-    const expectedEliminatedForP1 = 5;
+    //    Total: 4 rings attributed to player 1.
+    const expectedEliminatedForP1 = 4;
     const finalP1Eliminated = player1.eliminatedRings;
     expect(finalP1Eliminated).toBe(expectedEliminatedForP1);
     expect(finalState.board.eliminatedRings[1]).toBe(expectedEliminatedForP1);

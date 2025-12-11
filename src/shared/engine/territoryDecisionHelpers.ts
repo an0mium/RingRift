@@ -491,6 +491,7 @@ export function enumerateTerritoryEliminationMoves(
   // Determine elimination context and eligibility rules
   const eliminationContext = scope?.eliminationContext ?? 'territory';
   const isLineElimination = eliminationContext === 'line';
+  const isTerritoryElimination = eliminationContext === 'territory';
 
   for (const { key, stack } of stacks) {
     const capHeight = calculateCapHeight(stack.rings);
@@ -498,12 +499,12 @@ export function enumerateTerritoryEliminationMoves(
       continue;
     }
 
-    // RR-CANON-R082 / R122: Eligibility rules differ by context:
-    // - Territory: Only eligible cap targets (multicolor or height > 1)
-    // - Line: Any controlled stack (including height-1 standalone rings)
-    // - Forced: Any controlled stack
-    if (!isLineElimination) {
-      // For territory/forced elimination, apply height restriction
+    // RR-CANON-R082 / R100 / R122 / R145: Eligibility rules differ by context:
+    // - Territory (R145): Only eligible cap targets (multicolor or height > 1)
+    // - Line (R122): Any controlled stack (including height-1 standalone rings)
+    // - Forced (R100): Any controlled stack (including height-1 standalone rings)
+    if (isTerritoryElimination) {
+      // For territory elimination only, apply height restriction (RR-CANON-R082)
       const isMulticolor = stack.stackHeight > capHeight;
       const isSingleColorTall = stack.stackHeight === capHeight && stack.stackHeight > 1;
       if (!isMulticolor && !isSingleColorTall) {
@@ -511,6 +512,7 @@ export function enumerateTerritoryEliminationMoves(
         continue;
       }
     }
+    // Line and Forced: all controlled stacks are eligible (no height restriction)
 
     // For line elimination, only 1 ring is eliminated; for territory/forced, entire cap
     const ringsToEliminate = isLineElimination ? 1 : capHeight;

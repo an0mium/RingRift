@@ -66,16 +66,22 @@ function assertForcedEliminationConsistency(
 }
 
 /**
- * Core cap-elimination helper operating directly on the board and players.
+ * Core elimination helper operating directly on the board and players.
  * This mirrors the logic in ClientSandboxEngine.forceEliminateCap but is
  * pure with respect to GameState, returning updated structures and the
  * number of rings eliminated.
+ *
+ * Per RR-CANON-R022, R122, R145, R100:
+ * - 'line': Eliminate exactly ONE ring from the top (any controlled stack is eligible)
+ * - 'territory': Eliminate entire cap (only eligible stacks: multicolor or height > 1)
+ * - 'forced': Eliminate entire cap (any controlled stack is eligible)
  */
 export function forceEliminateCapOnBoard(
   board: BoardState,
   players: Player[],
   playerNumber: number,
-  stacks: RingStack[]
+  stacks: RingStack[],
+  eliminationContext: 'line' | 'territory' | 'forced' = 'forced'
 ): ForcedEliminationResult {
   const player = players.find((p) => p.playerNumber === playerNumber);
   if (!player) {
@@ -92,6 +98,11 @@ export function forceEliminateCapOnBoard(
     return { board, players, totalRingsEliminatedDelta: 0 };
   }
 
+  // Determine how many rings to eliminate based on context (RR-CANON-R022, R122):
+  // - 'line': Eliminate exactly ONE ring (per RR-CANON-R122)
+  // - 'territory' or 'forced': Eliminate entire cap (per RR-CANON-R145, R100)
+  const ringsToEliminate = eliminationContext === 'line' ? 1 : capHeight;
+
   if (TERRITORY_TRACE_DEBUG) {
     // eslint-disable-next-line no-console
     console.log('[sandboxElimination.forceEliminateCapOnBoard]', {
@@ -99,16 +110,21 @@ export function forceEliminateCapOnBoard(
       stackPosition: stack.position,
       capHeight,
       stackHeight: stack.stackHeight,
+      eliminationContext,
+      ringsToEliminate,
     });
   }
 
-  const remainingRings = stack.rings.slice(capHeight);
+  const remainingRings = stack.rings.slice(ringsToEliminate);
 
   const updatedEliminatedRings = { ...board.eliminatedRings };
-  updatedEliminatedRings[playerNumber] = (updatedEliminatedRings[playerNumber] || 0) + capHeight;
+  updatedEliminatedRings[playerNumber] =
+    (updatedEliminatedRings[playerNumber] || 0) + ringsToEliminate;
 
   const updatedPlayers = players.map((p) =>
-    p.playerNumber === playerNumber ? { ...p, eliminatedRings: p.eliminatedRings + capHeight } : p
+    p.playerNumber === playerNumber
+      ? { ...p, eliminatedRings: p.eliminatedRings + ringsToEliminate }
+      : p
   );
 
   const nextBoard: BoardState = {
@@ -139,7 +155,7 @@ export function forceEliminateCapOnBoard(
   const result: ForcedEliminationResult = {
     board: nextBoard,
     players: updatedPlayers,
-    totalRingsEliminatedDelta: capHeight,
+    totalRingsEliminatedDelta: ringsToEliminate,
   };
 
   assertForcedEliminationConsistency(

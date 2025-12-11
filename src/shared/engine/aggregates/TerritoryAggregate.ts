@@ -23,16 +23,25 @@
  * - RR-CANON-R124: Border markers used to identify region boundaries
  * - Process all disconnected regions before checking victory
  *
- * **Self-Elimination Cost Rules (§12.2):**
- * - Normal territory processing: Player must eliminate an **entire stack cap**
- *   (all consecutive top rings of their colour) from a controlled stack outside
- *   the processed region. The stack used must either:
- *   (a) Be a mixed-colour stack with rings of other colours buried beneath, OR
- *   (b) Be a single-colour stack of height > 1 (all player's rings).
- *   Single-ring stacks cannot be used for cap elimination.
- * - **Recovery action exception:** When territory processing is triggered by a
- *   recovery action, the cost is only 1 buried ring extraction (bottommost ring
- *   from a chosen stack), not an entire cap.
+ * **Self-Elimination Cost Rules (§12.2, RR-CANON-R022):**
+ *
+ * TERRITORY PROCESSING COST:
+ * - Player must eliminate an **entire stack cap** (all consecutive top rings of
+ *   their colour) from an **eligible** stack outside the processed region.
+ * - Eligible stack targets for territory processing must be either:
+ *   (a) A **multicolor stack** the player controls (with other players' rings
+ *       buried beneath the player's cap), OR
+ *   (b) A **single-color stack of height > 1** (all player's rings).
+ * - **Height-1 standalone rings are NOT eligible for territory processing.**
+ *
+ * FORCED ELIMINATION COST (RR-CANON-R070):
+ * - Player must eliminate an **entire stack cap** from **any** controlled stack.
+ * - **All controlled stacks are eligible, including height-1 standalone rings.**
+ *
+ * RECOVERY ACTION EXCEPTION:
+ * - When territory processing is triggered by a recovery action, the cost is
+ *   only 1 buried ring extraction (bottommost ring from a chosen stack),
+ *   not an entire cap.
  *
  * Design principles:
  * - Pure functions: No side effects, return new state
@@ -1169,6 +1178,10 @@ export function mutateProcessTerritory(
 
 /**
  * Apply stack elimination mutation via action.
+ * Per RR-CANON-R022, R122, R145, R100:
+ * - 'line': Eliminate exactly ONE ring from the top (any controlled stack is eligible)
+ * - 'territory': Eliminate entire cap (only eligible stacks: multicolor or height > 1)
+ * - 'forced': Eliminate entire cap (any controlled stack is eligible)
  */
 export function mutateEliminateStack(state: GameState, action: EliminateStackAction): GameState {
   const newState = {
@@ -1189,14 +1202,20 @@ export function mutateEliminateStack(state: GameState, action: EliminateStackAct
   const stack = newState.board.stacks.get(key);
 
   if (!stack) {
-    throw new Error('TerritoryMutator: Stack to eliminate not found');
+    throw new Error('TerritoryAggregate: Stack to eliminate not found');
   }
 
   const capHeight = calculateCapHeight(stack.rings);
   const topRingOwner = stack.rings[0];
 
-  // Remove cap (slice from start)
-  const remainingRings = stack.rings.slice(capHeight);
+  // Determine how many rings to eliminate based on context (RR-CANON-R022, R122):
+  // - 'line': Eliminate exactly ONE ring (per RR-CANON-R122)
+  // - 'territory' or 'forced' or undefined: Eliminate entire cap (per RR-CANON-R145, R100)
+  const eliminationContext = action.eliminationContext;
+  const ringsToEliminate = eliminationContext === 'line' ? 1 : capHeight;
+
+  // Remove rings from top
+  const remainingRings = stack.rings.slice(ringsToEliminate);
 
   if (remainingRings.length === 0) {
     newState.board.stacks.delete(key);
@@ -1208,14 +1227,14 @@ export function mutateEliminateStack(state: GameState, action: EliminateStackAct
   }
 
   // Update elimination counts
-  if (capHeight > 0) {
-    newState.totalRingsEliminated += capHeight;
+  if (ringsToEliminate > 0) {
+    newState.totalRingsEliminated += ringsToEliminate;
     newState.board.eliminatedRings[topRingOwner] =
-      (newState.board.eliminatedRings[topRingOwner] || 0) + capHeight;
+      (newState.board.eliminatedRings[topRingOwner] || 0) + ringsToEliminate;
 
     const player = newState.players.find((p) => p.playerNumber === topRingOwner);
     if (player) {
-      player.eliminatedRings += capHeight;
+      player.eliminatedRings += ringsToEliminate;
     }
   }
 

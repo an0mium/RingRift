@@ -104,19 +104,23 @@ export function mutateEliminateStack(state: GameState, action: EliminateStackAct
   }
 
   // "Eliminate rings from stack"
-  // Per RR-CANON: For line/territory processing, we must eliminate the entire CAP
-  // (all consecutive top rings of the controlling color). For mixed-colour stacks,
-  // this exposes buried rings of other colours; for single-colour stacks with
-  // height > 1, this eliminates all rings.
+  // Per RR-CANON-R022, R122, R145, R100:
+  // - 'line': Eliminate exactly ONE ring from the top (any controlled stack is eligible)
+  // - 'territory': Eliminate entire cap (only eligible stacks: multicolor or height > 1)
+  // - 'forced': Eliminate entire cap (any controlled stack is eligible)
 
   // Rings are [top, ..., bottom].
-  // We must eliminate the entire CAP (all consecutive top rings of controlling color).
-
   const capHeight = calculateCapHeight(stack.rings);
   const topRingOwner = stack.rings[0];
 
-  // Remove cap (slice from start)
-  const remainingRings = stack.rings.slice(capHeight);
+  // Determine how many rings to eliminate based on context (RR-CANON-R022, R122):
+  // - 'line': Eliminate exactly ONE ring (per RR-CANON-R122)
+  // - 'territory' or 'forced' or undefined: Eliminate entire cap (per RR-CANON-R145, R100)
+  const eliminationContext = action.eliminationContext;
+  const ringsToEliminate = eliminationContext === 'line' ? 1 : capHeight;
+
+  // Remove rings from top
+  const remainingRings = stack.rings.slice(ringsToEliminate);
 
   if (remainingRings.length === 0) {
     newState.board.stacks.delete(key);
@@ -128,14 +132,14 @@ export function mutateEliminateStack(state: GameState, action: EliminateStackAct
   }
 
   // Update elimination counts
-  if (capHeight > 0) {
-    newState.totalRingsEliminated += capHeight;
+  if (ringsToEliminate > 0) {
+    newState.totalRingsEliminated += ringsToEliminate;
     newState.board.eliminatedRings[topRingOwner] =
-      (newState.board.eliminatedRings[topRingOwner] || 0) + capHeight;
+      (newState.board.eliminatedRings[topRingOwner] || 0) + ringsToEliminate;
 
     const player = newState.players.find((p) => p.playerNumber === topRingOwner);
     if (player) {
-      player.eliminatedRings += capHeight;
+      player.eliminatedRings += ringsToEliminate;
     }
   }
 

@@ -2475,16 +2475,16 @@ class ParallelGameRunner:
         - RR-CANON-R172: Last-player-standing (only player with real actions)
 
         Victory thresholds per RR-CANON-R061/R062:
-        - victoryThreshold = ringsPerPlayer (starting ring supply)
+        - victoryThreshold = round(ringsPerPlayer × (1/3 + 2/3 × (numPlayers - 1)))
         - territoryVictoryThreshold = floor(totalSpaces / 2) + 1
         """
         active_mask = self.state.get_active_mask()
 
         # Calculate canonical thresholds per RR-CANON-R061
-        # Ring elimination: victoryThreshold = ringsPerPlayer (starting ring supply)
-        # Must match create_batch() initialization: {8: 19, 19: 50}
-        starting_rings = {8: 19, 19: 50}.get(self.board_size, 19)
-        ring_elimination_threshold = starting_rings  # Per RR-CANON-R061
+        # Ring elimination: victoryThreshold = round(ringsPerPlayer × (1/3 + 2/3 × (numPlayers - 1)))
+        # Must match create_batch() initialization: {8: 18, 19: 48}
+        rings_per_player = {8: 18, 19: 48}.get(self.board_size, 18)
+        ring_elimination_threshold = round(rings_per_player * (1/3 + (2/3) * (self.num_players - 1)))
 
         # totalSpaces = board_size * board_size for square boards
         total_spaces = self.board_size * self.board_size

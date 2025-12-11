@@ -104,6 +104,14 @@ export interface ProcessTerritoryAction extends BaseAction {
 export interface EliminateStackAction extends BaseAction {
   type: 'ELIMINATE_STACK';
   stackPosition: Position;
+  /**
+   * Context for elimination determines how many rings to eliminate:
+   * - 'line': Eliminate exactly ONE ring from the top (RR-CANON-R122)
+   * - 'territory': Eliminate entire cap from eligible stack (multicolor or height > 1) (RR-CANON-R145)
+   * - 'forced': Eliminate entire cap from any controlled stack (RR-CANON-R100)
+   * Defaults to 'territory' if not specified for backward compatibility.
+   */
+  eliminationContext?: 'line' | 'territory' | 'forced';
 }
 
 export interface SkipPlacementAction extends BaseAction {
