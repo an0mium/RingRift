@@ -274,7 +274,7 @@ RINGRIFT_PHASE_AUDIT=1 npx ts-node scripts/selfplay-db-ts-replay.ts --db canonic
 | 4.1 Define Audit Structure                | Not Started |                 |                                                                                                                  |
 | 4.2 Emit Events                           | Not Started |                 |                                                                                                                  |
 | 5.1 Create Python EliminationAggregate    | ✅ Complete | 2025-12-11      | 32 unit tests passing                                                                                            |
-| 5.2 Update Python Consumers               | Not Started |                 |                                                                                                                  |
+| 5.2 Update Python Consumers               | ✅ Complete | 2025-12-11      | TerritoryValidator now delegates to EliminationAggregate for eligibility                                         |
 | 6.1 Add Phase Transition Audit            | Not Started |                 |                                                                                                                  |
 | 6.2 Fix Hex Parity                        | Not Started |                 |                                                                                                                  |
 
