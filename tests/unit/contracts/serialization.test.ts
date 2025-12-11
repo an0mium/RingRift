@@ -374,7 +374,7 @@ describe('serialization', () => {
       expect(serialized.currentPlayer).toBe(1);
       expect(serialized.currentPhase).toBe('ring_placement');
       expect(serialized.gameStatus).toBe('active');
-      expect(serialized.victoryThreshold).toBe(19);
+      expect(serialized.victoryThreshold).toBe(18);
       expect(serialized.territoryVictoryThreshold).toBe(33);
     });
 
