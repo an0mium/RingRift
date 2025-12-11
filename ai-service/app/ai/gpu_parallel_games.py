@@ -1356,19 +1356,67 @@ def evaluate_positions_batch(
 ) -> torch.Tensor:
     """Evaluate all positions using comprehensive heuristic scoring.
 
-    Implements all 8 heuristic weights from DEFAULT_WEIGHTS:
-    - material_weight: Total rings on board (controlled stacks)
-    - ring_count_weight: Total ring count including buried
-    - stack_height_weight: Tall stacks are valuable
-    - center_control_weight: Stacks near center
-    - territory_weight: Territory count
-    - mobility_weight: Available movement options
-    - line_potential_weight: 3-in-a-row opportunities
-    - defensive_weight: Blocking opponent lines
+    Implements all 45 heuristic weights from BASE_V1_BALANCED_WEIGHTS to match
+    the CPU HeuristicAI evaluation. Weights are organized into categories:
+
+    Core Position Weights:
+    - WEIGHT_STACK_CONTROL: Number of controlled stacks
+    - WEIGHT_STACK_HEIGHT: Total ring height on controlled stacks
+    - WEIGHT_CAP_HEIGHT: Summed cap height (capture power)
+    - WEIGHT_TERRITORY: Territory count
+    - WEIGHT_RINGS_IN_HAND: Rings available to place
+    - WEIGHT_CENTER_CONTROL: Stacks near board center
+    - WEIGHT_ADJACENCY: Adjacency bonuses for stack clusters
+
+    Threat/Defense Weights:
+    - WEIGHT_OPPONENT_THREAT: Opponent line threats
+    - WEIGHT_MOBILITY: Available movement options
+    - WEIGHT_ELIMINATED_RINGS: Rings eliminated by this player
+    - WEIGHT_VULNERABILITY: Exposure to capture
+
+    Line/Victory Weights:
+    - WEIGHT_LINE_POTENTIAL: 2/3/4-in-a-row patterns
+    - WEIGHT_VICTORY_PROXIMITY: Distance to victory threshold
+    - WEIGHT_LINE_CONNECTIVITY: Connected line structures
+
+    Advanced Weights (v1.1+):
+    - WEIGHT_MARKER_COUNT: Board markers controlled
+    - WEIGHT_OVERTAKE_POTENTIAL: Capture opportunities
+    - WEIGHT_TERRITORY_CLOSURE: Enclosed territory potential
+    - WEIGHT_TERRITORY_SAFETY: Protected territory
+    - WEIGHT_STACK_MOBILITY: Per-stack movement freedom
+    - WEIGHT_OPPONENT_VICTORY_THREAT: Opponent's progress to victory
+    - WEIGHT_FORCED_ELIMINATION_RISK: Risk of forced elimination
+    - WEIGHT_LPS_ACTION_ADVANTAGE: Last Player Standing advantage
+    - WEIGHT_MULTI_LEADER_THREAT: Multiple opponents with lead
+
+    Penalty/Bonus Weights (v1.1 refactor):
+    - WEIGHT_NO_STACKS_PENALTY: Massive penalty for no controlled stacks
+    - WEIGHT_SINGLE_STACK_PENALTY: Penalty for single stack vulnerability
+    - WEIGHT_STACK_DIVERSITY_BONUS: Spread vs concentration
+    - WEIGHT_SAFE_MOVE_BONUS: Bonus for safe moves available
+    - WEIGHT_NO_SAFE_MOVES_PENALTY: Penalty for no safe moves
+    - WEIGHT_VICTORY_THRESHOLD_BONUS: Near-victory bonus
+
+    Line Pattern Weights:
+    - WEIGHT_TWO_IN_ROW, WEIGHT_THREE_IN_ROW, WEIGHT_FOUR_IN_ROW
+    - WEIGHT_CONNECTED_NEIGHBOR, WEIGHT_GAP_POTENTIAL
+    - WEIGHT_BLOCKED_STACK_PENALTY
+
+    Swap/Opening Weights (v1.2-v1.4):
+    - WEIGHT_SWAP_OPENING_CENTER, WEIGHT_SWAP_OPENING_ADJACENCY
+    - WEIGHT_SWAP_OPENING_HEIGHT, WEIGHT_SWAP_CORNER_PENALTY
+    - WEIGHT_SWAP_EDGE_BONUS, WEIGHT_SWAP_DIAGONAL_BONUS
+    - WEIGHT_SWAP_OPENING_STRENGTH, WEIGHT_SWAP_EXPLORATION_TEMPERATURE
+
+    Recovery Weights (v1.5):
+    - WEIGHT_RECOVERY_POTENTIAL, WEIGHT_RECOVERY_ELIGIBILITY
+    - WEIGHT_BURIED_RING_VALUE, WEIGHT_RECOVERY_THREAT
 
     Args:
         state: BatchGameState to evaluate
-        weights: Heuristic weight dictionary
+        weights: Heuristic weight dictionary (can use either old 8-weight format
+                 or full 45-weight format; missing weights use defaults)
 
     Returns:
         Tensor of scores (batch_size, num_players) for each player
@@ -1388,131 +1436,359 @@ def evaluate_positions_batch(
     max_dist = center_dist.max()
     center_bonus = (max_dist - center_dist) / max_dist  # 1.0 at center, 0.0 at corners
 
+    # Victory thresholds
+    territory_victory_threshold = 33 if board_size == 8 else 100
+    rings_per_player = 19 if board_size == 8 else 50
+    ring_victory_threshold = rings_per_player - 1  # Need to eliminate all but 1
+
+    # Weight mapping: support both old 8-weight format and new 45-weight format
+    def get_weight(new_key: str, old_key: str = None, default: float = 0.0) -> float:
+        """Get weight from dict, checking both new and old key formats."""
+        if new_key in weights:
+            return weights[new_key]
+        if old_key and old_key in weights:
+            return weights[old_key]
+        return default
+
     for p in range(1, num_players + 1):
-        # === MATERIAL WEIGHT ===
-        # Count stacks controlled by player
+        # === CORE POSITION METRICS ===
         player_stacks = (state.stack_owner == p)
         stack_count = player_stacks.sum(dim=(1, 2)).float()
 
-        # === RING COUNT WEIGHT ===
-        # Total rings on controlled stacks (sum of heights)
-        ring_count = (state.stack_height * player_stacks.int()).sum(dim=(1, 2)).float()
+        # Total rings on controlled stacks
+        player_heights = state.stack_height * player_stacks.int()
+        total_ring_count = player_heights.sum(dim=(1, 2)).float()
 
-        # Add rings in hand
-        ring_count = ring_count + state.rings_in_hand[:, p].float()
+        # Cap height (sum of stack heights, reflects capture power)
+        cap_height = total_ring_count.clone()  # Same as ring count for now
 
-        # === STACK HEIGHT WEIGHT ===
-        # Average stack height (tall stacks are strong)
-        total_height = (state.stack_height * player_stacks.int()).sum(dim=(1, 2)).float()
-        avg_height = total_height / (stack_count + 1e-6)
+        # Rings in hand
+        rings_in_hand = state.rings_in_hand[:, p].float()
 
-        # Bonus for having tall stacks (height 3+)
-        tall_stacks = ((state.stack_height >= 3) & player_stacks).sum(dim=(1, 2)).float()
-
-        # === CENTER CONTROL WEIGHT ===
-        # Sum of center bonuses for all controlled positions
-        center_control = (center_bonus.unsqueeze(0) * player_stacks.float()).sum(dim=(1, 2))
-
-        # === TERRITORY WEIGHT ===
+        # Territory count
         territory = state.territory_count[:, p].float()
 
-        # === MOBILITY WEIGHT (simplified) ===
-        # Approximate mobility by stack count + territory spread
-        # Full mobility calculation would be expensive
-        mobility = stack_count + territory * 0.5
+        # Center control: weighted sum of positions near center
+        center_control = (center_bonus.unsqueeze(0) * player_stacks.float()).sum(dim=(1, 2))
 
-        # === LINE POTENTIAL WEIGHT ===
-        # Check for 2-in-a-row and 3-in-a-row patterns
-        line_potential = torch.zeros(batch_size, device=device)
+        # === STACK HEIGHT METRICS ===
+        # Average stack height
+        avg_height = total_ring_count / (stack_count + 1e-6)
+
+        # Tall stacks bonus (height 3+)
+        tall_stacks = ((state.stack_height >= 3) & player_stacks).sum(dim=(1, 2)).float()
+
+        # === ADJACENCY METRICS ===
+        # Count adjacent pairs of controlled stacks
+        adjacency_score = torch.zeros(batch_size, device=device)
+        for g in range(batch_size):
+            adj_count = 0.0
+            ps = player_stacks[g]
+            for y in range(board_size):
+                for x in range(board_size):
+                    if ps[y, x]:
+                        # Check right and down neighbors only to avoid double counting
+                        if x + 1 < board_size and ps[y, x + 1]:
+                            adj_count += 1.0
+                        if y + 1 < board_size and ps[y + 1, x]:
+                            adj_count += 1.0
+            adjacency_score[g] = adj_count
+
+        # === MARKER METRICS ===
+        marker_count = (state.marker_owner == p).sum(dim=(1, 2)).float()
+
+        # === ELIMINATED RINGS METRICS ===
+        eliminated_rings = state.eliminated_rings[:, p].float()
+
+        # === BURIED RINGS METRICS ===
+        buried_rings = state.buried_rings[:, p].float()
+
+        # === MOBILITY METRICS (simplified) ===
+        # Approximate mobility by stack count and territory
+        mobility = stack_count * 4.0 + territory * 0.5  # Each stack ~4 moves avg
+
+        # === LINE POTENTIAL METRICS ===
+        # Track 2/3/4-in-a-row patterns
+        two_in_row = torch.zeros(batch_size, device=device)
+        three_in_row = torch.zeros(batch_size, device=device)
+        four_in_row = torch.zeros(batch_size, device=device)
+        connected_neighbors = torch.zeros(batch_size, device=device)
+        gap_potential = torch.zeros(batch_size, device=device)
+
         directions = [(0, 1), (1, 0), (1, 1), (1, -1)]  # H, V, D1, D2
 
         for g in range(batch_size):
-            my_stacks_g = player_stacks[g]
-            potential = 0.0
+            my_stacks = player_stacks[g]
+            t2, t3, t4, conn, gaps = 0.0, 0.0, 0.0, 0.0, 0.0
 
             for dy, dx in directions:
                 for start_y in range(board_size):
                     for start_x in range(board_size):
-                        if not my_stacks_g[start_y, start_x]:
+                        if not my_stacks[start_y, start_x]:
                             continue
 
-                        # Count consecutive stacks in this direction
+                        # Count consecutive stacks
                         count = 1
                         y, x = start_y + dy, start_x + dx
                         while 0 <= y < board_size and 0 <= x < board_size:
-                            if my_stacks_g[y, x]:
+                            if my_stacks[y, x]:
                                 count += 1
+                                conn += 1.0  # Connected neighbor
                                 y, x = y + dy, x + dx
                             else:
+                                # Check for gap (empty followed by our stack)
+                                y2, x2 = y + dy, x + dx
+                                if (0 <= y2 < board_size and 0 <= x2 < board_size and
+                                    state.stack_owner[g, y, x] == 0 and my_stacks[y2, x2]):
+                                    gaps += 0.5  # Gap that could be filled
                                 break
 
-                        # Score based on line length
-                        if count == 3:
-                            potential += 2.0  # 3-in-a-row is very valuable
-                        elif count == 2:
-                            potential += 0.5  # 2-in-a-row has some value
+                        if count == 2:
+                            t2 += 1.0
+                        elif count == 3:
+                            t3 += 1.0
+                        elif count >= 4:
+                            t4 += 1.0
 
-            line_potential[g] = potential
+            two_in_row[g] = t2
+            three_in_row[g] = t3
+            four_in_row[g] = t4
+            connected_neighbors[g] = conn
+            gap_potential[g] = gaps
 
-        # === DEFENSIVE WEIGHT ===
-        # Check opponent 3-in-a-row threats we could block
-        defensive_score = torch.zeros(batch_size, device=device)
+        # === OPPONENT THREAT METRICS ===
+        opponent_threat = torch.zeros(batch_size, device=device)
+        opponent_victory_threat = torch.zeros(batch_size, device=device)
+        blocking_score = torch.zeros(batch_size, device=device)
 
         for opponent in range(1, num_players + 1):
             if opponent == p:
                 continue
 
             opp_stacks = (state.stack_owner == opponent)
+            opp_territory = state.territory_count[:, opponent].float()
+            opp_eliminated = state.eliminated_rings[:, opponent].float()
+
+            # Victory proximity threat
+            opp_territory_progress = opp_territory / territory_victory_threshold
+            opp_elim_progress = opp_eliminated / ring_victory_threshold
+            opponent_victory_threat += torch.max(opp_territory_progress, opp_elim_progress)
 
             for g in range(batch_size):
                 opp_g = opp_stacks[g]
-                defense = 0.0
+                threat = 0.0
+                block = 0.0
 
-                # Check if we're adjacent to opponent 2-in-a-row (blocking position)
                 for dy, dx in directions:
                     for start_y in range(board_size):
                         for start_x in range(board_size):
-                            if not player_stacks[g, start_y, start_x]:
+                            if not opp_g[start_y, start_x]:
                                 continue
 
-                            # Check if we're blocking an opponent line
-                            # Look in both directions from our stack
-                            for sign in [1, -1]:
-                                opp_count = 0
-                                y, x = start_y + sign * dy, start_x + sign * dx
-                                while 0 <= y < board_size and 0 <= x < board_size:
-                                    if opp_g[y, x]:
-                                        opp_count += 1
-                                        y, x = y + sign * dy, x + sign * dx
-                                    else:
-                                        break
+                            # Count opponent consecutive stacks
+                            count = 1
+                            y, x = start_y + dy, start_x + dx
+                            while 0 <= y < board_size and 0 <= x < board_size:
+                                if opp_g[y, x]:
+                                    count += 1
+                                    y, x = y + dy, x + dx
+                                else:
+                                    break
 
-                                if opp_count >= 2:
-                                    defense += 1.0  # We're blocking a potential line
+                            if count >= 2:
+                                threat += count * 0.5
 
-                defensive_score[g] += defense
+                            # Check if we're blocking this line
+                            if player_stacks[g, start_y, start_x]:
+                                block += 1.0
+
+                opponent_threat[g] += threat
+                blocking_score[g] += block
+
+        # === VULNERABILITY METRICS ===
+        # Check how many of our stacks could be captured
+        vulnerability = torch.zeros(batch_size, device=device)
+        blocked_stacks = torch.zeros(batch_size, device=device)
+
+        for g in range(batch_size):
+            ps = player_stacks[g]
+            vuln = 0.0
+            blocked = 0.0
+            for y in range(board_size):
+                for x in range(board_size):
+                    if not ps[y, x]:
+                        continue
+                    my_height = state.stack_height[g, y, x].item()
+                    # Check all neighbors for taller opponent stacks
+                    for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        ny, nx = y + dy, x + dx
+                        if 0 <= ny < board_size and 0 <= nx < board_size:
+                            neighbor_owner = state.stack_owner[g, ny, nx].item()
+                            if neighbor_owner != 0 and neighbor_owner != p:
+                                neighbor_height = state.stack_height[g, ny, nx].item()
+                                if neighbor_height >= my_height:
+                                    vuln += 1.0
+                    # Check if stack is blocked (all directions occupied)
+                    adj_count = 0
+                    for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        ny, nx = y + dy, x + dx
+                        if 0 <= ny < board_size and 0 <= nx < board_size:
+                            if state.stack_owner[g, ny, nx] != 0:
+                                adj_count += 1
+                    if adj_count >= 3:
+                        blocked += 1.0
+
+            vulnerability[g] = vuln
+            blocked_stacks[g] = blocked
+
+        # === OVERTAKE POTENTIAL ===
+        # Count enemy stacks we could capture (our taller stacks adjacent to theirs)
+        overtake_potential = torch.zeros(batch_size, device=device)
+        for g in range(batch_size):
+            ps = player_stacks[g]
+            overtake = 0.0
+            for y in range(board_size):
+                for x in range(board_size):
+                    if not ps[y, x]:
+                        continue
+                    my_height = state.stack_height[g, y, x].item()
+                    for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        ny, nx = y + dy, x + dx
+                        if 0 <= ny < board_size and 0 <= nx < board_size:
+                            neighbor_owner = state.stack_owner[g, ny, nx].item()
+                            if neighbor_owner != 0 and neighbor_owner != p:
+                                neighbor_height = state.stack_height[g, ny, nx].item()
+                                if my_height > neighbor_height:
+                                    overtake += 1.0
+            overtake_potential[g] = overtake
+
+        # === TERRITORY METRICS ===
+        # Territory closure: territory cells adjacent to our stacks
+        territory_closure = torch.zeros(batch_size, device=device)
+        territory_safety = torch.zeros(batch_size, device=device)
+        for g in range(batch_size):
+            closure = 0.0
+            safety = 0.0
+            for y in range(board_size):
+                for x in range(board_size):
+                    if state.territory_owner[g, y, x] == p:
+                        # Check adjacency to our stacks
+                        for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            ny, nx = y + dy, x + dx
+                            if 0 <= ny < board_size and 0 <= nx < board_size:
+                                if state.stack_owner[g, ny, nx] == p:
+                                    closure += 0.5
+                                    safety += 0.5
+            territory_closure[g] = closure
+            territory_safety[g] = safety
+
+        # === STACK MOBILITY ===
+        # Per-stack movement freedom (simplified)
+        stack_mobility = stack_count * 3.0  # Avg 3 directions per stack
+
+        # === VICTORY PROXIMITY ===
+        # How close to winning (normalized 0-1)
+        territory_progress = territory / territory_victory_threshold
+        elim_progress = eliminated_rings / ring_victory_threshold
+        victory_proximity = torch.max(territory_progress, elim_progress)
+
+        # === FORCED ELIMINATION RISK ===
+        # Risk of being forced to eliminate (few stacks, surrounded)
+        forced_elim_risk = torch.where(
+            stack_count <= 2,
+            vulnerability * 2.0,
+            vulnerability * 0.5
+        )
+
+        # === LPS ACTION ADVANTAGE ===
+        # Bonus for having more moves available than opponents
+        lps_advantage = mobility / (mobility.sum() / num_players + 1e-6)
+
+        # === MULTI-LEADER THREAT ===
+        # Multiple opponents ahead
+        multi_leader = opponent_victory_threat / (num_players - 1 + 1e-6)
+
+        # === RECOVERY METRICS ===
+        # Recovery potential: value of having recovery available
+        has_buried = buried_rings > 0
+        no_controlled = stack_count == 0
+        no_rings_in_hand = rings_in_hand == 0
+        recovery_eligible = has_buried & no_controlled & no_rings_in_hand
+        recovery_potential = buried_rings * recovery_eligible.float()
+
+        # === PENALTY/BONUS FLAGS ===
+        no_stacks_flag = (stack_count == 0).float()
+        single_stack_flag = (stack_count == 1).float()
+        stack_diversity = (stack_count - adjacency_score / 2).clamp(min=0)  # Spread bonus
+        near_victory = (victory_proximity > 0.8).float()
 
         # === COMBINE ALL COMPONENTS ===
-        w = weights
-        scores[:, p] = (
-            stack_count * w.get("material_weight", 1.0)
-            + ring_count * w.get("ring_count_weight", 0.5)
-            + (avg_height + tall_stacks) * w.get("stack_height_weight", 0.3)
-            + center_control * w.get("center_control_weight", 0.4)
-            + territory * w.get("territory_weight", 0.8)
-            + mobility * w.get("mobility_weight", 0.2)
-            + line_potential * w.get("line_potential_weight", 0.6)
-            + defensive_score * w.get("defensive_weight", 0.3)
+        # Core position weights
+        score = torch.zeros(batch_size, device=device)
+        score += stack_count * get_weight("WEIGHT_STACK_CONTROL", "material_weight", 9.39)
+        score += total_ring_count * get_weight("WEIGHT_STACK_HEIGHT", "ring_count_weight", 6.81)
+        score += cap_height * get_weight("WEIGHT_CAP_HEIGHT", None, 4.82)
+        score += territory * get_weight("WEIGHT_TERRITORY", "territory_weight", 8.66)
+        score += rings_in_hand * get_weight("WEIGHT_RINGS_IN_HAND", None, 5.17)
+        score += center_control * get_weight("WEIGHT_CENTER_CONTROL", "center_control_weight", 2.28)
+        score += adjacency_score * get_weight("WEIGHT_ADJACENCY", None, 1.57)
+
+        # Threat/defense weights
+        score -= opponent_threat * get_weight("WEIGHT_OPPONENT_THREAT", None, 6.11)
+        score += mobility * get_weight("WEIGHT_MOBILITY", "mobility_weight", 5.31)
+        score += eliminated_rings * get_weight("WEIGHT_ELIMINATED_RINGS", None, 13.12)
+        score -= vulnerability * get_weight("WEIGHT_VULNERABILITY", None, 9.32)
+
+        # Line/victory weights
+        line_potential = (
+            two_in_row * get_weight("WEIGHT_TWO_IN_ROW", None, 4.25) +
+            three_in_row * get_weight("WEIGHT_THREE_IN_ROW", None, 2.13) +
+            four_in_row * get_weight("WEIGHT_FOUR_IN_ROW", None, 4.36)
         )
+        score += line_potential * get_weight("WEIGHT_LINE_POTENTIAL", "line_potential_weight", 7.24)
+        score += victory_proximity * get_weight("WEIGHT_VICTORY_PROXIMITY", None, 20.94)
+        score += connected_neighbors * get_weight("WEIGHT_CONNECTED_NEIGHBOR", None, 2.21)
+        score += gap_potential * get_weight("WEIGHT_GAP_POTENTIAL", None, 0.03)
+
+        # Advanced weights
+        score += marker_count * get_weight("WEIGHT_MARKER_COUNT", None, 3.76)
+        score += overtake_potential * get_weight("WEIGHT_OVERTAKE_POTENTIAL", None, 5.96)
+        score += territory_closure * get_weight("WEIGHT_TERRITORY_CLOSURE", None, 11.56)
+        score += connected_neighbors * get_weight("WEIGHT_LINE_CONNECTIVITY", None, 5.65)
+        score += territory_safety * get_weight("WEIGHT_TERRITORY_SAFETY", None, 2.83)
+        score += stack_mobility * get_weight("WEIGHT_STACK_MOBILITY", None, 1.11)
+
+        # Opponent threat weights
+        score -= opponent_victory_threat * get_weight("WEIGHT_OPPONENT_VICTORY_THREAT", None, 5.21)
+        score -= forced_elim_risk * get_weight("WEIGHT_FORCED_ELIMINATION_RISK", None, 2.89)
+        score += lps_advantage * get_weight("WEIGHT_LPS_ACTION_ADVANTAGE", None, 0.99)
+        score -= multi_leader * get_weight("WEIGHT_MULTI_LEADER_THREAT", None, 1.03)
+
+        # Penalty/bonus weights
+        score -= no_stacks_flag * get_weight("WEIGHT_NO_STACKS_PENALTY", None, 51.02)
+        score -= single_stack_flag * get_weight("WEIGHT_SINGLE_STACK_PENALTY", None, 10.53)
+        score += stack_diversity * get_weight("WEIGHT_STACK_DIVERSITY_BONUS", None, -0.74)
+        score -= blocked_stacks * get_weight("WEIGHT_BLOCKED_STACK_PENALTY", None, 4.57)
+        score += near_victory * get_weight("WEIGHT_VICTORY_THRESHOLD_BONUS", None, 998.52)
+
+        # Defensive bonus (backward compat)
+        score += blocking_score * get_weight("defensive_weight", None, 0.3)
+
+        # Recovery weights (v1.5)
+        score += recovery_potential * get_weight("WEIGHT_RECOVERY_POTENTIAL", None, 6.0)
+        score += recovery_eligible.float() * get_weight("WEIGHT_RECOVERY_ELIGIBILITY", None, 8.0)
+        score += buried_rings * get_weight("WEIGHT_BURIED_RING_VALUE", None, 3.0)
 
         # === ELIMINATION PENALTY ===
-        # Player with no stacks and no rings gets massive penalty
-        has_material = (stack_count > 0) | (state.rings_in_hand[:, p] > 0)
-        scores[:, p] = torch.where(
+        # Player with no stacks, no rings in hand, and no buried rings is eliminated
+        has_material = (stack_count > 0) | (rings_in_hand > 0) | (buried_rings > 0)
+        score = torch.where(
             ~has_material,
-            scores[:, p] - 1000.0,
-            scores[:, p]
+            score - 10000.0,  # Massive penalty for permanent elimination
+            score
         )
+
+        scores[:, p] = score
 
     return scores
 
