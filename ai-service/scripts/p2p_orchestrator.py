@@ -79,6 +79,13 @@ HTTP_TOTAL_TIMEOUT = 30       # Total request timeout
 MAX_CONSECUTIVE_FAILURES = 3  # Mark node dead after 3 failures
 RETRY_DEAD_NODE_INTERVAL = 300  # Retry dead nodes every 5 minutes
 
+# Git auto-update settings
+GIT_UPDATE_CHECK_INTERVAL = 300  # Check for updates every 5 minutes
+GIT_REMOTE_NAME = "origin"       # Git remote to check
+GIT_BRANCH_NAME = "main"         # Branch to track
+AUTO_UPDATE_ENABLED = True       # Enable automatic updates
+GRACEFUL_SHUTDOWN_BEFORE_UPDATE = True  # Stop jobs before updating
+
 # Path to local state database
 STATE_DIR = Path(__file__).parent.parent / "logs" / "p2p_orchestrator"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -558,6 +565,233 @@ class P2POrchestrator:
         return selfplay, training
 
     # ============================================
+    # Git Auto-Update Methods
+    # ============================================
+
+    def _get_local_git_commit(self) -> Optional[str]:
+        """Get the current local git commit hash."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.ringrift_path,
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception as e:
+            print(f"[P2P] Failed to get local git commit: {e}")
+        return None
+
+    def _get_local_git_branch(self) -> Optional[str]:
+        """Get the current local git branch name."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=self.ringrift_path,
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception as e:
+            print(f"[P2P] Failed to get local git branch: {e}")
+        return None
+
+    def _get_remote_git_commit(self) -> Optional[str]:
+        """Fetch and get the remote branch's latest commit hash."""
+        try:
+            # First fetch to update remote refs
+            fetch_result = subprocess.run(
+                ["git", "fetch", GIT_REMOTE_NAME, GIT_BRANCH_NAME],
+                cwd=self.ringrift_path,
+                capture_output=True, text=True, timeout=60
+            )
+            if fetch_result.returncode != 0:
+                print(f"[P2P] Git fetch failed: {fetch_result.stderr}")
+                return None
+
+            # Get remote branch commit
+            result = subprocess.run(
+                ["git", "rev-parse", f"{GIT_REMOTE_NAME}/{GIT_BRANCH_NAME}"],
+                cwd=self.ringrift_path,
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+        except Exception as e:
+            print(f"[P2P] Failed to get remote git commit: {e}")
+        return None
+
+    def _check_for_updates(self) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Check if there are updates available from GitHub.
+
+        Returns: (has_updates, local_commit, remote_commit)
+        """
+        local_commit = self._get_local_git_commit()
+        remote_commit = self._get_remote_git_commit()
+
+        if not local_commit or not remote_commit:
+            return False, local_commit, remote_commit
+
+        has_updates = local_commit != remote_commit
+        return has_updates, local_commit, remote_commit
+
+    def _get_commits_behind(self, local_commit: str, remote_commit: str) -> int:
+        """Get the number of commits the local branch is behind remote."""
+        try:
+            result = subprocess.run(
+                ["git", "rev-list", "--count", f"{local_commit}..{remote_commit}"],
+                cwd=self.ringrift_path,
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                return int(result.stdout.strip())
+        except Exception as e:
+            print(f"[P2P] Failed to count commits behind: {e}")
+        return 0
+
+    def _check_local_changes(self) -> bool:
+        """Check if there are uncommitted local changes."""
+        try:
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=self.ringrift_path,
+                capture_output=True, text=True, timeout=10
+            )
+            if result.returncode == 0:
+                # If there's output, there are uncommitted changes
+                return bool(result.stdout.strip())
+        except Exception as e:
+            print(f"[P2P] Failed to check local changes: {e}")
+        return True  # Assume changes exist on error (safer)
+
+    async def _stop_all_local_jobs(self) -> int:
+        """Stop all local jobs gracefully before update.
+
+        Returns: Number of jobs stopped
+        """
+        stopped = 0
+        with self.jobs_lock:
+            for job_id, job in list(self.local_jobs.items()):
+                try:
+                    if job.pid > 0:
+                        os.kill(job.pid, signal.SIGTERM)
+                        print(f"[P2P] Sent SIGTERM to job {job_id} (PID {job.pid})")
+                        stopped += 1
+                        job.status = "stopping"
+                except ProcessLookupError:
+                    # Process already gone
+                    job.status = "stopped"
+                except Exception as e:
+                    print(f"[P2P] Failed to stop job {job_id}: {e}")
+
+        # Wait for processes to terminate
+        if stopped > 0:
+            await asyncio.sleep(5)
+
+            # Force kill any remaining
+            with self.jobs_lock:
+                for job_id, job in list(self.local_jobs.items()):
+                    if job.status == "stopping" and job.pid > 0:
+                        try:
+                            os.kill(job.pid, signal.SIGKILL)
+                            print(f"[P2P] Force killed job {job_id}")
+                        except:
+                            pass
+                        job.status = "stopped"
+
+        return stopped
+
+    async def _perform_git_update(self) -> Tuple[bool, str]:
+        """Perform git pull to update the codebase.
+
+        Returns: (success, message)
+        """
+        # Check for local changes
+        if self._check_local_changes():
+            return False, "Local changes detected. Cannot auto-update. Please commit or stash changes."
+
+        # Stop jobs if configured
+        if GRACEFUL_SHUTDOWN_BEFORE_UPDATE:
+            stopped = await self._stop_all_local_jobs()
+            if stopped > 0:
+                print(f"[P2P] Stopped {stopped} jobs before update")
+
+        try:
+            # Perform git pull
+            result = subprocess.run(
+                ["git", "pull", GIT_REMOTE_NAME, GIT_BRANCH_NAME],
+                cwd=self.ringrift_path,
+                capture_output=True, text=True, timeout=120
+            )
+
+            if result.returncode != 0:
+                return False, f"Git pull failed: {result.stderr}"
+
+            print(f"[P2P] Git pull successful: {result.stdout}")
+            return True, result.stdout
+
+        except subprocess.TimeoutExpired:
+            return False, "Git pull timed out"
+        except Exception as e:
+            return False, f"Git pull error: {e}"
+
+    async def _restart_orchestrator(self):
+        """Restart the orchestrator process after update."""
+        print("[P2P] Restarting orchestrator to apply updates...")
+
+        # Save state before restart
+        self._save_state()
+
+        # Get current script path and arguments
+        script_path = Path(__file__).resolve()
+        args = sys.argv[1:]
+
+        # Schedule restart
+        await asyncio.sleep(2)
+
+        # Use exec to replace current process
+        os.execv(sys.executable, [sys.executable, str(script_path)] + args)
+
+    async def _git_update_loop(self):
+        """Background loop to periodically check for and apply updates."""
+        if not AUTO_UPDATE_ENABLED:
+            print("[P2P] Auto-update disabled")
+            return
+
+        print(f"[P2P] Git auto-update loop started (interval: {GIT_UPDATE_CHECK_INTERVAL}s)")
+
+        while self.running:
+            try:
+                await asyncio.sleep(GIT_UPDATE_CHECK_INTERVAL)
+
+                if not self.running:
+                    break
+
+                # Check for updates
+                has_updates, local_commit, remote_commit = self._check_for_updates()
+
+                if has_updates and local_commit and remote_commit:
+                    commits_behind = self._get_commits_behind(local_commit, remote_commit)
+                    print(f"[P2P] Update available: {commits_behind} commits behind")
+                    print(f"[P2P] Local:  {local_commit[:8]}")
+                    print(f"[P2P] Remote: {remote_commit[:8]}")
+
+                    # Perform update
+                    success, message = await self._perform_git_update()
+
+                    if success:
+                        print(f"[P2P] Update successful, restarting...")
+                        await self._restart_orchestrator()
+                    else:
+                        print(f"[P2P] Update failed: {message}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[P2P] Git update loop error: {e}")
+                await asyncio.sleep(60)  # Wait before retry on error
+
+    # ============================================
     # HTTP API Handlers
     # ============================================
 
@@ -713,6 +947,74 @@ class P2POrchestrator:
             })
         except Exception as e:
             return web.json_response({"error": str(e), "healthy": False}, status=500)
+
+    async def handle_git_status(self, request: web.Request) -> web.Response:
+        """Get git status for this node.
+
+        Returns local/remote commit info and whether updates are available.
+        """
+        try:
+            local_commit = self._get_local_git_commit()
+            local_branch = self._get_local_git_branch()
+            has_local_changes = self._check_local_changes()
+
+            # Check for remote updates (this does a git fetch)
+            has_updates, _, remote_commit = self._check_for_updates()
+            commits_behind = 0
+            if has_updates and local_commit and remote_commit:
+                commits_behind = self._get_commits_behind(local_commit, remote_commit)
+
+            return web.json_response({
+                "local_commit": local_commit[:8] if local_commit else None,
+                "local_commit_full": local_commit,
+                "local_branch": local_branch,
+                "remote_commit": remote_commit[:8] if remote_commit else None,
+                "remote_commit_full": remote_commit,
+                "has_updates": has_updates,
+                "commits_behind": commits_behind,
+                "has_local_changes": has_local_changes,
+                "auto_update_enabled": AUTO_UPDATE_ENABLED,
+                "ringrift_path": self.ringrift_path,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_git_update(self, request: web.Request) -> web.Response:
+        """Manually trigger a git update on this node.
+
+        This will stop jobs, pull updates, and restart the orchestrator.
+        """
+        try:
+            # Check for updates first
+            has_updates, local_commit, remote_commit = self._check_for_updates()
+
+            if not has_updates:
+                return web.json_response({
+                    "success": True,
+                    "message": "Already up to date",
+                    "local_commit": local_commit[:8] if local_commit else None,
+                })
+
+            # Perform the update
+            success, message = await self._perform_git_update()
+
+            if success:
+                # Schedule restart
+                asyncio.create_task(self._restart_orchestrator())
+                return web.json_response({
+                    "success": True,
+                    "message": "Update successful, restarting...",
+                    "old_commit": local_commit[:8] if local_commit else None,
+                    "new_commit": remote_commit[:8] if remote_commit else None,
+                })
+            else:
+                return web.json_response({
+                    "success": False,
+                    "message": message,
+                }, status=400)
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     # ============================================
     # Core Logic
@@ -1152,6 +1454,8 @@ class P2POrchestrator:
         app.router.add_post('/stop_job', self.handle_stop_job)
         app.router.add_post('/cleanup', self.handle_cleanup)
         app.router.add_get('/health', self.handle_health)
+        app.router.add_get('/git/status', self.handle_git_status)
+        app.router.add_post('/git/update', self.handle_git_update)
 
         runner = web.AppRunner(app)
         await runner.setup()
@@ -1166,6 +1470,10 @@ class P2POrchestrator:
             asyncio.create_task(self._job_management_loop()),
             asyncio.create_task(self._discovery_loop()),
         ]
+
+        # Add git update loop if enabled
+        if AUTO_UPDATE_ENABLED:
+            tasks.append(asyncio.create_task(self._git_update_loop()))
 
         # If no leader known, start election after short delay
         await asyncio.sleep(5)
