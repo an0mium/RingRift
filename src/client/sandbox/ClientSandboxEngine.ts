@@ -1693,31 +1693,9 @@ export class ClientSandboxEngine {
     };
   }
 
-  private hasAnyMovementOrCaptureForPlayer(
-    state: GameState,
-    playerNumber: number,
-    turnState: SandboxTurnState
-  ): boolean {
-    const board = state.board;
-    const stacks = this.getPlayerStacks(playerNumber, board);
-    if (stacks.length === 0) {
-      return false;
-    }
-
-    const mustKey = turnState.mustMoveFromStackKey;
-    const isMovementPhase = state.currentPhase === 'movement';
-
-    if (mustKey && isMovementPhase) {
-      const mustStack = stacks.find((stack) => positionToString(stack.position) === mustKey);
-      if (mustStack) {
-        return this.hasAnyLegalMoveOrCaptureFrom(mustStack.position, playerNumber, board);
-      }
-    }
-
-    return stacks.some((stack) =>
-      this.hasAnyLegalMoveOrCaptureFrom(stack.position, playerNumber, board)
-    );
-  }
+  // hasAnyMovementOrCaptureForPlayer removed - now uses shared predicates:
+  // - hasAnyMovementForPlayer from turnDelegateHelpers.ts
+  // - hasAnyCaptureForPlayer from turnDelegateHelpers.ts
 
   private startTurnForCurrentPlayer(): void {
     // Before starting a new turn, re-check victory in case prior

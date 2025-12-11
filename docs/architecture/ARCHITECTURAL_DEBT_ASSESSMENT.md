@@ -24,7 +24,7 @@ This document tracks architectural debt identified in the RingRift codebase and 
 | P3       | Cap Height Consolidation       | Complete ✅ | Medium   | Low    |
 | P4       | Validation Result Unification  | Not Started | Medium   | Medium |
 | P5       | Sandbox Aggregate Delegation   | Partial     | Medium   | High   |
-| P6       | Dead Code Cleanup              | Not Started | Low      | Low    |
+| P6       | Dead Code Cleanup              | Partial ✅  | Low      | Low    |
 
 ---
 
@@ -234,9 +234,16 @@ Deprecated functions still exported, design-time stubs that throw, unused helper
 
 ### Progress
 
+- [x] TurnEngine dead code removed (2025-12-11)
+  - Removed `hasValidActions`, `hasValidRecovery`, `nextPlayer` (never called)
+  - Removed `_debugUseInternalTurnEngineHelpers` hook (no longer needed)
+  - ~50 lines removed
+- [x] ClientSandboxEngine dead code removed (2025-12-11)
+  - Removed `hasAnyMovementOrCaptureForPlayer` (replaced by shared predicates)
+  - ~25 lines removed
 - [ ] Deprecated exports inventoried
 - [ ] Dependencies verified
-- [ ] Cleanup executed
+- [ ] Remaining cleanup pending
 
 ---
 

@@ -201,49 +201,7 @@ export function advanceGameForCurrentPlayer(
 // - hasValidCaptures → hasAnyCaptureForPlayer
 // - hasValidPlacements → hasAnyPlacementForPlayer
 // - hasValidMovements → hasAnyMovementForPlayer
-
-/**
- * Check if player has any valid actions available
- * Rule Reference: Section 4.4
- *
- * Note: This function uses the shared canonical predicates from turnDelegateHelpers.ts.
- * Recovery is checked separately as it's not included in the shared predicates.
- */
-function hasValidActions(
-  gameState: GameState,
-  turnState: PerTurnState,
-  deps: TurnEngineDeps,
-  playerNumber: number
-): boolean {
-  return (
-    hasAnyPlacementForPlayer(gameState, playerNumber) ||
-    hasAnyMovementForPlayer(gameState, playerNumber, turnState) ||
-    hasAnyCaptureForPlayer(gameState, playerNumber, turnState) ||
-    hasValidRecovery(gameState, deps, playerNumber)
-  );
-}
-
-/**
- * Check if player has any valid recovery slides (RR-CANON-R110–R115).
- * Evaluated in movement context. Note: recovery is NOT a "real action" for LPS,
- * but it does block forced elimination (player has a valid move).
- */
-function hasValidRecovery(
-  gameState: GameState,
-  deps: TurnEngineDeps,
-  playerNumber: number
-): boolean {
-  const { ruleEngine } = deps;
-
-  const tempState: GameState = {
-    ...gameState,
-    currentPlayer: playerNumber,
-    currentPhase: 'movement',
-  };
-
-  const moves = ruleEngine.getValidMoves(tempState);
-  return moves.some((m) => m.type === 'recovery_slide');
-}
+// - hasValidActions, hasValidRecovery, nextPlayer → removed (dead code after migration)
 
 /**
  * Force player to eliminate a cap when blocked with no valid moves.
@@ -281,30 +239,6 @@ function processForcedElimination(
   // advanceTurnAndPhase and GameEngine) continues to see mutations in-place.
   Object.assign(gameState, outcome.nextState);
 }
-
-/**
- * Advance to the next player in turn order.
- */
-function nextPlayer(gameState: GameState): void {
-  const currentIndex = gameState.players.findIndex(
-    (p) => p.playerNumber === gameState.currentPlayer
-  );
-  const nextIndex = (currentIndex + 1) % gameState.players.length;
-  gameState.currentPlayer = gameState.players[nextIndex].playerNumber;
-}
-
-/**
- * Internal no-op hook to keep selected helper methods referenced so that
- * ts-node/TypeScript with noUnusedLocals can compile backend entrypoints
- * (including orchestrator soak harnesses) without treating them as dead code.
- * This has no behavioural impact.
- */
-function _debugUseInternalTurnEngineHelpers(): void {
-  void hasValidActions;
-  void nextPlayer;
-}
-// Invoke once at module load so the helpers are marked as used.
-_debugUseInternalTurnEngineHelpers();
 
 // Local positionToString helper to avoid depending on the shared
 // string-based serialization directly; behaviour matches
