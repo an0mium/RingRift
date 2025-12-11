@@ -234,9 +234,11 @@ class BatchGameState:
                 batch.stack_owner[0, y, x] = stack.controlling_player
                 batch.stack_height[0, y, x] = len(stack.rings)
 
-        for key, player in game_state.board.markers.items():
+        for key, marker in game_state.board.markers.items():
             x, y = map(int, key.split(","))
             if 0 <= x < board_size and 0 <= y < board_size:
+                # Handle both int (legacy) and MarkerInfo (current) marker values
+                player = marker.player if hasattr(marker, 'player') else marker
                 batch.marker_owner[0, y, x] = player
 
         for key, player in game_state.board.collapsed_spaces.items():

@@ -532,12 +532,30 @@ export class GameEngine {
           if (eliminationMoves.length === 0) {
             // Fall back to the defensive auto-resolve path below.
           } else {
+            // Derive eliminationContext from first move
+            const firstMove = eliminationMoves[0];
+            const eliminationContext = firstMove?.eliminationContext || 'territory';
+
+            // Generate context-specific prompt
+            let prompt: string;
+            if (eliminationContext === 'line') {
+              prompt =
+                'Line reward cost: You must eliminate ONE ring from the top of any stack you control.';
+            } else if (eliminationContext === 'forced') {
+              prompt =
+                'Forced elimination: You must eliminate your ENTIRE CAP from a controlled stack.';
+            } else {
+              prompt =
+                'Territory cost: You must eliminate your ENTIRE CAP from an eligible stack outside the region.';
+            }
+
             const choice: RingEliminationChoice = {
               id: generateUUID(),
               gameId: this.gameState.id,
               playerNumber: decision.player,
               type: 'ring_elimination',
-              prompt: 'Choose which stack to eliminate from',
+              eliminationContext,
+              prompt,
               options: eliminationMoves.map((move) => {
                 const pos = move.to as Position;
                 const stack = this.boardManager.getStack(pos, this.gameState.board);
@@ -548,10 +566,14 @@ export class GameEngine {
                   (move.eliminationFromStack && move.eliminationFromStack.totalHeight) ||
                   (stack ? stack.stackHeight : capHeight || 1);
 
+                // Per RR-CANON-R122: line costs 1 ring; territory/forced costs entire cap
+                const ringsToEliminate = eliminationContext === 'line' ? 1 : capHeight;
+
                 return {
                   stackPosition: pos,
                   capHeight,
                   totalHeight,
+                  ringsToEliminate,
                   moveId: move.id,
                 };
               }),
@@ -1604,18 +1626,25 @@ export class GameEngine {
 
     const interaction = this.requireInteractionManager();
 
+    // This method is called for territory elimination, so context is 'territory'
+    const eliminationContext = 'territory' as const;
+
     const choice: RingEliminationChoice = {
       id: generateUUID(),
       gameId: this.gameState.id,
       playerNumber: player,
       type: 'ring_elimination',
-      prompt: 'Choose which stack to eliminate from',
+      eliminationContext,
+      prompt:
+        'Territory cost: You must eliminate your ENTIRE CAP from an eligible stack outside the region.',
       options: playerStacks.map((stack) => {
         const stackKey = positionToString(stack.position);
         return {
           stackPosition: stack.position,
           capHeight: stack.capHeight,
           totalHeight: stack.stackHeight,
+          // Territory elimination removes entire cap (RR-CANON-R145)
+          ringsToEliminate: stack.capHeight,
           /**
            * Stable identifier for the canonical 'eliminate_rings_from_stack'
            * Move that would eliminate from this stack when enumerated via

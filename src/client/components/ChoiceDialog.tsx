@@ -251,27 +251,36 @@ export const ChoiceDialog: React.FC<ChoiceDialogProps> = ({
         role="listbox"
         aria-label="Ring elimination options"
       >
-        {c.options.map((opt, index) => (
-          <button
-            key={`${opt.stackPosition.x},${opt.stackPosition.y},${index}`}
-            type="button"
-            data-choice-option
-            disabled={isSubmitting}
-            onClick={() => {
-              if (isSubmitting) return;
-              setIsSubmitting(true);
-              onSelectOption(c, opt);
-            }}
-            onFocus={() => handleOptionFocus(index)}
-            className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
-            role="option"
-            aria-selected={index === focusedOptionIndex}
-          >
-            Stack at ({opt.stackPosition.x}, {opt.stackPosition.y}
-            {opt.stackPosition.z !== undefined ? `, ${opt.stackPosition.z}` : ''}) cap{' '}
-            {opt.capHeight}, total {opt.totalHeight}
-          </button>
-        ))}
+        {c.options.map((opt, index) => {
+          // Use ringsToEliminate if available, fallback to capHeight for backwards compatibility
+          const ringsToEliminate = opt.ringsToEliminate ?? opt.capHeight;
+          const ringLabel = ringsToEliminate === 1 ? 'ring' : 'rings';
+
+          return (
+            <button
+              key={`${opt.stackPosition.x},${opt.stackPosition.y},${index}`}
+              type="button"
+              data-choice-option
+              disabled={isSubmitting}
+              onClick={() => {
+                if (isSubmitting) return;
+                setIsSubmitting(true);
+                onSelectOption(c, opt);
+              }}
+              onFocus={() => handleOptionFocus(index)}
+              className="w-full text-left px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-slate-900"
+              role="option"
+              aria-selected={index === focusedOptionIndex}
+            >
+              Stack at ({opt.stackPosition.x}, {opt.stackPosition.y}
+              {opt.stackPosition.z !== undefined ? `, ${opt.stackPosition.z}` : ''}) — eliminate{' '}
+              <span className="text-red-400 font-semibold">
+                {ringsToEliminate} {ringLabel}
+              </span>{' '}
+              (cap {opt.capHeight}, total {opt.totalHeight})
+            </button>
+          );
+        })}
       </div>
     </div>
   );

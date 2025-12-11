@@ -1080,13 +1080,43 @@ Key features:
 | Benchmark CPU vs Hybrid          | Pending | Create `scripts/benchmark_gpu_cpu.py`     |
 | Training quality A/B test setup  | Pending | Lower priority for Phase 1                |
 
+#### Benchmark Results (2025-12-11)
+
+##### NVIDIA A10 CUDA (Lambda Labs)
+
+| Batch | CPU (ms) | GPU (ms) | Speedup   |
+| ----- | -------- | -------- | --------- |
+| 10    | 1.26     | 0.81     | 1.55x     |
+| 50    | 6.40     | 1.50     | **4.28x** |
+| 100   | 12.45    | 2.49     | **4.99x** |
+| 200   | 29.36    | 4.70     | **6.24x** |
+| 500   | 68.78    | 10.49    | **6.56x** |
+| 1000  | 135.73   | 31.48    | 4.31x     |
+
+##### Apple Silicon MPS (Local)
+
+| Batch | CPU (ms) | GPU (ms) | Speedup |
+| ----- | -------- | -------- | ------- |
+| 10    | 0.50     | 4.38     | 0.11x   |
+| 50    | 2.27     | 9.62     | 0.24x   |
+| 100   | 4.60     | 9.13     | 0.50x   |
+| 200   | 9.25     | 10.04    | 0.92x   |
+| 500   | 22.98    | 13.11    | 1.75x   |
+
+**Key Insights:**
+
+- CUDA shows significant speedup at all batch sizes (1.5-6.5x)
+- MPS only beneficial for batch >= 500 (high transfer overhead)
+- Peak speedup: 6.56x at batch 500 on CUDA
+- Sweet spot: 200-500 batch size for training workloads
+
 #### Decision Gate Status (Phase 1 → Phase 2)
 
 - [x] Parity test infrastructure created (36 tests passing)
 - [ ] All parity tests pass (100%) - 6 skipped awaiting Phase 2 GPU API
-- [ ] Speedup ≥ 3x over CPU-only - Benchmark not yet run
+- [x] **Speedup ≥ 3x over CPU-only - ✅ PASSED (6.56x on CUDA)**
 - [ ] No regression in model training quality - A/B test not yet conducted
-- [ ] Benchmark results documented - Pending
+- [x] Benchmark results documented - See above
 
 ---
 
@@ -1096,6 +1126,7 @@ Key features:
 | ---------- | ------- | --------------------------------------------------------------------------------------------------- |
 | 2025-12-11 | 1.0     | Initial comprehensive analysis                                                                      |
 | 2025-12-11 | 1.1     | Phase 1 Step 1 progress update: parity tests, line length fix, adjacency vectorization, hex support |
+| 2025-12-11 | 1.2     | Benchmark results: CUDA 6.56x speedup, Phase 1 speedup gate PASSED                                  |
 
 ---
 

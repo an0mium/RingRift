@@ -1977,11 +1977,14 @@ export class ClientSandboxEngine {
         gameId: this.gameState.id,
         playerNumber,
         type: 'ring_elimination',
-        prompt: 'Choose which stack to eliminate from (forced elimination)',
+        eliminationContext: 'forced',
+        prompt: 'Forced elimination: You must eliminate your ENTIRE CAP from a controlled stack.',
         options: options.map((opt) => ({
           stackPosition: opt.position,
           capHeight: opt.capHeight,
           totalHeight: opt.stackHeight,
+          // Forced elimination removes entire cap (RR-CANON-R100)
+          ringsToEliminate: opt.capHeight,
           moveId: opt.moveId,
         })),
       };
@@ -2731,13 +2734,14 @@ export class ClientSandboxEngine {
                 .map((p) => `(${p.x},${p.y})`)
                 .join(', ');
               const truncated = regionSpaces.length > 4 ? ` +${regionSpaces.length - 4} more` : '';
-              const territoryPrompt = `Territory claimed at ${spacesList}${truncated}. To complete this claim, you must sacrifice a ring from one of your stacks.`;
+              const territoryPrompt = `Territory claimed at ${spacesList}${truncated}. You must eliminate your ENTIRE CAP from an eligible stack outside the region.`;
 
               const choice: RingEliminationChoice = {
                 id: `sandbox-territory-elim-${Date.now()}`,
                 gameId: state.id,
                 playerNumber: movingPlayer,
                 type: 'ring_elimination',
+                eliminationContext: 'territory',
                 prompt: territoryPrompt,
                 options: eliminationMoves.map((opt: Move) => {
                   const pos = opt.to as Position;
@@ -2755,6 +2759,8 @@ export class ClientSandboxEngine {
                     stackPosition: pos,
                     capHeight,
                     totalHeight,
+                    // Territory elimination removes entire cap (RR-CANON-R145)
+                    ringsToEliminate: capHeight,
                     moveId: opt.id || key,
                   };
                 }),

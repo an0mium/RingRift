@@ -15,8 +15,8 @@
  * - Internal stacks on the serialized board:
  *     - Player 1 stack at (0,0,0): [1]
  *     - Player 2 stacks at (1,-1,0): [2, 2] and (0,-1,1): [2]
- * - Outside stack for Player 1:
- *     - (2,-2,0): [1]
+ * - Outside stack for Player 1 (must be height > 1 for territory eligibility):
+ *     - (2,-2,0): [1, 1]
  *
  * This gives:
  * - A small, contiguous hex region with mixed internal stacks (P1 + P2),
@@ -66,12 +66,13 @@ const hexTerritoryFeHxASerializedBoard: SerializedBoardState = {
       controllingPlayer: 2,
     },
     // Outside P1 stack used for mandatory self-elimination and to satisfy
-    // the self-elimination prerequisite (must have a stack outside).
+    // the self-elimination prerequisite. Must be height > 1 per RR-CANON-R145
+    // (height-1 standalone rings are NOT eligible for territory processing).
     '2,-2,0': {
       position: { x: 2, y: -2, z: 0 },
-      rings: [1],
-      stackHeight: 1,
-      capHeight: 1,
+      rings: [1, 1],
+      stackHeight: 2,
+      capHeight: 2,
       controllingPlayer: 1,
     },
   },

@@ -40,6 +40,10 @@ const renderBoard = (props: Partial<React.ComponentProps<typeof BoardView>> = {}
 };
 
 describe('BoardView', () => {
+  beforeEach(() => {
+    jest.useRealTimers();
+  });
+
   it('renders square board cells and coordinate labels when enabled', () => {
     renderBoard({ showCoordinateLabels: true });
 
@@ -160,5 +164,35 @@ describe('BoardView', () => {
     expect(
       screen.getByLabelText(/Row 2, Column 2\. Stack height 1, cap 1, player 2/)
     ).toBeInTheDocument();
+  });
+
+  it('fires long-press context menu on touch', () => {
+    jest.useFakeTimers();
+    const onCellContextMenu = jest.fn();
+    renderBoard({ onCellContextMenu });
+
+    const firstCell = screen.getAllByRole('gridcell')[0];
+    // Start a touch and advance past the long-press threshold.
+    fireEvent.touchStart(firstCell, { touches: [{ clientX: 0, clientY: 0 }] });
+    jest.advanceTimersByTime(600);
+
+    expect(onCellContextMenu).toHaveBeenCalledWith({ x: 0, y: 0 });
+    jest.useRealTimers();
+  });
+
+  it('detects double-tap on touch and triggers double-click handler', () => {
+    jest.useFakeTimers();
+    const onCellDoubleClick = jest.fn();
+    renderBoard({ onCellDoubleClick });
+
+    const firstCell = screen.getAllByRole('gridcell')[0];
+    fireEvent.touchStart(firstCell, { touches: [{ clientX: 0, clientY: 0 }] });
+    fireEvent.touchEnd(firstCell, { changedTouches: [{ clientX: 0, clientY: 0 }] });
+    jest.advanceTimersByTime(100);
+    fireEvent.touchStart(firstCell, { touches: [{ clientX: 0, clientY: 0 }] });
+    fireEvent.touchEnd(firstCell, { changedTouches: [{ clientX: 0, clientY: 0 }] });
+
+    expect(onCellDoubleClick).toHaveBeenCalledWith({ x: 0, y: 0 });
+    jest.useRealTimers();
   });
 });

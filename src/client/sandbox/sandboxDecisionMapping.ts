@@ -56,16 +56,31 @@ export function mapPendingDecisionToPlayerChoice(
         (opt: Move) => opt.type === 'eliminate_rings_from_stack' && opt.to
       );
 
-      // Use context description if available, otherwise provide a helpful default
-      const eliminationPrompt =
-        decision.context?.description ||
-        'You must eliminate a ring from one of your stacks. For lines: one ring from any stack. For territory: the entire cap from an eligible stack.';
+      // Derive eliminationContext from first move (all moves in a decision share same context)
+      const firstMove = eliminationMoves[0];
+      const eliminationContext = firstMove?.eliminationContext || 'territory';
+
+      // Generate context-specific prompt
+      let eliminationPrompt: string;
+      if (decision.context?.description) {
+        eliminationPrompt = decision.context.description;
+      } else if (eliminationContext === 'line') {
+        eliminationPrompt =
+          'Line reward cost: You must eliminate ONE ring from the top of any stack you control.';
+      } else if (eliminationContext === 'forced') {
+        eliminationPrompt =
+          'Forced elimination: You must eliminate your ENTIRE CAP from a controlled stack.';
+      } else {
+        eliminationPrompt =
+          'Territory cost: You must eliminate your ENTIRE CAP from an eligible stack outside the region.';
+      }
 
       const choice: RingEliminationChoice = {
         id: generateChoiceId('ring-elimination'),
         gameId: context.gameId,
         playerNumber: decision.player,
         type: 'ring_elimination',
+        eliminationContext,
         prompt: eliminationPrompt,
         options: eliminationMoves.map((opt: Move, idx: number) => {
           const pos = opt.to as Position;
@@ -79,10 +94,14 @@ export function mapPendingDecisionToPlayerChoice(
             (opt.eliminationFromStack && opt.eliminationFromStack.totalHeight) ||
             (stack ? stack.stackHeight : capHeight || 1);
 
+          // Per RR-CANON-R122: line costs 1 ring; territory/forced costs entire cap
+          const ringsToEliminate = eliminationContext === 'line' ? 1 : capHeight;
+
           return {
             stackPosition: pos,
             capHeight,
             totalHeight,
+            ringsToEliminate,
             moveId: opt.id || `move-${idx}`,
           };
         }),

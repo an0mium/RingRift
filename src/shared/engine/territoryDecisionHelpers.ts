@@ -18,6 +18,7 @@
 
 import type { GameState, Move, Territory, RingStack } from '../types/game';
 import { positionToString } from '../types/game';
+import { computeNextMoveNumber } from './sharedDecisionHelpers';
 import {
   eliminateFromStack,
   isStackEligibleForElimination,
@@ -127,29 +128,6 @@ export interface TerritoryEnumerationOptions {
  *   `board.territories`) but is expected to be total for states produced by
  *   the canonical engines.
  */
-
-/**
- * Compute the next canonical moveNumber for decision moves based on the
- * existing history/moveHistory. This keeps numbering stable across hosts
- * without requiring callers to thread an explicit counter.
- */
-function computeNextMoveNumber(state: GameState): number {
-  if (state.history && state.history.length > 0) {
-    const last = state.history[state.history.length - 1];
-    if (typeof last.moveNumber === 'number' && last.moveNumber > 0) {
-      return last.moveNumber + 1;
-    }
-  }
-
-  if (state.moveHistory && state.moveHistory.length > 0) {
-    const lastLegacy = state.moveHistory[state.moveHistory.length - 1];
-    if (typeof lastLegacy.moveNumber === 'number' && lastLegacy.moveNumber > 0) {
-      return lastLegacy.moveNumber + 1;
-    }
-  }
-
-  return 1;
-}
 
 export function enumerateProcessTerritoryRegionMoves(
   state: GameState,

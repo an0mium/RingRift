@@ -647,21 +647,76 @@ class RingRiftEnv:
 
         self._move_count += 1
 
-        # Auto-satisfy any pending phase requirements (no_*_action / FE) the
-        # host must emit per RR-CANON-R075/R076. This mirrors the TS
-        # orchestrator, preventing the turn from rotating without recording
-        # the required bookkeeping move.
+        # Auto-satisfy any pending phase requirements (no_*_action / FE /
+        # no_placement_action) the host must emit per RR-CANON-R075/R076.
+        # This mirrors the TS orchestrator, preventing the turn from rotating
+        # without recording the required bookkeeping move.
+        #
+        # CRITICAL FOR CANONICAL RECORDINGS: We continue generating bookkeeping
+        # moves even AFTER the player changes. This ensures that when a turn
+        # transitions to a new player who needs bookkeeping moves (e.g., they
+        # have 0 rings and need no_placement_action), those moves are recorded
+        # before the next agent action. This is essential for TS↔Python parity.
         auto_generated_moves = []
-        while (
-            self._state.game_status == GameStatus.ACTIVE
-            and self._state.current_player == actor_player
-        ):
+        while self._state.game_status == GameStatus.ACTIVE:
+            current_player = self._state.current_player
             requirement = GameEngine.get_phase_requirement(
                 self._state,
-                self._state.current_player,
+                current_player,
             )
             if requirement is None:
-                break
+                # No bookkeeping requirement - check if we're in a bookkeeping
+                # phase that needs a forced no-op
+                if (
+                    self._force_bookkeeping_moves
+                    and self._state.current_phase
+                    in (GamePhase.LINE_PROCESSING, GamePhase.TERRITORY_PROCESSING)
+                ):
+                    # Check if the only legal move is a bookkeeping no-op
+                    forced_moves = GameEngine.get_valid_moves(
+                        self._state,
+                        current_player,
+                    )
+                    if not forced_moves:
+                        # No moves at all - synthesize the mandatory no-op
+                        req_type = (
+                            PhaseRequirementType.NO_LINE_ACTION_REQUIRED
+                            if self._state.current_phase == GamePhase.LINE_PROCESSING
+                            else PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED
+                        )
+                        requirement = GameEngine.PhaseRequirement(  # type: ignore[attr-defined]
+                            type=req_type,
+                            player=current_player,
+                            eligible_positions=[],
+                        )
+                    elif (
+                        len(forced_moves) == 1
+                        and forced_moves[0].type
+                        in (MoveType.NO_LINE_ACTION, MoveType.NO_TERRITORY_ACTION)
+                    ):
+                        # Single bookkeeping move available - use it directly
+                        auto_move = forced_moves[0]
+                        if self._fsm is not None:
+                            self._fsm.validate_and_send(
+                                self._state.current_phase, auto_move, self._state
+                            )
+                        self._state = (
+                            self._rules_engine.apply_move(self._state, auto_move)
+                            if self._rules_engine is not None
+                            else GameEngine.apply_move(
+                                self._state, auto_move, trace_mode=True
+                            )
+                        )
+                        self._move_count += 1
+                        auto_generated_moves.append(auto_move)
+                        continue
+                    else:
+                        # Multiple moves or non-bookkeeping moves - stop
+                        break
+                else:
+                    break
+
+            # Generate the bookkeeping move from the requirement
             auto_move = GameEngine.synthesize_bookkeeping_move(
                 requirement,
                 self._state,
@@ -672,7 +727,8 @@ class RingRiftEnv:
                     self._state.current_phase, auto_move, self._state
                 )
             # Apply the synthesized move and continue checking for chained
-            # requirements (e.g., entering territory_processing).
+            # requirements (e.g., entering territory_processing, or the new
+            # player needing no_placement_action).
             self._state = (
                 self._rules_engine.apply_move(self._state, auto_move)
                 if self._rules_engine is not None
@@ -680,80 +736,6 @@ class RingRiftEnv:
             )
             self._move_count += 1
             auto_generated_moves.append(auto_move)
-
-        # If we're still in a bookkeeping-only phase for the same actor, and
-        # the only legal move is a required no-op (no_line_action /
-        # no_territory_action), apply it automatically to avoid rotating turn
-        # order without recording the canonical phase visit. This mirrors the
-        # TS TurnOrchestrator behaviour where these bookkeeping moves are
-        # forced before advancing.
-        while (
-            self._state.game_status == GameStatus.ACTIVE
-            and self._state.current_player == actor_player
-            and self._state.current_phase
-            in (GamePhase.LINE_PROCESSING, GamePhase.TERRITORY_PROCESSING)
-            and self._force_bookkeeping_moves
-        ):
-            # Prefer explicit phase requirement if the core reports one.
-            requirement = GameEngine.get_phase_requirement(
-                self._state,
-                actor_player,
-            )
-            forced_move = None
-            if requirement is not None:
-                if requirement.type in (
-                    PhaseRequirementType.NO_LINE_ACTION_REQUIRED,
-                    PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED,
-                ):
-                    forced_move = GameEngine.synthesize_bookkeeping_move(
-                        requirement,
-                        self._state,
-                    )
-            else:
-                forced_moves = GameEngine.get_valid_moves(
-                    self._state,
-                    actor_player,
-                )
-                if not forced_moves:
-                    # No interactive moves and no explicit requirement – synthesize the
-                    # mandatory no-op for this bookkeeping phase.
-                    req_type = (
-                        PhaseRequirementType.NO_LINE_ACTION_REQUIRED
-                        if self._state.current_phase == GamePhase.LINE_PROCESSING
-                        else PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED
-                    )
-                    req = GameEngine.PhaseRequirement(  # type: ignore[attr-defined]
-                        type=req_type,
-                        player=actor_player,
-                        eligible_positions=[],
-                    )
-                    forced_move = GameEngine.synthesize_bookkeeping_move(
-                        req,
-                        self._state,
-                    )
-                elif (
-                    len(forced_moves) == 1
-                    and forced_moves[0].type
-                    in (MoveType.NO_LINE_ACTION, MoveType.NO_TERRITORY_ACTION)
-                ):
-                    forced_move = forced_moves[0]
-
-            if forced_move is None:
-                break
-
-            # FSM validation for forced bookkeeping moves.
-            if self._fsm is not None:
-                self._fsm.validate_and_send(
-                    self._state.current_phase, forced_move, self._state
-                )
-
-            self._state = (
-                self._rules_engine.apply_move(self._state, forced_move)
-                if self._rules_engine is not None
-                else GameEngine.apply_move(self._state, forced_move, trace_mode=True)
-            )
-            self._move_count += 1
-            auto_generated_moves.append(forced_move)
 
         terminated_by_rules = self._state.game_status != GameStatus.ACTIVE
         terminated_by_budget = self._move_count >= self.max_moves

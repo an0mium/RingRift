@@ -1018,10 +1018,23 @@ export interface LineRewardChoice extends PlayerChoiceBase {
 
 export interface RingEliminationChoice extends PlayerChoiceBase {
   type: 'ring_elimination';
+  /**
+   * Context that determines how many rings will be eliminated:
+   * - 'line': 1 ring from any controlled stack (RR-CANON-R122)
+   * - 'territory': entire cap from eligible stacks (RR-CANON-R145)
+   * - 'forced': entire cap from any controlled stack (RR-CANON-R100)
+   */
+  eliminationContext?: 'line' | 'territory' | 'forced';
   options: Array<{
     stackPosition: Position;
     capHeight: number;
     totalHeight: number;
+    /**
+     * Number of rings that will be eliminated from this stack.
+     * For 'line' context: always 1
+     * For 'territory' or 'forced' context: equals capHeight
+     */
+    ringsToEliminate: number;
     /**
      * Stable identifier of the canonical 'eliminate_rings_from_stack'
      * Move that this option corresponds to. Engines and AI clients must

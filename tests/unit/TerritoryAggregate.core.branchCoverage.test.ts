@@ -873,8 +873,8 @@ describe('TerritoryAggregate - Branch Coverage (Core)', () => {
     it('uses testOverrideRegions when provided', () => {
       const state = createTestGameState();
       state.board.stacks.clear();
-      // Add a stack outside the region for processability
-      addStack(state.board, { x: 5, y: 5 }, 1, 1, 1);
+      // Add a stack outside the region for processability (must be height > 1 per RR-CANON-R145)
+      addStack(state.board, { x: 5, y: 5 }, 1, 2);
 
       const overrideRegions: Territory[] = [
         {
@@ -896,7 +896,7 @@ describe('TerritoryAggregate - Branch Coverage (Core)', () => {
     it('skips regions with empty spaces array', () => {
       const state = createTestGameState();
       state.board.stacks.clear();
-      addStack(state.board, { x: 5, y: 5 }, 1, 1, 1);
+      addStack(state.board, { x: 5, y: 5 }, 1, 2);
 
       const overrideRegions: Territory[] = [
         {
@@ -918,7 +918,7 @@ describe('TerritoryAggregate - Branch Coverage (Core)', () => {
     it('creates moves with correct structure', () => {
       const state = createTestGameState();
       state.board.stacks.clear();
-      addStack(state.board, { x: 5, y: 5 }, 1, 1, 1);
+      addStack(state.board, { x: 5, y: 5 }, 1, 2);
 
       const overrideRegions: Territory[] = [
         {

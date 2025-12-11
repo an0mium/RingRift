@@ -801,8 +801,8 @@ def validate_recovery_slide(
     completes, markers_count, line_positions = _would_complete_line_at(board, player, move.to, line_length)
 
     # Check for fallback mode (RR-CANON-R112(b))
-    # If recoveryMode is 'fallback', any adjacent slide is valid per RR-CANON-R112(b)
-    recovery_mode = getattr(move, "recoveryMode", None)
+    # If recovery_mode is 'fallback', any adjacent slide is valid per RR-CANON-R112(b)
+    recovery_mode = getattr(move, "recovery_mode", None)
     is_fallback = recovery_mode == "fallback"
 
     # For fallback mode, all adjacent slides are now permitted per RR-CANON-R112(b)
@@ -977,7 +977,7 @@ def apply_recovery_slide(
     )
 
     # Check for fallback mode (RR-CANON-R112(b))
-    recovery_mode = getattr(move, "recoveryMode", None)
+    recovery_mode = getattr(move, "recovery_mode", None)
     is_fallback = recovery_mode == "fallback"
 
     if is_fallback:

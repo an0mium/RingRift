@@ -65,6 +65,7 @@ import type { ProcessTerritoryAction, EliminateStackAction } from '../types';
 import { SQUARE_MOORE_DIRECTIONS } from '../core';
 import {
   eliminateFromStack,
+  isStackEligibleForElimination,
   calculateCapHeight,
   type EliminationContext,
 } from './EliminationAggregate';
@@ -754,7 +755,12 @@ export function enumerateTerritoryEliminationMoves(
  *
  * Self-elimination prerequisite (FAQ Q23 / §12.2):
  * A disconnected region is processable for ctx.player iff that player
- * controls at least one stack/cap outside the region.
+ * controls at least one ELIGIBLE stack/cap outside the region.
+ *
+ * Eligibility per RR-CANON-R145: multicolor OR single-color height > 1.
+ * Height-1 standalone rings are NOT eligible for territory self-elimination.
+ *
+ * DELEGATES TO EliminationAggregate for canonical eligibility check.
  */
 export function canProcessTerritoryRegion(
   board: BoardState,
@@ -769,11 +775,16 @@ export function canProcessTerritoryRegion(
     }
     if (!regionKeySet.has(key)) {
       // Found a stack controlled by ctx.player outside the region.
-      return true;
+      // Check if it's an eligible cap target using canonical EliminationAggregate.
+      const eligibility = isStackEligibleForElimination(stack, 'territory', ctx.player);
+      if (eligibility.eligible) {
+        return true;
+      }
+      // Otherwise it's a height-1 standalone ring - not eligible for territory
     }
   }
 
-  // No stacks for this player outside the region.
+  // No eligible cap targets for this player outside the region.
   return false;
 }
 

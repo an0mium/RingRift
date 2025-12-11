@@ -1207,21 +1207,11 @@ def run_self_play_soak(
                         game_moves_for_recording.append(move)
                         auto_moves = step_info.get("auto_generated_moves", [])
                         if auto_moves:
-                            for auto in auto_moves:
-                                if auto.player != prev_current_player:
-                                    termination_reason = "recorded_player_mismatch"
-                                    _record_invariant_violation(
-                                        "ACTIVE_WRONG_PLAYER_MOVE",
-                                        state,
-                                        game_idx,
-                                        move_count,
-                                        per_game_violations,
-                                        invariant_violation_samples,
-                                    )
-                                    skipped = True
-                                    break
-                            if termination_reason == "recorded_player_mismatch":
-                                break
+                            # Auto-generated moves may include bookkeeping moves
+                            # for DIFFERENT players after a turn transition. This
+                            # is expected and required for canonical recordings
+                            # (e.g., new player has 0 rings → no_placement_action).
+                            # We no longer reject cross-player auto-generated moves.
                             game_moves_for_recording.extend(auto_moves)
                     if done:
                         # If the env terminated but the rules engine still reports

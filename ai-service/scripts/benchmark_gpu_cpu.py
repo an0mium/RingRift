@@ -279,9 +279,11 @@ def benchmark_cpu_evaluation(
 ) -> BenchmarkResult:
     """Benchmark CPU-only heuristic evaluation."""
     from app.ai.heuristic_ai import HeuristicAI
+    from app.models import AIConfig
 
     # Create AI instance for evaluation
-    ai = HeuristicAI(difficulty=5)
+    config = AIConfig(difficulty=5)
+    ai = HeuristicAI(player_number=1, config=config)
 
     times = []
 
@@ -290,7 +292,7 @@ def benchmark_cpu_evaluation(
 
         for state in states:
             # Use the heuristic evaluation
-            _ = ai._evaluate_position(state, state.current_player)
+            _ = ai.evaluate_position(state)
 
         end = time.perf_counter()
         times.append((end - start) * 1000)  # Convert to ms
@@ -319,6 +321,19 @@ def benchmark_gpu_batch_evaluation(
     """Benchmark GPU batch heuristic evaluation."""
     from app.ai.gpu_parallel_games import BatchGameState, evaluate_positions_batch
 
+    # Get default weights from gpu_parallel_games
+    default_weights = {
+        "WEIGHT_STACK_CONTROL": 1.0,
+        "WEIGHT_STACK_HEIGHT": 0.5,
+        "WEIGHT_CAP_HEIGHT": 0.75,
+        "WEIGHT_TERRITORY": 2.0,
+        "WEIGHT_RINGS_IN_HAND": 0.25,
+        "WEIGHT_CENTER_CONTROL": 0.3,
+        "WEIGHT_ADJACENCY": 0.2,
+        "WEIGHT_LINE_PROGRESS": 1.5,
+        "WEIGHT_VICTORY_PROXIMITY": 3.0,
+    }
+
     # Convert states to batch format
     batch_states = []
     for state in states:
@@ -335,8 +350,7 @@ def benchmark_gpu_batch_evaluation(
             # Evaluate using GPU batch function
             scores = evaluate_positions_batch(
                 batch_state,
-                player=1,
-                weights=None,  # Use default weights
+                weights=default_weights,
             )
             # Force synchronization
             if device.type == "cuda":
@@ -372,16 +386,22 @@ def benchmark_hybrid_evaluation(
     from app.ai.hybrid_gpu import HybridGPUEvaluator
 
     # Create hybrid evaluator
-    evaluator = HybridGPUEvaluator(device=device)
+    board_size = 8 if states[0].board_type == BoardType.SQUARE8 else (19 if states[0].board_type == BoardType.SQUARE19 else 13)
+    evaluator = HybridGPUEvaluator(device=device, board_size=board_size)
 
     times = []
 
     for _ in range(iterations):
         start = time.perf_counter()
 
-        for state in states:
-            # Use hybrid evaluation (CPU rules, GPU scoring)
-            _ = evaluator.evaluate(state, state.current_player)
+        # Use evaluate_positions which is the main GPU evaluation method
+        _ = evaluator.evaluate_positions(states, player_number=1)
+
+        # Force synchronization
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        elif device.type == "mps":
+            torch.mps.synchronize()
 
         end = time.perf_counter()
         times.append((end - start) * 1000)
