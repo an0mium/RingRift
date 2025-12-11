@@ -82,6 +82,11 @@ ai-service/app/training/**/data/
 # AI service models and eval pools (large files - use Git LFS if versioning needed)
 ai-service/models/
 ai-service/data/eval_pools/
+# Self-play game data (large jsonl files generated during training/evaluation)
+ai-service/data/selfplay/
+ai-service/data/selfplay/**/*.jsonl
+ai-service/data/selfplay/**/*.json
+ai-service/data/synced_selfplay/
 ai-service/**/*.pth
 ai-service/**/*.pth.bak
 ai-service/**/*.npz
