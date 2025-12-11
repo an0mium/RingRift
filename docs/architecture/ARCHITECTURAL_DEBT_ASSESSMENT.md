@@ -20,11 +20,11 @@ This document tracks architectural debt identified in the RingRift codebase and 
 | Priority | Area                           | Status      | Impact   | Effort |
 | -------- | ------------------------------ | ----------- | -------- | ------ |
 | P1       | Deprecated Phase Orchestrators | Deferred    | Critical | High   |
-| P2       | Action Availability Predicates | TS Done ✅  | High     | Medium |
+| P2       | Action Availability Predicates | Complete ✅ | High     | Medium |
 | P3       | Cap Height Consolidation       | Complete ✅ | Medium   | Low    |
 | P4       | Validation Result Unification  | Documented  | Medium   | High   |
-| P5       | Sandbox Aggregate Delegation   | Assessed ✅ | Medium   | Low    |
-| P6       | Dead Code Cleanup              | Partial ✅  | Low      | Low    |
+| P5       | Sandbox Aggregate Delegation   | Complete ✅ | Medium   | Low    |
+| P6       | Dead Code Cleanup              | In Progress | Low      | Low    |
 
 ---
 
@@ -78,14 +78,16 @@ Three different implementations of "has any action?" predicates:
 
 ### Files Involved
 
-| File                                        | Function                   | Status                    |
-| ------------------------------------------- | -------------------------- | ------------------------- |
-| `src/shared/engine/turnDelegateHelpers.ts`  | `hasAnyMovementForPlayer`  | ✅ IMPLEMENTED            |
-| `src/shared/engine/turnDelegateHelpers.ts`  | `hasAnyCaptureForPlayer`   | ✅ IMPLEMENTED            |
-| `src/shared/engine/turnDelegateHelpers.ts`  | `hasAnyPlacementForPlayer` | ✅ IMPLEMENTED            |
-| `src/server/game/turn/TurnEngine.ts`        | `hasValidMovements`        | ✅ REMOVED - uses shared  |
-| `src/client/sandbox/ClientSandboxEngine.ts` | Various                    | ✅ WIRED - uses shared    |
-| `ai-service/app/rules/default_engine.py`    | `_has_valid_movements`     | Duplicate - Python parity |
+| File                                        | Function                   | Status                   |
+| ------------------------------------------- | -------------------------- | ------------------------ |
+| `src/shared/engine/turnDelegateHelpers.ts`  | `hasAnyMovementForPlayer`  | ✅ CANONICAL (TS)        |
+| `src/shared/engine/turnDelegateHelpers.ts`  | `hasAnyCaptureForPlayer`   | ✅ CANONICAL (TS)        |
+| `src/shared/engine/turnDelegateHelpers.ts`  | `hasAnyPlacementForPlayer` | ✅ CANONICAL (TS)        |
+| `src/server/game/turn/TurnEngine.ts`        | `hasValidMovements`        | ✅ REMOVED - uses shared |
+| `src/client/sandbox/ClientSandboxEngine.ts` | Various                    | ✅ WIRED - uses shared   |
+| `ai-service/app/game_engine.py`             | `_has_valid_placements`    | ✅ PARITY (Python)       |
+| `ai-service/app/game_engine.py`             | `_has_valid_movements`     | ✅ PARITY (Python)       |
+| `ai-service/app/game_engine.py`             | `_has_valid_captures`      | ✅ PARITY (Python)       |
 
 ### Resolution Plan
 
@@ -112,7 +114,31 @@ Three different implementations of "has any action?" predicates:
 - [x] ClientSandboxEngine migrated (2025-12-11)
   - `createTurnLogicDelegates()` now uses shared predicates
   - All ClientSandboxEngine unit tests passing
-- [ ] Python parity established
+- [x] Python parity verified (2025-12-11)
+  - `GameEngine._has_valid_placements` - mirrors hasAnyPlacementForPlayer
+  - `GameEngine._has_valid_movements` - mirrors hasAnyMovementForPlayer (with ignore_must_move_key flag)
+  - `GameEngine._has_valid_captures` - mirrors hasAnyCaptureForPlayer
+  - All respect mustMoveFromStackKey constraint (Python: `game_state.must_move_from_stack_key`)
+  - Parity validated via selfplay and integration tests
+
+### Python Parity Notes
+
+The Python predicates are implemented as static methods on `GameEngine` rather than standalone functions. This is an acceptable pattern difference that doesn't affect parity.
+
+**Semantic Equivalence:**
+
+| TypeScript                         | Python                                   | Notes                             |
+| ---------------------------------- | ---------------------------------------- | --------------------------------- |
+| `hasAnyPlacementForPlayer(s, p)`   | `GameEngine._has_valid_placements(s, p)` | Both use no-dead-placement rule   |
+| `hasAnyMovementForPlayer(s, p, t)` | `GameEngine._has_valid_movements(s, p)`  | Both respect mustMoveFromStackKey |
+| `hasAnyCaptureForPlayer(s, p, t)`  | `GameEngine._has_valid_captures(s, p)`   | Both respect mustMoveFromStackKey |
+
+**Key Implementation Details:**
+
+- TS passes `PerTurnState` to access `mustMoveFromStackKey`
+- Python reads `game_state.must_move_from_stack_key` directly
+- Python `_has_valid_movements` has `ignore_must_move_key` param for FE eligibility checks
+- Both delegate to shared movement/capture enumeration for actual reachability
 
 ---
 
@@ -149,7 +175,41 @@ Risk of subtle divergence in ring indexing semantics.
 - [x] EliminationAggregate created with canonical logic
 - [x] Python elimination.py created with parity tests
 - [x] 32 Python tests + 33 TS tests passing
-- [ ] Ring indexing documented
+- [x] Ring indexing documented (2025-12-11)
+
+### Ring Indexing Convention
+
+**TypeScript** (`rings[0]` = TOP):
+
+```typescript
+// EliminationAggregate.ts
+const topPlayer = rings[0]; // First element is top of stack
+for (const ring of rings) {
+  // Iterate from top to bottom
+  if (ring === topPlayer) capHeight++;
+  else break;
+}
+```
+
+**Python** (`rings[-1]` = TOP):
+
+```python
+# elimination.py
+top_player = rings[-1]  # Last element is top of stack
+for ring in reversed(rings):  # Iterate from top to bottom
+    if ring == top_player: cap_height += 1
+    else: break
+```
+
+**Rationale**: The convention difference exists because:
+
+1. TypeScript arrays naturally grow by appending to the end, but RingRift uses index-0-as-top for direct access to controlling player without `.at(-1)`.
+2. Python uses Pythonic convention where `rings.append()` adds to top and `rings[-1]` accesses top.
+
+**Parity Guarantee**: Both implementations produce identical cap heights for semantically equivalent stacks. The controlling player is always the ring at the "top" of the physical stack:
+
+- TS: `rings[0]`
+- Python: `rings[-1]`
 
 ---
 
