@@ -123,13 +123,20 @@ class GPUSelfPlayGenerator:
         max_moves: int = 500,
         device: Optional[torch.device] = None,
         weights: Optional[Dict[str, float]] = None,
+        engine_mode: str = "heuristic-only",
     ):
         self.board_size = board_size
         self.num_players = num_players
         self.batch_size = batch_size
         self.max_moves = max_moves
         self.device = device or get_device()
-        self.weights = weights or DEFAULT_WEIGHTS.copy()
+        self.engine_mode = engine_mode
+        # For random-only mode, use None weights (uniform random)
+        # For heuristic-only mode, use provided weights or defaults
+        if engine_mode == "random-only":
+            self.weights = None  # Triggers uniform random selection
+        else:
+            self.weights = weights or DEFAULT_WEIGHTS.copy()
 
         self.runner = ParallelGameRunner(
             batch_size=batch_size,
@@ -161,8 +168,10 @@ class GPUSelfPlayGenerator:
             torch.manual_seed(seed)
 
         start = time.time()
+        # Pass None for random mode (uniform random), weights for heuristic mode
+        weights_list = None if self.weights is None else [self.weights] * self.batch_size
         results = self.runner.run_games(
-            weights_list=[self.weights] * self.batch_size,
+            weights_list=weights_list,
             max_moves=self.max_moves,
         )
         elapsed = time.time() - start
@@ -302,18 +311,20 @@ def run_gpu_selfplay(
     batch_size: int = 256,
     max_moves: int = 500,
     weights: Optional[Dict[str, float]] = None,
+    engine_mode: str = "heuristic-only",
     seed: int = 42,
 ) -> Dict[str, Any]:
     """Run GPU-accelerated self-play generation.
 
     Args:
-        board_type: Board type (square8, square19, hex)
+        board_type: Board type (square8, square19, hex, hexagonal)
         num_players: Number of players
         num_games: Total games to generate
         output_dir: Output directory
         batch_size: GPU batch size
         max_moves: Max moves per game
-        weights: Heuristic weights
+        weights: Heuristic weights (ignored in random-only mode)
+        engine_mode: Engine mode (random-only or heuristic-only)
         seed: Random seed
 
     Returns:
@@ -323,7 +334,7 @@ def run_gpu_selfplay(
     np.random.seed(seed)
     torch.manual_seed(seed)
 
-    board_size = {"square8": 8, "square19": 19, "hex": 25}.get(board_type.lower(), 8)
+    board_size = {"square8": 8, "square19": 19, "hex": 25, "hexagonal": 25}.get(board_type.lower(), 8)
 
     logger.info("=" * 60)
     logger.info("GPU-ACCELERATED SELF-PLAY GENERATION")
@@ -331,6 +342,7 @@ def run_gpu_selfplay(
     logger.info(f"Board: {board_type} ({board_size}x{board_size})")
     logger.info(f"Players: {num_players}")
     logger.info(f"Games: {num_games}")
+    logger.info(f"Engine mode: {engine_mode}")
     logger.info(f"Batch size: {batch_size}")
     logger.info(f"Max moves: {max_moves}")
     logger.info(f"Output: {output_dir}")
@@ -343,6 +355,7 @@ def run_gpu_selfplay(
         batch_size=batch_size,
         max_moves=max_moves,
         weights=weights,
+        engine_mode=engine_mode,
     )
 
     # Generate games
@@ -392,8 +405,15 @@ def main():
         "--board",
         type=str,
         default="square8",
-        choices=["square8", "square19", "hex"],
+        choices=["square8", "square19", "hex", "hexagonal"],
         help="Board type",
+    )
+    parser.add_argument(
+        "--engine-mode",
+        type=str,
+        default="heuristic-only",
+        choices=["random-only", "heuristic-only"],
+        help="Engine mode: random-only (uniform random moves) or heuristic-only (weighted by GPU heuristic)",
     )
     parser.add_argument(
         "--num-players",
@@ -482,6 +502,7 @@ def main():
         batch_size=args.batch_size,
         max_moves=args.max_moves,
         weights=weights,
+        engine_mode=args.engine_mode,
         seed=args.seed,
     )
 

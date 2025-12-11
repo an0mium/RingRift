@@ -47,6 +47,62 @@ import numpy as np
 DISK_WARNING_THRESHOLD = 85  # Pause selfplay
 DISK_CRITICAL_THRESHOLD = 95  # Abort selfplay
 
+# =============================================================================
+# Default Heuristic Weights (used when no --weights-file is specified)
+# =============================================================================
+
+DEFAULT_WEIGHTS = {
+    "material_weight": 1.0,
+    "ring_count_weight": 0.5,
+    "stack_height_weight": 0.3,
+    "center_control_weight": 0.4,
+    "territory_weight": 0.8,
+    "mobility_weight": 0.2,
+    "line_potential_weight": 0.6,
+    "defensive_weight": 0.3,
+}
+
+
+def load_weights_from_profile(
+    weights_file: str,
+    profile_name: str,
+) -> Dict[str, float]:
+    """Load heuristic weights from a CMA-ES profile file.
+
+    Args:
+        weights_file: Path to JSON file containing weight profiles
+        profile_name: Name of the profile to load
+
+    Returns:
+        Dictionary of weight name -> value
+
+    The profile file should have structure:
+    {
+        "profiles": {
+            "profile_name": {
+                "weights": { "material_weight": 1.0, ... }
+            }
+        }
+    }
+    """
+    if not os.path.exists(weights_file):
+        logging.getLogger(__name__).warning(
+            f"Weights file not found: {weights_file}, using defaults"
+        )
+        return DEFAULT_WEIGHTS.copy()
+
+    with open(weights_file, "r") as f:
+        data = json.load(f)
+
+    profiles = data.get("profiles", {})
+    if profile_name not in profiles:
+        logging.getLogger(__name__).warning(
+            f"Profile '{profile_name}' not found in {weights_file}, using defaults"
+        )
+        return DEFAULT_WEIGHTS.copy()
+
+    return profiles[profile_name].get("weights", DEFAULT_WEIGHTS.copy())
+
 
 def get_disk_usage_percent(path: str = "/") -> int:
     """Get disk usage percentage for the filesystem containing path."""
@@ -116,6 +172,9 @@ def run_hybrid_selfplay(
     max_moves: int | None = None,  # Auto-calculated based on board type
     seed: int = 42,
     use_numba: bool = True,
+    engine_mode: str = "heuristic-only",
+    weights: Optional[Dict[str, float]] = None,
+    mix_ratio: float = 0.8,
 ) -> Dict[str, Any]:
     """Run hybrid GPU-accelerated self-play.
 
@@ -127,6 +186,9 @@ def run_hybrid_selfplay(
         max_moves: Maximum moves per game
         seed: Random seed
         use_numba: Use Numba JIT-compiled rules
+        engine_mode: Engine mode (random-only, heuristic-only, or mixed)
+        weights: Heuristic weights dict (from CMA-ES profile or defaults)
+        mix_ratio: For mixed mode: probability of heuristic (0.0-1.0). Default 0.8
 
     Returns:
         Statistics dictionary
@@ -166,6 +228,9 @@ def run_hybrid_selfplay(
     logger.info(f"Players: {num_players}")
     logger.info(f"Games: {num_games}")
     logger.info(f"Max moves: {max_moves}")
+    logger.info(f"Engine mode: {engine_mode}")
+    if engine_mode == "mixed":
+        logger.info(f"Mix ratio: {mix_ratio:.1%} heuristic / {1-mix_ratio:.1%} random")
     logger.info(f"Device: {device}")
     logger.info(f"Numba: {use_numba}")
     logger.info(f"Output: {output_dir}")
@@ -243,21 +308,45 @@ def run_hybrid_selfplay(
                         GameEngine._check_victory(game_state)
                         break
                 else:
-                    # Evaluate moves (hybrid CPU/GPU)
-                    move_scores = evaluator.evaluate_moves(
-                        game_state,
-                        valid_moves,
-                        current_player,
-                        GameEngine,
-                    )
-
-                    # Select best move (with random tie-breaking)
-                    if move_scores:
-                        best_score = max(s for _, s in move_scores)
-                        best_moves = [m for m, s in move_scores if s == best_score]
-                        best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                    # Select move based on engine mode
+                    if engine_mode == "random-only":
+                        # Uniform random move selection (no evaluation)
+                        best_move = valid_moves[np.random.randint(len(valid_moves))]
+                    elif engine_mode == "mixed":
+                        # Mixed mode: probabilistically choose random vs heuristic
+                        if np.random.random() < mix_ratio:
+                            # Use heuristic evaluation
+                            move_scores = evaluator.evaluate_moves(
+                                game_state,
+                                valid_moves,
+                                current_player,
+                                GameEngine,
+                            )
+                            if move_scores:
+                                best_score = max(s for _, s in move_scores)
+                                best_moves = [m for m, s in move_scores if s == best_score]
+                                best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                            else:
+                                best_move = valid_moves[0]
+                        else:
+                            # Use random selection
+                            best_move = valid_moves[np.random.randint(len(valid_moves))]
                     else:
-                        best_move = valid_moves[0]
+                        # heuristic-only: Evaluate moves (hybrid CPU/GPU)
+                        move_scores = evaluator.evaluate_moves(
+                            game_state,
+                            valid_moves,
+                            current_player,
+                            GameEngine,
+                        )
+
+                        # Select best move (with random tie-breaking)
+                        if move_scores:
+                            best_score = max(s for _, s in move_scores)
+                            best_moves = [m for m, s in move_scores if s == best_score]
+                            best_move = np.random.choice(best_moves) if len(best_moves) > 1 else best_moves[0]
+                        else:
+                            best_move = valid_moves[0]
 
                 # Apply move (CPU - full rules)
                 game_state = GameEngine.apply_move(game_state, best_move)
@@ -316,6 +405,8 @@ def run_hybrid_selfplay(
                 "status": game_state.game_status,
                 "victory_type": victory_type,
                 "stalemate_tiebreaker": stalemate_tiebreaker,  # Which tiebreaker resolved stalemate (or None)
+                "engine_mode": engine_mode,  # Track which engine produced this game
+                "mix_ratio": mix_ratio if engine_mode == "mixed" else None,  # For mixed mode analysis
                 "moves": moves_played,  # Full move history for training
                 "game_time_seconds": game_time,
                 "timestamp": datetime.now().isoformat(),
@@ -556,6 +647,29 @@ def main():
         action="store_true",
         help="Disable Numba JIT compilation",
     )
+    parser.add_argument(
+        "--engine-mode",
+        type=str,
+        default="heuristic-only",
+        choices=["random-only", "heuristic-only", "mixed"],
+        help="Engine mode: random-only (uniform random), heuristic-only (GPU heuristic), or mixed (probabilistic blend)",
+    )
+    parser.add_argument(
+        "--mix-ratio",
+        type=float,
+        default=0.8,
+        help="For mixed mode: probability of using heuristic (0.0=all random, 1.0=all heuristic). Default: 0.8",
+    )
+    parser.add_argument(
+        "--weights-file",
+        type=str,
+        help="Path to CMA-ES heuristic weights JSON file",
+    )
+    parser.add_argument(
+        "--profile",
+        type=str,
+        help="Profile name in weights file (requires --weights-file)",
+    )
 
     args = parser.parse_args()
 
@@ -566,6 +680,15 @@ def main():
     if args.benchmark:
         run_benchmark(args.board_type, args.num_players)
     else:
+        # Load weights from profile if specified
+        weights = None
+        if args.weights_file and args.profile:
+            weights = load_weights_from_profile(args.weights_file, args.profile)
+            logger.info(f"Loaded weights from {args.weights_file}:{args.profile}")
+        elif args.weights_file or args.profile:
+            # Only one was specified - warn user
+            logger.warning("Both --weights-file and --profile are required to load custom weights")
+
         run_hybrid_selfplay(
             board_type=args.board_type,
             num_players=args.num_players,
@@ -574,6 +697,9 @@ def main():
             max_moves=args.max_moves,
             seed=args.seed,
             use_numba=not args.no_numba,
+            engine_mode=args.engine_mode,
+            weights=weights,
+            mix_ratio=args.mix_ratio,
         )
 
 
