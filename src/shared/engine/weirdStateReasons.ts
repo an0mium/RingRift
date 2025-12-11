@@ -26,7 +26,20 @@ export interface WeirdStateReasonInfo {
  * telemetry when present.
  */
 export function isSurfaceableWeirdStateType(type: RulesUxWeirdStateType): boolean {
-  return type === 'active-no-moves-movement' || type === 'forced-elimination' || type === 'structural-stalemate';
+  return (
+    type === 'active-no-moves-movement' ||
+    type === 'forced-elimination' ||
+    type === 'structural-stalemate'
+  );
+}
+
+/**
+ * Guard for reason codes that should be surfaced in player-facing overlays.
+ * ANM line/territory no-actions are routine and should not trigger weird-state
+ * overlays, even if they remain available for telemetry.
+ */
+export function isSurfaceableWeirdStateReason(reasonCode: RulesWeirdStateReasonCode): boolean {
+  return reasonCode !== 'ANM_LINE_NO_ACTIONS' && reasonCode !== 'ANM_TERRITORY_NO_ACTIONS';
 }
 
 /**

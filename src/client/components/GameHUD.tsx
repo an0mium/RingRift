@@ -33,7 +33,10 @@ import {
   newHelpSessionId,
   newOverlaySessionId,
 } from '../utils/rulesUxTelemetry';
-import { getWeirdStateReasonForType } from '../../shared/engine/weirdStateReasons';
+import {
+  getWeirdStateReasonForType,
+  isSurfaceableWeirdStateType,
+} from '../../shared/engine/weirdStateReasons';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Props Types
@@ -1351,6 +1354,10 @@ function GameHUDFromViewModel({
   const rulesUxAiDifficulty = rulesUxContext?.aiDifficulty;
   const rulesUxRulesConcept = rulesUxContext?.rulesConcept;
   const rulesUxScenarioId = rulesUxContext?.scenarioId;
+  const surfaceableWeirdState =
+    weirdState && isSurfaceableWeirdStateType(weirdState.type as RulesUxWeirdStateType)
+      ? weirdState
+      : undefined;
 
   const timeControlSummary = formatTimeControlSummary(timeControl);
 
@@ -1553,13 +1560,13 @@ function GameHUDFromViewModel({
   // banner becomes active in the HUD. This uses the coarse weird-state type
   // from the view model and maps it to a stable reason code and rules_context.
   React.useEffect(() => {
-    if (!weirdState || !rulesUxBoardType) {
+    if (!surfaceableWeirdState || !rulesUxBoardType) {
       lastWeirdStateTypeRef.current = null;
       weirdStateOverlaySessionRef.current = null;
       return;
     }
 
-    const currentType = weirdState.type as RulesUxWeirdStateType;
+    const currentType = surfaceableWeirdState.type as RulesUxWeirdStateType;
 
     if (lastWeirdStateTypeRef.current === currentType && weirdStateOverlaySessionRef.current) {
       return;
@@ -1585,7 +1592,7 @@ function GameHUDFromViewModel({
       ...(rulesUxAiDifficulty !== undefined ? { aiDifficulty: rulesUxAiDifficulty } : {}),
     });
   }, [
-    weirdState,
+    surfaceableWeirdState,
     rulesUxAiDifficulty,
     rulesUxBoardType,
     rulesUxNumPlayers,
@@ -1594,14 +1601,12 @@ function GameHUDFromViewModel({
   ]);
 
   const handleWeirdStateHelp = React.useCallback(() => {
-    if (!weirdState) return;
+    if (!surfaceableWeirdState) return;
 
     let topic: TeachingTopic | null = null;
 
-    switch (weirdState.type) {
+    switch (surfaceableWeirdState.type) {
       case 'active-no-moves-movement':
-      case 'active-no-moves-line':
-      case 'active-no-moves-territory':
         topic = 'active_no_moves';
         break;
       case 'forced-elimination':
@@ -1623,7 +1628,7 @@ function GameHUDFromViewModel({
       return;
     }
 
-    const weirdStateType = weirdState.type as RulesUxWeirdStateType;
+    const weirdStateType = surfaceableWeirdState.type as RulesUxWeirdStateType;
     const { reasonCode, rulesContext } = getWeirdStateReasonForType(weirdStateType);
 
     let overlaySessionId = weirdStateOverlaySessionRef.current;
@@ -1679,7 +1684,7 @@ function GameHUDFromViewModel({
     rulesUxRulesConcept,
     rulesUxScenarioId,
     showTopic,
-    weirdState,
+    surfaceableWeirdState,
   ]);
 
   const handleTerritoryHelp = React.useCallback(() => {
@@ -1830,7 +1835,9 @@ function GameHUDFromViewModel({
       )}
 
       {/* Phase Indicator & weird-state banner */}
-      {weirdState && <WeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />}
+      {surfaceableWeirdState && (
+        <WeirdStateBanner weirdState={surfaceableWeirdState} onShowHelp={handleWeirdStateHelp} />
+      )}
       {/* LPS tracking indicator - shows when a player has consecutive exclusive rounds */}
       <LpsTrackingIndicator lpsTracking={lpsTracking} players={players} />
       {/* Victory progress indicator - shows ring elimination and territory progress */}

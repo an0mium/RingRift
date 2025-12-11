@@ -1015,10 +1015,38 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     }
 
     const state = engine.getState();
+    const stateTyped = state as GameState;
+
+    // Check for immediate victory conditions (ring elimination, territory, Early LPS)
+    // This must happen after every move to match Python's apply_move behavior.
+    // Python's GameEngine.apply_move calls _check_victory after EVERY move and
+    // terminates the game immediately when conditions are met.
+    const verdict = evaluateVictory(stateTyped);
+    const earlyVictoryDetected =
+      verdict.isGameOver && verdict.winner !== undefined && stateTyped.gameStatus !== 'completed';
+
+    if (earlyVictoryDetected) {
+      console.log(
+        JSON.stringify({
+          kind: 'ts-replay-early-victory',
+          k: applied,
+          winner: verdict.winner,
+          reason: verdict.reason,
+        })
+      );
+      // Update the engine state to match Python's behavior - terminate immediately
+      // We need to cast to mutable and set the fields directly since ClientSandboxEngine
+      // doesn't expose a direct way to end the game.
+      const mutableState = stateTyped as any;
+      mutableState.gameStatus = 'completed';
+      mutableState.winner = verdict.winner;
+      mutableState.currentPhase = 'game_over';
+      // Python's _check_victory sets current_player to winner for TS parity
+      mutableState.currentPlayer = verdict.winner;
+    }
 
     // Update LPS tracking after each move for R172 victory condition.
     // This must happen at interactive phase transitions when a player starts their turn.
-    const stateTyped = state as GameState;
     if (isLpsActivePhase(stateTyped.currentPhase) && stateTyped.gameStatus === 'active') {
       const activePlayers = stateTyped.players
         .filter((p) => playerHasMaterial(stateTyped, p.playerNumber))
@@ -1117,6 +1145,26 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         },
       })
     );
+
+    // If early victory was detected, return immediately after emitting the step
+    // This ensures the ts-replay-step is recorded before we exit the loop
+    if (earlyVictoryDetected) {
+      console.log(
+        JSON.stringify({
+          kind: 'ts-replay-game-ended',
+          appliedMoves: applied,
+          remainingRecordedMoves: recordedMoves.length - applied,
+          summary: summarizeState('game_ended', engine.getState() as GameState),
+        })
+      );
+
+      return {
+        state: engine.getState() as GameState,
+        appliedMoves: applied,
+        synthesizedMoves: 0,
+        fsmValidationFailures: fsmValidationFailures,
+      };
+    }
   }
 
   // Emit db-move-complete for the final recorded move (no bridges needed since there's no next move)

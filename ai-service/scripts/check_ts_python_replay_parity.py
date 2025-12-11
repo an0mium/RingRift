@@ -731,6 +731,25 @@ def run_ts_replay(
                 view=view,
                 event_kind=kind,
             )
+        elif kind == "ts-replay-game-ended":
+            # Early victory detection - TS terminated before processing all DB moves.
+            # Update total_ts_moves to reflect the actual number of moves applied.
+            applied_moves = payload.get("appliedMoves")
+            if applied_moves is not None:
+                total_ts_moves = int(applied_moves)
+            # Capture the final summary at the termination point for comparing
+            # against Python's state at the same move index.
+            summary = payload.get("summary") or {}
+            k = total_ts_moves
+            if k > 0 and k not in post_move_summaries:
+                post_move_summaries[k] = StateSummary(
+                    move_index=k,
+                    current_player=summary.get("currentPlayer"),
+                    current_phase=summary.get("currentPhase"),
+                    game_status=_canonicalize_status(summary.get("gameStatus")),
+                    state_hash=summary.get("stateHash"),
+                    is_anm=summary.get("is_anm") if isinstance(summary, dict) else None,
+                )
         else:
             # ts-replay-bridge / ts-replay-final and any other events are
             # ignored for parity; they are still present in stdout for
@@ -1066,12 +1085,37 @@ def check_game_parity(
                 mismatch_context = view
                 break
 
-    # If we had no per-move divergence but move counts differ, record that as a
-    # distinct mismatch kind so callers can track move-count-only issues.
+    # If we had no per-move divergence but move counts differ, check whether
+    # TS terminated early due to victory detection. If both engines show the
+    # game as "completed" at TS's termination point with matching state hash,
+    # treat the move count difference as acceptable (the DB just has extra
+    # moves recorded after victory that should not have been recorded).
     if diverged_at is None and total_moves_py != total_moves_ts:
-        diverged_at = None  # keep as None; mismatch is global, not at a single k
-        mismatch_kinds = ["move_count"]
-        mismatch_context = "global"
+        # Check if TS terminated early with a completed game
+        ts_final_summary = ts_summaries.get(total_moves_ts)
+        early_victory_acceptable = False
+
+        if (
+            ts_final_summary is not None
+            and ts_final_summary.game_status == "completed"
+            and total_moves_ts < total_moves_py
+        ):
+            # TS ended early claiming victory - compare against Python's state
+            # at the same move index to verify they agree on the outcome.
+            py_move_index = total_moves_ts - 1  # Python uses 0-based move indexing
+            if py_move_index >= 0:
+                py_final_summary = summarize_python_state(db, game_id, py_move_index)
+                # Accept if Python also shows completed AND state hashes match
+                if (
+                    py_final_summary.game_status == "completed"
+                    and py_final_summary.state_hash == ts_final_summary.state_hash
+                ):
+                    early_victory_acceptable = True
+
+        if not early_victory_acceptable:
+            diverged_at = None  # keep as None; mismatch is global, not at a single k
+            mismatch_kinds = ["move_count"]
+            mismatch_context = "global"
 
     # Determine if divergence is only at the very last move (end-of-game only)
     # AND the canonical state hash matches. Pure metadata differences in

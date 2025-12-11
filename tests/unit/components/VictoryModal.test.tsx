@@ -502,7 +502,7 @@ describe('VictoryModal – weird state teaching link', () => {
     expect(helpLink).toBeInTheDocument();
   });
 
-  it('shows "What happened?" link for territory mini-region explanation', async () => {
+  it('suppresses "What happened?" link for territory ANM no-action explanations', async () => {
     const players = createPlayers();
     const gameState = createGameState(players);
     const gameResult = createGameResult(1, 'territory_control');
@@ -536,17 +536,7 @@ describe('VictoryModal – weird state teaching link', () => {
       />
     );
 
-    const helpLink = await screen.findByRole('button', { name: /What happened\?/i });
-    expect(helpLink).toBeInTheDocument();
-
-    await userEvent.click(helpLink);
-
-    await waitFor(() => {
-      // TeachingOverlay for the territory topic should be open with a
-      // heading matching the canonical "Territory" teaching topic.
-      const territoryHeading = screen.getByRole('heading', { name: /Territory$/i });
-      expect(territoryHeading).toBeInTheDocument();
-    });
+    expect(screen.queryByRole('button', { name: /What happened\?/i })).toBeNull();
   });
 
   it('shows forced-elimination weird-state banner copy for ANM/LPS explanation', () => {
@@ -853,20 +843,20 @@ describe('VictoryModal – rematch states', () => {
       winnerPlayerId: 'p1',
     };
 
-  render(
-    <VictoryModal
-      isOpen
-      gameResult={gameResult}
-      players={players}
-      gameState={gameState}
-      gameEndExplanation={explanation}
-      onClose={onClose}
-      onReturnToLobby={jest.fn()}
-    />
-  );
+    render(
+      <VictoryModal
+        isOpen
+        gameResult={gameResult}
+        players={players}
+        gameState={gameState}
+        gameEndExplanation={explanation}
+        onClose={onClose}
+        onReturnToLobby={jest.fn()}
+      />
+    );
 
-  const helpLink = await screen.findByRole('button', { name: /What happened\?/i });
-  expect(helpLink).toBeInTheDocument();
+    const helpLink = await screen.findByRole('button', { name: /What happened\?/i });
+    expect(helpLink).toBeInTheDocument();
 
     await userEvent.click(helpLink);
 

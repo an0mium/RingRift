@@ -16,3 +16,6 @@ logs/orchestrator/cluster_state.json
 
 # Experimental selfplay data directories (ephemeral analysis artifacts)
 data/selfplay/
+
+# Deprecated data directories (moved during cleanup)
+data/deprecated_*/

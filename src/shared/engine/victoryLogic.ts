@@ -1,6 +1,29 @@
 import { BoardState, BoardType, GameState, Position, positionToString } from '../types/game';
 import { MovementBoardView, hasAnyLegalMoveOrCaptureFromOnBoard } from './core';
 
+/**
+ * Count total rings for a player (rings on board + rings in hand).
+ * This matches Python's count_rings_in_play_for_player semantics.
+ *
+ * A player's rings on board includes ALL their rings, even if buried
+ * in stacks controlled by other players.
+ */
+function countTotalRingsForPlayer(state: GameState, playerNumber: number): number {
+  const player = state.players.find((p) => p.playerNumber === playerNumber);
+  const ringsInHand = player?.ringsInHand ?? 0;
+
+  let ringsOnBoard = 0;
+  for (const stack of state.board.stacks.values()) {
+    for (const ringOwner of stack.rings) {
+      if (ringOwner === playerNumber) {
+        ringsOnBoard++;
+      }
+    }
+  }
+
+  return ringsOnBoard + ringsInHand;
+}
+
 export type VictoryReason =
   | 'ring_elimination'
   | 'territory_control'
@@ -63,30 +86,43 @@ export function evaluateVictory(state: GameState): VictoryResult {
 
   // 2) Territory-control victory: strictly more than 50% of the board's
   // spaces are controlled as territory by a single player.
-  const territoryWinner = players.find((p) => p.territorySpaces >= state.territoryVictoryThreshold);
-  if (territoryWinner) {
-    return {
-      isGameOver: true,
-      winner: territoryWinner.playerNumber,
-      reason: 'territory_control',
-      handCountsAsEliminated: false,
-    };
+  // IMPORTANT: Use the actual collapsed_spaces count, not player.territorySpaces,
+  // because the player field may be stale after process_territory_region moves.
+  // This matches Python's _check_victory which counts from collapsed_spaces directly.
+  const territoryCounts = new Map<number, number>();
+  for (const owner of state.board.collapsedSpaces.values()) {
+    territoryCounts.set(owner, (territoryCounts.get(owner) ?? 0) + 1);
+  }
+  for (const [playerId, count] of territoryCounts.entries()) {
+    if (count >= state.territoryVictoryThreshold) {
+      return {
+        isGameOver: true,
+        winner: playerId,
+        reason: 'territory_control',
+        handCountsAsEliminated: false,
+      };
+    }
   }
 
   // 3) Early Last-Player-Standing (R172): if exactly one player has stacks
-  // on the board AND all other players have neither stacks nor rings in hand,
-  // that player wins immediately.
+  // on the board AND all other players have NO RINGS TOTAL (board + hand),
+  // that player wins immediately. This matches Python's Early LPS check.
+  //
+  // IMPORTANT: A player's rings on board include ALL their rings, even if
+  // buried in stacks controlled by other players. This is consistent with
+  // Python's _is_player_eliminated which calls count_rings_in_play_for_player.
   const playersWithStacks = new Set<number>();
   for (const stack of state.board.stacks.values()) {
     playersWithStacks.add(stack.controllingPlayer);
   }
 
+  // Only consider Early LPS when exactly one player has stacks
   if (playersWithStacks.size === 1) {
     const stackOwner = Array.from(playersWithStacks)[0];
+    // Check if ALL other players have no material (total rings = 0)
+    // This includes rings in hand AND rings on board (even if buried in opponent stacks)
     const othersHaveMaterial = players.some(
-      (p) =>
-        p.playerNumber !== stackOwner &&
-        (playersWithStacks.has(p.playerNumber) || p.ringsInHand > 0)
+      (p) => p.playerNumber !== stackOwner && countTotalRingsForPlayer(state, p.playerNumber) > 0
     );
     if (!othersHaveMaterial) {
       return {

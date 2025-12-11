@@ -1,6 +1,6 @@
 # RingRift Documentation Index
 
-> **Last Updated:** 2025-12-08
+> **Last Updated:** 2025-12-11
 > **Organization:** Core docs in root (~16 files), detailed docs in `/docs/` subdirectories
 
 This index catalogs all project documentation organized by topic and location. For a lightweight landing page, see `docs/INDEX.md`.
@@ -14,6 +14,7 @@ This index catalogs all project documentation organized by topic and location. F
 | [README.md](README.md)                     | Project overview, features, status |
 | [QUICKSTART.md](QUICKSTART.md)             | Local development setup            |
 | [CONTRIBUTING.md](CONTRIBUTING.md)         | Contribution guidelines            |
+| [SECURITY.md](SECURITY.md)                 | Security policy and implementation |
 | [TODO.md](TODO.md)                         | Active task tracker                |
 | [KNOWN_ISSUES.md](KNOWN_ISSUES.md)         | Current bugs and gaps              |
 | [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md) | Comprehensive improvement roadmap  |

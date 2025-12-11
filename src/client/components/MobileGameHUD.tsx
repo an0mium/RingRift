@@ -26,6 +26,7 @@ import { Tooltip } from './ui/Tooltip';
 import { TeachingOverlay, useTeachingOverlay, type TeachingTopic } from './TeachingOverlay';
 import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
 import { sendRulesUxEvent } from '../utils/rulesUxTelemetry';
+import { isSurfaceableWeirdStateType } from '../../shared/engine/weirdStateReasons';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -428,6 +429,10 @@ export function MobileGameHUD({
   const rulesUxAiDifficulty = rulesUxContext?.aiDifficulty;
   const rulesUxRulesConcept = rulesUxContext?.rulesConcept;
   const rulesUxScenarioId = rulesUxContext?.scenarioId;
+  const surfaceableWeirdState =
+    weirdState && isSurfaceableWeirdStateType(weirdState.type as RulesUxWeirdStateType)
+      ? weirdState
+      : undefined;
 
   const isMyTurn = players.some((p) => p.isUserPlayer && p.isCurrentPlayer);
 
@@ -585,14 +590,12 @@ export function MobileGameHUD({
   }, [phase.phaseKey, rulesUxScenarioId, scenarioHelpConfig, showTopic]);
 
   const handleWeirdStateHelp = React.useCallback(() => {
-    if (!weirdState) return;
+    if (!surfaceableWeirdState) return;
 
     let topic: TeachingTopic | null = null;
 
-    switch (weirdState.type) {
+    switch (surfaceableWeirdState.type) {
       case 'active-no-moves-movement':
-      case 'active-no-moves-line':
-      case 'active-no-moves-territory':
         topic = 'active_no_moves';
         break;
       case 'forced-elimination':
@@ -614,7 +617,7 @@ export function MobileGameHUD({
       return;
     }
 
-    const weirdStateType = weirdState.type as RulesUxWeirdStateType;
+    const weirdStateType = surfaceableWeirdState.type as RulesUxWeirdStateType;
     void sendRulesUxEvent({
       type: 'rules_weird_state_help',
       boardType: rulesUxBoardType,
@@ -632,7 +635,7 @@ export function MobileGameHUD({
     rulesUxRulesConcept,
     rulesUxScenarioId,
     showTopic,
-    weirdState,
+    surfaceableWeirdState,
   ]);
 
   const togglePlayerExpand = (playerId: string) => {
@@ -679,8 +682,11 @@ export function MobileGameHUD({
       )}
 
       {/* Weird-state banner (compact) */}
-      {weirdState && (
-        <MobileWeirdStateBanner weirdState={weirdState} onShowHelp={handleWeirdStateHelp} />
+      {surfaceableWeirdState && (
+        <MobileWeirdStateBanner
+          weirdState={surfaceableWeirdState}
+          onShowHelp={handleWeirdStateHelp}
+        />
       )}
 
       {/* LPS tracking indicator (compact) */}

@@ -1,6 +1,7 @@
 from app.models import GameState, Move, GamePhase, MoveType
 from app.rules.interfaces import Validator
 from app.board_manager import BoardManager
+from app.rules.elimination import EliminationContext, is_stack_eligible_for_elimination
 
 
 class TerritoryValidator(Validator):
@@ -58,17 +59,18 @@ class TerritoryValidator(Validator):
             if not move.to:
                 return False
             stack = BoardManager.get_stack(move.to, state.board)
-            if not stack or stack.controlling_player != move.player:
+            if not stack:
                 return False
             if stack.stack_height == 0:
                 return False
-            # RR-CANON-R082: Check eligible cap target criteria
-            is_multicolor = stack.stack_height > stack.cap_height
-            is_single_color_tall = (
-                stack.stack_height == stack.cap_height and stack.stack_height > 1
+            # RR-CANON-R082: Delegate eligibility check to EliminationAggregate
+            eligibility = is_stack_eligible_for_elimination(
+                rings=stack.rings,
+                controlling_player=stack.controlling_player,
+                context=EliminationContext.TERRITORY,
+                player=move.player,
             )
-            if not is_multicolor and not is_single_color_tall:
-                # Height-1 standalone ring is not an eligible cap target
+            if not eligibility.eligible:
                 return False
 
         return True

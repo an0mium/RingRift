@@ -45,7 +45,10 @@ import {
   type GameEndRulesContextTag,
   type GameEndWeirdStateContext,
 } from '../../shared/engine/gameEndExplanation';
-import { getWeirdStateReasonForGameResult } from '../../shared/engine/weirdStateReasons';
+import {
+  getWeirdStateReasonForGameResult,
+  isSurfaceableWeirdStateType,
+} from '../../shared/engine/weirdStateReasons';
 import { useGameState } from '../hooks/useGameState';
 import { getWeirdStateBanner } from '../utils/gameStateWeirdness';
 import type { RulesUxWeirdStateType } from '../../shared/telemetry/rulesUxEvents';
@@ -696,6 +699,12 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
     const currentType = weirdStateTypeRef.current;
 
     if (nextType === 'none') {
+      weirdStateTypeRef.current = 'none';
+      weirdStateFirstSeenAtRef.current = null;
+      return;
+    }
+
+    if (!isSurfaceableWeirdStateType(nextType as RulesUxWeirdStateType)) {
       weirdStateTypeRef.current = 'none';
       weirdStateFirstSeenAtRef.current = null;
       return;

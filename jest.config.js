@@ -135,6 +135,14 @@ module.exports = {
       },
     }],
   },
+
+  // Transform ESM-only packages in node_modules
+  // The uuid package ships as ESM only, which causes Jest (CommonJS by default)
+  // to fail with "SyntaxError: Unexpected token 'export'". By including uuid
+  // in the transform pattern, ts-jest transpiles it to CommonJS.
+  transformIgnorePatterns: [
+    '/node_modules/(?!(uuid)/)',
+  ],
   
   // Coverage configuration
   collectCoverage: false, // Enable with --coverage flag

@@ -86,8 +86,12 @@ class ABTestConfig:
     validate_existing: Optional[str] = None  # Path to existing selfplay data
 
     # Quality thresholds - comparing heuristic vs random
-    # Heuristic play should produce LONGER games (more strategic)
-    min_game_length_increase: float = 1.20  # Heuristic games should be 20%+ longer
+    # Strategic play should produce MORE territory victories (more decisive)
+    # NOTE: Originally assumed longer games = strategic, but actually decisive wins
+    # (territory victories) indicate better evaluation leading to quicker wins.
+    min_territory_victory_rate: float = 0.50  # At least 50% territory victories
+    # Heuristic should produce fewer stalemates than random (more decisive play)
+    max_stalemate_rate: float = 0.10  # At most 10% stalemate rate
     # Heuristic play should have reasonable draw rates (not too high)
     max_draw_rate: float = 0.30  # 30% max draw rate for heuristic play
     # Win balance should be reasonable (not dominated by one player)
@@ -130,11 +134,13 @@ class ComparisonResult:
     hybrid_stats: SelfplayStats
 
     # Computed comparisons
-    game_length_ratio: float  # hybrid / random (should be > 1.2)
     hybrid_draw_rate: float
+    hybrid_territory_victory_rate: float
+    hybrid_stalemate_rate: float
 
     # Quality checks
-    game_length_ok: bool  # Heuristic games are longer than random
+    territory_victory_ok: bool  # High territory victory rate (strategic play)
+    stalemate_rate_ok: bool  # Low stalemate rate (decisive play)
     draw_rate_ok: bool  # Draw rate is reasonable
     win_balance_ok: bool  # Win rates balanced
 
@@ -145,10 +151,12 @@ class ComparisonResult:
         return {
             "random_stats": asdict(self.random_stats),
             "hybrid_stats": asdict(self.hybrid_stats),
-            "game_length_ratio": self.game_length_ratio,
             "hybrid_draw_rate": self.hybrid_draw_rate,
+            "hybrid_territory_victory_rate": self.hybrid_territory_victory_rate,
+            "hybrid_stalemate_rate": self.hybrid_stalemate_rate,
             "checks": {
-                "game_length_ok": self.game_length_ok,
+                "territory_victory_ok": self.territory_victory_ok,
+                "stalemate_rate_ok": self.stalemate_rate_ok,
                 "draw_rate_ok": self.draw_rate_ok,
                 "win_balance_ok": self.win_balance_ok,
             },
@@ -276,19 +284,23 @@ def compare_selfplay_runs(
     """Compare Random and Hybrid heuristic selfplay statistics.
 
     Key insight: Heuristic-guided play should produce:
-    - LONGER games (strategic play extends game length)
+    - MORE territory victories (strategic play leads to decisive wins)
+    - FEWER stalemates (decisive play, not indecision)
     - Reasonable draw rates (not too high)
     - Balanced win rates (not dominated by one player)
     """
 
-    # Compute game length ratio (hybrid should be longer)
-    game_length_ratio = (
-        hybrid_stats.moves_per_game / random_stats.moves_per_game
-        if random_stats.moves_per_game > 0 else 0.0
-    )
+    # Compute victory type rates for hybrid
+    total_hybrid_games = hybrid_stats.total_games
+    territory_victories = hybrid_stats.victory_type_counts.get("territory", 0)
+    stalemates = hybrid_stats.victory_type_counts.get("stalemate", 0)
+
+    territory_rate = territory_victories / total_hybrid_games if total_hybrid_games > 0 else 0.0
+    stalemate_rate = stalemates / total_hybrid_games if total_hybrid_games > 0 else 0.0
 
     # Quality checks
-    game_length_ok = game_length_ratio >= config.min_game_length_increase
+    territory_victory_ok = territory_rate >= config.min_territory_victory_rate
+    stalemate_rate_ok = stalemate_rate <= config.max_stalemate_rate
     draw_rate_ok = hybrid_stats.draw_rate <= config.max_draw_rate
 
     win_balance_ok = check_win_balance(
@@ -297,14 +309,16 @@ def compare_selfplay_runs(
         config.max_win_rate_balance,
     )
 
-    all_passed = game_length_ok and draw_rate_ok and win_balance_ok
+    all_passed = territory_victory_ok and stalemate_rate_ok and draw_rate_ok and win_balance_ok
 
     return ComparisonResult(
         random_stats=random_stats,
         hybrid_stats=hybrid_stats,
-        game_length_ratio=game_length_ratio,
         hybrid_draw_rate=hybrid_stats.draw_rate,
-        game_length_ok=game_length_ok,
+        hybrid_territory_victory_rate=territory_rate,
+        hybrid_stalemate_rate=stalemate_rate,
+        territory_victory_ok=territory_victory_ok,
+        stalemate_rate_ok=stalemate_rate_ok,
         draw_rate_ok=draw_rate_ok,
         win_balance_ok=win_balance_ok,
         all_checks_passed=all_passed,
@@ -318,11 +332,20 @@ def print_comparison_report(result: ComparisonResult) -> None:
     print("A/B TEST RESULTS: Random vs Hybrid GPU Heuristic Selfplay")
     print("=" * 70)
 
-    print("\n### GAME LENGTH (Strategic Play Indicator) ###")
-    print(f"  Random baseline: {result.random_stats.moves_per_game:.1f} moves/game")
-    print(f"  Hybrid heuristic: {result.hybrid_stats.moves_per_game:.1f} moves/game")
-    print(f"  Ratio: {result.game_length_ratio:.2f}x {'✓' if result.game_length_ok else '✗'}")
-    print(f"  (Expected: >= 1.20x for strategic play)")
+    print("\n### TERRITORY VICTORY RATE (Strategic Play Indicator) ###")
+    random_terr = result.random_stats.victory_type_counts.get("territory", 0)
+    random_total = result.random_stats.total_games
+    random_terr_rate = random_terr / random_total if random_total > 0 else 0
+    print(f"  Random baseline: {random_terr_rate:.1%} ({random_terr}/{random_total})")
+    print(f"  Hybrid heuristic: {result.hybrid_territory_victory_rate:.1%} {'✓' if result.territory_victory_ok else '✗'}")
+    print(f"  (Expected: >= 50% territory victories)")
+
+    print("\n### STALEMATE RATE (Decisive Play Indicator) ###")
+    random_stale = result.random_stats.victory_type_counts.get("stalemate", 0)
+    random_stale_rate = random_stale / random_total if random_total > 0 else 0
+    print(f"  Random baseline: {random_stale_rate:.1%} ({random_stale}/{random_total})")
+    print(f"  Hybrid heuristic: {result.hybrid_stalemate_rate:.1%} {'✓' if result.stalemate_rate_ok else '✗'}")
+    print(f"  (Expected: <= 10% stalemates)")
 
     print("\n### DRAW RATE ###")
     print(f"  Random baseline: {result.random_stats.draw_rate:.1%}")
@@ -340,6 +363,10 @@ def print_comparison_report(result: ComparisonResult) -> None:
     print("\n### VICTORY TYPES ###")
     print(f"  Random: {result.random_stats.victory_type_counts}")
     print(f"  Hybrid: {result.hybrid_stats.victory_type_counts}")
+
+    print("\n### GAME LENGTH ###")
+    print(f"  Random baseline: {result.random_stats.moves_per_game:.1f} moves/game")
+    print(f"  Hybrid heuristic: {result.hybrid_stats.moves_per_game:.1f} moves/game")
 
     print("\n" + "=" * 70)
     if result.all_checks_passed:

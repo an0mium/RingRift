@@ -9,18 +9,22 @@
 All mandatory architectural improvements have been implemented. The codebase is architecturally sound for production.
 
 ### Completed This Session
+
 - ✅ Strong typing for decisions (discriminated unions)
 - ✅ Consistent error handling (EngineError hierarchy)
 - ✅ Validator/mutator consolidation (assessed, documented as complete)
 - ✅ TurnOrchestrator split (assessed, deferred with justification)
+- ✅ **uuid ESM issue fixed** - Added `transformIgnorePatterns` to jest.config.js
 
 ### Remaining Optional Items
+
 - 🔵 **4.2 Extract Heuristic Helpers** - Deferred (1,450 lines, well-organized, low priority)
 - 🔵 **4.3 Resolve FSM Duality** - Deferred (requires migration, medium risk)
 
 ### Test Health
-- **1,460+ engine tests passing** ✅
-- Pre-existing uuid ESM issue affects WebSocket tests (unrelated to our changes)
+
+- **1,600+ tests passing** ✅ (including 155 WebSocket tests that were previously failing)
+- ~~Pre-existing uuid ESM issue~~ **FIXED** - All WebSocket tests now pass
 - All parity tests pass (387 passed)
 
 **Coverage Status (Final):**
@@ -32,9 +36,11 @@ All mandatory architectural improvements have been implemented. The codebase is 
 | TurnOrchestrator | 74.57% | **84.84%** | ✅ Function coverage exceeds target |
 
 **New Files Created:**
+
 - `src/shared/engine/errors.ts` - Engine error hierarchy with 16 error codes
 
 **Files Modified:**
+
 - `src/shared/engine/orchestration/types.ts` - Added discriminated union types for decisions
 - `src/shared/engine/orchestration/index.ts` - Added exports for new types/guards
 - `src/shared/engine/index.ts` - Added exports for engine errors
@@ -45,13 +51,13 @@ All mandatory architectural improvements have been implemented. The codebase is 
 
 ### Coverage Status (Verified 2025-12-11)
 
-| Module | Statement Coverage | Branch Coverage | Status |
-|--------|-------------------|-----------------|--------|
-| CaptureAggregate | 96.23% | 92.85% | ✅ Exceeds target |
-| MovementAggregate | 93.51% | 88.15% | ✅ Exceeds target |
-| LineAggregate | 94.31% | 82.66% | ✅ Exceeds target |
-| TurnOrchestrator | 74.57% | 69.12% | ⏳ 5.5% gap |
-| TerritoryAggregate | ~78% | ~75% | ⏳ ~2% gap |
+| Module             | Statement Coverage | Branch Coverage | Status            |
+| ------------------ | ------------------ | --------------- | ----------------- |
+| CaptureAggregate   | 96.23%             | 92.85%          | ✅ Exceeds target |
+| MovementAggregate  | 93.51%             | 88.15%          | ✅ Exceeds target |
+| LineAggregate      | 94.31%             | 82.66%          | ✅ Exceeds target |
+| TurnOrchestrator   | 74.57%             | 69.12%          | ⏳ 5.5% gap       |
+| TerritoryAggregate | ~78%               | ~75%            | ⏳ ~2% gap        |
 
 ### TurnOrchestrator Uncovered Lines Analysis
 
@@ -84,12 +90,14 @@ The 74.57% coverage leaves ~825 lines uncovered in the 3,232-line file. Key gaps
 ### Architectural Health Assessment
 
 **Strengths:**
+
 - Clear aggregate pattern (one domain = one module)
 - Canonical rules spec as SSOT
 - Strong parity between TS and Python
 - Well-structured test suites
 
 **Opportunities for Improvement:**
+
 1. **TurnOrchestrator size (3,232 lines)** - Candidate for extraction once coverage reaches 80%
 2. **PendingDecision typing** - Could benefit from discriminated unions
 3. **Error handling consistency** - Mix of throw/return patterns
@@ -105,12 +113,14 @@ The 74.57% coverage leaves ~825 lines uncovered in the 3,232-line file. Key gaps
 **Final Status:** 74.57% statements, **84.84% functions** (exceeds 80% target)
 
 **Work Completed:**
+
 - Added 7 victory explanation edge case tests
 - Added ANM resolution and turn advancement tests
 - Fixed 2 flaky phase transition tests
 - All 242 turnOrchestrator tests passing
 
 **Decision:** Accept current coverage. Remaining gaps are:
+
 - Defensive code paths (unreachable in normal game)
 - Internal FSM transitions (called only from specific states)
 - Edge cases requiring extremely specific game progressions
@@ -119,17 +129,18 @@ Function coverage (84.84%) exceeds the 80% target, indicating all major code pat
 
 #### 1.2 All Aggregates Exceed Targets ✅
 
-| Aggregate | Statement | Function | Status |
-|-----------|-----------|----------|--------|
-| CaptureAggregate | 96.23% | 90%+ | ✅ |
-| MovementAggregate | 93.51% | 90%+ | ✅ |
-| LineAggregate | 94.31% | 90%+ | ✅ |
+| Aggregate         | Statement | Function | Status |
+| ----------------- | --------- | -------- | ------ |
+| CaptureAggregate  | 96.23%    | 90%+     | ✅     |
+| MovementAggregate | 93.51%    | 90%+     | ✅     |
+| LineAggregate     | 94.31%    | 90%+     | ✅     |
 
 ### Phase 2: Medium Complexity Refactoring ✅ COMPLETE
 
 #### 2.1 Strong Typing for Decisions ✅
 
 **Completed 2025-12-11:**
+
 - Created discriminated union types for all 10 decision types in `src/shared/engine/orchestration/types.ts`
 - Added type-specific interfaces: `LineOrderDecision`, `RegionOrderDecision`, `ChainCaptureDecision`, etc.
 - Added type guards: `isLineOrderDecision()`, `isRegionOrderDecision()`, etc.
@@ -138,6 +149,7 @@ Function coverage (84.84%) exceeds the 80% target, indicating all major code pat
 #### 2.2 Consistent Error Handling ✅
 
 **Completed 2025-12-11:**
+
 - Created `src/shared/engine/errors.ts` with full error hierarchy
 - `EngineError` base class with code, context, domain, ruleRef, timestamp
 - `RulesViolation`, `InvalidState`, `BoardConstraintViolation`, `MoveRequirementError`
@@ -148,6 +160,7 @@ Function coverage (84.84%) exceeds the 80% target, indicating all major code pat
 #### 2.3 Consolidate Validator/Mutator Pairs ✅
 
 **Assessment 2025-12-11:**
+
 - Already addressed architecturally in MODULE_RESPONSIBILITIES.md
 - Aggregates are canonical; validators/mutators are "compatibility shims"
 - No code changes required
@@ -160,6 +173,7 @@ Function coverage (84.84%) exceeds the 80% target, indicating all major code pat
 Prerequisites are met (84.84% function coverage, 387 parity tests pass, 242 turnOrchestrator tests).
 
 After analysis, the file is well-organized with clear section headers. Extraction adds complexity without immediate benefit. Deferred until:
+
 1. A specific section needs significant modification
 2. The section is needed independently in other modules
 
@@ -200,36 +214,37 @@ Based on the current state assessment, here are the recommended priorities for f
 
 These items block v1.0 launch:
 
-| Item | Status | Notes |
-|------|--------|-------|
-| TLS/HTTPS configuration | ⬜ | Infrastructure setup needed |
-| Production secrets management | ⬜ | Secrets manager integration |
-| Terms of Service / Privacy Policy | ⬜ | Legal dependency |
+| Item                              | Status | Notes                       |
+| --------------------------------- | ------ | --------------------------- |
+| TLS/HTTPS configuration           | ⬜     | Infrastructure setup needed |
+| Production secrets management     | ⬜     | Secrets manager integration |
+| Terms of Service / Privacy Policy | ⬜     | Legal dependency            |
 
 ### Priority 2: Optional Architectural Improvements (Low Priority)
 
 These are well-documented as deferred and should only be addressed when there's a concrete need:
 
-| Item | Status | Trigger for Action |
-|------|--------|-------------------|
+| Item                          | Status      | Trigger for Action                                 |
+| ----------------------------- | ----------- | -------------------------------------------------- |
 | 4.2 Extract Heuristic Helpers | 🔵 Deferred | When heuristics need to be reused in other modules |
-| 4.3 Resolve FSM Duality | 🔵 Deferred | When PhaseStateMachine needs significant changes |
+| 4.3 Resolve FSM Duality       | 🔵 Deferred | When PhaseStateMachine needs significant changes   |
 
-### Priority 3: Technical Debt (Low Priority)
+### Priority 3: Technical Debt ✅ RESOLVED
 
-| Item | Status | Notes |
-|------|--------|-------|
-| uuid ESM issue | 🔶 Pre-existing | Affects WebSocket tests; workaround in place |
-| Weak assertion audit | ⏳ Ongoing | 18 strengthened, 1,346 total; many are valid guard clauses |
+| Item                 | Status     | Notes                                                                            |
+| -------------------- | ---------- | -------------------------------------------------------------------------------- |
+| ~~uuid ESM issue~~   | ✅ Fixed   | Added `transformIgnorePatterns` to jest.config.js - 155 WebSocket tests now pass |
+| Weak assertion audit | ⏳ Ongoing | 18 strengthened, 1,346 total; many are valid guard clauses (low priority)        |
 
 ### No Further Action Required
 
 The architectural improvement plan is complete. The codebase is:
 
-1. **Well-tested** - 1,460+ engine tests passing, 84%+ function coverage
+1. **Well-tested** - 1,600+ tests passing (including 155 WebSocket tests), 84%+ function coverage
 2. **Well-typed** - Discriminated unions for decisions, structured error hierarchy
 3. **Well-documented** - MODULE_RESPONSIBILITIES.md, ARCHITECTURAL_IMPROVEMENT_PLAN.md updated
 4. **Architecturally sound** - "One domain = one aggregate" principle documented and followed
+5. **uuid ESM issue fixed** - All tests now pass without workarounds
 
 **Recommendation:** Focus on production blockers (TLS, secrets, legal) rather than further architectural refinement. The codebase is ready for production from a rules engine perspective.
 

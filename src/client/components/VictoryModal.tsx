@@ -15,6 +15,8 @@ import {
 import {
   getWeirdStateReasonForGameResult,
   getTeachingTopicForReason,
+  isSurfaceableWeirdStateReason,
+  isSurfaceableWeirdStateType,
 } from '../../shared/engine/weirdStateReasons';
 import { logRulesUxEvent, newOverlaySessionId } from '../utils/rulesUxTelemetry';
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
@@ -524,6 +526,13 @@ export function VictoryModal({
       return;
     }
 
+    if (
+      !isSurfaceableWeirdStateReason(reasonCode) ||
+      !isSurfaceableWeirdStateType(weirdStateType)
+    ) {
+      return;
+    }
+
     let overlaySessionId = overlaySessionIdRef.current;
     if (!overlaySessionId) {
       overlaySessionId = newOverlaySessionId();
@@ -597,6 +606,14 @@ export function VictoryModal({
         }
       : fallbackWeirdInfo;
 
+  const surfaceableWeirdStateInfo =
+    weirdStateInfo &&
+    isSurfaceableWeirdStateReason(weirdStateInfo.reasonCode) &&
+    (weirdStateInfo.weirdStateType === undefined ||
+      isSurfaceableWeirdStateType(weirdStateInfo.weirdStateType))
+      ? weirdStateInfo
+      : null;
+
   // If we have a canonical GameEndExplanation, use it to drive the weird-state
   // info panel for game-end scenarios (structural stalemate, etc.) preferentially.
   if (effectiveExplanation?.uxCopy?.shortSummaryKey) {
@@ -614,8 +631,8 @@ export function VictoryModal({
   }
 
   let weirdStateTeachingTopic: TeachingTopic | null = null;
-  if (weirdStateInfo) {
-    const teachingId = getTeachingTopicForReason(weirdStateInfo.reasonCode);
+  if (surfaceableWeirdStateInfo) {
+    const teachingId = getTeachingTopicForReason(surfaceableWeirdStateInfo.reasonCode);
     switch (teachingId) {
       case 'teaching.active_no_moves':
         weirdStateTeachingTopic = 'active_no_moves';
@@ -642,12 +659,14 @@ export function VictoryModal({
     effectiveViewModel;
 
   const teachingWeirdStateContext: WeirdStateOverlayContext | null =
-    weirdStateInfo && overlaySessionIdRef.current && weirdStateInfo.rulesContext
+    surfaceableWeirdStateInfo &&
+    overlaySessionIdRef.current &&
+    surfaceableWeirdStateInfo.rulesContext
       ? {
-          reasonCode: weirdStateInfo.reasonCode,
-          rulesContext: weirdStateInfo.rulesContext,
-          ...(weirdStateInfo.weirdStateType !== undefined
-            ? { weirdStateType: weirdStateInfo.weirdStateType }
+          reasonCode: surfaceableWeirdStateInfo.reasonCode,
+          rulesContext: surfaceableWeirdStateInfo.rulesContext,
+          ...(surfaceableWeirdStateInfo.weirdStateType !== undefined
+            ? { weirdStateType: surfaceableWeirdStateInfo.weirdStateType }
             : {}),
           boardType: gameSummary.boardType,
           numPlayers: gameSummary.playerCount,
@@ -664,7 +683,11 @@ export function VictoryModal({
   };
 
   const handleWeirdStateHelpClick = () => {
-    if (!weirdStateInfo || !weirdStateTeachingTopic || !weirdStateInfo.rulesContext) {
+    if (
+      !surfaceableWeirdStateInfo ||
+      !weirdStateTeachingTopic ||
+      !surfaceableWeirdStateInfo.rulesContext
+    ) {
       return;
     }
 
@@ -676,7 +699,7 @@ export function VictoryModal({
       overlaySessionIdRef.current = overlaySessionId;
     }
 
-    if (!weirdStateInfo.weirdStateType) {
+    if (!surfaceableWeirdStateInfo.weirdStateType) {
       return;
     }
 
@@ -684,10 +707,10 @@ export function VictoryModal({
       type: 'weird_state_details_open',
       boardType: gameSummary.boardType,
       numPlayers: gameSummary.playerCount,
-      rulesContext: weirdStateInfo.rulesContext,
+      rulesContext: surfaceableWeirdStateInfo.rulesContext,
       source: 'victory_modal',
-      weirdStateType: weirdStateInfo.weirdStateType,
-      reasonCode: weirdStateInfo.reasonCode,
+      weirdStateType: surfaceableWeirdStateInfo.weirdStateType,
+      reasonCode: surfaceableWeirdStateInfo.reasonCode,
       isRanked: gameState?.isRated ?? false,
       isSandbox: isSandbox ?? false,
       overlaySessionId,
@@ -739,7 +762,7 @@ export function VictoryModal({
           >
             {description}
           </p>
-          {weirdStateInfo && weirdStateTeachingTopic && (
+          {surfaceableWeirdStateInfo && weirdStateTeachingTopic && (
             <div className="mt-2">
               <button
                 type="button"

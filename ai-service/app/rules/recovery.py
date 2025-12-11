@@ -94,6 +94,7 @@ class RecoveryValidationResult:
     is_overlength: bool = False
     option_used: Optional[RecoveryOption] = None
     cost: int = 0  # Effective cost based on option used
+    line_positions: List[Position] = field(default_factory=list)  # Positions in the formed line
 
 
 @dataclass
@@ -986,6 +987,7 @@ def apply_recovery_slide(
         cost = 1
         collapsed_positions = []  # No line collapse in fallback mode
         effective_option = None  # No option applies
+        line_positions = []  # No line formed in fallback mode
     else:
         # Line mode: find and collapse the completed line
         line_length = get_effective_line_length(board.type, len(state.players))

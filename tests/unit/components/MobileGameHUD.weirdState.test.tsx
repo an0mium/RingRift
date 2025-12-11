@@ -168,4 +168,37 @@ describe('MobileGameHUD – decision timer and weird-state help', () => {
       })
     );
   });
+
+  it('suppresses routine ANM line/territory no-action banners on mobile', () => {
+    const vm: HUDViewModel = {
+      ...baseViewModel(),
+      weirdState: {
+        type: 'active-no-moves-line',
+        title: 'No line actions',
+        body: 'Auto-resolving line processing.',
+        tone: 'info',
+      },
+    } as HUDViewModel;
+
+    const { rerender } = render(<MobileGameHUD viewModel={vm} />);
+
+    expect(screen.queryByTestId('mobile-weird-state-banner')).toBeNull();
+
+    rerender(
+      <MobileGameHUD
+        viewModel={{
+          ...vm,
+          weirdState: {
+            type: 'active-no-moves-territory',
+            title: 'No territory actions',
+            body: 'Auto-resolving territory processing.',
+            tone: 'info',
+          },
+        }}
+      />
+    );
+
+    expect(screen.queryByTestId('mobile-weird-state-banner')).toBeNull();
+    expect(sendRulesUxEvent).not.toHaveBeenCalled();
+  });
 });

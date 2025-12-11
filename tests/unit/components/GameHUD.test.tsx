@@ -420,6 +420,40 @@ describe('GameHUD – view-model props', () => {
     expect(screen.queryByTestId('hud-weird-state-banner')).toBeNull();
   });
 
+  it('suppresses routine ANM line/territory no-action banners', () => {
+    const baseVm = createHUDViewModel();
+    const lineWeirdState: HUDViewModel['weirdState'] = {
+      type: 'active-no-moves-line',
+      title: 'No legal line actions available',
+      body: 'Auto-resolving line processing.',
+      tone: 'info',
+    };
+    const territoryWeirdState: HUDViewModel['weirdState'] = {
+      type: 'active-no-moves-territory',
+      title: 'No legal territory actions available',
+      body: 'Auto-resolving territory processing.',
+      tone: 'info',
+    };
+
+    const { rerender } = render(
+      <GameHUD
+        viewModel={{ ...baseVm, weirdState: lineWeirdState }}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    expect(screen.queryByTestId('hud-weird-state-banner')).toBeNull();
+
+    rerender(
+      <GameHUD
+        viewModel={{ ...baseVm, weirdState: territoryWeirdState }}
+        timeControl={{ type: 'rapid', initialTime: 600, increment: 0 }}
+      />
+    );
+
+    expect(screen.queryByTestId('hud-weird-state-banner')).toBeNull();
+  });
+
   it('opens TeachingOverlay for Forced Elimination when clicking the weird-state help button', async () => {
     const baseVm = createHUDViewModel();
     const viewModel: HUDViewModel = {
