@@ -37,6 +37,7 @@ import sys
 import os
 import json
 import time
+import hashlib
 from .models import (
     GameState,
     Move,
@@ -183,15 +184,42 @@ class GameEngine:
         # meta-moves like swap_sides (pie rule). swap_sides does not change the
         # canonical structural hash_game_state but it *does* change move_history,
         # and swap eligibility must not remain cached after swap is applied.
-        state_hash = BoardManager.hash_game_state(game_state)
-        board = game_state.board
-        must_move_key = game_state.must_move_from_stack_key or ""
-        history_len = len(game_state.move_history)
-        cache_key = (
-            f"{board.type.value}:{board.size}:{state_hash}:{player_number}:{must_move_key}:{history_len}"
-        )
+        #
+        # CRITICAL: rules_options (e.g. rulesOptions.swapRuleEnabled) can change
+        # the legal move surface without changing the board structure or the
+        # canonical hash_game_state. Include a stable digest of rules_options in
+        # the cache key so per-process caching cannot leak moves between callers
+        # with different rules settings.
+        #
+        # NOTE: chain capture legality can depend on chainCaptureState metadata
+        # (visited positions, available moves). The canonical structural hash does
+        # not encode this, so we conservatively disable caching when a chain
+        # capture state is present.
+        cache_key: Optional[str]
+        if game_state.chain_capture_state is not None:
+            cache_key = None
+        else:
+            state_hash = BoardManager.hash_game_state(game_state)
+            board = game_state.board
+            must_move_key = game_state.must_move_from_stack_key or ""
+            history_len = len(game_state.move_history)
+            rules_options = game_state.rules_options or {}
+            if rules_options:
+                rules_str = json.dumps(
+                    rules_options,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                rules_digest = hashlib.md5(rules_str.encode()).hexdigest()
+            else:
+                rules_digest = ""
+            cache_key = (
+                f"{board.type.value}:{board.size}:{state_hash}:"
+                f"{player_number}:{must_move_key}:{history_len}:{rules_digest}"
+            )
 
-        if cache_key in GameEngine._move_cache:
+        if cache_key is not None and cache_key in GameEngine._move_cache:
             GameEngine._cache_hits += 1
             _debug(f"DEBUG: Cache hit for {cache_key}\n")
             return GameEngine._move_cache[cache_key]
@@ -302,8 +330,9 @@ class GameEngine:
         # exposes FE via dedicated phase logic; it does not auto-fallback to
         # FORCED_ELIMINATION moves from get_valid_moves (RR-CANON-R076).
 
-        # Cache result
-        GameEngine._move_cache[cache_key] = moves
+        # Cache result (when enabled for this state).
+        if cache_key is not None:
+            GameEngine._move_cache[cache_key] = moves
         return moves
 
     @staticmethod

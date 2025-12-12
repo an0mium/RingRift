@@ -484,7 +484,7 @@ Each player's turn consists of distinct phases that must be executed in order. W
 
 • **Edge Cases**:
 
-- If a player must place a ring but no legal placement locations exist **and they control no stacks on the board**, the player forfeits their turn.
+- If a player must place a ring but no legal placement locations exist **and they control no stacks on the board**, their turn becomes a forced no‑op for placement; they proceed through movement (including recovery if eligible) and otherwise record the required no‑action moves, then play passes to the next player.
 - If a player must place a ring but no legal placement locations exist **and they do control at least one stack on the board**, they are treated as **blocked with stacks** and must resolve the situation using the forced elimination rule in Section 4.4 before their turn can end.
 - Play continues normally, and if the situation changes to allow legal placements, the player may place rings on future turns.
 
@@ -1510,7 +1510,7 @@ Note: With more than 50% of territory required for victory, simultaneous victory
 
 • Global Stalemate Is Applied and Game Ends When:
 • No player can complete any legal actions during their turn, including forced eliminations
-• Equivalently, all players must consecutively forfeit their turns, and no one has won by Last Player Standing
+• Equivalently, all players must consecutively take turns with no legal actions available (recording required no‑action moves), and no one has won by Last Player Standing
 • Importantly, this **global stalemate** can only occur when **no player** has any legal placement, non‑capture move, capture, or forced elimination available. This means that all stacks have been eliminated from the board. Global stalemate due to structural terminality is ruled out by the forced‑elimination rule in Section 4.4 if there are any rings or stacks still present on the board, as a forced elimination action is treated as a turn action completing a player turn.
 
 • Upon Global Stalemate The Following Events Occur:
@@ -1546,7 +1546,7 @@ Under the rules above:
 - **Forced elimination when blocked** always eliminates at least one ring, so it strictly increases `E` even on turns where no movement is possible.
 - No rule ever decreases the number of collapsed spaces or eliminated rings.
 
-On any turn where a player performs a legal action (movement, chain capture segment, region processing, or forced elimination), **S strictly increases**. The only turns that may leave `S` unchanged are rare “pure forfeits” where a player is required to place but has no legal placement and no stacks, so they simply pass.
+On any turn where a player performs a legal action (movement, chain capture segment, region processing, or forced elimination), **S strictly increases**. The only turns that may leave `S` unchanged are rare “pure no‑op” turns where a player has no legal placement, controls no stacks, and has no legal recovery action, so their entire turn is a sequence of required no‑action moves.
 
 Because the board has a finite number of spaces and a finite total number of rings, there is a finite upper bound on `S`:
 

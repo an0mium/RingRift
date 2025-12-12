@@ -1382,13 +1382,26 @@ def train_model(
                     )
 
         if inferred_size is not None:
-            policy_size = inferred_size
-            if not distributed or is_main_process():
-                logger.info(
-                    "Using inferred policy_size=%d from dataset %s",
-                    policy_size,
-                    data_path_str,
-                )
+            # V3 models use spatial policy heads with fixed index mappings that
+            # require the full policy space. Don't use inferred size for v3.
+            board_default_size = get_policy_size_for_board(config.board_type)
+            if model_version == 'v3' and inferred_size < board_default_size:
+                policy_size = board_default_size
+                if not distributed or is_main_process():
+                    logger.info(
+                        "V3 model requires full policy space; using board-default "
+                        "policy_size=%d instead of inferred %d",
+                        policy_size,
+                        inferred_size,
+                    )
+            else:
+                policy_size = inferred_size
+                if not distributed or is_main_process():
+                    logger.info(
+                        "Using inferred policy_size=%d from dataset %s",
+                        policy_size,
+                        data_path_str,
+                    )
         else:
             policy_size = get_policy_size_for_board(config.board_type)
             if not distributed or is_main_process():

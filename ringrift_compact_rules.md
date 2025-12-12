@@ -754,7 +754,7 @@ Under the rules above:
 - **Forced elimination when blocked** (Section 4.4 / 2.3) always eliminates at least one ring, so it strictly increases `E` even on turns where no movement is possible.
 - No rule ever decreases the number of collapsed spaces or eliminated rings.
 
-On any turn where a player performs a legal action (movement, chain capture segment, region processing, or forced elimination), **S strictly increases**. The only turns that may leave `S` unchanged are rare “pure forfeits” where a player is required to place but has no legal placement and no stacks, so they simply pass.
+On any turn where a player performs a legal action (movement, chain capture segment, region processing, or forced elimination), **S strictly increases**. The only turns that may leave `S` unchanged are rare “pure no‑op” turns where a player has no legal placement, controls no stacks, and has no legal recovery action, so their entire turn is a sequence of required no‑action moves.
 
 Because the board has a finite number of spaces and a finite total number of rings, there is a finite upper bound on `S`:
 

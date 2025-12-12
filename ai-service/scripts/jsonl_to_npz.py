@@ -63,10 +63,26 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from app.models import AIConfig, BoardType, GameState, Move, Position
+from app.models import AIConfig, BoardType, GameState, Move, MoveType, Position
 from app.game_engine import GameEngine
 from app.ai.neural_net import NeuralNetAI, INVALID_MOVE_INDEX
 from app.rules.serialization import deserialize_game_state
+
+
+# Phase transition moves for completing turns
+NO_ACTION_MOVES = {
+    "movement": MoveType.NO_MOVEMENT_ACTION,
+    "line_processing": MoveType.NO_LINE_ACTION,
+    "territory_processing": MoveType.NO_TERRITORY_ACTION,
+}
+
+# Valid move types per phase
+PHASE_VALID_MOVES = {
+    "ring_placement": [MoveType.PLACE_RING, MoveType.NO_PLACEMENT_ACTION],
+    "movement": [MoveType.MOVE_STACK, MoveType.RECOVERY_SLIDE, MoveType.NO_MOVEMENT_ACTION],
+    "line_processing": [MoveType.PROCESS_LINE, MoveType.NO_LINE_ACTION],
+    "territory_processing": [MoveType.PROCESS_TERRITORY_REGION, MoveType.NO_TERRITORY_ACTION],
+}
 
 
 BOARD_TYPE_MAP = {
@@ -74,6 +90,207 @@ BOARD_TYPE_MAP = {
     "square19": BoardType.SQUARE19,
     "hexagonal": BoardType.HEXAGONAL,
 }
+
+
+def _get_phase_str(state: GameState) -> str:
+    """Get the phase as a string."""
+    phase = state.current_phase
+    if hasattr(phase, "value"):
+        return str(phase.value)
+    return str(phase)
+
+
+def _complete_remaining_phases(state: GameState, target_player: int) -> GameState:
+    """Apply no-action moves to advance through phases until it's target_player's ring_placement.
+
+    This handles GPU selfplay format where only place_ring/move_stack moves are recorded,
+    skipping the phase transition moves (no_movement_action, no_line_action, no_territory_action).
+    """
+    max_iterations = 20  # Prevent infinite loops
+    iterations = 0
+
+    while iterations < max_iterations:
+        phase_str = _get_phase_str(state)
+        current_player = state.current_player
+
+        # If we're at ring_placement for the target player, we're done
+        if phase_str == "ring_placement" and current_player == target_player:
+            return state
+
+        # If we're at ring_placement for wrong player, something is wrong
+        if phase_str == "ring_placement" and current_player != target_player:
+            # The target player may not be next - apply no_placement and continue
+            no_place_move = Move(
+                id="auto_no_placement",
+                type=MoveType.NO_PLACEMENT_ACTION,
+                player=current_player,
+                timestamp="1970-01-01T00:00:00Z",
+                thinkTime=0,
+                moveNumber=0,
+            )
+            try:
+                state = GameEngine.apply_move(state, no_place_move)
+            except Exception:
+                # Can't apply - must place a ring
+                return state
+            iterations += 1
+            continue
+
+        # Check if we can apply a no-action move for the current phase
+        if phase_str in NO_ACTION_MOVES:
+            no_action_type = NO_ACTION_MOVES[phase_str]
+            no_action_move = Move(
+                id=f"auto_{no_action_type.value}",
+                type=no_action_type,
+                player=current_player,
+                timestamp="1970-01-01T00:00:00Z",
+                thinkTime=0,
+                moveNumber=0,
+            )
+            try:
+                state = GameEngine.apply_move(state, no_action_move)
+            except Exception:
+                # Can't apply - might have mandatory moves
+                return state
+        else:
+            # Unknown phase, return as-is
+            return state
+
+        iterations += 1
+
+    return state
+
+
+def _value_from_winner(winner: int, perspective: int, num_players: int) -> float:
+    """Compute value from winner field directly (for GPU selfplay)."""
+    if winner == 0:  # Draw
+        return 0.0
+    if winner == perspective:
+        return 1.0
+    elif num_players == 2:
+        return -1.0
+    else:
+        # Multi-player: non-winner gets -1
+        return -1.0
+
+
+def _compute_multi_player_values_from_winner(winner: int, num_players: int) -> List[float]:
+    """Compute value vector for all players from winner field."""
+    values = []
+    for p in range(1, 5):  # Always 4 slots
+        if p <= num_players:
+            values.append(_value_from_winner(winner, p, num_players))
+        else:
+            values.append(0.0)
+    return values
+
+
+def _process_gpu_selfplay_record(
+    record: Dict[str, Any],
+    encoder: NeuralNetAI,
+    history_length: int,
+    sample_every: int,
+) -> Tuple[
+    List[np.ndarray],  # features
+    List[np.ndarray],  # globals
+    List[float],       # values
+    List[np.ndarray],  # values_mp
+    List[int],         # num_players
+    List[np.ndarray],  # policy_indices
+    List[np.ndarray],  # policy_values
+    List[int],         # move_numbers
+    List[int],         # total_game_moves
+    List[str],         # phases
+    int,               # positions_extracted
+]:
+    """Process a GPU selfplay record without FSM validation.
+
+    GPU selfplay uses bulk ring placement (all P1 rings first, then P2) which
+    doesn't match canonical FSM turn alternation. Instead of replaying, we
+    extract features from the initial state only and use the winner field
+    directly for value targets.
+
+    This is a simplified extraction that produces training samples from the
+    initial game state only, suitable for neural network training.
+    """
+    features_list: List[np.ndarray] = []
+    globals_list: List[np.ndarray] = []
+    values_list: List[float] = []
+    values_mp_list: List[np.ndarray] = []
+    num_players_list: List[int] = []
+    policy_indices_list: List[np.ndarray] = []
+    policy_values_list: List[np.ndarray] = []
+    move_numbers_list: List[int] = []
+    total_game_moves_list: List[int] = []
+    phases_list: List[str] = []
+
+    # Extract data from record
+    initial_state_dict = record.get("initial_state")
+    winner = record.get("winner", 0)
+    num_players = record.get("num_players", 2)
+    move_count = record.get("move_count", 0)
+
+    if not initial_state_dict:
+        return (features_list, globals_list, values_list, values_mp_list,
+                num_players_list, policy_indices_list, policy_values_list,
+                move_numbers_list, total_game_moves_list, phases_list, 0)
+
+    # Parse initial state
+    initial_state = deserialize_game_state(initial_state_dict)
+
+    # Compute value targets from winner field directly
+    values_vec = np.array(
+        _compute_multi_player_values_from_winner(winner, num_players),
+        dtype=np.float32,
+    )
+
+    # Extract features from initial state only
+    # This gives us one sample per game with the starting position
+    history_frames: List[np.ndarray] = []
+
+    stacked, globals_vec = encode_state_with_history(
+        encoder, initial_state, history_frames, history_length
+    )
+
+    # Value from perspective of player 1 (initial player)
+    value = _value_from_winner(winner, 1, num_players)
+
+    # Phase string
+    phase_str = (
+        str(initial_state.current_phase.value)
+        if hasattr(initial_state.current_phase, "value")
+        else str(initial_state.current_phase)
+    )
+
+    # For policy, use a dummy "no action" index since we don't have
+    # the move that was actually played from initial state
+    # The training will focus on value prediction for GPU selfplay data
+    dummy_policy_idx = np.array([0], dtype=np.int32)
+    dummy_policy_val = np.array([1.0], dtype=np.float32)
+
+    # Store sample
+    features_list.append(stacked)
+    globals_list.append(globals_vec)
+    values_list.append(float(value))
+    values_mp_list.append(values_vec.copy())
+    num_players_list.append(num_players)
+    policy_indices_list.append(dummy_policy_idx)
+    policy_values_list.append(dummy_policy_val)
+    move_numbers_list.append(0)
+    total_game_moves_list.append(move_count)
+    phases_list.append(phase_str)
+
+    return (features_list, globals_list, values_list, values_mp_list,
+            num_players_list, policy_indices_list, policy_values_list,
+            move_numbers_list, total_game_moves_list, phases_list, 1)
+
+
+def _move_type_from_str(type_str: str) -> Optional[MoveType]:
+    """Convert move type string to MoveType enum."""
+    try:
+        return MoveType(type_str)
+    except ValueError:
+        return None
 
 
 def build_encoder(board_type: BoardType) -> NeuralNetAI:
@@ -301,6 +518,10 @@ def process_jsonl_file(
                 moves_succeeded = 0
                 for move in moves:
                     try:
+                        # Handle GPU selfplay simplified format:
+                        # Complete phase transitions before applying the recorded move
+                        if gpu_selfplay_mode:
+                            final_state = _complete_remaining_phases(final_state, move.player)
                         final_state = GameEngine.apply_move(final_state, move)
                         moves_succeeded += 1
                     except Exception:
@@ -326,6 +547,9 @@ def process_jsonl_file(
                         history_frames.append(base_features)
                         if len(history_frames) > history_length + 1:
                             history_frames.pop(0)
+                        # Handle GPU selfplay simplified format
+                        if gpu_selfplay_mode:
+                            current_state = _complete_remaining_phases(current_state, move.player)
                         current_state = GameEngine.apply_move(current_state, move)
                         continue
 
@@ -374,6 +598,9 @@ def process_jsonl_file(
                     stats.positions_extracted += 1
 
                     # Apply move for next iteration
+                    # Handle GPU selfplay simplified format
+                    if gpu_selfplay_mode:
+                        current_state = _complete_remaining_phases(current_state, move.player)
                     current_state = GameEngine.apply_move(current_state, move)
 
                 games_in_file += 1
@@ -411,6 +638,7 @@ def convert_jsonl_to_npz(
     max_games: Optional[int] = None,
     sample_every: int = 1,
     history_length: int = 3,
+    gpu_selfplay_mode: bool = False,
 ) -> ConversionStats:
     """Convert JSONL files to NPZ training data."""
     board_type = BOARD_TYPE_MAP.get(board_type_str, BoardType.SQUARE8)
@@ -448,6 +676,7 @@ def convert_jsonl_to_npz(
             sample_every=sample_every,
             history_length=history_length,
             current_games=total_stats.games_processed,
+            gpu_selfplay_mode=gpu_selfplay_mode,
         )
 
         all_features.extend(features)
@@ -566,6 +795,11 @@ def main():
         default=3,
         help="Number of historical frames to stack (default: 3)",
     )
+    parser.add_argument(
+        "--gpu-selfplay",
+        action="store_true",
+        help="Enable GPU selfplay mode: auto-inject phase transitions for simplified move format",
+    )
 
     args = parser.parse_args()
 
@@ -589,6 +823,7 @@ def main():
         max_games=args.max_games,
         sample_every=args.sample_every,
         history_length=args.history_length,
+        gpu_selfplay_mode=args.gpu_selfplay,
     )
 
     logger.info("")
