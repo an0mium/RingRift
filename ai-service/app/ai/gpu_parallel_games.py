@@ -1058,7 +1058,16 @@ def generate_placement_moves_batch(
 ) -> BatchMoves:
     """Generate all valid placement moves for active games.
 
-    A placement is valid on any empty position (stack_owner == 0).
+    Per RingRift rules, placement is valid on:
+    - Empty positions (stack_owner == 0): can place 1-3 rings
+    - Occupied positions (stack_owner > 0): can place exactly 1 ring on top
+
+    Placement is NOT valid on:
+    - Collapsed spaces (is_collapsed == True)
+
+    Note: The GPU engine simplifies by allowing placement on ANY non-collapsed
+    position. The placement count (1 vs 1-3) is handled during move selection
+    and application, not during move generation.
 
     Args:
         state: Current batch game state
@@ -1074,17 +1083,19 @@ def generate_placement_moves_batch(
     batch_size = state.batch_size
     board_size = state.board_size
 
-    # Find all empty positions per game
-    # empty_positions: (batch_size, board_size, board_size) bool
-    empty_positions = (state.stack_owner == 0) & active_mask.view(-1, 1, 1)
+    # Find all valid placement positions per game:
+    # - Must not be collapsed
+    # - Game must be active
+    # valid_positions: (batch_size, board_size, board_size) bool
+    valid_positions = (~state.is_collapsed) & active_mask.view(-1, 1, 1)
 
-    # Get indices of all empty positions
-    game_idx, y_idx, x_idx = torch.where(empty_positions)
+    # Get indices of all valid positions
+    game_idx, y_idx, x_idx = torch.where(valid_positions)
 
     total_moves = len(game_idx)
 
     # Count moves per game for indexing
-    moves_per_game = empty_positions.view(batch_size, -1).sum(dim=1)
+    moves_per_game = valid_positions.view(batch_size, -1).sum(dim=1)
     move_offsets = torch.cumsum(
         torch.cat([torch.tensor([0], device=device), moves_per_game[:-1]]),
         dim=0
