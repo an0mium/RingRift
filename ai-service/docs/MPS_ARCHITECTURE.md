@@ -1,63 +1,37 @@
-# MPS-Compatible Neural Network Architecture
+# MPS Support for Neural Nets (Apple Silicon)
 
 ## Overview
 
-The `RingRiftCNN_MPS` architecture provides a fully MPS-compatible alternative to the default `RingRiftCNN` architecture for running RingRift's neural network AI on Apple Silicon GPUs via PyTorch's Metal Performance Shaders (MPS) backend.
+RingRift supports running neural-network inference/training on Apple Silicon GPUs
+via PyTorch's Metal Performance Shaders (MPS) backend.
 
-## Background
+## Background / Current State
 
-### The Problem
+Historically, RingRift had an MPS-specific architecture variant to avoid
+`nn.AdaptiveAvgPool2d` limitations on MPS.
 
-The default `RingRiftCNN` architecture uses [`nn.AdaptiveAvgPool2d`](../app/ai/neural_net.py:264) for adaptive pooling to handle variable board sizes. However, this operation is not currently supported by PyTorch's MPS backend, causing failures when attempting to run on macOS systems with Apple Silicon.
+Today, the canonical CNN architectures (`RingRiftCNN_v2`, `RingRiftCNN_v3` and
+their Lite variants) use MPS-compatible global pooling (`torch.mean(...)`), so
+the same checkpoint can run on CPU, CUDA, or MPS.
 
-### The Solution
+## Model IDs vs Architectures (v2/v3/v4)
 
-`RingRiftCNN_MPS` replaces `nn.AdaptiveAvgPool2d` with manual global average pooling using `torch.mean(dim=[-2, -1])`, which is fully supported on MPS. This provides identical functionality while maintaining MPS compatibility.
+There is no `RingRiftCNN_v4` class. “v4” is a **model ID / checkpoint lineage**
+used in filenames (e.g. `ringrift_v4_sq8_2p.pth`). The checkpoint metadata
+declares the actual model class (e.g. `RingRiftCNN_v2`) and its hyperparameters
+(filters, blocks, policy size, history length).
 
-## Architecture Details
+Example:
 
-### Key Differences from RingRiftCNN
-
-| Aspect               | RingRiftCNN                    | RingRiftCNN_MPS            |
-| -------------------- | ------------------------------ | -------------------------- |
-| Pooling Method       | `nn.AdaptiveAvgPool2d((4, 4))` | `torch.mean(dim=[-2, -1])` |
-| MPS Compatibility    | ❌ No                          | ✅ Yes                     |
-| Architecture Version | `v1.0.0`                       | `v1.0.0-mps`               |
-| Parameter Count      | ~Same                          | ~Same                      |
-| Performance          | Baseline                       | Comparable                 |
-
-### Technical Implementation
-
-**Original (RingRiftCNN):**
-
-```python
-# Adaptive pooling to fixed 4x4 grid
-self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
-x = self.adaptive_pool(x)  # [B, C, H, W] → [B, C, 4, 4]
-x = x.view(x.size(0), -1)  # Flatten to [B, C*16]
-```
-
-**MPS-Compatible (RingRiftCNN_MPS):**
-
-```python
-# Global average pooling
-x = torch.mean(x, dim=[-2, -1])  # [B, C, H, W] → [B, C]
-# No view() needed - already flat
-```
-
-### Maintained Features
-
-- Same ResNet-style backbone with residual blocks
-- Same input/output interfaces
-- Same policy head size (55,000 actions)
-- Same value head range ([-1, 1])
-- Compatible with all board sizes (8×8, 19×19, 25×25 hex)
+- `ringrift_v4_sq8_2p.pth` currently loads as `RingRiftCNN_v2` (192 filters),
+  with `value_fc1.in_features = 212 = 192 + 20`.
 
 ## Usage
 
 ### Environment Variable Configuration
 
-Architecture selection is controlled via the `RINGRIFT_NN_ARCHITECTURE` environment variable:
+Architecture/device selection is controlled via the `RINGRIFT_NN_ARCHITECTURE`
+environment variable (see `app/ai/neural_net.py`):
 
 **Option 1: Explicit MPS Selection**
 
@@ -100,56 +74,19 @@ NeuralNetAI using device: mps, architecture: mps
 
 ### Checkpoint Management
 
-MPS architecture checkpoints use a `_mps` suffix to avoid confusion with default architecture checkpoints.
+NeuralNetAI resolves checkpoints under `ai-service/models/` using:
 
-**Checkpoint Naming Convention:**
+- `AIConfig.nn_model_id` (explicit), or
+- a board-aware default (Square8 → `ringrift_v4_sq8_2p`, etc).
 
-- Default architecture: `ringrift_v1.pth`
-- MPS architecture: `ringrift_v1_mps.pth`
+When `RINGRIFT_NN_ARCHITECTURE=mps`, the loader will _prefer_ a `*_mps.pth`
+checkpoint but will fall back to the non-suffixed `.pth` if needed. Since v2/v3
+architectures are MPS compatible, checkpoints are portable across devices; the
+`*_mps` suffix is kept primarily for legacy naming conventions.
 
-**Loading Process:**
-
-```python
-# With RINGRIFT_NN_ARCHITECTURE=mps
-# Automatically looks for: ai-service/models/ringrift_v1_mps.pth
-
-# With RINGRIFT_NN_ARCHITECTURE=default
-# Looks for: ai-service/models/ringrift_v1.pth
-```
-
-**Important**: MPS and default checkpoints are **not interchangeable** due to architectural differences in the fully connected layers.
-
-## Training with MPS Architecture
-
-### Starting Training
-
-```bash
-# Train MPS model on Apple Silicon
-export RINGRIFT_NN_ARCHITECTURE=mps
-export RINGRIFT_FORCE_CPU=0  # Allow MPS
-
-python -m app.training.train \
-  --model-id ringrift_v1 \
-  --board-type SQUARE8 \
-  --epochs 100
-```
-
-The training script will:
-
-1. Create `RingRiftCNN_MPS` model
-2. Use MPS device if available
-3. Save checkpoints to `models/ringrift_v1_mps.pth`
-
-### Resuming Training
-
-```bash
-# Resume from MPS checkpoint
-export RINGRIFT_NN_ARCHITECTURE=mps
-
-python -m app.training.train \
-  --model-id ringrift_v1 \
-  --resume
-```
+Important: We intentionally do **not** default to deprecated `ringrift_v1` /
+`ringrift_v1_mps` IDs anymore. Missing or incompatible v1 checkpoints are a
+common cause of “neural fallback” in MCTS/Descent.
 
 ## Testing
 
@@ -208,15 +145,14 @@ Speedup: 1.9x
 - Maximum compatibility is required
 - Checkpoints already exist for default architecture
 
-## Limitations and Known Issues
+## Troubleshooting
 
-### Current Limitations
-
-1. **Checkpoint Incompatibility**: MPS and default checkpoints are not interchangeable
-2. **Training Only**: MPS architecture is primarily for training; inference works on all devices
-3. **macOS Only**: MPS backend only available on macOS with Apple Silicon
-
-### Future Improvements
+- If you see an error like:
+  `value_fc1 in_features: checkpoint=212 expected=148`
+  it usually means the code instantiated a smaller legacy model (128 filters)
+  and tried to load a canonical 192-filter checkpoint. Ensure you are running
+  the current `app/ai/neural_net.py` loader and that your scripts do not force
+  legacy defaults / deprecated model IDs.
 
 - [ ] Checkpoint conversion utility (default ↔ MPS)
 - [ ] Unified checkpoint format supporting both architectures

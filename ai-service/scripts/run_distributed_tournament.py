@@ -384,21 +384,30 @@ class DistributedTournament:
         output_dir: str = "results/tournaments",
         resume_file: Optional[str] = None,
         nn_model_id: Optional[str] = None,
+        base_seed: int = 1,
+        think_time_scale: float = 1.0,
+        max_moves: int = 300,
+        confidence: float = 0.95,
+        report_path: Optional[str] = None,
     ):
         self.tiers = sorted(tiers, key=lambda t: int(t[1:]))
         self.games_per_matchup = games_per_matchup
         self.board_type = board_type
         self.max_workers = max_workers
         self.output_dir = Path(output_dir)
-        # CNN policy/value model id used by neural tiers (MCTS/Descent).
-        # When omitted, get_best_nn_model_id() picks a canonical v4 checkpoint.
         self.nn_model_id = nn_model_id
+        self.think_time_scale = think_time_scale
+        self.max_moves = max_moves
+        self.confidence = confidence
+        self.report_path = Path(report_path) if report_path else None
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         if resume_file and os.path.exists(resume_file):
             with open(resume_file) as f:
                 self.state = TournamentState.from_dict(json.load(f))
             logger.info(f"Resumed tournament {self.state.tournament_id}")
+            self.nn_model_id = self.state.nn_model_id
+            self.think_time_scale = self.state.think_time_scale
         else:
             self.state = TournamentState(
                 tournament_id=str(uuid.uuid4())[:8],
@@ -406,6 +415,9 @@ class DistributedTournament:
                 board_type=board_type.value,
                 games_per_matchup=games_per_matchup,
                 tiers=tiers,
+                base_seed=int(base_seed),
+                think_time_scale=float(think_time_scale),
+                nn_model_id=nn_model_id,
             )
             for tier in tiers:
                 self.state.tier_stats[tier] = TierStats(tier=tier)
@@ -438,19 +450,12 @@ class DistributedTournament:
         if result.winner == 1:
             stats_a.wins += 1
             stats_b.losses += 1
-            score_a = 1.0
         elif result.winner == 2:
             stats_a.losses += 1
             stats_b.wins += 1
-            score_a = 0.0
         else:
             stats_a.draws += 1
             stats_b.draws += 1
-            score_a = 0.5
-
-        new_a, new_b = update_elo(stats_a.elo, stats_b.elo, score_a)
-        stats_a.elo = new_a
-        stats_b.elo = new_b
 
         self.state.matches.append(result)
 
@@ -461,7 +466,9 @@ class DistributedTournament:
         worker_name: str = "local",
     ) -> List[MatchResult]:
         results = []
-        base_seed = hash((tier_a, tier_b, self.state.tournament_id)) & 0xFFFFFFFF
+        base_seed = hash(
+            (tier_a, tier_b, self.state.base_seed, self.board_type.value)
+        ) & 0xFFFFFFFF
 
         for game_idx in range(self.games_per_matchup):
             if game_idx % 2 == 0:
@@ -473,7 +480,10 @@ class DistributedTournament:
             result = run_single_game(
                 actual_a, actual_b,
                 self.board_type, seed,
+                max_moves=self.max_moves,
                 worker_name=worker_name,
+                game_index=game_idx,
+                think_time_scale=self.think_time_scale,
                 nn_model_id=self.nn_model_id,
             )
 
@@ -487,6 +497,8 @@ class DistributedTournament:
                     worker=result.worker,
                     game_id=result.game_id,
                     timestamp=result.timestamp,
+                    seed=result.seed,
+                    game_index=result.game_index,
                 )
 
             results.append(result)
@@ -549,7 +561,11 @@ class DistributedTournament:
 
         report = self.generate_report(duration)
 
-        report_path = self.output_dir / f"report_{self.state.tournament_id}.json"
+        report_path = (
+            self.report_path
+            if self.report_path is not None
+            else self.output_dir / f"report_{self.state.tournament_id}.json"
+        )
         with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
         logger.info(f"Report saved: {report_path}")
