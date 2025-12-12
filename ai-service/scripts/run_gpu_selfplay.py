@@ -59,6 +59,8 @@ from app.ai.gpu_parallel_games import (
     BatchGameState,
     benchmark_parallel_games,
 )
+from app.models.core import BoardType
+from app.training.generate_data import create_initial_state
 
 # NOTE: Victory type derivation is now handled internally by the
 # BatchGameState class in gpu_parallel_games.py, which derives
@@ -177,6 +179,13 @@ class GPUSelfPlayGenerator:
         self.wins_by_player = {i: 0 for i in range(1, num_players + 1)}
         self.draws = 0
 
+        # Pre-compute initial state for training data compatibility
+        # All GPU games start from the same default initial state
+        board_type_map = {8: BoardType.SQUARE8, 19: BoardType.SQUARE19}
+        board_type = board_type_map.get(board_size, BoardType.SQUARE8)
+        self._initial_state = create_initial_state(board_type, num_players)
+        self._initial_state_json = self._initial_state.model_dump(mode="json")
+
     def generate_batch(
         self,
         seed: Optional[int] = None,
@@ -267,6 +276,7 @@ class GPUSelfPlayGenerator:
                         "victory_type": results["victory_types"][i],
                         "stalemate_tiebreaker": results["stalemate_tiebreakers"][i],
                         "moves": results["move_histories"][i],  # Full move history for training
+                        "initial_state": self._initial_state_json,  # Required for NN training
                         "timestamp": datetime.now().isoformat(),
                     }
                     all_records.append(record)

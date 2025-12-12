@@ -12,6 +12,8 @@ clones for backwards‑compatible behaviour and debugging.
 
 import logging
 import os
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Optional, Dict, Any, cast, List, Tuple
 import math
 import time
@@ -403,6 +405,26 @@ class DynamicBatchSizer:
         }
 
 
+@dataclass
+class _EvalBatchLegacy:
+    leaves: List[Tuple[MCTSNode, GameState, List[Move]]]
+    states: List[GameState]
+    cached_results: List[Tuple[int, float, Any]]
+    uncached_indices: List[int]
+    uncached_states: List[GameState]
+    use_hex_nn: bool
+
+
+@dataclass
+class _EvalBatchIncremental:
+    leaves: List[Tuple[MCTSNodeLite, List[MoveUndo], List[Move]]]
+    states: List[GameState]
+    cached_results: List[Tuple[int, float, Any]]
+    uncached_indices: List[int]
+    uncached_states: List[GameState]
+    use_hex_nn: bool
+
+
 class MCTSAI(HeuristicAI):
     """Monte Carlo Tree Search AI with neural network evaluation.
 
@@ -501,6 +523,25 @@ class MCTSAI(HeuristicAI):
                 f"MCTSAI(player={player_number}, difficulty={config.difficulty}): "
                 "using heuristic evaluation (neural disabled)"
             )
+
+        # Optional async NN leaf evaluation to overlap CPU tree traversal with
+        # GPU inference. Enabled via env var and only when a non-CPU device is used.
+        async_env = os.environ.get("RINGRIFT_MCTS_ASYNC_NN_EVAL", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.enable_async_nn_eval: bool = False
+        self._nn_eval_executor: Optional[ThreadPoolExecutor] = None
+        if async_env and self.neural_net is not None:
+            dev = getattr(self.neural_net, "device", "cpu")
+            dev_type = (
+                dev if isinstance(dev, str) else getattr(dev, "type", "cpu")
+            )
+            if dev_type != "cpu":
+                self.enable_async_nn_eval = True
+                self._nn_eval_executor = ThreadPoolExecutor(max_workers=1)
 
         # Optional hex-specific encoder and network (used for hex boards).
         self.hex_encoder: Optional[ActionEncoderHex]
@@ -791,13 +832,27 @@ class MCTSAI(HeuristicAI):
                 in valid_moves_set
             ]
 
+        # Progressive widening on large boards benefits from NN priors at the root.
+        # Seed them once up-front so early expansions focus on top-prior moves.
+        self._maybe_seed_root_priors(root, game_state)
+
         board_type = game_state.board.type
         end_time = time.time() + time_limit
         default_batch_size = self._default_leaf_batch_size()
         node_count = 1
 
+        pending_batch: Optional[_EvalBatchLegacy] = None
+        pending_future: Optional[Future] = None
+
         # MCTS implementation with PUCT
         while time.time() < end_time:
+            # If a previous async NN evaluation finished, incorporate it now.
+            if pending_future is not None and pending_future.done():
+                assert pending_batch is not None
+                self._finish_leaf_evaluation_legacy(pending_batch, pending_future)
+                pending_batch = None
+                pending_future = None
+
             if self.enable_dynamic_batching and self.dynamic_sizer is not None:
                 batch_size = self.dynamic_sizer.get_optimal_batch_size(
                     node_count
@@ -850,8 +905,31 @@ class MCTSAI(HeuristicAI):
             if not leaves:
                 break
 
-            # Evaluation Phase
-            self._evaluate_leaves_legacy(leaves, root)
+            if (
+                self.enable_async_nn_eval
+                and self._nn_eval_executor is not None
+                and self.neural_net is not None
+            ):
+                # Avoid overlapping model usage: finish any pending batch first.
+                if pending_future is not None:
+                    assert pending_batch is not None
+                    self._finish_leaf_evaluation_legacy(pending_batch, pending_future)
+                    pending_batch = None
+                    pending_future = None
+
+                pending_batch, pending_future = self._prepare_leaf_evaluation_legacy(
+                    leaves, self._nn_eval_executor
+                )
+                if pending_future is None:
+                    self._finish_leaf_evaluation_legacy(pending_batch, None)
+                    pending_batch = None
+            else:
+                # Synchronous evaluation Phase
+                self._evaluate_leaves_legacy(leaves, root)
+
+        # Ensure any pending eval is incorporated before selecting best move.
+        if pending_future is not None and pending_batch is not None:
+            self._finish_leaf_evaluation_legacy(pending_batch, pending_future)
 
         # Record memory sample if dynamic batching is enabled
         if self.enable_dynamic_batching and self.dynamic_sizer is not None:
@@ -1008,6 +1086,305 @@ class MCTSAI(HeuristicAI):
                     current_val = -current_val
                 curr_node = parent
                 depth_idx = parent_depth
+
+    def _prepare_leaf_evaluation_legacy(
+        self,
+        leaves: List[Tuple[MCTSNode, GameState, List[Move]]],
+        executor: ThreadPoolExecutor,
+    ) -> tuple[_EvalBatchLegacy, Optional[Future]]:
+        states = [leaf[1] for leaf in leaves]
+
+        cached_results: List[Tuple[int, float, Any]] = []
+        uncached_indices: List[int] = []
+        uncached_states: List[GameState] = []
+
+        for i, state in enumerate(states):
+            state_hash = state.zobrist_hash or 0
+            cached = self.transposition_table.get(state_hash)
+            if cached is not None:
+                cached_results.append((i, cached[0], cached[1]))
+            else:
+                uncached_indices.append(i)
+                uncached_states.append(state)
+
+        use_hex_nn = (
+            self.hex_model is not None
+            and self.hex_encoder is not None
+            and states
+            and states[0].board.type == BoardType.HEXAGONAL
+        )
+
+        future: Optional[Future] = None
+        if uncached_states:
+            if use_hex_nn:
+                future = executor.submit(self._evaluate_hex_batch, uncached_states)
+            else:
+                future = executor.submit(
+                    self.neural_net.evaluate_batch,  # type: ignore[union-attr]
+                    uncached_states,
+                )
+
+        batch = _EvalBatchLegacy(
+            leaves=leaves,
+            states=states,
+            cached_results=cached_results,
+            uncached_indices=uncached_indices,
+            uncached_states=uncached_states,
+            use_hex_nn=bool(use_hex_nn),
+        )
+        return batch, future
+
+    def _finish_leaf_evaluation_legacy(
+        self,
+        batch: _EvalBatchLegacy,
+        future: Optional[Future],
+    ) -> None:
+        states = batch.states
+        values: List[float] = [0.0] * len(states)
+        policies: List[Any] = [None] * len(states)
+
+        for idx, val, pol in batch.cached_results:
+            values[idx] = val
+            policies[idx] = pol
+
+        try:
+            if future is not None:
+                eval_values, eval_policies = future.result()
+                for j, orig_idx in enumerate(batch.uncached_indices):
+                    values[orig_idx] = eval_values[j]
+                    policies[orig_idx] = eval_policies[j]
+
+                    state_hash = batch.uncached_states[j].zobrist_hash or 0
+                    self.transposition_table.put(
+                        state_hash,
+                        (eval_values[j], eval_policies[j]),
+                    )
+
+            for i in range(len(batch.leaves)):
+                value = values[i]
+                policy = policies[i]
+                node, state, played_moves = batch.leaves[i]
+
+                if policy is None:
+                    continue
+
+                self._update_node_policy_legacy(
+                    node, state, policy, bool(batch.use_hex_nn)
+                )
+
+                players_by_depth = [m.player for m in played_moves]
+                players_by_depth.append(state.current_player)
+                side_is_root_by_depth = [
+                    (p == self.player_number) for p in players_by_depth
+                ]
+
+                current_val = float(value) if value is not None else 0.0
+                depth_idx = len(played_moves)
+                curr_node: Optional[MCTSNode] = node
+
+                while curr_node is not None:
+                    curr_node.update(current_val, played_moves)
+                    parent = curr_node.parent
+                    if parent is None:
+                        break
+                    parent_depth = depth_idx - 1
+                    if (
+                        side_is_root_by_depth[depth_idx]
+                        != side_is_root_by_depth[parent_depth]
+                    ):
+                        current_val = -current_val
+                    curr_node = parent
+                    depth_idx = parent_depth
+        except Exception:
+            logger.warning(
+                "Async MCTS neural evaluation failed; falling back to heuristic rollouts",
+                exc_info=True,
+            )
+            self.neural_net = None
+            for node, state, played_moves in batch.leaves:
+                result = self._heuristic_rollout_legacy(state)
+                players_by_depth = [m.player for m in played_moves]
+                players_by_depth.append(state.current_player)
+                side_is_root_by_depth = [
+                    (p == self.player_number) for p in players_by_depth
+                ]
+
+                current_val = (
+                    float(result)
+                    if state.current_player == self.player_number
+                    else -float(result)
+                )
+                depth_idx = len(played_moves)
+                curr_node: Optional[MCTSNode] = node
+                while curr_node is not None:
+                    curr_node.update(current_val, played_moves)
+                    parent = curr_node.parent
+                    if parent is None:
+                        break
+                    parent_depth = depth_idx - 1
+                    if (
+                        side_is_root_by_depth[depth_idx]
+                        != side_is_root_by_depth[parent_depth]
+                    ):
+                        current_val = -current_val
+                    curr_node = parent
+                    depth_idx = parent_depth
+
+    def _prepare_leaf_evaluation_incremental(
+        self,
+        leaves: List[Tuple[MCTSNodeLite, List[MoveUndo], List[Move]]],
+        mutable_state: MutableGameState,
+        executor: ThreadPoolExecutor,
+    ) -> tuple[_EvalBatchIncremental, Optional[Future]]:
+        states: List[GameState] = []
+        for node, path_undos, played_moves in leaves:
+            for undo in path_undos:
+                mutable_state.make_move(undo.move)
+            immutable = mutable_state.to_immutable()
+            states.append(immutable)
+            for undo in reversed(path_undos):
+                mutable_state.unmake_move(undo)
+
+        cached_results: List[Tuple[int, float, Any]] = []
+        uncached_indices: List[int] = []
+        uncached_states: List[GameState] = []
+
+        for i, state in enumerate(states):
+            state_hash = state.zobrist_hash or 0
+            cached = self.transposition_table.get(state_hash)
+            if cached is not None:
+                cached_results.append((i, cached[0], cached[1]))
+            else:
+                uncached_indices.append(i)
+                uncached_states.append(state)
+
+        use_hex_nn = (
+            self.hex_model is not None
+            and self.hex_encoder is not None
+            and states
+            and states[0].board.type == BoardType.HEXAGONAL
+        )
+
+        future: Optional[Future] = None
+        if uncached_states:
+            if use_hex_nn:
+                future = executor.submit(self._evaluate_hex_batch, uncached_states)
+            else:
+                future = executor.submit(
+                    self.neural_net.evaluate_batch,  # type: ignore[union-attr]
+                    uncached_states,
+                )
+
+        batch = _EvalBatchIncremental(
+            leaves=leaves,
+            states=states,
+            cached_results=cached_results,
+            uncached_indices=uncached_indices,
+            uncached_states=uncached_states,
+            use_hex_nn=bool(use_hex_nn),
+        )
+        return batch, future
+
+    def _finish_leaf_evaluation_incremental(
+        self,
+        batch: _EvalBatchIncremental,
+        future: Optional[Future],
+        mutable_state: MutableGameState,
+    ) -> None:
+        states = batch.states
+        values: List[float] = [0.0] * len(states)
+        policies: List[Any] = [None] * len(states)
+
+        for idx, val, pol in batch.cached_results:
+            values[idx] = val
+            policies[idx] = pol
+
+        try:
+            if future is not None:
+                eval_values, eval_policies = future.result()
+                for j, orig_idx in enumerate(batch.uncached_indices):
+                    values[orig_idx] = eval_values[j]
+                    policies[orig_idx] = eval_policies[j]
+
+                    state_hash = batch.uncached_states[j].zobrist_hash or 0
+                    self.transposition_table.put(
+                        state_hash,
+                        (eval_values[j], eval_policies[j]),
+                    )
+
+            for i, (node, path_undos, played_moves) in enumerate(batch.leaves):
+                value = values[i]
+                policy = policies[i]
+                state = states[i]
+
+                if policy is not None:
+                    self._update_node_policy_lite(
+                        node, state, policy, bool(batch.use_hex_nn)
+                    )
+
+                players_by_depth = [u.prev_player for u in path_undos]
+                players_by_depth.append(state.current_player)
+                side_is_root_by_depth = [
+                    (p == self.player_number) for p in players_by_depth
+                ]
+
+                current_val = float(value) if value is not None else 0.0
+                depth_idx = len(path_undos)
+                curr_node: Optional[MCTSNodeLite] = node
+
+                while curr_node is not None:
+                    curr_node.update(current_val, played_moves)
+                    parent = curr_node.parent
+                    if parent is None:
+                        break
+                    parent_depth = depth_idx - 1
+                    if (
+                        side_is_root_by_depth[depth_idx]
+                        != side_is_root_by_depth[parent_depth]
+                    ):
+                        current_val = -current_val
+                    curr_node = parent
+                    depth_idx = parent_depth
+        except Exception:
+            logger.warning(
+                "Async MCTS neural evaluation failed; falling back to heuristic rollouts",
+                exc_info=True,
+            )
+            self.neural_net = None
+            for node, path_undos, played_moves in batch.leaves:
+                for undo in path_undos:
+                    mutable_state.make_move(undo.move)
+                state = mutable_state.to_immutable()
+                for undo in reversed(path_undos):
+                    mutable_state.unmake_move(undo)
+
+                result = self._heuristic_rollout_legacy(state)
+                players_by_depth = [m.player for m in played_moves]
+                players_by_depth.append(state.current_player)
+                side_is_root_by_depth = [
+                    (p == self.player_number) for p in players_by_depth
+                ]
+
+                current_val = (
+                    float(result)
+                    if state.current_player == self.player_number
+                    else -float(result)
+                )
+                depth_idx = len(played_moves)
+                curr_node: Optional[MCTSNodeLite] = node
+                while curr_node is not None:
+                    curr_node.update(current_val, played_moves)
+                    parent = curr_node.parent
+                    if parent is None:
+                        break
+                    parent_depth = depth_idx - 1
+                    if (
+                        side_is_root_by_depth[depth_idx]
+                        != side_is_root_by_depth[parent_depth]
+                    ):
+                        current_val = -current_val
+                    curr_node = parent
+                    depth_idx = parent_depth
 
     def _evaluate_hex_batch(
         self, states: List[GameState]
@@ -1301,12 +1678,26 @@ class MCTSAI(HeuristicAI):
                 in valid_moves_set
             ]
 
+        # Seed NN priors at root for large boards to align with progressive widening.
+        self._maybe_seed_root_priors(root, game_state)
+
         end_time = time.time() + time_limit
         default_batch_size = self._default_leaf_batch_size()
         node_count = 1
 
+        pending_batch: Optional[_EvalBatchIncremental] = None
+        pending_future: Optional[Future] = None
+
         # MCTS implementation with PUCT using make/unmake
         while time.time() < end_time:
+            if pending_future is not None and pending_future.done():
+                assert pending_batch is not None
+                self._finish_leaf_evaluation_incremental(
+                    pending_batch, pending_future, mutable_state
+                )
+                pending_batch = None
+                pending_future = None
+
             if self.enable_dynamic_batching and self.dynamic_sizer is not None:
                 batch_size = self.dynamic_sizer.get_optimal_batch_size(
                     node_count
@@ -1347,10 +1738,42 @@ class MCTSAI(HeuristicAI):
             if not leaves:
                 break
 
-            # Evaluation Phase - replay paths and evaluate
-            self._evaluate_leaves_incremental(
-                leaves, mutable_state, root
+            if (
+                self.enable_async_nn_eval
+                and self._nn_eval_executor is not None
+                and self.neural_net is not None
+            ):
+                if pending_future is not None:
+                    assert pending_batch is not None
+                    self._finish_leaf_evaluation_incremental(
+                        pending_batch, pending_future, mutable_state
+                    )
+                    pending_batch = None
+                    pending_future = None
+
+                pending_batch, pending_future = (
+                    self._prepare_leaf_evaluation_incremental(
+                        leaves, mutable_state, self._nn_eval_executor
+                    )
+                )
+                if pending_future is None:
+                    self._finish_leaf_evaluation_incremental(
+                        pending_batch, None, mutable_state
+                    )
+                    pending_batch = None
+            else:
+                # Evaluation Phase - replay paths and evaluate
+                self._evaluate_leaves_incremental(
+                    leaves, mutable_state, root
+                )
+
+        # Ensure any pending eval is incorporated before final stats/policy.
+        if pending_future is not None and pending_batch is not None:
+            self._finish_leaf_evaluation_incremental(
+                pending_batch, pending_future, mutable_state
             )
+            pending_batch = None
+            pending_future = None
 
         # Record memory sample if dynamic batching is enabled
         if self.enable_dynamic_batching and self.dynamic_sizer is not None:
@@ -1863,6 +2286,69 @@ class MCTSAI(HeuristicAI):
         if dev_str == "cpu":
             return 8
         return 16
+
+    def _maybe_seed_root_priors(self, root: Any, game_state: GameState) -> None:
+        """Seed NN priors at the root for large boards.
+
+        Progressive widening relies on high-quality priors to select the
+        initial children. For square19/hex boards, evaluate the root once
+        so early expansions focus on top-prior moves and reused roots regain
+        consistent priors.
+        """
+        if not self.neural_net:
+            return
+
+        board_type = game_state.board.type
+        if not self._use_progressive_widening(board_type):
+            return
+
+        existing_map = getattr(root, "policy_map", None)
+        if isinstance(existing_map, dict) and existing_map:
+            return
+
+        try:
+            use_hex_nn = (
+                self.hex_model is not None
+                and self.hex_encoder is not None
+                and board_type == BoardType.HEXAGONAL
+            )
+
+            if use_hex_nn:
+                eval_values, eval_policies = self._evaluate_hex_batch([game_state])
+                policy_vec = eval_policies[0]
+                value = float(eval_values[0]) if eval_values else 0.0
+            else:
+                eval_values, policy_batch = self.neural_net.evaluate_batch([game_state])
+                policy_vec = policy_batch[0]
+                value = float(eval_values[0]) if eval_values else 0.0
+
+            if isinstance(root, MCTSNode):
+                self._update_node_policy_legacy(
+                    root, game_state, policy_vec, bool(use_hex_nn)
+                )
+            else:
+                self._update_node_policy_lite(
+                    cast(MCTSNodeLite, root),
+                    game_state,
+                    policy_vec,
+                    bool(use_hex_nn),
+                )
+
+            # Update priors on existing children (tree reuse).
+            for child in getattr(root, "children", []):
+                move = getattr(child, "move", None)
+                if move is None:
+                    continue
+                prior = getattr(root, "policy_map", {}).get(str(move))
+                if prior is not None:
+                    child.prior = float(prior)
+
+            # Cache root eval for TT reuse.
+            state_hash = game_state.zobrist_hash or 0
+            if self.transposition_table.get(state_hash) is None:
+                self.transposition_table.put(state_hash, (value, policy_vec))
+        except Exception:
+            logger.debug("Failed to seed root priors", exc_info=True)
 
     def _sample_child_by_temperature(
         self,

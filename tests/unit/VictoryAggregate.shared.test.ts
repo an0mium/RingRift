@@ -21,7 +21,13 @@ import {
   getMarkerCount,
   isVictoryThresholdReached,
 } from '../../src/shared/engine/aggregates/VictoryAggregate';
-import { createTestGameState, createTestBoard, addStack, addMarker } from '../utils/fixtures';
+import {
+  createTestGameState,
+  createTestBoard,
+  addStack,
+  addMarker,
+  addCollapsedSpace,
+} from '../utils/fixtures';
 import type { GameState, HistoryEntry } from '../../src/shared/types/game';
 
 describe('VictoryAggregate', () => {
@@ -124,6 +130,13 @@ describe('VictoryAggregate', () => {
       const state = createTestGameState();
       state.territoryVictoryThreshold = 10;
       state.players[0].territorySpaces = 10;
+      let placed = 0;
+      for (let x = 0; x < 8 && placed < 10; x++) {
+        for (let y = 0; y < 8 && placed < 10; y++) {
+          addCollapsedSpace(state.board, { x, y }, 1);
+          placed += 1;
+        }
+      }
 
       const result = checkScoreThreshold(state);
 
@@ -139,6 +152,13 @@ describe('VictoryAggregate', () => {
       state.territoryVictoryThreshold = 10;
       state.players[0].eliminatedRings = 5;
       state.players[0].territorySpaces = 10;
+      let placed = 0;
+      for (let x = 0; x < 8 && placed < 10; x++) {
+        for (let y = 0; y < 8 && placed < 10; y++) {
+          addCollapsedSpace(state.board, { x, y }, 1);
+          placed += 1;
+        }
+      }
 
       const result = checkScoreThreshold(state);
 
@@ -293,6 +313,16 @@ describe('VictoryAggregate', () => {
       state.players[0].eliminatedRings = 3;
       state.players[1].territorySpaces = 10;
       state.players[1].eliminatedRings = 1;
+      for (let x = 0; x < 5; x++) {
+        addCollapsedSpace(state.board, { x, y: 0 }, 1);
+      }
+      let p2Placed = 0;
+      for (let x = 0; x < 8 && p2Placed < 10; x++) {
+        for (let y = 1; y < 8 && p2Placed < 10; y++) {
+          addCollapsedSpace(state.board, { x, y }, 2);
+          p2Placed += 1;
+        }
+      }
 
       const result = evaluateVictoryDetailed(state);
 
@@ -309,6 +339,12 @@ describe('VictoryAggregate', () => {
       state.players[1].territorySpaces = 2;
       addMarker(state.board, { x: 0, y: 0 }, 1);
       addMarker(state.board, { x: 1, y: 0 }, 1);
+      for (let x = 0; x < 5; x++) {
+        addCollapsedSpace(state.board, { x, y: 1 }, 1);
+      }
+      for (let x = 0; x < 2; x++) {
+        addCollapsedSpace(state.board, { x, y: 2 }, 2);
+      }
 
       const result = evaluateVictoryDetailed(state);
 
@@ -371,6 +407,9 @@ describe('VictoryAggregate', () => {
     it('returns correct count for known player', () => {
       const state = createTestGameState();
       state.players[0].territorySpaces = 8;
+      for (let x = 0; x < 8; x++) {
+        addCollapsedSpace(state.board, { x, y: 0 }, 1);
+      }
       expect(getTerritoryCount(state, 1)).toBe(8);
     });
   });
@@ -413,6 +452,13 @@ describe('VictoryAggregate', () => {
       const state = createTestGameState();
       state.territoryVictoryThreshold = 10;
       state.players[0].territorySpaces = 10;
+      let placed = 0;
+      for (let x = 0; x < 8 && placed < 10; x++) {
+        for (let y = 0; y < 8 && placed < 10; y++) {
+          addCollapsedSpace(state.board, { x, y }, 1);
+          placed += 1;
+        }
+      }
       expect(isVictoryThresholdReached(state)).toBe(true);
     });
   });

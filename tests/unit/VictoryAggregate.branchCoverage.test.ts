@@ -113,6 +113,11 @@ function addMarker(board: BoardState, x: number, y: number, player: number): voi
   } as MarkerInfo);
 }
 
+function collapseSpace(board: BoardState, x: number, y: number, owner: number): void {
+  const key = positionToString({ x, y });
+  board.collapsedSpaces.set(key, owner);
+}
+
 describe('VictoryAggregate branch coverage', () => {
   describe('evaluateVictory', () => {
     describe('early returns', () => {
@@ -154,6 +159,11 @@ describe('VictoryAggregate branch coverage', () => {
         const state = makeGameState({
           players: [makePlayer(1, { territorySpaces: 32 }), makePlayer(2, { territorySpaces: 5 })],
         });
+        for (let x = 0; x < 4; x++) {
+          for (let y = 0; y < 8; y++) {
+            collapseSpace(state.board, x, y, 1);
+          }
+        }
 
         const result = evaluateVictory(state);
 
@@ -243,8 +253,8 @@ describe('VictoryAggregate branch coverage', () => {
         const board = makeBoardState({ size: 2 });
         board.collapsedSpaces.set('0,0', 1);
         board.collapsedSpaces.set('0,1', 1);
-        board.collapsedSpaces.set('1,0', 1);
-        board.collapsedSpaces.set('1,1', 1);
+        board.collapsedSpaces.set('1,0', 2);
+        board.collapsedSpaces.set('1,1', 2);
 
         const state = makeGameState({
           board,
@@ -265,7 +275,8 @@ describe('VictoryAggregate branch coverage', () => {
         const board = makeBoardState({ size: 2 });
         board.collapsedSpaces.set('0,0', 1);
         board.collapsedSpaces.set('0,1', 1);
-        board.collapsedSpaces.set('1,0', 1);
+        board.collapsedSpaces.set('1,0', 2);
+        board.collapsedSpaces.set('1,1', 2);
         addMarker(board, 1, 1, 1);
 
         const state = makeGameState({
@@ -287,8 +298,8 @@ describe('VictoryAggregate branch coverage', () => {
         const board = makeBoardState({ size: 2 });
         board.collapsedSpaces.set('0,0', 1);
         board.collapsedSpaces.set('0,1', 1);
-        board.collapsedSpaces.set('1,0', 1);
-        board.collapsedSpaces.set('1,1', 1);
+        board.collapsedSpaces.set('1,0', 2);
+        board.collapsedSpaces.set('1,1', 2);
 
         const state = makeGameState({
           board,
@@ -311,8 +322,8 @@ describe('VictoryAggregate branch coverage', () => {
         const board = makeBoardState({ size: 2 });
         board.collapsedSpaces.set('0,0', 1);
         board.collapsedSpaces.set('0,1', 1);
-        board.collapsedSpaces.set('1,0', 1);
-        board.collapsedSpaces.set('1,1', 1);
+        board.collapsedSpaces.set('1,0', 2);
+        board.collapsedSpaces.set('1,1', 2);
 
         const state = makeGameState({
           board,
@@ -425,6 +436,11 @@ describe('VictoryAggregate branch coverage', () => {
       const state = makeGameState({
         players: [makePlayer(1, { territorySpaces: 32 }), makePlayer(2, { territorySpaces: 10 })],
       });
+      for (let x = 0; x < 4; x++) {
+        for (let y = 0; y < 8; y++) {
+          collapseSpace(state.board, x, y, 1);
+        }
+      }
 
       const result = checkScoreThreshold(state);
 
@@ -603,11 +619,20 @@ describe('VictoryAggregate branch coverage', () => {
     });
 
     it('includes standings sorted by criteria', () => {
+      const board = makeBoardState();
+      for (let x = 0; x < 5; x++) {
+        collapseSpace(board, x, 0, 1);
+      }
+      let p2Count = 0;
+      for (let x = 0; x < 8 && p2Count < 10; x++) {
+        for (let y = 1; y < 8 && p2Count < 10; y++) {
+          collapseSpace(board, x, y, 2);
+          p2Count += 1;
+        }
+      }
       const state = makeGameState({
-        players: [
-          makePlayer(1, { territorySpaces: 5, eliminatedRings: 3 }),
-          makePlayer(2, { territorySpaces: 10, eliminatedRings: 2 }),
-        ],
+        board,
+        players: [makePlayer(1, { eliminatedRings: 3 }), makePlayer(2, { eliminatedRings: 2 })],
       });
 
       const result = evaluateVictoryDetailed(state);
@@ -622,12 +647,15 @@ describe('VictoryAggregate branch coverage', () => {
       addMarker(board, 0, 0, 1);
       addMarker(board, 1, 0, 1);
       addMarker(board, 2, 0, 2);
+      for (let x = 0; x < 5; x++) {
+        collapseSpace(board, x, 1, 1);
+      }
+      for (let x = 0; x < 2; x++) {
+        collapseSpace(board, x, 2, 2);
+      }
       const state = makeGameState({
         board,
-        players: [
-          makePlayer(1, { territorySpaces: 5, eliminatedRings: 3 }),
-          makePlayer(2, { territorySpaces: 2, eliminatedRings: 1 }),
-        ],
+        players: [makePlayer(1, { eliminatedRings: 3 }), makePlayer(2, { eliminatedRings: 1 })],
       });
 
       const result = evaluateVictoryDetailed(state);
@@ -674,8 +702,13 @@ describe('VictoryAggregate branch coverage', () => {
 
     it('returns player territory spaces', () => {
       const state = makeGameState({
-        players: [makePlayer(1, { territorySpaces: 12 })],
+        players: [makePlayer(1)],
       });
+      for (let x = 0; x < 3; x++) {
+        for (let y = 0; y < 4; y++) {
+          collapseSpace(state.board, x, y, 1);
+        }
+      }
 
       const count = getTerritoryCount(state, 1);
 
@@ -1133,6 +1166,24 @@ describe('VictoryAggregate branch coverage', () => {
 
     it('handles 4-player game standings', () => {
       const board = makeBoardState();
+      const territoryAssignments = [
+        { player: 1, count: 10 },
+        { player: 2, count: 8 },
+        { player: 3, count: 6 },
+        { player: 4, count: 4 },
+      ];
+      let x = 0;
+      let y = 0;
+      for (const { player, count } of territoryAssignments) {
+        for (let i = 0; i < count; i++) {
+          collapseSpace(board, x, y, player);
+          x += 1;
+          if (x >= 8) {
+            x = 0;
+            y += 1;
+          }
+        }
+      }
 
       const state = makeGameState({
         board,

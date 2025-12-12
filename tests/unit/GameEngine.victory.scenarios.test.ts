@@ -102,6 +102,16 @@ describe('GameEngine victory scenarios (Section 13.1–13.2; FAQ 11, 18, 21)', (
     // purposes of this rules check we only need to satisfy the
     // invariant used by RuleEngine.
     p1.territorySpaces = threshold;
+    const board = gameState.board;
+    board.collapsedSpaces.clear();
+    let placed = 0;
+    for (let x = 0; x < board.size && placed < threshold; x++) {
+      for (let y = 0; y < board.size && placed < threshold; y++) {
+        const key = positionToString({ x, y });
+        board.collapsedSpaces.set(key, 1);
+        placed += 1;
+      }
+    }
 
     const endCheck = engineAny.ruleEngine.checkGameEnd(gameState);
 
@@ -144,6 +154,10 @@ describe('GameEngine victory scenarios (Section 13.1–13.2; FAQ 11, 18, 21)', (
     // Give Player 1 a small amount of territory; Player 2 remains at 0.
     const p1 = gameState.players.find((p) => p.playerNumber === 1)!;
     p1.territorySpaces = 3;
+    gameState.board.collapsedSpaces.clear();
+    for (let x = 0; x < 3; x++) {
+      gameState.board.collapsedSpaces.set(`${x},0`, 1);
+    }
 
     const endCheck = engineAny.ruleEngine.checkGameEnd(gameState);
 
@@ -380,7 +394,8 @@ describe('GameEngine victory scenarios (Section 13.1–13.2; FAQ 11, 18, 21)', (
     for (let x = 0; x < board.size; x++) {
       for (let y = 0; y < board.size; y++) {
         const key = positionToString({ x, y });
-        board.collapsedSpaces.set(key, 1);
+        const owner = (x + y) % 2 === 0 ? 1 : 2;
+        board.collapsedSpaces.set(key, owner);
       }
     }
 

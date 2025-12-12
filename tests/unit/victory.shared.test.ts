@@ -33,6 +33,13 @@ describe('shared victory helper – evaluateVictory', () => {
     state.territoryVictoryThreshold = 10;
     p1.territorySpaces = 10;
     state.players[1].territorySpaces = 0;
+    let placed = 0;
+    for (let x = 0; x < 8 && placed < 10; x++) {
+      for (let y = 0; y < 8 && placed < 10; y++) {
+        addCollapsedSpace(state.board, { x, y }, 1);
+        placed += 1;
+      }
+    }
 
     const result = evaluateVictory(state);
 
@@ -76,6 +83,10 @@ describe('shared victory helper – evaluateVictory', () => {
 
     state.players[0].territorySpaces = 3;
     state.players[1].territorySpaces = 1;
+    addCollapsedSpace(state.board, { x: 0, y: 0 }, 1);
+    addCollapsedSpace(state.board, { x: 1, y: 0 }, 1);
+    addCollapsedSpace(state.board, { x: 2, y: 0 }, 1);
+    addCollapsedSpace(state.board, { x: 3, y: 0 }, 2);
 
     const result = evaluateVictory(state);
 
@@ -88,8 +99,8 @@ describe('shared victory helper – evaluateVictory', () => {
     const board = createTestBoard('square8');
 
     // Make every cell collapsed so that no legal placements exist anywhere.
-    getAllBoardPositions(board.type, board.size).forEach((pos) => {
-      addCollapsedSpace(board, pos, 1);
+    getAllBoardPositions(board.type, board.size).forEach((pos, idx) => {
+      addCollapsedSpace(board, pos, idx % 2 === 0 ? 1 : 2);
     });
 
     const state: GameState = createTestGameState({ board, boardType: 'square8' });

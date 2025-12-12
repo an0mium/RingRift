@@ -17,6 +17,8 @@ across multiple :class:`NeuralNetAI` instances. Call :func:`clear_model_cache`
 to release GPU/MPS memory between games or soak batches.
 """
 
+from __future__ import annotations
+
 import gc
 import logging
 import os

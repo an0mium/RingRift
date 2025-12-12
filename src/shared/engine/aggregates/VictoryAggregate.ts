@@ -308,6 +308,30 @@ function countMarkersByPlayer(state: GameState): Map<number, number> {
   return markerCounts;
 }
 
+/**
+ * Count collapsed territory spaces on the board for each player.
+ *
+ * Collapsed spaces are the authoritative territory source; ignore any
+ * non-player owners (<= 0).
+ */
+function countTerritoryByPlayer(state: GameState): Map<number, number> {
+  const territoryCounts = new Map<number, number>();
+
+  for (const player of state.players) {
+    territoryCounts.set(player.playerNumber, 0);
+  }
+
+  for (const owner of state.board.collapsedSpaces.values()) {
+    if (typeof owner !== 'number' || owner <= 0) {
+      continue;
+    }
+    const current = territoryCounts.get(owner) ?? 0;
+    territoryCounts.set(owner, current + 1);
+  }
+
+  return territoryCounts;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Query Functions
 // ═══════════════════════════════════════════════════════════════════════════
@@ -361,16 +385,12 @@ export function evaluateVictory(state: GameState): VictoryResult {
   // Use board.collapsedSpaces as the authoritative source of territory counts.
   // This avoids relying on potentially stale territorySpaces counters and
   // matches the Python engine's victory check.
-  const territoryCounts: Record<number, number> = {};
-  for (const owner of state.board.collapsedSpaces.values()) {
-    if (typeof owner !== 'number') continue;
-    territoryCounts[owner] = (territoryCounts[owner] ?? 0) + 1;
-  }
-  const territoryWinnerNumber = Object.entries(territoryCounts).find(
+  const territoryCounts = countTerritoryByPlayer(state);
+  const territoryWinner = Array.from(territoryCounts.entries()).find(
     ([, count]) => count >= state.territoryVictoryThreshold
-  )?.[0];
-  if (territoryWinnerNumber) {
-    const winner = Number(territoryWinnerNumber);
+  );
+  if (territoryWinner) {
+    const winner = territoryWinner[0];
     return {
       isGameOver: true,
       winner,
@@ -459,8 +479,13 @@ export function evaluateVictory(state: GameState): VictoryResult {
   // ladder.
 
   // First tie-breaker: territory spaces.
-  const maxTerritory = Math.max(...players.map((p) => p.territorySpaces));
-  const territoryLeaders = players.filter((p) => p.territorySpaces === maxTerritory);
+  const stalemateTerritoryCounts = countTerritoryByPlayer(state);
+  const maxTerritory = Math.max(
+    ...players.map((p) => stalemateTerritoryCounts.get(p.playerNumber) ?? 0)
+  );
+  const territoryLeaders = players.filter(
+    (p) => (stalemateTerritoryCounts.get(p.playerNumber) ?? 0) === maxTerritory
+  );
 
   if (territoryLeaders.length === 1 && maxTerritory > 0) {
     return {
@@ -598,7 +623,10 @@ export function checkScoreThreshold(state: GameState): VictoryResult | null {
   }
 
   // Check territory control threshold
-  const territoryWinner = players.find((p) => p.territorySpaces >= state.territoryVictoryThreshold);
+  const territoryCounts = countTerritoryByPlayer(state);
+  const territoryWinner = players.find(
+    (p) => (territoryCounts.get(p.playerNumber) ?? 0) >= state.territoryVictoryThreshold
+  );
   if (territoryWinner) {
     return {
       isGameOver: true,
@@ -733,13 +761,15 @@ export function evaluateVictoryDetailed(
 
   // Calculate marker counts
   const markerCounts = countMarkersByPlayer(state);
+  const territoryCounts = countTerritoryByPlayer(state);
 
   // Build score breakdown
   const scores: DetailedVictoryResult['scores'] = {};
   for (const player of players) {
+    const territorySpaces = territoryCounts.get(player.playerNumber) ?? 0;
     scores[player.playerNumber] = {
       eliminatedRings: player.eliminatedRings,
-      territorySpaces: player.territorySpaces,
+      territorySpaces,
       markerCount: markerCounts.get(player.playerNumber) ?? 0,
     };
   }
@@ -747,8 +777,10 @@ export function evaluateVictoryDetailed(
   // Build standings (sorted by victory criteria)
   const standings = [...players].sort((a, b) => {
     // First by territory
-    if (a.territorySpaces !== b.territorySpaces) {
-      return b.territorySpaces - a.territorySpaces;
+    const aTerritory = territoryCounts.get(a.playerNumber) ?? 0;
+    const bTerritory = territoryCounts.get(b.playerNumber) ?? 0;
+    if (aTerritory !== bTerritory) {
+      return bTerritory - aTerritory;
     }
     // Then by eliminated rings
     if (a.eliminatedRings !== b.eliminatedRings) {
@@ -787,8 +819,8 @@ export function getEliminatedRingCount(state: GameState, playerNumber: number): 
  * @returns Number of territory spaces controlled
  */
 export function getTerritoryCount(state: GameState, playerNumber: number): number {
-  const player = state.players.find((p) => p.playerNumber === playerNumber);
-  return player?.territorySpaces ?? 0;
+  const counts = countTerritoryByPlayer(state);
+  return counts.get(playerNumber) ?? 0;
 }
 
 /**

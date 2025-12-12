@@ -43,7 +43,11 @@ describe('Victory parity: RuleEngine vs sandbox stalemate ladder (square8 / 2p)'
     const bm = new BoardManager(boardType);
     const engine = new RuleEngine(bm as any, boardType as any);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (engine as any).checkGameEnd(state) as { isGameOver: boolean; winner?: number; reason?: string };
+    return (engine as any).checkGameEnd(state) as {
+      isGameOver: boolean;
+      winner?: number;
+      reason?: string;
+    };
   }
 
   it('parity_territory_tiebreak', () => {
@@ -52,6 +56,10 @@ describe('Victory parity: RuleEngine vs sandbox stalemate ladder (square8 / 2p)'
     // Player 1 has more territory; eliminated rings and markers tied.
     state.players[0].territorySpaces = 3; // P1
     state.players[1].territorySpaces = 1; // P2
+    state.board.collapsedSpaces.set('0,0', 1);
+    state.board.collapsedSpaces.set('1,0', 1);
+    state.board.collapsedSpaces.set('2,0', 1);
+    state.board.collapsedSpaces.set('3,0', 2);
 
     const backend = getBackendResult(state);
     const sandbox = checkSandboxVictory(state);

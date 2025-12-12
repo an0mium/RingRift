@@ -96,6 +96,14 @@ describe('ClientSandboxEngine victory conditions (square19)', () => {
 
     // Directly set player 1's territory to threshold and re-run checks.
     p1.territorySpaces = territoryThreshold;
+    state.board.collapsedSpaces.clear();
+    let placed = 0;
+    for (let x = 0; x < state.board.size && placed < territoryThreshold; x++) {
+      for (let y = 0; y < state.board.size && placed < territoryThreshold; y++) {
+        state.board.collapsedSpaces.set(`${x},${y}`, 1);
+        placed += 1;
+      }
+    }
 
     engineAny.checkAndApplyVictory();
 

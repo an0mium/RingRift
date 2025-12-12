@@ -237,6 +237,12 @@ describe('victory evaluateVictory branch coverage', () => {
         state.players[1].ringsInHand = 0;
         state.players[0].territorySpaces = 5;
         state.players[1].territorySpaces = 3;
+        for (let x = 0; x < 5; x++) {
+          collapseSpace(state, pos(x, 0), 1);
+        }
+        for (let x = 0; x < 3; x++) {
+          collapseSpace(state, pos(x, 1), 2);
+        }
 
         const result = evaluateVictory(state);
 
@@ -296,6 +302,12 @@ describe('victory evaluateVictory branch coverage', () => {
         state.players[1].ringsInHand = 0;
         state.players[0].territorySpaces = 10;
         state.players[1].territorySpaces = 5;
+        for (let x = 0; x < 10; x++) {
+          collapseSpace(state, pos(x % 8, Math.floor(x / 8)), 1);
+        }
+        for (let x = 0; x < 5; x++) {
+          collapseSpace(state, pos(x, 2), 2);
+        }
 
         const result = evaluateVictory(state);
 
