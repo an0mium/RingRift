@@ -659,22 +659,35 @@ class BatchGameState:
         )
 
         # Copy board state (Pydantic converts to snake_case for access)
+        # Note: Hex boards use 3D coordinates (x,y,z), square boards use 2D (x,y)
+        is_hex = board_type == BoardType.HEXAGONAL
+
         for key, stack in game_state.board.stacks.items():
-            x, y = map(int, key.split(","))
+            coords = list(map(int, key.split(",")))
+            if is_hex:
+                # Hex: convert cube coords to array index (skip for now - GPU doesn't support hex)
+                continue
+            x, y = coords[0], coords[1]
             if 0 <= x < board_size and 0 <= y < board_size:
                 batch.stack_owner[0, y, x] = stack.controlling_player
                 batch.stack_height[0, y, x] = len(stack.rings)
                 batch.cap_height[0, y, x] = stack.cap_height
 
         for key, marker in game_state.board.markers.items():
-            x, y = map(int, key.split(","))
+            coords = list(map(int, key.split(",")))
+            if is_hex:
+                continue  # GPU doesn't support hex yet
+            x, y = coords[0], coords[1]
             if 0 <= x < board_size and 0 <= y < board_size:
                 # Handle both int (legacy) and MarkerInfo (current) marker values
                 player = marker.player if hasattr(marker, 'player') else marker
                 batch.marker_owner[0, y, x] = player
 
         for key, player in game_state.board.collapsed_spaces.items():
-            x, y = map(int, key.split(","))
+            coords = list(map(int, key.split(",")))
+            if is_hex:
+                continue  # GPU doesn't support hex yet
+            x, y = coords[0], coords[1]
             if 0 <= x < board_size and 0 <= y < board_size:
                 batch.territory_owner[0, y, x] = player
                 batch.is_collapsed[0, y, x] = True
