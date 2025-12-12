@@ -161,9 +161,9 @@ describe('BoardView', () => {
       />
     );
 
-    expect(
-      screen.getByLabelText(/Row 2, Column 2\. Stack height 1, cap 1, player 2/)
-    ).toBeInTheDocument();
+    // aria-label format is "Cell [notation]. Stack height X, cap Y, player Z"
+    // Position {x:1, y:1} on 8x8 board = b2 in chess notation
+    expect(screen.getByLabelText(/Cell b2\. Stack height 1, cap 1, player 2/)).toBeInTheDocument();
   });
 
   it('fires long-press context menu on touch', () => {

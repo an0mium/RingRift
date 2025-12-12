@@ -289,8 +289,15 @@ def _run_neural_tier_training(
     seed_all(seed)
     data_path = os.path.join(
         base_config.data_dir,
-        "square8_selfplay_demo.npz",
+        "canonical_square8_2p.npz",
     )
+    if not os.path.exists(data_path):
+        raise SystemExit(
+            "[tier-training] Canonical dataset not found for square8 2p.\n"
+            f"Expected: {data_path}\n"
+            "Run scripts/build_canonical_dataset.py --board-type square8 --num-players 2 "
+            "from ai-service/ to generate it."
+        )
     save_path = os.path.join(
         base_config.model_dir,
         f"{candidate_id}.pth",

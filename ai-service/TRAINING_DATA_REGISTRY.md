@@ -16,17 +16,17 @@ This document tracks the provenance and canonical status of all self-play databa
 
 ### Canonical (Parity + Canonical-History Gated)
 
-| Database | Board Type | Players | Status | Gate Summary | Notes                                                                        |
-| -------- | ---------- | ------- | ------ | ------------ | ---------------------------------------------------------------------------- |
-| _None_   | –          | –       | –      | –            | Square8 regeneration is pending (see below); rerun the gate before training. |
+| Database               | Board Type | Players | Status        | Gate Summary                     | Notes                                                                                                                                                                  |
+| ---------------------- | ---------- | ------- | ------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_square8.db` | square8    | 2       | **canonical** | db_health.canonical_square8.json | 2025-12-12 distributed regeneration (12 games) and re-gate after TS territory-control parity fix; `canonical_ok=true` (only end-of-game-only current_player mismatch). |
 
 The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. For supported board types (currently `square8` and `hexagonal`), this also implies `fe_territory_fixtures_ok == true` as well as a passing parity gate and canonical phase history.
 
 ### Pending Re-Gate / Needs Regeneration
 
-| Database               | Board Type | Players | Status           | Gate Summary                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ---------------------- | ---------- | ------- | ---------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical_square8.db` | square8    | 2       | **pending_gate** | db_health.canonical_square8.json | 2025-12-09 local run of `generate_canonical_selfplay.py --board-type square8 --num-games 0 --num-players 2 --db data/games/canonical_square8.db --summary data/games/db_health.canonical_square8.json` re-gated the existing DB, which now contains 14 square8 2p `selfplay_soak` games. Canonical phase-history checks pass (`check_canonical_phase_history.py` exited 0 for all games), but the TS replay parity harness reports `games_with_structural_issues = 14` and `games_with_semantic_divergence = 0` (all `ts-replay-error` cases with `[PHASE_MOVE_INVARIANT] Cannot apply move type 'place_ring' in phase 'territory_processing'` when attempting to replay the second player's ring placement after `territory_processing`). `canonical_ok=false` and `parity_gate.passed_canonical_parity_gate=false`; treat this DB as non-canonical training data pending a follow-up parity task to resolve the TS↔Python replay mismatch. |
+| Database | Board Type | Players | Status | Gate Summary | Notes |
+| -------- | ---------- | ------- | ------ | ------------ | ----- |
+| _None_   | –          | –       | –      | –            | –     |
 
 ### Legacy / Non-Canonical
 
@@ -45,11 +45,11 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 
 ### Gate Notes (2025-12-07)
 
-- Replayed `canonical_square8.db` and `canonical_square8_2p.db` via `check_canonical_phase_history.py`; both hit late-turn `Not your turn` failures (matching the parity gate structural errors). Treat them as pending re-generation.
+- 2025-12-12 distributed regeneration + parity fix: `canonical_square8.db` now passes the canonical gate (`canonical_ok=true`, parity only end-of-game-only mismatches). It is safe for new training.
 - `canonical_square19.db` currently has zero games despite an older parity gate artifact; regenerate and re-gate before use.
 - Hex assets remain deprecated until a radius-12 canonical DB is generated. Only radius-12 hex DBs whose gate summary JSON reports `canonical_ok == true` and `fe_territory_fixtures_ok == true` **and** that are listed as `canonical` in this registry should be used for training hex models. Older radius-10/legacy hex DBs remain permanently non-canonical; see `docs/HEX_PARITY_AUDIT.md` and `ai-service/data/HEX_DATA_DEPRECATION_NOTICE.md` for deprecation and parity-audit context.
 - 2025-12-08 sandbox attempt to regenerate `canonical_square8.db` via `generate_canonical_selfplay.py` failed before the parity gate due to OpenMP shared-memory permissions (`OMP: Error #179: Function Can't open SHM2 failed`). The resulting `db_health.canonical_square8.json` has `canonical_ok=false` and an empty `canonical_history` block. Re-run the generator on a host with SHM permissions, then replace the DB and summaries.
-- 2025-12-09 local re-gate of `canonical_square8.db` via `generate_canonical_selfplay.py --board-type square8 --num-games 0 --num-players 2 --db data/games/canonical_square8.db --summary data/games/db_health.canonical_square8.json` (no new games requested) confirmed that the DB now contains 14 square8 2p `selfplay_soak` games and that canonical phase-history checks pass, but TS replay parity still reports 14 structural issues (all `[PHASE_MOVE_INVARIANT] Cannot apply move type 'place_ring' in phase 'territory_processing'` during second-player ring placements). Leave `canonical_square8.db` in **pending_gate** until this TS↔Python replay mismatch is resolved in a dedicated parity task.
+- (Historical) 2025-12-09 re-gate of `canonical_square8.db` found TS replay structural errors; resolved on 2025-12-12 by aligning TS territory-control victory to collapsed-territory counts.
 
 ---
 

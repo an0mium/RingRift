@@ -204,3 +204,4 @@ def test_seed_root_priors_works_for_lite_nodes(monkeypatch: pytest.MonkeyPatch) 
     mcts._maybe_seed_root_priors(root, state)  # type: ignore[attr-defined]
 
     assert [m.id for m in root.untried_moves] == ["m2", "m1", "m3"]
+

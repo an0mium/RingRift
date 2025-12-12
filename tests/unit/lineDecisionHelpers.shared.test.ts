@@ -181,9 +181,11 @@ describe('lineDecisionHelpers – shared line decision enumeration and applicati
     expect(rewardMoves).toHaveLength(1);
     const move = rewardMoves[0];
 
-    expect(move.type).toBe('choose_line_reward');
+    expect(move.type).toBe('choose_line_option');
     expect(move.player).toBe(1);
-    expect(move.collapsedMarkers).toBeUndefined();
+    // For exact-length lines, collapsedMarkers includes all line positions
+    expect(move.collapsedMarkers).toBeDefined();
+    expect(move.collapsedMarkers!.length).toBe(positions.length);
     expect(keyFrom(move.formedLines![0].positions)).toBe(keyFrom(positions));
   });
 
@@ -324,7 +326,7 @@ describe('lineDecisionHelpers – shared line decision enumeration and applicati
 
     const exactMove = {
       id: 'choose-line-exact-all',
-      type: 'choose_line_reward' as const,
+      type: 'choose_line_option' as const,
       player: 1,
       to: exactPositions[0],
       formedLines: [exactState.board.formedLines[0] as any],
@@ -349,7 +351,7 @@ describe('lineDecisionHelpers – shared line decision enumeration and applicati
 
     const overMoveAll = {
       id: 'choose-line-over-all',
-      type: 'choose_line_reward' as const,
+      type: 'choose_line_option' as const,
       player: 1,
       to: overPositions[0],
       formedLines: [overState.board.formedLines[0] as any],
@@ -376,7 +378,7 @@ describe('lineDecisionHelpers – shared line decision enumeration and applicati
 
     const move = {
       id: 'choose-line-over-min',
-      type: 'choose_line_reward' as const,
+      type: 'choose_line_option' as const,
       player: 1,
       to: positions[0],
       formedLines: [line],

@@ -336,9 +336,9 @@ def export_replay_dataset(
         "board_type": board_type,
         "num_players": num_players,
     }
-    if require_completed:
-        # Only include games that completed normally (not timeout/disconnect)
-        query_filters["termination_reason"] = "env_done_flag"
+    # require_completed is enforced below using game_status/termination_reason
+    # because canonical GameReplayDBs encode normal completion as
+    # "status:completed:*" rather than the legacy "env_done_flag".
     if min_moves is not None:
         query_filters["min_moves"] = min_moves
     if max_moves is not None:
@@ -399,6 +399,15 @@ def export_replay_dataset(
     games_skipped_recovery = 0
     for meta, initial_state, moves in games_iter:
         game_id = meta.get("game_id")
+        if require_completed:
+            status = str(meta.get("game_status", ""))
+            term = str(meta.get("termination_reason", ""))
+            if status != "completed":
+                games_skipped += 1
+                continue
+            if term and not (term.startswith("status:completed") or term == "env_done_flag"):
+                games_skipped += 1
+                continue
         total_moves = int(meta.get("total_moves", len(moves)))
         if total_moves <= 0 or not moves:
             continue
@@ -654,7 +663,7 @@ def export_replay_dataset(
     print(f"Exported {features_arr.shape[0]} samples " f"from {games_processed} games into {output_path}")
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: List[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export NN training samples from existing GameReplayDB replays.",
     )
@@ -753,11 +762,11 @@ def _parse_args() -> argparse.Namespace:
             "for all square boards."
         ),
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> None:
-    args = _parse_args()
+def main(argv: List[str] | None = None) -> int:
+    args = _parse_args(argv)
 
     board_type = BOARD_TYPE_MAP[args.board_type]
     if args.history_length < 0:
@@ -781,7 +790,8 @@ def main() -> None:
         exclude_recovery=args.exclude_recovery,
         use_board_aware_encoding=args.board_aware_encoding,
     )
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entrypoint
-    main()
+    raise SystemExit(main())

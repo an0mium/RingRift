@@ -31,7 +31,7 @@ Status legend: `TODO` → `IN_PROGRESS` → `DONE` (or `DEFERRED` with rationale
 
 | ID      | Area                | Summary                                                         | Status |
 | ------- | ------------------- | --------------------------------------------------------------- | ------ |
-| ENG-01  | TS engine/types     | Add canonical `skip_recovery` support end‑to‑end                | TODO   |
+| ENG-01  | TS engine/types     | Add canonical `skip_recovery` support end‑to‑end                | DONE   |
 | ENG-02  | Python engine/types | Implement canonical `skip_capture` support end‑to‑end           | TODO   |
 | ENG-03  | TS engine API       | Remove/align duplicate `phaseValidation.ts` contract            | TODO   |
 | DOC-01  | Docs                | Refresh `CANONICAL_ENGINE_API.md` MoveType/phase surfaces       | TODO   |
@@ -82,6 +82,13 @@ RR‑CANON‑R115 requires that recovery‑eligible players can explicitly decli
 - TS can emit `skip_recovery` as a legal move in `movement` when recovery‑eligible and at least one recovery slide exists.
 - Applying `skip_recovery` is canonical, deterministic, and results in the correct phase progression.
 - Unit tests cover enumeration + application + FSM validation.
+
+**Status update (2025-12-12)**
+
+- TS support for `skip_recovery` was already present in `turnOrchestrator.ts` and FSM surfaces.
+- Python parity bug discovered in canonical self-play: repeated `skip_recovery` moves were possible because phase transitions did not advance after a skip.
+- Fixed in `ai-service/app/rules/phase_machine.py` by advancing `skip_recovery → line_processing`, matching TS and RR‑CANON‑R115.
+- Canonical parity gate now passes on fresh Square‑8 self-play DBs.
 
 ---
 

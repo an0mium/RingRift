@@ -59,6 +59,8 @@ from app.rules.history_validation import validate_canonical_history_for_game
 def _run_cmd(
     cmd: List[str],
     cwd: Path | None = None,
+    *,
+    capture_output: bool = True,
 ) -> subprocess.CompletedProcess:
     env = os.environ.copy()
     # Ensure PYTHONPATH includes ai-service root when invoked from repo root.
@@ -77,7 +79,7 @@ def _run_cmd(
         cwd=str(cwd or AI_SERVICE_ROOT),
         env=env,
         text=True,
-        capture_output=True,
+        capture_output=capture_output,
     )
     return proc
 
@@ -115,7 +117,7 @@ def run_selfplay_and_parity(
             "--summary-json",
             str(summary_path),
         ]
-        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, capture_output=False)
     else:
         print(
             f"[generate_canonical_selfplay] Running canonical soak ({num_games} games) + parity gate...",
@@ -138,7 +140,7 @@ def run_selfplay_and_parity(
         if hosts:
             cmd += ["--hosts", hosts]
 
-        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, capture_output=False)
 
     parity_summary: Dict[str, Any]
     if summary_path.exists():
@@ -154,14 +156,21 @@ def run_selfplay_and_parity(
             }
     else:
         # Fallback to parsing stdout if the summary file was not written.
-        try:
-            parity_summary = json.loads(proc.stdout)
-        except Exception:
+        # If stdout wasn't captured, surface an actionable error instead.
+        if not proc.stdout:
             parity_summary = {
-                "error": "failed_to_parse_parity_summary_stdout",
-                "stdout": proc.stdout,
-                "stderr": proc.stderr,
+                "error": "parity_summary_file_missing",
+                "summary_path": str(summary_path),
             }
+        else:
+            try:
+                parity_summary = json.loads(proc.stdout)
+            except Exception:
+                parity_summary = {
+                    "error": "failed_to_parse_parity_summary_stdout",
+                    "stdout": proc.stdout,
+                    "stderr": proc.stderr,
+                }
 
     parity_summary["returncode"] = proc.returncode
     return parity_summary

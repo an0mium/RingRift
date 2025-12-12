@@ -1,5 +1,12 @@
 import { GameEngine } from '../../src/server/game/GameEngine';
-import { BoardType, GameState, Player, TimeControl } from '../../src/shared/types/game';
+import {
+  BoardType,
+  GameState,
+  Player,
+  Position,
+  TimeControl,
+  positionToString,
+} from '../../src/shared/types/game';
 import { victoryRuleScenarios, VictoryRuleScenario } from './rulesMatrix';
 
 /**
@@ -87,9 +94,15 @@ describe('RulesMatrix → GameEngine victory scenarios (backend)', () => {
         const engineAny: any = engine;
         const gameState: GameState = engineAny.gameState as GameState;
 
-        const player1 = gameState.players.find((p) => p.playerNumber === 1)!;
         const threshold = gameState.territoryVictoryThreshold;
-        player1.territorySpaces = threshold;
+        let collapsed = 0;
+        for (let x = 0; x < gameState.board.size && collapsed < threshold; x++) {
+          for (let y = 0; y < gameState.board.size && collapsed < threshold; y++) {
+            const position: Position = { x, y };
+            gameState.board.collapsedSpaces.set(positionToString(position), 1);
+            collapsed += 1;
+          }
+        }
 
         const endCheck = engineAny.ruleEngine.checkGameEnd(gameState);
         expect(endCheck.isGameOver).toBe(true);

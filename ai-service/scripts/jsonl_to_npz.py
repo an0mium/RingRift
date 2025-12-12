@@ -167,7 +167,7 @@ def value_from_final_ranking(
     rankings = []
     for p in final_state.players:
         score = p.eliminated_rings  # Higher eliminated = better
-        rankings.append((p.number, score))
+        rankings.append((p.player_number, score))
 
     # Sort by score descending
     rankings.sort(key=lambda x: -x[1])
@@ -295,9 +295,20 @@ def process_jsonl_file(
                 history_frames: List[np.ndarray] = []
 
                 # Compute final state for value targets
+                # Replay until we hit an error, use that as "final" state
                 final_state = initial_state
+                moves_succeeded = 0
                 for move in moves:
-                    final_state = GameEngine.apply_move(final_state, move)
+                    try:
+                        final_state = GameEngine.apply_move(final_state, move)
+                        moves_succeeded += 1
+                    except Exception:
+                        # Stop at first error - state is now desynced
+                        break
+
+                if moves_succeeded < 10:
+                    # Need at least 10 successful moves to have meaningful data
+                    raise ValueError(f"Only {moves_succeeded}/{len(moves)} moves succeeded")
 
                 # Precompute multi-player values
                 values_vec = np.array(
@@ -305,7 +316,8 @@ def process_jsonl_file(
                     dtype=np.float32,
                 )
 
-                for move_idx, move in enumerate(moves):
+                # Only process up to moves_succeeded moves
+                for move_idx, move in enumerate(moves[:moves_succeeded]):
                     # Sample every N moves
                     if sample_every > 1 and (move_idx % sample_every) != 0:
                         # Still need to apply move and update history
@@ -355,7 +367,7 @@ def process_jsonl_file(
                     policy_indices_list.append(np.array([action_idx], dtype=np.int32))
                     policy_values_list.append(np.array([1.0], dtype=np.float32))
                     move_numbers_list.append(move_idx)
-                    total_game_moves_list.append(total_moves)
+                    total_game_moves_list.append(moves_succeeded)
                     phases_list.append(phase_str)
 
                     stats.positions_extracted += 1
@@ -368,7 +380,10 @@ def process_jsonl_file(
 
             except Exception as e:
                 stats.games_skipped_error += 1
-                logger.debug(f"Error processing game: {e}")
+                if stats.games_skipped_error <= 3:
+                    import traceback
+                    logger.warning(f"Error processing game: {e}")
+                    logger.warning(traceback.format_exc())
                 continue
 
     stats.files_processed = 1

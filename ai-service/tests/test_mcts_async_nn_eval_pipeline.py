@@ -145,3 +145,4 @@ def test_async_prepare_finish_updates_tree(monkeypatch: pytest.MonkeyPatch) -> N
     assert root.wins == pytest.approx(0.5)
     assert root.policy_map[str(moves[1])] > root.policy_map[str(moves[0])]
     assert sum(root.policy_map.values()) == pytest.approx(1.0)
+

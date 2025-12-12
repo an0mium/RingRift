@@ -128,7 +128,7 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
 
     expect(moves).toHaveLength(1);
     const move = moves[0];
-    expect(move.type).toBe('process_territory_region');
+    expect(move.type).toBe('choose_territory_option');
     expect(move.player).toBe(1);
     expect(move.disconnectedRegions).toBeDefined();
     expect(move.disconnectedRegions!.length).toBe(1);
@@ -194,7 +194,7 @@ describe('territoryDecisionHelpers – shared territory decision enumeration and
 
     const move = {
       id: 'process-region-test',
-      type: 'process_territory_region' as const,
+      type: 'choose_territory_option' as const,
       player: 1,
       to: p1a,
       disconnectedRegions: [region],

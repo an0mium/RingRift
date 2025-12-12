@@ -253,6 +253,13 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         game_state.chain_capture_state = None
         GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
+    elif last_move.type == MoveType.SKIP_RECOVERY:
+        # RR-CANON-R115: recovery-eligible players may explicitly skip recovery
+        # to preserve buried rings. This ends MOVEMENT for the player and
+        # advances to line_processing (even though no board change occurred).
+        game_state.chain_capture_state = None
+        GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
+
     elif last_move.type in (
         MoveType.OVERTAKING_CAPTURE,
         MoveType.CHAIN_CAPTURE,

@@ -246,6 +246,7 @@ def apply_capture_moves_vectorized(
             state.move_history[g, mc, 3] = from_x
             state.move_history[g, mc, 4] = to_y
             state.move_history[g, mc, 5] = to_x
+            state.move_count[g] += 1
 
         # Get stack info
         attacker_height = state.stack_height[g, from_y, from_x].item()
@@ -334,6 +335,7 @@ def apply_movement_moves_vectorized(
             state.move_history[g, mc, 3] = from_x
             state.move_history[g, mc, 4] = to_y
             state.move_history[g, mc, 5] = to_x
+            state.move_count[g] += 1
 
         moving_height = state.stack_height[g, from_y, from_x].item()
 
@@ -424,6 +426,7 @@ def apply_recovery_moves_vectorized(
             state.move_history[g, mc, 3] = from_x
             state.move_history[g, mc, 4] = to_y
             state.move_history[g, mc, 5] = to_x
+            state.move_count[g] += 1
 
         # Move marker
         state.marker_owner[g, from_y, from_x] = 0
@@ -3808,8 +3811,9 @@ class ParallelGameRunner:
         - Precompute player elimination status for all players in all games
         - Use vectorized rotation with fallback for eliminated player skipping
         """
-        # Increment move count for all masked games (vectorized)
-        self.state.move_count[mask] += 1
+        # NOTE: move_count is incremented in the vectorized move application functions
+        # (apply_capture_moves_vectorized, apply_movement_moves_vectorized, etc.)
+        # when recording moves to history, so we don't increment here.
 
         # Precompute player elimination status for all games and players
         # Shape: (batch_size, num_players+1) - player_has_rings[g, p] = True if player p has rings in game g

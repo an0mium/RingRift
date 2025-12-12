@@ -935,7 +935,7 @@ describe('TerritoryAggregate - Branch Coverage (Core)', () => {
       });
 
       expect(moves.length).toBe(1);
-      expect(moves[0].type).toBe('process_territory_region');
+      expect(moves[0].type).toBe('choose_territory_option');
       expect(moves[0].player).toBe(1);
     });
   });

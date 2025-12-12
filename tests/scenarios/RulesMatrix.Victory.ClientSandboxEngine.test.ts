@@ -7,8 +7,10 @@ import {
   BoardType,
   GameResult,
   GameState,
+  Position,
   PlayerChoice,
   PlayerChoiceResponseFor,
+  positionToString,
 } from '../../src/shared/types/game';
 import { victoryRuleScenarios, VictoryRuleScenario } from './rulesMatrix';
 
@@ -122,9 +124,15 @@ describe('RulesMatrix → ClientSandboxEngine victory scenarios (sandbox)', () =
         state.gameStatus = 'active';
         (state as any).winner = undefined;
 
-        const player1 = state.players.find((p) => p.playerNumber === 1)!;
         const threshold = state.territoryVictoryThreshold;
-        player1.territorySpaces = threshold;
+        let collapsed = 0;
+        for (let x = 0; x < state.board.size && collapsed < threshold; x++) {
+          for (let y = 0; y < state.board.size && collapsed < threshold; y++) {
+            const position: Position = { x, y };
+            state.board.collapsedSpaces.set(positionToString(position), 1);
+            collapsed += 1;
+          }
+        }
 
         engineAny.checkAndApplyVictory();
 

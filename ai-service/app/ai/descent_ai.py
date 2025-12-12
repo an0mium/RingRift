@@ -25,6 +25,7 @@ import torch
 from .base import BaseAI
 from .bounded_transposition_table import BoundedTranspositionTable
 from .game_state_utils import victory_progress_for_player
+from .async_nn_eval import AsyncNeuralBatcher
 from .neural_net import (
     NeuralNetAI,
     INVALID_MOVE_INDEX,
@@ -131,6 +132,10 @@ class DescentAI(BaseAI):
 
         # Hex-specific action encoder (used for move index calculation on hex boards)
         self.hex_encoder = ActionEncoderHex() if self.neural_net else None
+        # Per-instance neural batcher for safe, synchronous batched evaluation.
+        self.nn_batcher: Optional[AsyncNeuralBatcher] = (
+            AsyncNeuralBatcher(self.neural_net) if self.neural_net else None
+        )
 
         # Memory configuration for bounded structures
         self.memory_config = memory_config or MemoryConfig.from_env()
@@ -736,6 +741,9 @@ class DescentAI(BaseAI):
             else:
                 best_val = float("inf")
 
+            expanded_children: List[Tuple[Move, float, Optional[float]]] = []
+            non_terminal_states: List[GameState] = []
+
             for move in expand_moves:
                 next_state = self.rules_engine.apply_move(state, move)
 
@@ -744,7 +752,10 @@ class DescentAI(BaseAI):
                 if deadline is not None and time.time() >= deadline:
                     break
 
-                # Evaluate leaf
+                move_key = str(move)
+                prob = move_probs.get(move_key, 0.0)
+
+                # Evaluate leaf (batch non-terminal children).
                 if next_state.game_status == "completed":
                     if next_state.winner == self.player_number:
                         val = 1.0
@@ -752,11 +763,28 @@ class DescentAI(BaseAI):
                         val = -1.0
                     else:
                         val = 0.0
+                    expanded_children.append((move, prob, val))
                 else:
-                    val = self.evaluate_position(next_state)
+                    expanded_children.append((move, prob, None))
+                    non_terminal_states.append(next_state)
+
+            non_terminal_values = (
+                self._batch_evaluate_positions(non_terminal_states)
+                if non_terminal_states
+                else []
+            )
+
+            nt_idx = 0
+            for move, prob, val in expanded_children:
+                if val is None:
+                    if nt_idx < len(non_terminal_values):
+                        val = non_terminal_values[nt_idx]
+                    else:
+                        # Defensive fallback: evaluate individually.
+                        val = self.evaluate_position(non_terminal_states[nt_idx])
+                    nt_idx += 1
 
                 move_key = str(move)
-                prob = move_probs.get(move_key, 0.0)
                 children_values[move_key] = (move, val, prob)
 
                 if state.current_player == self.player_number:
@@ -1111,37 +1139,94 @@ class DescentAI(BaseAI):
             else:
                 best_val = float("inf")
 
-            for move in expand_moves:
-                undo = state.make_move(move)
+            if not self.neural_net:
+                # Preserve existing heuristic path when NN is unavailable.
+                for move in expand_moves:
+                    undo = state.make_move(move)
 
-                # If we are out of time, stop expanding and return the
-                # current best_val so far.
-                if deadline is not None and time.time() >= deadline:
-                    state.unmake_move(undo)
-                    break
+                    # If we are out of time, stop expanding and return the
+                    # current best_val so far.
+                    if deadline is not None and time.time() >= deadline:
+                        state.unmake_move(undo)
+                        break
 
-                # Evaluate leaf
-                if state.is_game_over():
-                    winner = state.get_winner()
-                    if winner == self.player_number:
-                        val = 1.0
-                    elif winner is not None:
-                        val = -1.0
+                    # Evaluate leaf
+                    if state.is_game_over():
+                        winner = state.get_winner()
+                        if winner == self.player_number:
+                            val = 1.0
+                        elif winner is not None:
+                            val = -1.0
+                        else:
+                            val = 0.0
                     else:
-                        val = 0.0
-                else:
-                    val = self._evaluate_mutable(state)
+                        val = self._evaluate_mutable(state)
 
-                state.unmake_move(undo)
+                    state.unmake_move(undo)
 
-                move_key = str(move)
-                prob = move_probs.get(move_key, 0.0)
-                children_values[move_key] = (move, val, prob)
+                    move_key = str(move)
+                    prob = move_probs.get(move_key, 0.0)
+                    children_values[move_key] = (move, val, prob)
 
-                if state.current_player == self.player_number:
-                    best_val = max(best_val, val)
-                else:
-                    best_val = min(best_val, val)
+                    if state.current_player == self.player_number:
+                        best_val = max(best_val, val)
+                    else:
+                        best_val = min(best_val, val)
+            else:
+                expanded_children: List[Tuple[Move, float, Optional[float]]] = []
+                non_terminal_states: List[GameState] = []
+
+                for move in expand_moves:
+                    undo = state.make_move(move)
+
+                    # If we are out of time, stop expanding and return the
+                    # current best_val so far.
+                    if deadline is not None and time.time() >= deadline:
+                        state.unmake_move(undo)
+                        break
+
+                    move_key = str(move)
+                    prob = move_probs.get(move_key, 0.0)
+
+                    # Evaluate leaf (batch non-terminal children).
+                    if state.is_game_over():
+                        winner = state.get_winner()
+                        if winner == self.player_number:
+                            val = 1.0
+                        elif winner is not None:
+                            val = -1.0
+                        else:
+                            val = 0.0
+                        expanded_children.append((move, prob, val))
+                    else:
+                        immutable_child = state.to_immutable()
+                        expanded_children.append((move, prob, None))
+                        non_terminal_states.append(immutable_child)
+
+                    state.unmake_move(undo)
+
+                non_terminal_values = (
+                    self._batch_evaluate_positions(non_terminal_states)
+                    if non_terminal_states
+                    else []
+                )
+
+                nt_idx = 0
+                for move, prob, val in expanded_children:
+                    if val is None:
+                        if nt_idx < len(non_terminal_values):
+                            val = non_terminal_values[nt_idx]
+                        else:
+                            val = self.evaluate_position(non_terminal_states[nt_idx])
+                        nt_idx += 1
+
+                    move_key = str(move)
+                    children_values[move_key] = (move, val, prob)
+
+                    if state.current_player == self.player_number:
+                        best_val = max(best_val, val)
+                    else:
+                        best_val = min(best_val, val)
 
             # Determine status
             status = NodeStatus.HEURISTIC
@@ -1246,7 +1331,7 @@ class DescentAI(BaseAI):
         num_players = len(state.players)
         if self.neural_net:
             immutable = state.to_immutable()
-            val = self.neural_net.evaluate_position(immutable)
+            val = self.evaluate_position(immutable)
         else:
             # Heuristic fallback: simple material difference.
             player_state = state.players.get(self.player_number)
@@ -1278,6 +1363,47 @@ class DescentAI(BaseAI):
         # Clamp value to (-0.99, 0.99) to reserve 1.0/-1.0 for proven
         # terminal states.
         return max(-0.99, min(0.99, val))
+
+    def _batch_evaluate_positions(
+        self, game_states: List[GameState]
+    ) -> List[float]:
+        """Batch-evaluate immutable states with NN when available.
+
+        Returns values in this agent's fixed perspective. For two-player
+        games, NeuralNetAI values are current-player-relative, so we negate
+        when evaluating opponent-to-move states.
+        """
+        if not game_states:
+            return []
+
+        if not self.neural_net:
+            return [self.evaluate_position(s) for s in game_states]
+
+        try:
+            if self.nn_batcher:
+                values, _ = self.nn_batcher.evaluate(game_states)
+            else:
+                values, _ = self.neural_net.evaluate_batch(game_states)
+
+            adjusted: List[float] = []
+            for val, st in zip(values, game_states):
+                v = float(val)
+                if (
+                    len(st.players) == 2
+                    and st.current_player != self.player_number
+                ):
+                    v = -v
+                adjusted.append(max(-0.99, min(0.99, v)))
+            return adjusted
+        except Exception:
+            logger.warning(
+                "DescentAI neural batch evaluation failed; falling back to heuristic evaluation",
+                exc_info=True,
+            )
+            self.neural_net = None
+            self.hex_encoder = None
+            self.nn_batcher = None
+            return [self.evaluate_position(s) for s in game_states]
 
     # =========================================================================
     # Legacy Search Methods (Immutable State)
@@ -1373,6 +1499,7 @@ class DescentAI(BaseAI):
                 )
                 self.neural_net = None
                 self.hex_encoder = None
+                self.nn_batcher = None
                 # Fall through to the heuristic evaluation below.
                 my_elim = game_state.board.eliminated_rings.get(
                     str(self.player_number),
