@@ -162,8 +162,8 @@ tests/load/results/
 ai-service-sync.zip
 .env.staging
 
-# Large synced selfplay databases (too large for GitHub)
-ai-service/data/games/synced_*/
+# Large synced selfplay databases and local game data (too large for GitHub)
+ai-service/data/games/
 
 # Selfplay debug artifacts (large state bundles and parity summaries)
 ai-service/data/games/*.state_bundles/

@@ -211,24 +211,24 @@ Operational drills completed:
 
 ### 3.1 Wave 3 Remediation: Production Validation at Scale
 
-**Assessment (2025-12-07):** Production Validation at Scale is both the **weakest aspect** and **hardest problem**. The system has never been tested at the target scale of 100 concurrent games / 300 players. See [`docs/WAVE3_ASSESSMENT_REPORT.md`](docs/WAVE3_ASSESSMENT_REPORT.md) for full analysis.
+**Assessment (2025-12-07):** Production Validation at Scale was the **weakest aspect** and **hardest problem**. Baseline and target-scale k6 runs are now complete (staging P-01, 2025-12-08 → 2025-12-10); see `docs/testing/BASELINE_CAPACITY.md` and `docs/testing/LOAD_TEST_BASELINE.md`. Remaining Wave-3 follow-up is alerting validation under load (W3-8).
 
-| ID        | Task                                             | Priority | Status  | Acceptance Criteria                                |
-| --------- | ------------------------------------------------ | -------- | ------- | -------------------------------------------------- |
-| **W3-1**  | Complete k6 load test scenarios                  | CRITICAL | Pending | All 4 scenarios executable with realistic patterns |
-| **W3-2**  | Provision staging load test environment          | CRITICAL | Pending | Environment matches production topology            |
-| **W3-3**  | Execute baseline load test (25 games)            | CRITICAL | Pending | Test completes; metrics captured in Grafana        |
-| **W3-4**  | Execute target load test (100 games/300 players) | CRITICAL | Pending | Test completes at target scale                     |
-| **W3-5**  | Verify SLO compliance                            | HIGH     | Pending | All p95/p99 targets met and documented             |
-| **W3-6**  | Identify and resolve bottlenecks                 | HIGH     | Pending | No degradation >20% at target load                 |
-| **W3-7**  | Document capacity limits                         | MEDIUM   | Pending | Capacity planning doc created                      |
-| **W3-8**  | Validate alerting under load                     | HIGH     | Pending | Synthetic alerts fire correctly                    |
-| **W3-9**  | Expand territory_processing parity fixtures      | MEDIUM   | Pending | ≥15 fixtures covering territory edge cases         |
-| **W3-10** | Expand forced_elimination parity fixtures        | MEDIUM   | Pending | ≥15 fixtures covering FE edge cases                |
-| **W3-11** | Complete canonical move/phase audit              | HIGH     | Pending | All 3 audit checklist items verified               |
-| **W3-12** | Mobile responsive board rendering                | LOW      | Pending | Board renders correctly on 375px-768px viewports   |
-| **W3-13** | Touch-optimized controls                         | LOW      | Pending | Touch targets ≥44px, gestures functional           |
-| **W3-14** | E2E multiplayer scenario tests                   | MEDIUM   | Pending | ≥5 full game flow tests for 3-4 player games       |
+| ID        | Task                                             | Priority | Status   | Acceptance Criteria                                |
+| --------- | ------------------------------------------------ | -------- | -------- | -------------------------------------------------- |
+| **W3-1**  | Complete k6 load test scenarios                  | CRITICAL | Complete | All 4 scenarios executable with realistic patterns |
+| **W3-2**  | Provision staging load test environment          | CRITICAL | Complete | Environment matches production topology            |
+| **W3-3**  | Execute baseline load test (25 games)            | CRITICAL | Complete | Test completes; metrics captured in Grafana        |
+| **W3-4**  | Execute target load test (100 games/300 players) | CRITICAL | Complete | Test completes at target scale                     |
+| **W3-5**  | Verify SLO compliance                            | HIGH     | Complete | All p95/p99 targets met and documented             |
+| **W3-6**  | Identify and resolve bottlenecks                 | HIGH     | Complete | No degradation >20% at target load                 |
+| **W3-7**  | Document capacity limits                         | MEDIUM   | Complete | Capacity planning doc created                      |
+| **W3-8**  | Validate alerting under load                     | HIGH     | Pending  | Synthetic alerts fire correctly                    |
+| **W3-9**  | Expand territory_processing parity fixtures      | MEDIUM   | Complete | ≥15 fixtures covering territory edge cases         |
+| **W3-10** | Expand forced_elimination parity fixtures        | MEDIUM   | Complete | ≥15 fixtures covering FE edge cases                |
+| **W3-11** | Complete canonical move/phase audit              | HIGH     | Complete | All 3 audit checklist items verified               |
+| **W3-12** | Mobile responsive board rendering                | LOW      | Complete | Board renders correctly on 375px-768px viewports   |
+| **W3-13** | Touch-optimized controls                         | LOW      | Complete | Touch targets ≥44px, gestures functional           |
+| **W3-14** | E2E multiplayer scenario tests                   | MEDIUM   | Complete | ≥5 full game flow tests for 3-4 player games       |
 
 **Dependencies:**
 
