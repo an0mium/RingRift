@@ -432,7 +432,13 @@ def export_replay_dataset(
             # use the last safe prefix state when available.
             final_state_index = min(final_state_index, max_safe_move_index)
 
-        final_state = db.get_state_at_move(game_id, final_state_index)
+        try:
+            final_state = db.get_state_at_move(game_id, final_state_index)
+        except Exception as e:
+            # Skip games with corrupted replays (e.g., phase/move invariant violations)
+            logger.debug(f"Skipping game {game_id}: replay error: {e}")
+            games_skipped += 1
+            continue
         if final_state is None:
             continue
 
@@ -473,7 +479,12 @@ def export_replay_dataset(
             if move_index == 0:
                 state_before = initial_state
             else:
-                state_before = db.get_state_at_move(game_id, move_index - 1)
+                try:
+                    state_before = db.get_state_at_move(game_id, move_index - 1)
+                except Exception as e:
+                    # Skip rest of game on replay error
+                    logger.debug(f"Skipping game {game_id} at move {move_index}: {e}")
+                    break
                 if state_before is None:
                     break
 
