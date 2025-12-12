@@ -19,7 +19,7 @@
 >
 > For a high-level “rules vs AI vs infra” classification, see `AI_ARCHITECTURE.md` §0 (AI Incident Overview). For suite‑by‑suite details of which tests are canonical vs diagnostic, see `tests/README.md` and `tests/TEST_SUITE_PARITY_PLAN.md`.
 >
-> Runtime rules flags: `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded to `true`; `ORCHESTRATOR_SHADOW_MODE_ENABLED` and `RINGRIFT_RULES_MODE` control shadow/authoritative posture. The legacy `ORCHESTRATOR_ROLLOUT_PERCENTAGE` flag was removed; rollout is always 100%.
+> Runtime rules flags: `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded to `true`; `RINGRIFT_RULES_MODE` selects TS (`ts`, default) vs Python‑authoritative validation (`python`). Legacy rollout/shadow flags were removed; adapters are always 100%.
 
 ---
 
@@ -78,17 +78,14 @@
      - A **canonical** fixture‑driven parity check (contracts / structured fixtures), or
      - A **diagnostic** trace/seed parity suite (recorded games, historical seeds, archived tests).
    - Remember: trace/seed suites are derived; when they disagree with `.shared` + contracts, the traces are usually stale.
-3. **Check orchestrator flags and host mode**
+3. **Check rules mode**
    - Verify that parity jobs are running in the expected rules mode:
-     - `ORCHESTRATOR_ADAPTER_ENABLED`
-     - `ORCHESTRATOR_ROLLOUT_PERCENTAGE`
-     - `ORCHESTRATOR_SHADOW_MODE_ENABLED`
      - `RINGRIFT_RULES_MODE`
-   - Ensure that canonical parity jobs use the orchestrator‑ON posture (`RINGRIFT_RULES_MODE=ts`) unless they are explicitly testing legacy/SHADOW behaviour.
+   - Canonical parity jobs should use `RINGRIFT_RULES_MODE=ts`; `python` mode is reserved for explicit parity/diagnostic runs.
 4. **Decide where to focus investigation**
    - If canonical contracts + `.shared` tests disagree between TS and Python → focus on aligning Python to TS (or, rarely, updating TS + contracts when the spec says TS is wrong).
    - If only diagnostic trace/seed suites disagree while contracts and `.shared` tests are green → treat traces as stale; update or archive them per the plan in `tests/TEST_SUITE_PARITY_PLAN.md` and `docs/PARITY_SEED_TRIAGE.md`.
-   - If mismatches appear only under legacy/SHADOW rules modes → confirm whether they reflect known historical behaviour or a genuine regression; do not bend canonical TS rules to satisfy legacy traces.
+   - If mismatches appear only under diagnostic `python` runs → confirm whether they reflect known historical behaviour or a genuine regression; do not bend canonical TS rules to satisfy stale traces.
 
 ### 2.1 Confirm which parity alert(s) are active
 
@@ -129,7 +126,7 @@ Quickly review whether any of the following changed in the relevant environment 
 - Shared TS rules engine (`src/shared/engine/**`).
 - Game engine / orchestrator integration (`src/server/game/GameEngine.ts`, `RuleEngine.ts`, `RulesBackendFacade.ts`, `turnOrchestrator.ts`, state machines in `src/shared/stateMachines/**`).
 - Python rules engine (`ai-service/app/game_engine.py`, `ai-service/app/rules/**`).
-- Orchestrator rollout and feature flags (`ORCHESTRATOR_ADAPTER_ENABLED`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE`, `ORCHESTRATOR_SHADOW_MODE_ENABLED`, `RINGRIFT_RULES_MODE`) per `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.
+- Orchestrator and rules flags (`ORCHESTRATOR_ADAPTER_ENABLED`, `RINGRIFT_RULES_MODE`) per `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.
 
 If there were no changes in any of these areas, triage should include **environment drift** (older image deployed in some clusters, partial rollouts, stale parity fixtures) as a possible cause.
 
@@ -154,7 +151,7 @@ From these entries, extract:
 
 - Which **kind** of mismatch is observed (`valid`, `hash`, `gameStatus`, etc.).
 - Any attached **scenario identifiers**, seeds, or move indices (often included in `details`).
-- Whether mismatches occur in **shadow mode only** (Python running as a shadow engine) or in actual user-facing paths.
+- Whether mismatches occur only in diagnostic `python` runs or in user‑facing paths.
 
 ### 2.4 Determine whether this is CI-only or live-traffic driven
 

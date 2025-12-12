@@ -20,10 +20,9 @@
 - The **shared TypeScript rules engine + orchestrator** is the single source of truth for game semantics; backend, sandbox, and Python AI-service are adapters over this SSoT.
 - Runtime rules selection is controlled by:
   - `ORCHESTRATOR_ADAPTER_ENABLED` (hardcoded to `true`)
-  - `ORCHESTRATOR_SHADOW_MODE_ENABLED`
-  - `RINGRIFT_RULES_MODE`
-  - Legacy `ORCHESTRATOR_ROLLOUT_PERCENTAGE` flag **removed**; adapter is always 100%.
-- As of PASS20/Phase 3, production/staging environments run with the orchestrator adapter **fully enabled** (hardcoded). For game‑performance issues (slow moves, spikes in move latency), keep orchestrator‑ON by default and treat shadow mode and the circuit breaker as the only levers; do not attempt percentage rollbacks. Adjust flags only when shared‑engine/contract tests indicate a true rules defect and follow `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` for any rollback.
+  - `RINGRIFT_RULES_MODE` (`ts` default, `python` diagnostic/authoritative)
+  - Legacy rollout/shadow flags were removed; adapter is always 100%.
+- As of PASS20/Phase 4, production/staging environments run with the orchestrator adapter **fully enabled**. For game‑performance issues (slow moves, spikes in move latency), keep `RINGRIFT_RULES_MODE=ts` by default and use circuit breaker / infra levers first; only switch to `python` mode for explicit parity diagnostics per `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.
 - Key metrics to consult alongside `HighGameMoveLatency`:
   - Game and move latency:
     - `ringrift_game_move_latency_seconds_bucket` / derived `game_move_latency_ms` (move latency)

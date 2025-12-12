@@ -216,17 +216,66 @@ AI_CLASSES = {
 }
 
 
+def get_best_nn_model_id() -> str:
+    """Find the best available neural network model.
+
+    Preference order:
+    1. ringrift_v3 (latest training run, largest model)
+    2. sq8_2p_nn_baseline (v2 fallback)
+    3. ringrift_v1 (legacy)
+    """
+    import glob
+    import os
+
+    models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+
+    # Check for v3 models first (prefer latest timestamp)
+    v3_patterns = [
+        os.path.join(models_dir, "ringrift_v3_sq8_2p_*.pth"),
+    ]
+    for pattern in v3_patterns:
+        matches = sorted(glob.glob(pattern))
+        # Filter out empty files and get latest
+        valid_matches = [m for m in matches if os.path.getsize(m) > 1000]
+        if valid_matches:
+            # Return model ID without path and extension
+            basename = os.path.basename(valid_matches[-1])
+            # Extract the base model ID (before any timestamp suffix)
+            return "ringrift_v3_sq8_2p"
+
+    # Fallback to v2 baseline
+    v2_patterns = [
+        os.path.join(models_dir, "sq8_2p_nn_baseline_*.pth"),
+    ]
+    for pattern in v2_patterns:
+        matches = sorted(glob.glob(pattern))
+        valid_matches = [m for m in matches if os.path.getsize(m) > 1000]
+        if valid_matches:
+            return "sq8_2p_nn_baseline"
+
+    # Legacy fallback
+    return "ringrift_v1"
+
+
 def create_ai_for_tier(tier: str, player_number: int, seed: int) -> Any:
     """Create an AI instance for the given difficulty tier."""
     profile = DIFFICULTY_PROFILES[tier]
     difficulty = int(tier[1:])
+    use_nn = profile.get("use_neural_net", False)
+
+    # Auto-select best available NN model for neural-enabled tiers
+    nn_model_id = None
+    if use_nn:
+        nn_model_id = get_best_nn_model_id()
+        logger.info(f"Using neural model: {nn_model_id} for tier {tier}")
 
     config = AIConfig(
         difficulty=difficulty,
         randomness=profile["randomness"],
         think_time=profile["think_time_ms"],
         rng_seed=seed,
-        use_neural_net=profile.get("use_neural_net", False),
+        use_neural_net=use_nn,
+        nn_model_id=nn_model_id,
     )
 
     ai_class = AI_CLASSES[profile["ai_type"]]

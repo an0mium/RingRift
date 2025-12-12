@@ -385,6 +385,31 @@ def _canonical_termination_reason(state: GameState, fallback: str) -> str:
     return "status:completed:lps"
 
 
+def _resolve_default_nn_model_id(
+    board_type: BoardType,
+    num_players: int,
+) -> Optional[str]:
+    """Resolve a safe default nn_model_id prefix for neural-enabled tiers.
+
+    Canonical NN checkpoints currently exist only for square8 2-player games.
+    To keep mixed/nn-only soaks robust:
+    - Prefer v3 square8 2p checkpoints when present.
+    - Fall back to the stable sq8_2p baseline prefix otherwise.
+    - Return None for other boards/player-counts so callers can disable NN
+      instead of crashing.
+    """
+    if board_type == BoardType.SQUARE8 and num_players == 2:
+        import glob
+
+        models_dir = os.path.join(ROOT, "models")
+        for prefix in ("ringrift_v3_sq8_2p", "sq8_2p_nn_baseline"):
+            matches = glob.glob(os.path.join(models_dir, f"{prefix}*.pth"))
+            if any(os.path.getsize(p) > 0 for p in matches):
+                return prefix
+        return "sq8_2p_nn_baseline"
+    return None
+
+
 def _build_mixed_ai_pool(
     game_index: int,
     player_numbers: List[int],
@@ -524,13 +549,27 @@ def _build_mixed_ai_pool(
         # Neural-net enabled: Descent + MCTS + NNUE Minimax with neural networks
         from app.ai.descent_ai import DescentAI  # type: ignore
 
+        default_nn_model_id = _resolve_default_nn_model_id(
+            board_type,
+            len(player_numbers),
+        )
+        if default_nn_model_id is None:
+            logger.warning(
+                "nn-only mode requested but no NN checkpoint is available for "
+                "board=%s players=%s; falling back to heuristic-only Descent.",
+                board_type.value,
+                len(player_numbers),
+            )
+
         for pnum in player_numbers:
             cfg = AIConfig(
                 difficulty=10,
                 think_time=0,
                 randomness=0.05,
                 rngSeed=(base_seed or 0) + pnum + game_index,
-                use_neural_net=True,  # Enable neural network evaluation
+                use_neural_net=default_nn_model_id is not None,
+                nn_model_id=default_nn_model_id,
+                allow_fresh_weights=False,
             )
             ai_by_player[pnum] = DescentAI(pnum, cfg)
             ai_metadata[f"player_{pnum}_ai_type"] = "descent_nn"
@@ -589,6 +628,18 @@ def _build_mixed_ai_pool(
                 "full",
             )
 
+        # Neural tiers (D4+ / D6+ / Descent) should use a compatible default NN
+        # checkpoint when available. If none exists for this board, disable NN
+        # to avoid crashes during lazy NeuralNetAI initialization.
+        use_neural_net = bool(profile.get("use_neural_net", False))
+        if use_neural_net:
+            nn_model_id = _resolve_default_nn_model_id(
+                board_type,
+                len(player_numbers),
+            )
+            if nn_model_id is None:
+                use_neural_net = False
+
         cfg = AIConfig(
             difficulty=difficulty,
             randomness=profile["randomness"],
@@ -597,6 +648,8 @@ def _build_mixed_ai_pool(
             heuristic_profile_id=heuristic_profile_id,
             nn_model_id=nn_model_id,
             heuristic_eval_mode=heuristic_eval_mode,
+            use_neural_net=use_neural_net,
+            allow_fresh_weights=False,
         )
         ai = _create_ai_instance(ai_type, pnum, cfg)
         ai_by_player[pnum] = ai

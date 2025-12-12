@@ -213,7 +213,6 @@ shared engine as authoritative:
 ```env
 RINGRIFT_RULES_MODE=ts
 ORCHESTRATOR_ADAPTER_ENABLED=true
-ORCHESTRATOR_SHADOW_MODE_ENABLED=false
 ```
 
 Notes:
@@ -224,8 +223,9 @@ Notes:
   `GameEngine.makeMove()` on the `TurnEngineAdapter` path for live games.
 - `ORCHESTRATOR_ROLLOUT_PERCENTAGE` was removed in the Phase 3 cleanup; rollout
   is permanently 100%.
-- Shadow/legacy modes are reserved for **diagnostic/non-production** use and
-  should not be enabled in production without an explicit incident playbook.
+- Python authoritative mode (`RINGRIFT_RULES_MODE=python`) is reserved for
+  **diagnostic/non-production** use and should not be enabled in production
+  without an explicit incident playbook.
 
 ### Secrets Management
 

@@ -76,10 +76,10 @@ This section reviews internal documentation for engineering accuracy.
 
 ## 3.4 Configuration and Defaults
 
-| ID           | Config Key            | Location                       | Issue                                                                                                                                                | Recommendation                                                                                            |
-| :----------- | :-------------------- | :----------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------- |
-| **DOCUX-C1** | `RINGRIFT_RULES_MODE` | `src/shared/utils/envFlags.ts` | Defaults to `'ts'`. Docs explain `'python'` and `'shadow'`, but implications for **parity failures** in shadow mode aren't prominent in `README.md`. | Add a "Rules Engine Modes" section to `README.md` explaining that `shadow` logs mismatches but trusts TS. |
-| **DOCUX-C2** | `ringsPerPlayer`      | `src/shared/types/game.ts`     | Used for placement caps. Implementation approximates this using stack heights (`CCE-002`).                                                           | Add comment to `BOARD_CONFIGS` in `types/game.ts` noting the implementation approximation (CCE-002).      |
+| ID           | Config Key            | Location                       | Issue                                                                                                                                                            | Recommendation                                                                                                        |
+| :----------- | :-------------------- | :----------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------- |
+| **DOCUX-C1** | `RINGRIFT_RULES_MODE` | `src/shared/utils/envFlags.ts` | Defaults to `'ts'`. Docs explain `'python'`, but the implications for **parity failures** and fallback behaviour in python mode aren't prominent in `README.md`. | Add a "Rules Engine Modes" section to `README.md` explaining `ts` vs `python` and where parity metrics are collected. |
+| **DOCUX-C2** | `ringsPerPlayer`      | `src/shared/types/game.ts`     | Used for placement caps. Implementation approximates this using stack heights (`CCE-002`).                                                                       | Add comment to `BOARD_CONFIGS` in `types/game.ts` noting the implementation approximation (CCE-002).                  |
 
 ---
 

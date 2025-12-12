@@ -2213,50 +2213,8 @@ class NeuralNetAI(BaseAI):
 
         model_path = os.path.join(self._base_dir, "models", model_filename)
 
-        # Build cache key including board_type
-        cache_key = (
-            self.architecture_type,
-            str(self.device),
-            model_path,
-            board_type.value if board_type else "unknown",
-        )
-
-        # Check cache for existing model
-        if cache_key in _MODEL_CACHE:
-            self.model = _MODEL_CACHE[cache_key]
-            self._initialized_board_type = board_type
-            logger.debug(
-                f"Reusing cached model: board={board_type}, " f"arch={self.architecture_type}, device={self.device}"
-            )
-            return
-
-        # Create new model using the factory function
-        # NOTE: in_channels=14 is the canonical value for all board types.
-        # Old hex models used in_channels=10 but are deprecated (radius-10 geometry).
-        # Current hex uses radius-12 geometry which requires 14 channels.
-        self.model = create_model_for_board(
-            board_type=board_type,
-            model_class="auto",  # Let factory choose best class
-            use_mps=self._use_mps_arch,
-            in_channels=14,
-            global_features=20,  # Must match _extract_features() which returns 20 globals
-            num_res_blocks=10,
-            num_filters=128,
-            history_length=self.history_length,
-        )
-        logger.info(
-            f"Initialized {type(self.model).__name__} for {board_type} " f"(policy_size={self.model.policy_size})"
-        )
-
-        self.model.to(self.device)
-
-        # Load weights if available.
-        #
-        # Checkpoints are named with an optional board suffix (e.g. _hex) and
-        # an optional architecture suffix (_mps). In practice, most training
-        # runs publish a single CPU/CUDA checkpoint without the _mps suffix,
-        # so when running with the MPS-friendly architecture we also try the
-        # non-MPS filename as a compatibility fallback.
+        # Resolve a usable checkpoint path before building the model so we can
+        # match architecture hyperparameters to the checkpoint metadata.
         models_dir = os.path.join(self._base_dir, "models")
         allow_fresh = bool(getattr(self.config, "allow_fresh_weights", False))
 
@@ -2267,9 +2225,6 @@ class NeuralNetAI(BaseAI):
             f"{model_id}{board_suffix}{arch_suffix}.pth",
             f"{model_id}{board_suffix}{other_arch_suffix}.pth",
         ]
-
-        # If we had a board suffix, also try the base model id without the
-        # suffix (both arch variants) as a fallback.
         if board_suffix:
             candidate_filenames.extend(
                 [
@@ -2278,7 +2233,6 @@ class NeuralNetAI(BaseAI):
                 ]
             )
 
-        # Deduplicate while preserving order.
         seen: set[str] = set()
         candidate_paths: list[str] = []
         for filename in candidate_filenames:
@@ -2295,12 +2249,6 @@ class NeuralNetAI(BaseAI):
 
         chosen_path = next((p for p in candidate_paths if _is_usable_checkpoint(p)), None)
         if chosen_path is None:
-            # Convenience: allow a stable nn_model_id prefix (e.g.
-            # "sq8_2p_nn_baseline") to resolve to the latest timestamped
-            # checkpoint "sq8_2p_nn_baseline_<ts>.pth" in the models dir.
-            #
-            # This keeps ladder configs and training tooling from having to
-            # rewrite a new model id every time a checkpoint is produced.
             import glob
 
             prefix = f"{model_id}{board_suffix}"
@@ -2317,6 +2265,82 @@ class NeuralNetAI(BaseAI):
             )
             if latest_matches:
                 chosen_path = latest_matches[-1]
+
+        effective_model_path = chosen_path or model_path
+
+        # Build cache key including the resolved checkpoint path and board_type.
+        cache_key = (
+            self.architecture_type,
+            str(self.device),
+            effective_model_path,
+            board_type.value if board_type else "unknown",
+        )
+
+        if cache_key in _MODEL_CACHE:
+            self.model = _MODEL_CACHE[cache_key]
+            self._initialized_board_type = board_type
+            logger.debug(
+                f"Reusing cached model: board={board_type}, "
+                f"arch={self.architecture_type}, device={self.device}"
+            )
+            return
+
+        # Defaults for fresh weights / unknown metadata.
+        num_res_blocks = 10
+        num_filters = 128
+        memory_tier_override: Optional[str] = None
+
+        if chosen_path is not None:
+            try:
+                checkpoint = torch.load(
+                    chosen_path,
+                    map_location="cpu",
+                    weights_only=False,
+                )
+                if isinstance(checkpoint, dict):
+                    meta = checkpoint.get("_versioning_metadata") or {}
+                    if isinstance(meta, dict):
+                        cfg = meta.get("config") or {}
+                        if isinstance(cfg, dict):
+                            num_res_blocks = int(cfg.get("num_res_blocks") or num_res_blocks)
+                            num_filters = int(cfg.get("num_filters") or num_filters)
+                        model_class_name = meta.get("model_class")
+                        if isinstance(model_class_name, str):
+                            lower_name = model_class_name.lower()
+                            if "v3" in lower_name:
+                                memory_tier_override = "v3-low" if "lite" in lower_name else "v3-high"
+                            elif "lite" in lower_name:
+                                memory_tier_override = "low"
+                            else:
+                                memory_tier_override = "high"
+            except Exception as e:
+                logger.debug(
+                    "Failed to read checkpoint metadata for %s: %s",
+                    chosen_path,
+                    e,
+                )
+
+        # Create new model using the factory function.
+        # NOTE: in_channels=14 and global_features=20 are canonical for all boards.
+        self.model = create_model_for_board(
+            board_type=board_type,
+            in_channels=14,
+            global_features=20,
+            num_res_blocks=num_res_blocks,
+            num_filters=num_filters,
+            history_length=self.history_length,
+            memory_tier=memory_tier_override,
+        )
+        logger.info(
+            "Initialized %s for %s from %s (res_blocks=%s, filters=%s)",
+            type(self.model).__name__,
+            board_type,
+            os.path.basename(effective_model_path),
+            num_res_blocks,
+            num_filters,
+        )
+
+        self.model.to(self.device)
 
         if chosen_path is not None:
             if chosen_path != model_path:
@@ -2338,8 +2362,6 @@ class NeuralNetAI(BaseAI):
                 else:
                     raise
         else:
-            # No model found - this is often a configuration error in production
-            # but may be intentional for training.
             if allow_fresh:
                 logger.info(
                     "No model found at %s; using fresh weights "

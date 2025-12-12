@@ -113,7 +113,7 @@
 - [x] Implement `RulesBackendFacade` to abstract engine selection.
 - [x] Implement `PythonRulesClient` for AI service communication.
 - [x] Verify core mechanics parity (Movement, Capture, Lines, Territory) in Python engine.
-- [ ] Enable `RINGRIFT_RULES_MODE=shadow` in staging/CI to collect parity metrics.
+- [ ] Collect runtime TS↔Python parity metrics in staging/CI via diagnostic runs with `RINGRIFT_RULES_MODE=python` (legacy `shadow` mode removed).
 
 ### **PHASE 3: Multiplayer Polish**
 
@@ -203,7 +203,7 @@ These metrics restate and operationalise the v1.0 success criteria defined in [`
 
 - [ ] **Strengthen TS↔Python parity for territory detection and processing** – Expand parity suites to cover a matrix of board types and region patterns across [`src/shared/engine/territoryDetection.ts`](src/shared/engine/territoryDetection.ts:1), [`src/shared/engine/territoryProcessing.ts`](src/shared/engine/territoryProcessing.ts:1), and the Python rules stack in [`ai-service/app/game_engine.py`](ai-service/app/game_engine.py:1) and [`ai-service/app/board_manager.py`](ai-service/app/board_manager.py:1). Include fixtures derived from [`RULES_SCENARIO_MATRIX.md`](RULES_SCENARIO_MATRIX.md:1) and existing Jest territory tests such as [`tests/unit/GameEngine.territoryDisconnection.test.ts`](tests/unit/GameEngine.territoryDisconnection.test.ts:1) and [`tests/unit/territoryDecisionHelpers.shared.test.ts`](tests/unit/territoryDecisionHelpers.shared.test.ts:1). **Owner modes:** Debug (test design) + Code (implementation).
 
-- [ ] **Parity for territory decision enumeration and forced-elimination sequences** – Ensure that all territory-related `PlayerChoice` surfaces and generated territory-processing moves (claims, region order, explicit self-elimination, host-level forced elimination) stay in lockstep between TS and Python. Leverage `RINGRIFT_RULES_MODE=shadow` traces and extend parity diagnostics in [`src/server/utils/rulesParityMetrics.ts`](src/server/utils/rulesParityMetrics.ts:1). **Owner modes:** Debug + Code.
+- [ ] **Parity for territory decision enumeration and forced-elimination sequences** – Ensure that all territory-related `PlayerChoice` surfaces and generated territory-processing moves (claims, region order, explicit self-elimination, host-level forced elimination) stay in lockstep between TS and Python. Leverage python‑mode parity traces (`RINGRIFT_RULES_MODE=python` in diagnostic runs) and extend parity diagnostics in [`src/server/utils/rulesParityMetrics.ts`](src/server/utils/rulesParityMetrics.ts:1). **Owner modes:** Debug + Code.
 
 - [ ] **Property-based tests for territory invariants and forced elimination** – Introduce property-based tests (for example, with Hypothesis in Python and fast-check in TypeScript) that randomly generate mid/late-game `GameState` snapshots and assert invariants around territory connectivity, collapsed-space ownership, and forced elimination ordering. Ground properties in [`ringrift_complete_rules.md`](ringrift_complete_rules.md:1) and the territory helpers listed in [`RULES_ENGINE_ARCHITECTURE.md`](RULES_ENGINE_ARCHITECTURE.md:1). An initial TS harness exists under `tests/unit/territoryProcessing.property.test.ts` exercising 2×2 disconnected-region invariants on `square8`; Python/Hypothesis coverage and forced-elimination–specific properties remain future work. **Owner modes:** Debug (property design) + Code (harnesses).
 

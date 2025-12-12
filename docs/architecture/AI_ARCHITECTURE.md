@@ -51,8 +51,8 @@ When something looks “AI-broken” in production, ask **which layer is likely 
       - TS: `tests/unit/*.shared.test.ts`, `tests/contracts/contractVectorRunner.test.ts`.
       - Python: `ai-service/tests/contracts/test_contract_vectors.py`.
     - Inspect orchestrator adapters and flags (now mostly fixed in production):
-      `ORCHESTRATOR_ADAPTER_ENABLED`, `ORCHESTRATOR_SHADOW_MODE_ENABLED`,
-      `RINGRIFT_RULES_MODE` (see `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` and
+      `ORCHESTRATOR_ADAPTER_ENABLED`, `RINGRIFT_RULES_MODE`
+      (see `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` and
       `docs/ENVIRONMENT_VARIABLES.md` for current rollout semantics).
   - Playbook:
     - If the shared engine or orchestrator looks wrong, follow

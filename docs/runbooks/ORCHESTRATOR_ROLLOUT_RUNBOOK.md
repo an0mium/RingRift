@@ -1,9 +1,9 @@
 # Orchestrator Rollout Runbook
 
 > **Audience:** On-call engineers and backend maintainers  
-> **Scope:** Managing rollout, shadow mode, and incident response for the shared turn orchestrator
+> **Scope:** Managing orchestrator posture, circuit breaker, and parity diagnostics for the shared turn orchestrator
 
-> **Post-Phase 3 note:** `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded to `true` in `EnvSchema` and the rollout-percentage flag was removed. Treat this runbook as guidance for shadow-mode, circuit-breaker, and diagnostics flows; percentage-based rollout controls are historical only.
+> **Post-Phase 4 note:** `ORCHESTRATOR_ADAPTER_ENABLED` is hardcoded to `true` in `EnvSchema`; rollout-percentage and shadow-mode flags were removed. Treat this runbook as guidance for circuit‑breaker and parity diagnostics flows; percentage/shadow controls are historical only.
 
 ---
 
@@ -21,13 +21,12 @@ When investigating an orchestrator-related page or alert, check:
 **Target SLO-style thresholds (steady state):**
 
 - Orchestrator error rate: `ringrift_orchestrator_error_rate < 0.02` (2%) over a 5–10 minute window.
-- Shadow mismatch rate: `ringrift_orchestrator_shadow_mismatch_rate < 0.01` (1%) when SHADOW is enabled.
+- Parity mismatch rate: `ringrift_orchestrator_shadow_mismatch_rate < 0.01` (1%) during diagnostic parity runs.
 - Circuit breaker closed: `ringrift_orchestrator_circuit_breaker_state == 0` during normal operation.
 
 Use `/metrics` plus the admin API to decide whether to:
 
-- Investigate shadow-mode posture or circuit-breaker state (rollout percentage is fixed at 100%).
-- Enable / disable shadow mode.
+- Investigate parity posture or circuit-breaker state (rollout percentage is fixed at 100%).
 - Trip or reset the circuit breaker.
 
 ---
@@ -39,42 +38,30 @@ Use `/metrics` plus the admin API to decide whether to:
 
 Response shape (summary):
 
-```json
+````json
 {
   "success": true,
-  "data": {
-    "config": {
-      "adapterEnabled": true,
-      "rolloutPercentage": 50, // Telemetry-only; flag removed, adapter always 100%
-      "shadowModeEnabled": false,
-      "allowlistUsers": ["staff-1"],
-      "denylistUsers": [],
-      "circuitBreaker": {
-        "enabled": true,
-        "errorThresholdPercent": 5,
-        "errorWindowSeconds": 300
-      }
-    },
-    "circuitBreaker": {
-      "isOpen": false,
-      "errorCount": 3,
-      "requestCount": 200,
-      "windowStart": "2025-11-28T12:34:56.000Z",
-      "errorRatePercent": 1.5
-    },
-    "shadow": {
-      "totalComparisons": 1200,
-      "matches": 1188,
-      "mismatches": 12,
-      "mismatchRate": 0.01,
-      "orchestratorErrors": 0,
-      "orchestratorErrorRate": 0,
-      "avgLegacyLatencyMs": 8.5,
-      "avgOrchestratorLatencyMs": 9.2
-    }
-  }
-}
-```
+	  "data": {
+	    "config": {
+	      "adapterEnabled": true,
+	      "allowlistUsers": ["staff-1"],
+	      "denylistUsers": [],
+	      "circuitBreaker": {
+	        "enabled": true,
+	        "errorThresholdPercent": 5,
+	        "errorWindowSeconds": 300
+	      }
+	    },
+	    "circuitBreaker": {
+	      "isOpen": false,
+	      "errorCount": 3,
+	      "requestCount": 200,
+	      "windowStart": "2025-11-28T12:34:56.000Z",
+	      "errorRatePercent": 1.5
+	    }
+	  }
+	}
+	```
 
 Key questions:
 
@@ -102,7 +89,7 @@ If any of these are true, stop rollout increases and follow the incident steps b
 
 ```bash
 kubectl set env deployment/ringrift-api ORCHESTRATOR_ROLLOUT_PERCENTAGE=25
-```
+````
 
 3. Wait at least one error window (default 5 minutes) plus a few minutes of traffic.
 4. Re-check:
@@ -110,35 +97,16 @@ kubectl set env deployment/ringrift-api ORCHESTRATOR_ROLLOUT_PERCENTAGE=25
    - `/api/admin/orchestrator/status` for shadow metrics.
 5. Repeat for 10% → 25% → 50% → 100% as confidence allows.
 
-### 3.2 Enabling / Disabling Shadow Mode
+### 3.2 Parity Diagnostics (Post‑Phase 4)
 
-**Shadow mode** runs both engines but keeps legacy authoritative.
-
-- Enable shadow mode:
-
-```bash
-kubectl set env deployment/ringrift-api ORCHESTRATOR_SHADOW_MODE_ENABLED=true
-```
-
-- Disable shadow mode:
+Legacy shadow mode (`ORCHESTRATOR_SHADOW_MODE_ENABLED` / `RINGRIFT_RULES_MODE=shadow`) was removed in Phase 4.  
+To collect runtime TS↔Python parity metrics, run explicit diagnostic jobs or staging deployments with:
 
 ```bash
-kubectl set env deployment/ringrift-api ORCHESTRATOR_SHADOW_MODE_ENABLED=false
+RINGRIFT_RULES_MODE=python
 ```
 
-Use shadow mode when:
-
-- You want to validate orchestrator semantics under real traffic.
-- You are preparing for a rollout increase or post-incident regression testing.
-
-> **CI / Pre‑prod Profiles:** Gating CI jobs (unit/coverage, TS rules‑engine, and E2E)
-> now run with `RINGRIFT_RULES_MODE=ts`,
-> `ORCHESTRATOR_ADAPTER_ENABLED=true`, `ORCHESTRATOR_ROLLOUT_PERCENTAGE=100`,
-> and `ORCHESTRATOR_SHADOW_MODE_ENABLED=false`, treating the shared TS engine
->
-> - orchestrator as the sole rules path. Any use of `RINGRIFT_RULES_MODE=shadow`
->   or `ORCHESTRATOR_SHADOW_MODE_ENABLED=true` should be confined to explicit
->   diagnostic jobs and post‑deploy parity experiments, not to CI gates.
+In this posture the backend validates moves via Python, applies them through TS, and records parity mismatches. Keep production at `RINGRIFT_RULES_MODE=ts` unless debugging a confirmed rules regression.
 
 ---
 

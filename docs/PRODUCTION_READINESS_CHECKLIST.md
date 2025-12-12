@@ -645,13 +645,13 @@ Issues that **must be resolved** before production launch:
 
 ### Non-Blocking but Important
 
-| Issue                           | Severity | Status | Notes                                    |
-| ------------------------------- | -------- | ------ | ---------------------------------------- |
-| Mobile responsiveness pending   | P2       | ⬜     | W3-12 in Wave 3                          |
-| Touch controls pending          | P2       | ⬜     | W3-13 in Wave 3                          |
-| Automated matchmaking queue     | P2       | ⏳     | Basic lobby works                        |
-| Terms of service/privacy policy | P1       | ⏳     | Placeholders ready, legal review pending |
-| Cross-browser validation        | P2       | ⏳     | Playwright configured, needs CI run      |
+| Issue                                   | Severity | Status | Notes                                                      |
+| --------------------------------------- | -------- | ------ | ---------------------------------------------------------- |
+| Mobile responsiveness device QA pending | P2       | ⏳     | Implementation complete (W3-12/13); needs device QA report |
+| Touch controls device QA pending        | P2       | ⏳     | Implementation complete (W3-12/13); needs device QA report |
+| Automated matchmaking queue             | P2       | ⏳     | Basic lobby works                                          |
+| Terms of service/privacy policy         | P1       | ⏳     | Placeholders ready, legal review pending                   |
+| Cross-browser validation                | P2       | ⏳     | Playwright configured, needs CI run                        |
 
 ---
 

@@ -33,13 +33,13 @@ The orchestrator migration is **COMPLETE through Phase 3**. All critical legacy 
 
 ### 1.1 Orchestrator Rollout Status
 
-| Metric                             | Value / Notes                                   |
-| ---------------------------------- | ----------------------------------------------- |
-| `ORCHESTRATOR_ADAPTER_ENABLED`     | `true` (hardcoded in `EnvSchema`)               |
-| `ORCHESTRATOR_ROLLOUT_PERCENTAGE`  | **Removed** in Phase 3 cleanup (forced to 100%) |
-| `ORCHESTRATOR_SHADOW_MODE_ENABLED` | `false` (default)                               |
-| `RINGRIFT_RULES_MODE`              | `ts`                                            |
-| Environment Phase                  | Phase 4 – Orchestrator Authoritative            |
+| Metric                             | Value / Notes                                       |
+| ---------------------------------- | --------------------------------------------------- |
+| `ORCHESTRATOR_ADAPTER_ENABLED`     | `true` (hardcoded in `EnvSchema`)                   |
+| `ORCHESTRATOR_ROLLOUT_PERCENTAGE`  | **Removed** in Phase 3 cleanup (forced to 100%)     |
+| `ORCHESTRATOR_SHADOW_MODE_ENABLED` | **Removed** in Phase 4 cleanup (no longer honoured) |
+| `RINGRIFT_RULES_MODE`              | `ts`                                                |
+| Environment Phase                  | Phase 4 – Orchestrator Authoritative                |
 
 **Reference:** [`docs/ORCHESTRATOR_ROLLOUT_PLAN.md`](./ORCHESTRATOR_ROLLOUT_PLAN.md) lines 1-8
 
@@ -53,10 +53,6 @@ ORCHESTRATOR_ADAPTER_ENABLED: z
   .transform((): true => true)
   .default(true),
 
-ORCHESTRATOR_SHADOW_MODE_ENABLED: z
-  .string()
-  .default('false')
-  .transform((val) => val === 'true' || val === '1'),
 ```
 
 ### 1.3 Code Elimination Status
