@@ -294,6 +294,200 @@ class ImprovementLoopState:
         return cls(**d)
 
 
+# ============================================
+# Phase 3: Training Pipeline Integration Types
+# ============================================
+
+@dataclass
+class TrainingJob:
+    """State for automatic training jobs dispatched by leader."""
+    job_id: str
+    job_type: str  # "nnue", "cmaes"
+    board_type: str
+    num_players: int
+    status: str = "pending"  # pending, queued, running, completed, failed
+    worker_node: str = ""    # Node where training is running
+    started_at: float = 0.0
+    completed_at: float = 0.0
+    # Training configuration
+    epochs: int = 100
+    batch_size: int = 2048
+    learning_rate: float = 0.001
+    # Data sources
+    data_paths: List[str] = field(default_factory=list)
+    data_games_count: int = 0
+    # Output
+    output_model_path: str = ""
+    error_message: str = ""
+    # Metrics
+    final_loss: float = 0.0
+    final_accuracy: float = 0.0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'TrainingJob':
+        return cls(**d)
+
+
+@dataclass
+class TrainingThresholds:
+    """Configuration for automatic training triggers."""
+    # Minimum games required to trigger training
+    min_games_nnue: int = 10000         # NNUE needs lots of data
+    min_games_cmaes: int = 1000         # CMA-ES can work with fewer games
+    # Incremental thresholds (trigger re-training when new data >= threshold)
+    incremental_games_nnue: int = 5000  # Re-train every 5k new games
+    incremental_games_cmaes: int = 500  # Re-optimize every 500 new games
+    # Cooldown between training runs (seconds)
+    cooldown_seconds: float = 3600.0    # 1 hour
+    # Auto-training enabled flags
+    auto_nnue_enabled: bool = True
+    auto_cmaes_enabled: bool = True
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'TrainingThresholds':
+        return cls(**d)
+
+
+# ============================================
+# Phase 2: Distributed Data Sync Types
+# ============================================
+
+@dataclass
+class DataFileInfo:
+    """Information about a single data file for manifest collection."""
+    path: str                    # Relative path from ai-service/data
+    size_bytes: int              # File size in bytes
+    modified_time: float         # Last modification time (Unix timestamp)
+    file_hash: str = ""          # MD5 hash for verification (computed on demand)
+    file_type: str = ""          # Type: selfplay, model, training, etc.
+    board_type: str = ""         # Board type if applicable (square8, hex, etc.)
+    num_players: int = 0         # Player count if applicable
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'DataFileInfo':
+        return cls(**d)
+
+
+@dataclass
+class NodeDataManifest:
+    """Data manifest for a single node - lists all available data files."""
+    node_id: str
+    collected_at: float          # When this manifest was collected
+    total_files: int = 0
+    total_size_bytes: int = 0
+    files: List[DataFileInfo] = field(default_factory=list)
+    # Summary by type
+    selfplay_games: int = 0      # Total selfplay games (from JSONL line counts)
+    model_count: int = 0         # Number of model files
+    training_data_size: int = 0  # Total training data size
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d['files'] = [f.to_dict() if hasattr(f, 'to_dict') else f for f in self.files]
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'NodeDataManifest':
+        d = d.copy()
+        d['files'] = [DataFileInfo.from_dict(f) if isinstance(f, dict) else f for f in d.get('files', [])]
+        return cls(**d)
+
+
+@dataclass
+class ClusterDataManifest:
+    """Aggregated data manifest for the entire cluster (leader-only)."""
+    collected_at: float
+    node_manifests: Dict[str, NodeDataManifest] = field(default_factory=dict)
+    # Cluster-wide totals
+    total_nodes: int = 0
+    total_files: int = 0
+    total_size_bytes: int = 0
+    total_selfplay_games: int = 0
+    # Data distribution analysis
+    files_by_node: Dict[str, int] = field(default_factory=dict)
+    unique_files: Set[str] = field(default_factory=set)
+    missing_from_nodes: Dict[str, List[str]] = field(default_factory=dict)  # file -> list of nodes missing it
+
+    def to_dict(self) -> dict:
+        d = {
+            'collected_at': self.collected_at,
+            'node_manifests': {k: v.to_dict() for k, v in self.node_manifests.items()},
+            'total_nodes': self.total_nodes,
+            'total_files': self.total_files,
+            'total_size_bytes': self.total_size_bytes,
+            'total_selfplay_games': self.total_selfplay_games,
+            'files_by_node': self.files_by_node,
+            'unique_files': list(self.unique_files),
+            'missing_from_nodes': self.missing_from_nodes,
+        }
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'ClusterDataManifest':
+        d = d.copy()
+        d['node_manifests'] = {k: NodeDataManifest.from_dict(v) for k, v in d.get('node_manifests', {}).items()}
+        d['unique_files'] = set(d.get('unique_files', []))
+        return cls(**d)
+
+
+@dataclass
+class DataSyncJob:
+    """Tracks a P2P data synchronization job between nodes."""
+    job_id: str
+    source_node: str            # Node that has the file(s)
+    target_node: str            # Node that needs the file(s)
+    files: List[str]            # List of file paths to sync (relative to data/)
+    status: str = "pending"     # pending, running, completed, failed
+    started_at: float = 0.0
+    completed_at: float = 0.0
+    bytes_transferred: int = 0
+    files_completed: int = 0
+    error_message: str = ""
+    # Rsync process details
+    rsync_pid: int = 0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'DataSyncJob':
+        return cls(**d)
+
+
+@dataclass
+class ClusterSyncPlan:
+    """Leader-generated plan for synchronizing data across the cluster."""
+    plan_id: str
+    created_at: float
+    total_files_to_sync: int = 0
+    total_bytes_to_sync: int = 0
+    sync_jobs: List[DataSyncJob] = field(default_factory=list)
+    # Status tracking
+    status: str = "pending"     # pending, running, completed, failed
+    jobs_completed: int = 0
+    jobs_failed: int = 0
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d['sync_jobs'] = [j.to_dict() for j in self.sync_jobs]
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'ClusterSyncPlan':
+        d = d.copy()
+        d['sync_jobs'] = [DataSyncJob.from_dict(j) for j in d.get('sync_jobs', [])]
+        return cls(**d)
+
+
 class P2POrchestrator:
     """Main P2P orchestrator class that runs on each node."""
 
@@ -322,9 +516,34 @@ class P2POrchestrator:
         self.distributed_tournament_state: Dict[str, DistributedTournamentState] = {}
         self.improvement_loop_state: Dict[str, ImprovementLoopState] = {}
 
+        # Phase 2: Distributed data sync state
+        self.local_data_manifest: Optional[NodeDataManifest] = None
+        self.cluster_data_manifest: Optional[ClusterDataManifest] = None  # Leader-only
+        self.manifest_collection_interval = 300.0  # Collect manifests every 5 minutes
+        self.last_manifest_collection = 0.0
+
+        # Phase 2: P2P rsync coordination state
+        self.active_sync_jobs: Dict[str, DataSyncJob] = {}
+        self.current_sync_plan: Optional[ClusterSyncPlan] = None  # Leader-only
+        self.pending_sync_requests: List[Dict[str, Any]] = []  # Requests from non-leader nodes
+        self.sync_in_progress = False
+        self.last_sync_time = 0.0
+        self.auto_sync_interval = 600.0  # Auto-sync every 10 minutes when data is missing
+
+        # Phase 3: Training pipeline state (leader-only)
+        self.training_jobs: Dict[str, TrainingJob] = {}
+        self.training_thresholds: TrainingThresholds = TrainingThresholds()
+        self.last_training_check: float = 0.0
+        self.training_check_interval: float = 300.0  # Check every 5 minutes
+        self.games_at_last_nnue_train: Dict[str, int] = {}  # board_type -> game_count
+        self.games_at_last_cmaes_train: Dict[str, int] = {}
+
         # Locks for thread safety
         self.peers_lock = threading.Lock()
         self.jobs_lock = threading.Lock()
+        self.manifest_lock = threading.Lock()
+        self.sync_lock = threading.Lock()
+        self.training_lock = threading.Lock()
 
         # State persistence
         self.db_path = STATE_DIR / f"{node_id}_state.db"
@@ -662,6 +881,439 @@ class P2POrchestrator:
             pass
 
         return selfplay, training
+
+    # ============================================
+    # Phase 2: Distributed Data Sync Methods
+    # ============================================
+
+    def _collect_local_data_manifest(self) -> NodeDataManifest:
+        """Collect manifest of all data files on this node.
+
+        Scans the ai-service/data directory for:
+        - selfplay/ - Game replay files (.jsonl, .db)
+        - models/ - Trained model files (.pt, .onnx)
+        - training/ - Training data files (.npz)
+        - games/ - Synced game databases (.db)
+        """
+        import hashlib
+
+        data_dir = Path(self.ringrift_path) / "ai-service" / "data"
+        manifest = NodeDataManifest(
+            node_id=self.node_id,
+            collected_at=time.time(),
+        )
+
+        if not data_dir.exists():
+            print(f"[P2P] Data directory not found: {data_dir}")
+            return manifest
+
+        files: List[DataFileInfo] = []
+
+        # Scan for data files
+        patterns = {
+            "selfplay": ["selfplay/**/*.jsonl", "selfplay/**/*.db"],
+            "model": ["models/**/*.pt", "models/**/*.onnx", "models/**/*.bin"],
+            "training": ["training/**/*.npz"],
+            "games": ["games/**/*.db"],
+        }
+
+        for file_type, globs in patterns.items():
+            for pattern in globs:
+                for file_path in data_dir.glob(pattern):
+                    if not file_path.is_file():
+                        continue
+
+                    try:
+                        stat = file_path.stat()
+                        rel_path = str(file_path.relative_to(data_dir))
+
+                        # Parse board_type and num_players from filename/path
+                        board_type = ""
+                        num_players = 0
+                        path_lower = rel_path.lower()
+
+                        if "sq8" in path_lower or "square8" in path_lower:
+                            board_type = "square8"
+                        elif "sq19" in path_lower or "square19" in path_lower:
+                            board_type = "square19"
+                        elif "hex" in path_lower:
+                            board_type = "hexagonal"
+
+                        if "_2p" in path_lower or "2p_" in path_lower:
+                            num_players = 2
+                        elif "_3p" in path_lower or "3p_" in path_lower:
+                            num_players = 3
+                        elif "_4p" in path_lower or "4p_" in path_lower:
+                            num_players = 4
+
+                        file_info = DataFileInfo(
+                            path=rel_path,
+                            size_bytes=stat.st_size,
+                            modified_time=stat.st_mtime,
+                            file_type=file_type,
+                            board_type=board_type,
+                            num_players=num_players,
+                        )
+                        files.append(file_info)
+
+                        # Update summary stats
+                        manifest.total_files += 1
+                        manifest.total_size_bytes += stat.st_size
+
+                        if file_type == "selfplay":
+                            # Count games in JSONL files
+                            if rel_path.endswith(".jsonl"):
+                                try:
+                                    with open(file_path, 'r') as f:
+                                        line_count = sum(1 for _ in f)
+                                    manifest.selfplay_games += line_count
+                                except:
+                                    pass
+                        elif file_type == "model":
+                            manifest.model_count += 1
+                        elif file_type == "training":
+                            manifest.training_data_size += stat.st_size
+
+                    except Exception as e:
+                        print(f"[P2P] Error scanning file {file_path}: {e}")
+
+        manifest.files = files
+
+        print(f"[P2P] Collected manifest: {manifest.total_files} files, "
+              f"{manifest.total_size_bytes / (1024*1024):.1f}MB, "
+              f"{manifest.selfplay_games} games")
+
+        return manifest
+
+    def _compute_file_hash(self, file_path: Path, chunk_size: int = 8192) -> str:
+        """Compute MD5 hash of a file for verification."""
+        import hashlib
+        md5 = hashlib.md5()
+        try:
+            with open(file_path, 'rb') as f:
+                while chunk := f.read(chunk_size):
+                    md5.update(chunk)
+            return md5.hexdigest()
+        except Exception as e:
+            print(f"[P2P] Error hashing file {file_path}: {e}")
+            return ""
+
+    async def _request_peer_manifest(self, peer_info: NodeInfo) -> Optional[NodeDataManifest]:
+        """Request data manifest from a peer node."""
+        try:
+            url = f"http://{peer_info.host}:{peer_info.port}/data_manifest"
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        return NodeDataManifest.from_dict(data.get("manifest", {}))
+        except Exception as e:
+            print(f"[P2P] Error requesting manifest from {peer_info.node_id}: {e}")
+        return None
+
+    async def _collect_cluster_manifest(self) -> ClusterDataManifest:
+        """Leader-only: Collect manifests from all peers and build cluster view."""
+        cluster_manifest = ClusterDataManifest(
+            collected_at=time.time(),
+        )
+
+        # Collect from self
+        with self.manifest_lock:
+            self.local_data_manifest = self._collect_local_data_manifest()
+            cluster_manifest.node_manifests[self.node_id] = self.local_data_manifest
+
+        # Collect from peers in parallel
+        with self.peers_lock:
+            peers = list(self.peers.values())
+
+        tasks = [self._request_peer_manifest(peer) for peer in peers]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for peer, result in zip(peers, results):
+            if isinstance(result, NodeDataManifest):
+                cluster_manifest.node_manifests[peer.node_id] = result
+
+        # Compute cluster-wide statistics
+        cluster_manifest.total_nodes = len(cluster_manifest.node_manifests)
+
+        all_files: Set[str] = set()
+        for node_id, node_manifest in cluster_manifest.node_manifests.items():
+            cluster_manifest.total_files += node_manifest.total_files
+            cluster_manifest.total_size_bytes += node_manifest.total_size_bytes
+            cluster_manifest.total_selfplay_games += node_manifest.selfplay_games
+            cluster_manifest.files_by_node[node_id] = node_manifest.total_files
+
+            for file_info in node_manifest.files:
+                all_files.add(file_info.path)
+
+        cluster_manifest.unique_files = all_files
+
+        # Find files missing from nodes (for sync planning)
+        for file_path in all_files:
+            nodes_with_file = []
+            nodes_without_file = []
+            for node_id, node_manifest in cluster_manifest.node_manifests.items():
+                file_paths = {f.path for f in node_manifest.files}
+                if file_path in file_paths:
+                    nodes_with_file.append(node_id)
+                else:
+                    nodes_without_file.append(node_id)
+
+            if nodes_without_file:
+                cluster_manifest.missing_from_nodes[file_path] = nodes_without_file
+
+        print(f"[P2P] Cluster manifest: {cluster_manifest.total_nodes} nodes, "
+              f"{len(cluster_manifest.unique_files)} unique files, "
+              f"{cluster_manifest.total_selfplay_games} total games")
+
+        return cluster_manifest
+
+    # ============================================
+    # Phase 2: P2P Rsync Coordination Methods
+    # ============================================
+
+    def _generate_sync_plan(self) -> Optional[ClusterSyncPlan]:
+        """
+        Leader generates a sync plan from the cluster manifest.
+        Identifies which files are missing from which nodes and creates sync jobs.
+        """
+        if not self.cluster_data_manifest:
+            print("[P2P] No cluster manifest available, cannot generate sync plan")
+            return None
+
+        if not self.cluster_data_manifest.missing_from_nodes:
+            print("[P2P] All nodes have all files, no sync needed")
+            return None
+
+        plan = ClusterSyncPlan(
+            plan_id=str(uuid.uuid4()),
+            created_at=time.time(),
+        )
+
+        # For each missing file, find a source node and create a sync job
+        for file_path, missing_nodes in self.cluster_data_manifest.missing_from_nodes.items():
+            # Find a node that has this file (any node not in missing_nodes)
+            source_node = None
+            for node_id in self.cluster_data_manifest.manifests_by_node.keys():
+                if node_id not in missing_nodes:
+                    node_manifest = self.cluster_data_manifest.manifests_by_node[node_id]
+                    if file_path in node_manifest.files_by_path:
+                        source_node = node_id
+                        break
+
+            if not source_node:
+                continue  # No node has this file (shouldn't happen)
+
+            # Create sync jobs for each target node
+            for target_node in missing_nodes:
+                job = DataSyncJob(
+                    job_id=str(uuid.uuid4()),
+                    source_node=source_node,
+                    target_node=target_node,
+                    files=[file_path],
+                    status="pending",
+                )
+
+                # Get file size for tracking
+                node_manifest = self.cluster_data_manifest.manifests_by_node[source_node]
+                if file_path in node_manifest.files_by_path:
+                    file_info = node_manifest.files_by_path[file_path]
+                    plan.total_bytes_to_sync += file_info.size_bytes
+
+                plan.sync_jobs.append(job)
+                plan.total_files_to_sync += 1
+
+        print(f"[P2P] Generated sync plan: {len(plan.sync_jobs)} jobs, "
+              f"{plan.total_files_to_sync} files, "
+              f"{plan.total_bytes_to_sync / (1024*1024):.1f} MB total")
+
+        return plan
+
+    async def _execute_sync_plan(self) -> None:
+        """Leader executes the sync plan by dispatching jobs to nodes."""
+        if not self.current_sync_plan:
+            return
+
+        with self.sync_lock:
+            if self.sync_in_progress:
+                print("[P2P] Sync already in progress, skipping")
+                return
+            self.sync_in_progress = True
+            self.current_sync_plan.status = "running"
+
+        try:
+            # Group jobs by target node for efficiency
+            jobs_by_target: Dict[str, List[DataSyncJob]] = {}
+            for job in self.current_sync_plan.sync_jobs:
+                if job.target_node not in jobs_by_target:
+                    jobs_by_target[job.target_node] = []
+                jobs_by_target[job.target_node].append(job)
+
+            # Execute jobs for each target node
+            for target_node, jobs in jobs_by_target.items():
+                peer = self.peers.get(target_node)
+                if not peer or not peer.is_alive:
+                    print(f"[P2P] Target node {target_node} not available, skipping sync")
+                    for job in jobs:
+                        job.status = "failed"
+                        job.error_message = "Target node not available"
+                        self.current_sync_plan.jobs_failed += 1
+                    continue
+
+                # Send sync request to target node
+                for job in jobs:
+                    await self._request_node_sync(job)
+
+            # Update plan status
+            with self.sync_lock:
+                if self.current_sync_plan.jobs_failed == len(self.current_sync_plan.sync_jobs):
+                    self.current_sync_plan.status = "failed"
+                elif self.current_sync_plan.jobs_completed == len(self.current_sync_plan.sync_jobs):
+                    self.current_sync_plan.status = "completed"
+                else:
+                    self.current_sync_plan.status = "partial"
+
+        finally:
+            with self.sync_lock:
+                self.sync_in_progress = False
+                self.last_sync_time = time.time()
+
+    async def _request_node_sync(self, job: DataSyncJob) -> bool:
+        """Request a target node to pull files from a source node."""
+        target_peer = self.peers.get(job.target_node)
+        source_peer = self.peers.get(job.source_node)
+
+        if not target_peer or not source_peer:
+            job.status = "failed"
+            job.error_message = "Source or target peer not found"
+            return False
+
+        job.status = "running"
+        job.started_at = time.time()
+
+        try:
+            url = f"http://{target_peer.host}:{target_peer.port}/sync/pull"
+            payload = {
+                "job_id": job.job_id,
+                "source_host": source_peer.host,
+                "source_port": source_peer.port,
+                "source_node_id": job.source_node,
+                "files": job.files,
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, timeout=30) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        job.status = "completed" if result.get("success") else "failed"
+                        job.completed_at = time.time()
+                        if result.get("success"):
+                            self.current_sync_plan.jobs_completed += 1
+                            print(f"[P2P] Sync job {job.job_id[:8]} completed: "
+                                  f"{job.source_node} -> {job.target_node}")
+                        else:
+                            job.error_message = result.get("error", "Unknown error")
+                            self.current_sync_plan.jobs_failed += 1
+                        return result.get("success", False)
+                    else:
+                        job.status = "failed"
+                        job.error_message = f"HTTP {resp.status}"
+                        self.current_sync_plan.jobs_failed += 1
+                        return False
+
+        except Exception as e:
+            job.status = "failed"
+            job.error_message = str(e)
+            job.completed_at = time.time()
+            self.current_sync_plan.jobs_failed += 1
+            print(f"[P2P] Sync job {job.job_id[:8]} failed: {e}")
+            return False
+
+    async def _handle_sync_pull_request(self, source_host: str, source_port: int,
+                                         source_node_id: str, files: List[str]) -> Dict[str, Any]:
+        """
+        Handle incoming request to pull files from a source node.
+        Executes rsync to pull the files.
+        """
+        try:
+            # Build rsync command
+            # Files are relative to data/ directory
+            data_dir = Path(self.ringrift_path) / "ai-service" / "data"
+            source_data_dir = f"data/"
+
+            # Determine SSH user based on source host
+            ssh_user = "ubuntu"  # Default
+            if "root@" in source_host or source_port != 22:
+                ssh_user = "root"
+
+            # Build file list for rsync
+            includes = []
+            for f in files:
+                includes.extend(["--include", f])
+            includes.extend(["--include", "*/"])  # Include directories
+            includes.append("--exclude=*")  # Exclude everything else
+
+            # Build rsync command
+            ssh_opts = f"-e 'ssh -o StrictHostKeyChecking=no -p {source_port}'"
+            source_path = f"{ssh_user}@{source_host}:{source_data_dir}"
+
+            rsync_cmd = [
+                "rsync", "-avz", "--progress",
+                *includes,
+                source_path,
+                str(data_dir) + "/"
+            ]
+
+            print(f"[P2P] Executing rsync from {source_node_id}: {' '.join(rsync_cmd[:5])}...")
+
+            result = subprocess.run(
+                rsync_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout
+                cwd=str(data_dir.parent)
+            )
+
+            if result.returncode == 0:
+                print(f"[P2P] Rsync from {source_node_id} completed successfully")
+                return {"success": True, "files_synced": len(files)}
+            else:
+                print(f"[P2P] Rsync failed: {result.stderr[:200]}")
+                return {"success": False, "error": result.stderr[:200]}
+
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Rsync timeout (5 minutes)"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def start_cluster_sync(self) -> Dict[str, Any]:
+        """
+        Leader initiates a full cluster data sync.
+        Returns status of the sync operation.
+        """
+        if not self._is_leader():
+            return {"success": False, "error": "Not the leader"}
+
+        # First, collect fresh manifests
+        print("[P2P] Collecting cluster manifest for sync...")
+        self.cluster_data_manifest = await self._collect_cluster_manifest()
+
+        # Generate sync plan
+        self.current_sync_plan = self._generate_sync_plan()
+        if not self.current_sync_plan:
+            return {"success": True, "message": "No sync needed, all nodes in sync"}
+
+        # Execute the plan
+        await self._execute_sync_plan()
+
+        return {
+            "success": True,
+            "plan_id": self.current_sync_plan.plan_id,
+            "total_jobs": len(self.current_sync_plan.sync_jobs),
+            "jobs_completed": self.current_sync_plan.jobs_completed,
+            "jobs_failed": self.current_sync_plan.jobs_failed,
+            "status": self.current_sync_plan.status,
+        }
 
     # ============================================
     # Git Auto-Update Methods
@@ -1112,6 +1764,68 @@ class P2POrchestrator:
                     "message": message,
                 }, status=400)
 
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ============================================
+    # Phase 2: Distributed Data Manifest Handlers
+    # ============================================
+
+    async def handle_data_manifest(self, request: web.Request) -> web.Response:
+        """Return this node's local data manifest.
+
+        Used by leader to collect data inventory from all nodes.
+        """
+        try:
+            with self.manifest_lock:
+                if self.local_data_manifest is None:
+                    self.local_data_manifest = self._collect_local_data_manifest()
+
+                return web.json_response({
+                    "node_id": self.node_id,
+                    "manifest": self.local_data_manifest.to_dict(),
+                })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_cluster_data_manifest(self, request: web.Request) -> web.Response:
+        """Leader-only: Return cluster-wide data manifest.
+
+        Aggregates data manifests from all nodes to show:
+        - Total files across cluster
+        - Total selfplay games
+        - Files missing from specific nodes (for sync planning)
+        """
+        try:
+            if self.role != NodeRole.LEADER:
+                return web.json_response({
+                    "error": "Not leader",
+                    "leader_id": self.leader_id,
+                }, status=400)
+
+            # Collect cluster manifest (refreshes data from all nodes)
+            with self.manifest_lock:
+                self.cluster_data_manifest = await self._collect_cluster_manifest()
+
+                return web.json_response({
+                    "cluster_manifest": self.cluster_data_manifest.to_dict(),
+                })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_refresh_manifest(self, request: web.Request) -> web.Response:
+        """Force refresh of local data manifest."""
+        try:
+            with self.manifest_lock:
+                self.local_data_manifest = self._collect_local_data_manifest()
+
+            return web.json_response({
+                "success": True,
+                "node_id": self.node_id,
+                "total_files": self.local_data_manifest.total_files,
+                "total_size_bytes": self.local_data_manifest.total_size_bytes,
+                "selfplay_games": self.local_data_manifest.selfplay_games,
+            })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
@@ -2080,6 +2794,160 @@ print(json.dumps(result))
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
+    # =========================================================================
+    # Phase 2: P2P Data Sync HTTP Handlers
+    # =========================================================================
+
+    async def handle_sync_start(self, request: web.Request) -> web.Response:
+        """POST /sync/start - Leader initiates a cluster-wide data sync.
+
+        Only the leader can start a sync. This collects manifests from all nodes,
+        generates a sync plan, and dispatches rsync jobs to nodes.
+        """
+        try:
+            if not self._is_leader():
+                return web.json_response({
+                    "error": "Not the leader. Only leader can start cluster sync.",
+                    "leader_id": self.leader_id,
+                }, status=403)
+
+            result = await self.start_cluster_sync()
+            return web.json_response(result)
+        except Exception as e:
+            print(f"[P2P] Error in handle_sync_start: {e}")
+            import traceback
+            traceback.print_exc()
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_sync_status(self, request: web.Request) -> web.Response:
+        """GET /sync/status - Get current sync status.
+
+        Returns the current sync plan (if any), active sync jobs, and overall status.
+        """
+        try:
+            with self.sync_lock:
+                sync_plan_dict = self.current_sync_plan.to_dict() if self.current_sync_plan else None
+                active_jobs_dict = {
+                    job_id: job.to_dict()
+                    for job_id, job in self.active_sync_jobs.items()
+                }
+
+            return web.json_response({
+                "node_id": self.node_id,
+                "is_leader": self._is_leader(),
+                "sync_in_progress": self.sync_in_progress,
+                "last_sync_time": self.last_sync_time,
+                "auto_sync_interval": self.auto_sync_interval,
+                "current_sync_plan": sync_plan_dict,
+                "active_sync_jobs": active_jobs_dict,
+                "pending_sync_requests": len(self.pending_sync_requests),
+            })
+        except Exception as e:
+            print(f"[P2P] Error in handle_sync_status: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_sync_pull(self, request: web.Request) -> web.Response:
+        """POST /sync/pull - Handle incoming request to pull files from a source node.
+
+        This is called by the leader to tell this node to rsync files from another node.
+
+        Request body:
+        {
+            "source_host": "192.168.1.100",
+            "source_port": 8770,
+            "source_node_id": "lambda-h100",
+            "files": ["data/selfplay/sq8_2p/games_001.jsonl", ...]
+        }
+        """
+        try:
+            data = await request.json()
+            source_host = data.get("source_host")
+            source_port = data.get("source_port", 22)  # SSH port for rsync
+            source_node_id = data.get("source_node_id")
+            files = data.get("files", [])
+
+            if not source_host or not source_node_id or not files:
+                return web.json_response({
+                    "error": "Missing required fields: source_host, source_node_id, files"
+                }, status=400)
+
+            print(f"[P2P] Received sync pull request: {len(files)} files from {source_node_id}")
+
+            result = await self._handle_sync_pull_request(
+                source_host=source_host,
+                source_port=source_port,
+                source_node_id=source_node_id,
+                files=files,
+            )
+
+            return web.json_response(result)
+        except Exception as e:
+            print(f"[P2P] Error in handle_sync_pull: {e}")
+            import traceback
+            traceback.print_exc()
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_sync_job_update(self, request: web.Request) -> web.Response:
+        """POST /sync/job_update - Worker reports sync job status back to leader.
+
+        Request body:
+        {
+            "job_id": "sync-123",
+            "status": "completed|failed",
+            "files_synced": 10,
+            "bytes_transferred": 1048576,
+            "error": "optional error message"
+        }
+        """
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            status = data.get("status")
+            files_synced = data.get("files_synced", 0)
+            bytes_transferred = data.get("bytes_transferred", 0)
+            error = data.get("error")
+
+            if not job_id or not status:
+                return web.json_response({
+                    "error": "Missing required fields: job_id, status"
+                }, status=400)
+
+            with self.sync_lock:
+                if job_id in self.active_sync_jobs:
+                    job = self.active_sync_jobs[job_id]
+                    job.status = status
+                    job.files_synced = files_synced
+                    job.bytes_transferred = bytes_transferred
+                    job.completed_at = time.time()
+                    if error:
+                        job.error = error
+
+                    print(f"[P2P] Sync job {job_id} {status}: {files_synced} files, {bytes_transferred} bytes")
+
+                    # Update sync plan status if all jobs are done
+                    if self.current_sync_plan:
+                        all_done = all(
+                            j.status in ("completed", "failed")
+                            for j in self.current_sync_plan.sync_jobs
+                        )
+                        if all_done:
+                            completed = sum(1 for j in self.current_sync_plan.sync_jobs if j.status == "completed")
+                            failed = sum(1 for j in self.current_sync_plan.sync_jobs if j.status == "failed")
+                            self.current_sync_plan.status = "completed" if failed == 0 else "partial"
+                            self.current_sync_plan.completed_at = time.time()
+                            self.sync_in_progress = False
+                            self.last_sync_time = time.time()
+                            print(f"[P2P] Cluster sync plan completed: {completed} succeeded, {failed} failed")
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "status": status,
+            })
+        except Exception as e:
+            print(f"[P2P] Error in handle_sync_job_update: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def _run_improvement_loop(self, job_id: str):
         """Main coordinator loop for AlphaZero-style improvement."""
         try:
@@ -2477,6 +3345,889 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             print(f"[P2P] Local training error: {e}")
 
+    # ============================================
+    # Phase 3: Training Pipeline Integration Methods
+    # ============================================
+
+    def _check_training_readiness(self) -> List[Dict[str, Any]]:
+        """Check cluster data manifest for training readiness.
+
+        Returns list of training jobs that should be triggered based on
+        accumulated selfplay data.
+
+        Called periodically by leader to check if automatic training should start.
+        """
+        jobs_to_start = []
+
+        if not self.cluster_data_manifest:
+            return jobs_to_start
+
+        current_time = time.time()
+        thresholds = self.training_thresholds
+
+        # Check each board type / player count combination
+        for config_key, config_data in self.cluster_data_manifest.by_board_type.items():
+            parts = config_key.split("_")
+            if len(parts) < 2:
+                continue
+            board_type = parts[0]
+            num_players = int(parts[1].replace("p", ""))
+            total_games = config_data.get("total_games", 0)
+
+            # Check NNUE training threshold
+            if thresholds.auto_nnue_enabled:
+                last_nnue_games = self.games_at_last_nnue_train.get(config_key, 0)
+                if total_games >= thresholds.min_games_nnue:
+                    new_games = total_games - last_nnue_games
+                    if new_games >= thresholds.incremental_games_nnue or last_nnue_games == 0:
+                        # Check cooldown
+                        existing_job = self._find_running_training_job("nnue", config_key)
+                        if not existing_job:
+                            jobs_to_start.append({
+                                "job_type": "nnue",
+                                "board_type": board_type,
+                                "num_players": num_players,
+                                "config_key": config_key,
+                                "total_games": total_games,
+                            })
+
+            # Check CMA-ES optimization threshold
+            if thresholds.auto_cmaes_enabled:
+                last_cmaes_games = self.games_at_last_cmaes_train.get(config_key, 0)
+                if total_games >= thresholds.min_games_cmaes:
+                    new_games = total_games - last_cmaes_games
+                    if new_games >= thresholds.incremental_games_cmaes or last_cmaes_games == 0:
+                        existing_job = self._find_running_training_job("cmaes", config_key)
+                        if not existing_job:
+                            jobs_to_start.append({
+                                "job_type": "cmaes",
+                                "board_type": board_type,
+                                "num_players": num_players,
+                                "config_key": config_key,
+                                "total_games": total_games,
+                            })
+
+        return jobs_to_start
+
+    def _find_running_training_job(self, job_type: str, config_key: str) -> Optional[TrainingJob]:
+        """Find a running training job of the given type for the config."""
+        with self.training_lock:
+            for job in self.training_jobs.values():
+                if (job.job_type == job_type and
+                    f"{job.board_type}_{job.num_players}p" == config_key and
+                    job.status in ("pending", "queued", "running")):
+                    return job
+        return None
+
+    async def _dispatch_training_job(self, job_config: Dict[str, Any]) -> Optional[TrainingJob]:
+        """Dispatch a training job to an appropriate worker.
+
+        Finds a GPU node for NNUE training, or any available node for CMA-ES.
+        Creates a TrainingJob and sends it to the worker.
+        """
+        job_type = job_config["job_type"]
+        board_type = job_config["board_type"]
+        num_players = job_config["num_players"]
+        config_key = job_config["config_key"]
+
+        # Generate job ID
+        job_id = f"{job_type}_{config_key}_{int(time.time())}"
+
+        # Create TrainingJob
+        job = TrainingJob(
+            job_id=job_id,
+            job_type=job_type,
+            board_type=board_type,
+            num_players=num_players,
+            status="pending",
+            data_games_count=job_config.get("total_games", 0),
+        )
+
+        # Find suitable worker
+        worker_node = None
+        with self.peers_lock:
+            if job_type == "nnue":
+                # NNUE needs GPU
+                for peer in self.peers.values():
+                    if peer.has_gpu and peer.is_healthy():
+                        worker_node = peer
+                        break
+            else:
+                # CMA-ES can run on any node, prefer GPU for speed
+                for peer in self.peers.values():
+                    if peer.is_healthy():
+                        if peer.has_gpu:
+                            worker_node = peer
+                            break
+                        elif worker_node is None:
+                            worker_node = peer
+
+        if not worker_node:
+            print(f"[P2P] No suitable worker for {job_type} training job")
+            return None
+
+        job.worker_node = worker_node.node_id
+        job.status = "queued"
+
+        # Store job
+        with self.training_lock:
+            self.training_jobs[job_id] = job
+
+        # Update games count at training start
+        if job_type == "nnue":
+            self.games_at_last_nnue_train[config_key] = job_config.get("total_games", 0)
+        else:
+            self.games_at_last_cmaes_train[config_key] = job_config.get("total_games", 0)
+
+        # Send to worker
+        try:
+            endpoint = f"/training/{job_type}/start"
+            timeout = ClientTimeout(total=30)
+            async with ClientSession(timeout=timeout) as session:
+                url = f"http://{worker_node.host}:{worker_node.port}{endpoint}"
+                payload = {
+                    "job_id": job_id,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "epochs": job.epochs,
+                    "batch_size": job.batch_size,
+                    "learning_rate": job.learning_rate,
+                }
+                async with session.post(url, json=payload) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        if result.get("success"):
+                            job.status = "running"
+                            job.started_at = time.time()
+                            print(f"[P2P] Started {job_type} training job {job_id} on {worker_node.node_id}")
+                            self._save_state()
+                            return job
+                        else:
+                            job.status = "failed"
+                            job.error_message = result.get("error", "Unknown error")
+                    else:
+                        job.status = "failed"
+                        job.error_message = f"HTTP {resp.status}"
+        except Exception as e:
+            job.status = "failed"
+            job.error_message = str(e)
+            print(f"[P2P] Failed to dispatch {job_type} training to {worker_node.node_id}: {e}")
+
+        return job
+
+    async def _check_and_trigger_training(self):
+        """Periodic check for training readiness (leader only)."""
+        if self.role != NodeRole.LEADER:
+            return
+
+        current_time = time.time()
+        if current_time - self.last_training_check < self.training_check_interval:
+            return
+
+        self.last_training_check = current_time
+
+        # Get jobs that should be started
+        jobs_to_start = self._check_training_readiness()
+
+        for job_config in jobs_to_start:
+            print(f"[P2P] Auto-triggering {job_config['job_type']} training for {job_config['config_key']} ({job_config['total_games']} games)")
+            await self._dispatch_training_job(job_config)
+
+    # Phase 3 HTTP Handlers
+
+    async def handle_training_start(self, request: web.Request) -> web.Response:
+        """Handle request to start a training job (from external or leader)."""
+        try:
+            data = await request.json()
+            job_type = data.get("job_type", "nnue")
+            board_type = data.get("board_type", "square8")
+            num_players = data.get("num_players", 2)
+
+            if self.role != NodeRole.LEADER:
+                return web.json_response({
+                    "success": False,
+                    "error": "Only leader can dispatch training jobs"
+                })
+
+            job_config = {
+                "job_type": job_type,
+                "board_type": board_type,
+                "num_players": num_players,
+                "config_key": f"{board_type}_{num_players}p",
+                "total_games": data.get("total_games", 0),
+            }
+
+            job = await self._dispatch_training_job(job_config)
+            if job:
+                return web.json_response({
+                    "success": True,
+                    "job_id": job.job_id,
+                    "worker": job.worker_node,
+                })
+            else:
+                return web.json_response({
+                    "success": False,
+                    "error": "No suitable worker available"
+                })
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def handle_training_status(self, request: web.Request) -> web.Response:
+        """Return status of all training jobs."""
+        with self.training_lock:
+            jobs = [job.to_dict() for job in self.training_jobs.values()]
+
+        return web.json_response({
+            "success": True,
+            "jobs": jobs,
+            "thresholds": self.training_thresholds.to_dict(),
+        })
+
+    async def handle_training_update(self, request: web.Request) -> web.Response:
+        """Handle training progress/completion update from worker."""
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+
+            with self.training_lock:
+                job = self.training_jobs.get(job_id)
+                if not job:
+                    return web.json_response({
+                        "success": False,
+                        "error": f"Job {job_id} not found"
+                    })
+
+                # Update job status
+                if data.get("status"):
+                    job.status = data["status"]
+                if data.get("completed"):
+                    job.status = "completed"
+                    job.completed_at = time.time()
+                if data.get("output_model_path"):
+                    job.output_model_path = data["output_model_path"]
+                if data.get("final_loss"):
+                    job.final_loss = data["final_loss"]
+                if data.get("final_accuracy"):
+                    job.final_accuracy = data["final_accuracy"]
+                if data.get("error"):
+                    job.status = "failed"
+                    job.error_message = data["error"]
+
+            self._save_state()
+
+            return web.json_response({"success": True})
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def handle_nnue_start(self, request: web.Request) -> web.Response:
+        """Handle NNUE training start request (worker endpoint)."""
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            board_type = data.get("board_type", "square8")
+            num_players = data.get("num_players", 2)
+            epochs = data.get("epochs", 100)
+            batch_size = data.get("batch_size", 2048)
+
+            # Start NNUE training subprocess
+            output_path = os.path.join(
+                self.ringrift_path, "ai-service", "models", "nnue",
+                f"{board_type}_{num_players}p_auto.pt"
+            )
+
+            cmd = [
+                sys.executable, "-m", "scripts.train_nnue",
+                "--board-type", board_type,
+                "--num-players", str(num_players),
+                "--epochs", str(epochs),
+                "--batch-size", str(batch_size),
+                "--save-path", output_path,
+            ]
+
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            print(f"[P2P] Started NNUE training subprocess (PID {proc.pid}) for job {job_id}")
+
+            # Don't wait - let it run in background
+            asyncio.create_task(self._monitor_training_process(job_id, proc, output_path))
+
+            return web.json_response({
+                "success": True,
+                "pid": proc.pid,
+            })
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def handle_cmaes_start_auto(self, request: web.Request) -> web.Response:
+        """Handle CMA-ES optimization start request (worker endpoint)."""
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            board_type = data.get("board_type", "square8")
+            num_players = data.get("num_players", 2)
+
+            # Start CMA-ES optimization subprocess
+            output_dir = os.path.join(
+                self.ringrift_path, "ai-service", "data", "cmaes",
+                f"{board_type}_{num_players}p_auto"
+            )
+            os.makedirs(output_dir, exist_ok=True)
+
+            cmd = [
+                sys.executable, "-m", "scripts.run_iterative_cmaes",
+                "--board", board_type,
+                "--num-players", str(num_players),
+                "--output-dir", output_dir,
+                "--generations-per-iter", "10",
+                "--max-iterations", "3",
+            ]
+
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            print(f"[P2P] Started CMA-ES optimization subprocess (PID {proc.pid}) for job {job_id}")
+
+            # Monitor in background
+            asyncio.create_task(self._monitor_training_process(job_id, proc, output_dir))
+
+            return web.json_response({
+                "success": True,
+                "pid": proc.pid,
+            })
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+    async def _monitor_training_process(self, job_id: str, proc, output_path: str):
+        """Monitor training subprocess and report completion to leader."""
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=7200  # 2 hour max
+            )
+
+            success = proc.returncode == 0
+
+            # Report to leader
+            if self.leader_id and self.leader_id != self.node_id:
+                leader = self.peers.get(self.leader_id)
+                if leader:
+                    try:
+                        timeout = ClientTimeout(total=30)
+                        async with ClientSession(timeout=timeout) as session:
+                            url = f"http://{leader.host}:{leader.port}/training/update"
+                            payload = {
+                                "job_id": job_id,
+                                "completed": success,
+                                "output_model_path": output_path if success else "",
+                                "error": stderr.decode()[:500] if not success else "",
+                            }
+                            await session.post(url, json=payload)
+                    except Exception as e:
+                        print(f"[P2P] Failed to report training completion to leader: {e}")
+            else:
+                # We are the leader, update directly
+                with self.training_lock:
+                    job = self.training_jobs.get(job_id)
+                    if job:
+                        if success:
+                            job.status = "completed"
+                            job.output_model_path = output_path
+                        else:
+                            job.status = "failed"
+                            job.error_message = stderr.decode()[:500]
+                        job.completed_at = time.time()
+
+            print(f"[P2P] Training job {job_id} {'completed' if success else 'failed'}")
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] Training job {job_id} timed out")
+        except Exception as e:
+            print(f"[P2P] Training monitor error for {job_id}: {e}")
+
+    # =========================================================================
+    # Phase 4: REST API for External Job Submission and Dashboard
+    # =========================================================================
+
+    async def handle_api_cluster_status(self, request: web.Request) -> web.Response:
+        """Get comprehensive cluster status for external clients and dashboard."""
+        try:
+            # Collect peer info
+            peers_info = []
+            for peer_id, peer in self.peers.items():
+                peers_info.append({
+                    "node_id": peer_id,
+                    "host": peer.host,
+                    "port": peer.port,
+                    "status": peer.status.value if hasattr(peer.status, 'value') else str(peer.status),
+                    "last_seen": peer.last_seen,
+                    "capabilities": list(peer.capabilities) if peer.capabilities else [],
+                    "current_job": peer.current_job,
+                    "has_gpu": peer.has_gpu if hasattr(peer, 'has_gpu') else False,
+                })
+
+            # Collect job info
+            jobs_info = []
+            for job_id, job in self.jobs.items():
+                jobs_info.append({
+                    "job_id": job_id,
+                    "job_type": job.job_type,
+                    "status": job.status,
+                    "assigned_to": job.assigned_to,
+                    "created_at": job.created_at,
+                    "started_at": getattr(job, 'started_at', None),
+                    "completed_at": getattr(job, 'completed_at', None),
+                    "progress": getattr(job, 'progress', 0),
+                })
+
+            # Collect training job info
+            training_info = []
+            with self.training_lock:
+                for job_id, job in self.training_jobs.items():
+                    training_info.append({
+                        "job_id": job_id,
+                        "job_type": job.job_type,
+                        "status": job.status,
+                        "board_type": job.board_type,
+                        "num_players": job.num_players,
+                        "assigned_worker": job.assigned_worker,
+                        "created_at": job.created_at,
+                        "started_at": job.started_at,
+                        "completed_at": job.completed_at,
+                        "output_model_path": job.output_model_path,
+                        "error_message": job.error_message,
+                    })
+
+            # Collect data manifest info
+            manifest_info = {}
+            for key, manifest in self.data_manifests.items():
+                manifest_info[key] = {
+                    "game_count": manifest.get("game_count", 0),
+                    "board_types": manifest.get("board_types", []),
+                    "last_updated": manifest.get("last_updated", 0),
+                }
+
+            return web.json_response({
+                "success": True,
+                "node_id": self.node_id,
+                "role": self.role.value if hasattr(self.role, 'value') else str(self.role),
+                "leader_id": self.leader_id,
+                "is_leader": self.role == NodeRole.LEADER,
+                "uptime_seconds": time.time() - getattr(self, 'start_time', time.time()),
+                "peers": peers_info,
+                "peer_count": len(self.peers),
+                "jobs": jobs_info,
+                "job_count": len(self.jobs),
+                "training_jobs": training_info,
+                "training_job_count": len(self.training_jobs),
+                "data_manifests": manifest_info,
+                "timestamp": time.time(),
+            })
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_api_jobs_list(self, request: web.Request) -> web.Response:
+        """List all jobs with optional filtering."""
+        try:
+            job_type = request.query.get("type")
+            status = request.query.get("status")
+            limit = int(request.query.get("limit", 100))
+
+            # Collect all jobs (regular + training)
+            all_jobs = []
+
+            for job_id, job in self.jobs.items():
+                if job_type and job.job_type != job_type:
+                    continue
+                if status and job.status != status:
+                    continue
+                all_jobs.append({
+                    "job_id": job_id,
+                    "job_type": job.job_type,
+                    "status": job.status,
+                    "assigned_to": job.assigned_to,
+                    "created_at": job.created_at,
+                    "category": "general",
+                })
+
+            with self.training_lock:
+                for job_id, job in self.training_jobs.items():
+                    if job_type and job.job_type != job_type:
+                        continue
+                    if status and job.status != status:
+                        continue
+                    all_jobs.append({
+                        "job_id": job_id,
+                        "job_type": job.job_type,
+                        "status": job.status,
+                        "assigned_to": job.assigned_worker,
+                        "created_at": job.created_at,
+                        "board_type": job.board_type,
+                        "num_players": job.num_players,
+                        "category": "training",
+                    })
+
+            # Sort by created_at descending and limit
+            all_jobs.sort(key=lambda x: x.get("created_at", 0), reverse=True)
+            all_jobs = all_jobs[:limit]
+
+            return web.json_response({
+                "success": True,
+                "jobs": all_jobs,
+                "total": len(all_jobs),
+            })
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_api_jobs_submit(self, request: web.Request) -> web.Response:
+        """Submit a new job via REST API."""
+        if self.role != NodeRole.LEADER:
+            return web.json_response({
+                "success": False,
+                "error": "Not the leader. Please submit to leader node.",
+                "leader_id": self.leader_id,
+            }, status=400)
+
+        try:
+            data = await request.json()
+            job_type = data.get("job_type")
+            if not job_type:
+                return web.json_response({
+                    "success": False,
+                    "error": "job_type is required",
+                }, status=400)
+
+            job_id = str(uuid.uuid4())
+
+            if job_type in ["nnue", "cmaes"]:
+                # Training job
+                board_type = data.get("board_type", "square8")
+                num_players = data.get("num_players", 2)
+
+                job = TrainingJob(
+                    job_id=job_id,
+                    job_type=job_type,
+                    board_type=board_type,
+                    num_players=num_players,
+                    status="pending",
+                    created_at=time.time(),
+                )
+                with self.training_lock:
+                    self.training_jobs[job_id] = job
+
+                print(f"[P2P] API: Created {job_type} training job {job_id} for {board_type} {num_players}p")
+
+            elif job_type == "selfplay":
+                # Selfplay job
+                board_type = data.get("board_type", "square8")
+                num_players = data.get("num_players", 2)
+                num_games = data.get("num_games", 100)
+
+                job = Job(
+                    job_id=job_id,
+                    job_type="selfplay",
+                    config={
+                        "board_type": board_type,
+                        "num_players": num_players,
+                        "num_games": num_games,
+                    },
+                    status="pending",
+                    created_at=time.time(),
+                )
+                self.jobs[job_id] = job
+
+                print(f"[P2P] API: Created selfplay job {job_id} for {num_games} games of {board_type} {num_players}p")
+
+            elif job_type == "sync":
+                # Data sync job
+                job = Job(
+                    job_id=job_id,
+                    job_type="sync",
+                    config=data.get("config", {}),
+                    status="pending",
+                    created_at=time.time(),
+                )
+                self.jobs[job_id] = job
+
+                print(f"[P2P] API: Created data sync job {job_id}")
+
+            else:
+                return web.json_response({
+                    "success": False,
+                    "error": f"Unknown job type: {job_type}. Supported: nnue, cmaes, selfplay, sync",
+                }, status=400)
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "job_type": job_type,
+                "status": "pending",
+                "message": f"Job {job_id} created successfully",
+            })
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_api_job_get(self, request: web.Request) -> web.Response:
+        """Get details for a specific job."""
+        try:
+            job_id = request.match_info.get("job_id")
+            if not job_id:
+                return web.json_response({
+                    "success": False,
+                    "error": "job_id is required",
+                }, status=400)
+
+            # Check regular jobs
+            if job_id in self.jobs:
+                job = self.jobs[job_id]
+                return web.json_response({
+                    "success": True,
+                    "job": {
+                        "job_id": job_id,
+                        "job_type": job.job_type,
+                        "status": job.status,
+                        "config": job.config if hasattr(job, 'config') else {},
+                        "assigned_to": job.assigned_to,
+                        "created_at": job.created_at,
+                        "progress": getattr(job, 'progress', 0),
+                        "category": "general",
+                    },
+                })
+
+            # Check training jobs
+            with self.training_lock:
+                if job_id in self.training_jobs:
+                    job = self.training_jobs[job_id]
+                    return web.json_response({
+                        "success": True,
+                        "job": {
+                            "job_id": job_id,
+                            "job_type": job.job_type,
+                            "status": job.status,
+                            "board_type": job.board_type,
+                            "num_players": job.num_players,
+                            "assigned_worker": job.assigned_worker,
+                            "created_at": job.created_at,
+                            "started_at": job.started_at,
+                            "completed_at": job.completed_at,
+                            "output_model_path": job.output_model_path,
+                            "error_message": job.error_message,
+                            "category": "training",
+                        },
+                    })
+
+            return web.json_response({
+                "success": False,
+                "error": f"Job {job_id} not found",
+            }, status=404)
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_api_job_cancel(self, request: web.Request) -> web.Response:
+        """Cancel a pending or running job."""
+        if self.role != NodeRole.LEADER:
+            return web.json_response({
+                "success": False,
+                "error": "Not the leader",
+            }, status=400)
+
+        try:
+            job_id = request.match_info.get("job_id")
+            if not job_id:
+                return web.json_response({
+                    "success": False,
+                    "error": "job_id is required",
+                }, status=400)
+
+            # Check regular jobs
+            if job_id in self.jobs:
+                job = self.jobs[job_id]
+                if job.status in ["pending", "queued"]:
+                    job.status = "cancelled"
+                    return web.json_response({
+                        "success": True,
+                        "message": f"Job {job_id} cancelled",
+                    })
+                else:
+                    return web.json_response({
+                        "success": False,
+                        "error": f"Cannot cancel job in status: {job.status}",
+                    }, status=400)
+
+            # Check training jobs
+            with self.training_lock:
+                if job_id in self.training_jobs:
+                    job = self.training_jobs[job_id]
+                    if job.status in ["pending", "queued"]:
+                        job.status = "cancelled"
+                        return web.json_response({
+                            "success": True,
+                            "message": f"Training job {job_id} cancelled",
+                        })
+                    else:
+                        return web.json_response({
+                            "success": False,
+                            "error": f"Cannot cancel job in status: {job.status}",
+                        }, status=400)
+
+            return web.json_response({
+                "success": False,
+                "error": f"Job {job_id} not found",
+            }, status=404)
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_dashboard(self, request: web.Request) -> web.Response:
+        """Serve the web dashboard HTML."""
+        dashboard_html = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RingRift P2P Cluster Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .header h1 { color: #00d4ff; margin-bottom: 10px; }
+        .header .subtitle { color: #888; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+        .card { background: #16213e; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .card h2 { color: #00d4ff; margin-bottom: 15px; font-size: 1.2em; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .stat { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #222; }
+        .stat:last-child { border-bottom: none; }
+        .stat-label { color: #888; }
+        .stat-value { color: #00d4ff; font-weight: bold; }
+        .status-online { color: #00ff88; }
+        .status-offline { color: #ff4444; }
+        .status-pending { color: #ffaa00; }
+        .status-running { color: #00d4ff; }
+        .status-completed { color: #00ff88; }
+        .status-failed { color: #ff4444; }
+        .peer-list, .job-list { max-height: 300px; overflow-y: auto; }
+        .peer-item, .job-item { background: #0f3460; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+        .peer-item:last-child, .job-item:last-child { margin-bottom: 0; }
+        .peer-name, .job-name { font-weight: bold; color: #fff; }
+        .peer-meta, .job-meta { font-size: 0.85em; color: #888; margin-top: 5px; }
+        .refresh-btn { background: #00d4ff; color: #000; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .refresh-btn:hover { background: #00b8e6; }
+        .actions { margin-top: 20px; text-align: center; }
+        .leader-badge { background: #ffd700; color: #000; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin-left: 8px; }
+        .loading { text-align: center; padding: 40px; color: #888; }
+        #error { background: #ff4444; color: #fff; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>RingRift P2P Cluster Dashboard</h1>
+        <p class="subtitle" id="node-info">Loading...</p>
+    </div>
+    <div id="error"></div>
+    <div class="grid">
+        <div class="card">
+            <h2>Cluster Overview</h2>
+            <div id="cluster-stats" class="loading">Loading cluster status...</div>
+        </div>
+        <div class="card">
+            <h2>Active Peers</h2>
+            <div id="peer-list" class="peer-list loading">Loading peers...</div>
+        </div>
+        <div class="card">
+            <h2>Training Jobs</h2>
+            <div id="training-jobs" class="job-list loading">Loading jobs...</div>
+        </div>
+        <div class="card">
+            <h2>Data Manifests</h2>
+            <div id="data-manifests" class="loading">Loading data...</div>
+        </div>
+    </div>
+    <div class="actions">
+        <button class="refresh-btn" onclick="refresh()">Refresh</button>
+    </div>
+    <script>
+        async function refresh() {
+            try {
+                const resp = await fetch('/api/cluster/status');
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error);
+
+                document.getElementById('error').style.display = 'none';
+
+                // Node info
+                const roleText = data.is_leader ? '<span class="leader-badge">LEADER</span>' : '';
+                document.getElementById('node-info').innerHTML =
+                    `Node: ${data.node_id} ${roleText} | Leader: ${data.leader_id || 'Unknown'}`;
+
+                // Cluster stats
+                document.getElementById('cluster-stats').innerHTML = `
+                    <div class="stat"><span class="stat-label">Peers</span><span class="stat-value">${data.peer_count}</span></div>
+                    <div class="stat"><span class="stat-label">Active Jobs</span><span class="stat-value">${data.job_count}</span></div>
+                    <div class="stat"><span class="stat-label">Training Jobs</span><span class="stat-value">${data.training_job_count}</span></div>
+                    <div class="stat"><span class="stat-label">Uptime</span><span class="stat-value">${Math.floor(data.uptime_seconds / 60)}m</span></div>
+                `;
+
+                // Peers
+                const peerHtml = data.peers.map(p => `
+                    <div class="peer-item">
+                        <div class="peer-name">${p.node_id} <span class="status-${p.status}">[${p.status}]</span></div>
+                        <div class="peer-meta">${p.host}:${p.port} | GPU: ${p.has_gpu ? 'Yes' : 'No'}</div>
+                        ${p.current_job ? `<div class="peer-meta">Job: ${p.current_job}</div>` : ''}
+                    </div>
+                `).join('') || '<div class="loading">No peers connected</div>';
+                document.getElementById('peer-list').innerHTML = peerHtml;
+
+                // Training jobs
+                const jobHtml = data.training_jobs.map(j => `
+                    <div class="job-item">
+                        <div class="job-name">${j.job_type.toUpperCase()} - ${j.board_type} ${j.num_players}p <span class="status-${j.status}">[${j.status}]</span></div>
+                        <div class="job-meta">ID: ${j.job_id.slice(0,8)}... | Worker: ${j.assigned_worker || 'Unassigned'}</div>
+                        ${j.error_message ? `<div class="job-meta" style="color:#ff4444">Error: ${j.error_message}</div>` : ''}
+                    </div>
+                `).join('') || '<div class="loading">No training jobs</div>';
+                document.getElementById('training-jobs').innerHTML = jobHtml;
+
+                // Data manifests
+                const manifestHtml = Object.entries(data.data_manifests).map(([node, m]) => `
+                    <div class="stat">
+                        <span class="stat-label">${node}</span>
+                        <span class="stat-value">${m.game_count} games</span>
+                    </div>
+                `).join('') || '<div class="loading">No data manifests</div>';
+                document.getElementById('data-manifests').innerHTML = manifestHtml;
+
+            } catch (err) {
+                document.getElementById('error').textContent = 'Error: ' + err.message;
+                document.getElementById('error').style.display = 'block';
+            }
+        }
+        refresh();
+        setInterval(refresh, 10000);
+    </script>
+</body>
+</html>'''
+        return web.Response(text=dashboard_html, content_type='text/html')
+
     async def _run_evaluation(self, job_id: str):
         """Evaluate new model against current best.
 
@@ -2806,6 +4557,8 @@ print(json.dumps({{
             try:
                 if self.role == NodeRole.LEADER:
                     await self._manage_cluster_jobs()
+                    # Phase 3: Check if training should be triggered automatically
+                    await self._check_and_trigger_training()
             except Exception as e:
                 print(f"[P2P] Job management error: {e}")
 
@@ -2878,15 +4631,41 @@ print(json.dumps({{
                 needed = target_selfplay - node.selfplay_jobs
                 print(f"[P2P] {node.node_id} needs {needed} more selfplay jobs")
 
+                # Job configuration diversity - cycle through different board types/players
+                # This matches cluster_orchestrator behavior for full autonomy
+                selfplay_configs = [
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "hybrid"},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "hybrid"},
+                    {"board_type": "square8", "num_players": 4, "engine_mode": "heuristic-only"},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "hybrid"},
+                    {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-only"},
+                    {"board_type": "square19", "num_players": 2, "engine_mode": "heuristic-only"},
+                    {"board_type": "square19", "num_players": 3, "engine_mode": "heuristic-only"},
+                ]
+
                 # Start jobs (max 2 at a time to avoid overwhelming)
-                for _ in range(min(needed, 2)):
+                for i in range(min(needed, 2)):
                     # Choose GPU selfplay for GPU nodes, CPU selfplay otherwise
                     job_type = JobType.GPU_SELFPLAY if node.has_gpu else JobType.SELFPLAY
 
+                    # Cycle through configs based on node hash + iteration
+                    config_idx = (hash(node.node_id) + i + int(time.time() // 3600)) % len(selfplay_configs)
+                    config = selfplay_configs[config_idx]
+
                     if node.node_id == self.node_id:
-                        await self._start_local_job(job_type)
+                        await self._start_local_job(
+                            job_type,
+                            board_type=config["board_type"],
+                            num_players=config["num_players"],
+                            engine_mode=config["engine_mode"],
+                        )
                     else:
-                        await self._request_remote_job(node, job_type)
+                        await self._request_remote_job(
+                            node, job_type,
+                            board_type=config["board_type"],
+                            num_players=config["num_players"],
+                            engine_mode=config["engine_mode"],
+                        )
 
     async def _cleanup_local_disk(self):
         """Clean up disk space on local node.
@@ -3060,17 +4839,30 @@ print(json.dumps({{
             print(f"[P2P] Failed to start job: {e}")
         return None
 
-    async def _request_remote_job(self, node: NodeInfo, job_type: JobType):
-        """Request a remote node to start a job."""
+    async def _request_remote_job(
+        self,
+        node: NodeInfo,
+        job_type: JobType,
+        board_type: str = "square8",
+        num_players: int = 2,
+        engine_mode: str = "hybrid",
+    ):
+        """Request a remote node to start a job with specific configuration."""
         try:
             timeout = ClientTimeout(total=10)
             async with ClientSession(timeout=timeout) as session:
                 url = f"http://{node.host}:{node.port}/start_job"
-                async with session.post(url, json={"job_type": job_type.value}) as resp:
+                payload = {
+                    "job_type": job_type.value,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "engine_mode": engine_mode,
+                }
+                async with session.post(url, json=payload) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         if data.get("success"):
-                            print(f"[P2P] Started remote job on {node.node_id}")
+                            print(f"[P2P] Started remote {board_type} {num_players}p job on {node.node_id}")
                         else:
                             print(f"[P2P] Failed to start remote job: {data.get('error')}")
         except Exception as e:
@@ -3138,6 +4930,11 @@ print(json.dumps({{
         app.router.add_get('/git/status', self.handle_git_status)
         app.router.add_post('/git/update', self.handle_git_update)
 
+        # Phase 2: Distributed data manifest routes
+        app.router.add_get('/data_manifest', self.handle_data_manifest)
+        app.router.add_get('/cluster_data_manifest', self.handle_cluster_data_manifest)
+        app.router.add_post('/refresh_manifest', self.handle_refresh_manifest)
+
         # Distributed CMA-ES routes
         app.router.add_post('/cmaes/start', self.handle_cmaes_start)
         app.router.add_post('/cmaes/evaluate', self.handle_cmaes_evaluate)
@@ -3154,6 +4951,27 @@ print(json.dumps({{
         app.router.add_post('/improvement/start', self.handle_improvement_start)
         app.router.add_get('/improvement/status', self.handle_improvement_status)
         app.router.add_post('/improvement/phase_complete', self.handle_improvement_phase_complete)
+
+        # Phase 2: P2P data sync routes
+        app.router.add_post('/sync/start', self.handle_sync_start)
+        app.router.add_get('/sync/status', self.handle_sync_status)
+        app.router.add_post('/sync/pull', self.handle_sync_pull)
+        app.router.add_post('/sync/job_update', self.handle_sync_job_update)
+
+        # Phase 3: Training pipeline routes
+        app.router.add_post('/training/start', self.handle_training_start)
+        app.router.add_get('/training/status', self.handle_training_status)
+        app.router.add_post('/training/update', self.handle_training_update)
+        app.router.add_post('/training/nnue/start', self.handle_nnue_start)
+        app.router.add_post('/training/cmaes/start', self.handle_cmaes_start_auto)
+
+        # Phase 4: REST API and Dashboard routes
+        app.router.add_get('/api/cluster/status', self.handle_api_cluster_status)
+        app.router.add_get('/api/jobs', self.handle_api_jobs_list)
+        app.router.add_post('/api/jobs/submit', self.handle_api_jobs_submit)
+        app.router.add_get('/api/jobs/{job_id}', self.handle_api_job_get)
+        app.router.add_post('/api/jobs/{job_id}/cancel', self.handle_api_job_cancel)
+        app.router.add_get('/dashboard', self.handle_dashboard)
 
         runner = web.AppRunner(app)
         await runner.setup()
