@@ -43,7 +43,7 @@ Confirm monitoring components:
 >   - `JWT_SECRET`, `JWT_REFRESH_SECRET` should be set via `.env` / secrets manager.
 > - Verify topology flags:
 >   - `RINGRIFT_APP_TOPOLOGY=single` for single‑instance app.
->   - `RINGRIFT_RULES_MODE=shadow` or `orchestrator` per `ORCHESTRATOR_ROLLOUT_PLAN.md`.
+>   - `RINGRIFT_RULES_MODE=ts` (default) unless running explicit python‑mode diagnostics.
 > - Check service URLs:
 >   - `AI_SERVICE_URL=http://ai-service:8001` (internal) is reachable from the app container.
 

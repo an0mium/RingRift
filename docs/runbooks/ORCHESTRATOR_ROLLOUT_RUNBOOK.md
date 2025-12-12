@@ -198,27 +198,9 @@ Then monitor:
 - `ringrift_orchestrator_shadow_mismatch_rate`
 - HTTP/E2E SLOs (latency, error rates).
 
-To **drop orchestrator rollout to 0%** while keeping the adapter available for diagnostics:
-
-```bash
-kubectl set env deployment/ringrift-api ORCHESTRATOR_ROLLOUT_PERCENTAGE=0
-```
-
-This forces all new sessions onto the legacy rules path without changing other flags; use this when you want to pause orchestrator usage but retain the ability to re-enable it quickly.
-
-To switch into a **shadow-only diagnostic posture** (legacy authoritative, orchestrator in shadow for comparison):
-
-```bash
-kubectl set env deployment/ringrift-api \
-  ORCHESTRATOR_ADAPTER_ENABLED=true \
-  ORCHESTRATOR_ROLLOUT_PERCENTAGE=0 \
-  ORCHESTRATOR_SHADOW_MODE_ENABLED=true \
-  RINGRIFT_RULES_MODE=shadow
-```
-
-In this mode, all sessions run legacy rules for gameplay while the orchestrator processes the same turns in parallel for mismatch detection.
-
-For an equivalent **developer-focused shadow-mode parity harness** using the same flag posture, see the “Shadow-mode TS↔Python parity profile (`RINGRIFT_RULES_MODE=shadow`)" example in `tests/README.md`.
+**Historical note:** `ORCHESTRATOR_ROLLOUT_PERCENTAGE` and shadow-only posture were removed in Phase 4; there is no supported “0% rollout” or `shadow` mode toggle.  
+To force legacy paths for specific users, use `ORCHESTRATOR_DENYLIST_USERS` or allow the circuit breaker to trip.  
+For runtime parity diagnostics, use `RINGRIFT_RULES_MODE=python` in explicit staging/diagnostic runs (see §3.2).
 
 ---
 
@@ -371,8 +353,8 @@ Run this checklist **before** promoting a new build to staging or production.
 
 5. **Feature flag / env var plan**
    - For the target environment (staging or production), decide and document:
-     - Desired `ORCHESTRATOR_ROLLOUT_PERCENTAGE` for the next step.
-     - Desired `ORCHESTRATOR_SHADOW_MODE_ENABLED` value.
+     - Desired `ORCHESTRATOR_ROLLOUT_PERCENTAGE` for the next step (historical only; flag removed).
+     - Desired `RINGRIFT_RULES_MODE` value (`ts` default; `python` diagnostics only).
      - Any allow/deny list changes in `OrchestratorRolloutService`.
    - Ensure you have a **rollback plan** (see §8.5) before making any change.
    - When in doubt about which combination of `NODE_ENV`, `RINGRIFT_APP_TOPOLOGY`,
@@ -404,11 +386,10 @@ steady before touching production.
 1. **Enable orchestrator-only in staging**
    - Set:
      ```bash
-     kubectl set env deployment/ringrift-api \
-       ORCHESTRATOR_ADAPTER_ENABLED=true \
-       ORCHESTRATOR_ROLLOUT_PERCENTAGE=100 \
-       RINGRIFT_RULES_MODE=ts \
-       ORCHESTRATOR_SHADOW_MODE_ENABLED=false
+        kubectl set env deployment/ringrift-api \
+          ORCHESTRATOR_ADAPTER_ENABLED=true \
+          ORCHESTRATOR_ROLLOUT_PERCENTAGE=100 \
+          RINGRIFT_RULES_MODE=ts
      ```
    - Verify via:
      ```bash
@@ -439,44 +420,10 @@ steady before touching production.
      - If necessary, roll back to a pre-orchestrator image or disable the
        adapter in staging (returning to Phase 0 posture).
 
-### 8.3 Phase 2 – Production shadow mode
+### 8.3 Phase 2 – Production shadow mode (HISTORICAL, REMOVED)
 
-**Goal:** Run orchestrator in **shadow** alongside the legacy engine in
-production, compare decisions, and observe parity and performance.
-
-**Steps:**
-
-1. **Enable shadow mode in production**
-   - Ensure legacy remains authoritative:
-     - `RINGRIFT_RULES_MODE=shadow` (or equivalent configuration)
-   - Enable orchestrator in shadow:
-     ```bash
-     kubectl set env deployment/ringrift-api \
-       ORCHESTRATOR_ADAPTER_ENABLED=true \
-       ORCHESTRATOR_SHADOW_MODE_ENABLED=true
-     ```
-
-2. **Observe parity and latency**
-   - Monitor:
-     - `ringrift_orchestrator_shadow_mismatch_rate`
-     - `ringrift_orchestrator_error_rate`
-     - Any `RulesParity*` alerts.
-     - Orchestrator vs legacy latency in the admin status endpoint
-       (`avgLegacyLatencyMs` vs `avgOrchestratorLatencyMs`).
-
-3. **SLO check**
-   - Over at least **24 hours** of production traffic:
-     - Shadow mismatch rate stays below ~0.1%, no
-       `OrchestratorShadowMismatches` alerts.
-     - No `RulesParityGameStatusMismatch` alerts in production.
-     - Orchestrator and legacy show comparable latency.
-
-4. **Decision**
-   - If SLOs remain green → proceed to Phase 3 (incremental rollout).
-   - If mismatches or parity incidents appear:
-     - Disable shadow (`ORCHESTRATOR_SHADOW_MODE_ENABLED=false`) and return
-       to Phase 1 posture (orchestrator-only in staging only).
-     - Investigate via `RULES_PARITY.md` and contract vectors.
+Legacy production shadow mode (`ORCHESTRATOR_SHADOW_MODE_ENABLED` / `RINGRIFT_RULES_MODE=shadow`) was removed in Phase 4.  
+Use `RINGRIFT_RULES_MODE=python` in explicit staging/diagnostic runs to collect runtime parity metrics instead.
 
 ### 8.4 Phase 3 – Incremental production rollout
 
@@ -570,11 +517,10 @@ Before increasing rollout above 0% in production:
    - Apply the change:
      ```bash
      # Example: start preview at 5%
-     kubectl set env deployment/ringrift-api \
-       ORCHESTRATOR_ADAPTER_ENABLED=true \
-       ORCHESTRATOR_ROLLOUT_PERCENTAGE=5 \
-       RINGRIFT_RULES_MODE=ts \
-       ORCHESTRATOR_SHADOW_MODE_ENABLED=false
+        kubectl set env deployment/ringrift-api \
+          ORCHESTRATOR_ADAPTER_ENABLED=true \
+          ORCHESTRATOR_ROLLOUT_PERCENTAGE=5 \
+          RINGRIFT_RULES_MODE=ts
      ```
 
 2. **Smoke verification**
@@ -677,14 +623,8 @@ Use this as a quick map for **where to roll back to**:
     - This returns production effectively to Phase 2 or Phase 1 posture,
       depending on whether you keep shadow enabled for diagnostics.
 
-- **From Phase 2 (shadow mode issues)**:
-  - If shadow mismatches or parity alerts are firing:
-    - Disable shadow only:
-      ```bash
-      kubectl set env deployment/ringrift-api ORCHESTRATOR_SHADOW_MODE_ENABLED=false
-      ```
-    - Keep staging orchestrator-only and continue debugging under the
-      parity runbook.
+- **From historical Phase 2 (shadow mode issues)**:
+  - Shadow mode is removed; if parity alerts are firing, switch any diagnostic deployments back to `RINGRIFT_RULES_MODE=ts` and continue debugging under the parity runbook.
 
 - **From Phase 1 (staging-only issues)**:
   - If staging SLOs are breached:

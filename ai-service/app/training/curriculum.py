@@ -68,6 +68,7 @@ import numpy as np
 
 from app.models import BoardType
 from app.training.config import TrainConfig
+from app.training.significance import wilson_lower_bound
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,9 @@ class CurriculumConfig:
     # Win rate threshold for promoting a candidate model
     # Must win at least this fraction against current best
     promotion_threshold: float = 0.55
+
+    # Confidence for Wilson lower-bound promotion gate.
+    promotion_confidence: float = 0.95
 
     # Number of past generations of data to keep for training
     # Older data is discarded to prevent overfitting to old play patterns
@@ -280,6 +284,7 @@ class CurriculumTrainer:
             "training_epochs": self.config.training_epochs,
             "eval_games": self.config.eval_games,
             "promotion_threshold": self.config.promotion_threshold,
+            "promotion_confidence": self.config.promotion_confidence,
             "data_retention": self.config.data_retention,
             "historical_decay": self.config.historical_decay,
             "num_players": self.config.num_players,
@@ -456,7 +461,21 @@ class CurriculumTrainer:
         else:
             threshold = self.config.promotion_threshold
 
+        wins = int(eval_result.get("wins", 0))
+        losses = int(eval_result.get("losses", 0))
+        decisive_games = wins + losses
+        ci_low = None
+        if decisive_games > 0:
+            ci_low = wilson_lower_bound(
+                wins,
+                decisive_games,
+                confidence=self.config.promotion_confidence,
+            )
+
         promoted = eval_result["win_rate"] >= threshold
+        # Require statistical confidence when we have a real opponent.
+        if decisive_games > 0 and ci_low is not None:
+            promoted = promoted and ci_low >= threshold
         if promoted:
             self._promote_candidate(candidate_path, generation)
             self.current_generation = generation + 1
@@ -660,6 +679,9 @@ class CurriculumTrainer:
                 "loss_rate": 0.0,
                 "games_played": 0,
                 "avg_game_length": 0,
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
             }
 
         # Run tournament: candidate vs current_best
@@ -673,12 +695,19 @@ class CurriculumTrainer:
             seed=seed,
         )
 
+        total_games = max(1, results["total_games"])
+        wins = results["model_a_wins"]
+        losses = results["model_b_wins"]
+        draws = results["draws"]
         return {
-            "win_rate": results["model_a_wins"] / max(1, results["total_games"]),
-            "draw_rate": results["draws"] / max(1, results["total_games"]),
-            "loss_rate": results["model_b_wins"] / max(1, results["total_games"]),
+            "win_rate": wins / total_games,
+            "draw_rate": draws / total_games,
+            "loss_rate": losses / total_games,
             "games_played": results["total_games"],
             "avg_game_length": results.get("avg_game_length", 0),
+            "wins": wins,
+            "losses": losses,
+            "draws": draws,
         }
 
     def _evaluate_against_pool(
@@ -766,6 +795,9 @@ class CurriculumTrainer:
             "avg_game_length": overall_avg_len,
             "pool_size": len(self.model_pool),
             "per_opponent": per_opponent_results,
+            "wins": total_wins,
+            "losses": total_losses,
+            "draws": total_draws,
         }
 
     def _promote_candidate(self, candidate_path: Path, generation: int) -> None:

@@ -18,6 +18,7 @@ from app.training.tier_eval_config import (
     TierEvaluationConfig,
     TierOpponentConfig,
 )
+from app.training.significance import wilson_score_interval
 from app.config.ladder_config import (
     LadderTierConfig,
     get_ladder_tier_config,
@@ -351,6 +352,8 @@ def run_tier_evaluation(
     total_games = 0
 
     baseline_wins = 0
+    baseline_losses = 0
+    baseline_draws = 0
     baseline_games = 0
     prev_wins = 0
     prev_games = 0
@@ -369,6 +372,8 @@ def run_tier_evaluation(
 
         if opponent.role == "baseline":
             baseline_wins += stats.wins
+            baseline_losses += stats.losses
+            baseline_draws += stats.draws
             baseline_games += stats.games
         if opponent.role == "previous_tier":
             prev_wins += stats.wins
@@ -382,13 +387,32 @@ def run_tier_evaluation(
         win_rate_vs_baseline = baseline_wins / float(baseline_games)
     metrics["win_rate_vs_baseline"] = win_rate_vs_baseline
 
+    # Wilson confidence interval (decisive games only).
+    confidence = getattr(tier_config, "promotion_confidence", 0.95)
+    decisive_baseline_games = baseline_wins + baseline_losses
+    ci_low: Optional[float] = None
+    ci_high: Optional[float] = None
+    if confidence is not None and confidence > 0 and decisive_baseline_games > 0:
+        ci_low, ci_high = wilson_score_interval(
+            baseline_wins,
+            decisive_baseline_games,
+            confidence=float(confidence),
+        )
+    metrics["win_rate_vs_baseline_ci_low"] = ci_low
+    metrics["win_rate_vs_baseline_ci_high"] = ci_high
+
     if (
         tier_config.min_win_rate_vs_baseline is not None
         and win_rate_vs_baseline is not None
     ):
-        criteria["min_win_rate_vs_baseline"] = (
-            win_rate_vs_baseline >= tier_config.min_win_rate_vs_baseline
-        )
+        if ci_low is not None:
+            criteria["min_win_rate_vs_baseline"] = (
+                ci_low >= tier_config.min_win_rate_vs_baseline
+            )
+        else:
+            criteria["min_win_rate_vs_baseline"] = (
+                win_rate_vs_baseline >= tier_config.min_win_rate_vs_baseline
+            )
     else:
         criteria["min_win_rate_vs_baseline"] = None
 

@@ -317,6 +317,9 @@ def _run_difficulty_mode(args: argparse.Namespace) -> int:
         reason = {
             "overall_pass": result.overall_pass,
             "win_rate_vs_baseline": payload["metrics"].get("win_rate_vs_baseline"),
+            "win_rate_vs_baseline_ci_low": payload["metrics"].get(
+                "win_rate_vs_baseline_ci_low"
+            ),
             "win_rate_vs_previous_tier": payload["metrics"].get("win_rate_vs_previous_tier"),
         }
         decision = "promote" if result.overall_pass else "reject"

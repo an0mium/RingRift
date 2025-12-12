@@ -315,16 +315,12 @@ For each category, `docs/TEST_CATEGORIES.md` documents:
 - `tests/unit/GameEngine.lines.scenarios.test.ts`, `tests/unit/GameEngine.lineRewardChoiceWebSocketIntegration.test.ts`  
   → **Legacy RuleEngine / GameEngine Diagnostics** (see “Diagnostic Tests → Legacy RuleEngine / GameEngine Diagnostics” in `docs/TEST_CATEGORIES.md`). These suites exist for historical coverage and migration safety and are not CI‑gated; new rules work should target orchestrator/shared‑engine suites instead.
 
-#### Shadow-mode TS↔Python parity profile (`RINGRIFT_RULES_MODE=shadow`)
+#### Python‑mode TS↔Python parity profile (`RINGRIFT_RULES_MODE=python`)
 
-For targeted runtime parity debugging (matching the **Prod Phase 2 – legacy authoritative + shadow** posture in `docs/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.4), you can run the backend with Python in shadow while keeping the legacy/TS engine authoritative:
+For targeted runtime parity debugging, run the backend in Python‑authoritative validation mode. The backend validates moves via Python, applies them through TS, and emits parity mismatch metrics.
 
 ```bash
-RINGRIFT_RULES_MODE=shadow \
-ORCHESTRATOR_ADAPTER_ENABLED=true \
-ORCHESTRATOR_ROLLOUT_PERCENTAGE=0 \
-ORCHESTRATOR_SHADOW_MODE_ENABLED=true \
-npm run dev:server
+RINGRIFT_RULES_MODE=python npm run dev:server
 ```
 
 Then, in a separate terminal, drive a small amount of traffic (for example via the orchestrator HTTP/load smoke):
@@ -335,7 +331,7 @@ TS_NODE_PROJECT=tsconfig.server.json npm run load:orchestrator:smoke
 
 and inspect `/metrics` for:
 
-- `ringrift_rules_parity_mismatches_total{suite="runtime_shadow",mismatch_type=...}`
+- `ringrift_rules_parity_mismatches_total{suite="runtime_python_mode",mismatch_type=...}`
 - `ringrift_orchestrator_shadow_mismatch_rate`
 
 This profile is **not** used by default in CI (which runs with `RINGRIFT_RULES_MODE=ts`); it is intended for ad‑hoc parity investigations and to exercise the shadow‑mode counters and alerts described in `docs/ALERTING_THRESHOLDS.md` and `docs/ORCHESTRATOR_ROLLOUT_PLAN.md`.

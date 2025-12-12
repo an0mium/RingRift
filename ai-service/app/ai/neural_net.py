@@ -2288,6 +2288,8 @@ class NeuralNetAI(BaseAI):
         # Defaults for fresh weights / unknown metadata.
         num_res_blocks = 10
         num_filters = 128
+        policy_size_override: Optional[int] = None
+        model_class_name: Optional[str] = None
         memory_tier_override: Optional[str] = None
 
         if chosen_path is not None:
@@ -2304,9 +2306,15 @@ class NeuralNetAI(BaseAI):
                         if isinstance(cfg, dict):
                             num_res_blocks = int(cfg.get("num_res_blocks") or num_res_blocks)
                             num_filters = int(cfg.get("num_filters") or num_filters)
-                        model_class_name = meta.get("model_class")
-                        if isinstance(model_class_name, str):
-                            lower_name = model_class_name.lower()
+                            policy_size_override = (
+                                int(cfg.get("policy_size"))
+                                if cfg.get("policy_size") is not None
+                                else None
+                            )
+                        raw_class = meta.get("model_class")
+                        if isinstance(raw_class, str):
+                            model_class_name = raw_class
+                            lower_name = raw_class.lower()
                             if "v3" in lower_name:
                                 memory_tier_override = "v3-low" if "lite" in lower_name else "v3-high"
                             elif "lite" in lower_name:
@@ -2320,17 +2328,39 @@ class NeuralNetAI(BaseAI):
                     e,
                 )
 
-        # Create new model using the factory function.
-        # NOTE: in_channels=14 and global_features=20 are canonical for all boards.
-        self.model = create_model_for_board(
-            board_type=board_type,
-            in_channels=14,
-            global_features=20,
-            num_res_blocks=num_res_blocks,
-            num_filters=num_filters,
-            history_length=self.history_length,
-            memory_tier=memory_tier_override,
-        )
+        # Create new model. When metadata specifies a square-board model class,
+        # instantiate it directly so we can respect a fixed policy_size from the
+        # checkpoint (MAX_N head) even on square8. Otherwise fall back to the
+        # board-based factory.
+        square_model_classes: Dict[str, Any] = {
+            "RingRiftCNN_v2": RingRiftCNN_v2,
+            "RingRiftCNN_v2_Lite": RingRiftCNN_v2_Lite,
+            "RingRiftCNN_v3": RingRiftCNN_v3,
+            "RingRiftCNN_v3_Lite": RingRiftCNN_v3_Lite,
+        }
+
+        if model_class_name in square_model_classes:
+            cls = square_model_classes[model_class_name]
+            self.model = cls(
+                board_size=self.board_size,
+                in_channels=14,
+                global_features=20,
+                num_res_blocks=num_res_blocks,
+                num_filters=num_filters,
+                history_length=self.history_length,
+                policy_size=policy_size_override,
+            )
+        else:
+            # NOTE: in_channels=14 and global_features=20 are canonical for all boards.
+            self.model = create_model_for_board(
+                board_type=board_type,
+                in_channels=14,
+                global_features=20,
+                num_res_blocks=num_res_blocks,
+                num_filters=num_filters,
+                history_length=self.history_length,
+                memory_tier=memory_tier_override,
+            )
         logger.info(
             "Initialized %s for %s from %s (res_blocks=%s, filters=%s)",
             type(self.model).__name__,

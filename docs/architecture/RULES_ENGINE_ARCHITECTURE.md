@@ -514,15 +514,14 @@ behaviour.
 
 ## 3. Rollout Strategy
 
-The rollout is controlled by the `RINGRIFT_RULES_MODE` environment variable.
+Rules-backend selection is controlled by the `RINGRIFT_RULES_MODE` environment variable (allowed values: `ts`, `python`; legacy `shadow` was removed in Phase 4).
 
-### Phase 1: Shadow Mode (`RINGRIFT_RULES_MODE=shadow`)
+### TS Authoritative (`RINGRIFT_RULES_MODE=ts`)
 
-- **Behavior:** TS engine is authoritative. For every move, the backend asynchronously calls the Python service (`/rules/evaluate_move`) to compare results.
-- **Metrics:** Mismatches in validity, state hash, or S-invariant are logged and increment Prometheus counters (`rules_parity_*_mismatch_total`).
-- **Goal:** Verify parity at scale in staging/production without affecting gameplay.
+- **Behavior:** The shared TS orchestrator is authoritative for validation and state transitions.
+- **Parity signals:** Contract vectors + fixture parity suites; no runtime Python comparisons.
 
-### Phase 2: Python Authoritative (`RINGRIFT_RULES_MODE=python`)
+### Python Authoritative (`RINGRIFT_RULES_MODE=python`)
 
 - **Behavior:** The backend consults the Python service _first_.
   - If Python rejects the move, it is rejected.
@@ -530,9 +529,9 @@ The rollout is controlled by the `RINGRIFT_RULES_MODE` environment variable.
 - **Fallback:** On Python service failure, fall back to TS engine and log `backend_fallback`.
 - **Goal:** Make the Python engine the **primary online validation host over the canonical TS orchestrator + contracts**, enabling advanced AI features that rely on precise rule simulation while keeping the written canonical rules spec as the rules SSoT and the TS shared engine as its primary executable implementation.
 
-### Acceptance Criteria for Phase 2
+### Acceptance Criteria for Python Authoritative Mode
 
-1.  **Shadow Stability:** Zero parity mismatches over a significant period in Phase 1.
+1.  **Parity stability:** Zero (or near-zero) mismatches in explicit python‑mode diagnostic runs and contract/fixture parity jobs.
 2.  **Performance:** Python service latency (P99) is within acceptable bounds (< 50ms).
 3.  **Operational Readiness:** AI service is horizontally scalable and monitored.
 
