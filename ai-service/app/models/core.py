@@ -323,6 +323,8 @@ class Move(BaseModel):
     # - 'line': Eliminate exactly ONE ring (any controlled stack eligible)
     # - 'territory': Eliminate entire cap (only eligible stacks: multicolor or height > 1)
     # - 'forced': Eliminate entire cap (any controlled stack eligible)
+    # - 'recovery': Extract exactly ONE buried ring from any stack that contains a buried ring
+    #   of the eliminating player (stack need not be controlled by that player)
     elimination_context: Optional[str] = Field(
         default=None, alias="eliminationContext"
     )

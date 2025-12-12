@@ -333,6 +333,7 @@ class TrainingJob:
     num_players: int
     status: str = "pending"  # pending, queued, running, completed, failed
     worker_node: str = ""    # Node where training is running
+    created_at: float = field(default_factory=time.time)
     started_at: float = 0.0
     completed_at: float = 0.0
     # Training configuration
@@ -394,6 +395,7 @@ class DataFileInfo:
     file_type: str = ""          # Type: selfplay, model, training, etc.
     board_type: str = ""         # Board type if applicable (square8, hex, etc.)
     num_players: int = 0         # Player count if applicable
+    game_count: int = 0          # For selfplay JSONL: number of games (lines)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -415,6 +417,10 @@ class NodeDataManifest:
     selfplay_games: int = 0      # Total selfplay games (from JSONL line counts)
     model_count: int = 0         # Number of model files
     training_data_size: int = 0  # Total training data size
+
+    @property
+    def files_by_path(self) -> Dict[str, DataFileInfo]:
+        return {f.path: f for f in self.files}
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -442,6 +448,31 @@ class ClusterDataManifest:
     files_by_node: Dict[str, int] = field(default_factory=dict)
     unique_files: Set[str] = field(default_factory=set)
     missing_from_nodes: Dict[str, List[str]] = field(default_factory=dict)  # file -> list of nodes missing it
+
+    @property
+    def manifests_by_node(self) -> Dict[str, NodeDataManifest]:
+        return self.node_manifests
+
+    @property
+    def by_board_type(self) -> Dict[str, Dict[str, Any]]:
+        """Aggregate selfplay game counts by (board_type, num_players).
+
+        Key format matches downstream training logic: `{board_type}_{num_players}p`.
+        """
+        totals: Dict[str, Dict[str, Any]] = {}
+
+        for node_id, node_manifest in self.node_manifests.items():
+            for f in node_manifest.files:
+                if getattr(f, "file_type", "") != "selfplay":
+                    continue
+                if not getattr(f, "board_type", "") or not getattr(f, "num_players", 0):
+                    continue
+                key = f"{f.board_type}_{f.num_players}p"
+                entry = totals.setdefault(key, {"total_games": 0, "nodes": set()})
+                entry["total_games"] += int(getattr(f, "game_count", 0) or 0)
+                entry["nodes"].add(node_id)
+
+        return {k: {"total_games": v["total_games"], "nodes": sorted(v["nodes"])} for k, v in totals.items()}
 
     def to_dict(self) -> dict:
         d = {
@@ -530,6 +561,7 @@ class P2POrchestrator:
         self.port = port
         self.known_peers = known_peers or []
         self.ringrift_path = ringrift_path or self._detect_ringrift_path()
+        self.start_time = time.time()
 
         # Node state
         self.role = NodeRole.FOLLOWER
@@ -583,6 +615,8 @@ class P2POrchestrator:
 
         # Load persisted state
         self._load_state()
+        if self.leader_id == self.node_id:
+            self.role = NodeRole.LEADER
 
         # Self info
         self.self_info = self._create_self_info()
@@ -994,6 +1028,7 @@ class P2POrchestrator:
                                 try:
                                     with open(file_path, 'r') as f:
                                         line_count = sum(1 for _ in f)
+                                    file_info.game_count = line_count
                                     manifest.selfplay_games += line_count
                                 except:
                                     pass
@@ -1030,7 +1065,8 @@ class P2POrchestrator:
         """Request data manifest from a peer node."""
         try:
             url = f"http://{peer_info.host}:{peer_info.port}/data_manifest"
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+            timeout = ClientTimeout(total=30)
+            async with ClientSession(timeout=timeout) as session:
                 async with session.get(url) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -1580,6 +1616,10 @@ class P2POrchestrator:
             data = await request.json()
             peer_info = NodeInfo.from_dict(data)
             peer_info.last_heartbeat = time.time()
+            # Prefer the remote socket address over self-reported host so that
+            # nodes behind overlays (e.g., Tailscale) use a reachable address.
+            if request.remote:
+                peer_info.host = request.remote
 
             with self.peers_lock:
                 self.peers[peer_info.node_id] = peer_info
@@ -4003,62 +4043,104 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     # Phase 4: REST API for External Job Submission and Dashboard
     # =========================================================================
 
+    async def handle_root(self, request: web.Request) -> web.StreamResponse:
+        """Redirect to the dashboard to avoid upstream 404s on `/`."""
+        raise web.HTTPFound("/dashboard")
+
     async def handle_api_cluster_status(self, request: web.Request) -> web.Response:
         """Get comprehensive cluster status for external clients and dashboard."""
         try:
-            # Collect peer info
-            peers_info = []
-            for peer_id, peer in self.peers.items():
-                peers_info.append({
-                    "node_id": peer_id,
-                    "host": peer.host,
-                    "port": peer.port,
-                    "status": peer.status.value if hasattr(peer.status, 'value') else str(peer.status),
-                    "last_seen": peer.last_seen,
-                    "capabilities": list(peer.capabilities) if peer.capabilities else [],
-                    "current_job": peer.current_job,
-                    "has_gpu": peer.has_gpu if hasattr(peer, 'has_gpu') else False,
-                })
+            # Collect peer info (dashboard-oriented shape)
+            peers_info: List[Dict[str, Any]] = []
+            with self.peers_lock:
+                peers_snapshot = dict(self.peers)
+            for peer_id, peer in peers_snapshot.items():
+                status = "offline" if not peer.is_alive() else "online"
+                peers_info.append(
+                    {
+                        "node_id": peer_id,
+                        "host": peer.host,
+                        "port": peer.port,
+                        "status": status,
+                        "last_seen": peer.last_heartbeat,
+                        "capabilities": list(peer.capabilities) if peer.capabilities else [],
+                        "current_job": "",
+                        "has_gpu": bool(peer.has_gpu),
+                        "cpu_percent": peer.cpu_percent,
+                        "memory_percent": peer.memory_percent,
+                        "disk_percent": peer.disk_percent,
+                        "gpu_percent": peer.gpu_percent,
+                        "gpu_memory_percent": peer.gpu_memory_percent,
+                        "selfplay_jobs": peer.selfplay_jobs,
+                        "training_jobs": peer.training_jobs,
+                    }
+                )
 
-            # Collect job info
-            jobs_info = []
-            for job_id, job in self.jobs.items():
-                jobs_info.append({
-                    "job_id": job_id,
-                    "job_type": job.job_type,
+            # Collect local job info
+            with self.jobs_lock:
+                jobs_snapshot = list(self.local_jobs.values())
+            jobs_info: List[Dict[str, Any]] = [
+                {
+                    "job_id": job.job_id,
+                    "job_type": job.job_type.value if hasattr(job.job_type, "value") else str(job.job_type),
                     "status": job.status,
-                    "assigned_to": job.assigned_to,
-                    "created_at": job.created_at,
-                    "started_at": getattr(job, 'started_at', None),
-                    "completed_at": getattr(job, 'completed_at', None),
-                    "progress": getattr(job, 'progress', 0),
-                })
+                    "node_id": job.node_id,
+                    "board_type": job.board_type,
+                    "num_players": job.num_players,
+                    "engine_mode": job.engine_mode,
+                    "pid": job.pid,
+                    "started_at": job.started_at,
+                }
+                for job in jobs_snapshot
+            ]
 
             # Collect training job info
-            training_info = []
+            training_info: List[Dict[str, Any]] = []
             with self.training_lock:
                 for job_id, job in self.training_jobs.items():
-                    training_info.append({
-                        "job_id": job_id,
-                        "job_type": job.job_type,
-                        "status": job.status,
-                        "board_type": job.board_type,
-                        "num_players": job.num_players,
-                        "assigned_worker": job.assigned_worker,
-                        "created_at": job.created_at,
-                        "started_at": job.started_at,
-                        "completed_at": job.completed_at,
-                        "output_model_path": job.output_model_path,
-                        "error_message": job.error_message,
-                    })
+                    training_info.append(
+                        {
+                            "job_id": job_id,
+                            "job_type": job.job_type,
+                            "status": job.status,
+                            "board_type": job.board_type,
+                            "num_players": job.num_players,
+                            "assigned_worker": job.worker_node,
+                            "created_at": job.created_at,
+                            "started_at": job.started_at,
+                            "completed_at": job.completed_at,
+                            "output_model_path": job.output_model_path,
+                            "error_message": job.error_message,
+                        }
+                    )
 
-            # Collect data manifest info
-            manifest_info = {}
-            for key, manifest in self.data_manifests.items():
-                manifest_info[key] = {
-                    "game_count": manifest.get("game_count", 0),
-                    "board_types": manifest.get("board_types", []),
-                    "last_updated": manifest.get("last_updated", 0),
+            # Collect data manifest info (lightweight dashboard summary)
+            with self.manifest_lock:
+                local_manifest = self.local_data_manifest
+                cluster_manifest = self.cluster_data_manifest
+                if local_manifest is None:
+                    local_manifest = self._collect_local_data_manifest()
+                    self.local_data_manifest = local_manifest
+
+            manifest_info: Dict[str, Dict[str, Any]] = {}
+            if cluster_manifest and getattr(cluster_manifest, "node_manifests", None):
+                for node_id, node_manifest in cluster_manifest.node_manifests.items():
+                    board_types = sorted(
+                        {f.board_type for f in node_manifest.files if getattr(f, "board_type", "")}
+                    )
+                    manifest_info[node_id] = {
+                        "game_count": node_manifest.selfplay_games,
+                        "board_types": board_types,
+                        "last_updated": node_manifest.collected_at,
+                    }
+            elif local_manifest:
+                board_types = sorted(
+                    {f.board_type for f in local_manifest.files if getattr(f, "board_type", "")}
+                )
+                manifest_info[local_manifest.node_id] = {
+                    "game_count": local_manifest.selfplay_games,
+                    "board_types": board_types,
+                    "last_updated": local_manifest.collected_at,
                 }
 
             return web.json_response({
@@ -4067,13 +4149,13 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 "role": self.role.value if hasattr(self.role, 'value') else str(self.role),
                 "leader_id": self.leader_id,
                 "is_leader": self.role == NodeRole.LEADER,
-                "uptime_seconds": time.time() - getattr(self, 'start_time', time.time()),
+                "uptime_seconds": time.time() - self.start_time,
                 "peers": peers_info,
                 "peer_count": len(self.peers),
                 "jobs": jobs_info,
-                "job_count": len(self.jobs),
+                "job_count": len(jobs_info),
                 "training_jobs": training_info,
-                "training_job_count": len(self.training_jobs),
+                "training_job_count": len(training_info),
                 "data_manifests": manifest_info,
                 "timestamp": time.time(),
             })
@@ -4087,22 +4169,29 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             status = request.query.get("status")
             limit = int(request.query.get("limit", 100))
 
-            # Collect all jobs (regular + training)
+            # Collect all jobs (local + training + ssh tournament runs)
             all_jobs = []
 
-            for job_id, job in self.jobs.items():
-                if job_type and job.job_type != job_type:
+            with self.jobs_lock:
+                local_jobs_snapshot = list(self.local_jobs.values())
+            for job in local_jobs_snapshot:
+                jt = job.job_type.value if hasattr(job.job_type, "value") else str(job.job_type)
+                if job_type and jt != job_type:
                     continue
                 if status and job.status != status:
                     continue
-                all_jobs.append({
-                    "job_id": job_id,
-                    "job_type": job.job_type,
-                    "status": job.status,
-                    "assigned_to": job.assigned_to,
-                    "created_at": job.created_at,
-                    "category": "general",
-                })
+                all_jobs.append(
+                    {
+                        "job_id": job.job_id,
+                        "job_type": jt,
+                        "status": job.status,
+                        "assigned_to": job.node_id,
+                        "created_at": job.started_at,
+                        "board_type": job.board_type,
+                        "num_players": job.num_players,
+                        "category": "local",
+                    }
+                )
 
             with self.training_lock:
                 for job_id, job in self.training_jobs.items():
@@ -4114,12 +4203,32 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                         "job_id": job_id,
                         "job_type": job.job_type,
                         "status": job.status,
-                        "assigned_to": job.assigned_worker,
+                        "assigned_to": job.worker_node,
                         "created_at": job.created_at,
                         "board_type": job.board_type,
                         "num_players": job.num_players,
                         "category": "training",
                     })
+
+            with self.ssh_tournament_lock:
+                ssh_runs_snapshot = list(self.ssh_tournament_runs.values())
+            for run in ssh_runs_snapshot:
+                if job_type and job_type != "ssh_tournament":
+                    continue
+                if status and run.status != status:
+                    continue
+                all_jobs.append(
+                    {
+                        "job_id": run.job_id,
+                        "job_type": "ssh_tournament",
+                        "status": run.status,
+                        "assigned_to": self.node_id,
+                        "created_at": run.started_at,
+                        "board_type": run.board,
+                        "num_players": 2,
+                        "category": "ssh_tournament",
+                    }
+                )
 
             # Sort by created_at descending and limit
             all_jobs.sort(key=lambda x: x.get("created_at", 0), reverse=True)
@@ -4151,73 +4260,61 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     "error": "job_type is required",
                 }, status=400)
 
-            job_id = str(uuid.uuid4())
-
             if job_type in ["nnue", "cmaes"]:
-                # Training job
                 board_type = data.get("board_type", "square8")
-                num_players = data.get("num_players", 2)
-
-                job = TrainingJob(
-                    job_id=job_id,
-                    job_type=job_type,
-                    board_type=board_type,
-                    num_players=num_players,
-                    status="pending",
-                    created_at=time.time(),
+                num_players = int(data.get("num_players", 2))
+                job_config = {
+                    "job_type": job_type,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "config_key": f"{board_type}_{num_players}p",
+                    "total_games": int(data.get("total_games", 0)),
+                }
+                job = await self._dispatch_training_job(job_config)
+                if not job:
+                    return web.json_response(
+                        {"success": False, "error": "No suitable worker available"},
+                        status=400,
+                    )
+                return web.json_response(
+                    {
+                        "success": True,
+                        "job_id": job.job_id,
+                        "job_type": job.job_type,
+                        "status": job.status,
+                        "message": f"Training job {job.job_id} created",
+                    }
                 )
-                with self.training_lock:
-                    self.training_jobs[job_id] = job
 
-                print(f"[P2P] API: Created {job_type} training job {job_id} for {board_type} {num_players}p")
-
-            elif job_type == "selfplay":
-                # Selfplay job
+            if job_type in ["selfplay", "gpu_selfplay"]:
                 board_type = data.get("board_type", "square8")
-                num_players = data.get("num_players", 2)
-                num_games = data.get("num_games", 100)
+                num_players = int(data.get("num_players", 2))
+                engine_mode = data.get("engine_mode", "descent-only")
 
-                job = Job(
-                    job_id=job_id,
-                    job_type="selfplay",
-                    config={
-                        "board_type": board_type,
-                        "num_players": num_players,
-                        "num_games": num_games,
-                    },
-                    status="pending",
-                    created_at=time.time(),
+                jt = JobType.GPU_SELFPLAY if job_type == "gpu_selfplay" else JobType.SELFPLAY
+                job = await self._start_local_job(jt, board_type, num_players, engine_mode)
+                if not job:
+                    return web.json_response(
+                        {"success": False, "error": "Failed to start local job"},
+                        status=500,
+                    )
+                return web.json_response(
+                    {
+                        "success": True,
+                        "job_id": job.job_id,
+                        "job_type": job.job_type.value,
+                        "status": job.status,
+                        "message": f"Job {job.job_id} started",
+                    }
                 )
-                self.jobs[job_id] = job
 
-                print(f"[P2P] API: Created selfplay job {job_id} for {num_games} games of {board_type} {num_players}p")
-
-            elif job_type == "sync":
-                # Data sync job
-                job = Job(
-                    job_id=job_id,
-                    job_type="sync",
-                    config=data.get("config", {}),
-                    status="pending",
-                    created_at=time.time(),
-                )
-                self.jobs[job_id] = job
-
-                print(f"[P2P] API: Created data sync job {job_id}")
-
-            else:
-                return web.json_response({
+            return web.json_response(
+                {
                     "success": False,
-                    "error": f"Unknown job type: {job_type}. Supported: nnue, cmaes, selfplay, sync",
-                }, status=400)
-
-            return web.json_response({
-                "success": True,
-                "job_id": job_id,
-                "job_type": job_type,
-                "status": "pending",
-                "message": f"Job {job_id} created successfully",
-            })
+                    "error": f"Unknown job type: {job_type}. Supported: nnue, cmaes, selfplay, gpu_selfplay",
+                },
+                status=400,
+            )
 
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)}, status=500)
@@ -4232,22 +4329,52 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     "error": "job_id is required",
                 }, status=400)
 
-            # Check regular jobs
-            if job_id in self.jobs:
-                job = self.jobs[job_id]
-                return web.json_response({
-                    "success": True,
-                    "job": {
-                        "job_id": job_id,
-                        "job_type": job.job_type,
-                        "status": job.status,
-                        "config": job.config if hasattr(job, 'config') else {},
-                        "assigned_to": job.assigned_to,
-                        "created_at": job.created_at,
-                        "progress": getattr(job, 'progress', 0),
-                        "category": "general",
-                    },
-                })
+            with self.jobs_lock:
+                local_job = self.local_jobs.get(job_id)
+            if local_job:
+                return web.json_response(
+                    {
+                        "success": True,
+                        "job": {
+                            "job_id": job_id,
+                            "job_type": local_job.job_type.value if hasattr(local_job.job_type, "value") else str(local_job.job_type),
+                            "status": local_job.status,
+                            "assigned_to": local_job.node_id,
+                            "created_at": local_job.started_at,
+                            "board_type": local_job.board_type,
+                            "num_players": local_job.num_players,
+                            "engine_mode": local_job.engine_mode,
+                            "pid": local_job.pid,
+                            "category": "local",
+                        },
+                    }
+                )
+
+            with self.ssh_tournament_lock:
+                ssh_run = self.ssh_tournament_runs.get(job_id)
+            if ssh_run:
+                return web.json_response(
+                    {
+                        "success": True,
+                        "job": {
+                            "job_id": ssh_run.job_id,
+                            "job_type": "ssh_tournament",
+                            "status": ssh_run.status,
+                            "assigned_to": self.node_id,
+                            "created_at": ssh_run.started_at,
+                            "run_id": ssh_run.run_id,
+                            "tiers": ssh_run.tiers,
+                            "board_type": ssh_run.board,
+                            "games_per_matchup": ssh_run.games_per_matchup,
+                            "output_root": ssh_run.output_root,
+                            "manifest_path": ssh_run.manifest_path,
+                            "checkpoint_path": ssh_run.checkpoint_path,
+                            "report_path": ssh_run.report_path,
+                            "log_path": ssh_run.log_path,
+                            "category": "ssh_tournament",
+                        },
+                    }
+                )
 
             # Check training jobs
             with self.training_lock:
@@ -4261,7 +4388,7 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                             "status": job.status,
                             "board_type": job.board_type,
                             "num_players": job.num_players,
-                            "assigned_worker": job.assigned_worker,
+                            "assigned_worker": job.worker_node,
                             "created_at": job.created_at,
                             "started_at": job.started_at,
                             "completed_at": job.completed_at,
@@ -4295,20 +4422,32 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                     "error": "job_id is required",
                 }, status=400)
 
-            # Check regular jobs
-            if job_id in self.jobs:
-                job = self.jobs[job_id]
-                if job.status in ["pending", "queued"]:
-                    job.status = "cancelled"
-                    return web.json_response({
-                        "success": True,
-                        "message": f"Job {job_id} cancelled",
-                    })
-                else:
-                    return web.json_response({
-                        "success": False,
-                        "error": f"Cannot cancel job in status: {job.status}",
-                    }, status=400)
+            with self.jobs_lock:
+                local_job = self.local_jobs.get(job_id)
+            if local_job:
+                try:
+                    os.kill(local_job.pid, signal.SIGTERM)
+                except Exception:
+                    pass
+                with self.jobs_lock:
+                    local_job.status = "stopped"
+                    self.local_jobs[job_id] = local_job
+                self._save_state()
+                return web.json_response({"success": True, "message": f"Job {job_id} stopped"})
+
+            with self.ssh_tournament_lock:
+                ssh_run = self.ssh_tournament_runs.get(job_id)
+            if ssh_run:
+                if ssh_run.pid:
+                    try:
+                        os.kill(ssh_run.pid, signal.SIGTERM)
+                    except Exception:
+                        pass
+                with self.ssh_tournament_lock:
+                    ssh_run.status = "cancelled"
+                    ssh_run.completed_at = time.time()
+                    self.ssh_tournament_runs[job_id] = ssh_run
+                return web.json_response({"success": True, "message": f"SSH tournament {job_id} cancelled"})
 
             # Check training jobs
             with self.training_lock:
@@ -4657,7 +4796,12 @@ print(json.dumps({{
                 async with session.post(url, json=self.self_info.to_dict()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        return NodeInfo.from_dict(data)
+                        info = NodeInfo.from_dict(data)
+                        # Use the address we successfully reached instead of any
+                        # self-reported interface address.
+                        info.host = peer_host
+                        info.port = peer_port
+                        return info
         except Exception as e:
             pass
         return None
@@ -4677,6 +4821,11 @@ print(json.dumps({{
                         with self.peers_lock:
                             info.last_heartbeat = time.time()
                             self.peers[info.node_id] = info
+                        if info.role == NodeRole.LEADER and self.role != NodeRole.LEADER:
+                            if self.leader_id != info.node_id:
+                                print(f"[P2P] Adopted leader from heartbeat: {info.node_id}")
+                            self.leader_id = info.node_id
+                            self.role = NodeRole.FOLLOWER
 
                 # Send to discovered peers
                 with self.peers_lock:
@@ -4689,6 +4838,11 @@ print(json.dumps({{
                             with self.peers_lock:
                                 info.last_heartbeat = time.time()
                                 self.peers[info.node_id] = info
+                            if info.role == NodeRole.LEADER and self.role != NodeRole.LEADER:
+                                if self.leader_id != info.node_id:
+                                    print(f"[P2P] Adopted leader from heartbeat: {info.node_id}")
+                                self.leader_id = info.node_id
+                                self.role = NodeRole.FOLLOWER
 
                 # Check for dead peers
                 self._check_dead_peers()
@@ -4700,6 +4854,50 @@ print(json.dumps({{
                 print(f"[P2P] Heartbeat error: {e}")
 
             await asyncio.sleep(HEARTBEAT_INTERVAL)
+
+    async def _manifest_collection_loop(self):
+        """Periodically collect manifests for dashboard/training/sync decisions."""
+        while self.running:
+            try:
+                if self.role == NodeRole.LEADER:
+                    cluster_manifest = await self._collect_cluster_manifest()
+                    with self.manifest_lock:
+                        self.cluster_data_manifest = cluster_manifest
+                else:
+                    with self.manifest_lock:
+                        self.local_data_manifest = self._collect_local_data_manifest()
+
+                self.last_manifest_collection = time.time()
+
+            except Exception as e:
+                print(f"[P2P] Manifest collection error: {e}")
+
+            await asyncio.sleep(self.manifest_collection_interval)
+
+    def _maybe_adopt_leader_from_peers(self) -> bool:
+        """If we can already see a healthy leader, adopt it and avoid elections."""
+        if self.role == NodeRole.LEADER:
+            return False
+
+        with self.peers_lock:
+            leaders = [
+                p for p in self.peers.values()
+                if p.node_id != self.node_id and p.role == NodeRole.LEADER and p.is_alive()
+            ]
+
+        if not leaders:
+            return False
+
+        # If multiple leaders exist (split brain), pick the lexicographically highest
+        # ID (matches bully ordering) to converge.
+        leader = sorted(leaders, key=lambda p: p.node_id)[-1]
+
+        if self.leader_id != leader.node_id:
+            print(f"[P2P] Adopted existing leader from peers: {leader.node_id}")
+        self.leader_id = leader.node_id
+        self.role = NodeRole.FOLLOWER
+        self._save_state()
+        return True
 
     def _check_dead_peers(self):
         """Check for peers that have stopped responding."""
@@ -4723,6 +4921,14 @@ print(json.dumps({{
 
     async def _start_election(self):
         """Start leader election using Bully algorithm."""
+        if self.leader_id and self.leader_id != self.node_id:
+            with self.peers_lock:
+                leader = self.peers.get(self.leader_id)
+            if leader and leader.is_alive():
+                return
+        if self._maybe_adopt_leader_from_peers():
+            return
+
         if self.election_in_progress:
             return
 
@@ -5205,6 +5411,7 @@ print(json.dumps({{
         app.router.add_post('/training/cmaes/start', self.handle_cmaes_start_auto)
 
         # Phase 4: REST API and Dashboard routes
+        app.router.add_get('/', self.handle_root)
         app.router.add_get('/api/cluster/status', self.handle_api_cluster_status)
         app.router.add_get('/api/jobs', self.handle_api_jobs_list)
         app.router.add_post('/api/jobs/submit', self.handle_api_jobs_submit)
@@ -5222,6 +5429,7 @@ print(json.dumps({{
         # Start background tasks
         tasks = [
             asyncio.create_task(self._heartbeat_loop()),
+            asyncio.create_task(self._manifest_collection_loop()),
             asyncio.create_task(self._job_management_loop()),
             asyncio.create_task(self._discovery_loop()),
         ]
@@ -5233,7 +5441,9 @@ print(json.dumps({{
         # If no leader known, start election after short delay
         await asyncio.sleep(5)
         if not self.leader_id:
-            await self._start_election()
+            # Avoid needless bully elections if we can already see a leader.
+            if not self._maybe_adopt_leader_from_peers():
+                await self._start_election()
 
         # Run forever
         try:

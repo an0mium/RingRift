@@ -37,6 +37,7 @@ Output:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
 import os
@@ -253,6 +254,13 @@ class GPUSelfPlayGenerator:
         if output_file:
             os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
             file_handle = open(output_file, "w")
+            # Acquire exclusive lock to prevent JSONL corruption from concurrent writes
+            try:
+                fcntl.flock(file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                logger.error(f"Cannot acquire lock on {output_file} - another process is writing")
+                file_handle.close()
+                sys.exit(1)
 
         try:
             for batch_idx in range(num_batches):
@@ -264,20 +272,39 @@ class GPUSelfPlayGenerator:
                 results = self.generate_batch(seed=batch_idx * 1000)
 
                 # Create game records
+                board_type_str = {8: "square8", 19: "square19"}.get(self.board_size, "square8")
                 for i in range(actual_batch):
+                    game_idx = len(all_records)
+                    vtype = results["victory_types"][i]
                     record = {
-                        "game_id": len(all_records),
-                        "batch_id": batch_idx,
-                        "board_size": self.board_size,
+                        # === Core game identifiers ===
+                        "game_id": f"gpu_{board_type_str}_{self.num_players}p_{game_idx}_{int(datetime.now().timestamp())}",
+                        "board_type": board_type_str,  # Standardized: square8, square19, hexagonal
+                        "board_size": self.board_size,  # Legacy field for compatibility
                         "num_players": self.num_players,
+                        # === Game outcome ===
                         "winner": int(results["winners"][i]),
                         "move_count": int(results["move_counts"][i]),
                         "max_moves": self.max_moves,
-                        "victory_type": results["victory_types"][i],
+                        "status": "completed",
+                        "game_status": "completed",
+                        "victory_type": vtype,
                         "stalemate_tiebreaker": results["stalemate_tiebreakers"][i],
-                        "moves": results["move_histories"][i],  # Full move history for training
-                        "initial_state": self._initial_state_json,  # Required for NN training
+                        "termination_reason": f"status:completed:{vtype}",
+                        # === Engine/opponent metadata ===
+                        "engine_mode": "gpu_heuristic",
+                        "opponent_type": "selfplay",
+                        "player_types": ["gpu_batch"] * self.num_players,
+                        "batch_id": batch_idx,
+                        # === Training data (required for NPZ export) ===
+                        "moves": results["move_histories"][i],
+                        "initial_state": self._initial_state_json,
+                        # === Timing metadata ===
                         "timestamp": datetime.now().isoformat(),
+                        "created_at": datetime.now().isoformat(),
+                        # === Source tracking ===
+                        "source": "run_gpu_selfplay.py",
+                        "device": str(self.device),
                     }
                     all_records.append(record)
 

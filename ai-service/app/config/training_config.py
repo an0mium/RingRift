@@ -174,7 +174,12 @@ class NeuralNetConfig:
     pin_memory: bool = True
 
     # Checkpointing
-    model_id: str = "ringrift_v1"
+    # NOTE: "v4" is a model-id / checkpoint lineage prefix, not a Python
+    # architecture class. See docs/MPS_ARCHITECTURE.md.
+    #
+    # Default to the canonical square8 2p checkpoint family; other board types
+    # should set RINGRIFT_NN_MODEL_ID explicitly.
+    model_id: str = "ringrift_v4_sq8_2p"
     checkpoint_dir: str = "models"
     save_every_n_epochs: int = 10
 

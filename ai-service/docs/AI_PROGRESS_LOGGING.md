@@ -115,10 +115,18 @@ The following scripts have been instrumented with progress reporters:
 
 ### Self-Play & Evaluation
 
-| Script                      | Reporter Type          | Default Interval |
-| --------------------------- | ---------------------- | ---------------- |
-| `run_self_play_soak.py`     | `SoakProgressReporter` | 10s (hardcoded)  |
-| `run_parallel_self_play.py` | `ProgressReporter`     | 10s (hardcoded)  |
+| Script                                  | Reporter Type               | Default Interval                               |
+| --------------------------------------- | --------------------------- | ---------------------------------------------- |
+| `run_self_play_soak.py`                 | `SoakProgressReporter`      | 10s (hardcoded)                                |
+| `run_parallel_self_play.py`             | `ProgressReporter`          | 10s (hardcoded)                                |
+| `run_canonical_selfplay_parity_gate.py` | Heartbeat + parity progress | 60s heartbeat; parity progress every 200 steps |
+
+`run_canonical_selfplay_parity_gate.py` is expected to be “chatty” even for long runs:
+
+- Emits a heartbeat to stderr every `--heartbeat-seconds` (default: 60).
+- Refreshes the `--summary` JSON on each heartbeat so you can `tail -f` it.
+- Emits TS↔Python replay progress every `--parity-progress-every` steps (default: 200).
+- Supports `--soak-timeout-seconds` and `--parity-timeout-seconds` to prevent silent hangs.
 
 ## Configuration Dataclasses
 

@@ -2521,7 +2521,7 @@ class NeuralNetAI(BaseAI):
                 )
             )
 
-        # Board-type-specific model path (e.g., ringrift_v1_hex_mps.pth)
+        # Board-type-specific model path (e.g., ringrift_v4_hex_2p_mps.pth)
         board_suffix = ""
         if not _model_id_includes_board_hint(model_id):
             if board_type == BoardType.HEXAGONAL:

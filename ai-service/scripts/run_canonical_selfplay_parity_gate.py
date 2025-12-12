@@ -471,6 +471,12 @@ def main() -> None:
                 "db_path": str(db_path),
             },
         )
+        print(
+            f"[parity-gate] summary JSON: {summary_path} "
+            f"(tail -f {summary_path} for heartbeat updates)",
+            file=sys.stderr,
+            flush=True,
+        )
 
     # Auto-select max_moves when not provided.
     if args.max_moves and args.max_moves > 0:

@@ -25,7 +25,10 @@ class TrainConfig:
     # Model identity used to derive checkpoint filenames. This is kept in sync
     # with NeuralNetAI, which expects checkpoints under
     # "<repo_root>/ai-service/models/<nn_model_id>.pth".
-    model_id: str = "ringrift_v1"
+    #
+    # NOTE: "v4" is a model-id / checkpoint lineage prefix, not a Python
+    # architecture class. See docs/MPS_ARCHITECTURE.md.
+    model_id: str = "ringrift_v4_sq8_2p"
 
     # Board-specific model architecture parameters
     # If None, uses defaults from neural_net.get_model_config_for_board()
@@ -139,7 +142,7 @@ def get_training_config_for_board(
         config.policy_size = POLICY_SIZE_19x19
         config.num_res_blocks = 10
         config.num_filters = 128
-        config.model_id = "ringrift_v1"
+        config.model_id = "ringrift_v4_sq8_2p"
 
     return config
 

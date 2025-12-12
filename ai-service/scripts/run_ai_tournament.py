@@ -2,6 +2,7 @@ import sys
 import os
 import time
 import argparse
+import fcntl
 import json
 import uuid
 from datetime import datetime
@@ -88,10 +89,10 @@ def create_game_state(board_type_str: str, p1_config: Dict, p2_config: Dict) -> 
     )
 
 
-def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 300) -> Tuple[int, GameState, List[Dict[str, Any]], int]:
+def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 300) -> Tuple[int, GameState, List[Dict[str, Any]], int, Dict[str, Any]]:
     """
     Run a single game between two AI instances.
-    Returns tuple of (winner, final_game_state, move_history, move_count).
+    Returns tuple of (winner, final_game_state, move_history, move_count, initial_state_json).
     Winner is 1 or 2, or 0 for draw/timeout.
     """
     # Create fresh game state
@@ -99,6 +100,8 @@ def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 300) -> Tuple[int, 
     p2_config = {"type": p2_ai.__class__.__name__.replace("AI", ""), "difficulty": p2_ai.config.difficulty}
 
     game_state = create_game_state(board_type, p1_config, p2_config)
+    # Capture initial state for training data (required for NPZ export)
+    initial_state_json = game_state.model_dump(mode="json")
     rules_engine = DefaultRulesEngine()
 
     move_count = 0
@@ -121,7 +124,7 @@ def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 300) -> Tuple[int, 
 
             traceback.print_exc()
             winner = 2 if current_player_num == 1 else 1
-            return (winner, game_state, moves_played, move_count)
+            return (winner, game_state, moves_played, move_count, initial_state_json)
 
         if not move:
             print(f"No valid moves for Player {current_player_num}. Game Over.")
@@ -138,7 +141,7 @@ def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 300) -> Tuple[int, 
 
             traceback.print_exc()
             winner = 2 if current_player_num == 1 else 1
-            return (winner, game_state, moves_played, move_count)
+            return (winner, game_state, moves_played, move_count, initial_state_json)
 
         # Record move for training data
         move_record: Dict[str, Any] = {
@@ -159,11 +162,11 @@ def run_game(p1_ai, p2_ai, board_type: str, max_moves: int = 300) -> Tuple[int, 
 
     if game_state.game_status == GameStatus.ACTIVE:
         print("Max moves reached. Draw.")
-        return (0, game_state, moves_played, move_count)
+        return (0, game_state, moves_played, move_count, initial_state_json)
 
     winner = game_state.winner if game_state.winner is not None else 0
     print(f"Game Over. Winner: Player {winner}")
-    return (winner, game_state, moves_played, move_count)
+    return (winner, game_state, moves_played, move_count, initial_state_json)
 
 
 def main():
@@ -217,7 +220,16 @@ def main():
     output_file = None
     if args.output_dir:
         os.makedirs(args.output_dir, exist_ok=True)
-        output_file = open(os.path.join(args.output_dir, "games.jsonl"), "w")
+        games_file = os.path.join(args.output_dir, "games.jsonl")
+        output_file = open(games_file, "w")
+        # Acquire exclusive lock to prevent JSONL corruption from concurrent writes
+        try:
+            fcntl.flock(output_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"ERROR: Cannot acquire lock on {games_file} - another process is writing to it.")
+            print("Use a different output file or wait for the other process to finish.")
+            output_file.close()
+            sys.exit(1)
 
     for i in range(args.games):
         game_start_time = time.time()
@@ -226,7 +238,7 @@ def main():
         # Swap sides every other game to ensure fairness
         if i % 2 == 0:
             # P1 is Player 1
-            winner, final_state, moves_played, move_count = run_game(ai1, ai2, args.board, args.max_moves)
+            winner, final_state, moves_played, move_count, initial_state = run_game(ai1, ai2, args.board, args.max_moves)
             if winner == 1:
                 stats["p1_wins"] += 1
             elif winner == 2:
@@ -237,7 +249,7 @@ def main():
         else:
             # P1 is Player 2 (swap)
             # run_game expects (p1_ai, p2_ai) where p1_ai plays as Player 1
-            winner, final_state, moves_played, move_count = run_game(ai2, ai1, args.board, args.max_moves)
+            winner, final_state, moves_played, move_count, initial_state = run_game(ai2, ai1, args.board, args.max_moves)
             if winner == 1:
                 stats["p2_wins"] += 1  # ai2 (P2 originally) won as Player 1
             elif winner == 2:
@@ -254,25 +266,40 @@ def main():
 
         game_duration = time.time() - game_start_time
 
-        # Build game record
+        # Build game record with standardized metadata
+        game_status = final_state.game_status.value if hasattr(final_state.game_status, 'value') else str(final_state.game_status)
         record: Dict[str, Any] = {
-            "game_id": i,
-            "board_type": args.board.lower(),
+            # === Core game identifiers ===
+            "game_id": f"tournament_{args.board.lower()}_2p_{i}_{int(time.time())}",
+            "board_type": args.board.lower(),  # square8, square19, hexagonal
             "num_players": 2,
+            # === Game outcome ===
             "winner": winner,
             "move_count": move_count,
-            "status": final_state.game_status.value if hasattr(final_state.game_status, 'value') else str(final_state.game_status),
+            "status": game_status,
+            "game_status": game_status,  # Alias for compatibility
             "victory_type": victory_type,
             "stalemate_tiebreaker": stalemate_tiebreaker,
+            "termination_reason": f"status:{game_status}:{victory_type}",
+            # === Engine/opponent metadata ===
+            "engine_mode": "ai_vs_ai",
+            "opponent_type": "ai_vs_ai",
+            "player_types": [args.p1, args.p2],
             "p1_ai": args.p1,
             "p1_difficulty": args.p1_diff,
             "p2_ai": args.p2,
             "p2_difficulty": args.p2_diff,
             "p1_seat": p1_seat,
             "p2_seat": p2_seat,
+            # === Training data (required for NPZ export) ===
             "moves": moves_played,
+            "initial_state": initial_state,
+            # === Timing metadata ===
             "game_time_seconds": game_duration,
             "timestamp": datetime.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
+            # === Source tracking ===
+            "source": "run_ai_tournament.py",
         }
         game_records.append(record)
 

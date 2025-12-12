@@ -29,6 +29,7 @@ Output:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
 import os
@@ -260,6 +261,12 @@ def run_hybrid_selfplay(
     start_time = time.time()
 
     with open(games_file, "w") as f:
+        # Acquire exclusive lock to prevent JSONL corruption from concurrent writes
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            logger.error(f"Cannot acquire lock on {games_file} - another process is writing")
+            sys.exit(1)
         for game_idx in range(num_games):
             # Check disk space every 10 games
             if game_idx % 10 == 0:
@@ -277,6 +284,8 @@ def run_hybrid_selfplay(
                 board_type=board_type_enum,
                 num_players=num_players,
             )
+            # Capture initial state for training data export (required for NPZ conversion)
+            initial_state_snapshot = game_state.model_dump(mode="json")
 
             moves_played = []
             move_count = 0
@@ -397,19 +406,33 @@ def run_hybrid_selfplay(
                 stalemate_by_tiebreaker[stalemate_tiebreaker] = stalemate_by_tiebreaker.get(stalemate_tiebreaker, 0) + 1
 
             record = {
-                "game_id": game_idx,
-                "board_type": board_type,
+                # === Core game identifiers ===
+                "game_id": f"hybrid_{board_type}_{num_players}p_{game_idx}_{int(datetime.now().timestamp())}",
+                "board_type": board_type,  # square8, square19, hexagonal
                 "num_players": num_players,
+                # === Game outcome ===
                 "winner": winner,
                 "move_count": move_count,
-                "status": game_state.game_status,
-                "victory_type": victory_type,
-                "stalemate_tiebreaker": stalemate_tiebreaker,  # Which tiebreaker resolved stalemate (or None)
-                "engine_mode": engine_mode,  # Track which engine produced this game
-                "mix_ratio": mix_ratio if engine_mode == "mixed" else None,  # For mixed mode analysis
-                "moves": moves_played,  # Full move history for training
+                "status": game_state.game_status,  # completed, abandoned, etc.
+                "game_status": game_state.game_status,  # Alias for compatibility
+                "victory_type": victory_type,  # territory, elimination, lps, stalemate, timeout
+                "stalemate_tiebreaker": stalemate_tiebreaker,  # territory, ring_elim, or None
+                "termination_reason": f"status:{game_state.game_status}:{victory_type}",
+                # === Engine/opponent metadata ===
+                "engine_mode": engine_mode,  # heuristic-only, random-only, mixed, mcts-only
+                "opponent_type": "selfplay",  # selfplay, human, ai_vs_ai
+                "player_types": ["hybrid_gpu"] * num_players,  # Type of each player
+                "mix_ratio": mix_ratio if engine_mode == "mixed" else None,
+                # === Training data (required for NPZ export) ===
+                "moves": moves_played,  # Full move history
+                "initial_state": initial_state_snapshot,  # For replay/reconstruction
+                # === Timing metadata ===
                 "game_time_seconds": game_time,
                 "timestamp": datetime.now().isoformat(),
+                "created_at": datetime.now().isoformat(),
+                # === Source tracking ===
+                "source": "run_hybrid_selfplay.py",
+                "device": str(device),
             }
             game_records.append(record)
             f.write(json.dumps(record) + "\n")

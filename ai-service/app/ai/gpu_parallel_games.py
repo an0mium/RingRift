@@ -1720,11 +1720,85 @@ def generate_recovery_moves_batch(
     batch_size = state.batch_size
     board_size = state.board_size
 
+    # Line-length threshold per RR-CANON-R112:
+    # - square8 2p: 4
+    # - square8 3-4p: 3
+    # - square19 / hex (GPU board_size != canonical embedding): 4
+    num_players = int(getattr(state, "num_players", 2) or 2)
+    required_line_length = 4 if board_size != 8 else (4 if num_players == 2 else 3)
+
     # 8 directions for sliding (Moore neighborhood)
     directions = [
         (-1, 0), (-1, 1), (0, 1), (1, 1),
         (1, 0), (1, -1), (0, -1), (-1, -1)
     ]
+
+    # Unique line axes (direction + opposite) for line-formation checks.
+    line_axes = [
+        (0, 1),
+        (1, 0),
+        (1, 1),
+        (1, -1),
+    ]
+
+    def _is_line_forming_recovery_slide(
+        g: int,
+        player: int,
+        from_y: int,
+        from_x: int,
+        to_y: int,
+        to_x: int,
+    ) -> bool:
+        """Return True when sliding marker to (to_y,to_x) forms a legal line.
+
+        Per RR-CANON-R112(a), the moved marker must complete a line of at least
+        ``required_line_length`` consecutive markers of the player's colour.
+
+        This helper checks only lines that include the destination marker; any
+        newly formed line must include the moved marker because the move only
+        removes a marker from (from_y,from_x) and adds one at (to_y,to_x).
+        """
+        for dy, dx in line_axes:
+            length = 1  # include destination marker
+
+            # Forward direction
+            y = to_y + dy
+            x = to_x + dx
+            while 0 <= y < board_size and 0 <= x < board_size:
+                if getattr(state, "is_collapsed", None) is not None and state.is_collapsed[g, y, x].item():
+                    break
+                if state.stack_owner[g, y, x].item() != 0:
+                    break
+                marker = state.marker_owner[g, y, x].item()
+                if y == from_y and x == from_x:
+                    marker = 0
+                if marker != player:
+                    break
+                length += 1
+                y += dy
+                x += dx
+
+            # Backward direction
+            y = to_y - dy
+            x = to_x - dx
+            while 0 <= y < board_size and 0 <= x < board_size:
+                if getattr(state, "is_collapsed", None) is not None and state.is_collapsed[g, y, x].item():
+                    break
+                if state.stack_owner[g, y, x].item() != 0:
+                    break
+                marker = state.marker_owner[g, y, x].item()
+                if y == from_y and x == from_x:
+                    marker = 0
+                if marker != player:
+                    break
+                length += 1
+                y -= dy
+                x -= dx
+
+            if length >= required_line_length:
+                return True
+
+        return False
 
     all_game_idx = []
     all_from_y = []
@@ -1755,9 +1829,17 @@ def generate_recovery_moves_batch(
         if buried_rings <= 0:
             continue
 
-        # Player is eligible for recovery - generate slide moves
-        # For simplified GPU implementation, we generate all adjacent slides
-        # (both line-completing and fallback moves are valid)
+        # Player is eligible for recovery.
+        #
+        # Per RR-CANON-R112, recovery move legality is gated:
+        # - If ANY line-forming recovery slide exists anywhere, ONLY those
+        #   line-forming slides are legal (fallback-class is not allowed).
+        # - Otherwise, fallback-class recovery is allowed (adjacent empty-cell
+        #   slides and stack-strike).
+        line_moves: list[tuple[int, int, int, int]] = []
+        fallback_moves: list[tuple[int, int, int, int]] = []
+        stack_strike_moves: list[tuple[int, int, int, int]] = []
+
         for pos_idx in range(marker_positions.shape[0]):
             from_y = marker_positions[pos_idx, 0].item()
             from_x = marker_positions[pos_idx, 1].item()
@@ -1784,6 +1866,7 @@ def generate_recovery_moves_batch(
                         continue
                     if state.territory_owner[g, to_y, to_x].item() != 0:
                         continue
+                    stack_strike_moves.append((from_y, from_x, to_y, to_x))
                 else:
                     # Empty-cell slide: destination must be empty.
                     if state.stack_owner[g, to_y, to_x].item() != 0:
@@ -1793,12 +1876,30 @@ def generate_recovery_moves_batch(
                     if state.territory_owner[g, to_y, to_x].item() != 0:
                         continue
 
-                # Valid recovery slide!
-                all_game_idx.append(g)
-                all_from_y.append(from_y)
-                all_from_x.append(from_x)
-                all_to_y.append(to_y)
-                all_to_x.append(to_x)
+                    if _is_line_forming_recovery_slide(
+                        g,
+                        player,
+                        from_y,
+                        from_x,
+                        to_y,
+                        to_x,
+                    ):
+                        line_moves.append((from_y, from_x, to_y, to_x))
+                    else:
+                        fallback_moves.append((from_y, from_x, to_y, to_x))
+
+        selected_moves: list[tuple[int, int, int, int]]
+        if line_moves:
+            selected_moves = line_moves
+        else:
+            selected_moves = fallback_moves + stack_strike_moves
+
+        for from_y, from_x, to_y, to_x in selected_moves:
+            all_game_idx.append(g)
+            all_from_y.append(from_y)
+            all_from_x.append(from_x)
+            all_to_y.append(to_y)
+            all_to_x.append(to_x)
 
     total_moves = len(all_game_idx)
 

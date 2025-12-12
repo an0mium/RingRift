@@ -4,16 +4,16 @@ Run selfplay games using purely random AI (uniform random move selection).
 This explores the game tree more uniformly and may hit rare scenarios like recovery.
 """
 
-import json
-import random
-import time
-from pathlib import Path
-from datetime import datetime
-from typing import List, Optional
 import argparse
-
-import sys
+import fcntl
+import json
 import os
+import random
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import List, Optional
 
 # Add app/ to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,12 +29,16 @@ def play_random_game(
     num_players: int = 2,
     max_moves: int = 500,
     seed: Optional[int] = None,
+    game_index: int = 0,
 ) -> dict:
     """Play a game using purely random move selection."""
     if seed is not None:
         random.seed(seed)
 
     state = create_initial_state(board_type=board_type, num_players=num_players)
+    # Capture initial state for training data export (required for NPZ conversion)
+    initial_state_snapshot = state.model_dump(mode="json")
+    game_start_time = time.time()
     moves_played: List[dict] = []
     recovery_opportunities = 0
 
@@ -94,17 +98,38 @@ def play_random_game(
 
     # Derive standardized victory type using shared module
     vtype, stalemate_tb = derive_victory_type(state, max_moves)
+    game_time = time.time() - game_start_time
+    status = "completed" if state.game_status == GameStatus.COMPLETED else str(state.game_status.value)
 
     return {
-        'board_type': board_type,
+        # === Core game identifiers ===
+        'game_id': f"random_{board_type}_{num_players}p_{game_index}_{int(time.time())}",
+        'board_type': board_type,  # square8, square19, hexagonal
         'num_players': num_players,
-        'moves': moves_played,
+        # === Game outcome ===
         'winner': winner,
+        'move_count': len(moves_played),
+        'total_moves': len(moves_played),  # Alias for compatibility
+        'status': status,
+        'game_status': status,
         'victory_type': vtype,
         'stalemate_tiebreaker': stalemate_tb,
-        'total_moves': len(moves_played),
-        'recovery_opportunities': recovery_opportunities,
+        'termination_reason': f"status:{status}:{vtype}",
         'completed': state.game_status == GameStatus.COMPLETED,
+        # === Engine/opponent metadata ===
+        'engine_mode': 'random-only',
+        'opponent_type': 'selfplay',
+        'player_types': ['random'] * num_players,
+        'recovery_opportunities': recovery_opportunities,
+        # === Training data (required for NPZ export) ===
+        'moves': moves_played,
+        'initial_state': initial_state_snapshot,
+        # === Timing metadata ===
+        'game_time_seconds': game_time,
+        'timestamp': datetime.now().isoformat(),
+        'created_at': datetime.now().isoformat(),
+        # === Source tracking ===
+        'source': 'run_random_selfplay.py',
     }
 
 
@@ -134,6 +159,15 @@ def main():
     print(f"Running {args.num_games} random AI games on {args.board_type} {args.num_players}p...")
 
     with open(games_file, 'a') as f:
+        # Acquire exclusive lock to prevent concurrent writes from multiple processes
+        # This prevents JSONL corruption when multiple selfplay runs target the same file
+        try:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(f"ERROR: Cannot acquire lock on {games_file} - another process is writing to it.")
+            print("Use a different output file or wait for the other process to finish.")
+            sys.exit(1)
+
         for i in range(args.num_games):
             game_seed = args.seed + i if args.seed else None
             game = play_random_game(
@@ -141,6 +175,7 @@ def main():
                 num_players=args.num_players,
                 max_moves=args.max_moves,
                 seed=game_seed,
+                game_index=i,
             )
 
             f.write(json.dumps(game) + '\n')

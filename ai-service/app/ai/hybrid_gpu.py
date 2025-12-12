@@ -656,6 +656,8 @@ class HybridSelfPlayRunner:
             board_type=board_type_enum,
             num_players=self.num_players,
         )
+        # Capture initial state for training data export (required for NPZ conversion)
+        initial_state_snapshot = game_state.model_dump(mode="json")
 
         moves_played = []
         move_count = 0
@@ -710,15 +712,40 @@ class HybridSelfPlayRunner:
             moves_played.append(best_move)
             move_count += 1
 
-        # Build game record
+        # Serialize moves for JSONL compatibility
+        serialized_moves = []
+        for m in moves_played:
+            if hasattr(m, 'model_dump'):
+                serialized_moves.append(m.model_dump(mode="json"))
+            elif hasattr(m, 'to_dict'):
+                serialized_moves.append(m.to_dict())
+            else:
+                serialized_moves.append(m)
+
+        # Build standardized game record
+        from datetime import datetime
         return {
-            "seed": seed,
+            # === Core game identifiers ===
+            "game_id": f"hybrid_runner_{self.board_type}_{self.num_players}p_{seed}_{int(datetime.now().timestamp())}",
             "board_type": self.board_type,
             "num_players": self.num_players,
-            "move_count": move_count,
+            "seed": seed,
+            # === Game outcome ===
             "winner": game_state.winner,
+            "move_count": move_count,
             "status": game_state.game_status,
-            "moves": moves_played,
+            "game_status": game_state.game_status,
+            # === Training data (required for NPZ export) ===
+            "moves": serialized_moves,
+            "initial_state": initial_state_snapshot,
+            # === Timing metadata ===
+            "timestamp": datetime.now().isoformat(),
+            "created_at": datetime.now().isoformat(),
+            # === Source tracking ===
+            "source": "HybridSelfPlayRunner",
+            "engine_mode": "hybrid_gpu_heuristic",
+            "opponent_type": "selfplay",
+            "player_types": ["hybrid_gpu"] * self.num_players,
         }
 
     def run_games(

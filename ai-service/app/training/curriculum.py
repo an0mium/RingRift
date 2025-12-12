@@ -244,7 +244,8 @@ class CurriculumTrainer:
 
         # Wire nn_model_id used by generate_data to a stable, curriculum‑scoped
         # identifier so NeuralNetAI can resolve checkpoints via models/<id>.pth.
-        # This keeps curriculum models isolated from the default "ringrift_v1".
+        # This keeps curriculum models isolated from the default "ringrift_v4_*"
+        # lineage used by ladder tiers.
         self.config.nn_model_id = self.config.get_model_id()
 
         # Ensure the initial best model (when provided) is visible to

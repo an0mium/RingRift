@@ -69,38 +69,43 @@ class FastGeometry:
         (-1, 1, 0),
     ]
 
+    # Canonical hex board configuration (RR-CANON-R001 / BOARD_CONFIGS).
+    # size=13 implies cube radius=12 and totalSpaces=469.
+    HEX_SIZE: int = 13
+    HEX_RADIUS: int = HEX_SIZE - 1
+
     def __init__(self):
         """Initialize pre-computed geometry tables."""
         # Adjacency tables: key -> list of adjacent keys
         self._adjacency_square8: Dict[str, List[str]] = {}
         self._adjacency_square19: Dict[str, List[str]] = {}
-        self._adjacency_hex11: Dict[str, List[str]] = {}
+        self._adjacency_hex: Dict[str, List[str]] = {}
 
         # All board keys (cached)
         self._all_keys_square8: List[str] = []
         self._all_keys_square19: List[str] = []
-        self._all_keys_hex11: List[str] = []
+        self._all_keys_hex: List[str] = []
 
         # Center positions (cached)
         self._center_square8: FrozenSet[str] = frozenset()
         self._center_square19: FrozenSet[str] = frozenset()
-        self._center_hex11: FrozenSet[str] = frozenset()
+        self._center_hex: FrozenSet[str] = frozenset()
 
         # Key -> coordinates tuple (avoids string parsing)
         self._coords_square8: Dict[str, Tuple[int, int, None]] = {}
         self._coords_square19: Dict[str, Tuple[int, int, None]] = {}
-        self._coords_hex11: Dict[str, Tuple[int, int, int]] = {}
+        self._coords_hex: Dict[str, Tuple[int, int, int]] = {}
 
         # Pre-computed offset tables: (key, direction_index, distance) -> result_key
         # For distances 1, 2, 3 (most common in line evaluation)
         self._offset_square8: Dict[Tuple[str, int, int], Optional[str]] = {}
         self._offset_square19: Dict[Tuple[str, int, int], Optional[str]] = {}
-        self._offset_hex11: Dict[Tuple[str, int, int], Optional[str]] = {}
+        self._offset_hex: Dict[Tuple[str, int, int], Optional[str]] = {}
 
         # Pre-compute everything
         self._build_square_tables(8, self._adjacency_square8, self._all_keys_square8)
         self._build_square_tables(19, self._adjacency_square19, self._all_keys_square19)
-        self._build_hex_tables(11, self._adjacency_hex11, self._all_keys_hex11)
+        self._build_hex_tables(self.HEX_SIZE, self._adjacency_hex, self._all_keys_hex)
         self._build_center_tables()
         self._build_coords_tables()
         self._build_offset_tables()
@@ -138,7 +143,7 @@ class FastGeometry:
         all_keys: List[str],
     ) -> None:
         """Pre-compute adjacency table for hexagonal board."""
-        radius = size - 1  # size=13 -> radius=12
+        radius = size - 1  # canonical: size=13 -> radius=12
 
         for x in range(-radius, radius + 1):
             for y in range(-radius, radius + 1):
@@ -162,14 +167,14 @@ class FastGeometry:
         # Square19: center 3x3
         self._center_square19 = frozenset(f"{x},{y}" for x in [8, 9, 10] for y in [8, 9, 10])
 
-        # Hex11: center hexagon (distance 0-2 from origin)
+        # Hex: center hexagon (distance 0-2 from origin)
         hex_center: Set[str] = set()
         for x in range(-2, 3):
             for y in range(-2, 3):
                 z = -x - y
                 if abs(x) <= 2 and abs(y) <= 2 and abs(z) <= 2:
                     hex_center.add(f"{x},{y},{z}")
-        self._center_hex11 = frozenset(hex_center)
+        self._center_hex = frozenset(hex_center)
 
     def _build_coords_tables(self) -> None:
         """Pre-compute key -> coordinates mappings to avoid string parsing."""
@@ -183,10 +188,10 @@ class FastGeometry:
             parts = key.split(",")
             self._coords_square19[key] = (int(parts[0]), int(parts[1]), None)
 
-        # Hex11
-        for key in self._all_keys_hex11:
+        # Hex
+        for key in self._all_keys_hex:
             parts = key.split(",")
-            self._coords_hex11[key] = (int(parts[0]), int(parts[1]), int(parts[2]))
+            self._coords_hex[key] = (int(parts[0]), int(parts[1]), int(parts[2]))
 
     def _build_offset_tables(self) -> None:
         """Pre-compute offset results for all (key, direction, distance) combinations.
@@ -217,19 +222,23 @@ class FastGeometry:
                     else:
                         self._offset_square19[(key, dir_idx, dist)] = None
 
-        # Hex11
+        # Hex
         directions_hex = self.HEX_DIRECTIONS
-        for key in self._all_keys_hex11:
-            x, y, z = self._coords_hex11[key]
+        for key in self._all_keys_hex:
+            x, y, z = self._coords_hex[key]
             for dir_idx, (dx, dy, dz) in enumerate(directions_hex):
                 for dist in (1, 2, 3):
                     nx = x + dx * dist
                     ny = y + dy * dist
                     nz = z + dz * dist
-                    if abs(nx) <= 10 and abs(ny) <= 10 and abs(nz) <= 10:
-                        self._offset_hex11[(key, dir_idx, dist)] = f"{nx},{ny},{nz}"
+                    if (
+                        abs(nx) <= self.HEX_RADIUS
+                        and abs(ny) <= self.HEX_RADIUS
+                        and abs(nz) <= self.HEX_RADIUS
+                    ):
+                        self._offset_hex[(key, dir_idx, dist)] = f"{nx},{ny},{nz}"
                     else:
-                        self._offset_hex11[(key, dir_idx, dist)] = None
+                        self._offset_hex[(key, dir_idx, dist)] = None
 
     def get_adjacent_keys(self, key: str, board_type) -> List[str]:
         """Get pre-computed adjacent position keys.
@@ -248,7 +257,7 @@ class FastGeometry:
         elif bt == "square19":
             return self._adjacency_square19.get(key, [])
         elif bt in ("hexagonal", "hex"):
-            return self._adjacency_hex11.get(key, [])
+            return self._adjacency_hex.get(key, [])
         return []
 
     def get_all_board_keys(self, board_type: BoardType) -> List[str]:
@@ -265,7 +274,7 @@ class FastGeometry:
         elif board_type == BoardType.SQUARE19:
             return self._all_keys_square19
         elif board_type == BoardType.HEXAGONAL:
-            return self._all_keys_hex11
+            return self._all_keys_hex
         return []
 
     def get_center_positions(self, board_type: BoardType) -> FrozenSet[str]:
@@ -282,7 +291,7 @@ class FastGeometry:
         elif board_type == BoardType.SQUARE19:
             return self._center_square19
         elif board_type == BoardType.HEXAGONAL:
-            return self._center_hex11
+            return self._center_hex
         return frozenset()
 
     def is_within_bounds_tuple(
@@ -308,7 +317,11 @@ class FastGeometry:
         elif board_type == BoardType.HEXAGONAL:
             if z is None:
                 z = -x - y
-            return abs(x) <= 10 and abs(y) <= 10 and abs(z) <= 10
+            return (
+                abs(x) <= self.HEX_RADIUS
+                and abs(y) <= self.HEX_RADIUS
+                and abs(z) <= self.HEX_RADIUS
+            )
         return False
 
     def key_to_coords(self, key: str) -> CoordTuple:
@@ -369,7 +382,7 @@ class FastGeometry:
         elif board_type == BoardType.SQUARE19:
             return self._coords_square19.get(key, (0, 0, None))
         elif board_type == BoardType.HEXAGONAL:
-            return self._coords_hex11.get(key, (0, 0, 0))
+            return self._coords_hex.get(key, (0, 0, 0))
         return (0, 0, None)
 
     def offset_key_fast(
@@ -399,7 +412,7 @@ class FastGeometry:
         elif board_type == BoardType.SQUARE19:
             return self._offset_square19.get(lookup_key)
         elif board_type == BoardType.HEXAGONAL:
-            return self._offset_hex11.get(lookup_key)
+            return self._offset_hex.get(lookup_key)
         return None
 
     def offset_key(

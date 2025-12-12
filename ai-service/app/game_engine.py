@@ -1868,6 +1868,83 @@ class GameEngine:
             )
 
     @staticmethod
+    def _extract_buried_ring_at(
+        game_state: GameState, position: Position, credited_player: int
+    ) -> None:
+        """
+        Extract (eliminate) exactly one buried ring belonging to `credited_player`
+        from the stack at `position`, crediting the elimination to `credited_player`.
+
+        Canonical recovery semantics (RR-CANON-R113/R114):
+        - The extracted ring must belong to credited_player.
+        - It must be buried (i.e., not the top ring).
+        - When multiple buried rings exist, extract the bottommost one.
+
+        Mirrors TS EliminationAggregate recovery context, adapted for the Python
+        RingStack representation (rings stored bottom -> top).
+        """
+        board = game_state.board
+        pos_key = position.to_key()
+        stack = board.stacks.get(pos_key)
+        if not stack or stack.stack_height <= 1:
+            raise ValueError(f"Cannot extract buried ring - no eligible stack at {pos_key}")
+
+        # Find bottommost buried ring of credited_player (exclude top ring).
+        extract_index = None
+        for i, ring in enumerate(stack.rings[:-1]):
+            if ring == credited_player:
+                extract_index = i
+                break
+
+        if extract_index is None:
+            raise ValueError(
+                f"Cannot extract buried ring - stack at {pos_key} has no buried ring "
+                f"of player {credited_player}"
+            )
+
+        zobrist = ZobristHash()
+        # Remove old stack hash
+        if game_state.zobrist_hash is not None:
+            game_state.zobrist_hash ^= zobrist.get_stack_hash(
+                pos_key, stack.controlling_player, stack.stack_height, tuple(stack.rings)
+            )
+
+        stack = stack.model_copy(deep=True)
+        board.stacks[pos_key] = stack
+
+        stack.rings.pop(extract_index)
+        stack.stack_height -= 1
+
+        player_id_str = str(credited_player)
+        board.eliminated_rings[player_id_str] = board.eliminated_rings.get(player_id_str, 0) + 1
+        game_state.total_rings_eliminated += 1
+
+        for p in game_state.players:
+            if p.player_number == credited_player:
+                p.eliminated_rings += 1
+                break
+
+        if stack.stack_height == 0:
+            del board.stacks[pos_key]
+            return
+
+        stack.controlling_player = stack.rings[-1]
+        h = 0
+        for r in reversed(stack.rings):
+            if r == stack.controlling_player:
+                h += 1
+            else:
+                break
+        stack.cap_height = h
+        BoardManager.set_stack(position, stack, board)
+
+        # Add new stack hash
+        if game_state.zobrist_hash is not None:
+            game_state.zobrist_hash ^= zobrist.get_stack_hash(
+                pos_key, stack.controlling_player, stack.stack_height, tuple(stack.rings)
+            )
+
+    @staticmethod
     def _validate_capture_segment_on_board_for_reachability(
         board_type: BoardType,
         from_pos: Position,

@@ -682,9 +682,10 @@ def generate_dataset(
         Ratio of MCTS games/players when using engine_mix != "single".
         0.0 = all Descent, 1.0 = all MCTS, 0.5 = 50/50. Default: 0.5.
     nn_model_id:
-        Optional neural network model ID (e.g. "ringrift_v1"). If provided,
+        Optional neural network model ID (e.g. "ringrift_v4_sq8_2p"). If provided,
         AI instances will use this model for evaluation. If None, engines
-        use their default model loading behavior.
+        use their default model loading behavior (board-aware defaults in
+        `app/ai/neural_net.py`).
     multi_player_values:
         If True, store per-player value vectors of shape (N, max_players)
         instead of scalar values from the current player's perspective.
@@ -1587,7 +1588,7 @@ def _parse_args() -> argparse.Namespace:
         type=str,
         default=None,
         help=(
-            "Neural network model ID (e.g. 'ringrift_v1') for AI evaluation. "
+            "Neural network model ID (e.g. 'ringrift_v4_sq8_2p') for AI evaluation. "
             "If not provided, engines use their default model loading behavior."
         ),
     )

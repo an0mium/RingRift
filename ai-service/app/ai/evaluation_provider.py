@@ -918,10 +918,17 @@ class HeuristicEvaluator:
         directions = self.fast_geo.get_los_directions(board.type)
 
         is_hex = board.type == BoardType.HEXAGONAL
-        limit = 10 if is_hex else (8 if board.type == BoardType.SQUARE8 else 19)
+        if is_hex:
+            board_size = int(getattr(board, "size", 13) or 13)
+            limit = board_size - 1
+        else:
+            limit = int(getattr(board, "size", 8) or 8)
 
         curr_x, curr_y = position.x, position.y
-        curr_z = position.z if is_hex and position.z is not None else -position.x - position.y if is_hex else 0
+        if is_hex:
+            curr_z = position.z if position.z is not None else -position.x - position.y
+        else:
+            curr_z = 0
 
         for dx, dy, dz in directions:
             x, y, z = curr_x, curr_y, curr_z
@@ -933,7 +940,7 @@ class HeuristicEvaluator:
                     z += dz
                     if abs(x) > limit or abs(y) > limit or abs(z) > limit:
                         break
-                    pos_key = f"{x},{y}"
+                    pos_key = f"{x},{y},{z}"
                 else:
                     if x < 0 or x >= limit or y < 0 or y >= limit:
                         break

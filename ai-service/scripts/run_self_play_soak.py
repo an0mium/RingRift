@@ -58,6 +58,7 @@ From ``ai-service/``::
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import random
@@ -912,9 +913,10 @@ def run_self_play_soak(
     # Default is True (lean enabled), --no-lean-db disables it
     lean_db_enabled = getattr(args, "lean_db", True) and not getattr(args, "no_lean_db", False)
 
-    # Include training data (moves + initial_state) in JSONL output.
-    # Enabled by default; use --no-include-training-data to disable.
-    include_training_data = getattr(args, "include_training_data", True) and not getattr(args, "no_include_training_data", False)
+    # Training data (moves + initial_state) is ALWAYS included in JSONL output.
+    # This is mandatory to ensure all game data can be converted to NPZ for training.
+    # The --no-include-training-data option has been removed (RR-DATA-QUALITY-2024-12).
+    include_training_data = True
 
     env_config = TrainingEnvConfig(
         board_type=board_type,
@@ -973,6 +975,13 @@ def run_self_play_soak(
     soak_start_time = time.time()
 
     with open(args.log_jsonl, file_mode, encoding="utf-8") as log_f:
+        # Acquire exclusive lock to prevent JSONL corruption from concurrent writes
+        try:
+            fcntl.flock(log_f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            logger.error(f"Cannot acquire lock on {args.log_jsonl} - another process is writing")
+            sys.exit(1)
+
         for game_idx in range(start_game_idx, num_games):
             game_start_time = time.time()
             game_seed = None if base_seed is None else base_seed + game_idx
@@ -2596,24 +2605,10 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable lean recording mode; store full state history for debugging.",
     )
-    parser.add_argument(
-        "--include-training-data",
-        action="store_true",
-        default=True,
-        help=(
-            "Include training data (moves and initial_state) in JSONL output. "
-            "This allows reconstructing full games from JSONL alone without a database. "
-            "Enabled by default. Use --no-include-training-data to disable."
-        ),
-    )
-    parser.add_argument(
-        "--no-include-training-data",
-        action="store_true",
-        help=(
-            "Disable including training data (moves and initial_state) in JSONL output. "
-            "Reduces JSONL file size but makes games unusable for training without a database."
-        ),
-    )
+    # NOTE: Training data (moves + initial_state) is ALWAYS included in JSONL output.
+    # This is mandatory to ensure all game data can be converted to NPZ for training.
+    # The --no-include-training-data option has been removed to prevent generating
+    # unusable game data. See RR-DATA-QUALITY-2024-12 for rationale.
     parser.add_argument(
         "--resume-from-jsonl",
         action="store_true",

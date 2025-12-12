@@ -1536,7 +1536,10 @@ class HeuristicAI(BaseAI):
         # Pre-compute bounds limits for inline checking
         is_hex = board_type == BoardType.HEXAGONAL
         if is_hex:
-            limit = 10  # hex11 radius
+            # Canonical hex board uses cube radius = (size - 1) (RR-CANON-R001).
+            # BoardState.size is 13 for the canonical radius-12 board.
+            board_size = int(getattr(board, "size", 13) or 13)
+            limit = board_size - 1
         elif board_type == BoardType.SQUARE8:
             limit = 8
         else:  # SQUARE19
@@ -1561,8 +1564,8 @@ class HeuristicAI(BaseAI):
                     # Inline hex bounds check
                     if abs(x) > limit or abs(y) > limit or abs(z) > limit:
                         break
-                    # Stack keys use x,y format (not x,y,z)
-                    pos_key = f"{x},{y}"
+                    # Hex stack keys include cube z coordinate (Position.to_key()).
+                    pos_key = f"{x},{y},{z}"
                 else:
                     # Inline square bounds check
                     if x < 0 or x >= limit or y < 0 or y >= limit:
