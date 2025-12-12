@@ -71,9 +71,11 @@ function getMoveTypeSymbol(move: Move): string {
     case 'skip_recovery':
       return '↻'; // Recovery skip
     case 'process_line':
+    case 'choose_line_option':
     case 'choose_line_reward':
       return '━'; // Line
     case 'process_territory_region':
+    case 'choose_territory_option':
     case 'eliminate_rings_from_stack':
       return '◼'; // Territory
     default:
@@ -125,9 +127,11 @@ function formatMoveCompact(move: Move, options: MoveNotationOptions): string {
       return `${typeSymbol}${formatPosition(move.to, options)}`;
     }
     case 'process_line':
+    case 'choose_line_option':
     case 'choose_line_reward':
       return `${typeSymbol} Line`;
     case 'process_territory_region':
+    case 'choose_territory_option':
     case 'eliminate_rings_from_stack':
       return `${typeSymbol} Territory`;
     default:

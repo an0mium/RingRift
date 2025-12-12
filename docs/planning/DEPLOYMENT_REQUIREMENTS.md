@@ -389,7 +389,7 @@ resources:
 2. **Database Password**: Create new user → Update env → Restart → Revoke old user
 3. **Redis Password**: Update Redis config → Update env → Restart
 
-See [`SECRETS_MANAGEMENT.md`](./SECRETS_MANAGEMENT.md) for detailed procedures.
+See [`SECRETS_MANAGEMENT.md`](../operations/SECRETS_MANAGEMENT.md) for detailed procedures.
 
 ---
 

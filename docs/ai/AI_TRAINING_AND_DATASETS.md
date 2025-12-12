@@ -12,7 +12,7 @@
 
 **Scope:** Python AI service training pipelines, self-play generators, and territory/combined-margin datasets.
 
-This document is the canonical reference for the current **offline training and dataset generation** flows in the Python AI service. It complements the high-level overview in [`AI_ARCHITECTURE.md`](../../AI_ARCHITECTURE.md) and the rules-engine mapping in [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md).
+This document is the canonical reference for the current **offline training and dataset generation** flows in the Python AI service. It complements the high-level overview in [`AI_ARCHITECTURE.md`](../architecture/AI_ARCHITECTURE.md) and the rules-engine mapping in [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md).
 
 ---
 
@@ -31,7 +31,7 @@ All training entrypoints reuse the same Python rules stack as the live AI servic
 - The Python engine and mutators above are treated as a **host/adapter implementation** that must match the TS SSoT; they are validated by:
 - - Contract-vector runners (`tests/contracts/contractVectorRunner.test.ts`, `ai-service/tests/contracts/test_contract_vectors.py`).
 - - Parity/plateau/territory suites under `tests/unit/*Parity*` and `ai-service/tests/parity/`.
-- - Mutator shadow contracts and divergence guards described in [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md) and [`INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
+- - Mutator shadow contracts and divergence guards described in [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md) and [`INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
 
 Because training jobs and the live AI/rules service share this stack, **any divergence between Python and the canonical TS rules engine** will affect both online play and offline datasets. The parity suites and mutator contracts listed above are therefore critical safeguards.
 
@@ -495,7 +495,7 @@ The territory generator is deliberately wired to the **same canonical rules logi
 - The rules façade [`DefaultRulesEngine`](../ai-service/app/rules/default_engine.py) and [`TerritoryMutator`](../ai-service/app/rules/mutators/territory.py) enforce **shadow contracts** against [`GameEngine.apply_move()`](../ai-service/app/game_engine.py) for territory moves, with a targeted escape hatch when host-level forced elimination for the next player occurs (see [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md)).
 - The CLI smoke test [`test_generate_territory_dataset_mixed_smoke`](../ai-service/tests/test_generate_territory_dataset_smoke.py) is the end-to-end guard that exercises the module in `engine_mode="mixed"`, asserts no `TerritoryMutator diverged from GameEngine.apply_move` messages appear on stderr, and verifies that a non-empty JSONL file is produced.
 
-For a deeper discussion of how TS and Python engines are kept in sync (trace parity, mutator equivalence tests, and shadow modes), see [`RULES_ENGINE_ARCHITECTURE.md`](../../RULES_ENGINE_ARCHITECTURE.md) and the incident report in [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
+For a deeper discussion of how TS and Python engines are kept in sync (trace parity, mutator equivalence tests, and shadow modes), see [`RULES_ENGINE_ARCHITECTURE.md`](../architecture/RULES_ENGINE_ARCHITECTURE.md) and the incident report in [`docs/incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md`](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md).
 
 ---
 

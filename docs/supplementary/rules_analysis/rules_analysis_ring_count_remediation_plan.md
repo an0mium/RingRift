@@ -2,14 +2,14 @@
 
 This plan outlines the steps to fix the ring count inconsistencies identified in `rules_analysis_ring_count_inconsistencies.md`.
 
-**Status:** Canonical docs now use **18 / 48 / 72** ring counts; verify whether any code paths or fixtures still assume older values before proceeding with remaining steps.
+**Status:** Canonical docs now use **18 / 60 / 72** ring counts; verify whether any code paths or fixtures still assume older values before proceeding with remaining steps.
 
 ## Objective
 
 Ensure all parts of the codebase and documentation align with the canonical specification (RR-CANON-R020):
 
 - **square8**: 18 rings
-- **square19**: 48 rings
+- **square19**: 60 rings
 - **hexagonal**: 72 rings
 
 ## Steps

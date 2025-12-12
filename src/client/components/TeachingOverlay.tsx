@@ -762,9 +762,11 @@ export function getTeachingTopicForMove(move: Move): TeachingTopic | null {
     case 'continue_capture_segment':
       return 'chain_capture';
     case 'process_line':
+    case 'choose_line_option':
     case 'choose_line_reward':
       return 'line_bonus';
     case 'process_territory_region':
+    case 'choose_territory_option':
     case 'eliminate_rings_from_stack':
     case 'skip_territory_processing':
       return 'territory';

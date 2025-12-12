@@ -67,10 +67,10 @@ curl -s http://localhost:8001/health | jq
 
 ## Related Documentation
 
-- [DEPLOYMENT_REQUIREMENTS.md](../DEPLOYMENT_REQUIREMENTS.md) - Infrastructure requirements per environment
-- [OPERATIONS_DB.md](../OPERATIONS_DB.md) - Database operations guide
-- [SECRETS_MANAGEMENT.md](../SECRETS_MANAGEMENT.md) - Secrets handling procedures
-- [ENVIRONMENT_VARIABLES.md](../ENVIRONMENT_VARIABLES.md) - Complete environment variable reference
+- [DEPLOYMENT_REQUIREMENTS.md](../planning/DEPLOYMENT_REQUIREMENTS.md) - Infrastructure requirements per environment
+- [OPERATIONS_DB.md](../operations/OPERATIONS_DB.md) - Database operations guide
+- [SECRETS_MANAGEMENT.md](../operations/SECRETS_MANAGEMENT.md) - Secrets handling procedures
+- [ENVIRONMENT_VARIABLES.md](../operations/ENVIRONMENT_VARIABLES.md) - Complete environment variable reference
 - [ORCHESTRATOR_ROLLOUT_PLAN.md](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md) - Orchestrator rollout phases, SLOs, and environment profiles
 - [tests/load/README.md](../../tests/load/README.md) - k6 load harness and scenario definitions
 - [PASS22_ASSESSMENT_REPORT.md](../archive/assessments/PASS22_ASSESSMENT_REPORT.md) - Production polish and validation plan

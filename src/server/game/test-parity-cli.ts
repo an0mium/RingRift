@@ -39,7 +39,7 @@ async function main() {
     // CHAIN_CAPTURE -> 'chain_capture' (legacy in TS? No, TS uses 'continue_capture_segment')
     // FORCED_ELIMINATION -> 'forced_elimination' (legacy in TS? No, TS doesn't have this in MoveType enum?)
     // Let's check TS MoveType definition.
-    // TS MoveType: 'place_ring', 'move_stack', 'overtaking_capture', 'continue_capture_segment', 'process_line', 'choose_line_reward', 'process_territory_region', 'eliminate_rings_from_stack', 'line_formation', 'territory_claim', 'skip_placement'
+    // TS MoveType: 'place_ring', 'move_stack', 'overtaking_capture', 'continue_capture_segment', 'process_line', 'choose_line_option', 'process_territory_region', 'eliminate_rings_from_stack', 'line_formation', 'territory_claim', 'skip_placement'
 
     // Python uses:
     // CHAIN_CAPTURE -> 'chain_capture'
@@ -74,7 +74,9 @@ async function main() {
         board.markers = new Map(Object.entries(board.markers as Record<string, unknown>));
       }
       if (board.collapsedSpaces && !(board.collapsedSpaces instanceof Map)) {
-        board.collapsedSpaces = new Map(Object.entries(board.collapsedSpaces as Record<string, unknown>));
+        board.collapsedSpaces = new Map(
+          Object.entries(board.collapsedSpaces as Record<string, unknown>)
+        );
       }
       if (board.territories && !(board.territories instanceof Map)) {
         board.territories = new Map(Object.entries(board.territories as Record<string, unknown>));

@@ -103,7 +103,7 @@ def get_rings_per_player(board_type: BoardType) -> int:
 
     Per BOARD_CONFIGS:
     - square8: 18
-    - square19: 48
+    - square19: 60
     - hexagonal: 72
     """
     return BOARD_CONFIGS[board_type].rings_per_player

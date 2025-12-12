@@ -357,7 +357,7 @@ export function moveRecordToRRN(record: MoveRecord, boardType: BoardType): strin
     return 'L?';
   }
 
-  if (t === 'choose_line_reward') {
+  if (t === 'choose_line_option' || t === 'choose_line_reward') {
     // O1 for option 1 (collapse all), O2 for option 2 (minimum collapse)
     if (record.formedLines && record.collapsedMarkers) {
       const lineLen = record.formedLines[0].positions.length;
@@ -432,7 +432,7 @@ export function parseRRNMove(notation: string, boardType: BoardType): ParsedRRNM
   }
 
   if (trimmed === 'O1' || trimmed === 'O2') {
-    return { moveType: 'choose_line_reward' };
+    return { moveType: 'choose_line_option' };
   }
 
   // Movement or capture: {from}-{to} or {from}x{target}-{to}

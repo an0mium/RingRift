@@ -381,11 +381,12 @@ export function enumerateChooseLineRewardMoves(
   // express this as a dedicated reward choice.
   if (line.length === requiredLength) {
     moves.push({
-      id: `choose-line-reward-${lineIndex}-${lineKey}-all`,
-      type: 'choose_line_reward',
+      id: `choose-line-option-${lineIndex}-${lineKey}-all`,
+      type: 'choose_line_option',
       player,
       to: representative,
       formedLines: [line],
+      collapsedMarkers: line.positions,
       timestamp: new Date(),
       thinkTime: 0,
       moveNumber: nextMoveNumber,
@@ -397,11 +398,12 @@ export function enumerateChooseLineRewardMoves(
   // Overlength line (> requiredLength).
   // Option 1: collapse the entire line.
   moves.push({
-    id: `choose-line-reward-${lineIndex}-${lineKey}-all`,
-    type: 'choose_line_reward',
+    id: `choose-line-option-${lineIndex}-${lineKey}-all`,
+    type: 'choose_line_option',
     player,
     to: representative,
     formedLines: [line],
+    collapsedMarkers: line.positions,
     timestamp: new Date(),
     thinkTime: 0,
     moveNumber: nextMoveNumber,
@@ -413,8 +415,8 @@ export function enumerateChooseLineRewardMoves(
     const segment = line.positions.slice(start, start + requiredLength);
 
     moves.push({
-      id: `choose-line-reward-${lineIndex}-${lineKey}-min-${start}`,
-      type: 'choose_line_reward',
+      id: `choose-line-option-${lineIndex}-${lineKey}-min-${start}`,
+      type: 'choose_line_option',
       player,
       to: representative,
       formedLines: [line],
@@ -519,7 +521,7 @@ export function applyProcessLineDecision(
   }
 
   // Overlength lines (longer than the effective threshold) require a
-  // choose_line_reward decision per RR-CANON-R122. Treating process_line
+  // choose_line_option decision per RR-CANON-R122. Treating process_line
   // on an overlength line as a no-op avoids silently defaulting to either
   // option (collapse-all vs min-collapse).
   if (line.length > requiredLength) {
@@ -542,8 +544,11 @@ export function applyProcessLineDecision(
 }
 
 /**
- * Apply a `choose_line_reward` move produced by
+ * Apply a `choose_line_option` move produced by
  * {@link enumerateChooseLineRewardMoves} to the given `GameState`.
+ *
+ * Legacy compatibility: this helper also accepts `choose_line_reward` moves
+ * from historical recordings.
  *
  * Responsibilities:
  *
@@ -564,9 +569,9 @@ export function applyChooseLineRewardDecision(
   state: GameState,
   move: Move
 ): LineDecisionApplicationOutcome {
-  if (move.type !== 'choose_line_reward') {
+  if (move.type !== 'choose_line_option' && move.type !== 'choose_line_reward') {
     throw new Error(
-      `applyChooseLineRewardDecision expected move.type === 'choose_line_reward', got '${move.type}'`
+      `applyChooseLineRewardDecision expected move.type === 'choose_line_option' (or legacy 'choose_line_reward'), got '${move.type}'`
     );
   }
 

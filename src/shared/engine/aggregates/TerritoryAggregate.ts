@@ -961,9 +961,9 @@ export function applyProcessTerritoryRegionDecision(
   state: GameState,
   move: Move
 ): TerritoryProcessApplicationOutcome {
-  if (move.type !== 'process_territory_region') {
+  if (move.type !== 'process_territory_region' && move.type !== 'choose_territory_option') {
     throw new Error(
-      `applyProcessTerritoryRegionDecision expected move.type === 'process_territory_region', got '${move.type}'`
+      `applyProcessTerritoryRegionDecision expected move.type === 'process_territory_region' (or legacy 'choose_territory_option'), got '${move.type}'`
     );
   }
 

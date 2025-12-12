@@ -75,10 +75,12 @@ function getMoveAnnotation(move: Move, playerNumber: number): string {
     case 'skip_capture':
       return `${prefix} skipped capture`;
     case 'process_line':
+    case 'choose_line_option':
     case 'choose_line_reward':
     case 'no_line_action':
       return `${prefix} claimed line bonus`;
     case 'process_territory_region':
+    case 'choose_territory_option':
     case 'eliminate_rings_from_stack':
     case 'skip_territory_processing':
     case 'no_territory_action':

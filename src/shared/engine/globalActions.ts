@@ -211,7 +211,7 @@ export function hasAnyGlobalMovementOrCapture(state: GameState, player: number):
  *   - at least one legal non-capturing move or overtaking capture from any
  *     controlled stack.
  * - line_processing:
- *   - at least one process_line or choose_line_reward decision.
+ *   - at least one process_line or choose_line_option decision.
  * - territory_processing:
  *   - at least one process_territory_region or eliminate_rings_from_stack
  *     decision.

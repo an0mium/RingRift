@@ -1289,3 +1289,144 @@ This metadata can be used for:
 - **Engine-specific evaluation:** Evaluate trained models against both Descent and MCTS opponents to measure generalization.
 - **Adaptive mixing:** Adjust engine ratio dynamically based on training progress or model evaluation metrics.
 - **Engine annotations in policy targets:** Weight policy targets differently based on source engine (e.g., MCTS visit counts may be more reliable than Descent values for certain positions).
+
+---
+
+## 10. Distributed AI Strength Evaluation
+
+> **Status (2025-12-11):** ✅ **IMPLEMENTED** - New distributed tournament infrastructure for empirical AI strength validation.
+
+### 10.1 Overview
+
+A distributed tournament system has been implemented to empirically measure the relative strength of AI configurations across the canonical 1-10 difficulty ladder. The system:
+
+- Runs AI-vs-AI matches in parallel across multiple workers
+- Calculates Elo ratings from match results
+- Supports checkpointing and resumption
+- Generates comprehensive strength reports
+
+### 10.2 Distributed Tournament Script
+
+**Location:** `scripts/run_distributed_tournament.py`
+
+**Features:**
+
+- Round-robin matchups between all specified tiers
+- Parallel game execution with configurable worker count
+- Elo rating calculation with K-factor 32
+- Head-to-head matrix generation
+- JSON checkpointing for fault tolerance
+- Resume capability from previous runs
+
+**Usage:**
+
+```bash
+# Quick validation (D1-D4, 10 games per matchup)
+python scripts/run_distributed_tournament.py --quick
+
+# Full tournament (D1-D6, 50 games per matchup)
+python scripts/run_distributed_tournament.py --games-per-matchup 50 --tiers D1,D2,D3,D4,D5,D6
+
+# Resume from checkpoint
+python scripts/run_distributed_tournament.py --resume results/tournaments/tournament_abc123.json
+
+# Use specific board type
+python scripts/run_distributed_tournament.py --board square19 --tiers D2,D4,D6,D8
+```
+
+### 10.3 Canonical Difficulty Ladder
+
+The tournament validates the following canonical AI configurations:
+
+| Tier | AI Type   | Algorithm                  | Think Time | Randomness | Neural |
+| ---- | --------- | -------------------------- | ---------- | ---------- | ------ |
+| D1   | Random    | Uniform random             | 150ms      | 50%        | No     |
+| D2   | Heuristic | 45-weight evaluation       | 200ms      | 30%        | No     |
+| D3   | Minimax   | Alpha-beta search          | 1.8s       | 15%        | No     |
+| D4   | Minimax   | Alpha-beta + NNUE          | 2.8s       | 8%         | Yes    |
+| D5   | MCTS      | Monte Carlo Tree Search    | 4.0s       | 5%         | No     |
+| D6   | MCTS      | MCTS + neural value/policy | 5.5s       | 2%         | Yes    |
+| D7   | MCTS      | Expert neural MCTS         | 7.5s       | 0%         | Yes    |
+| D8   | MCTS      | Strong expert MCTS         | 9.6s       | 0%         | Yes    |
+| D9   | Descent   | AlphaZero-style UBFM       | 12.6s      | 0%         | Yes    |
+| D10  | Descent   | Grandmaster Descent        | 16.0s      | 0%         | Yes    |
+
+### 10.4 Empirical Results (Quick Tournament)
+
+Tournament ID: `af0957de` (2025-12-11)
+
+- Board: Square 8×8
+- Games per matchup: 10
+- Total games: 60
+- Duration: 18.2 minutes
+
+**Preliminary Rankings:**
+
+| Rank | Tier | Elo  | W-L-D   | Win%  |
+| ---- | ---- | ---- | ------- | ----- |
+| 1    | D2   | 1596 | 15-5-10 | 66.7% |
+| 2    | D1   | 1527 | 10-9-11 | 51.7% |
+| 3    | D4   | 1450 | 10-19-1 | 35.0% |
+| 4    | D3   | 1426 | 14-16-0 | 46.7% |
+
+**Note:** D1 vs D2 games experienced errors (ZobristHash issue with RandomAI), resulting in draws that artificially inflated D1's rating. The D3 vs D4 matchup showed expected behavior with D4 (NNUE-enhanced) having a slight edge.
+
+**Head-to-Head Matrix:**
+
+|     | D1    | D2    | D3  | D4  |
+| --- | ----- | ----- | --- | --- |
+| D1  | -     | 0-0\* | 3-7 | 7-2 |
+| D2  | 0-0\* | -     | 7-3 | 8-2 |
+| D3  | 7-3   | 3-7   | -   | 4-6 |
+| D4  | 2-7   | 2-8   | 6-4 | -   |
+
+\*Games terminated due to ZobristHash error
+
+### 10.5 Cluster Infrastructure Integration
+
+The tournament system integrates with the existing cluster infrastructure:
+
+**Distributed Hosts** (`config/distributed_hosts.yaml`):
+
+- Local Mac cluster via Tailscale (mac-studio, mbp-16gb, mbp-64gb)
+- AWS staging instance (r5.4xlarge, 128GB RAM)
+- Lambda Labs GPU instance (A10, 222GB RAM)
+- Vast.ai GPU instances (3090, 5090 configurations)
+
+**Cluster Manager** (`scripts/cluster_manager.py`):
+
+- SSH-based worker lifecycle management
+- Health checking and memory monitoring
+- Preloading state pools
+- Running CMA-ES and self-play soaks
+
+### 10.6 ZobristHash Thread-Safety Fix (2025-12-11)
+
+**Issue:** The original `ZobristHash` singleton was not thread-safe. In multi-threaded tournament play, concurrent accesses could result in `'ZobristHash' object has no attribute 'table'` errors when one thread accessed the singleton before another thread completed initialization.
+
+**Fix:** Applied double-checked locking pattern with `threading.Lock`:
+
+```python
+class ZobristHash:
+    _instance = None
+    _lock = threading.Lock()
+
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    instance = super(ZobristHash, cls).__new__(cls)
+                    instance._initialize()
+                    cls._instance = instance
+        return cls._instance
+```
+
+**File Modified:** `app/ai/zobrist.py`
+
+### 10.7 Future Work
+
+1. ~~**Fix RandomAI ZobristHash issue**~~ ✅ RESOLVED (thread-safe singleton)
+2. **Extended tournament** - Run full D1-D10 tournament with 100+ games per matchup
+3. **Cross-board validation** - Validate strength consistency across Square8, Square19, and Hex
+4. **Cloud-distributed execution** - Leverage Lambda/Vast.ai for faster tournament completion
+5. **Continuous strength monitoring** - Integrate tournament into CI for regression detection

@@ -157,6 +157,7 @@ export function moveToEvent(move: Move): TurnEvent | null {
       // The lineIndex would typically come from move context
       return { type: 'PROCESS_LINE', lineIndex: 0 };
 
+    case 'choose_line_option':
     case 'choose_line_reward': {
       // Determine choice from move data
       const choice = extractLineRewardChoice(move);
@@ -168,6 +169,7 @@ export function moveToEvent(move: Move): TurnEvent | null {
 
     // Territory Processing
     case 'process_territory_region':
+    case 'choose_territory_option':
       return { type: 'PROCESS_REGION', regionIndex: 0 };
 
     case 'skip_territory_processing':
@@ -292,7 +294,7 @@ export function eventToMove(event: TurnEvent, player: number, moveNumber: number
       return { ...baseMove, type: 'process_line', to: { x: 0, y: 0 } };
 
     case 'CHOOSE_LINE_REWARD':
-      return { ...baseMove, type: 'choose_line_reward', to: { x: 0, y: 0 } };
+      return { ...baseMove, type: 'choose_line_option', to: { x: 0, y: 0 } };
 
     case 'NO_LINE_ACTION':
       return { ...baseMove, type: 'no_line_action', to: { x: 0, y: 0 } };
@@ -365,7 +367,8 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
   // - Forced elimination (Python records the player whose rings are eliminated,
   //   which may differ from the current turn's player in multiplayer games)
   // RR-CANON-R075: Trust recorded moves during replay.
-  const isTerritoryRegionMove = moveHint?.type === 'process_territory_region';
+  const isTerritoryRegionMove =
+    moveHint?.type === 'process_territory_region' || moveHint?.type === 'choose_territory_option';
   const isForcedEliminationMove = moveHint?.type === 'forced_elimination';
   const player =
     (isBookkeepingOrSkipMove || isTerritoryRegionMove || isForcedEliminationMove) &&
@@ -378,9 +381,16 @@ export function deriveStateFromGame(gameState: GameState, moveHint?: Move): Turn
   // causing TS to transition out of territory_processing before all Python-recorded moves
   // are replayed. RR-CANON-R075: Trust recorded moves during replay.
   let phase = gameState.currentPhase;
-  if (moveHint?.type === 'process_territory_region') {
+  if (
+    moveHint?.type === 'process_territory_region' ||
+    moveHint?.type === 'choose_territory_option'
+  ) {
     phase = 'territory_processing';
-  } else if (moveHint?.type === 'choose_line_reward' || moveHint?.type === 'no_line_action') {
+  } else if (
+    moveHint?.type === 'choose_line_option' ||
+    moveHint?.type === 'choose_line_reward' ||
+    moveHint?.type === 'no_line_action'
+  ) {
     phase = 'line_processing';
   } else if (moveHint?.type === 'forced_elimination') {
     phase = 'forced_elimination';
@@ -733,7 +743,9 @@ function deriveLineProcessingState(
 
   // Check for pending choice from move context
   const validMoves = getValidMoves(state);
-  const hasRewardChoice = validMoves.some((m) => m.type === 'choose_line_reward');
+  const hasRewardChoice = validMoves.some(
+    (m) => m.type === 'choose_line_option' || m.type === 'choose_line_reward'
+  );
 
   return {
     phase: 'line_processing',
@@ -763,7 +775,11 @@ function deriveTerritoryProcessingState(
   // add a placeholder region. This handles state timing issues during replay/shadow validation
   // where Python may detect more disconnected regions than TS (parity divergence).
   // RR-CANON-R075: Trust recorded process_territory_region moves during replay.
-  if (moveHint?.type === 'process_territory_region' && disconnectedRegions.length === 0) {
+  if (
+    (moveHint?.type === 'process_territory_region' ||
+      moveHint?.type === 'choose_territory_option') &&
+    disconnectedRegions.length === 0
+  ) {
     disconnectedRegions.push({
       positions: moveHint.to ? [moveHint.to] : [{ x: 0, y: 0 }],
       controllingPlayer: player,
@@ -1364,9 +1380,10 @@ const PHASE_ALLOWED_MOVE_TYPES: Record<GamePhase, ReadonlyArray<MoveType>> = {
   ],
   capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture'],
   chain_capture: ['overtaking_capture', 'continue_capture_segment'],
-  line_processing: ['process_line', 'choose_line_reward', 'no_line_action'],
+  line_processing: ['process_line', 'choose_line_option', 'choose_line_reward', 'no_line_action'],
   territory_processing: [
     'process_territory_region',
+    'choose_territory_option',
     'eliminate_rings_from_stack',
     'skip_territory_processing',
     'no_territory_action',
@@ -2015,6 +2032,7 @@ function isLinePhaseMove(moveType: Move['type']): boolean {
   return (
     moveType === 'no_line_action' ||
     moveType === 'process_line' ||
+    moveType === 'choose_line_option' ||
     moveType === 'choose_line_reward'
   );
 }
@@ -2026,6 +2044,7 @@ function isTerritoryPhaseMove(moveType: Move['type']): boolean {
   return (
     moveType === 'no_territory_action' ||
     moveType === 'process_territory_region' ||
+    moveType === 'choose_territory_option' ||
     moveType === 'skip_territory_processing'
   );
 }

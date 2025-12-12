@@ -119,6 +119,17 @@ def test_no_movement_action_advances_to_line_processing():
     assert state.current_phase == GamePhase.LINE_PROCESSING
 
 
+def test_skip_capture_advances_to_line_processing():
+    """SKIP_CAPTURE should advance to LINE_PROCESSING."""
+    state = _make_minimal_state(GamePhase.CAPTURE, current_player=1)
+    move = _make_noop_move(MoveType.SKIP_CAPTURE, player=1)
+
+    inp = PhaseTransitionInput(game_state=state, last_move=move, trace_mode=False)
+    advance_phases(inp)
+
+    assert state.current_phase == GamePhase.LINE_PROCESSING
+
+
 def test_no_line_action_with_empty_board_enters_territory_processing():
     """
     NO_LINE_ACTION on empty board should advance to TERRITORY_PROCESSING.

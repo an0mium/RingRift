@@ -12,7 +12,7 @@ It is aimed at engineers and operators and is the canonical reference for:
 - How backups and restores are handled at a conceptual level
 - How to respond when a migration or DB incident goes wrong
 
-For general environment setup, see [`QUICKSTART.md`](../QUICKSTART.md) and [`README.md`](../README.md). For the Prisma schema itself, see [`prisma/schema.prisma`](../prisma/schema.prisma).
+For general environment setup, see [`QUICKSTART.md`](../../QUICKSTART.md) and [`README.md`](../../README.md). For the Prisma schema itself, see [`prisma/schema.prisma`](../../prisma/schema.prisma).
 
 ---
 
@@ -92,7 +92,7 @@ docker compose exec -T postgres psql -U ringrift -d ringrift < backups/dev_YYYYM
 
 For a non-destructive, operator-focused backup/restore **drill** in staging
 or another non-production environment, see the runbook
-[`docs/runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md`](./runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md),
+[`docs/runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md`](../runbooks/DATABASE_BACKUP_AND_RESTORE_DRILL.md),
 which applies the patterns in this section to a separate restore database
 to verify that backups are usable.
 
@@ -412,4 +412,4 @@ When responding to or closing out a DB incident, always confirm that:
 - `npx prisma db push`
 - Manual edits to already-applied migration SQL files
 
-This document should be kept in sync with [`QUICKSTART.md`](../QUICKSTART.md), [`docker-compose.yml`](../docker-compose.yml), and [`docker-compose.staging.yml`](../docker-compose.staging.yml) whenever deployment or database practices change.
+This document should be kept in sync with [`QUICKSTART.md`](../../QUICKSTART.md), [`docker-compose.yml`](../../docker-compose.yml), and [`docker-compose.staging.yml`](../../docker-compose.staging.yml) whenever deployment or database practices change.

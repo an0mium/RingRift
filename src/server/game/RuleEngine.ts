@@ -109,9 +109,11 @@ export class RuleEngine {
       case 'continue_capture_segment':
         return this.validateChainCaptureContinuation(move, gameState);
       case 'process_line':
+      case 'choose_line_option':
       case 'choose_line_reward':
         return this.validateLineProcessingMove(move, gameState);
       case 'process_territory_region':
+      case 'choose_territory_option':
         return this.validateTerritoryProcessingMove(move, gameState);
       case 'eliminate_rings_from_stack':
         return this.validateEliminationMove(move, gameState);
@@ -587,7 +589,7 @@ export class RuleEngine {
         break;
       case 'line_processing':
         // Enumerate canonical line-processing decision moves (process_line
-        // and choose_line_reward) for the current player based on the
+        // and choose_line_option) for the current player based on the
         // current board state. This mirrors the GameEngine helper but is
         // stateless and suitable for unit tests that operate directly on
         // RuleEngine and GameState.
@@ -929,7 +931,7 @@ export class RuleEngine {
 
   /**
    * Enumerate canonical line-processing decision moves (process_line and
-   * choose_line_reward) for the current state.
+   * choose_line_option) for the current state.
    *
    * This is now a thin, stateless adapter over the shared
    * {@link enumerateProcessLineMoves} and {@link enumerateChooseLineRewardMoves}
@@ -939,7 +941,7 @@ export class RuleEngine {
    * - Which lines exist for the moving player.
    * - How process_line decisions identify those lines (formedLines[0]).
    * - How overlength reward options (collapse-all vs minimum-collapse
-   *   contiguous segments) are surfaced as choose_line_reward Moves.
+   *   contiguous segments) are surfaced as choose_line_option Moves.
    *
    * Tests that care about the precise reward surface should assert against
    * the shared helper behaviour rather than re-encoding counting logic here.
@@ -1182,7 +1184,7 @@ export class RuleEngine {
    * extensions.
    */
   /**
-   * Validate line-processing decision moves (process_line / choose_line_reward)
+   * Validate line-processing decision moves (process_line / choose_line_option)
    * during the dedicated 'line_processing' phase.
    *
    * For now we treat these as structurally valid when:

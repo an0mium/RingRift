@@ -1279,7 +1279,7 @@ export class GameEngine {
    *
    * This is now a thin adapter over the shared line-decision helpers so that
    * backend GameEngine, shared GameEngine, RuleEngine, and sandbox all share
-   * a single source of truth for which `process_line` / `choose_line_reward`
+   * a single source of truth for which `process_line` / `choose_line_option`
    * Moves exist in a given GameState.
    *
    * Semantics:
@@ -1461,14 +1461,14 @@ export class GameEngine {
 
       const option1Move = validMoves.find(
         (m) =>
-          m.type === 'choose_line_reward' &&
+          (m.type === 'choose_line_option' || m.type === 'choose_line_reward') &&
           m.id.includes(lineKey) &&
-          (!m.collapsedMarkers || m.collapsedMarkers.length === line.positions.length)
+          m.collapsedMarkers?.length === line.positions.length
       );
 
       const option2Move = validMoves.find(
         (m) =>
-          m.type === 'choose_line_reward' &&
+          (m.type === 'choose_line_option' || m.type === 'choose_line_reward') &&
           m.id.includes(lineKey) &&
           m.collapsedMarkers?.length === requiredLength
       );
@@ -2202,7 +2202,7 @@ export class GameEngine {
 
       // When a line reward elimination is pending (exact-length line or
       // Option 1 for overlength), surface explicit eliminate_rings_from_stack
-      // Moves instead of further process_line / choose_line_reward decisions.
+      // Moves instead of further process_line / choose_line_option decisions.
       // We enumerate these directly from the current board rather than
       // borrowing the territory_processing phase so that the decision surface
       // matches the sandbox engine and shared move model.

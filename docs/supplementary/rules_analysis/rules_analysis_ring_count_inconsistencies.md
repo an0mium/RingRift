@@ -2,14 +2,14 @@
 
 This document details the inconsistencies found in ring counts per player across the codebase, documentation, and test fixtures.
 
-**Status:** Canonical counts are **18 / 48 / 72** (square8 / square19 / hex). Key rulebook sections (Quick Start, §3.2.1, victory thresholds) now reflect these values; re-audit remaining references and fixtures to confirm alignment.
+**Status:** Canonical counts are **18 / 60 / 72** (square8 / square19 / hex). Key rulebook sections (Quick Start, §3.2.1, victory thresholds) now reflect these values; re-audit remaining references and fixtures to confirm alignment.
 
 ## Canonical Specification (SSoT)
 
 According to `RULES_CANONICAL_SPEC.md` (RR-CANON-R020):
 
 - **square8**: 18 rings
-- **square19**: 48 rings
+- **square19**: 60 rings
 - **hexagonal**: 72 rings
 
 ## Findings
@@ -32,11 +32,11 @@ According to `RULES_CANONICAL_SPEC.md` (RR-CANON-R020):
 
 - **`src/shared/types/game.ts`**: `BOARD_CONFIGS` correctly defines:
   - `square8`: 18
-  - `square19`: 48
+  - `square19`: 60
   - `hexagonal`: 72
 - **`src/client/adapters/gameViewModels.ts`**: `BOARD_CONFIGS_LOCAL` correctly defines:
   - `square8`: 18
-  - `square19`: 48
+  - `square19`: 60
   - `hexagonal`: 72
 
 ### 3. Codebase Consistency (Python)
@@ -53,6 +53,6 @@ According to `RULES_CANONICAL_SPEC.md` (RR-CANON-R020):
 
 ## Remediation Plan
 
-1.  **Update `ringrift_complete_rules.md`**: Fix all instances of outdated ring counts (36 for 19x19, 48 for Hex) to match the canonical spec (48 for 19x19, 72 for Hex).
-2.  **Update `ai-service/app/game_engine.py`**: Correct the `_estimate_rings_per_player` method to return 48 for `square19` and 72 for `hexagonal`.
+1.  **Update `ringrift_complete_rules.md`**: Fix all instances of outdated ring counts (36 for 19x19, 48 for Hex) to match the canonical spec (60 for 19x19, 72 for Hex).
+2.  **Update `ai-service/app/game_engine.py`**: Correct the `_estimate_rings_per_player` method to return 60 for `square19` and 72 for `hexagonal`.
 3.  **Verify `decisionPhaseFixtures.ts`**: Correct the comment about 19 rings on square8 if it's intended to be standard play, or clarify if it's a specific test scenario override.

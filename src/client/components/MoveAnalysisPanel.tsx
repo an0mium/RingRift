@@ -37,10 +37,12 @@ function getMoveTypeLabel(move: Move): string {
     case 'skip_capture':
       return 'Skip Capture';
     case 'process_line':
+    case 'choose_line_option':
     case 'choose_line_reward':
     case 'no_line_action':
       return 'Line Processing';
     case 'process_territory_region':
+    case 'choose_territory_option':
     case 'skip_territory_processing':
     case 'no_territory_action':
       return 'Territory';

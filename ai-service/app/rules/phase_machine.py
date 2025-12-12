@@ -240,6 +240,12 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
         # directly to line_processing.
         GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
 
+    elif last_move.type == MoveType.SKIP_CAPTURE:
+        # Explicitly decline optional post-movement capture and proceed to
+        # line_processing (RR-CANON-R073). Mirrors TS TurnOrchestrator.
+        game_state.chain_capture_state = None
+        GameEngine._advance_to_line_processing(game_state, trace_mode=trace_mode)
+
     elif last_move.type == MoveType.RECOVERY_SLIDE:
         # Recovery slide is a movement-phase action (but NOT a "real action" for LPS).
         # After applying it, we proceed to line_processing to record phase traversal

@@ -52,7 +52,8 @@ function getEnvSchemaKeys(): string[] {
 
 export async function runEnvDocSsotCheck(): Promise<CheckResult> {
   const projectRoot = path.resolve(__dirname, '..', '..');
-  const envDocPath = path.join(projectRoot, 'docs/ENVIRONMENT_VARIABLES.md');
+  // Canonical env-var reference lives under docs/operations/.
+  const envDocPath = path.join(projectRoot, 'docs/operations/ENVIRONMENT_VARIABLES.md');
 
   const problems: string[] = [];
 

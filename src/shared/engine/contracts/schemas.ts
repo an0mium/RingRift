@@ -46,21 +46,31 @@ export const MoveTypeSchema = {
   enum: [
     'place_ring',
     'skip_placement',
+    'no_placement_action',
     'move_stack',
     'move_ring',
+    'build_stack',
+    'no_movement_action',
     'overtaking_capture',
     'continue_capture_segment',
+    'skip_capture',
     'recovery_slide', // RR-CANON-R110–R115: marker recovery action
     'skip_recovery', // RR-CANON-R115: explicit recovery skip
+    'swap_sides',
     'process_line',
+    'choose_line_option',
     'choose_line_reward',
     'process_territory_region',
+    'choose_territory_option',
     'eliminate_rings_from_stack',
     'forced_elimination',
     'no_territory_action',
     'no_line_action',
-    'pass',
+    'skip_territory_processing',
     'resign',
+    'timeout',
+    'line_formation',
+    'territory_claim',
   ],
 } as const;
 

@@ -498,7 +498,7 @@ Real-time game communication uses Socket.IO over WebSockets. Authentication is r
 
 WebSocket is the canonical move transport for interactive clients; any HTTP move endpoint that submits moves is an internal/test harness over the same shared domain API, as documented in [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md).
 
-For the **authoritative Move / PendingDecision / PlayerChoice / WebSocket lifecycle** (including concrete type definitions and a worked example), see [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9–3.10](./architecture/CANONICAL_ENGINE_API.md). This section focuses on transport-level events and error codes; it assumes that orchestrator-centric lifecycle as its executable derivation of the canonical rules SSoT.
+For the **authoritative Move / PendingDecision / PlayerChoice / WebSocket lifecycle** (including concrete type definitions and a worked example), see [`docs/architecture/CANONICAL_ENGINE_API.md` §3.9–3.10](./CANONICAL_ENGINE_API.md). This section focuses on transport-level events and error codes; it assumes that orchestrator-centric lifecycle as its executable derivation of the canonical rules SSoT.
 
 ### Connection
 
@@ -594,7 +594,7 @@ These events are transport-only and do not mutate game state. They are primarily
 ## 🔗 Related Documentation
 
 - [WebSocket Types](../src/shared/types/websocket.ts) - TypeScript type definitions
-- [Game Rules](../ringrift_complete_rules.md) - Complete game rulebook
+- [Game Rules](../../ringrift_complete_rules.md) - Complete game rulebook
 - [Environment Variables](../operations/ENVIRONMENT_VARIABLES.md) - Server configuration
 - [OpenAPI Spec](../src/server/openapi/config.ts) - OpenAPI schema definitions
 

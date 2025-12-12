@@ -1103,9 +1103,17 @@ export class GameSession {
           const allCandidates = this.gameEngine.getValidMoves(currentPlayerNumber);
           const decisionCandidates = allCandidates.filter((m) => {
             if (state.currentPhase === 'line_processing') {
-              return m.type === 'process_line' || m.type === 'choose_line_reward';
+              return (
+                m.type === 'process_line' ||
+                m.type === 'choose_line_option' ||
+                m.type === 'choose_line_reward'
+              );
             }
-            return m.type === 'process_territory_region' || m.type === 'eliminate_rings_from_stack';
+            return (
+              m.type === 'process_territory_region' ||
+              m.type === 'choose_territory_option' ||
+              m.type === 'eliminate_rings_from_stack'
+            );
           });
 
           if (decisionCandidates.length === 0) {
@@ -1644,11 +1652,11 @@ export class GameSession {
           candidateTypes: ['process_line'],
         };
       }
-      if (moves.some((m) => m.type === 'choose_line_reward')) {
+      if (moves.some((m) => m.type === 'choose_line_option' || m.type === 'choose_line_reward')) {
         return {
           choiceType: 'line_reward_option',
           choiceKind: 'line_reward',
-          candidateTypes: ['choose_line_reward'],
+          candidateTypes: ['choose_line_option', 'choose_line_reward'],
         };
       }
       return null;
@@ -1819,6 +1827,7 @@ export class GameSession {
     const sortKeyForDecisionMove = (move: Move): string => {
       switch (move.type) {
         case 'process_line':
+        case 'choose_line_option':
         case 'choose_line_reward': {
           // Move.formedLines is optional LineInfo[] on the Move type
           const formedLines = move.formedLines as LineInfo[] | undefined;
@@ -1826,7 +1835,8 @@ export class GameSession {
           const lineKey = primaryLine ? positionsKey(primaryLine.positions) : '~';
           return `line:${lineKey}`;
         }
-        case 'process_territory_region': {
+        case 'process_territory_region':
+        case 'choose_territory_option': {
           // Move.disconnectedRegions is optional Territory[] on the Move type
           const regions = move.disconnectedRegions as Territory[] | undefined;
           const primaryRegion = regions && regions.length > 0 ? regions[0] : null;

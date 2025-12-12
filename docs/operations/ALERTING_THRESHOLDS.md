@@ -562,7 +562,7 @@ These alerts track rate limiting activity.
 ### Orchestrator Rollout Alerts
 
 These alerts track orchestrator-specific health, rollout posture, and invariants. They are the on-call surface for the orchestrator SLOs defined in
-[`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](./architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#6-orchestrator-specific-slos).
+[`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#6-orchestrator-specific-slos).
 
 #### OrchestratorCircuitBreakerOpen
 
@@ -660,7 +660,7 @@ These alerts track orchestrator-specific health, rollout posture, and invariants
 ### Connection & Session Lifecycle Alerts
 
 These alerts connect the decision/reconnection lifecycle SSoT in
-[`docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md`](./archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
+[`docs/archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md`](../archive/assessments/P18.3-1_DECISION_LIFECYCLE_SPEC.md)
 to concrete Prometheus signals for WebSocket reconnection, session state, and abnormal termination.
 
 #### WebSocketReconnectionTimeouts
@@ -786,7 +786,7 @@ Underlying metrics:
 - **Unified counter:** `ringrift_rules_parity_mismatches_total{mismatch_type, suite}`
   - `mismatch_type` ∈ {`validation`, `hash`, `s_invariant`, `game_status`}
   - `suite` identifies the parity context (for example `runtime_shadow`, `runtime_python_mode`, or future contract-vector suites such as `contract_vectors_v2` corresponding to `PARITY-TS-PY-*` IDs in
-    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](./rules/INVARIANTS_AND_PARITY_FRAMEWORK.md).
+    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md).
 - **Legacy counters (still exported for dashboards):**
   - `ringrift_rules_parity_valid_mismatch_total`
   - `ringrift_rules_parity_hash_mismatch_total`
@@ -1072,7 +1072,7 @@ When updating SLO numbers or adding new scenarios:
 
 ## Dashboards & Observability Checklist
 
-This section describes the **minimum recommended dashboards** to keep rules/orchestrator, AI, and infra health observable in staging and production. It complements the alert rules in this document and the orchestrator rollout SLOs in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](./architecture/ORCHESTRATOR_ROLLOUT_PLAN.md).
+This section describes the **minimum recommended dashboards** to keep rules/orchestrator, AI, and infra health observable in staging and production. It complements the alert rules in this document and the orchestrator rollout SLOs in [`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md`](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md).
 
 ### Rules / Orchestrator Dashboard
 
@@ -1081,7 +1081,7 @@ Every environment that is on, or preparing for, orchestrator‑first rollout sho
 - **Error and invariants**
   - `ringrift_orchestrator_error_rate{environment=...}`
   - `ringrift_orchestrator_invariant_violations_total{environment=...}` (where present, sliced by `type` and `invariant_id` matching `INV-*` IDs from
-    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](./rules/INVARIANTS_AND_PARITY_FRAMEWORK.md)).
+    [`INVARIANTS_AND_PARITY_FRAMEWORK.md`](../rules/INVARIANTS_AND_PARITY_FRAMEWORK.md)).
   - (For AI/self‑play environments) `ringrift_python_invariant_violations_total{invariant_id=...,type=...}` for Python strict‑invariant soaks (`INV-*` IDs).
   - `OrchestratorErrorRateWarning`, `OrchestratorInvariantViolations*`, and `PythonInvariantViolations` alert state.
 - **Rollout posture**
@@ -1223,5 +1223,5 @@ After deployment, establish baselines for:
 ## Related Documentation
 
 - [Operations Database Guide](./OPERATIONS_DB.md)
-- [Security Threat Model](./SECURITY_THREAT_MODEL.md)
-- [Incident Response](./incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md)
+- [Security Threat Model](../security/SECURITY_THREAT_MODEL.md)
+- [Incident Response](../incidents/INCIDENT_TERRITORY_MUTATOR_DIVERGENCE.md)

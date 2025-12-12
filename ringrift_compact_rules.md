@@ -19,7 +19,7 @@ For each board type, define a static configuration:
 | BoardType | size | totalSpaces | ringsPerPlayer | lineLength       | movementAdjacency | lineAdjacency | territoryAdjacency  | boardGeometry   |
 | --------- | ---- | ----------- | -------------- | ---------------- | ----------------- | ------------- | ------------------- | --------------- |
 | square8   | 8    | 64          | 18             | 4 (2p), 3 (3–4p) | Moore (8-dir)     | Moore         | Von Neumann (4-dir) | orthogonal grid |
-| square19  | 19   | 361         | 48             | 4                | Moore             | Moore         | Von Neumann         | orthogonal grid |
+| square19  | 19   | 361         | 60             | 4                | Moore             | Moore         | Von Neumann         | orthogonal grid |
 | hexagonal | 13   | 469         | 72             | 4                | Hex (6-dir)       | Hex           | Hex                 | hex coordinates |
 
 - **Ring supply semantics:** For each player P, `ringsPerPlayer` is the maximum number of rings of P's own colour that may ever be in play: all of P's rings currently on the board in any stack (regardless of which player controls those stacks) plus all of P's rings in hand must never exceed this value. Rings of other colours that P has captured and that are buried in stacks P controls do **not** count against P's `ringsPerPlayer` cap; they remain, by colour, part of the original owner's supply for conservation and victory accounting.
@@ -460,7 +460,7 @@ For player `P`:
   - Note: Use `round()` to avoid floating-point precision errors.
 - For standard board types with N players:
   - square8 (18 rings/player): 2P = 18, 3P = 30, 4P = 42
-  - square19 (48 rings/player): 2P = 48, 3P = 80, 4P = 112
+  - square19 (60 rings/player): 2P = 60, 3P = 100, 4P = 140
   - hexagonal (72 rings/player): 2P = 72, 3P = 120, 4P = 168
 - This cannot occur for multiple players simultaneously by construction.
 

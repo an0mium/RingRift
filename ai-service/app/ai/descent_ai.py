@@ -198,26 +198,21 @@ class DescentAI(BaseAI):
         if not valid_moves:
             return None
 
-        # Descent/UBFM currently assumes a 2-player adversarial search and
-        # stores scalar values in its transposition table. Multi-player support
-        # requires different semantics (e.g., MaxN / vector values). Until that
-        # is implemented, fall back to a single-ply heuristic move to avoid
-        # misleading play from incorrect search backups.
         num_players = infer_num_players(game_state)
-        if num_players != 2:
-            from .heuristic_ai import HeuristicAI
-
-            logger.warning(
-                "DescentAI multi-player mode is not supported yet; "
-                "falling back to heuristic move selection",
+        if num_players > 2 and self.neural_net is not None:
+            # NeuralNetAI's current value wiring is calibrated for 2-player
+            # sign flipping (current_player vs this agent). Until we have a
+            # true multi-player encoder/training pipeline, disable NN-backed
+            # evaluation for multi-player Descent.
+            logger.info(
+                "Disabling neural evaluation for multi-player Descent search",
                 extra={
                     "num_players": num_players,
                     "player_number": self.player_number,
                 },
             )
-            return HeuristicAI(self.player_number, self.config).select_move(
-                game_state
-            )
+            self.neural_net = None
+            self.hex_encoder = None
 
         if self.should_pick_random_move():
             selected = self.get_random_element(valid_moves)
@@ -1088,7 +1083,8 @@ class DescentAI(BaseAI):
         a simple heuristic directly on the mutable state.
         """
         val = 0.0
-        if self.neural_net:
+        num_players = len(state.players)
+        if self.neural_net and num_players <= 2:
             immutable = state.to_immutable()
             val = self.neural_net.evaluate_position(immutable)
         else:
@@ -1096,10 +1092,17 @@ class DescentAI(BaseAI):
             player_state = state.players.get(self.player_number)
             my_elim = player_state.eliminated_rings if player_state else 0
 
-            opp_elim = 0
-            for pid, ps in state.players.items():
-                if pid != self.player_number:
-                    opp_elim += ps.eliminated_rings
+            opp_elims = [
+                ps.eliminated_rings
+                for pid, ps in state.players.items()
+                if pid != self.player_number
+            ]
+            if num_players <= 2:
+                opp_elim = sum(opp_elims)
+            else:
+                # Multi-player: treat the most threatening opponent as the
+                # primary adversary.
+                opp_elim = max(opp_elims, default=0)
 
             val = (my_elim - opp_elim) * 0.05
 

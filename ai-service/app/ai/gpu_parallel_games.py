@@ -545,8 +545,8 @@ class BatchGameState:
         shape_players = (batch_size, num_players + 1)  # +1 for 1-indexed players
 
         # Starting rings per player based on board size (per RR-CANON-R020)
-        # square8: 18, square19: 48, hexagonal: 72
-        starting_rings = {8: 18, 19: 48}.get(board_size, 18)
+        # square8: 18, square19: 60, hexagonal: 72
+        starting_rings = {8: 18, 19: 60}.get(board_size, 18)
 
         rings = torch.zeros(shape_players, dtype=torch.int16, device=device)
         rings[:, 1:num_players+1] = starting_rings
@@ -2806,11 +2806,11 @@ def evaluate_positions_batch(
 
     # Victory thresholds - derived from board size per BOARD_CONFIGS (RR-CANON)
     # Territory: floor(totalSpaces/2) + 1; Ring supply per player
-    # square8: 64 spaces, 18 rings; square19: 361 spaces, 48 rings; hex: 469 spaces, 72 rings
+    # square8: 64 spaces, 18 rings; square19: 361 spaces, 60 rings; hex: 469 spaces, 72 rings
     # Note: Hexagonal board uses size 13 but has 469 total spaces (not 13*13=169)
     total_spaces = {8: 64, 19: 361, 13: 469}.get(board_size, board_size * board_size)
     territory_victory_threshold = (total_spaces // 2) + 1  # 33 for 8x8, 181 for 19x19, 235 for hex
-    rings_per_player = {8: 18, 19: 48, 13: 72}.get(board_size, 18)  # Per BOARD_CONFIGS
+    rings_per_player = {8: 18, 19: 60, 13: 72}.get(board_size, 18)  # Per BOARD_CONFIGS
     # Per RR-CANON-R061: victoryThreshold = round((1/3)*ownStartingRings + (2/3)*opponentsCombinedStartingRings)
     # Simplified: round(ringsPerPlayer * (1/3 + 2/3*(numPlayers-1)))
     ring_victory_threshold = round(rings_per_player * (1 / 3 + (2 / 3) * (num_players - 1)))

@@ -14,31 +14,41 @@ export type BoardType = 'square8' | 'square19' | 'hexagonal';
  *     - 'place_ring'      – place one or more rings for the active player.
  *     - 'skip_placement'  – explicitly skip optional placement when movement
  *                            or capture is already available (no board change).
+ *     - 'no_placement_action' – forced no-op when the player has no legal placement
+ *                              (RR-CANON-R075).
+ *     - 'swap_sides'      – pie rule meta-move for 2p (RR-CANON-R180–R184).
  * - 'movement'
  *   - Legal MoveType values:
  *     - 'move_stack' / 'move_ring' – non-capture movement of an entire stack.
  *     - 'build_stack'              – legacy intra-region stack reconfiguration (rare).
  *     - 'overtaking_capture'       – initial overtaking capture that may start a chain.
+ *     - 'no_movement_action'       – forced no-op when no movement/capture exists (RR-CANON-R075).
  *     - 'recovery_slide' / 'skip_recovery' – recovery-eligible players may slide a
  *       marker (with buried-ring cost) or explicitly skip recovery (RR-CANON-R110–R115).
+ *     - 'swap_sides'               – pie rule meta-move for 2p (RR-CANON-R180–R184).
  * - 'capture'
  *   - Legal MoveType values:
  *     - 'overtaking_capture' – initial overtaking capture chosen directly from
  *                              the capture phase (alternative entry to chains).
  *     - 'skip_capture'       – decline optional capture after movement and proceed
  *                              to line processing (RR-CANON-R070 / Section 4.3).
+ *     - 'swap_sides'         – pie rule meta-move for 2p (RR-CANON-R180–R184).
  * - 'chain_capture'
  *   - Legal MoveType values:
  *     - 'continue_capture_segment' – mandatory follow-up capture segments in an
  *                                    existing chain until no further segments exist.
+ *     - 'swap_sides'               – pie rule meta-move for 2p (RR-CANON-R180–R184).
  * - 'line_processing'
  *   - Canonical MoveType values (unified model used by both backend GameEngine
  *     and ClientSandboxEngine):
  *     - 'process_line'       – choose which detected line to process next.
- *     - 'choose_line_reward' – choose Option 1 vs Option 2 for a specific line.
+ *     - 'choose_line_option' – choose Option 1 vs Option 2 for a specific line.
+ *       - Legacy alias: 'choose_line_reward' (accepted for replay only).
+ *     - 'no_line_action'     – forced no-op when no line decisions exist (RR-CANON-R075).
  * - 'territory_processing'
  *   - Canonical MoveType values (unified model used by both engines):
  *     - 'process_territory_region' – choose which disconnected region to resolve first.
+ *       - Legacy alias: 'choose_territory_option' (accepted for replay only).
  *     - 'eliminate_rings_from_stack' – explicit self-elimination decision where the
  *                                      moving player chooses an on-board stack to
  *                                      sacrifice rings from as part of the mandatory
@@ -46,6 +56,12 @@ export type BoardType = 'square8' | 'square19' | 'hexagonal';
  *                                      eligible stacks exist, engines may eliminate
  *                                      from hand automatically without an explicit
  *                                      Move.
+ *     - 'skip_territory_processing' – voluntary skip when region decisions exist (RR-CANON-R075).
+ *     - 'no_territory_action'       – forced no-op when no region decisions exist (RR-CANON-R075).
+ * - 'forced_elimination'
+ *   - Legal MoveType values:
+ *     - 'forced_elimination' – mandatory elimination when the player had no actions in
+ *                              all prior phases but still controls stacks (RR-CANON-R070/R100).
  *
  * Engines are expected to expose *only* the MoveType values listed above from
  * getValidMoves for a given phase. PlayerChoice is a transport/UI concern and
@@ -75,13 +91,19 @@ export type MarkerType = 'regular' | 'collapsed';
  * Notes:
  * - Some values (e.g. 'move_ring') are legacy aliases. New code should prefer
  *   their canonical equivalents ('move_stack').
- * - Deprecated move types ('line_formation', 'territory_claim', 'skip_placement')
+ * - Deprecated move types ('line_formation', 'territory_claim')
  *   are retained only for backwards compatibility with historical game recordings.
  *   New code should use the canonical FSM-based equivalents.
+ * - Some move types (e.g. 'choose_line_reward') are retained as legacy aliases
+ *   for replay only; canonical recordings should prefer the canonical names
+ *   ('choose_line_option').
  * - The phase → MoveType contract is documented above in {@link GamePhase}.
  */
 export type MoveType =
   | 'place_ring'
+  // Voluntary skip: player has at least one legal placement but chooses to
+  // skip placement to proceed directly to movement/capture (RR-CANON-R070).
+  | 'skip_placement'
   // Legacy alias for non-capture stack movement. The canonical type for
   // simple movement is 'move_stack'; existing clients/tests may still
   // emit or accept 'move_ring', and the backend RuleEngine/GameEngine
@@ -98,9 +120,14 @@ export type MoveType =
   | 'swap_sides'
   // Line-processing decisions (see GamePhase 'line_processing').
   | 'process_line'
+  // Canonical name for the Option 1 vs Option 2 decision on a selected line.
+  | 'choose_line_option'
+  // Legacy alias for choose_line_option; accepted for replay only.
   | 'choose_line_reward'
   // Territory-processing decisions (see GamePhase 'territory_processing').
   | 'process_territory_region'
+  // Canonical alias for process_territory_region; accepted for replay/parity.
+  | 'choose_territory_option'
   // Voluntary skip: player has eligible regions but chooses not to process them.
   | 'skip_territory_processing'
   // Forced no-op: player entered territory_processing but has no eligible regions.
@@ -145,10 +172,7 @@ export type MoveType =
   | 'line_formation'
   // @deprecated Use 'process_territory_region' + 'skip_territory_processing' instead.
   // Retained for historical game recordings and UI display.
-  | 'territory_claim'
-  // @deprecated Use 'no_placement_action' for no-op, or omit if no rings in hand.
-  // Retained for historical game recordings.
-  | 'skip_placement';
+  | 'territory_claim';
 export type PlayerType = 'human' | 'ai';
 export type CaptureType = 'overtaking' | 'elimination';
 export type AdjacencyType = 'moore' | 'von_neumann' | 'hexagonal';
@@ -954,7 +978,7 @@ export const BOARD_CONFIGS = {
   square19: {
     size: 19,
     totalSpaces: 361,
-    ringsPerPlayer: 48,
+    ringsPerPlayer: 60,
     lineLength: 4, // Minimum line length for collapse (19x19 full)
     movementAdjacency: 'moore' as AdjacencyType, // 8-direction movement
     lineAdjacency: 'moore' as AdjacencyType, // 8-direction line formation

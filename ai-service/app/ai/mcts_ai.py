@@ -676,29 +676,22 @@ class MCTSAI(HeuristicAI):
         Routes to incremental (make/unmake) or legacy (immutable) search
         based on the use_incremental_search configuration.
         """
-        # Current MCTS implementation assumes a 2-player zero-sum game and uses
-        # negamax-style backpropagation. Multi-player support requires a
-        # different backup/selection rule (e.g., MaxN or vector-valued MCTS).
-        # Until that is implemented, fall back to a deterministic heuristic
-        # move and a 1-hot policy distribution for safety/correctness.
         num_players = infer_num_players(game_state)
-        if num_players != 2:
-            logger.warning(
-                "MCTSAI multi-player mode is not supported yet; "
-                "falling back to heuristic move selection",
+        if num_players > 2 and self.neural_net is not None:
+            # NeuralNetAI encodes features relative to GameState.current_player
+            # and is currently wired for 2-player adversarial sign flipping.
+            # For 3p/4p we run a Paranoid-style search (root vs opponent
+            # coalition) with heuristic rollouts/evaluation.
+            logger.info(
+                "Disabling neural evaluation for multi-player MCTS search",
                 extra={
                     "num_players": num_players,
                     "player_number": self.player_number,
                 },
             )
-            selected = super().select_move(game_state)
-            if selected is None:
-                return None, None
-            valid_moves_fallback = self.get_valid_moves(game_state)
-            policy = {
-                str(m): (1.0 if m == selected else 0.0) for m in valid_moves_fallback
-            }
-            return selected, policy
+            self.neural_net = None
+            self.hex_encoder = None
+            self.hex_model = None
 
         # Get all valid moves for this AI player via the rules engine
         valid_moves = self.get_valid_moves(game_state)
@@ -928,14 +921,35 @@ class MCTSAI(HeuristicAI):
                         node, state, policy, bool(use_hex_nn)
                     )
 
-                    # Backpropagation (two-player negamax convention)
+                    # Backpropagation: store values from the perspective of the
+                    # side-to-move at each node (root player vs opponent coalition).
+                    #
+                    # For 2p this reduces to standard negamax; for 3p/4p we only
+                    # flip sign when the turn switches between the root player
+                    # and any opponent (coalition), not on every ply.
+                    players_by_depth = [m.player for m in played_moves]
+                    players_by_depth.append(state.current_player)
+                    side_is_root_by_depth = [
+                        (p == self.player_number) for p in players_by_depth
+                    ]
+
                     current_val = float(value) if value is not None else 0.0
+                    depth_idx = len(played_moves)
                     curr_node: Optional[MCTSNode] = node
 
                     while curr_node is not None:
                         curr_node.update(current_val, played_moves)
-                        current_val = -current_val
-                        curr_node = curr_node.parent
+                        parent = curr_node.parent
+                        if parent is None:
+                            break
+                        parent_depth = depth_idx - 1
+                        if (
+                            side_is_root_by_depth[depth_idx]
+                            != side_is_root_by_depth[parent_depth]
+                        ):
+                            current_val = -current_val
+                        curr_node = parent
+                        depth_idx = parent_depth
 
                 return
 
@@ -951,18 +965,34 @@ class MCTSAI(HeuristicAI):
         # Fallback to Heuristic Rollout
         for node, state, played_moves in leaves:
             result = self._heuristic_rollout_legacy(state)
+            players_by_depth = [m.player for m in played_moves]
+            players_by_depth.append(state.current_player)
+            side_is_root_by_depth = [
+                (p == self.player_number) for p in players_by_depth
+            ]
 
-            if state.current_player == self.player_number:
-                val_for_leaf_player = result
-            else:
-                val_for_leaf_player = -result
-
-            current_val = val_for_leaf_player
+            # Rollout evaluation returns a root-perspective value; convert it
+            # to the leaf side-to-move (root vs coalition).
+            current_val = (
+                float(result)
+                if state.current_player == self.player_number
+                else -float(result)
+            )
+            depth_idx = len(played_moves)
             curr_node: Optional[MCTSNode] = node
             while curr_node is not None:
                 curr_node.update(current_val, played_moves)
-                current_val = -current_val
-                curr_node = curr_node.parent
+                parent = curr_node.parent
+                if parent is None:
+                    break
+                parent_depth = depth_idx - 1
+                if (
+                    side_is_root_by_depth[depth_idx]
+                    != side_is_root_by_depth[parent_depth]
+                ):
+                    current_val = -current_val
+                curr_node = parent
+                depth_idx = parent_depth
 
     def _evaluate_hex_batch(
         self, states: List[GameState]
@@ -1406,14 +1436,31 @@ class MCTSAI(HeuristicAI):
                             node, state, policy, bool(use_hex_nn)
                         )
 
-                    # Backpropagation (two-player negamax convention)
+                    # Backpropagation: store values from the perspective of the
+                    # side-to-move at each node (root player vs opponent coalition).
+                    players_by_depth = [u.prev_player for u in path_undos]
+                    players_by_depth.append(state.current_player)
+                    side_is_root_by_depth = [
+                        (p == self.player_number) for p in players_by_depth
+                    ]
+
                     current_val = float(value) if value is not None else 0.0
+                    depth_idx = len(path_undos)
                     curr_node: Optional[MCTSNodeLite] = node
 
                     while curr_node is not None:
                         curr_node.update(current_val, played_moves)
-                        current_val = -current_val
-                        curr_node = curr_node.parent
+                        parent = curr_node.parent
+                        if parent is None:
+                            break
+                        parent_depth = depth_idx - 1
+                        if (
+                            side_is_root_by_depth[depth_idx]
+                            != side_is_root_by_depth[parent_depth]
+                        ):
+                            current_val = -current_val
+                        curr_node = parent
+                        depth_idx = parent_depth
 
                 return
 
@@ -1430,6 +1477,8 @@ class MCTSAI(HeuristicAI):
             for undo in path_undos:
                 mutable_state.make_move(undo.move)
 
+            leaf_player = mutable_state.current_player
+
             # Perform rollout
             result = self._heuristic_rollout_mutable(mutable_state)
 
@@ -1437,17 +1486,34 @@ class MCTSAI(HeuristicAI):
             for undo in reversed(path_undos):
                 mutable_state.unmake_move(undo)
 
-            if mutable_state.current_player == self.player_number:
-                val_for_leaf_player = result
-            else:
-                val_for_leaf_player = -result
+            # Convert the resulting root-perspective rollout value into the
+            # leaf side-to-move (root vs coalition) perspective.
+            players_by_depth = [u.prev_player for u in path_undos]
+            players_by_depth.append(leaf_player)
+            side_is_root_by_depth = [
+                (p == self.player_number) for p in players_by_depth
+            ]
 
-            current_val = val_for_leaf_player
+            current_val = (
+                float(result)
+                if leaf_player == self.player_number
+                else -float(result)
+            )
+            depth_idx = len(path_undos)
             curr_node: Optional[MCTSNodeLite] = node
             while curr_node is not None:
                 curr_node.update(current_val, played_moves)
-                current_val = -current_val
-                curr_node = curr_node.parent
+                parent = curr_node.parent
+                if parent is None:
+                    break
+                parent_depth = depth_idx - 1
+                if (
+                    side_is_root_by_depth[depth_idx]
+                    != side_is_root_by_depth[parent_depth]
+                ):
+                    current_val = -current_val
+                curr_node = parent
+                depth_idx = parent_depth
 
     def _heuristic_rollout_mutable(
         self, mutable_state: MutableGameState

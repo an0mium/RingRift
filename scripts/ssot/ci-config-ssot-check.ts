@@ -36,7 +36,8 @@ export async function runCiAndConfigSsotCheck(): Promise<CheckResult> {
 
     const ciPath = path.join(projectRoot, '.github/workflows/ci.yml');
     const nightlyCiPath = path.join(projectRoot, '.github/workflows/orchestrator-soak-nightly.yml');
-    const docPath = path.join(projectRoot, 'docs/SUPPLY_CHAIN_AND_CI_SECURITY.md');
+    // Supply-chain / CI security doc lives under docs/security/.
+    const docPath = path.join(projectRoot, 'docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md');
     const orchestratorPlanPath = path.join(
       projectRoot,
       'docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md'

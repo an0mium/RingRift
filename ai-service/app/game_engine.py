@@ -215,7 +215,37 @@ class GameEngine:
             # NO auto NO_MOVEMENT_ACTION - hosts use get_phase_requirement()
 
         elif phase == GamePhase.CAPTURE:
-            moves = GameEngine._get_capture_moves(game_state, player_number)
+            # RR-CANON-R093: Post-movement captures in the capture phase are
+            # evaluated only from the stack that just moved, at its landing
+            # position. Unlike MOVEMENT phase capture enumeration (which is
+            # global), this is a narrow optional follow-up window.
+            last_move = game_state.move_history[-1] if game_state.move_history else None
+            attacker_pos = last_move.to if last_move and last_move.to else None
+
+            if attacker_pos is None:
+                moves = []
+            else:
+                move_number = len(game_state.move_history) + 1
+                moves = enumerate_capture_moves_py(
+                    game_state,
+                    player_number,
+                    attacker_pos,
+                    move_number=move_number,
+                    kind="initial",
+                )
+
+                # RR-CANON-R073: capture is optional; declining must be recorded.
+                moves.append(
+                    Move(
+                        id=f"skip-capture-{move_number}",
+                        type=MoveType.SKIP_CAPTURE,
+                        player=player_number,
+                        to=Position(x=0, y=0),
+                        timestamp=game_state.last_move_at,
+                        thinkTime=0,
+                        moveNumber=move_number,
+                    )
+                )
 
         elif phase == GamePhase.CHAIN_CAPTURE:
             moves = GameEngine._get_capture_moves(game_state, player_number)
@@ -560,6 +590,10 @@ class GameEngine:
             MoveType.CHAIN_CAPTURE,
         ):
             GameEngine._apply_chain_capture(new_state, move)
+        elif move.type == MoveType.SKIP_CAPTURE:
+            # Explicit skip: decline optional post-movement capture.
+            # No board change; phase update will advance to line_processing.
+            pass
         elif move.type in (
             MoveType.PROCESS_LINE,
             MoveType.CHOOSE_LINE_REWARD,
@@ -665,7 +699,7 @@ class GameEngine:
             MOVE_STACK, MOVE_RING, OVERTAKING_CAPTURE,
             CONTINUE_CAPTURE_SEGMENT, NO_MOVEMENT_ACTION, RECOVERY_SLIDE
         - CAPTURE:
-            OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT
+            OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT, SKIP_CAPTURE
         - CHAIN_CAPTURE:
             OVERTAKING_CAPTURE, CONTINUE_CAPTURE_SEGMENT
         - LINE_PROCESSING:
@@ -715,11 +749,13 @@ class GameEngine:
                 MoveType.SKIP_RECOVERY,  # RR-CANON-R112: player may skip recovery
             }
         elif phase == GamePhase.CAPTURE:
-            # CAPTURE phase only supports actual capture moves - there is no
-            # skip/no-op for captures since they are initiated by movement.
+            # CAPTURE is the optional post-movement capture window (RR-CANON-R073/R093):
+            # the player may perform a capture segment from the landing position
+            # or explicitly decline via SKIP_CAPTURE to proceed to line_processing.
             allowed = {
                 MoveType.OVERTAKING_CAPTURE,
                 MoveType.CONTINUE_CAPTURE_SEGMENT,
+                MoveType.SKIP_CAPTURE,
             }
         elif phase == GamePhase.CHAIN_CAPTURE:
             allowed = {
@@ -1569,7 +1605,7 @@ class GameEngine:
         BOARD_CONFIGS[boardType].ringsPerPlayer from the shared TS types:
 
         - square8   → 18 rings per player
-        - square19  → 48 rings per player
+        - square19  → 60 rings per player
         - hexagonal → 72 rings per player
         """
         from app.rules.core import BOARD_CONFIGS

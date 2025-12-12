@@ -68,6 +68,9 @@ class MoveType(str, Enum):
     # Capture
     OVERTAKING_CAPTURE = "overtaking_capture"
     CONTINUE_CAPTURE_SEGMENT = "continue_capture_segment"
+    # Voluntary skip: decline optional post-movement capture and proceed to
+    # line_processing. Mirrors TS MoveType 'skip_capture' and RR-CANON-R073.
+    SKIP_CAPTURE = "skip_capture"
 
     # Meta-move: pie rule / swap colours in 2-player games. This mirrors the
     # 'swap_sides' MoveType in src/shared/types/game.ts and is treated as a

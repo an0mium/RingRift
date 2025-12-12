@@ -3067,7 +3067,7 @@ export class ClientSandboxEngine {
         const lineKey = line.positions.map((p) => positionToString(p)).join('|');
         const rewardCandidates = moves.filter(
           (m) =>
-            m.type === 'choose_line_reward' &&
+            (m.type === 'choose_line_option' || m.type === 'choose_line_reward') &&
             m.formedLines &&
             m.formedLines.length > 0 &&
             m.formedLines[0].positions.length === line.positions.length &&
@@ -3332,8 +3332,10 @@ export class ClientSandboxEngine {
       'overtaking_capture',
       'continue_capture_segment',
       'process_line',
+      'choose_line_option',
       'choose_line_reward',
       'process_territory_region',
+      'choose_territory_option',
       'eliminate_rings_from_stack',
       // Forced-elimination phase moves (canonical 7th phase). These are emitted
       // by the shared orchestrator for players who are blocked with stacks but
@@ -3439,8 +3441,10 @@ export class ClientSandboxEngine {
       'overtaking_capture',
       'continue_capture_segment',
       'process_line',
+      'choose_line_option',
       'choose_line_reward',
       'process_territory_region',
+      'choose_territory_option',
       'eliminate_rings_from_stack',
       // Forced-elimination phase moves (canonical 7th phase). These appear in
       // canonical replay streams for blocked players and must be accepted by
@@ -3849,11 +3853,13 @@ export class ClientSandboxEngine {
     // can transition to the expected phase when Python recorded a no-op marker
     const lineProcessingMoveTypes: Move['type'][] = [
       'process_line',
+      'choose_line_option',
       'choose_line_reward',
       'no_line_action',
     ];
     const territoryProcessingMoveTypes: Move['type'][] = [
       'process_territory_region',
+      'choose_territory_option',
       'no_territory_action',
     ];
 
@@ -3979,6 +3985,7 @@ export class ClientSandboxEngine {
           if (
             this.traceMode &&
             (nextMove.type === 'process_territory_region' ||
+              nextMove.type === 'choose_territory_option' ||
               nextMove.type === 'eliminate_rings_from_stack')
           ) {
             break;
@@ -4008,7 +4015,9 @@ export class ClientSandboxEngine {
           // we trust the recorded move sequence over TS detection.
           if (
             this.traceMode &&
-            (nextMove.type === 'process_line' || nextMove.type === 'choose_line_reward')
+            (nextMove.type === 'process_line' ||
+              nextMove.type === 'choose_line_option' ||
+              nextMove.type === 'choose_line_reward')
           ) {
             break;
           }
@@ -4016,7 +4025,7 @@ export class ClientSandboxEngine {
         } else if (this.traceMode) {
           // PARITY FIX: In traceMode, if there are pending lines, do NOT
           // auto-process them. Python records line decisions as explicit
-          // moves (process_line, choose_line_reward), so we must let those
+          // moves (process_line, choose_line_option), so we must let those
           // recorded moves arrive in sequence. Break here and wait for them.
           break;
         } else {

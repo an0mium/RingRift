@@ -55,9 +55,11 @@ export function moveToGameAction(move: Move, state: EngineGameState): GameAction
       return mapContinueCaptureMove(move);
     case 'process_line':
       return mapProcessLineMove(move, state);
+    case 'choose_line_option':
     case 'choose_line_reward':
       return mapChooseLineRewardMove(move, state);
     case 'process_territory_region':
+    case 'choose_territory_option':
       return mapProcessTerritoryRegionMove(move, state);
     case 'eliminate_rings_from_stack':
       return mapEliminateRingsFromStackMove(move);
@@ -436,9 +438,12 @@ function actionToChooseLineRewardMove(
     direction: line.direction ?? { x: 0, y: 0 },
   };
   const collapsedMarkers =
-    action.selection === 'MINIMUM_COLLAPSE' ? (action.collapsedPositions ?? []) : undefined;
+    action.selection === 'MINIMUM_COLLAPSE'
+      ? (action.collapsedPositions ?? [])
+      : // For COLLAPSE_ALL, embed the full line so the move is self-describing.
+        line.positions;
   return {
-    type: 'choose_line_reward',
+    type: 'choose_line_option',
     player: action.playerId,
     to: line.positions[0] ?? { x: 0, y: 0 },
     formedLines: [lineInfo],

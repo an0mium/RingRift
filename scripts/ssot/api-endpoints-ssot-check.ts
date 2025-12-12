@@ -41,7 +41,7 @@ import * as path from 'path';
 
 import type { CheckResult } from './ssot-check';
 // swaggerSpec is generated at module load time from route JSDoc.
-// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+
 const { swaggerSpec } = require('../../src/server/openapi/config');
 
 type HttpMethod = 'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head';
@@ -136,14 +136,15 @@ const openApiToDocsIgnore = new Set<string>([
 
 export async function runApiEndpointsSsotCheck(): Promise<CheckResult> {
   const projectRoot = path.resolve(__dirname, '..', '..');
-  const apiDocPath = path.join(projectRoot, 'docs/API_REFERENCE.md');
+  // Canonical API reference lives under docs/architecture/.
+  const apiDocPath = path.join(projectRoot, 'docs/architecture/API_REFERENCE.md');
 
   if (!fs.existsSync(apiDocPath)) {
     return {
       name: 'api-endpoints-ssot',
       passed: false,
       details:
-        'docs/API_REFERENCE.md is missing (cannot validate documented endpoints against OpenAPI spec).',
+        'docs/architecture/API_REFERENCE.md is missing (cannot validate documented endpoints against OpenAPI spec).',
     };
   }
 
@@ -174,7 +175,7 @@ export async function runApiEndpointsSsotCheck(): Promise<CheckResult> {
       name: 'api-endpoints-ssot',
       passed: true,
       details:
-        'All endpoints documented in docs/API_REFERENCE.md exist in the OpenAPI spec, and all public /auth, /users, /games endpoints in the spec are documented.',
+        'All endpoints documented in docs/architecture/API_REFERENCE.md exist in the OpenAPI spec, and all public /auth, /users, /games endpoints in the spec are documented.',
     };
   }
 
@@ -188,19 +189,19 @@ export async function runApiEndpointsSsotCheck(): Promise<CheckResult> {
       problems.push(`- ${key}`);
     }
     problems.push(
-      '\nFor each of these, either (a) update docs/API_REFERENCE.md to match the real route, (b) add or fix the corresponding JSDoc so it appears in swaggerSpec.paths, or (c) adjust the normalisation rules here if the path format is intentional.'
+      '\nFor each of these, either (a) update docs/architecture/API_REFERENCE.md to match the real route, (b) add or fix the corresponding JSDoc so it appears in swaggerSpec.paths, or (c) adjust the normalisation rules here if the path format is intentional.'
     );
   }
 
   if (undocumentedInDocs.length > 0) {
     problems.push(
-      'The following public /auth, /users, /games endpoints exist in the OpenAPI spec but are not documented in docs/API_REFERENCE.md:'
+      'The following public /auth, /users, /games endpoints exist in the OpenAPI spec but are not documented in docs/architecture/API_REFERENCE.md:'
     );
     for (const key of undocumentedInDocs) {
       problems.push(`- ${key}`);
     }
     problems.push(
-      '\nFor each of these, either (a) add a row to the appropriate table in docs/API_REFERENCE.md, or (b) add the (method, path) pair to openApiToDocsIgnore in scripts/ssot/api-endpoints-ssot-check.ts if it is intentionally undocumented.'
+      '\nFor each of these, either (a) add a row to the appropriate table in docs/architecture/API_REFERENCE.md, or (b) add the (method, path) pair to openApiToDocsIgnore in scripts/ssot/api-endpoints-ssot-check.ts if it is intentionally undocumented.'
     );
   }
 

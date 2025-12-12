@@ -1222,7 +1222,7 @@ export interface ProcessTurnOptions {
    * When true, line-processing is never auto-applied (even for a single
    * exact-length line). Instead, a `line_order` decision is surfaced and
    * the host is expected to apply an explicit `process_line` /
-   * `choose_line_reward` move. This is primarily used in replay/trace
+   * `choose_line_option` move. This is primarily used in replay/trace
    * contexts so that recorded move sequences remain the sole source of
    * truth for when lines are processed.
    */
@@ -1260,6 +1260,7 @@ export function processTurn(
     state.gameStatus === 'active' &&
     state.currentPhase === 'forced_elimination' &&
     (move.type === 'process_territory_region' ||
+      move.type === 'choose_territory_option' ||
       move.type === 'eliminate_rings_from_stack' ||
       move.type === 'skip_territory_processing' ||
       move.type === 'no_territory_action')
@@ -1269,6 +1270,7 @@ export function processTurn(
     state.gameStatus === 'active' &&
     state.currentPhase === 'forced_elimination' &&
     (move.type === 'process_line' ||
+      move.type === 'choose_line_option' ||
       move.type === 'choose_line_reward' ||
       move.type === 'no_line_action')
   ) {
@@ -1366,13 +1368,14 @@ export function processTurn(
     state = { ...state, currentPhase: targetPhase as GamePhase, currentPlayer: targetPlayer };
   } else if (
     // Replay-tolerance for TS/Python parity: When in movement phase but a line-processing
-    // move comes in (no_line_action, process_line, choose_line_reward), coerce to line_processing.
+    // move comes in (no_line_action, process_line, choose_line_option), coerce to line_processing.
     // This happens when Python's post-capture processing advanced to line_processing but TS's
     // replay stayed in movement phase due to timing differences in phase advancement.
     state.gameStatus === 'active' &&
     state.currentPhase === 'movement' &&
     (move.type === 'no_line_action' ||
       move.type === 'process_line' ||
+      move.type === 'choose_line_option' ||
       move.type === 'choose_line_reward')
   ) {
     state = { ...state, currentPhase: 'line_processing' as GamePhase };
@@ -1402,8 +1405,11 @@ export function processTurn(
   // Apply the move based on type
   const applyResult = applyMoveWithChainInfo(stateMachine.gameState, move);
 
-  // DEBUG: Trace stacks after applyMoveWithChainInfo for choose_line_reward
-  if (process.env.NODE_ENV === 'test' && move.type === 'choose_line_reward') {
+  // DEBUG: Trace stacks after applyMoveWithChainInfo for choose_line_option
+  if (
+    process.env.NODE_ENV === 'test' &&
+    (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
+  ) {
     // eslint-disable-next-line no-console
     console.log('[processTurn] after applyMoveWithChainInfo, stacks:', {
       stackCount: applyResult.nextState.board.stacks.size,
@@ -1444,8 +1450,10 @@ export function processTurn(
   // process post-move phases - just return the unchanged state.
   const isDecisionMove =
     move.type === 'process_territory_region' ||
+    move.type === 'choose_territory_option' ||
     move.type === 'eliminate_rings_from_stack' ||
     move.type === 'process_line' ||
+    move.type === 'choose_line_option' ||
     move.type === 'choose_line_reward';
 
   // For turn-ending territory moves, the turn is complete - no post-move processing needed.
@@ -1463,8 +1471,11 @@ export function processTurn(
     // that actually changed state.
     result = processPostMovePhases(stateMachine, options);
 
-    // DEBUG: Trace stacks after processPostMovePhases for choose_line_reward
-    if (process.env.NODE_ENV === 'test' && move.type === 'choose_line_reward') {
+    // DEBUG: Trace stacks after processPostMovePhases for choose_line_option
+    if (
+      process.env.NODE_ENV === 'test' &&
+      (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
+    ) {
       // eslint-disable-next-line no-console
       console.log('[processTurn] after processPostMovePhases, stacks:', {
         stackCount: stateMachine.gameState.board.stacks.size,
@@ -2043,6 +2054,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       return { nextState: outcome.nextState };
     }
 
+    case 'choose_line_option':
     case 'choose_line_reward': {
       const outcome = applyChooseLineRewardDecision(state, move);
       return { nextState: outcome.nextState };
@@ -2062,7 +2074,8 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
       };
     }
 
-    case 'process_territory_region': {
+    case 'process_territory_region':
+    case 'choose_territory_option': {
       const outcome = applyProcessTerritoryRegionDecision(state, move);
       return { nextState: outcome.nextState };
     }
@@ -2142,9 +2155,9 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
  * - chain_capture:
  *     overtaking_capture, continue_capture_segment
  * - line_processing:
- *     process_line, choose_line_reward, no_line_action
+ *     process_line, choose_line_option (legacy: choose_line_reward), no_line_action
  * - territory_processing:
- *     process_territory_region, eliminate_rings_from_stack,
+ *     process_territory_region (legacy: choose_territory_option), eliminate_rings_from_stack,
  *     skip_territory_processing, no_territory_action
  * - forced_elimination:
  *     forced_elimination
@@ -2457,7 +2470,7 @@ function processPostMovePhases(
     if (lines.length > 0) {
       // Core rules: never auto-generate or auto-apply process_line moves.
       // Surface a line_order decision so hosts can construct and apply
-      // explicit process_line / choose_line_reward moves that will be
+      // explicit process_line / choose_line_option moves that will be
       // recorded in canonical history (RR-CANON-R075/R076).
       const detectedLines = lines.map((l) => ({
         positions: l.positions,
@@ -2478,6 +2491,7 @@ function processPostMovePhases(
     const isLinePhaseMove =
       originalMoveType === 'no_line_action' ||
       originalMoveType === 'process_line' ||
+      originalMoveType === 'choose_line_option' ||
       originalMoveType === 'choose_line_reward';
     if (!isLinePhaseMove) {
       return {
@@ -2881,9 +2895,10 @@ export function validateMove(state: GameState, move: Move): { valid: boolean; re
  * - movement: move_stack, move_ring, overtaking_capture,
  *   continue_capture_segment.
  * - capture / chain_capture: capture segments + skip_capture.
- * - line_processing: process_line / choose_line_reward.
+ * - line_processing: process_line / choose_line_option (legacy: choose_line_reward).
  * - territory_processing: process_territory_region /
- *   eliminate_rings_from_stack (+ skip_territory_processing).
+ *   eliminate_rings_from_stack (+ skip_territory_processing). Legacy replays
+ *   may also include choose_territory_option.
  * - forced_elimination: forced_elimination options.
  *
  * When a phase has no interactive moves, this function returns an empty

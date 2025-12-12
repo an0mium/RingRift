@@ -858,11 +858,12 @@ export function enumerateChooseLineRewardMoves(
   // Exact-length line: a single collapse-all variant
   if (line.length === requiredLength) {
     moves.push({
-      id: `choose-line-reward-${lineIndex}-${lineKey}-all`,
-      type: 'choose_line_reward',
+      id: `choose-line-option-${lineIndex}-${lineKey}-all`,
+      type: 'choose_line_option',
       player,
       to: representative,
       formedLines: [line],
+      collapsedMarkers: line.positions,
       timestamp: new Date(),
       thinkTime: 0,
       moveNumber: nextMoveNumber,
@@ -874,11 +875,12 @@ export function enumerateChooseLineRewardMoves(
   // Overlength line (> requiredLength).
   // Option 1: collapse the entire line.
   moves.push({
-    id: `choose-line-reward-${lineIndex}-${lineKey}-all`,
-    type: 'choose_line_reward',
+    id: `choose-line-option-${lineIndex}-${lineKey}-all`,
+    type: 'choose_line_option',
     player,
     to: representative,
     formedLines: [line],
+    collapsedMarkers: line.positions,
     timestamp: new Date(),
     thinkTime: 0,
     moveNumber: nextMoveNumber,
@@ -890,8 +892,8 @@ export function enumerateChooseLineRewardMoves(
     const segment = line.positions.slice(start, start + requiredLength);
 
     moves.push({
-      id: `choose-line-reward-${lineIndex}-${lineKey}-min-${start}`,
-      type: 'choose_line_reward',
+      id: `choose-line-option-${lineIndex}-${lineKey}-min-${start}`,
+      type: 'choose_line_option',
       player,
       to: representative,
       formedLines: [line],
@@ -1182,9 +1184,9 @@ export function applyChooseLineRewardDecision(
   state: GameState,
   move: Move
 ): LineDecisionApplicationOutcome {
-  if (move.type !== 'choose_line_reward') {
+  if (move.type !== 'choose_line_option' && move.type !== 'choose_line_reward') {
     throw new Error(
-      `applyChooseLineRewardDecision expected move.type === 'choose_line_reward', got '${move.type}'`
+      `applyChooseLineRewardDecision expected move.type === 'choose_line_option' (or legacy 'choose_line_reward'), got '${move.type}'`
     );
   }
 

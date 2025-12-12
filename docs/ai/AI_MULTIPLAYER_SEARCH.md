@@ -1,0 +1,88 @@
+# AI Multiplayer Search (3P/4P)
+
+This document tracks the current multi-player (3–4 player) search semantics for
+the Python AI service and why they exist, so work is not duplicated and future
+refactors stay debuggable.
+
+## Goal
+
+Replace “2-player only” fallbacks (1-ply heuristic) with a **stronger, consistent
+multi-player search model** that remains easy to reason about while the
+multi-player neural training pipeline matures.
+
+## Current Approach: Paranoid Reduction (Root vs Coalition)
+
+For 3P/4P games, search AIs use a classic **Paranoid** reduction:
+
+- The AI’s `player_number` is the sole maximizing player (“root”).
+- **All other players are treated as a single minimizing coalition.**
+
+This is not a perfect model of multi-player incentives, but it is a large step
+up from 1‑ply heuristics and keeps search behavior explainable and testable.
+
+Key invariant:
+
+- **Sign/role changes are driven by `current_player`**, not by depth parity.
+  This matters because RingRift can legally yield consecutive actions by the
+  same side (e.g., chain captures), and in 3P/4P multiple opponents can act
+  consecutively while still being on the same coalition “side”.
+
+## Implemented AIs
+
+### MinimaxAI
+
+- File: `ai-service/app/ai/minimax_ai.py`
+- Multi-player: enabled via Paranoid semantics (root maximizes; any opponent
+  minimizes), using `game_state.current_player == self.player_number` at each
+  node.
+- Leaf evaluation:
+  - Uses NNUE when enabled and available; otherwise heuristic.
+  - NNUE is instantiated with the inferred player count; if no `nnue_*_{3p,4p}`
+    checkpoint exists, it safely falls back to heuristic evaluation.
+
+### DescentAI (UBFM-style)
+
+- File: `ai-service/app/ai/descent_ai.py`
+- Multi-player: enabled via Paranoid semantics (root maximizes; any opponent
+  minimizes).
+- Neural evaluation:
+  - **Disabled for 3P/4P** (auto-cleared) because the current NeuralNetAI
+    encoding/value wiring is 2-player oriented.
+- Heuristic scalarization:
+  - Uses a simple “most threatening opponent” aggregation (currently a max over
+    opponent eliminated-ring counts) to avoid “diluting” opponent pressure by
+    summing multiple weaker opponents.
+
+### MCTSAI
+
+- File: `ai-service/app/ai/mcts_ai.py`
+- Multi-player: enabled via Paranoid semantics.
+- Neural evaluation:
+  - **Disabled for 3P/4P** (auto-cleared) for the same reason as DescentAI.
+- Backpropagation semantics (important):
+  - Values are treated as **side-to-move** (root vs coalition) values.
+  - **Sign flips only when the turn switches between root and coalition**, not
+    on every ply. This prevents incorrect value inversion when opponents act
+    consecutively (3P/4P) or when the same player acts repeatedly (chain
+    capture).
+
+## Tests
+
+- `ai-service/tests/test_multiplayer_ai_search.py`
+  - Ensures Minimax/Descent/MCTS route to search (not 1‑ply fallback) for 3P.
+  - Ensures MCTS backprop does **not** flip sign between two different opponent
+    turns (coalition stays the same).
+
+## Known Limitations / Next Steps
+
+1. **True multi-player neural evaluation**
+   - Wire NeuralNetAI to a stable multi-player encoder + value interpretation
+     (rank distribution / per-player values) and add canonical checkpoints for
+     3P/4P.
+2. **Threat modeling**
+   - Replace DescentAI’s current “max eliminated rings” proxy with a
+     victory-proximity or NN-based “most threatening opponent” selector.
+3. **MaxN / vector-valued search**
+   - Paranoid is a pragmatic interim. A MaxN-style value vector (or rank-aware
+     scalar utility) would be the principled long-term approach once the value
+     model is reliable and debuggable.

@@ -25,8 +25,9 @@ interface DocExpectation {
 
 const DOCS_TO_CHECK: DocExpectation[] = [
   {
-    path: 'RULES_ENGINE_ARCHITECTURE.md',
-    requiredSnippet: 'Rules/invariants semantics SSoT',
+    // Rules engine architecture doc lives under docs/architecture/.
+    path: 'docs/architecture/RULES_ENGINE_ARCHITECTURE.md',
+    requiredSnippet: 'Canonical rules semantics SSoT',
   },
   {
     // Implementation mapping now lives under docs/rules/.
@@ -44,12 +45,14 @@ const DOCS_TO_CHECK: DocExpectation[] = [
     requiredSnippet: 'Lifecycle/API SSoT',
   },
   {
-    path: 'docs/SUPPLY_CHAIN_AND_CI_SECURITY.md',
+    // Supply-chain / CI security doc lives under docs/security/.
+    path: 'docs/security/SUPPLY_CHAIN_AND_CI_SECURITY.md',
     requiredSnippet: 'Operational SSoT',
   },
   {
-    path: 'AI_ARCHITECTURE.md',
-    requiredSnippet: 'rules semantics SSoT',
+    // AI architecture doc lives under docs/architecture/.
+    path: 'docs/architecture/AI_ARCHITECTURE.md',
+    requiredSnippet: 'AI/Training SSoT',
   },
   {
     // Python parity requirements now live under docs/rules/.

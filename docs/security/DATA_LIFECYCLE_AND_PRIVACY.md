@@ -3,7 +3,7 @@
 > **Doc Status (2025-11-27): Active (IMPLEMENTED)**
 > Data lifecycle, retention, and privacy features are now fully implemented. This document describes the **current production behavior** for S-05.E.x features. This is not a rules or lifecycle SSoT; it complements `SECURITY_THREAT_MODEL.md`, `OPERATIONS_DB.md`, and `DOCUMENTATION_INDEX.md` for overall security/ops posture.
 
-**Related docs:** [`docs/SECURITY_THREAT_MODEL.md`](./SECURITY_THREAT_MODEL.md), [`STRATEGIC_ROADMAP.md`](../STRATEGIC_ROADMAP.md), [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md), [`schema.prisma`](../prisma/schema.prisma)
+**Related docs:** [`docs/SECURITY_THREAT_MODEL.md`](./SECURITY_THREAT_MODEL.md), [`STRATEGIC_ROADMAP.md`](../planning/STRATEGIC_ROADMAP.md), [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md), [`schema.prisma`](../../prisma/schema.prisma)
 
 This document defines how RingRift handles user and game data over time:
 
@@ -28,7 +28,7 @@ Scope covers:
 - Game and move data in [`Game`](../prisma/schema.prisma) and [`Move`](../prisma/schema.prisma).
 - Logs and metrics produced by [`logger`](../src/server/utils/logger.ts) and metrics utilities such as [`rulesParityMetrics`](../src/server/utils/rulesParityMetrics.ts).
 - Client error reports from [`errorReporting`](../src/client/utils/errorReporting.ts) via `/api/client-errors` in [`index` routes](../src/server/routes/index.ts).
-- Backups and restores as operated via [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md).
+- Backups and restores as operated via [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md).
 
 ## 2. Data Inventory and Sensitivity
 
@@ -62,10 +62,10 @@ This section summarises the main data classes RingRift persists today and classi
 
 ### 2.4 Backups and derived datasets
 
-| Category                      | Examples                                                                       | Sensitivity     | Primary purpose                          | Notes                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------ | --------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Database backups              | Snapshots and dumps produced per [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md) | **High**        | Disaster recovery, migration rollback    | Contain complete copies of PII and game data; retention controlled at infra level; access must be tightly limited. |
-| Analytics or research exports | Future offline datasets built from game history and ratings                    | **Medium–High** | Balance and AI analysis, product metrics | Should use pseudonymous IDs and avoid including direct PII where possible.                                         |
+| Category                      | Examples                                                                                              | Sensitivity     | Primary purpose                          | Notes                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Database backups              | Snapshots and dumps produced per [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md) | **High**        | Disaster recovery, migration rollback    | Contain complete copies of PII and game data; retention controlled at infra level; access must be tightly limited. |
+| Analytics or research exports | Future offline datasets built from game history and ratings                                           | **Medium–High** | Balance and AI analysis, product metrics | Should use pseudonymous IDs and avoid including direct PII where possible.                                         |
 
 ## 3. Retention and Anonymisation Policy
 
@@ -112,7 +112,7 @@ _S-05.E.4 note: Client errors are written to application logs. Retention is cont
 
 ### 3.5 Backups and offline copies
 
-- Backups created per [`docs/OPERATIONS_DB.md`](./OPERATIONS_DB.md) inevitably contain full historical data, including PII and game history.
+- Backups created per [`docs/operations/OPERATIONS_DB.md`](../operations/OPERATIONS_DB.md) inevitably contain full historical data, including PII and game history.
 - Retention of backups is governed by ops policy (for example **30–180 days**, plus periodic long-term snapshots).
 - Data-deletion workflows **do not retroactively edit historical backups**; instead, operators must ensure:
   - Access to backup storage is tightly controlled.
@@ -288,7 +288,7 @@ The following tracks were completed in Pass 6 (2025-11-27).
   - [`hardDeleteExpiredUsers()`](../src/server/services/DataRetentionService.ts): Permanently removes soft-deleted users past retention period
   - [`cleanupExpiredTokens()`](../src/server/services/DataRetentionService.ts): Removes expired/revoked refresh tokens
   - [`cleanupUnverifiedAccounts()`](../src/server/services/DataRetentionService.ts): Soft-deletes unverified accounts past threshold
-- **Configuration:** Environment variables (see [`docs/ENVIRONMENT_VARIABLES.md`](./ENVIRONMENT_VARIABLES.md)):
+- **Configuration:** Environment variables (see [`docs/operations/ENVIRONMENT_VARIABLES.md`](../operations/ENVIRONMENT_VARIABLES.md)):
   - `DATA_RETENTION_DELETED_USERS_DAYS` (default: 30)
   - `DATA_RETENTION_INACTIVE_USERS_DAYS` (default: 365)
   - `DATA_RETENTION_UNVERIFIED_DAYS` (default: 7)

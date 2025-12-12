@@ -352,6 +352,11 @@ class DefaultRulesEngine(RulesEngine):
         if move.type == MoveType.NO_MOVEMENT_ACTION:
             return True
 
+        # RR-CANON-R073: Post-movement capture is optional; the active player
+        # may explicitly decline via SKIP_CAPTURE to proceed to line_processing.
+        if move.type == MoveType.SKIP_CAPTURE:
+            return state.current_phase == GamePhase.CAPTURE and move.player == state.current_player
+
         # Dispatch based on move type for all other moves
         if move.type in (MoveType.PLACE_RING, MoveType.SKIP_PLACEMENT):
             # PlacementValidator

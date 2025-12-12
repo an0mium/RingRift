@@ -15,49 +15,20 @@
  * @see RULES_CANONICAL_SPEC.md for the underlying rules
  */
 
-import type { GamePhase } from '../types/game';
+import type { GamePhase, MoveType as GameMoveType } from '../types/game';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MOVE TYPES - Canonical list of all move types
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * All valid move types in the game.
+ * MoveType surface used by phase validation.
  *
- * These correspond to the `Move.type` field and the FSM events.
+ * This is intentionally derived from the canonical shared type
+ * (`src/shared/types/game.ts`) to avoid drift between validators and the
+ * executable engine SSoT.
  */
-export type MoveType =
-  // Ring Placement Phase
-  | 'place_ring'
-  | 'skip_placement'
-  | 'no_placement_action'
-  | 'swap_sides'
-  // Movement Phase
-  | 'move_stack'
-  | 'move_ring'
-  | 'build_stack'
-  | 'no_movement_action'
-  // Capture (initiated from movement)
-  | 'overtaking_capture'
-  | 'continue_capture_segment'
-  | 'skip_capture'
-  // Recovery (RR-CANON-R110–R115) - movement-phase action
-  | 'recovery_slide'
-  | 'skip_recovery'
-  // Line Processing Phase
-  | 'process_line'
-  | 'choose_line_reward'
-  | 'no_line_action'
-  // Territory Processing Phase
-  | 'process_territory_region'
-  | 'eliminate_rings_from_stack'
-  | 'no_territory_action'
-  | 'skip_territory_processing'
-  // Forced Elimination Phase
-  | 'forced_elimination'
-  // Game Meta
-  | 'resign'
-  | 'timeout';
+export type MoveType = GameMoveType;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // PHASE-MOVE MATRIX
@@ -72,8 +43,8 @@ export type MoveType =
  *   overtaking_capture, continue_capture_segment, recovery_slide
  * - capture: overtaking_capture, continue_capture_segment, skip_capture
  * - chain_capture: overtaking_capture, continue_capture_segment
- * - line_processing: process_line, choose_line_reward, no_line_action
- * - territory_processing: process_territory_region, eliminate_rings_from_stack, no_territory_action, skip_territory_processing
+ * - line_processing: process_line, choose_line_option (legacy: choose_line_reward), no_line_action
+ * - territory_processing: process_territory_region (legacy: choose_territory_option), eliminate_rings_from_stack, no_territory_action, skip_territory_processing
  * - forced_elimination: forced_elimination
  * - game_over: none (game ended)
  *
@@ -91,15 +62,39 @@ export const VALID_MOVES_BY_PHASE: Readonly<Record<GamePhase, readonly MoveType[
     'continue_capture_segment',
     'recovery_slide',
     'skip_recovery',
+    // swap_sides is a meta-move but is only available in interactive phases
+    // (RR-CANON R180-R184). See swapSidesHelpers.ts.
+    'swap_sides',
   ],
-  capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture'],
-  chain_capture: ['overtaking_capture', 'continue_capture_segment'],
-  line_processing: ['process_line', 'choose_line_reward', 'no_line_action'],
+  capture: [
+    'overtaking_capture',
+    'continue_capture_segment',
+    'skip_capture',
+    // swap_sides may still be offered before Player 2 takes any non-swap move.
+    'swap_sides',
+  ],
+  chain_capture: [
+    'overtaking_capture',
+    'continue_capture_segment',
+    // swap_sides may still be offered before Player 2 takes any non-swap move.
+    'swap_sides',
+  ],
+  line_processing: [
+    'process_line',
+    'choose_line_option',
+    'choose_line_reward',
+    'no_line_action',
+    // Deprecated legacy move type; accepted for replay only.
+    'line_formation',
+  ],
   territory_processing: [
     'process_territory_region',
+    'choose_territory_option',
     'eliminate_rings_from_stack', // Self-elimination for territory
     'no_territory_action',
     'skip_territory_processing',
+    // Deprecated legacy move type; accepted for replay only.
+    'territory_claim',
   ],
   forced_elimination: ['forced_elimination'],
   game_over: [],

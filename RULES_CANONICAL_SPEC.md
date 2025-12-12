@@ -91,7 +91,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 - **[RR-CANON-R020] Rings per player (own-colour supply cap).**
   - For each board type, each player P has a fixed personal supply of rings of P's **own colour**:
     - `square8`: 18 rings.
-    - `square19`: 48 rings.
+    - `square19`: 60 rings.
     - `hexagonal`: 72 rings.
   - At all times, the total number of rings of P's colour that are **in play** (on the board in any stack, regardless of which player currently controls those stacks, plus in P's hand) must be ≤ this `ringsPerPlayer` value for the chosen board type.
   - Rings of other colours that P has captured and that are buried in stacks P controls **do not** count against P's `ringsPerPlayer` cap; they continue to belong, by colour, to their original owners for conservation, elimination, and victory accounting.
@@ -214,10 +214,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
       - 2 players: `round(18 × (1/3 + 2/3 × 1)) = round(18 × 1) = 18`
       - 3 players: `round(18 × (1/3 + 2/3 × 2)) = round(18 × 5/3) = 30`
       - 4 players: `round(18 × (1/3 + 2/3 × 3)) = round(18 × 7/3) = 42`
-    - `square19` (48 rings/player):
-      - 2 players: `round(48 × 1) = 48`
-      - 3 players: `round(48 × 5/3) = 80`
-      - 4 players: `round(48 × 7/3) = 112`
+    - `square19` (60 rings/player):
+      - 2 players: `round(60 × 1) = 60`
+      - 3 players: `round(60 × 5/3) = 100`
+      - 4 players: `round(60 × 7/3) = 140`
     - `hexagonal` (72 rings/player):
       - 2 players: `round(72 × 1) = 72`
       - 3 players: `round(72 × 5/3) = 120`

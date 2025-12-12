@@ -28,7 +28,8 @@ function readFileSafe(filePath: string): string {
 
 export async function runSecretsDocSsotCheck(): Promise<CheckResult> {
   const projectRoot = path.resolve(__dirname, '..', '..');
-  const secretsDocPath = path.join(projectRoot, 'docs/SECRETS_MANAGEMENT.md');
+  // Canonical secrets reference lives under docs/operations/.
+  const secretsDocPath = path.join(projectRoot, 'docs/operations/SECRETS_MANAGEMENT.md');
 
   if (!fs.existsSync(secretsDocPath)) {
     return {
@@ -88,4 +89,3 @@ export async function runSecretsDocSsotCheck(): Promise<CheckResult> {
     details: problems.join('\n'),
   };
 }
-

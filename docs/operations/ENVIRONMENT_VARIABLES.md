@@ -613,7 +613,7 @@ Prometheus metrics server port.
 | Default  | `30000`  |
 | Required | No       |
 
-Maximum duration (in milliseconds) that a disconnected WebSocket client is allowed to reconnect to an active game before its pending choices are cleared and abandonment handling may apply. This controls the reconnection window described in the WebSocket lifecycle sections of [`docs/architecture/CANONICAL_ENGINE_API.md`](./architecture/CANONICAL_ENGINE_API.md).
+Maximum duration (in milliseconds) that a disconnected WebSocket client is allowed to reconnect to an active game before its pending choices are cleared and abandonment handling may apply. This controls the reconnection window described in the WebSocket lifecycle sections of [`docs/architecture/CANONICAL_ENGINE_API.md`](../architecture/CANONICAL_ENGINE_API.md).
 
 In production, this should typically remain at the default `30000` (30 seconds) unless coordinated changes are made to the documented lifecycle and associated tests. Shorter windows may be appropriate for load tests or CI harnesses; longer windows increase server-side resource retention and the risk of stale sessions.
 
@@ -641,8 +641,8 @@ The `useOrchestratorAdapter` property on [`GameEngine`](../src/server/game/GameE
 
 **Related Documentation:**
 
-- [`ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](./architecture/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)
-- [`PASS20_COMPLETION_SUMMARY.md`](./archive/assessments/PASS20_COMPLETION_SUMMARY.md)
+- [`ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md`](../architecture/ORCHESTRATOR_MIGRATION_COMPLETION_PLAN.md)
+- [`PASS20_COMPLETION_SUMMARY.md`](../archive/assessments/PASS20_COMPLETION_SUMMARY.md)
 
 ### `ENABLE_ANALYSIS_MODE`
 
@@ -677,9 +677,9 @@ clients and must not be exposed as such.
 For full semantics, security constraints, and recommended environment
 defaults, see:
 
-- [`PLAYER_MOVE_TRANSPORT_DECISION.md`](./PLAYER_MOVE_TRANSPORT_DECISION.md)
+- [`PLAYER_MOVE_TRANSPORT_DECISION.md`](../architecture/PLAYER_MOVE_TRANSPORT_DECISION.md)
 - The "Internal / Test harness APIs" section of
-  [`API_REFERENCE.md`](./API_REFERENCE.md)
+  [`API_REFERENCE.md`](../architecture/API_REFERENCE.md)
 
 ### FSM Validation Mode
 
@@ -757,7 +757,7 @@ only in staging or by on-call operators following a runbook.
 For recommended combinations of `NODE_ENV`, `RINGRIFT_APP_TOPOLOGY`,
 `RINGRIFT_RULES_MODE`, and the orchestrator flags across CI, staging, and
 production phases, see the env/phase presets table in
-[`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1](./architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#811-environment-and-flag-presets-by-phase).
+[`docs/architecture/ORCHESTRATOR_ROLLOUT_PLAN.md` §8.1.1](../architecture/ORCHESTRATOR_ROLLOUT_PLAN.md#811-environment-and-flag-presets-by-phase).
 
 #### `ORCHESTRATOR_SHADOW_MODE_ENABLED` (REMOVED)
 
@@ -1209,8 +1209,8 @@ cron.schedule('0 3 * * *', async () => {
 
 **Related Documentation:**
 
-- [Data Lifecycle and Privacy](./DATA_LIFECYCLE_AND_PRIVACY.md) - Full S-05.E implementation details
-- [API Reference](./API_REFERENCE.md) - Account deletion and data export endpoints
+- [Data Lifecycle and Privacy](../security/DATA_LIFECYCLE_AND_PRIVACY.md) - Full S-05.E implementation details
+- [API Reference](../architecture/API_REFERENCE.md) - Account deletion and data export endpoints
 
 ---
 
@@ -1396,7 +1396,7 @@ Percentage of eligible sessions to route through the orchestrator. This variable
 **Related Changes:**
 
 - [`ORCHESTRATOR_ADAPTER_ENABLED`](#orchestrator_adapter_enabled) - Now hardcoded to `true`
-- See [`PASS20_COMPLETION_SUMMARY.md`](./archive/assessments/PASS20_COMPLETION_SUMMARY.md) for migration details
+- See [`PASS20_COMPLETION_SUMMARY.md`](../archive/assessments/PASS20_COMPLETION_SUMMARY.md) for migration details
 
 ---
 
@@ -1428,5 +1428,5 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 ## See Also
 
 - [Secrets Management Guide](./SECRETS_MANAGEMENT.md)
-- [Security Threat Model](./SECURITY_THREAT_MODEL.md)
+- [Security Threat Model](../security/SECURITY_THREAT_MODEL.md)
 - [Operations Database Reference](./OPERATIONS_DB.md)

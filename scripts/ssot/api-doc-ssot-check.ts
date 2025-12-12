@@ -43,14 +43,15 @@ function getCanonicalErrorCodes(): ErrorCode[] {
 
 export async function runApiDocSsotCheck(): Promise<CheckResult> {
   const projectRoot = path.resolve(__dirname, '..', '..');
-  const apiDocPath = path.join(projectRoot, 'docs/API_REFERENCE.md');
+  // Canonical API reference lives under docs/architecture/.
+  const apiDocPath = path.join(projectRoot, 'docs/architecture/API_REFERENCE.md');
 
   if (!fs.existsSync(apiDocPath)) {
     return {
       name: 'api-doc-ssot',
       passed: false,
       details:
-        'docs/API_REFERENCE.md is missing (cannot validate API docs against error code catalog).',
+        'docs/architecture/API_REFERENCE.md is missing (cannot validate API docs against error code catalog).',
     };
   }
 

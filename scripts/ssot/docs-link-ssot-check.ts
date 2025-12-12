@@ -46,20 +46,20 @@ function fileExistsSafe(filePath: string): boolean {
  */
 const MARKDOWN_DOCS_TO_CHECK: string[] = [
   // AI & training
-  'AI_ARCHITECTURE.md',
+  'docs/architecture/AI_ARCHITECTURE.md',
   'docs/ai/AI_TRAINING_AND_DATASETS.md',
   'docs/ai/AI_TRAINING_PREPARATION_GUIDE.md',
   'docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md',
   // API & lifecycle
-  'docs/API_REFERENCE.md',
+  'docs/architecture/API_REFERENCE.md',
   'docs/architecture/STATE_MACHINES.md',
   'docs/architecture/CANONICAL_ENGINE_API.md',
   // Data & ops
-  'docs/DATA_LIFECYCLE_AND_PRIVACY.md',
-  'docs/ENVIRONMENT_VARIABLES.md',
-  'docs/DEPLOYMENT_REQUIREMENTS.md',
-  'docs/OPERATIONS_DB.md',
-  'docs/ALERTING_THRESHOLDS.md',
+  'docs/security/DATA_LIFECYCLE_AND_PRIVACY.md',
+  'docs/operations/ENVIRONMENT_VARIABLES.md',
+  'docs/planning/DEPLOYMENT_REQUIREMENTS.md',
+  'docs/operations/OPERATIONS_DB.md',
+  'docs/operations/ALERTING_THRESHOLDS.md',
   // Incidents & runbooks indices (they in turn link to concrete docs)
   'docs/incidents/INDEX.md',
   'docs/runbooks/INDEX.md',

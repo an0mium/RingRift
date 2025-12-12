@@ -34,7 +34,7 @@ import type {
   PlayerChoiceType,
 } from '../../shared/types/game';
 import type { FSMDecisionSurface, FSMOrchestrationResult } from '../../shared/engine/fsm';
-import { positionToString, positionsEqual } from '../../shared/types/game';
+import { positionToString, positionsEqual, BOARD_CONFIGS } from '../../shared/types/game';
 import type { ConnectionStatus } from '../domain/GameAPI';
 import { getChoiceViewModel, getChoiceViewModelForType } from './choiceViewModels';
 import type { ChoiceKind } from './choiceViewModels';
@@ -624,15 +624,8 @@ function toAIInfoViewModel(player: Player): AIInfoViewModel {
 // Ring Statistics
 // ═══════════════════════════════════════════════════════════════════════════
 
-const BOARD_CONFIGS_LOCAL = {
-  square8: { ringsPerPlayer: 18 },
-  square19: { ringsPerPlayer: 48 },
-  hexagonal: { ringsPerPlayer: 72 },
-} as const;
-
 function calculateRingStats(player: Player, gameState: GameState): PlayerRingStatsViewModel {
-  const boardConfig = BOARD_CONFIGS_LOCAL[gameState.boardType];
-  const total = boardConfig?.ringsPerPlayer ?? 18;
+  const total = BOARD_CONFIGS[gameState.boardType]?.ringsPerPlayer ?? 18;
 
   let onBoard = 0;
   for (const stack of gameState.board.stacks.values()) {
@@ -1241,9 +1234,11 @@ function mapMoveTypeToChoiceType(actionType: Move['type']): PlayerChoiceType | u
   switch (actionType) {
     case 'process_line':
       return 'line_order';
+    case 'choose_line_option':
     case 'choose_line_reward':
       return 'line_reward_option';
     case 'process_territory_region':
+    case 'choose_territory_option':
     case 'skip_territory_processing':
       return 'region_order';
     case 'eliminate_rings_from_stack':
@@ -1293,6 +1288,7 @@ function describeHistoryEntry(entry: GameHistoryEntry): string {
       return `${moveLabel} — ${playerLabel} continued capture over ${formatPosition(action.captureTarget)} to ${formatPosition(action.to)}${captureSuffix}`;
     }
     case 'process_line':
+    case 'choose_line_option':
     case 'choose_line_reward': {
       const decisionTag = getDecisionTagForMove(action) ?? '';
       const lineCount = action.formedLines?.length ?? 0;
@@ -1302,6 +1298,7 @@ function describeHistoryEntry(entry: GameHistoryEntry): string {
       return `${moveLabel} — ${decisionTag}Line processing by ${playerLabel}`;
     }
     case 'process_territory_region':
+    case 'choose_territory_option':
     case 'eliminate_rings_from_stack': {
       const decisionTag = getDecisionTagForMove(action) ?? '';
       const regionCount =

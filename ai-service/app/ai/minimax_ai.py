@@ -147,20 +147,11 @@ class MinimaxAI(HeuristicAI):
         if not valid_moves:
             return None
 
-        # Current minimax implementation is a 2-player alpha-beta search.
-        # Multi-player minimax requires different semantics (MaxN / paranoid).
-        # Until we implement that, fall back to the single-ply HeuristicAI.
+        # Multi-player semantics:
+        # For 3p/4p, MinimaxAI uses a "Paranoid" reduction:
+        # - This AI is the sole maximizer.
+        # - All other players are treated as a minimizing coalition.
         num_players = infer_num_players(game_state)
-        if num_players != 2:
-            logger.warning(
-                "MinimaxAI multi-player mode is not supported yet; "
-                "falling back to heuristic move selection",
-                extra={
-                    "num_players": num_players,
-                    "player_number": self.player_number,
-                },
-            )
-            return super().select_move(game_state)
 
         # Lazy NNUE initialization on first move (needs board type from game state)
         if getattr(self, '_pending_nnue_init', False):
@@ -170,6 +161,7 @@ class MinimaxAI(HeuristicAI):
                 self.nnue_evaluator = NNUEEvaluator(
                     board_type=board_type,
                     player_number=self.player_number,
+                    num_players=num_players,
                     model_id=getattr(self.config, 'nn_model_id', None),
                     allow_fresh=bool(
                         getattr(self.config, "allow_fresh_weights", False)
@@ -253,7 +245,11 @@ class MinimaxAI(HeuristicAI):
                 # Use apply_move (which now returns a new state).
                 next_state = self.rules_engine.apply_move(game_state, move)
                 score = self._minimax(
-                    next_state, depth - 1, alpha, beta, False
+                    next_state,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    (next_state.current_player == self.player_number),
                 )
 
                 if score > current_best_score:
@@ -318,7 +314,11 @@ class MinimaxAI(HeuristicAI):
                 # Use make/unmake pattern
                 undo = mutable_state.make_move(move)
                 score = self._alpha_beta_mutable(
-                    mutable_state, depth - 1, alpha, beta, False
+                    mutable_state,
+                    depth - 1,
+                    alpha,
+                    beta,
+                    (mutable_state.current_player == self.player_number),
                 )
                 mutable_state.unmake_move(undo)
 
@@ -420,7 +420,7 @@ class MinimaxAI(HeuristicAI):
                 game_state,
                 alpha,
                 beta,
-                maximizing_player,
+                (game_state.current_player == self.player_number),
                 depth=3
             )
             self.transposition_table.put(state_hash, {
@@ -645,7 +645,11 @@ class MinimaxAI(HeuristicAI):
 
         if depth == 0:
             score = self._quiescence_search_mutable(
-                state, alpha, beta, maximizing_player, depth=3
+                state,
+                alpha,
+                beta,
+                (state.current_player == self.player_number),
+                depth=3,
             )
             self.transposition_table.put(state_hash, {
                 'score': score,
@@ -776,6 +780,9 @@ class MinimaxAI(HeuristicAI):
         Explores noisy moves (captures, line formations) to mitigate the
         horizon effect without the overhead of immutable state cloning.
         """
+        # Ensure max/min tracking matches the actual side-to-move; this matters
+        # for phases where a player may take multiple moves in a row.
+        maximizing_player = (state.current_player == self.player_number)
         stand_pat = self._evaluate_mutable(state)
 
         if (
@@ -829,8 +836,13 @@ class MinimaxAI(HeuristicAI):
         if is_me:
             for _, move in scored_moves:
                 undo = state.make_move(move)
+                next_is_me = (state.current_player == self.player_number)
                 score = self._quiescence_search_mutable(
-                    state, alpha, beta, False, depth - 1
+                    state,
+                    alpha,
+                    beta,
+                    next_is_me,
+                    depth - 1,
                 )
                 state.unmake_move(undo)
 
@@ -977,6 +989,9 @@ class MinimaxAI(HeuristicAI):
         Quiescence search to mitigate horizon effect by exploring noisy moves.
         (Legacy version using immutable state cloning)
         """
+        # Ensure max/min tracking matches the actual side-to-move; this matters
+        # for phases where a player may take multiple moves in a row.
+        maximizing_player = (game_state.current_player == self.player_number)
         # Stand pat score (static evaluation)
         stand_pat = self.evaluate_position(game_state)
 
@@ -1031,11 +1046,12 @@ class MinimaxAI(HeuristicAI):
         if is_me:
             for _, move in scored_moves:
                 next_state = self.rules_engine.apply_move(game_state, move)
+                next_is_me = (next_state.current_player == self.player_number)
                 score = self._quiescence_search(
                     next_state,
                     alpha,
                     beta,
-                    False,
+                    next_is_me,
                     depth - 1,
                 )
 

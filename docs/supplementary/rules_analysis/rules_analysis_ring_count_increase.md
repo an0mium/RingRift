@@ -1,6 +1,6 @@
 # Rules Analysis: Increasing Ring Counts for 19x19 and Hexagonal Boards
 
-**Status:** Historical proposal. Canonical ring counts are now 18 / 48 / 72 (square8 / square19 / hex); the proposed hex value of 72 was adopted.
+**Status:** Historical proposal. Canonical ring counts are now 18 / 60 / 72 (square8 / square19 / hex); the proposed square19 increase to 60 and hex value of 72 were adopted.
 
 ## Proposed Change
 

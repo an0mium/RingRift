@@ -113,7 +113,7 @@ Before starting any **large training run or heuristic tuning campaign**, complet
     - Treat architecture changes (depth/width, extra heads) as follow‑ups once data quality, regularisation, and batch sizing have been explored.
   - For **heuristics**:
     - Use the canonical `heuristic_v1_*` profiles from [`heuristic_weights.py`](../ai-service/app/ai/heuristic_weights.py) and their TS mirrors in [`heuristicEvaluation.ts`](../src/shared/engine/heuristicEvaluation.ts) as your starting point.
-    - When adding features or retuning weights, respect the sign/magnitude guidance in the heuristic training section of [`AI_ARCHITECTURE.md` §5.2–5.4](../../AI_ARCHITECTURE.md) and the parity fixtures under `tests/fixtures/heuristic/v1/**`.
+    - When adding features or retuning weights, respect the sign/magnitude guidance in the heuristic training section of [`AI_ARCHITECTURE.md` §5.2–5.4](../architecture/AI_ARCHITECTURE.md) and the parity fixtures under `tests/fixtures/heuristic/v1/**`.
 
 - **3. Configure and verify memory budget**
   - Set the global memory limit for the host:
@@ -157,7 +157,7 @@ Before starting any **large training run or heuristic tuning campaign**, complet
     - Memory and training config (`MemoryConfig`, `TrainConfig`, key CLI flags).
     - Paths to checkpoints, evaluation logs, and generated statistical reports.
 
-For a more detailed, end‑to‑end pre‑flight checklist (including environment setup, augmentation, validation metrics, and troubleshooting), see [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](./AI_TRAINING_PREPARATION_GUIDE.md). For an architecture‑level summary of how memory budgets, training jobs, and search components fit together, refer to the “Pre‑Training Preparation & Memory Budgeting” section in [`AI_ARCHITECTURE.md`](../../AI_ARCHITECTURE.md).
+For a more detailed, end‑to‑end pre‑flight checklist (including environment setup, augmentation, validation metrics, and troubleshooting), see [`docs/AI_TRAINING_PREPARATION_GUIDE.md`](./AI_TRAINING_PREPARATION_GUIDE.md). For an architecture‑level summary of how memory budgets, training jobs, and search components fit together, refer to the “Pre‑Training Preparation & Memory Budgeting” section in [`AI_ARCHITECTURE.md`](../architecture/AI_ARCHITECTURE.md).
 
 ---
 

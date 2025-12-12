@@ -4,19 +4,30 @@ Provides O(1) state hashing for transposition tables.
 """
 
 import random
+import threading
 from typing import Dict, Tuple
 
 
 class ZobristHash:
     """
-    Singleton class to manage Zobrist hash keys.
+    Thread-safe singleton class to manage Zobrist hash keys.
+
+    The singleton pattern uses a lock to ensure thread-safety during
+    initialization, which is important when multiple game threads
+    access the ZobristHash simultaneously (e.g., in tournament play).
     """
     _instance = None
+    _lock = threading.Lock()
 
     def __new__(cls):
+        # Double-checked locking pattern for thread-safe singleton
         if cls._instance is None:
-            cls._instance = super(ZobristHash, cls).__new__(cls)
-            cls._instance._initialize()
+            with cls._lock:
+                # Check again inside lock to handle race condition
+                if cls._instance is None:
+                    instance = super(ZobristHash, cls).__new__(cls)
+                    instance._initialize()
+                    cls._instance = instance
         return cls._instance
 
     def _initialize(self):
