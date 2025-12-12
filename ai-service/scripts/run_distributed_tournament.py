@@ -1,15 +1,19 @@
 #!/usr/bin/env python
-"""Run distributed AI strength evaluation tournament across cloud instances.
+"""Run (parallel) AI strength evaluation tournament for difficulty tiers.
 
 This script orchestrates AI-vs-AI matches across multiple hosts to empirically
 measure the relative strength of different AI configurations. It uses the
-existing cluster infrastructure (distributed_hosts.yaml) and can run hundreds
-of games in parallel.
+canonical difficulty ladder configuration and runs hundreds of games in
+parallel on a single machine.
+
+Note: Despite the filename, this harness currently runs locally with a thread
+pool. True multi-host distribution is tracked as future work; see
+`ai-service/AI_IMPROVEMENT_PLAN.md` §10.8.
 
 Features:
-- Distributes games across all available cloud workers
-- Supports all difficulty tiers (D1-D10)
-- Calculates Elo ratings from match results
+- Supports canonical difficulty tiers (D1-D10)
+- Calculates Elo ratings from match results (deterministic replay for reporting)
+- Reports per-matchup win/loss/draw + Wilson intervals (decisive games)
 - Generates comprehensive strength reports
 - Fault-tolerant with automatic retry
 
@@ -55,6 +59,8 @@ from app.ai.heuristic_ai import HeuristicAI
 from app.ai.minimax_ai import MinimaxAI
 from app.ai.mcts_ai import MCTSAI
 from app.ai.descent_ai import DescentAI
+from app.config.ladder_config import get_ladder_tier_config
+from app.training.significance import wilson_score_interval
 from app.training.generate_data import create_initial_state
 
 logging.basicConfig(
@@ -79,6 +85,8 @@ class MatchResult:
     worker: str
     game_id: str
     timestamp: str
+    seed: Optional[int] = None
+    game_index: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -90,6 +98,8 @@ class MatchResult:
             "worker": self.worker,
             "game_id": self.game_id,
             "timestamp": self.timestamp,
+            "seed": self.seed,
+            "game_index": self.game_index,
         }
 
 
@@ -129,6 +139,9 @@ class TournamentState:
     board_type: str
     games_per_matchup: int
     tiers: List[str]
+    base_seed: int = 1
+    think_time_scale: float = 1.0
+    nn_model_id: Optional[str] = None
     matches: List[MatchResult] = field(default_factory=list)
     tier_stats: Dict[str, TierStats] = field(default_factory=dict)
     completed_matchups: List[Tuple[str, str]] = field(default_factory=list)
@@ -140,6 +153,9 @@ class TournamentState:
             "board_type": self.board_type,
             "games_per_matchup": self.games_per_matchup,
             "tiers": self.tiers,
+            "base_seed": self.base_seed,
+            "think_time_scale": self.think_time_scale,
+            "nn_model_id": self.nn_model_id,
             "matches": [m.to_dict() for m in self.matches],
             "tier_stats": {k: v.to_dict() for k, v in self.tier_stats.items()},
             "completed_matchups": self.completed_matchups,
@@ -153,6 +169,9 @@ class TournamentState:
             board_type=data["board_type"],
             games_per_matchup=data["games_per_matchup"],
             tiers=data["tiers"],
+            base_seed=int(data.get("base_seed", 1)),
+            think_time_scale=float(data.get("think_time_scale", 1.0)),
+            nn_model_id=data.get("nn_model_id"),
             completed_matchups=[tuple(m) for m in data.get("completed_matchups", [])],
         )
         state.matches = [
@@ -193,20 +212,6 @@ def update_elo(
 # Game Runner
 # ============================================================================
 
-# Canonical difficulty profiles from main.py
-DIFFICULTY_PROFILES = {
-    "D1": {"ai_type": AIType.RANDOM, "randomness": 0.5, "think_time_ms": 150},
-    "D2": {"ai_type": AIType.HEURISTIC, "randomness": 0.3, "think_time_ms": 200},
-    "D3": {"ai_type": AIType.MINIMAX, "randomness": 0.15, "think_time_ms": 1800, "use_neural_net": False},
-    "D4": {"ai_type": AIType.MINIMAX, "randomness": 0.08, "think_time_ms": 2800, "use_neural_net": True},
-    "D5": {"ai_type": AIType.MCTS, "randomness": 0.05, "think_time_ms": 4000, "use_neural_net": False},
-    "D6": {"ai_type": AIType.MCTS, "randomness": 0.02, "think_time_ms": 5500, "use_neural_net": True},
-    "D7": {"ai_type": AIType.MCTS, "randomness": 0.0, "think_time_ms": 7500, "use_neural_net": True},
-    "D8": {"ai_type": AIType.MCTS, "randomness": 0.0, "think_time_ms": 9600, "use_neural_net": True},
-    "D9": {"ai_type": AIType.DESCENT, "randomness": 0.0, "think_time_ms": 12600, "use_neural_net": True},
-    "D10": {"ai_type": AIType.DESCENT, "randomness": 0.0, "think_time_ms": 16000, "use_neural_net": True},
-}
-
 AI_CLASSES = {
     AIType.RANDOM: RandomAI,
     AIType.HEURISTIC: HeuristicAI,
@@ -215,77 +220,23 @@ AI_CLASSES = {
     AIType.DESCENT: DescentAI,
 }
 
+def _tier_to_difficulty(tier: str) -> int:
+    cleaned = tier.strip().upper()
+    if cleaned.startswith("D"):
+        cleaned = cleaned[1:]
+    if not cleaned.isdigit():
+        raise ValueError(f"Invalid tier label: {tier!r}")
+    return int(cleaned)
 
-def get_best_nn_model_id() -> str:
-    """Find the best available neural network model.
 
-    Preference order:
-    1. ringrift_v4_sq8_2p (canonical, stable id)
-    2. ringrift_v3_sq8_2p (fallback)
-    3. sq8_2p_nn_baseline (legacy fallback; may have reduced policy head)
-
-    Notes:
-      - "v4" here refers to the model *ID/lineage* (checkpoint naming), not a
-        separate architecture class. The checkpoint metadata declares the
-        actual model class (e.g., RingRiftCNN_v2).
-      - We intentionally do NOT fall back to deprecated ringrift_v1/v1_mps ids
-        because they are often missing and silently disable neural evaluation.
-    """
-    import glob
-    import os
-
-    models_dir = os.path.join(os.path.dirname(__file__), "..", "models")
-
-    def _is_usable(path: str) -> bool:
-        try:
-            if not os.path.isfile(path):
-                return False
-            if os.path.getsize(path) <= 1000:
-                return False
-            # Avoid specialized artifacts unless explicitly requested.
-            if "h100" in os.path.basename(path).lower():
-                return False
-            return True
-        except OSError:
-            return False
-
-    # Prefer canonical v4 checkpoints when present.
-    v4_candidates = [
-        os.path.join(models_dir, "ringrift_v4_sq8_2p.pth"),
-        *sorted(glob.glob(os.path.join(models_dir, "ringrift_v4_sq8_2p_*.pth"))),
-    ]
-    if any(_is_usable(p) for p in v4_candidates):
-        return "ringrift_v4_sq8_2p"
-
-    # Check for v3 models first (prefer latest timestamp)
-    v3_patterns = [
-        os.path.join(models_dir, "ringrift_v3_sq8_2p_*.pth"),
-    ]
-    for pattern in v3_patterns:
-        matches = sorted(glob.glob(pattern))
-        # Filter out empty files and get latest
-        valid_matches = [m for m in matches if _is_usable(m)]
-        if valid_matches:
-            # Return model ID without path and extension
-            basename = os.path.basename(valid_matches[-1])
-            # Extract the base model ID (before any timestamp suffix)
-            return "ringrift_v3_sq8_2p"
-
-    # Fallback to v2 baseline
-    v2_patterns = [
-        os.path.join(models_dir, "sq8_2p_nn_baseline_*.pth"),
-    ]
-    for pattern in v2_patterns:
-        matches = sorted(glob.glob(pattern))
-        valid_matches = [m for m in matches if _is_usable(m)]
-        if valid_matches:
-            return "sq8_2p_nn_baseline"
-
-    raise RuntimeError(
-        "No usable neural network checkpoints found under ai-service/models/. "
-        "Expected at least one of: ringrift_v4_sq8_2p*.pth, ringrift_v3_sq8_2p*.pth. "
-        "Provide --nn-model-id explicitly, or run training to produce a checkpoint."
-    )
+def _scaled_think_time_ms(think_time_ms: int, scale: float) -> int:
+    try:
+        factor = float(scale)
+    except (TypeError, ValueError):
+        factor = 1.0
+    if factor <= 0.0:
+        factor = 0.0
+    return max(0, int(round(think_time_ms * factor)))
 
 
 def create_ai_for_tier(
@@ -293,32 +244,54 @@ def create_ai_for_tier(
     player_number: int,
     seed: int,
     *,
+    board_type: BoardType,
+    num_players: int,
+    think_time_scale: float = 1.0,
     nn_model_id: Optional[str] = None,
 ) -> Any:
-    """Create an AI instance for the given difficulty tier."""
-    profile = DIFFICULTY_PROFILES[tier]
-    difficulty = int(tier[1:])
-    use_nn = profile.get("use_neural_net", False)
+    """Create an AI instance for the given difficulty tier.
 
-    # Auto-select best available CNN model for neural-enabled tiers that use it.
-    # Note: D4 (Minimax) uses NNUE, not the CNN policy/value net; do not
-    # override nn_model_id there unless explicitly provided for NNUE.
-    effective_nn_model_id = None
-    if use_nn and profile["ai_type"] in {AIType.MCTS, AIType.DESCENT}:
-        effective_nn_model_id = nn_model_id or get_best_nn_model_id()
-        logger.debug("Using neural model %s for tier %s", effective_nn_model_id, tier)
+    Uses `LadderTierConfig` (board- and player-count-aware) for tiers >= 2.
+    Difficulty 1 is a fixed random baseline.
+    """
+    difficulty = _tier_to_difficulty(tier)
+
+    if difficulty == 1:
+        ai_type = AIType.RANDOM
+        randomness = 0.5
+        think_time_ms = 150
+        use_neural_net = False
+        heuristic_profile_id: Optional[str] = None
+        ladder_model_id: Optional[str] = None
+    else:
+        ladder = get_ladder_tier_config(difficulty, board_type, num_players)
+        ai_type = ladder.ai_type
+        randomness = ladder.randomness
+        think_time_ms = ladder.think_time_ms
+        use_neural_net = bool(ladder.use_neural_net)
+        heuristic_profile_id = ladder.heuristic_profile_id
+        ladder_model_id = ladder.model_id
+
+    scaled_think_time = _scaled_think_time_ms(think_time_ms, think_time_scale)
+
+    # CNN policy/value nets are only used by MCTS/Descent. Minimax's NNUE
+    # evaluator selects checkpoints via its own board-aware default path.
+    effective_nn_model_id: Optional[str] = None
+    if use_neural_net and ai_type in {AIType.MCTS, AIType.DESCENT}:
+        effective_nn_model_id = nn_model_id or ladder_model_id
 
     config = AIConfig(
         difficulty=difficulty,
-        randomness=profile["randomness"],
-        think_time=profile["think_time_ms"],
+        randomness=randomness,
+        think_time=scaled_think_time,
         rng_seed=seed,
-        use_neural_net=use_nn,
+        heuristic_profile_id=heuristic_profile_id,
+        use_neural_net=use_neural_net,
         nn_model_id=effective_nn_model_id,
         allow_fresh_weights=False,
     )
 
-    ai_class = AI_CLASSES[profile["ai_type"]]
+    ai_class = AI_CLASSES[ai_type]
     return ai_class(player_number, config)
 
 
@@ -329,6 +302,8 @@ def run_single_game(
     seed: int,
     max_moves: int = 300,
     worker_name: str = "local",
+    game_index: Optional[int] = None,
+    think_time_scale: float = 1.0,
     nn_model_id: Optional[str] = None,
 ) -> MatchResult:
     """Run a single game between two AI tiers."""
@@ -338,8 +313,24 @@ def run_single_game(
     state = create_initial_state(board_type, num_players=2)
     engine = GameEngine()
 
-    ai_a = create_ai_for_tier(tier_a, 1, seed, nn_model_id=nn_model_id)
-    ai_b = create_ai_for_tier(tier_b, 2, seed + 1, nn_model_id=nn_model_id)
+    ai_a = create_ai_for_tier(
+        tier_a,
+        1,
+        seed,
+        board_type=board_type,
+        num_players=2,
+        think_time_scale=think_time_scale,
+        nn_model_id=nn_model_id,
+    )
+    ai_b = create_ai_for_tier(
+        tier_b,
+        2,
+        seed + 1,
+        board_type=board_type,
+        num_players=2,
+        think_time_scale=think_time_scale,
+        nn_model_id=nn_model_id,
+    )
 
     move_count = 0
     while state.game_status == GameStatus.ACTIVE and move_count < max_moves:
@@ -372,6 +363,8 @@ def run_single_game(
         worker=worker_name,
         game_id=game_id,
         timestamp=datetime.now(timezone.utc).isoformat(),
+        seed=seed,
+        game_index=game_index,
     )
 
 

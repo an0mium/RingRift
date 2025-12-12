@@ -498,6 +498,7 @@ def main() -> None:
         else:
             parity_summary = run_parity_checks(dbs_to_check)
     else:
+        selfplay_heartbeat_stop: threading.Event | None = None
         if summary_path is not None:
             selfplay_stage = {
                 "stage": "selfplay_running",
@@ -510,9 +511,8 @@ def main() -> None:
                 "max_moves": max_moves,
             }
             _write_json(summary_path, selfplay_stage)
-            heartbeat_stop: threading.Event | None = None
             if args.heartbeat_seconds and args.heartbeat_seconds > 0:
-                heartbeat_stop = _start_heartbeat(
+                selfplay_heartbeat_stop = _start_heartbeat(
                     summary_path,
                     selfplay_stage,
                     heartbeat_seconds=args.heartbeat_seconds,
@@ -529,8 +529,10 @@ def main() -> None:
             args.difficulty_band,
             soak_timeout_seconds=args.soak_timeout_seconds or None,
         )
-        if summary_path is not None and "heartbeat_stop" in locals() and heartbeat_stop is not None:
-            heartbeat_stop.set()
+        if selfplay_heartbeat_stop is not None:
+            selfplay_heartbeat_stop.set()
+
+        parity_heartbeat_stop: threading.Event | None = None
         if summary_path is not None:
             parity_stage = {
                 "stage": "parity_running",
@@ -540,9 +542,8 @@ def main() -> None:
                 "soak_returncode": soak_result.get("returncode"),
             }
             _write_json(summary_path, parity_stage)
-            heartbeat_stop = None
             if args.heartbeat_seconds and args.heartbeat_seconds > 0:
-                heartbeat_stop = _start_heartbeat(
+                parity_heartbeat_stop = _start_heartbeat(
                     summary_path,
                     parity_stage,
                     heartbeat_seconds=args.heartbeat_seconds,
@@ -554,8 +555,8 @@ def main() -> None:
             progress_every=args.parity_progress_every,
             parity_timeout_seconds=args.parity_timeout_seconds or None,
         )
-        if summary_path is not None and "heartbeat_stop" in locals() and heartbeat_stop is not None:
-            heartbeat_stop.set()
+        if parity_heartbeat_stop is not None:
+            parity_heartbeat_stop.set()
 
     # Basic gate: soak must succeed and the canonical parity gate must pass.
     #
