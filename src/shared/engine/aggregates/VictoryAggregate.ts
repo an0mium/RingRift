@@ -357,11 +357,23 @@ export function evaluateVictory(state: GameState): VictoryResult {
 
   // 2) Territory-control victory: strictly more than 50% of the board's
   // spaces are controlled as territory by a single player.
-  const territoryWinner = players.find((p) => p.territorySpaces >= state.territoryVictoryThreshold);
-  if (territoryWinner) {
+  //
+  // Use board.collapsedSpaces as the authoritative source of territory counts.
+  // This avoids relying on potentially stale territorySpaces counters and
+  // matches the Python engine's victory check.
+  const territoryCounts: Record<number, number> = {};
+  for (const owner of state.board.collapsedSpaces.values()) {
+    if (typeof owner !== 'number') continue;
+    territoryCounts[owner] = (territoryCounts[owner] ?? 0) + 1;
+  }
+  const territoryWinnerNumber = Object.entries(territoryCounts).find(
+    ([, count]) => count >= state.territoryVictoryThreshold
+  )?.[0];
+  if (territoryWinnerNumber) {
+    const winner = Number(territoryWinnerNumber);
     return {
       isGameOver: true,
-      winner: territoryWinner.playerNumber,
+      winner,
       reason: 'territory_control',
       handCountsAsEliminated: false,
     };

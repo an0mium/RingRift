@@ -592,6 +592,8 @@ def run_ts_replay(
 
     env = os.environ.copy()
     env.setdefault("TS_NODE_PROJECT", "tsconfig.server.json")
+    # Default to minimal TS replay output for parity (skip FSM traces/bridge logs).
+    env.setdefault("RINGRIFT_TS_REPLAY_MINIMAL", "1")
 
     proc = subprocess.Popen(
         cmd,
@@ -601,13 +603,10 @@ def run_ts_replay(
         stderr=subprocess.PIPE,
         text=True,
     )
-    stdout, stderr = proc.communicate()
 
-    if proc.returncode != 0:
-        raise RuntimeError(
-            f"TS replay harness failed for {db_path} / {game_id} with code {proc.returncode}:\n"
-            f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}"
-        )
+    progress_every = int(os.environ.get("RINGRIFT_PARITY_PROGRESS_EVERY", "250") or "250")
+    if progress_every > 0:
+        print(f"[ts-replay] start {game_id} ({db_path.name})", file=sys.stderr)
 
     total_ts_moves = 0
 
@@ -620,8 +619,9 @@ def run_ts_replay(
     meta_post_move: Dict[int, TsEventMetadata] = {}
     meta_post_bridge: Dict[int, TsEventMetadata] = {}
 
-    for line in stdout.splitlines():
-        line = line.strip()
+    assert proc.stdout is not None
+    for raw_line in proc.stdout:
+        line = raw_line.strip()
         if not line:
             continue
         try:
@@ -683,6 +683,9 @@ def run_ts_replay(
                 view=view,
                 event_kind=kind,
             )
+
+            if progress_every > 0 and total_ts_moves > 0 and k % progress_every == 0:
+                print(f"[ts-replay] {game_id} k={k}/{total_ts_moves}", file=sys.stderr)
 
             # Cross-check the explicit db_move_index emitted by the TS harness
             # against the implicit k->move_index contract (k = db_move_index + 1).
@@ -755,6 +758,14 @@ def run_ts_replay(
             # ignored for parity; they are still present in stdout for
             # diagnostics but not used for state comparison.
             continue
+
+    stderr = proc.stderr.read() if proc.stderr else ""
+    proc.wait()
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"TS replay harness failed for {db_path} / {game_id} with code {proc.returncode}:\n"
+            f"STDERR:\n{stderr}"
+        )
 
     # Build the view-specific summaries and metadata.
     summaries: Dict[int, StateSummary] = {}
@@ -1735,4 +1746,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

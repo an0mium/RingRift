@@ -3060,9 +3060,20 @@ class NeuralNetAI(BaseAI):
 
         assert globals_input is not None
 
+        use_autocast = False
+        device = self.device
+        if isinstance(device, str):
+            use_autocast = device.startswith("cuda")
+        else:
+            use_autocast = getattr(device, "type", "") == "cuda"
+
         with torch.no_grad():
             assert self.model is not None
-            out = self.model(tensor_input, globals_input)
+            if use_autocast:
+                with torch.cuda.amp.autocast():
+                    out = self.model(tensor_input, globals_input)
+            else:
+                out = self.model(tensor_input, globals_input)
             # V3 models return (values, policy_logits, rank_dist). Keep the
             # rank distribution for training-only use and ignore it here.
             if isinstance(out, tuple) and len(out) == 3:

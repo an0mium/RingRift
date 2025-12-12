@@ -209,6 +209,7 @@ AI‑only concern.
 - Count territory directly from `collapsedSpaces` map (not `player.territorySpaces`)
 - Use `countTotalRingsForPlayer()` for Early LPS detection (includes buried rings)
   These changes align TS with Python's `_check_victory()` semantics. See [AI_PIPELINE_PARITY_FIXES.md](../ai/AI_PIPELINE_PARITY_FIXES.md) for details.
+- LPS victory is not evaluated during ANM sequences; Python defers LPS checks when `global_actions.is_anm_state(state)` is true to mirror TS.
 
 ### 2.8 Turn Management
 

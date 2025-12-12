@@ -165,8 +165,14 @@ describe('victory evaluateVictory branch coverage', () => {
     describe('territory control victory', () => {
       it('detects territory control victory for player 1', () => {
         const state = makeGameState();
-        state.players[0].territorySpaces = 33; // >= threshold
         state.territoryVictoryThreshold = 33;
+        // Collapse 33 spaces to player 1 to meet the threshold.
+        for (let x = 0; x < 4; x++) {
+          for (let y = 0; y < 8; y++) {
+            collapseSpace(state, pos(x, y), 1);
+          }
+        }
+        collapseSpace(state, pos(4, 0), 1);
 
         const result = evaluateVictory(state);
 
@@ -178,8 +184,15 @@ describe('victory evaluateVictory branch coverage', () => {
 
       it('detects territory control victory for player 2', () => {
         const state = makeGameState();
-        state.players[1].territorySpaces = 40; // > threshold
         state.territoryVictoryThreshold = 33;
+        // Collapse 34 spaces to player 2 to exceed the threshold.
+        for (let x = 0; x < 4; x++) {
+          for (let y = 0; y < 8; y++) {
+            collapseSpace(state, pos(x, y), 2);
+          }
+        }
+        collapseSpace(state, pos(4, 0), 2);
+        collapseSpace(state, pos(4, 1), 2);
 
         const result = evaluateVictory(state);
 
@@ -190,8 +203,13 @@ describe('victory evaluateVictory branch coverage', () => {
 
       it('no victory when territory below threshold', () => {
         const state = makeGameState();
-        state.players[0].territorySpaces = 32; // < threshold
         state.territoryVictoryThreshold = 33;
+        // Collapse 32 spaces to player 1 (below threshold).
+        for (let x = 0; x < 4; x++) {
+          for (let y = 0; y < 8; y++) {
+            collapseSpace(state, pos(x, y), 1);
+          }
+        }
         addStack(state, pos(0, 0), 1, 1);
 
         const result = evaluateVictory(state);
@@ -254,7 +272,9 @@ describe('victory evaluateVictory branch coverage', () => {
         // Collapse entire board to prevent any placements
         for (let x = 0; x < 8; x++) {
           for (let y = 0; y < 8; y++) {
-            collapseSpace(state, pos(x, y), 1);
+            // Alternate ownership to avoid territory-control victory.
+            const owner = (x + y) % 2 === 0 ? 1 : 2;
+            collapseSpace(state, pos(x, y), owner);
           }
         }
 
@@ -673,7 +693,9 @@ describe('victory evaluateVictory branch coverage', () => {
       // Collapse most spaces but leave some open
       for (let x = 0; x < 7; x++) {
         for (let y = 0; y < 8; y++) {
-          collapseSpace(state, pos(x, y), 1);
+          // Alternate owners so no one hits territory victory.
+          const owner = (x + y) % 2 === 0 ? 1 : 2;
+          collapseSpace(state, pos(x, y), owner);
         }
       }
 
@@ -691,7 +713,8 @@ describe('victory evaluateVictory branch coverage', () => {
       for (let x = 0; x < 8; x++) {
         for (let y = 0; y < 8; y++) {
           if (x !== 7 || y !== 7) {
-            collapseSpace(state, pos(x, y), 1);
+            const owner = (x + y) % 2 === 0 ? 1 : 2;
+            collapseSpace(state, pos(x, y), owner);
           }
         }
       }

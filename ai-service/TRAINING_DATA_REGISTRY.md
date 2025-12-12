@@ -4,11 +4,11 @@ This document tracks the provenance and canonical status of all self-play databa
 
 ## Data Classification
 
-| Status                  | Meaning                                                                                                                                                                                                                                                                                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **canonical**           | Generated and gated via `scripts/generate_canonical_selfplay.py` with `canonical_ok == true` in the gate summary JSON (for supported boards this also implies a passing TS↔Python parity gate, canonical phase history, FE/territory fixtures, and ANM invariants: `anm_ok == true`)              |
-| **legacy_noncanonical** | Pre-dates 7-phase/FE/canonical-history fixes; **DO NOT** use for new training                                                                                                                                                                                                                    |
-| **pending_gate**        | Not yet validated; requires `generate_canonical_selfplay.py` (or equivalent gate) before any training use                                                                                                                                                                                        |
+| Status                  | Meaning                                                                                                                                                                                                                                                                              |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **canonical**           | Generated and gated via `scripts/generate_canonical_selfplay.py` with `canonical_ok == true` in the gate summary JSON (for supported boards this also implies a passing TS↔Python parity gate, canonical phase history, FE/territory fixtures, and ANM invariants: `anm_ok == true`) |
+| **legacy_noncanonical** | Pre-dates 7-phase/FE/canonical-history fixes; **DO NOT** use for new training                                                                                                                                                                                                        |
+| **pending_gate**        | Not yet validated; requires `generate_canonical_selfplay.py` (or equivalent gate) before any training use                                                                                                                                                                            |
 
 ---
 
@@ -98,8 +98,11 @@ Once canonical self-play DBs are generated and exported, retrain these models:
      --summary db_health.canonical_<board>.json
    ```
 
-   A DB is eligible for `Status = canonical` **only if** its latest gate summary JSON (written by `scripts/generate_canonical_selfplay.py`) reports:
+   For distributed self-play across SSH hosts, pass `--hosts host1,host2,...`.
+   Per-host DBs are merged into the destination DB (deduped by `game_id`).
+   Use `--reset-db` to archive any existing canonical DB before merging.
 
+   A DB is eligible for `Status = canonical` **only if** its latest gate summary JSON (written by `scripts/generate_canonical_selfplay.py`) reports:
    - `canonical_ok == true` (the top-level allowlist flag), and
    - for supported board types (currently `square8` and `hexagonal`), this in turn implies:
      - `parity_gate.passed_canonical_parity_gate == true`, and

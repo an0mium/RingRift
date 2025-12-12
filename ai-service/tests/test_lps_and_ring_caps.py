@@ -341,5 +341,34 @@ class RingCapAndLPSTests(unittest.TestCase):
             GameEngine._has_real_action_for_player = original
 
 
+def test_lps_victory_is_deferred_when_anm_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LPS victory should not be awarded during ANM sequences (TS parity)."""
+    state = _make_three_player_state()
+    state.current_phase = GamePhase.MOVEMENT
+    state.current_player = 1
+    state.lps_consecutive_exclusive_rounds = 2
+    state.lps_consecutive_exclusive_player = 1
+
+    # Arrange a shape that would otherwise trigger LPS victory.
+    original = GameEngine._has_real_action_for_player
+    try:
+        GameEngine._has_real_action_for_player = staticmethod(
+            lambda s, pid: pid == 1
+        )  # type: ignore[assignment]
+
+        # Force ANM regardless of the synthetic action predicate.
+        monkeypatch.setattr(
+            "app.rules.global_actions.is_anm_state",
+            lambda gs: True,
+        )
+
+        GameEngine._maybe_apply_lps_victory_at_turn_start(state)  # type: ignore[attr-defined]
+
+        assert state.game_status == GameStatus.ACTIVE
+        assert state.winner is None
+    finally:
+        GameEngine._has_real_action_for_player = original
+
+
 if __name__ == "__main__":
     unittest.main()

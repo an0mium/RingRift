@@ -793,7 +793,7 @@ class MCTSAI(HeuristicAI):
 
         board_type = game_state.board.type
         end_time = time.time() + time_limit
-        default_batch_size = 8
+        default_batch_size = self._default_leaf_batch_size()
         node_count = 1
 
         # MCTS implementation with PUCT
@@ -1302,7 +1302,7 @@ class MCTSAI(HeuristicAI):
             ]
 
         end_time = time.time() + time_limit
-        default_batch_size = 8
+        default_batch_size = self._default_leaf_batch_size()
         node_count = 1
 
         # MCTS implementation with PUCT using make/unmake
@@ -1835,6 +1835,34 @@ class MCTSAI(HeuristicAI):
         if move_index < cutoff * 2:
             return 0.5
         return 0.1
+
+    def _default_leaf_batch_size(self) -> int:
+        """Choose a default leaf batch size for NN evaluation.
+
+        This is a throughput knob only; correctness is unaffected. Callers can
+        override via RINGRIFT_MCTS_LEAF_BATCH_SIZE.
+        """
+        env_val = os.environ.get("RINGRIFT_MCTS_LEAF_BATCH_SIZE")
+        if env_val:
+            try:
+                parsed = int(env_val)
+                if parsed > 0:
+                    return parsed
+            except ValueError:
+                pass
+
+        if not self.neural_net:
+            return 8
+
+        device = getattr(self.neural_net, "device", "cpu")
+        dev_str = device if isinstance(device, str) else getattr(device, "type", "cpu")
+        if dev_str == "cuda":
+            return 32
+        if dev_str == "mps":
+            return 16
+        if dev_str == "cpu":
+            return 8
+        return 16
 
     def _sample_child_by_temperature(
         self,

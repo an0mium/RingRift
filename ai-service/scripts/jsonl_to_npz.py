@@ -4,36 +4,36 @@
 This script converts game records from JSONL format (produced by run_self_play_soak.py)
 into compressed NumPy arrays (.npz) suitable for direct neural network training.
 
-The output NPZ file contains:
-- states: Board state tensors [N, C, H, W]
-- policies: Move probability targets [N, action_dim]
-- values: Game outcome targets [N] (-1/0/1 for loss/draw/win)
-- metadata: Dict with board_type, num_players, etc.
+The script replays each game from its initial_state using the moves list,
+extracting proper 56-channel features at each position using NeuralNetAI's
+feature extraction (matching the format expected by app.training.train).
+
+Output NPZ format (compatible with train.py):
+- features: (N, 56, H, W) float32 - Full feature channels
+- globals: (N, 20) float32 - Global features
+- values: (N,) float32 - Game outcomes (-1 to +1)
+- policy_indices: (N,) object - Sparse action indices per sample
+- policy_values: (N,) object - Sparse action probabilities per sample
+- move_numbers: (N,) int32 - Move index within game
+- total_game_moves: (N,) int32 - Total moves in source game
+- phases: (N,) object - Game phase at each position
+- values_mp: (N, 4) float32 - Multi-player value vectors
+- num_players: (N,) int32 - Player count per sample
 
 Usage:
-    # Basic conversion
-    python scripts/jsonl_to_npz.py \\
-        --input data/selfplay/comprehensive/games.jsonl \\
-        --output data/training/square8_2p.npz
-
-    # Convert all JSONL in a directory
-    python scripts/jsonl_to_npz.py \\
-        --input-dir data/selfplay/aggregated/ \\
-        --output data/training/combined.npz
-
-    # Filter by board type and player count
-    python scripts/jsonl_to_npz.py \\
-        --input-dir data/selfplay/aggregated/ \\
-        --output data/training/square8_2p_only.npz \\
+    # Basic conversion (replays games properly)
+    PYTHONPATH=. python scripts/jsonl_to_npz.py \\
+        --input data/selfplay/combined_cloud.jsonl \\
+        --output data/training/from_jsonl.npz \\
         --board-type square8 \\
         --num-players 2
 
     # With subsampling for large datasets
-    python scripts/jsonl_to_npz.py \\
-        --input-dir data/selfplay/aggregated/ \\
+    PYTHONPATH=. python scripts/jsonl_to_npz.py \\
+        --input-dir data/selfplay/ \\
         --output data/training/sampled.npz \\
-        --max-positions 1000000 \\
-        --subsample-rate 0.1
+        --max-games 1000 \\
+        --sample-every 2
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ import json
 import logging
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -54,372 +54,446 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+# Force CPU to avoid MPS/OMP issues during batch conversion
+os.environ.setdefault("RINGRIFT_FORCE_CPU", "1")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
 
+from app.models import AIConfig, BoardType, GameState, Move, Position
+from app.game_engine import GameEngine
+from app.ai.neural_net import NeuralNetAI, INVALID_MOVE_INDEX
+from app.rules.serialization import deserialize_game_state
 
-# =============================================================================
-# Board Size Constants
-# =============================================================================
 
-BOARD_SIZES = {
-    "square8": (8, 8),
-    "square19": (19, 19),
-    "hexagonal": (25, 25),  # Hex boards use 25x25 with masking
+BOARD_TYPE_MAP = {
+    "square8": BoardType.SQUARE8,
+    "square19": BoardType.SQUARE19,
+    "hexagonal": BoardType.HEXAGONAL,
 }
 
 
-# =============================================================================
-# State Encoding
-# =============================================================================
+def build_encoder(board_type: BoardType) -> NeuralNetAI:
+    """Build a NeuralNetAI instance for feature extraction."""
+    config = AIConfig(
+        difficulty=5,
+        think_time=0,
+        randomness=0.0,
+        rngSeed=None,
+        heuristic_profile_id=None,
+        nn_model_id=None,
+        heuristic_eval_mode=None,
+        use_neural_net=True,
+    )
+    encoder = NeuralNetAI(player_number=1, config=config)
+    encoder.board_size = {
+        BoardType.SQUARE8: 8,
+        BoardType.SQUARE19: 19,
+        BoardType.HEXAGONAL: 25,
+    }.get(board_type, 8)
+    return encoder
 
 
-def encode_state_tensor(
-    state_dict: Dict[str, Any],
-    board_size: Tuple[int, int],
+def parse_position(pos_dict: Optional[Dict[str, Any]]) -> Optional[Position]:
+    """Parse position dict to Position object."""
+    if pos_dict is None:
+        return None
+    return Position(
+        x=pos_dict.get("x", 0),
+        y=pos_dict.get("y", 0),
+        z=pos_dict.get("z"),
+    )
+
+
+def parse_move(move_dict: Dict[str, Any]) -> Move:
+    """Parse move dict from JSONL to Move object."""
+    return Move(
+        id=move_dict.get("id", "imported"),
+        type=move_dict.get("type", "unknown"),
+        player=move_dict.get("player", 1),
+        from_pos=parse_position(move_dict.get("from_pos") or move_dict.get("from")),
+        to=parse_position(move_dict.get("to")),
+        capture_target=parse_position(move_dict.get("capture_target")),
+        captured_stacks=move_dict.get("captured_stacks"),
+        capture_chain=move_dict.get("capture_chain"),
+        overtaken_rings=move_dict.get("overtaken_rings"),
+        placed_on_stack=move_dict.get("placed_on_stack", False),
+        placement_count=move_dict.get("placement_count"),
+        stack_moved=move_dict.get("stack_moved"),
+        minimum_distance=move_dict.get("minimum_distance"),
+        # Required fields with defaults
+        timestamp=move_dict.get("timestamp", ""),
+        thinkTime=move_dict.get("think_time", move_dict.get("thinkTime", 0)),
+        moveNumber=move_dict.get("move_number", move_dict.get("moveNumber", 0)),
+    )
+
+
+def encode_state_with_history(
+    encoder: NeuralNetAI,
+    state: GameState,
+    history_frames: List[np.ndarray],
+    history_length: int = 3,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Encode state with history frames, matching export_replay_dataset.py."""
+    base_features, globals_vec = encoder._extract_features(state)
+
+    # Stack history frames
+    c, h, w = base_features.shape
+    total_channels = c * (history_length + 1)
+    stacked = np.zeros((total_channels, h, w), dtype=np.float32)
+
+    # Current frame first
+    stacked[:c] = base_features
+
+    # Historical frames
+    for i, hist_frame in enumerate(reversed(history_frames[-history_length:])):
+        offset = c * (i + 1)
+        if offset + c <= total_channels:
+            stacked[offset:offset + c] = hist_frame
+
+    return stacked, globals_vec
+
+
+def value_from_final_ranking(
+    final_state: GameState,
+    perspective: int,
     num_players: int,
-) -> np.ndarray:
-    """Encode a game state dict into a tensor representation.
+) -> float:
+    """Compute value from final ranking (rank-aware for multiplayer)."""
+    # Get rankings from final state
+    rankings = []
+    for p in final_state.players:
+        score = p.eliminated_rings  # Higher eliminated = better
+        rankings.append((p.number, score))
 
-    Channel layout (C=4+num_players):
-        0: Current player's pieces (stack heights normalized)
-        1: All pieces (presence mask)
-        2: Ring positions (all players)
-        3: Valid positions mask
-        4..4+num_players-1: Per-player piece ownership
+    # Sort by score descending
+    rankings.sort(key=lambda x: -x[1])
 
-    Args:
-        state_dict: Game state dictionary from JSONL
-        board_size: (height, width) tuple
-        num_players: Number of players
+    # Find perspective player's rank (0-indexed)
+    rank = 0
+    for i, (pnum, _) in enumerate(rankings):
+        if pnum == perspective:
+            rank = i
+            break
 
-    Returns:
-        Tensor of shape [C, H, W] with float32 dtype
-    """
-    h, w = board_size
-    num_channels = 4 + num_players
-    tensor = np.zeros((num_channels, h, w), dtype=np.float32)
-
-    # Extract board data from state dict
-    board = state_dict.get("board", {})
-    cells = board.get("cells", [])
-    current_player = state_dict.get("current_player", 1)
-
-    # Process each cell
-    for cell in cells:
-        pos = cell.get("position", {})
-        row, col = pos.get("row", 0), pos.get("col", 0)
-        if 0 <= row < h and 0 <= col < w:
-            # Channel 1: All pieces presence
-            stack = cell.get("stack", [])
-            if stack:
-                tensor[1, row, col] = 1.0
-                # Normalize stack height (typical max ~5)
-                height = min(len(stack), 5) / 5.0
-
-                # Check ownership
-                top_piece = stack[-1] if stack else None
-                if top_piece:
-                    owner = top_piece.get("owner", 0)
-                    # Channel 0: Current player's pieces
-                    if owner == current_player:
-                        tensor[0, row, col] = height
-                    # Per-player ownership channels
-                    if 1 <= owner <= num_players:
-                        tensor[3 + owner, row, col] = height
-
-            # Channel 2: Ring positions
-            ring = cell.get("ring")
-            if ring:
-                tensor[2, row, col] = 1.0
-
-            # Channel 3: Valid position mask (all cells are valid by default)
-            tensor[3, row, col] = 1.0
-
-    return tensor
+    # Convert rank to value
+    if num_players == 2:
+        return 1.0 if rank == 0 else -1.0
+    elif num_players == 3:
+        return [1.0, 0.0, -1.0][rank]
+    else:  # 4 players
+        return [1.0, 0.33, -0.33, -1.0][rank]
 
 
-def encode_move_index(
-    move_dict: Dict[str, Any],
-    board_size: Tuple[int, int],
-) -> int:
-    """Encode a move dict into a flat action index.
-
-    Action space layout (simplified):
-        - Movement: from_pos * board_area + to_pos
-        - Ring placement: board_area^2 + pos
-        - Other actions: indexed sequentially after
-
-    Args:
-        move_dict: Move dictionary from JSONL
-        board_size: (height, width) tuple
-
-    Returns:
-        Action index in flattened action space
-    """
-    h, w = board_size
-    board_area = h * w
-
-    move_type = move_dict.get("type", "")
-
-    def pos_to_idx(pos: Dict[str, int]) -> int:
-        return pos.get("row", 0) * w + pos.get("col", 0)
-
-    if move_type == "movement":
-        from_pos = move_dict.get("from", {})
-        to_pos = move_dict.get("to", {})
-        return pos_to_idx(from_pos) * board_area + pos_to_idx(to_pos)
-    elif move_type == "ring_placement":
-        pos = move_dict.get("position", {})
-        return board_area * board_area + pos_to_idx(pos)
-    elif move_type == "ring_scoring":
-        pos = move_dict.get("position", {})
-        return board_area * board_area + board_area + pos_to_idx(pos)
-    else:
-        # Fallback for other move types
-        return 0
-
-
-def get_action_dim(board_size: Tuple[int, int]) -> int:
-    """Get the action dimension for the given board size."""
-    h, w = board_size
-    area = h * w
-    # Movement (from*to) + ring_placement + ring_scoring + misc
-    return area * area + area * 2 + 10
-
-
-# =============================================================================
-# JSONL Processing
-# =============================================================================
+def compute_multi_player_values(final_state: GameState, num_players: int) -> List[float]:
+    """Compute value vector for all players."""
+    values = []
+    for p in range(1, 5):  # Always 4 slots
+        if p <= num_players:
+            values.append(value_from_final_ranking(final_state, p, num_players))
+        else:
+            values.append(0.0)
+    return values
 
 
 @dataclass
 class ConversionStats:
-    """Statistics from JSONL to NPZ conversion."""
+    """Statistics from conversion."""
     files_processed: int = 0
     games_processed: int = 0
-    positions_extracted: int = 0
-    games_skipped_no_moves: int = 0
     games_skipped_filter: int = 0
-    bytes_read: int = 0
+    games_skipped_no_data: int = 0
+    games_skipped_error: int = 0
+    positions_extracted: int = 0
 
 
 def process_jsonl_file(
     filepath: Path,
+    encoder: NeuralNetAI,
+    board_type: BoardType,
     board_filter: Optional[str],
     players_filter: Optional[int],
-    subsample_rate: float,
-    max_positions: Optional[int],
-    current_positions: int,
-    rng: np.random.Generator,
-) -> Tuple[List[np.ndarray], List[np.ndarray], List[float], ConversionStats]:
-    """Process a single JSONL file and extract training data.
+    max_games: Optional[int],
+    sample_every: int,
+    history_length: int,
+    current_games: int,
+) -> Tuple[
+    List[np.ndarray],  # features
+    List[np.ndarray],  # globals
+    List[float],       # values
+    List[np.ndarray],  # values_mp
+    List[int],         # num_players
+    List[np.ndarray],  # policy_indices
+    List[np.ndarray],  # policy_values
+    List[int],         # move_numbers
+    List[int],         # total_game_moves
+    List[str],         # phases
+    ConversionStats,
+]:
+    """Process a single JSONL file and extract training data."""
+    features_list = []
+    globals_list = []
+    values_list = []
+    values_mp_list = []
+    num_players_list = []
+    policy_indices_list = []
+    policy_values_list = []
+    move_numbers_list = []
+    total_game_moves_list = []
+    phases_list = []
 
-    Returns:
-        Tuple of (states, policies, values, stats)
-    """
-    states = []
-    policies = []
-    values = []
     stats = ConversionStats()
+    games_in_file = 0
 
     with open(filepath, "r") as f:
-        stats.bytes_read = os.path.getsize(filepath)
-
         for line in f:
-            if max_positions and (current_positions + len(states)) >= max_positions:
+            if max_games and (current_games + games_in_file) >= max_games:
                 break
 
+            line = line.strip()
+            if not line:
+                continue
+
             try:
-                record = json.loads(line.strip())
+                record = json.loads(line)
             except json.JSONDecodeError:
+                stats.games_skipped_error += 1
                 continue
 
             # Apply filters
-            board_type = record.get("board_type", "square8")
+            board_type_str = record.get("board_type", "square8")
             num_players = record.get("num_players", 2)
 
-            if board_filter and board_type != board_filter:
+            if board_filter and board_type_str != board_filter:
                 stats.games_skipped_filter += 1
                 continue
             if players_filter and num_players != players_filter:
                 stats.games_skipped_filter += 1
                 continue
 
-            # Check for moves and initial state (training data)
-            moves = record.get("moves", [])
-            initial_state = record.get("initial_state")
+            # Check required data
+            initial_state_dict = record.get("initial_state")
+            moves_list = record.get("moves", [])
 
-            if not moves or not initial_state:
-                stats.games_skipped_no_moves += 1
+            if not initial_state_dict or not moves_list:
+                stats.games_skipped_no_data += 1
                 continue
 
-            # Subsample games
-            if subsample_rate < 1.0 and rng.random() > subsample_rate:
+            try:
+                # Parse initial state
+                initial_state = deserialize_game_state(initial_state_dict)
+
+                # Parse moves
+                moves = [parse_move(m) for m in moves_list]
+                total_moves = len(moves)
+
+                # Replay game and extract features
+                current_state = initial_state
+                history_frames: List[np.ndarray] = []
+
+                # Compute final state for value targets
+                final_state = initial_state
+                for move in moves:
+                    final_state = GameEngine.apply_move(final_state, move)
+
+                # Precompute multi-player values
+                values_vec = np.array(
+                    compute_multi_player_values(final_state, num_players),
+                    dtype=np.float32,
+                )
+
+                for move_idx, move in enumerate(moves):
+                    # Sample every N moves
+                    if sample_every > 1 and (move_idx % sample_every) != 0:
+                        # Still need to apply move and update history
+                        base_features, _ = encoder._extract_features(current_state)
+                        history_frames.append(base_features)
+                        if len(history_frames) > history_length + 1:
+                            history_frames.pop(0)
+                        current_state = GameEngine.apply_move(current_state, move)
+                        continue
+
+                    # Encode state with history
+                    stacked, globals_vec = encode_state_with_history(
+                        encoder, current_state, history_frames, history_length
+                    )
+
+                    # Update history
+                    base_features, _ = encoder._extract_features(current_state)
+                    history_frames.append(base_features)
+                    if len(history_frames) > history_length + 1:
+                        history_frames.pop(0)
+
+                    # Encode action (sparse)
+                    action_idx = encoder.encode_move(move, current_state.board)
+                    if action_idx == INVALID_MOVE_INDEX:
+                        # Skip invalid moves
+                        current_state = GameEngine.apply_move(current_state, move)
+                        continue
+
+                    # Value from perspective of current player
+                    value = value_from_final_ranking(
+                        final_state, current_state.current_player, num_players
+                    )
+
+                    # Phase string
+                    phase_str = (
+                        str(current_state.current_phase.value)
+                        if hasattr(current_state.current_phase, "value")
+                        else str(current_state.current_phase)
+                    )
+
+                    # Store sample
+                    features_list.append(stacked)
+                    globals_list.append(globals_vec)
+                    values_list.append(float(value))
+                    values_mp_list.append(values_vec.copy())
+                    num_players_list.append(num_players)
+                    policy_indices_list.append(np.array([action_idx], dtype=np.int32))
+                    policy_values_list.append(np.array([1.0], dtype=np.float32))
+                    move_numbers_list.append(move_idx)
+                    total_game_moves_list.append(total_moves)
+                    phases_list.append(phase_str)
+
+                    stats.positions_extracted += 1
+
+                    # Apply move for next iteration
+                    current_state = GameEngine.apply_move(current_state, move)
+
+                games_in_file += 1
+                stats.games_processed += 1
+
+            except Exception as e:
+                stats.games_skipped_error += 1
+                logger.debug(f"Error processing game: {e}")
                 continue
-
-            stats.games_processed += 1
-
-            # Determine outcome
-            winner = record.get("winner")
-
-            # Get board dimensions
-            board_size = BOARD_SIZES.get(board_type, (8, 8))
-            action_dim = get_action_dim(board_size)
-
-            # Process each move to extract (state, action, value) tuples
-            # We reconstruct states by applying moves sequentially
-            # For simplicity, we only use the initial state and first few moves
-            # A full implementation would replay the game
-
-            state_tensor = encode_state_tensor(initial_state, board_size, num_players)
-
-            for i, move in enumerate(moves[:50]):  # Limit moves per game
-                if max_positions and (current_positions + len(states)) >= max_positions:
-                    break
-
-                # Create policy target (one-hot for chosen move)
-                policy = np.zeros(action_dim, dtype=np.float32)
-                action_idx = encode_move_index(move, board_size)
-                if 0 <= action_idx < action_dim:
-                    policy[action_idx] = 1.0
-
-                # Create value target based on game outcome
-                # Perspective is current player at this position
-                current_player = move.get("player", 1)
-                if winner == 0:  # Draw
-                    value = 0.0
-                elif winner == current_player:  # Win
-                    value = 1.0
-                else:  # Loss
-                    value = -1.0
-
-                states.append(state_tensor.copy())
-                policies.append(policy)
-                values.append(value)
-                stats.positions_extracted += 1
-
-                # Note: For a complete implementation, we would update
-                # state_tensor by applying the move. This simplified version
-                # uses the same initial state for all positions in a game.
 
     stats.files_processed = 1
-    return states, policies, values, stats
+    return (
+        features_list, globals_list, values_list, values_mp_list,
+        num_players_list, policy_indices_list, policy_values_list,
+        move_numbers_list, total_game_moves_list, phases_list, stats
+    )
 
 
 def find_jsonl_files(input_path: Path, recursive: bool = True) -> List[Path]:
     """Find all JSONL files in the given path."""
     if input_path.is_file():
         return [input_path]
-
     pattern = "**/*.jsonl" if recursive else "*.jsonl"
     return sorted(input_path.glob(pattern))
-
-
-# =============================================================================
-# Main Conversion
-# =============================================================================
 
 
 def convert_jsonl_to_npz(
     input_paths: List[Path],
     output_path: Path,
-    board_filter: Optional[str] = None,
+    board_type_str: str,
     players_filter: Optional[int] = None,
-    subsample_rate: float = 1.0,
-    max_positions: Optional[int] = None,
-    seed: int = 42,
+    max_games: Optional[int] = None,
+    sample_every: int = 1,
+    history_length: int = 3,
 ) -> ConversionStats:
-    """Convert JSONL files to NPZ training data.
+    """Convert JSONL files to NPZ training data."""
+    board_type = BOARD_TYPE_MAP.get(board_type_str, BoardType.SQUARE8)
+    encoder = build_encoder(board_type)
 
-    Args:
-        input_paths: List of JSONL file paths
-        output_path: Output NPZ file path
-        board_filter: Only include games with this board type
-        players_filter: Only include games with this player count
-        subsample_rate: Fraction of games to include (0-1)
-        max_positions: Maximum total positions to extract
-        seed: Random seed for subsampling
-
-    Returns:
-        ConversionStats with processing statistics
-    """
-    rng = np.random.default_rng(seed)
-
-    all_states = []
-    all_policies = []
+    all_features = []
+    all_globals = []
     all_values = []
+    all_values_mp = []
+    all_num_players = []
+    all_policy_indices = []
+    all_policy_values = []
+    all_move_numbers = []
+    all_total_game_moves = []
+    all_phases = []
+
     total_stats = ConversionStats()
 
     logger.info(f"Processing {len(input_paths)} JSONL files...")
+    logger.info(f"Board type: {board_type_str}, Players: {players_filter or 'any'}")
 
     for i, filepath in enumerate(input_paths):
-        if max_positions and len(all_states) >= max_positions:
-            logger.info(f"Reached max_positions limit ({max_positions})")
+        if max_games and total_stats.games_processed >= max_games:
             break
 
-        states, policies, values, stats = process_jsonl_file(
+        (features, globals_vec, values, values_mp, num_players,
+         policy_indices, policy_values, move_numbers, total_moves,
+         phases, stats) = process_jsonl_file(
             filepath=filepath,
-            board_filter=board_filter,
+            encoder=encoder,
+            board_type=board_type,
+            board_filter=board_type_str,
             players_filter=players_filter,
-            subsample_rate=subsample_rate,
-            max_positions=max_positions,
-            current_positions=len(all_states),
-            rng=rng,
+            max_games=max_games,
+            sample_every=sample_every,
+            history_length=history_length,
+            current_games=total_stats.games_processed,
         )
 
-        all_states.extend(states)
-        all_policies.extend(policies)
+        all_features.extend(features)
+        all_globals.extend(globals_vec)
         all_values.extend(values)
+        all_values_mp.extend(values_mp)
+        all_num_players.extend(num_players)
+        all_policy_indices.extend(policy_indices)
+        all_policy_values.extend(policy_values)
+        all_move_numbers.extend(move_numbers)
+        all_total_game_moves.extend(total_moves)
+        all_phases.extend(phases)
 
         total_stats.files_processed += stats.files_processed
         total_stats.games_processed += stats.games_processed
-        total_stats.positions_extracted += stats.positions_extracted
-        total_stats.games_skipped_no_moves += stats.games_skipped_no_moves
         total_stats.games_skipped_filter += stats.games_skipped_filter
-        total_stats.bytes_read += stats.bytes_read
+        total_stats.games_skipped_no_data += stats.games_skipped_no_data
+        total_stats.games_skipped_error += stats.games_skipped_error
+        total_stats.positions_extracted += stats.positions_extracted
 
-        if (i + 1) % 10 == 0:
+        if (i + 1) % 10 == 0 or i == len(input_paths) - 1:
             logger.info(
-                f"  Processed {i + 1}/{len(input_paths)} files, "
-                f"{len(all_states)} positions extracted"
+                f"Processed {i + 1}/{len(input_paths)} files, "
+                f"{total_stats.games_processed} games, "
+                f"{total_stats.positions_extracted} positions"
             )
 
-    if not all_states:
+    if not all_features:
         logger.warning("No training data extracted!")
         return total_stats
 
     # Convert to numpy arrays
     logger.info("Converting to numpy arrays...")
-    states_array = np.stack(all_states, axis=0)
-    policies_array = np.stack(all_policies, axis=0)
-    values_array = np.array(all_values, dtype=np.float32)
+    features_arr = np.stack(all_features, axis=0).astype(np.float32)
+    globals_arr = np.stack(all_globals, axis=0).astype(np.float32)
+    values_arr = np.array(all_values, dtype=np.float32)
+    values_mp_arr = np.stack(all_values_mp, axis=0).astype(np.float32)
+    num_players_arr = np.array(all_num_players, dtype=np.int32)
+    policy_indices_arr = np.array(all_policy_indices, dtype=object)
+    policy_values_arr = np.array(all_policy_values, dtype=object)
+    move_numbers_arr = np.array(all_move_numbers, dtype=np.int32)
+    total_game_moves_arr = np.array(all_total_game_moves, dtype=np.int32)
+    phases_arr = np.array(all_phases, dtype=object)
 
-    # Create output directory if needed
+    # Save
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Save as compressed NPZ
     logger.info(f"Saving to {output_path}...")
+
     np.savez_compressed(
         output_path,
-        states=states_array,
-        policies=policies_array,
-        values=values_array,
-        # Metadata as JSON string
-        metadata=json.dumps({
-            "board_filter": board_filter,
-            "players_filter": players_filter,
-            "subsample_rate": subsample_rate,
-            "files_processed": total_stats.files_processed,
-            "games_processed": total_stats.games_processed,
-            "positions_extracted": total_stats.positions_extracted,
-        }),
+        features=features_arr,
+        globals=globals_arr,
+        values=values_arr,
+        policy_indices=policy_indices_arr,
+        policy_values=policy_values_arr,
+        move_numbers=move_numbers_arr,
+        total_game_moves=total_game_moves_arr,
+        phases=phases_arr,
+        values_mp=values_mp_arr,
+        num_players=num_players_arr,
     )
 
-    # Report file size
     output_size_mb = output_path.stat().st_size / (1024 * 1024)
     logger.info(f"Output file size: {output_size_mb:.2f} MB")
 
@@ -438,7 +512,7 @@ def main():
     parser.add_argument(
         "--input-dir",
         type=str,
-        help="Input directory containing JSONL files (recursive)",
+        help="Input directory containing JSONL files",
     )
     parser.add_argument(
         "--output",
@@ -449,8 +523,9 @@ def main():
     parser.add_argument(
         "--board-type",
         type=str,
+        required=True,
         choices=["square8", "square19", "hexagonal"],
-        help="Filter games by board type",
+        help="Board type (required for proper feature encoding)",
     )
     parser.add_argument(
         "--num-players",
@@ -459,26 +534,21 @@ def main():
         help="Filter games by player count",
     )
     parser.add_argument(
-        "--subsample-rate",
-        type=float,
-        default=1.0,
-        help="Fraction of games to include (0-1, default: 1.0 = all)",
-    )
-    parser.add_argument(
-        "--max-positions",
+        "--max-games",
         type=int,
-        help="Maximum number of positions to extract",
+        help="Maximum number of games to process",
     )
     parser.add_argument(
-        "--seed",
+        "--sample-every",
         type=int,
-        default=42,
-        help="Random seed for subsampling",
+        default=1,
+        help="Use every Nth move as a training sample (default: 1 = all)",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Count files and estimate size without converting",
+        "--history-length",
+        type=int,
+        default=3,
+        help="Number of historical frames to stack (default: 3)",
     )
 
     args = parser.parse_args()
@@ -495,30 +565,14 @@ def main():
 
     logger.info(f"Found {len(input_paths)} JSONL files")
 
-    if args.dry_run:
-        total_size = sum(p.stat().st_size for p in input_paths if p.exists())
-        total_lines = 0
-        for p in input_paths[:10]:  # Sample first 10 files
-            with open(p) as f:
-                total_lines += sum(1 for _ in f)
-        avg_lines = total_lines / min(len(input_paths), 10)
-        est_games = int(avg_lines * len(input_paths))
-
-        logger.info(f"Dry run summary:")
-        logger.info(f"  Total input size: {total_size / (1024*1024):.2f} MB")
-        logger.info(f"  Estimated games: ~{est_games}")
-        logger.info(f"  Filters: board={args.board_type}, players={args.num_players}")
-        logger.info(f"  Subsample rate: {args.subsample_rate}")
-        return
-
     stats = convert_jsonl_to_npz(
         input_paths=input_paths,
         output_path=Path(args.output),
-        board_filter=args.board_type,
+        board_type_str=args.board_type,
         players_filter=args.num_players,
-        subsample_rate=args.subsample_rate,
-        max_positions=args.max_positions,
-        seed=args.seed,
+        max_games=args.max_games,
+        sample_every=args.sample_every,
+        history_length=args.history_length,
     )
 
     logger.info("")
@@ -527,10 +581,10 @@ def main():
     logger.info("=" * 60)
     logger.info(f"Files processed: {stats.files_processed}")
     logger.info(f"Games processed: {stats.games_processed}")
-    logger.info(f"Games skipped (no moves): {stats.games_skipped_no_moves}")
     logger.info(f"Games skipped (filter): {stats.games_skipped_filter}")
+    logger.info(f"Games skipped (no data): {stats.games_skipped_no_data}")
+    logger.info(f"Games skipped (error): {stats.games_skipped_error}")
     logger.info(f"Positions extracted: {stats.positions_extracted}")
-    logger.info(f"Input data read: {stats.bytes_read / (1024*1024):.2f} MB")
 
 
 if __name__ == "__main__":

@@ -645,6 +645,7 @@ function summarizeState(label: string, state: GameState): Record<string, unknown
 async function runReplayMode(args: ReplayCliArgs): Promise<void> {
   const { dbPath, gameId, dumpStateAt, skipGameIds } = args;
   const skipSet = new Set<string>([...DEFAULT_SKIP_GAME_IDS, ...(skipGameIds ?? [])]);
+  const minimalReplay = process.env.RINGRIFT_TS_REPLAY_MINIMAL === '1';
 
   const service = getSelfPlayGameService();
   const detail = service.getGame(dbPath, gameId);
@@ -920,28 +921,30 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       synthesizedCount += 1;
 
       // FSM parity validation for bridge moves
-      const bridgeStateBeforeMove = engine.getState() as GameState;
-      const bridgeFsmValidation = validateMoveWithFSM(bridgeStateBeforeMove, bridgeMove);
-      if (!bridgeFsmValidation.valid) {
-        fsmValidationFailures += 1;
-        console.error(
-          JSON.stringify({
-            kind: 'ts-replay-fsm-bridge-validation-warning',
-            k: applied,
-            bridgeMove: {
-              type: bridgeMove.type,
-              player: bridgeMove.player,
-            },
-            fsmPhase: bridgeFsmValidation.currentPhase,
-            gamePhase: bridgeStateBeforeMove.currentPhase,
-            errorCode: bridgeFsmValidation.errorCode,
-            reason: bridgeFsmValidation.reason,
-          })
-        );
-        // Do not apply this bridge move or any subsequent ones for this DB move.
-        // Falling back to a non-bridge path avoids desynchronising TS phase/player
-        // relative to the DB history when the FSM rejects a synthesized move.
-        break;
+      if (!minimalReplay) {
+        const bridgeStateBeforeMove = engine.getState() as GameState;
+        const bridgeFsmValidation = validateMoveWithFSM(bridgeStateBeforeMove, bridgeMove);
+        if (!bridgeFsmValidation.valid) {
+          fsmValidationFailures += 1;
+          console.error(
+            JSON.stringify({
+              kind: 'ts-replay-fsm-bridge-validation-warning',
+              k: applied,
+              bridgeMove: {
+                type: bridgeMove.type,
+                player: bridgeMove.player,
+              },
+              fsmPhase: bridgeFsmValidation.currentPhase,
+              gamePhase: bridgeStateBeforeMove.currentPhase,
+              errorCode: bridgeFsmValidation.errorCode,
+              reason: bridgeFsmValidation.reason,
+            })
+          );
+          // Do not apply this bridge move or any subsequent ones for this DB move.
+          // Falling back to a non-bridge path avoids desynchronising TS phase/player
+          // relative to the DB history when the FSM rejects a synthesized move.
+          break;
+        }
       }
 
       const bridgeResult = await engine.applyMove(bridgeMove);
@@ -961,38 +964,36 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
         return;
       }
 
-      // FSM orchestration trace for bridge moves
-      const bridgeState = engine.getState() as GameState;
-      const bridgeFsmOrch = computeFSMOrchestration(bridgeState, bridgeMove, {
-        postMoveStateForChainCheck: bridgeState,
-      });
+      if (!minimalReplay) {
+        // FSM orchestration trace for bridge moves
+        const bridgeState = engine.getState() as GameState;
+        const bridgeFsmOrch = computeFSMOrchestration(bridgeState, bridgeMove, {
+          postMoveStateForChainCheck: bridgeState,
+        });
 
-      const dbMoveIndexForBridge = applied > 0 ? applied - 1 : 0;
-      // eslint-disable-next-line no-console
-      console.log(
-        JSON.stringify({
-          kind: 'ts-replay-bridge',
-          db_move_index: dbMoveIndexForBridge,
-          synthesizedMoveType: bridgeMove.type,
-          synthesizedPlayer: bridgeMove.player,
-          summary: {
-            ...summarizeState('after_bridge', bridgeState),
-            // view: 'bridge' – state after a synthesized bookkeeping move
-            // associated with db_move_index, bridging phases between canonical
-            // DB moves without changing the underlying engine/rules semantics.
-            view: 'bridge',
-          },
-          // FSM action trace for bridge move
-          fsm: {
-            success: bridgeFsmOrch.success,
-            nextPhase: bridgeFsmOrch.nextPhase,
-            nextPlayer: bridgeFsmOrch.nextPlayer,
-            actions: bridgeFsmOrch.actions.map((a) => a.type),
-            pendingDecisionType: bridgeFsmOrch.pendingDecisionType,
-            ...(bridgeFsmOrch.error && { error: bridgeFsmOrch.error }),
-          },
-        })
-      );
+        const dbMoveIndexForBridge = applied > 0 ? applied - 1 : 0;
+        // eslint-disable-next-line no-console
+        console.log(
+          JSON.stringify({
+            kind: 'ts-replay-bridge',
+            db_move_index: dbMoveIndexForBridge,
+            synthesizedMoveType: bridgeMove.type,
+            synthesizedPlayer: bridgeMove.player,
+            summary: {
+              ...summarizeState('after_bridge', bridgeState),
+              view: 'bridge',
+            },
+            fsm: {
+              success: bridgeFsmOrch.success,
+              nextPhase: bridgeFsmOrch.nextPhase,
+              nextPlayer: bridgeFsmOrch.nextPlayer,
+              actions: bridgeFsmOrch.actions.map((a) => a.type),
+              pendingDecisionType: bridgeFsmOrch.pendingDecisionType,
+              ...(bridgeFsmOrch.error && { error: bridgeFsmOrch.error }),
+            },
+          })
+        );
+      }
     }
 
     // After applying bridges (but before applying this move), emit the "complete" state
@@ -1023,29 +1024,29 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     // FSM parity validation: validate move against FSM before applying
     // This catches any divergence between the recorded move and FSM rules
     const stateBeforeMove = engine.getState() as GameState;
-    const fsmValidation = validateMoveWithFSM(stateBeforeMove, move);
-    if (!fsmValidation.valid) {
-      fsmValidationFailures += 1;
-      // Log FSM validation failure but continue - the move may still apply
-      // via the engine's own validation (FSM may be more restrictive)
-      console.error(
-        JSON.stringify({
-          kind: 'ts-replay-fsm-validation-warning',
-          k: applied,
-          db_move_index: i,
-          move: {
-            type: move.type,
-            player: move.player,
-            from: move.from,
-            to: move.to,
-          },
-          fsmPhase: fsmValidation.currentPhase,
-          gamePhase: stateBeforeMove.currentPhase,
-          errorCode: fsmValidation.errorCode,
-          reason: fsmValidation.reason,
-          validEventTypes: fsmValidation.validEventTypes,
-        })
-      );
+    if (!minimalReplay) {
+      const fsmValidation = validateMoveWithFSM(stateBeforeMove, move);
+      if (!fsmValidation.valid) {
+        fsmValidationFailures += 1;
+        console.error(
+          JSON.stringify({
+            kind: 'ts-replay-fsm-validation-warning',
+            k: applied,
+            db_move_index: i,
+            move: {
+              type: move.type,
+              player: move.player,
+              from: move.from,
+              to: move.to,
+            },
+            fsmPhase: fsmValidation.currentPhase,
+            gamePhase: stateBeforeMove.currentPhase,
+            errorCode: fsmValidation.errorCode,
+            reason: fsmValidation.reason,
+            validEventTypes: fsmValidation.validEventTypes,
+          })
+        );
+      }
     }
 
     const result = await engine.applyMove(move);
@@ -1171,11 +1172,11 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
       }
     }
 
-    // FSM orchestration trace: compute what the FSM would do after this move
-    // This provides action traces for parity analysis and debugging
-    const fsmOrchestration = computeFSMOrchestration(state as GameState, move, {
-      postMoveStateForChainCheck: state as GameState,
-    });
+    const fsmOrchestration = minimalReplay
+      ? null
+      : computeFSMOrchestration(state as GameState, move, {
+          postMoveStateForChainCheck: state as GameState,
+        });
 
     // Optional debug dump for parity investigation
     if (shouldDumpState && (dumpAll || dumpKSet.has(applied))) {
@@ -1202,34 +1203,30 @@ async function runReplayMode(args: ReplayCliArgs): Promise<void> {
     }
 
     const stepDbMoveIndex = applied > 0 ? applied - 1 : null;
+    const stepPayload: any = {
+      kind: 'ts-replay-step',
+      k: applied,
+      db_move_index: stepDbMoveIndex,
+      moveType: move.type,
+      movePlayer: move.player,
+      moveNumber: move.moveNumber,
+      summary: {
+        ...summarizeState(`after_move_${applied}`, state as GameState),
+        view: 'post_move',
+      },
+    };
+    if (fsmOrchestration) {
+      stepPayload.fsm = {
+        success: fsmOrchestration.success,
+        nextPhase: fsmOrchestration.nextPhase,
+        nextPlayer: fsmOrchestration.nextPlayer,
+        actions: fsmOrchestration.actions.map((a) => a.type),
+        pendingDecisionType: fsmOrchestration.pendingDecisionType,
+        ...(fsmOrchestration.error && { error: fsmOrchestration.error }),
+      };
+    }
     // eslint-disable-next-line no-console
-    console.log(
-      JSON.stringify({
-        kind: 'ts-replay-step',
-        k: applied,
-        db_move_index: stepDbMoveIndex,
-        moveType: move.type,
-        movePlayer: move.player,
-        moveNumber: move.moveNumber,
-        // view: 'post_move' – state immediately after applying DB move
-        // db_move_index, before any synthesized bookkeeping for subsequent
-        // phases. This is the canonical TS post_move[N] view used for
-        // TS↔Python parity in post_move mode.
-        summary: {
-          ...summarizeState(`after_move_${applied}`, state as GameState),
-          view: 'post_move',
-        },
-        // FSM action trace: what the FSM computed for this move
-        fsm: {
-          success: fsmOrchestration.success,
-          nextPhase: fsmOrchestration.nextPhase,
-          nextPlayer: fsmOrchestration.nextPlayer,
-          actions: fsmOrchestration.actions.map((a) => a.type),
-          pendingDecisionType: fsmOrchestration.pendingDecisionType,
-          ...(fsmOrchestration.error && { error: fsmOrchestration.error }),
-        },
-      })
-    );
+    console.log(JSON.stringify(stepPayload));
 
     // If early victory was detected, return immediately after emitting the step
     // This ensures the ts-replay-step is recorded before we exit the loop
