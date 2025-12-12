@@ -530,6 +530,56 @@ class AIConfig(BaseModel):
         ),
     )
 
+    # ------------------------------------------------------------------
+    # Self-play exploration knobs (internal only).
+    #
+    # These fields are used by search-based AIs (notably MCTSAI) to enable
+    # AlphaZero-style exploration during offline self-play/training runs.
+    # They are NOT part of the TS/JSON wire contract.
+    # ------------------------------------------------------------------
+
+    self_play: bool = Field(
+        default=False,
+        description=(
+            "When True, enables self-play exploration features in search-based "
+            "AIs (e.g., Dirichlet root noise and temperature sampling for MCTS). "
+            "Production and evaluation paths should keep this False."
+        ),
+    )
+    root_dirichlet_alpha: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Dirichlet alpha parameter for root noise in self-play MCTS. When "
+            "None, a board-specific default is used."
+        ),
+    )
+    root_noise_fraction: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Epsilon mix fraction for root Dirichlet noise in self-play MCTS. "
+            "When None, defaults to 0.25."
+        ),
+    )
+    temperature: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Override temperature for self-play MCTS move sampling. When None, "
+            "a default schedule based on move count is used."
+        ),
+    )
+    temperature_cutoff_moves: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Move-count cutoff for high-temperature self-play MCTS. When None, "
+            "uses board-specific defaults."
+        ),
+    )
+
 
 class LineRewardChoiceOption(str, Enum):
     """Line reward choice options, mirroring TypeScript LineRewardChoice."""

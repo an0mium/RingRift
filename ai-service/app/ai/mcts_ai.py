@@ -558,6 +558,23 @@ class MCTSAI(HeuristicAI):
         self._training_root: Optional[MCTSNode] = None
         self._training_root_lite: Optional[MCTSNodeLite] = None
 
+        # Self-play exploration controls (AlphaZero-style).
+        # These are enabled only when AIConfig.self_play is True.
+        self.self_play: bool = bool(getattr(config, "self_play", False))
+        self.root_dirichlet_alpha: Optional[float] = getattr(
+            config, "root_dirichlet_alpha", None
+        )
+        self.root_noise_fraction: float = float(
+            getattr(config, "root_noise_fraction", None) or 0.25
+        )
+        self.temperature_override: Optional[float] = getattr(
+            config, "temperature", None
+        )
+        self.temperature_cutoff_moves: Optional[int] = getattr(
+            config, "temperature_cutoff_moves", None
+        )
+        self._dirichlet_applied_this_search: bool = False
+
     def get_last_search_root(self) -> Optional[MCTSNode]:
         """Return the root node from the most recent legacy search.
 
@@ -733,6 +750,9 @@ class MCTSAI(HeuristicAI):
         else:
             time_limit = 1.0 + (self.config.difficulty * 0.5)
 
+        # Reset self-play root noise flag for this search.
+        self._dirichlet_applied_this_search = False
+
         # Tree Reuse: Check if we have a subtree for the current state
         root: Optional[MCTSNode] = None
         if hasattr(self, "last_root") and self.last_root is not None:
@@ -849,7 +869,7 @@ class MCTSAI(HeuristicAI):
         self._training_root_lite = None  # Clear incremental root
 
         # Select best move based on visits
-        return self._select_best_move_legacy(root, valid_moves)
+        return self._select_best_move_legacy(root, valid_moves, game_state)
 
     def _evaluate_leaves_legacy(
         self,
@@ -1068,6 +1088,9 @@ class MCTSAI(HeuristicAI):
             for move in valid_moves_state:
                 node.policy_map[str(move)] = uniform
 
+        # Apply Dirichlet noise only at root during self-play.
+        self._maybe_apply_root_dirichlet_noise(node, state.board.type)
+
     def _heuristic_rollout_legacy(self, state: GameState) -> float:
         """Perform heuristic-guided rollout simulation."""
         rollout_depth = 3
@@ -1120,7 +1143,10 @@ class MCTSAI(HeuristicAI):
         return weights
 
     def _select_best_move_legacy(
-        self, root: MCTSNode, valid_moves: List[Move]
+        self,
+        root: MCTSNode,
+        valid_moves: List[Move],
+        game_state: GameState,
     ) -> Tuple[Optional[Move], Optional[Dict[str, float]]]:
         """Select best move from legacy tree based on visit counts."""
         # Build a set of valid move signatures for efficient lookup.
@@ -1155,9 +1181,15 @@ class MCTSAI(HeuristicAI):
                     policy[str(child.move)] = uniform
 
             best_child = max(valid_children, key=lambda c: c.visits)
-            selected = best_child.move
+            selected_child = best_child
+            if self.self_play:
+                temperature = self._get_selfplay_temperature(game_state)
+                selected_child = self._sample_child_by_temperature(
+                    valid_children, temperature
+                )
+            selected = selected_child.move
 
-            self.last_root = best_child
+            self.last_root = selected_child
             self.last_root.parent = None
 
             # Extra validation: ensure selected move matches a valid move.
@@ -1210,6 +1242,9 @@ class MCTSAI(HeuristicAI):
             time_limit = self.config.think_time / 1000.0
         else:
             time_limit = 1.0 + (self.config.difficulty * 0.5)
+
+        # Reset self-play root noise flag for this search.
+        self._dirichlet_applied_this_search = False
 
         # Create mutable state once for the entire search
         mutable_state = MutableGameState.from_immutable(game_state)
@@ -1324,7 +1359,7 @@ class MCTSAI(HeuristicAI):
         self._training_root = None  # Clear legacy root
 
         # Select best move based on visits
-        return self._select_best_move_incremental(root, valid_moves)
+        return self._select_best_move_incremental(root, valid_moves, game_state)
 
     def _select_with_mutable(
         self,
@@ -1632,8 +1667,14 @@ class MCTSAI(HeuristicAI):
             for move in valid_moves_state:
                 node.policy_map[str(move)] = uniform
 
+        # Apply Dirichlet noise only at root during self-play.
+        self._maybe_apply_root_dirichlet_noise(node, state.board.type)
+
     def _select_best_move_incremental(
-        self, root: MCTSNodeLite, valid_moves: List[Move]
+        self,
+        root: MCTSNodeLite,
+        valid_moves: List[Move],
+        game_state: GameState,
     ) -> Tuple[Optional[Move], Optional[Dict[str, float]]]:
         """Select best move from incremental tree based on visit counts."""
         # Build a set of valid move signatures for efficient lookup.
@@ -1670,9 +1711,15 @@ class MCTSAI(HeuristicAI):
                         policy[str(child.move)] = uniform
 
             best_child = max(valid_children, key=lambda c: c.visits)
-            selected = best_child.move
+            selected_child = best_child
+            if self.self_play:
+                temperature = self._get_selfplay_temperature(game_state)
+                selected_child = self._sample_child_by_temperature(
+                    valid_children, temperature
+                )
+            selected = selected_child.move
 
-            self.last_root_lite = best_child
+            self.last_root_lite = selected_child
             self.last_root_lite.parent = None
 
             # Extra validation: ensure selected move matches a valid move.
@@ -1708,6 +1755,101 @@ class MCTSAI(HeuristicAI):
     # =========================================================================
     # Shared Utility Methods
     # =========================================================================
+
+    def _default_dirichlet_alpha(self, board_type: BoardType) -> float:
+        """Return a conservative board-specific Dirichlet alpha."""
+        if board_type == BoardType.SQUARE8:
+            return 0.3
+        # Large action spaces should use smaller alpha.
+        return 0.15
+
+    def _maybe_apply_root_dirichlet_noise(
+        self,
+        node: Any,
+        board_type: BoardType,
+    ) -> None:
+        """Mix Dirichlet noise into root priors for self-play only."""
+        if not self.self_play or self._dirichlet_applied_this_search:
+            return
+        if getattr(node, "parent", None) is not None:
+            return
+        if not getattr(node, "policy_map", None):
+            return
+
+        keys = list(node.policy_map.keys())
+        if len(keys) <= 1 or self.root_noise_fraction <= 0:
+            self._dirichlet_applied_this_search = True
+            return
+
+        alpha = self.root_dirichlet_alpha or self._default_dirichlet_alpha(board_type)
+        epsilon = self.root_noise_fraction
+
+        # Seed numpy from the per-instance RNG for reproducibility.
+        seed = int(self.rng.randrange(0, 2**32 - 1))
+        rng = np.random.default_rng(seed)
+        noise = rng.dirichlet([alpha] * len(keys))
+
+        for i, key in enumerate(keys):
+            prior = float(node.policy_map[key])
+            node.policy_map[key] = (1.0 - epsilon) * prior + epsilon * float(noise[i])
+
+        total = float(sum(node.policy_map.values()))
+        if total > 0:
+            for key in node.policy_map:
+                node.policy_map[key] /= total
+
+        self._dirichlet_applied_this_search = True
+
+    def _get_selfplay_temperature(self, game_state: GameState) -> float:
+        """Return temperature for self-play root move sampling."""
+        if self.temperature_override is not None:
+            return float(self.temperature_override)
+
+        board_type = game_state.board.type
+        cutoff = self.temperature_cutoff_moves
+        if cutoff is None:
+            if board_type == BoardType.SQUARE8:
+                cutoff = 24
+            else:
+                cutoff = 40
+
+        move_index = len(game_state.move_history)
+        if move_index < cutoff:
+            return 1.0
+        if move_index < cutoff * 2:
+            return 0.5
+        return 0.1
+
+    def _sample_child_by_temperature(
+        self,
+        children: List[Any],
+        temperature: float,
+    ) -> Any:
+        """Sample a child proportional to visits^1/temperature."""
+        if temperature <= 0 or len(children) == 1:
+            return max(children, key=lambda c: c.visits)
+
+        visits = np.array(
+            [max(0.0, float(c.visits)) for c in children],
+            dtype=np.float64,
+        )
+        if visits.sum() <= 0:
+            probs = np.ones_like(visits) / len(visits)
+        else:
+            probs = visits / visits.sum()
+
+        if temperature != 1.0:
+            probs = probs ** (1.0 / float(temperature))
+            p_sum = probs.sum()
+            if p_sum > 0:
+                probs /= p_sum
+
+        idx = self.rng.choices(
+            list(range(len(children))),
+            weights=probs.tolist(),
+            k=1,
+        )[0]
+        return children[idx]
 
     def _log_stats(self) -> None:
         """Log transposition table and dynamic sizer stats."""
