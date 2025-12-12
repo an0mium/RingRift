@@ -97,6 +97,26 @@ def get_cached_model_count() -> int:
     return len(_MODEL_CACHE)
 
 
+def _strip_module_prefix(state_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize a PyTorch state_dict by stripping a leading ``module.`` prefix.
+
+    Some training jobs save checkpoints from DistributedDataParallel (DDP),
+    which prefixes all parameter keys with ``module.``. Runtime inference
+    expects the non-prefixed keys.
+    """
+    if not state_dict:
+        return state_dict
+    if not any(isinstance(k, str) and k.startswith("module.") for k in state_dict.keys()):
+        return state_dict
+    stripped: Dict[str, Any] = {}
+    for key, value in state_dict.items():
+        if isinstance(key, str) and key.startswith("module."):
+            stripped[key[len("module."):]] = value
+        else:
+            stripped[key] = value
+    return stripped
+
+
 INVALID_MOVE_INDEX = -1
 MAX_N = 19  # Canonical maximum side length for policy encoding (19x19 grid)
 
@@ -2646,6 +2666,7 @@ class NeuralNetAI(BaseAI):
                     # that rely on model_id prefixes.
                     state_dict = checkpoint.get("model_state_dict")
                     if isinstance(state_dict, dict):
+                        state_dict = _strip_module_prefix(state_dict)
                         conv1_weight = state_dict.get("conv1.weight")
                         if conv1_weight is not None and hasattr(conv1_weight, "shape"):
                             inferred_filters = int(conv1_weight.shape[0])
@@ -2831,6 +2852,8 @@ class NeuralNetAI(BaseAI):
                     verify_checksum=True,
                     device=self.device,
                 )
+                if isinstance(state_dict, dict):
+                    state_dict = _strip_module_prefix(state_dict)
                 # Guard: reject checkpoints whose declared global_features do not
                 # match the current encoder/output shape.
                 expected_globals = getattr(self.model, "global_features", None)
@@ -2939,6 +2962,9 @@ class NeuralNetAI(BaseAI):
                     state_dict = checkpoint
             else:
                 state_dict = checkpoint
+
+            if isinstance(state_dict, dict):
+                state_dict = _strip_module_prefix(state_dict)
 
             self.model.load_state_dict(state_dict)
             self.model.eval()
