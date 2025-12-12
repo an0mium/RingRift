@@ -444,6 +444,11 @@ def _build_mixed_ai_pool(
     ai_by_player: Dict[int, Any] = {}
     ai_metadata: Dict[str, Any] = {}
 
+    # In soak contexts we want near-zero search budgets for high-tier engines.
+    # The core AI implementations treat think_time <= 0 as "use default budget",
+    # so we pass a tiny positive value instead.
+    soak_think_time_ms = 1
+
     if engine_mode == "descent-only":
         from app.ai.descent_ai import DescentAI  # type: ignore
 
@@ -456,7 +461,7 @@ def _build_mixed_ai_pool(
             # behaviour for other DescentAI callers.
             cfg = AIConfig(
                 difficulty=5,
-                think_time=0,
+                think_time=soak_think_time_ms,
                 randomness=0.1,
                 rngSeed=(base_seed or 0) + pnum + game_index,
                 use_neural_net=False,
@@ -473,7 +478,7 @@ def _build_mixed_ai_pool(
         for pnum in player_numbers:
             cfg = AIConfig(
                 difficulty=1,
-                think_time=0,
+                think_time=soak_think_time_ms,
                 randomness=1.0,
                 rngSeed=(base_seed or 0) + pnum + game_index,
             )
@@ -500,7 +505,7 @@ def _build_mixed_ai_pool(
         for pnum in player_numbers:
             cfg = AIConfig(
                 difficulty=2,
-                think_time=0,
+                think_time=soak_think_time_ms,
                 randomness=0.05,
                 rngSeed=(base_seed or 0) + pnum + game_index,
                 heuristic_eval_mode=heuristic_eval_mode,
@@ -519,7 +524,7 @@ def _build_mixed_ai_pool(
         for pnum in player_numbers:
             cfg = AIConfig(
                 difficulty=5,  # Mid-tier Minimax difficulty
-                think_time=0,
+                think_time=soak_think_time_ms,
                 randomness=0.1,
                 rngSeed=(base_seed or 0) + pnum + game_index,
                 use_neural_net=False,
@@ -535,7 +540,7 @@ def _build_mixed_ai_pool(
         for pnum in player_numbers:
             cfg = AIConfig(
                 difficulty=8,  # MCTS difficulty band
-                think_time=0,
+                think_time=soak_think_time_ms,
                 randomness=0.1,
                 rngSeed=(base_seed or 0) + pnum + game_index,
                 use_neural_net=False,
@@ -564,7 +569,7 @@ def _build_mixed_ai_pool(
         for pnum in player_numbers:
             cfg = AIConfig(
                 difficulty=10,
-                think_time=0,
+                think_time=soak_think_time_ms,
                 randomness=0.05,
                 rngSeed=(base_seed or 0) + pnum + game_index,
                 use_neural_net=default_nn_model_id is not None,
@@ -643,7 +648,7 @@ def _build_mixed_ai_pool(
         cfg = AIConfig(
             difficulty=difficulty,
             randomness=profile["randomness"],
-            think_time=0,  # disable UX delay in soak
+            think_time=soak_think_time_ms,
             rngSeed=game_rng.randrange(0, 2**31),
             heuristic_profile_id=heuristic_profile_id,
             nn_model_id=nn_model_id,

@@ -42,14 +42,18 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
+
+AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+# Ensure `app.*` imports resolve when invoked from repo root.
+if str(AI_SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.db.game_replay import GameReplayDB
 from app.rules.history_validation import validate_canonical_history_for_game
 
-
-AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_cmd(
@@ -57,8 +61,14 @@ def _run_cmd(
     cwd: Path | None = None,
 ) -> subprocess.CompletedProcess:
     env = os.environ.copy()
-    # Ensure PYTHONPATH points at ai-service root when invoked from repo root.
-    env.setdefault("PYTHONPATH", str(AI_SERVICE_ROOT))
+    # Ensure PYTHONPATH includes ai-service root when invoked from repo root.
+    # Prepend absolute AI_SERVICE_ROOT if missing so relative PYTHONPATH values
+    # (e.g. "ai-service") don't break when cwd is ai-service/.
+    pythonpath = env.get("PYTHONPATH", "")
+    parts = [p for p in pythonpath.split(os.pathsep) if p]
+    if str(AI_SERVICE_ROOT) not in parts:
+        parts.insert(0, str(AI_SERVICE_ROOT))
+    env["PYTHONPATH"] = os.pathsep.join(parts)
     # Keep OpenMP usage conservative by default.
     env.setdefault("OMP_NUM_THREADS", os.environ.get("OMP_NUM_THREADS", "1"))
     env.setdefault("MKL_NUM_THREADS", os.environ.get("MKL_NUM_THREADS", "1"))
@@ -86,24 +96,49 @@ def run_selfplay_and_parity(
     """
     summary_path = db_path.with_suffix(db_path.suffix + ".parity_gate.json")
 
-    cmd = [
-        sys.executable,
-        "scripts/run_canonical_selfplay_parity_gate.py",
-        "--board-type",
-        board_type,
-        "--num-games",
-        str(num_games),
-        "--num-players",
-        str(num_players),
-        "--db",
-        str(db_path),
-        "--summary",
-        str(summary_path),
-    ]
-    if hosts:
-        cmd += ["--hosts", hosts]
+    # If num_games == 0, assume the DB already exists and skip running
+    # a new soak. We still run parity on the provided DB path.
+    if num_games <= 0:
+        print(
+            f"[generate_canonical_selfplay] Skipping soak (num_games={num_games}); running parity on existing DB...",
+            flush=True,
+        )
+        cmd = [
+            sys.executable,
+            "scripts/check_ts_python_replay_parity.py",
+            "--db",
+            str(db_path),
+            "--mode",
+            "canonical",
+            "--view",
+            "post_move",
+            "--summary-json",
+            str(summary_path),
+        ]
+        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+    else:
+        print(
+            f"[generate_canonical_selfplay] Running canonical soak ({num_games} games) + parity gate...",
+            flush=True,
+        )
+        cmd = [
+            sys.executable,
+            "scripts/run_canonical_selfplay_parity_gate.py",
+            "--board-type",
+            board_type,
+            "--num-games",
+            str(num_games),
+            "--num-players",
+            str(num_players),
+            "--db",
+            str(db_path),
+            "--summary",
+            str(summary_path),
+        ]
+        if hosts:
+            cmd += ["--hosts", hosts]
 
-    proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
 
     parity_summary: Dict[str, Any]
     if summary_path.exists():
@@ -130,6 +165,50 @@ def run_selfplay_and_parity(
 
     parity_summary["returncode"] = proc.returncode
     return parity_summary
+
+
+def merge_distributed_dbs(
+    source_dbs: List[Path],
+    dest_db: Path,
+    reset_db: bool,
+) -> Dict[str, Any]:
+    """Merge per-host distributed self-play DBs into *dest_db*.
+
+    When reset_db is True and dest_db exists, we archive the existing DB
+    alongside it before merging, rather than deleting it silently.
+    """
+    if not source_dbs:
+        return {"error": "no_source_dbs", "returncode": 1}
+
+    archived_path: str | None = None
+    if reset_db and dest_db.exists():
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        archived = dest_db.with_suffix(dest_db.suffix + f".archived_{ts}")
+        dest_db.replace(archived)
+        archived_path = str(archived)
+
+    cmd = [
+        sys.executable,
+        "scripts/merge_game_dbs.py",
+        "--output",
+        str(dest_db),
+        "--on-conflict",
+        "skip",
+        "--dedupe-by-game-id",
+    ]
+    for src in source_dbs:
+        cmd += ["--db", str(src)]
+
+    proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+
+    return {
+        "returncode": proc.returncode,
+        "stdout": proc.stdout,
+        "stderr": proc.stderr,
+        "sources": [str(p) for p in source_dbs],
+        "dest_db": str(dest_db),
+        "archived_previous_db": archived_path,
+    }
 
 
 def run_canonical_history_check(db_path: Path) -> Dict[str, Any]:
@@ -345,6 +424,16 @@ def main(argv: List[str] | None = None) -> int:
             "when set, delegates to run_distributed_selfplay_soak."
         ),
     )
+    parser.add_argument(
+        "--reset-db",
+        action="store_true",
+        help=(
+            "When using --hosts, archive any existing canonical DB and "
+            "rebuild it from scratch by merging the distributed outputs. "
+            "Without this flag, distributed games are merged into the "
+            "existing DB (deduping by game_id)."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -384,11 +473,29 @@ def main(argv: List[str] | None = None) -> int:
     passed_gate = bool(parity_summary.get("passed_canonical_parity_gate"))
     parity_rc = int(parity_summary.get("soak_returncode", 0) or 0)
 
-    base_ok = (
-        db_path.exists()
-        and passed_gate
-        and parity_rc == 0
-    )
+    merge_result: Dict[str, Any] | None = None
+    if hosts:
+        checked_paths = [
+            Path(p)
+            for p in (parity_summary.get("db_paths_checked") or [])
+            if isinstance(p, str) and p
+        ]
+        source_dbs = [p for p in checked_paths if p.exists() and p != db_path]
+        merge_result = merge_distributed_dbs(
+            source_dbs=source_dbs,
+            dest_db=db_path,
+            reset_db=bool(args.reset_db),
+        )
+
+    merge_ok = True
+    if hosts:
+        merge_ok = (
+            merge_result is not None
+            and int(merge_result.get("returncode", 1)) == 0
+            and db_path.exists()
+        )
+
+    base_ok = passed_gate and parity_rc == 0 and db_path.exists() and merge_ok
 
     canonical_history: Dict[str, Any] = {}
     games_checked = 0
@@ -421,6 +528,7 @@ def main(argv: List[str] | None = None) -> int:
         "db_path": str(db_path),
         "num_games_requested": num_games,
         "parity_gate": parity_summary,
+        "merge_result": merge_result,
         "canonical_history": canonical_history,
         "fe_territory_fixtures_ok": bool(fe_territory_fixtures_ok),
         "anm_invariants": anm_invariants,

@@ -2658,6 +2658,13 @@ class GameEngine:
         if game_state.current_phase not in lps_active_phases:
             return
 
+        # Parity guard: TS does not award LPS during ANM sequences. If the
+        # game is currently in an active-no-move state, defer LPS evaluation
+        # until the ANM sequence resolves.
+        from app.rules import global_actions as ga
+        if ga.is_anm_state(game_state):
+            return
+
         if game_state.lps_consecutive_exclusive_rounds < 2:
             return
 
