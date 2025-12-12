@@ -1874,10 +1874,10 @@ def rank_distribution_loss(
 def ranks_from_game_result(
     winner: int,
     num_players: int,
-    player_territories: list[int] | None = None,
-    player_eliminated_rings: list[int] | None = None,
-    player_markers_on_board: list[int] | None = None,
-    elimination_order: list[int] | None = None,
+    player_territories: Optional[list[int]] = None,
+    player_eliminated_rings: Optional[list[int]] = None,
+    player_markers_on_board: Optional[list[int]] = None,
+    elimination_order: Optional[list[int]] = None,
 ) -> torch.Tensor:
     """
     Compute rank indices from game result using canonical ranking rules.
@@ -1892,13 +1892,13 @@ def ranks_from_game_result(
         Index of winning player (0-indexed).
     num_players : int
         Number of active players (2, 3, or 4).
-    player_territories : list[int] | None
+    player_territories : Optional[list[int]]
         Territory count per player, or None if not available.
-    player_eliminated_rings : list[int] | None
+    player_eliminated_rings : Optional[list[int]]
         Total eliminated rings per player, or None.
-    player_markers_on_board : list[int] | None
+    player_markers_on_board : Optional[list[int]]
         Markers remaining on board per player, or None.
-    elimination_order : list[int] | None
+    elimination_order : Optional[list[int]]
         Order of elimination (later = better), or None.
 
     Returns
