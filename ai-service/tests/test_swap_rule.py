@@ -249,3 +249,31 @@ def test_swap_sides_not_offered_again_after_swap_is_applied() -> None:
 
     p2_moves_after_swap = GameEngine.get_valid_moves(state_after_swap, 2)
     assert not _contains_swap_sides(p2_moves_after_swap)
+
+
+def test_swap_sides_cache_key_respects_rules_options_swap_rule_enabled() -> None:
+    """swap_sides must not leak across rulesOptions variants via caching.
+
+    Regression guard: swap_sides eligibility depends on rulesOptions.swapRuleEnabled,
+    but that flag does not affect the canonical structural hash_game_state. If the
+    move cache key ignores rulesOptions, a cached move surface from a swap-enabled
+    caller can incorrectly be reused for a swap-disabled caller.
+    """
+    GameEngine.clear_cache()
+    state = _make_swap_enabled_state()
+
+    p1_moves = GameEngine.get_valid_moves(state, 1)
+    p1_placement = next((m for m in p1_moves if m.type == MoveType.PLACE_RING), None)
+    assert p1_placement is not None
+    state_after_p1 = GameEngine.apply_move(state, p1_placement)
+
+    state_for_p2_turn = state_after_p1.model_copy(update={"current_player": 2})
+    p2_moves_enabled = GameEngine.get_valid_moves(state_for_p2_turn, 2)
+    assert _count_swap_sides(p2_moves_enabled) == 1
+
+    # Same board/history, but swap disabled.
+    state_for_p2_turn_disabled = state_for_p2_turn.model_copy(
+        update={"rules_options": {"swapRuleEnabled": False}}
+    )
+    p2_moves_disabled = GameEngine.get_valid_moves(state_for_p2_turn_disabled, 2)
+    assert _count_swap_sides(p2_moves_disabled) == 0

@@ -2498,6 +2498,16 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help='Board type for training'
     )
 
+    # Model architecture version
+    parser.add_argument(
+        '--model-version', type=str, default='v2',
+        choices=['v2', 'v3', 'hex'],
+        help=(
+            'Model architecture version: v2 (flat policy), v3 (spatial policy '
+            'heads with rank distribution), or hex (HexNeuralNet). Default: v2'
+        ),
+    )
+
     # Multi-player value head
     parser.add_argument(
         '--multi-player',
@@ -2822,6 +2832,7 @@ def main():
         sampling_weights=args.sampling_weights,
         multi_player=args.multi_player,
         num_players=args.num_players,
+        model_version=args.model_version,
     )
 
 

@@ -6,29 +6,6 @@ from unittest.mock import MagicMock, patch
 import scripts.generate_canonical_selfplay as gen
 
 
-class _FakeConn:
-    def execute(self, _sql: str):
-        cur = MagicMock()
-        cur.fetchone.return_value = {"n": 6001}
-        return cur
-
-
-class _FakeConnCM:
-    def __enter__(self):
-        return _FakeConn()
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
-class _FakeDB:
-    def __init__(self, _path: str):
-        pass
-
-    def _get_conn(self):
-        return _FakeConnCM()
-
-
 def test_parity_only_mode_passes_progress_every_and_warns_on_large_db(
     tmp_path, capsys
 ) -> None:
@@ -48,7 +25,7 @@ def test_parity_only_mode_passes_progress_every_and_warns_on_large_db(
         proc.stderr = ""
         return proc
 
-    with patch.object(gen, "GameReplayDB", _FakeDB):
+    with patch.object(gen, "_count_games_in_db_ro", return_value=6001):
         with patch.object(gen, "_run_cmd", side_effect=fake_run_cmd):
             out = gen.run_selfplay_and_parity(
                 board_type="square8",
@@ -64,4 +41,3 @@ def test_parity_only_mode_passes_progress_every_and_warns_on_large_db(
 
     stderr = capsys.readouterr().err
     assert "parity-only mode will check ALL games" in stderr
-

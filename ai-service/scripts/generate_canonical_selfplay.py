@@ -40,6 +40,7 @@ The summary JSON includes:
 import argparse
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 from datetime import datetime
@@ -69,8 +70,9 @@ def _build_env() -> Dict[str, str]:
     # Keep OpenMP usage conservative by default.
     env.setdefault("OMP_NUM_THREADS", os.environ.get("OMP_NUM_THREADS", "1"))
     env.setdefault("MKL_NUM_THREADS", os.environ.get("MKL_NUM_THREADS", "1"))
+    # Ensure progress output from long-running child scripts is not buffered.
+    env.setdefault("PYTHONUNBUFFERED", os.environ.get("PYTHONUNBUFFERED", "1"))
     return env
-
 
 
 def _run_cmd(
@@ -79,6 +81,7 @@ def _run_cmd(
     *,
     capture_output: bool = True,
     stream_to_stderr: bool = False,
+    timeout_seconds: int | None = None,
 ) -> subprocess.CompletedProcess:
     env = _build_env()
     stdout = None
@@ -88,16 +91,25 @@ def _run_cmd(
         # providing progress output during long runs.
         stdout = sys.stderr
         stderr = sys.stderr
-    proc = subprocess.run(
-        cmd,
-        cwd=str(cwd or AI_SERVICE_ROOT),
-        env=env,
-        text=True,
-        capture_output=capture_output and not stream_to_stderr,
-        stdout=stdout,
-        stderr=stderr,
-    )
-    return proc
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(cwd or AI_SERVICE_ROOT),
+            env=env,
+            text=True,
+            capture_output=capture_output and not stream_to_stderr,
+            stdout=stdout,
+            stderr=stderr,
+            timeout=timeout_seconds,
+        )
+        return proc
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(
+            cmd,
+            returncode=124,
+            stdout=exc.stdout or "",
+            stderr=exc.stderr or "",
+        )
 
 
 def _run_cmd_tee(
@@ -130,6 +142,34 @@ def _run_cmd_tee(
     return subprocess.CompletedProcess(cmd, rc, stdout=stdout, stderr="")
 
 
+def _count_games_in_db_ro(db_path: Path) -> int | None:
+    """Best-effort count of games without triggering schema migrations.
+
+    Parity-only mode should never silently run large migrations (or block on
+    write locks) just to print a helpful progress message. Use a direct
+    read-only SQLite connection instead of GameReplayDB.
+    """
+    try:
+        conn = sqlite3.connect(
+            f"file:{db_path}?mode=ro",
+            uri=True,
+            timeout=1.0,
+        )
+    except Exception:
+        return None
+
+    try:
+        row = conn.execute("SELECT COUNT(*) AS n FROM games").fetchone()
+        if row is None:
+            return 0
+        # sqlite3 row may be a tuple; prefer index access.
+        return int(row[0])
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
 def run_selfplay_and_parity(
     board_type: str,
     num_games: int,
@@ -138,6 +178,7 @@ def run_selfplay_and_parity(
     hosts: str | None = None,
     difficulty_band: str = "light",
     parity_limit_games_per_db: int = 0,
+    parity_timeout_seconds: int | None = None,
 ) -> Dict[str, Any]:
     """
     Delegate to run_canonical_selfplay_parity_gate.py to:
@@ -157,25 +198,25 @@ def run_selfplay_and_parity(
                 "returncode": 1,
             }
 
-        try:
-            existing_db = GameReplayDB(str(db_path))
-            with existing_db._get_conn() as conn:  # type: ignore[attr-defined]
-                row = conn.execute("SELECT COUNT(*) AS n FROM games").fetchone()
-            num_existing_games = int(row["n"]) if row is not None else 0
-        except Exception:
-            num_existing_games = None
-
         print(
             f"[generate_canonical_selfplay] Skipping soak (num_games={num_games}); running parity on existing DB...",
             file=sys.stderr,
             flush=True,
         )
+        num_existing_games = _count_games_in_db_ro(db_path)
         if num_existing_games is not None:
             print(
                 f"[generate_canonical_selfplay] Existing DB contains {num_existing_games} game(s): {db_path}",
                 file=sys.stderr,
                 flush=True,
             )
+            if num_existing_games <= 0:
+                return {
+                    "error": "db_has_no_games_for_parity_only_mode",
+                    "db_path": str(db_path),
+                    "num_games": num_games,
+                    "returncode": 1,
+                }
             if (
                 num_existing_games > 5000
                 and (not parity_limit_games_per_db or parity_limit_games_per_db <= 0)
@@ -207,6 +248,7 @@ def run_selfplay_and_parity(
             cwd=AI_SERVICE_ROOT,
             capture_output=False,
             stream_to_stderr=True,
+            timeout_seconds=parity_timeout_seconds,
         )
     else:
         print(
@@ -238,6 +280,7 @@ def run_selfplay_and_parity(
             cwd=AI_SERVICE_ROOT,
             capture_output=False,
             stream_to_stderr=True,
+            timeout_seconds=parity_timeout_seconds,
         )
 
     parity_summary: Dict[str, Any]
@@ -560,6 +603,15 @@ def main(argv: List[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--parity-timeout-seconds",
+        type=int,
+        default=0,
+        help=(
+            "Optional timeout (seconds) applied to the parity/soak subprocess "
+            "invoked by this script. Default: 0 (no timeout)."
+        ),
+    )
+    parser.add_argument(
         "--db",
         type=str,
         default=None,
@@ -602,6 +654,11 @@ def main(argv: List[str] | None = None) -> int:
     hosts: str | None = args.hosts
     difficulty_band: str = args.difficulty_band
     parity_limit_games_per_db: int = args.parity_limit_games_per_db
+    parity_timeout_seconds: int | None = (
+        int(args.parity_timeout_seconds)
+        if int(args.parity_timeout_seconds) > 0
+        else None
+    )
 
     if args.db:
         db_path = Path(args.db).resolve()
@@ -620,6 +677,7 @@ def main(argv: List[str] | None = None) -> int:
             hosts,
             difficulty_band=difficulty_band,
             parity_limit_games_per_db=parity_limit_games_per_db,
+            parity_timeout_seconds=parity_timeout_seconds,
         )
     except Exception as e:  # pragma: no cover - debug hook
         payload = {

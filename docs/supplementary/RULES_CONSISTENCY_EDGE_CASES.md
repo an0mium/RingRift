@@ -567,11 +567,11 @@ Each entry below lists RR‑CANON references, code touchpoints, observed vs inte
     - **Temporarily eliminated** (still has rings somewhere in the game but no turn-material), or
     - **Permanently eliminated** (zero rings anywhere—hand, controlled stacks, buried in opponent stacks).
   - If temporarily eliminated, player may regain turn-material if their buried ring resurfaces (opponent's cap eliminated).
-  - If permanently eliminated, player is out of the game but turn rotation still includes them for LPS tracking per RR-CANON-R172.
+  - If permanently eliminated, player is out of the game and is removed from turn rotation (RR‑CANON‑R201 / RR‑CANON‑R175).
 
 - **Observed behaviour:**
   - Victory logic correctly distinguishes temporary vs permanent elimination.
-  - Turn rotation includes eliminated players for LPS round counting.
+  - Turn rotation skips permanently eliminated players, but still includes temporarily inactive players who have rings somewhere (e.g., buried rings).
   - Recovery eligibility check correctly returns false when markers OR buried rings are exhausted.
 
 - **Classification:** `Design‑intent match`.
@@ -589,19 +589,18 @@ Each entry below lists RR‑CANON references, code touchpoints, observed vs inte
 - **Interaction / edge case:** A recovery slide triggers a line collapse that creates a disconnected territory region. Can the recovering player (who has zero stacks) process territory?
 
 - **Intended behaviour (RR‑CANON):**
-  - Territory processing requires at least one controlled stack **outside** the region to pay self-elimination cost.
-  - A recovering player (zero stacks by definition) **cannot** process any territory regions.
-  - Any territory regions created by recovery line collapse remain on the board until the recovering player regains stacks or another player processes them.
+  - **Normal** territory processing uses the cap-elimination prerequisite (FAQ Q23 / RR‑CANON‑R145): the acting player must have an eligible cap target outside the region.
+  - **Recovery exception (RR‑CANON‑R114):** When territory processing is triggered by a recovery slide (line or fallback), the self‑elimination cost is **one buried ring extraction per claimed region**, from a stack **outside** the region. This does not require controlling a stack.
+  - Therefore, a recovering player (zero stacks by definition) **can** process claimable territory regions created by recovery, as long as they have a buried ring available outside the region to pay the cost.
 
 - **Observed behaviour:**
-  - `canProcessTerritoryRegion()` correctly requires `controlledStacksOutsideRegion > 0`.
-  - Recovering player has zero stacks, so territory processing is skipped.
-  - Line processing completes, territory regions are detected but not processed, turn advances normally.
+  - `canProcessTerritoryRegion()` currently requires an eligible controlled stack outside the region (cap-elimination prerequisite), so a recovering player (zero stacks) cannot process regions.
+  - Territory regions created by recovery are detected but not processed.
 
-- **Classification:** `Design‑intent match`.
-- **Severity:** `Low`.
+- **Classification:** `Known deviation from RR‑CANON` (recovery‑context territory self‑elimination not yet implemented in this flow).
+- **Severity:** `Medium`.
 - **Scope:** All hosts where recovery + territory chains can occur.
-- **Recommendation:** Add test coverage for recovery slide → line collapse → territory region created → territory processing skipped due to zero stacks.
+- **Recommendation:** Implement recovery‑context territory self‑elimination (buried ring extraction) and add tests for recovery slide → territory region created → territory processed (and the “no buried rings outside region” failure case).
 
 ### CCE‑010 – Capture and chain capture landing on markers
 

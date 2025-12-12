@@ -64,15 +64,26 @@ class HostConfig:
     """Configuration for a remote host."""
     name: str
     ssh_host: str
-    ssh_key: Optional[str] = None
     ssh_user: Optional[str] = None
+    ssh_port: int = 22
+    ssh_key: Optional[str] = None
     memory_gb: Optional[int] = None
     work_dir: Optional[str] = None
+    venv_activate: Optional[str] = None
     python_path: Optional[str] = None
     max_parallel_jobs: int = 1
     worker_port: int = 8765  # Default HTTP worker port
     worker_url: Optional[str] = None  # Optional explicit worker URL
     properties: Dict = field(default_factory=dict)
+
+    @property
+    def ssh_target(self) -> str:
+        """Return SSH target string (user@host when needed)."""
+        if "@" in self.ssh_host:
+            return self.ssh_host
+        if self.ssh_user:
+            return f"{self.ssh_user}@{self.ssh_host}"
+        return self.ssh_host
 
     @property
     def ssh_key_path(self) -> str:
@@ -82,7 +93,10 @@ class HostConfig:
     @property
     def work_directory(self) -> str:
         """Get the working directory for remote execution."""
-        return self.work_dir or "~/Development/RingRift/ai-service"
+        base = (self.work_dir or "~/Development/RingRift").rstrip("/")
+        if base.endswith("ai-service"):
+            return base
+        return f"{base}/ai-service"
 
     @property
     def http_worker_url(self) -> str:
@@ -148,13 +162,27 @@ def load_remote_hosts(config_path: Optional[str] = None) -> Dict[str, HostConfig
             hosts = {}
 
             for name, host_data in hosts_dict.items():
+                ssh_host_raw = host_data.get("ssh_host", name)
+                ssh_user = host_data.get("ssh_user")
+                ssh_host = ssh_host_raw
+
+                # Support configs that embed the username in ssh_host (e.g. "user@1.2.3.4")
+                # while keeping `ssh_host` clean for HTTP URLs.
+                if "@" in ssh_host_raw:
+                    user_part, host_part = ssh_host_raw.split("@", 1)
+                    if not ssh_user:
+                        ssh_user = user_part
+                    ssh_host = host_part
+
                 hosts[name] = HostConfig(
                     name=name,
-                    ssh_host=host_data.get("ssh_host", name),
+                    ssh_host=ssh_host,
+                    ssh_user=ssh_user,
+                    ssh_port=int(host_data.get("ssh_port", 22) or 22),
                     ssh_key=host_data.get("ssh_key"),
-                    ssh_user=host_data.get("ssh_user"),
                     memory_gb=host_data.get("memory_gb"),
                     work_dir=host_data.get("ringrift_path") or host_data.get("work_dir"),
+                    venv_activate=host_data.get("venv_activate"),
                     python_path=host_data.get("python_path"),
                     max_parallel_jobs=host_data.get("max_parallel_jobs", 1),
                     worker_port=host_data.get("worker_port", 8765),
@@ -258,6 +286,8 @@ def get_remote_memory_gb(host: HostConfig) -> Tuple[int, int]:
     config_total = host.memory_gb
 
     ssh_cmd_base = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
+    if host.ssh_port and int(host.ssh_port) != 22:
+        ssh_cmd_base.extend(["-p", str(int(host.ssh_port))])
     if host.ssh_key:
         ssh_cmd_base.extend(["-i", host.ssh_key_path])
 
@@ -270,8 +300,8 @@ def get_remote_memory_gb(host: HostConfig) -> Tuple[int, int]:
             total_gb = config_total
         else:
             ssh_cmd = ssh_cmd_base + [
-                host.ssh_host,
-                "sysctl -n hw.memsize 2>/dev/null || grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2 * 1024}'"
+                host.ssh_target,
+                "sysctl -n hw.memsize 2>/dev/null || grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2 * 1024}'",
             ]
             result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
             if result.returncode == 0 and result.stdout.strip():
@@ -291,7 +321,7 @@ else
     echo 4
 fi
 '''
-        ssh_cmd = ssh_cmd_base + [host.ssh_host, vm_stat_script]
+        ssh_cmd = ssh_cmd_base + [host.ssh_target, vm_stat_script]
         result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
         if result.returncode == 0 and result.stdout.strip():
             available_gb = int(result.stdout.strip())
@@ -404,12 +434,21 @@ class SSHExecutor:
     def __init__(self, host: HostConfig):
         self.host = host
 
+    def _normalize_activate(self, command: str) -> str:
+        """Normalize venv activation commands for POSIX shells."""
+        cleaned = command.strip()
+        if cleaned.startswith("source "):
+            return ". " + cleaned[len("source ") :]
+        return command
+
     def _build_ssh_cmd(self) -> List[str]:
         """Build the base SSH command."""
         cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
+        if self.host.ssh_port and int(self.host.ssh_port) != 22:
+            cmd.extend(["-p", str(int(self.host.ssh_port))])
         if self.host.ssh_key:
             cmd.extend(["-i", self.host.ssh_key_path])
-        cmd.append(self.host.ssh_host)
+        cmd.append(self.host.ssh_target)
         return cmd
 
     def run(
@@ -431,7 +470,13 @@ class SSHExecutor:
             CompletedProcess with stdout, stderr, and return code
         """
         work_dir = cwd or self.host.work_directory
-        full_cmd = f"cd {work_dir} && {command}"
+        venv_activate = (
+            self._normalize_activate(self.host.venv_activate)
+            if self.host.venv_activate
+            else None
+        )
+        prefix = f"{venv_activate} && " if venv_activate else ""
+        full_cmd = f"cd {work_dir} && {prefix}{command}"
 
         ssh_cmd = self._build_ssh_cmd() + [full_cmd]
 
@@ -459,8 +504,14 @@ class SSHExecutor:
             CompletedProcess for the SSH connection (command runs in background)
         """
         work_dir = cwd or self.host.work_directory
+        venv_activate = (
+            self._normalize_activate(self.host.venv_activate)
+            if self.host.venv_activate
+            else None
+        )
+        prefix = f"{venv_activate} && " if venv_activate else ""
         # Use nohup to detach from SSH session
-        full_cmd = f"cd {work_dir} && nohup {command} > {log_file} 2>&1 &"
+        full_cmd = f"cd {work_dir} && {prefix}nohup {command} > {log_file} 2>&1 &"
 
         ssh_cmd = self._build_ssh_cmd() + [full_cmd]
 
@@ -469,6 +520,27 @@ class SSHExecutor:
             capture_output=True,
             text=True,
             timeout=30,
+        )
+
+    def scp_from(
+        self,
+        remote_path: str,
+        local_path: str,
+        *,
+        timeout: int = 300,
+    ) -> subprocess.CompletedProcess:
+        """Copy a file from the remote host to local filesystem via scp."""
+        cmd = ["scp"]
+        if self.host.ssh_key:
+            cmd.extend(["-i", self.host.ssh_key_path])
+        if self.host.ssh_port and int(self.host.ssh_port) != 22:
+            cmd.extend(["-P", str(int(self.host.ssh_port))])
+        cmd.extend([f"{self.host.ssh_target}:{remote_path}", local_path])
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
 
     def get_process_memory(self, pattern: str) -> Optional[int]:

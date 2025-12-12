@@ -93,10 +93,12 @@ Placement itself does not increase $S$. However, the rules prevent "infinite pla
 
 ### 2.4 The "Pass" Condition
 
-If a player has no rings in hand, no stacks on board, or is otherwise unable to act (and has no stacks to force-eliminate), they must **Pass** (forfeit turn).
+If a player has **no global legal actions** (no legal placement, movement/capture, recovery action, or forced elimination), their entire turn is a forced no-op.
+
+- In canonical replay terms (RR‑CANON‑R075), this is recorded as the required `no_*_action` bookkeeping moves for each phase, not a single special “forfeit” action.
 
 - $\Delta S = 0$.
-- **Termination Condition:** If _all_ players Pass consecutively, the game ends immediately (Global Stalemate).
+- **Termination Condition:** If _all_ players have such no-op turns consecutively, the game is in **global stalemate** and ends (RR‑CANON‑R173).
 
 ### 2.5 Conclusion on Termination
 

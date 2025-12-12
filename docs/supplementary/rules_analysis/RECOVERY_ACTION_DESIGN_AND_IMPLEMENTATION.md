@@ -62,7 +62,7 @@ A player P is **eligible for recovery** if ALL of the following hold:
 
 ### RR-CANON-R111: Marker Slide Adjacency
 
-When eligible, P may slide one of their markers to an **adjacent empty cell**:
+When eligible, P may slide one of their markers to an **adjacent destination cell**:
 
 - **Square boards (8×8, 19×19):** Moore adjacency (8 directions)
 - **Hexagonal board:** Hex adjacency (6 directions)
@@ -70,14 +70,18 @@ When eligible, P may slide one of their markers to an **adjacent empty cell**:
 The destination cell must be:
 
 - Within board bounds
-- Empty (no stack, no marker, not collapsed territory)
+- Not collapsed territory and not contain a marker
+- For normal recovery slides (`recoveryMode ∈ {'line','fallback'}`): an **empty** cell (no stack)
+- For stack-strike recovery (`recoveryMode == 'stack_strike'`): an **adjacent stack** (the marker is sacrificed; it does not occupy the destination)
 
 ### RR-CANON-R112: Success Criteria
 
 A marker slide is legal if **either** of these conditions is satisfied:
 
 - **(a) Line formation:** Completes a line of **at least** `lineLength` consecutive markers of P's color
-- **(b) Fallback repositioning:** If no slide satisfies (a), any adjacent slide is permitted (including slides that cause territory disconnection)
+- **(b) Fallback-class recovery:** If no slide **anywhere on the board** satisfies (a), one of the following adjacent recovery actions is permitted:
+  - **(b1) Fallback repositioning:** Slide to an adjacent empty cell (including slides that cause territory disconnection)
+  - **(b2) Stack-strike:** Slide onto an adjacent stack; the marker is removed from play and the attacked stack's top ring is eliminated and credited to P
 
 **Note:** Territory disconnection may occur as a side effect of any recovery slide (line-forming or fallback).
 
@@ -95,7 +99,7 @@ A marker slide is legal if **either** of these conditions is satisfied:
 
 This mirrors normal line reward semantics (RR-CANON-R130–R134).
 
-**Fallback recovery (condition b):** If no line-forming slide exists, P may slide any marker to an adjacent empty cell, including slides that cause territory disconnection. This costs one buried ring extraction but does not trigger line processing.
+**Fallback-class recovery (condition b):** If no line-forming slide exists anywhere on the board, P may perform either fallback repositioning (b1) or stack-strike (b2). This costs one buried ring extraction and does not trigger line processing (but may still trigger territory processing if the slide disconnects regions).
 
 ### RR-CANON-R113: Buried Ring Extraction Cost
 
@@ -115,7 +119,7 @@ After a recovery slide:
    - **Exact-length or Option 1:** All markers in the formed line become collapsed spaces (territory) owned by P
    - **Option 2:** Exactly `lineLength` consecutive markers chosen by P become collapsed spaces; remaining markers stay on board
 2. **Buried ring extraction:** For exact-length lines or Option 1, one buried ring is removed and credited to P's `eliminatedRingsTotal`. Option 2 has no extraction cost.
-3. **Territory processing:** Check for disconnected regions created by the collapse; process per standard territory rules (RR-CANON-R140–R145)
+3. **Territory processing:** Check for disconnected regions created by the recovery slide (line or fallback) and process per standard territory rules (RR-CANON-R140–R145)
 4. **Victory check:** After all processing, check victory conditions
 
 ### RR-CANON-R115: Recording Semantics
@@ -127,11 +131,11 @@ type RecoverySlideMove = {
   type: 'recovery_slide';
   player: number;
   from: Position; // Source marker position
-  to: Position; // Adjacent destination
-  option?: 1 | 2; // For overlength lines: 1 (collapse all) or 2 (collapse min)
-  collapsedMarkers?: Position[]; // For Option 2: which markers to collapse
-  extractionStack?: string; // Stack for buried ring extraction (if applicable)
-  formedLines: LineInfo[];
+  to: Position; // Adjacent destination (empty for line/fallback; stack for stack_strike)
+  recoveryMode: 'line' | 'fallback' | 'stack_strike';
+  option?: 1 | 2; // Line mode only (overlength): 1 (collapse all) or 2 (collapse min)
+  collapsePositions?: Position[]; // Option 2 only: which markers to collapse
+  extractionStacks?: string[]; // Stacks used for buried-ring extraction costs
 };
 ```
 

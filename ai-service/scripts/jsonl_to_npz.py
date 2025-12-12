@@ -501,7 +501,33 @@ def process_jsonl_file(
                 continue
 
             try:
-                # Parse initial state
+                # GPU selfplay mode: use simplified processing without FSM validation
+                if gpu_selfplay_mode:
+                    (
+                        gpu_features, gpu_globals, gpu_values, gpu_values_mp,
+                        gpu_num_players, gpu_policy_idx, gpu_policy_val,
+                        gpu_move_nums, gpu_total_moves, gpu_phases, extracted
+                    ) = _process_gpu_selfplay_record(
+                        record, encoder, history_length, sample_every
+                    )
+
+                    features_list.extend(gpu_features)
+                    globals_list.extend(gpu_globals)
+                    values_list.extend(gpu_values)
+                    values_mp_list.extend(gpu_values_mp)
+                    num_players_list.extend(gpu_num_players)
+                    policy_indices_list.extend(gpu_policy_idx)
+                    policy_values_list.extend(gpu_policy_val)
+                    move_numbers_list.extend(gpu_move_nums)
+                    total_game_moves_list.extend(gpu_total_moves)
+                    phases_list.extend(gpu_phases)
+
+                    stats.positions_extracted += extracted
+                    games_in_file += 1
+                    stats.games_processed += 1
+                    continue
+
+                # Standard mode: parse initial state and replay through FSM
                 initial_state = deserialize_game_state(initial_state_dict)
 
                 # Parse moves
