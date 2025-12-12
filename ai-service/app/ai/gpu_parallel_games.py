@@ -3563,6 +3563,13 @@ class ParallelGameRunner:
         """Handle RING_PLACEMENT phase for games in mask.
 
         Refactored 2025-12-11 for vectorized player-based indexing.
+        Refactored 2025-12-12 to fix turn alternation during placement phase.
+
+        Per canonical RingRift rules, players alternate placing one ring at a time
+        until all rings are placed. This function now:
+        1. Places ONE ring for the current player
+        2. Stays in RING_PLACEMENT phase (player rotation handled by apply_placement_moves_batch)
+        3. Only advances to MOVEMENT when ALL players have 0 rings in hand
         """
         # Check which games have rings to place (vectorized)
         # rings_in_hand shape: (batch_size, num_players + 1)
@@ -3589,8 +3596,13 @@ class ParallelGameRunner:
                 selected = self._select_best_moves(moves, weights_list, games_with_rings)
                 apply_placement_moves_batch(self.state, selected, moves)
 
-        # After placement, advance to MOVEMENT phase
-        self.state.current_phase[mask] = GamePhase.MOVEMENT
+        # Check if ALL players have placed ALL rings (sum of all rings_in_hand == 0)
+        # rings_in_hand[:, 1:] to exclude index 0 (unused player slot)
+        total_rings_remaining = self.state.rings_in_hand[:, 1:].sum(dim=1)  # (batch_size,)
+        placement_complete = mask & (total_rings_remaining == 0)
+
+        # Only advance to MOVEMENT phase for games where ALL rings are placed
+        self.state.current_phase[placement_complete] = GamePhase.MOVEMENT
 
     def _step_movement_phase(
         self,

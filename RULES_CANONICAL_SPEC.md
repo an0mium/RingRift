@@ -355,16 +355,23 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - A player P has **turn-material** in a state if and only if either:
     - P controls at least one stack (there exists a stack whose top ring has P's colour); or
     - `ringsInHand[P] > 0`.
-  - A player P is **recovery-eligible** in a state if P controls no stacks, owns at least one marker, and has at least one buried ring (their ring at a non-top position in any stack). Recovery eligibility is independent of rings in hand. Players with rings may choose recovery over placement. Such a player may perform recovery actions (RR-CANON-R110–R114) during their movement phase.
+  - A player P is **recovery-eligible** in a state if P controls no stacks, owns at least one marker, and has at least one buried ring (their ring at a non-top position in any stack).
+    - Recovery eligibility is independent of rings in hand.
+    - A recovery-eligible player with `ringsInHand[P] > 0` may still reach `movement` without placing by voluntarily recording `skip_placement` in `ring_placement`, and may then attempt recovery in `movement`.
   - A player P is **permanently eliminated** if they have no rings anywhere: no controlled stacks, no rings in hand, and no buried rings. Permanently eliminated players are removed from turn rotation entirely.
   - **Turn rotation rule:** In any state with `gameStatus == ACTIVE`, the turn rotates to the next player in seat order who is not permanently eliminated. This includes:
     - Players with turn-material (who can place rings, move stacks, etc.); AND
     - Players who are recovery-eligible (who can only perform recovery actions in movement phase).
   - **Recovery-eligible player turn flow:** When a recovery-eligible player receives their turn:
-    - **Ring placement phase**: They may choose `no_placement_action` (forgoing placement) to preserve rings for later, or place a ring and then proceed to movement without recovery options.
-    - **Movement phase**: They may execute a `recovery_slide` move (RR-CANON-R110–R114) or `skip_recovery`, or `no_movement_action` if no recovery moves are available.
-    - **Line processing phase**: They execute `no_line_action` (no controlled stacks to form lines).
-    - **Territory processing phase**: They execute `no_territory_action` (no stacks to disconnect territories).
+    - **Ring placement phase**:
+      - If `ringsInHand[P] > 0`, P may `place_ring` or voluntarily `skip_placement`.
+      - If placement is impossible (including `ringsInHand[P] == 0` or no legal placements), P records `no_placement_action`.
+    - **Movement phase**:
+      - If P still controls zero stacks and is recovery-eligible, P may `recovery_slide` (RR-CANON-R110–R114) or `skip_recovery`.
+      - If no legal movement actions exist, P records `no_movement_action`.
+    - **Post-movement processing**:
+      - Line processing for `recovery_slide` in `recoveryMode == 'line'` is bundled into the move effect per RR-CANON-R115.
+      - If the recovery slide (line or fallback) causes territory disconnection, the resulting `territory_processing` uses the recovery self-elimination rule (buried ring extraction) per RR-CANON-R114–R115.
   - This ensures that players who meet recovery eligibility conditions can actually exercise recovery moves, rather than being skipped indefinitely until they are permanently eliminated.
   - Victory and stalemate conditions (RR-CANON-R170–R173) are evaluated at end of turn for all players.
 
@@ -574,7 +581,8 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - Those rings are credited to P as eliminated.
     - If the stack becomes empty, remove it.
   - If after this elimination P still has no legal action, P's turn ends.
-  - Control-flip edge case: If P's only control over a stack was a cap of height 1 (a single ring of P on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes P to have **zero controlled stacks** and **zero rings in hand**, P becomes "temporarily inactive" (per RR-CANON-R170) immediately. Turn rotation should skip P and proceed to the next player who has material.
+  - Control-flip edge case: If P's only control over a stack was a cap of height 1 (a single ring of P on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes P to have **zero controlled stacks** and **zero rings in hand**, P becomes "temporarily inactive" (per RR-CANON-R170) immediately.
+    - Temporarily inactive players are **not** skipped during turn rotation; only permanently eliminated players are removed from rotation (RR-CANON-R201).
   - Note (canonical choice): text in the Complete Rules suggesting that caps might already be eliminated while stacks remain is treated as unreachable; the forced-elimination rule is always applicable whenever P controls any stack.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.3; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.4, 13.4, 13.5, 15.4 Q24.
 

@@ -1793,7 +1793,8 @@ def train_model(
             )
             # Note: num_workers=0 required on macOS - memory-mapped NPZ files
             # contain BufferedReader objects that can't be pickled for multiprocessing.
-            num_loader_workers = 0 if sys.platform == "darwin" else 2
+            # Also required on Linux with mmap mode to avoid DataLoader hangs.
+            num_loader_workers = int(os.environ.get("RINGRIFT_DATALOADER_WORKERS", "0"))
             train_loader = DataLoader(
                 train_dataset,
                 batch_size=config.batch_size,

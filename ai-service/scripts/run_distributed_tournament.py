@@ -573,39 +573,186 @@ class DistributedTournament:
         return report
 
     def generate_report(self, duration: float) -> Dict[str, Any]:
+        tiers = list(self.tiers)
+        matches = list(self.state.matches)
+
+        def _canonical_match_key(result: MatchResult) -> Tuple[str, str, Optional[int]]:
+            """Return ordered matchup key and winner in that orientation."""
+            a, b = result.tier_a, result.tier_b
+            if _tier_to_difficulty(a) <= _tier_to_difficulty(b):
+                return (a, b, result.winner)
+            winner = result.winner
+            if winner == 1:
+                winner = 2
+            elif winner == 2:
+                winner = 1
+            return (b, a, winner)
+
+        # Aggregate W/L/D per tier (order-independent).
+        stats_by_tier: Dict[str, TierStats] = {t: TierStats(tier=t) for t in tiers}
+        for m in matches:
+            stats_a = stats_by_tier.setdefault(m.tier_a, TierStats(tier=m.tier_a))
+            stats_b = stats_by_tier.setdefault(m.tier_b, TierStats(tier=m.tier_b))
+            stats_a.games_played += 1
+            stats_b.games_played += 1
+            if m.winner == 1:
+                stats_a.wins += 1
+                stats_b.losses += 1
+            elif m.winner == 2:
+                stats_a.losses += 1
+                stats_b.wins += 1
+            else:
+                stats_a.draws += 1
+                stats_b.draws += 1
+
+        # Deterministic Elo: replay results in a fixed order, independent of
+        # worker scheduling. (We keep k=32 to match the legacy harness.)
+        elo_by_tier: Dict[str, float] = {t: 1500.0 for t in tiers}
+        matchup_results: Dict[Tuple[str, str], List[MatchResult]] = {}
+        for m in matches:
+            a, b, winner = _canonical_match_key(m)
+            canonical = MatchResult(
+                tier_a=a,
+                tier_b=b,
+                winner=winner,
+                game_length=m.game_length,
+                duration_sec=m.duration_sec,
+                worker=m.worker,
+                game_id=m.game_id,
+                timestamp=m.timestamp,
+                seed=m.seed,
+                game_index=m.game_index,
+            )
+            matchup_results.setdefault((a, b), []).append(canonical)
+
+        for i, tier_a in enumerate(tiers):
+            for tier_b in tiers[i + 1 :]:
+                games = matchup_results.get((tier_a, tier_b), [])
+                games.sort(
+                    key=lambda r: (
+                        r.game_index if r.game_index is not None else 1_000_000_000,
+                        r.seed if r.seed is not None else 1_000_000_000_000_000_000,
+                        r.game_id,
+                    )
+                )
+                for r in games:
+                    score_a = 0.5
+                    if r.winner == 1:
+                        score_a = 1.0
+                    elif r.winner == 2:
+                        score_a = 0.0
+                    new_a, new_b = update_elo(
+                        elo_by_tier.get(tier_a, 1500.0),
+                        elo_by_tier.get(tier_b, 1500.0),
+                        score_a,
+                    )
+                    elo_by_tier[tier_a] = new_a
+                    elo_by_tier[tier_b] = new_b
+
+        for tier, stats in stats_by_tier.items():
+            stats.elo = float(elo_by_tier.get(tier, 1500.0))
+
         sorted_tiers = sorted(
-            self.state.tier_stats.values(),
+            stats_by_tier.values(),
             key=lambda s: s.elo,
             reverse=True,
         )
 
-        h2h = {}
-        for tier in self.tiers:
+        def _count_pair(tier: str, opp: str) -> Tuple[int, int, int]:
+            """Return (wins, losses, draws) for `tier` vs `opp`."""
+            wins = sum(
+                1
+                for m in matches
+                if (m.tier_a == tier and m.tier_b == opp and m.winner == 1)
+                or (m.tier_a == opp and m.tier_b == tier and m.winner == 2)
+            )
+            losses = sum(
+                1
+                for m in matches
+                if (m.tier_a == tier and m.tier_b == opp and m.winner == 2)
+                or (m.tier_a == opp and m.tier_b == tier and m.winner == 1)
+            )
+            draws = sum(
+                1
+                for m in matches
+                if (
+                    (m.tier_a == tier and m.tier_b == opp)
+                    or (m.tier_a == opp and m.tier_b == tier)
+                )
+                and m.winner is None
+            )
+            return (wins, losses, draws)
+
+        h2h: Dict[str, Dict[str, str]] = {}
+        for tier in tiers:
             h2h[tier] = {}
-            for opp in self.tiers:
+            for opp in tiers:
                 if tier == opp:
                     h2h[tier][opp] = "-"
-                else:
-                    wins = sum(
-                        1 for m in self.state.matches
-                        if (m.tier_a == tier and m.tier_b == opp and m.winner == 1)
-                        or (m.tier_a == opp and m.tier_b == tier and m.winner == 2)
-                    )
-                    losses = sum(
-                        1 for m in self.state.matches
-                        if (m.tier_a == tier and m.tier_b == opp and m.winner == 2)
-                        or (m.tier_a == opp and m.tier_b == tier and m.winner == 1)
-                    )
-                    h2h[tier][opp] = f"{wins}-{losses}"
+                    continue
+                wins, losses, draws = _count_pair(tier, opp)
+                h2h[tier][opp] = f"{wins}-{losses}-{draws}"
+
+        matchup_stats: List[Dict[str, Any]] = []
+        for i, tier_a in enumerate(tiers):
+            for tier_b in tiers[i + 1 :]:
+                wins_a, losses_a, draws = _count_pair(tier_a, tier_b)
+                wins_b = losses_a
+                decisive = wins_a + wins_b
+                win_rate_b = wins_b / decisive if decisive else 0.0
+                ci_low, ci_high = wilson_score_interval(
+                    wins_b,
+                    decisive,
+                    confidence=self.confidence,
+                )
+                games = matchup_results.get((tier_a, tier_b), [])
+                avg_len = (
+                    sum(g.game_length for g in games) / len(games)
+                    if games
+                    else 0.0
+                )
+                avg_dur = (
+                    sum(g.duration_sec for g in games) / len(games)
+                    if games
+                    else 0.0
+                )
+                matchup_stats.append(
+                    {
+                        "tier_a": tier_a,
+                        "tier_b": tier_b,
+                        "wins_a": wins_a,
+                        "wins_b": wins_b,
+                        "draws": draws,
+                        "decisive_games": decisive,
+                        "decisive_win_rate_b": round(win_rate_b, 4),
+                        "decisive_wilson_ci_b": [ci_low, ci_high],
+                        "avg_game_length": round(avg_len, 2),
+                        "avg_duration_sec": round(avg_dur, 3),
+                    }
+                )
 
         elo_gaps = []
         for i in range(len(sorted_tiers) - 1):
             gap = sorted_tiers[i].elo - sorted_tiers[i + 1].elo
-            elo_gaps.append({
-                "from": sorted_tiers[i].tier,
-                "to": sorted_tiers[i + 1].tier,
-                "gap": round(gap, 1),
-            })
+            elo_gaps.append(
+                {
+                    "from": sorted_tiers[i].tier,
+                    "to": sorted_tiers[i + 1].tier,
+                    "gap": round(gap, 1),
+                }
+            )
+
+        total_games = len(matches)
+        avg_game_length = (
+            sum(m.game_length for m in matches) / total_games
+            if total_games
+            else 0.0
+        )
+        avg_game_duration = (
+            sum(m.duration_sec for m in matches) / total_games
+            if total_games
+            else 0.0
+        )
 
         return {
             "tournament_id": self.state.tournament_id,
@@ -615,19 +762,18 @@ class DistributedTournament:
             "config": {
                 "board_type": self.board_type.value,
                 "games_per_matchup": self.games_per_matchup,
-                "tiers": self.tiers,
+                "tiers": tiers,
+                "base_seed": self.state.base_seed,
+                "think_time_scale": self.think_time_scale,
+                "max_moves": self.max_moves,
+                "nn_model_id": self.nn_model_id,
+                "wilson_confidence": self.confidence,
             },
             "summary": {
-                "total_games": len(self.state.matches),
+                "total_games": total_games,
                 "total_matchups": len(self.all_matchups),
-                "avg_game_length": round(
-                    sum(m.game_length for m in self.state.matches)
-                    / max(1, len(self.state.matches)), 1
-                ),
-                "avg_game_duration_sec": round(
-                    sum(m.duration_sec for m in self.state.matches)
-                    / max(1, len(self.state.matches)), 2
-                ),
+                "avg_game_length": round(avg_game_length, 1),
+                "avg_game_duration_sec": round(avg_game_duration, 3),
             },
             "rankings": [
                 {
@@ -643,6 +789,7 @@ class DistributedTournament:
             ],
             "elo_gaps": elo_gaps,
             "head_to_head": h2h,
+            "matchup_stats": matchup_stats,
         }
 
 
@@ -696,13 +843,42 @@ def parse_args() -> argparse.Namespace:
         help="Quick mode: 10 games per matchup, tiers D1-D4 only",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=1,
+        help="Base RNG seed for deterministic match seeding (default: 1)",
+    )
+    parser.add_argument(
+        "--think-time-scale",
+        type=float,
+        default=1.0,
+        help="Multiply ladder think_time_ms by this factor (default: 1.0)",
+    )
+    parser.add_argument(
+        "--max-moves",
+        type=int,
+        default=300,
+        help="Max moves per game before declaring draw (default: 300)",
+    )
+    parser.add_argument(
+        "--wilson-confidence",
+        type=float,
+        default=0.95,
+        help="Wilson CI confidence for decisive matchups (default: 0.95)",
+    )
+    parser.add_argument(
+        "--output-report",
+        type=str,
+        default=None,
+        help="Optional explicit path for the JSON report (default: output-dir/report_<id>.json)",
+    )
+    parser.add_argument(
         "--nn-model-id",
         type=str,
-        default="auto",
+        default=None,
         help=(
-            "CNN model id/prefix for neural tiers (MCTS/Descent). "
-            "Use 'auto' to select the best available local checkpoint "
-            "(default: auto)."
+            "Optional override for the CNN model id used by MCTS/Descent tiers "
+            "(defaults to LadderTierConfig.model_id; leave unset to use ladder defaults)."
         ),
     )
     return parser.parse_args()
@@ -725,18 +901,7 @@ def main() -> None:
     }
     board_type = board_map[args.board]
 
-    nn_model_id: Optional[str] = None
-    needs_cnn_model = any(
-        DIFFICULTY_PROFILES[t].get("use_neural_net", False)
-        and DIFFICULTY_PROFILES[t]["ai_type"] in {AIType.MCTS, AIType.DESCENT}
-        for t in tiers
-    )
-    if needs_cnn_model:
-        if args.nn_model_id and args.nn_model_id.lower() != "auto":
-            nn_model_id = args.nn_model_id
-        else:
-            nn_model_id = get_best_nn_model_id()
-        logger.info("Using CNN nn_model_id=%s for neural tiers", nn_model_id)
+    nn_model_id = args.nn_model_id or None
 
     tournament = DistributedTournament(
         tiers=tiers,
@@ -746,6 +911,11 @@ def main() -> None:
         output_dir=args.output_dir,
         resume_file=args.resume,
         nn_model_id=nn_model_id,
+        base_seed=args.seed,
+        think_time_scale=args.think_time_scale,
+        max_moves=args.max_moves,
+        confidence=args.wilson_confidence,
+        report_path=args.output_report,
     )
 
     report = tournament.run()
@@ -768,7 +938,12 @@ def main() -> None:
     for gap in report["elo_gaps"]:
         print(f"{gap['from']} -> {gap['to']}: {gap['gap']:+.0f}")
 
-    print(f"\nFull report: {args.output_dir}/report_{report['tournament_id']}.json")
+    report_path = (
+        args.output_report
+        if args.output_report
+        else f"{args.output_dir}/report_{report['tournament_id']}.json"
+    )
+    print(f"\nFull report: {report_path}")
 
 
 if __name__ == "__main__":

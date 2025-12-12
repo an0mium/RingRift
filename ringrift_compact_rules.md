@@ -146,8 +146,8 @@ If no legal placement exists when placement is mandatory, the player records `no
 After placement step, define the set of **controlled stacks** `S = { stacks where controllingPlayer = P }`.
 
 - If `S` is empty:
-  - If `P.ringsInHand > 0`, you must fall back to the ring‑placement rules in Section 2.1/6: your only way to act is by placing a new stack that satisfies the no‑dead‑placement rule.
-  - If you have no controlled stacks and you are **recovery-eligible** (you have markers on the board AND at least one buried ring), you may perform a **recovery action** (Section 2.4) instead of a normal movement. Recovery eligibility is independent of rings in hand. Otherwise, proceed to line/territory processing (likely with no actions), then your turn ends and play passes to the next player.
+  - If you are **recovery-eligible** (you have markers on the board AND at least one buried ring), you may perform a **recovery action** (Section 2.4) instead of a normal movement. Recovery eligibility is independent of rings in hand; a player with rings may reach recovery by voluntarily skipping placement (`skip_placement`).
+  - Otherwise, you have no movement/capture actions; record `no_movement_action`, proceed to post‑movement processing (likely with no actions), then your turn ends and play passes to the next player.
 - Otherwise (`S` non‑empty), compute all legal movement/capture moves from stacks in `S` (Section 3 & 4).
   - If **no legal moves or captures** exist _and_ there is at least one legal placement (per the no‑dead‑placement rule), you must either place (if placement is mandatory) or you may choose to place (if placement is optional).
   - If **no legal moves/captures** and **no legal placements** exist, you are **blocked with stacks** and must go to forced elimination (Section 2.3).
@@ -172,13 +172,13 @@ At the start of your action (after any mandatory placement checks) and before mo
 
 If after this elimination `P` still has no legal action, their turn ends.
 
-**Control-flip edge case:** If `P`'s only control over a stack was a cap of height 1 (a single ring of `P`'s colour on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes `P` to have **zero controlled stacks** and **zero rings in hand**, `P` becomes "temporarily inactive" (per Section 7.3) immediately. Turn rotation should then skip `P` and proceed to the next player who has material; `P`'s turn effectively ends at the moment of forced elimination without any further action.
+**Control-flip edge case:** If `P`'s only control over a stack was a cap of height 1 (a single ring of `P`'s colour on top of opponent rings), forced elimination removes that cap and flips stack control to the opponent. If this causes `P` to have **zero controlled stacks** and **zero rings in hand**, `P` becomes "temporarily inactive" (per Section 7.3) immediately. Temporarily inactive players are **not** skipped during turn rotation; only **permanently eliminated** players are removed from rotation.
 
 However, as long as any stacks remain on the board, it is never legal for the game to remain in an `active` state with the current player having no legal action. In any situation where **no player** has any legal placement, movement, or capture but at least one stack still exists on the board, the controlling player of some stack on their turn must satisfy the condition above and perform a forced elimination. Successive forced eliminations continue (possibly cycling through multiple players) until **no stacks remain**; only then can the game reach a structurally terminal state that is resolved by the stalemate rules in Section 7.4.
 
 ### 2.4 Recovery action
 
-A player who controls **zero stacks**, has **at least one marker**, and has **at least one buried ring** (their ring at a non-top position in some stack) may perform a recovery action during the movement phase. Recovery eligibility is independent of rings in hand; players with rings may choose recovery over placement:
+A player who controls **zero stacks**, has **at least one marker**, and has **at least one buried ring** (their ring at a non-top position in some stack) may perform a recovery action during the movement phase. Recovery eligibility is independent of rings in hand; even if you have rings in hand, you may skip placement and take recovery instead:
 
 1. **Marker slide:** Select one of your markers and slide it to an adjacent destination:
    - **Empty cell** (no stack, no marker, not collapsed): normal recovery slide.
@@ -192,11 +192,11 @@ A player who controls **zero stacks**, has **at least one marker**, and has **at
 4. **Line recovery (condition a):** If the line exceeds `lineLength`:
    - **Option 1:** Collapse all markers and pay self-elimination (one buried ring extraction).
    - **Option 2:** Collapse exactly `lineLength` consecutive markers of your choice **without** paying self-elimination.
-5. **Fallback recovery (condition b):** Costs one buried ring extraction, no line processing.
+5. **Fallback recovery (condition b):** Costs one buried ring extraction, no line processing (but it may still trigger territory processing if it disconnects regions).
 6. **Buried ring extraction:** Extract your bottommost ring from any stack containing your buried rings:
    - Ring is permanently eliminated (credited to you).
    - Stack height decreases by 1; control determined by new top ring.
-7. **Cascade processing (line recovery only):** If line collapse creates territory regions, process normally. Each territory's self-elimination cost requires extracting another buried ring from a stack **outside** that region. If no buried rings remain outside claimable regions, those territories cannot be claimed.
+7. **Cascade processing (territory disconnection):** If the recovery slide (line or fallback) results in disconnected territory regions, process normally. Each territory's self-elimination cost requires extracting another buried ring from a stack **outside** that region. If no buried rings remain outside claimable regions, those territories cannot be claimed.
 
 Move types: `recovery_slide` (with `recoveryMode: 'line' | 'fallback' | 'stack_strike'`), `skip_recovery`.
 
