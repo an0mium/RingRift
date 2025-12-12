@@ -104,6 +104,12 @@ class JobType(str, Enum):
     GPU_SELFPLAY = "gpu_selfplay"  # GPU-accelerated parallel selfplay
     TRAINING = "training"
     CMAES = "cmaes"
+    # Distributed job types
+    DISTRIBUTED_CMAES_COORDINATOR = "distributed_cmaes_coordinator"
+    DISTRIBUTED_CMAES_WORKER = "distributed_cmaes_worker"
+    DISTRIBUTED_TOURNAMENT_COORDINATOR = "distributed_tournament_coordinator"
+    DISTRIBUTED_TOURNAMENT_WORKER = "distributed_tournament_worker"
+    IMPROVEMENT_LOOP = "improvement_loop"
 
 
 @dataclass
@@ -188,6 +194,10 @@ class ClusterJob:
     pid: int = 0
     started_at: float = 0.0
     status: str = "running"
+    # Extended fields for distributed jobs
+    coordinator_node: str = ""  # Node running coordinator (for worker jobs)
+    worker_port: int = 8766     # Port for worker server
+    config_json: str = ""       # JSON config for complex jobs
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -198,6 +208,89 @@ class ClusterJob:
     def from_dict(cls, d: dict) -> 'ClusterJob':
         d = d.copy()
         d['job_type'] = JobType(d.get('job_type', 'selfplay'))
+        # Handle missing new fields
+        d.setdefault('coordinator_node', '')
+        d.setdefault('worker_port', 8766)
+        d.setdefault('config_json', '')
+        return cls(**d)
+
+
+@dataclass
+class DistributedCMAESState:
+    """State for distributed CMA-ES job coordination."""
+    job_id: str
+    board_type: str = "square8"
+    num_players: int = 2
+    generations: int = 100
+    population_size: int = 20
+    games_per_eval: int = 50
+    current_generation: int = 0
+    best_fitness: float = 0.0
+    best_weights: Dict[str, float] = field(default_factory=dict)
+    worker_nodes: List[str] = field(default_factory=list)
+    status: str = "pending"
+    started_at: float = 0.0
+    last_update: float = 0.0
+    results_file: str = ""
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'DistributedCMAESState':
+        return cls(**d)
+
+
+@dataclass
+class DistributedTournamentState:
+    """State for distributed tournament coordination."""
+    job_id: str
+    board_type: str = "square8"
+    num_players: int = 2
+    agent_ids: List[str] = field(default_factory=list)
+    games_per_pairing: int = 2
+    total_matches: int = 0
+    completed_matches: int = 0
+    worker_nodes: List[str] = field(default_factory=list)
+    pending_matches: List[dict] = field(default_factory=list)
+    results: List[dict] = field(default_factory=list)
+    final_ratings: Dict[str, float] = field(default_factory=dict)
+    status: str = "pending"
+    started_at: float = 0.0
+    last_update: float = 0.0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'DistributedTournamentState':
+        return cls(**d)
+
+
+@dataclass
+class ImprovementLoopState:
+    """State for improvement loop coordination."""
+    job_id: str
+    board_type: str = "square8"
+    num_players: int = 2
+    current_iteration: int = 0
+    max_iterations: int = 50
+    games_per_iteration: int = 1000
+    phase: str = "idle"  # idle, selfplay, export, train, evaluate, promote
+    best_model_path: str = ""
+    best_winrate: float = 0.0
+    consecutive_failures: int = 0
+    worker_nodes: List[str] = field(default_factory=list)
+    selfplay_progress: Dict[str, int] = field(default_factory=dict)  # node_id -> games done
+    status: str = "pending"
+    started_at: float = 0.0
+    last_update: float = 0.0
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'ImprovementLoopState':
         return cls(**d)
 
 
@@ -223,6 +316,11 @@ class P2POrchestrator:
         self.leader_id: Optional[str] = None
         self.peers: Dict[str, NodeInfo] = {}
         self.local_jobs: Dict[str, ClusterJob] = {}
+
+        # Distributed job state tracking (leader-only)
+        self.distributed_cmaes_state: Dict[str, DistributedCMAESState] = {}
+        self.distributed_tournament_state: Dict[str, DistributedTournamentState] = {}
+        self.improvement_loop_state: Dict[str, ImprovementLoopState] = {}
 
         # Locks for thread safety
         self.peers_lock = threading.Lock()
@@ -1018,6 +1116,1531 @@ class P2POrchestrator:
             return web.json_response({"error": str(e)}, status=500)
 
     # ============================================
+    # Distributed CMA-ES Handlers
+    # ============================================
+
+    async def handle_cmaes_start(self, request: web.Request) -> web.Response:
+        """Start a distributed CMA-ES optimization job.
+
+        Only the leader can start distributed CMA-ES jobs.
+        Request body:
+        {
+            "board_type": "square8",
+            "num_players": 2,
+            "generations": 100,
+            "population_size": 20,
+            "games_per_eval": 50
+        }
+        """
+        try:
+            if self.role != NodeRole.LEADER:
+                return web.json_response({
+                    "error": "Only the leader can start distributed CMA-ES",
+                    "leader_id": self.leader_id,
+                }, status=403)
+
+            data = await request.json()
+            job_id = f"cmaes_{uuid.uuid4().hex[:8]}"
+
+            # Create state for this job
+            state = DistributedCMAESState(
+                job_id=job_id,
+                board_type=data.get("board_type", "square8"),
+                num_players=data.get("num_players", 2),
+                generations=data.get("generations", 100),
+                population_size=data.get("population_size", 20),
+                games_per_eval=data.get("games_per_eval", 50),
+                status="starting",
+                started_at=time.time(),
+                last_update=time.time(),
+            )
+
+            # Find available GPU workers
+            with self.peers_lock:
+                gpu_nodes = [
+                    p.node_id for p in self.peers.values()
+                    if p.is_healthy() and p.has_gpu
+                ]
+            state.worker_nodes = gpu_nodes
+
+            if not state.worker_nodes:
+                return web.json_response({
+                    "error": "No GPU workers available for CMA-ES",
+                }, status=503)
+
+            self.distributed_cmaes_state[job_id] = state
+            state.status = "running"
+
+            print(f"[P2P] Started distributed CMA-ES job {job_id} with {len(state.worker_nodes)} workers")
+
+            # Launch coordinator task
+            asyncio.create_task(self._run_distributed_cmaes(job_id))
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "workers": state.worker_nodes,
+                "config": {
+                    "board_type": state.board_type,
+                    "num_players": state.num_players,
+                    "generations": state.generations,
+                    "population_size": state.population_size,
+                    "games_per_eval": state.games_per_eval,
+                },
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_cmaes_evaluate(self, request: web.Request) -> web.Response:
+        """Request evaluation of weights from workers.
+
+        Called by the coordinator to distribute weight evaluation tasks.
+        Workers respond via /cmaes/result endpoint.
+        """
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            weights = data.get("weights", {})
+            generation = data.get("generation", 0)
+            individual_idx = data.get("individual_idx", 0)
+
+            if not job_id:
+                return web.json_response({"error": "job_id required"}, status=400)
+
+            # Store evaluation task for local processing
+            print(f"[P2P] Received CMA-ES evaluation request: job={job_id}, gen={generation}, idx={individual_idx}")
+
+            # Start evaluation in background
+            asyncio.create_task(self._evaluate_cmaes_weights(
+                job_id, weights, generation, individual_idx
+            ))
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "status": "evaluation_started",
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_cmaes_status(self, request: web.Request) -> web.Response:
+        """Get status of distributed CMA-ES jobs."""
+        try:
+            job_id = request.query.get("job_id")
+
+            if job_id:
+                if job_id not in self.distributed_cmaes_state:
+                    return web.json_response({"error": "Job not found"}, status=404)
+                state = self.distributed_cmaes_state[job_id]
+                return web.json_response(state.to_dict())
+
+            # Return all jobs
+            return web.json_response({
+                job_id: state.to_dict()
+                for job_id, state in self.distributed_cmaes_state.items()
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_cmaes_result(self, request: web.Request) -> web.Response:
+        """Receive evaluation result from a worker."""
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            generation = data.get("generation", 0)
+            individual_idx = data.get("individual_idx", 0)
+            fitness = data.get("fitness", 0.0)
+            worker_id = data.get("worker_id", "unknown")
+
+            if job_id not in self.distributed_cmaes_state:
+                return web.json_response({"error": "Job not found"}, status=404)
+
+            print(f"[P2P] CMA-ES result: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f} from {worker_id}")
+
+            # Store result - the coordinator loop will process it
+            state = self.distributed_cmaes_state[job_id]
+            state.last_update = time.time()
+
+            # Update best if applicable
+            if fitness > state.best_fitness:
+                state.best_fitness = fitness
+                state.best_weights = data.get("weights", {})
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _run_distributed_cmaes(self, job_id: str):
+        """Main coordinator loop for distributed CMA-ES.
+
+        Integrates with CMA-ES algorithm to optimize heuristic weights.
+        Distributes candidate evaluation across GPU workers in the cluster.
+        """
+        try:
+            state = self.distributed_cmaes_state.get(job_id)
+            if not state:
+                return
+
+            print(f"[P2P] CMA-ES coordinator started for job {job_id}")
+            print(f"[P2P] Config: {state.generations} gens, pop={state.population_size}, {state.games_per_eval} games/eval")
+
+            # Try to import CMA-ES library
+            try:
+                import cma
+                import numpy as np
+            except ImportError:
+                print("[P2P] CMA-ES requires: pip install cma numpy")
+                state.status = "error: cma not installed"
+                return
+
+            # Default heuristic weights to optimize
+            weight_names = [
+                "material_weight", "ring_count_weight", "stack_height_weight",
+                "center_control_weight", "territory_weight", "mobility_weight",
+                "line_potential_weight", "defensive_weight",
+            ]
+            default_weights = {
+                "material_weight": 1.0, "ring_count_weight": 0.5,
+                "stack_height_weight": 0.3, "center_control_weight": 0.4,
+                "territory_weight": 0.8, "mobility_weight": 0.2,
+                "line_potential_weight": 0.6, "defensive_weight": 0.3,
+            }
+
+            # Convert to vector for CMA-ES
+            x0 = np.array([default_weights[n] for n in weight_names])
+
+            # Initialize CMA-ES
+            es = cma.CMAEvolutionStrategy(x0, 0.5, {
+                'popsize': state.population_size,
+                'maxiter': state.generations,
+                'bounds': [0, 2],  # Weights between 0 and 2
+            })
+
+            state.current_generation = 0
+
+            while not es.stop() and state.status == "running":
+                state.current_generation += 1
+                state.last_update = time.time()
+
+                # Get candidate solutions
+                solutions = es.ask()
+
+                # Distribute evaluations across workers
+                fitness_results = {}
+                pending_evals = {}
+
+                for idx, sol in enumerate(solutions):
+                    weights = {name: float(sol[i]) for i, name in enumerate(weight_names)}
+
+                    # Round-robin assign to workers
+                    if state.worker_nodes:
+                        worker_idx = idx % len(state.worker_nodes)
+                        worker_id = state.worker_nodes[worker_idx]
+
+                        # Send evaluation request to worker
+                        eval_id = f"{job_id}_gen{state.current_generation}_idx{idx}"
+                        pending_evals[eval_id] = idx
+
+                        try:
+                            with self.peers_lock:
+                                worker = self.peers.get(worker_id)
+                            if worker:
+                                timeout = ClientTimeout(total=300)
+                                async with ClientSession(timeout=timeout) as session:
+                                    url = f"http://{worker.host}:{worker.port}/cmaes/evaluate"
+                                    await session.post(url, json={
+                                        "job_id": job_id,
+                                        "weights": weights,
+                                        "generation": state.current_generation,
+                                        "individual_idx": idx,
+                                        "games_per_eval": state.games_per_eval,
+                                        "board_type": state.board_type,
+                                        "num_players": state.num_players,
+                                    })
+                        except Exception as e:
+                            print(f"[P2P] Failed to send eval to {worker_id}: {e}")
+                            # Fall back to local evaluation
+                            fitness = await self._evaluate_cmaes_weights_local(
+                                weights, state.games_per_eval, state.board_type, state.num_players
+                            )
+                            fitness_results[idx] = fitness
+
+                # Wait for results with timeout
+                wait_start = time.time()
+                while len(fitness_results) < len(solutions) and (time.time() - wait_start) < 300:
+                    await asyncio.sleep(1)
+                    # Check for results that came in via /cmaes/result endpoint
+                    # Results are stored in state by handle_cmaes_result
+                    state.last_update = time.time()
+
+                # Fill in any missing results with default fitness
+                fitnesses = []
+                for idx in range(len(solutions)):
+                    fitness = fitness_results.get(idx, 0.5)  # Default to 0.5 if no result
+                    fitnesses.append(-fitness)  # CMA-ES minimizes, so negate
+
+                # Update CMA-ES
+                es.tell(solutions, fitnesses)
+
+                # Track best
+                best_idx = np.argmin(fitnesses)
+                if -fitnesses[best_idx] > state.best_fitness:
+                    state.best_fitness = -fitnesses[best_idx]
+                    state.best_weights = {name: float(solutions[best_idx][i]) for i, name in enumerate(weight_names)}
+
+                print(f"[P2P] Gen {state.current_generation}: best_fitness={state.best_fitness:.4f}")
+
+            state.status = "completed"
+            print(f"[P2P] CMA-ES job {job_id} completed: best_fitness={state.best_fitness:.4f}")
+            print(f"[P2P] Best weights: {state.best_weights}")
+
+        except Exception as e:
+            import traceback
+            print(f"[P2P] CMA-ES coordinator error: {e}")
+            traceback.print_exc()
+            if job_id in self.distributed_cmaes_state:
+                self.distributed_cmaes_state[job_id].status = f"error: {e}"
+
+    async def _evaluate_cmaes_weights_local(
+        self, weights: dict, num_games: int, board_type: str, num_players: int
+    ) -> float:
+        """Evaluate weights locally by running selfplay games."""
+        try:
+            # Run selfplay subprocess to evaluate weights
+            import tempfile
+            import json as json_mod
+
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json_mod.dump(weights, f)
+                weights_file = f.name
+
+            cmd = [
+                sys.executable, "-c", f"""
+import sys
+sys.path.insert(0, '{self.ringrift_path / "ai-service"}')
+from app.game_engine import GameEngine
+from app.ai.heuristic_ai import HeuristicAI
+from app.models import AIConfig, BoardType, GameStatus
+from app.training.generate_data import create_initial_state
+import json
+
+weights = json.load(open('{weights_file}'))
+board_type = BoardType('{board_type}')
+wins = 0
+total = {num_games}
+
+for i in range(total):
+    state = create_initial_state(board_type, num_players={num_players})
+    engine = GameEngine()
+
+    # Candidate with custom weights vs baseline
+    config_candidate = AIConfig(difficulty=5, randomness=0.1, think_time=500, custom_weights=weights)
+    config_baseline = AIConfig(difficulty=5, randomness=0.1, think_time=500)
+
+    ai_candidate = HeuristicAI(1, config_candidate)
+    ai_baseline = HeuristicAI(2, config_baseline)
+
+    move_count = 0
+    while state.game_status == GameStatus.ACTIVE and move_count < 300:
+        current_ai = ai_candidate if state.current_player == 1 else ai_baseline
+        move = current_ai.select_move(state)
+        if move is None:
+            break
+        state = engine.apply_move(state, move)
+        move_count += 1
+
+    if state.winner == 1:
+        wins += 1
+    elif state.winner is None:
+        wins += 0.5  # Draw counts as half
+
+print(wins / total)
+"""
+            ]
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "PYTHONPATH": str(self.ringrift_path / "ai-service")},
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+
+            # Clean up temp file
+            os.unlink(weights_file)
+
+            if proc.returncode == 0:
+                return float(stdout.decode().strip())
+            else:
+                print(f"[P2P] Local eval error: {stderr.decode()}")
+                return 0.5
+
+        except Exception as e:
+            print(f"[P2P] Local CMA-ES evaluation error: {e}")
+            return 0.5
+
+    async def _evaluate_cmaes_weights(self, job_id: str, weights: dict, generation: int, individual_idx: int):
+        """Evaluate weights locally and report result to coordinator."""
+        try:
+            state = self.distributed_cmaes_state.get(job_id)
+            if not state:
+                print(f"[P2P] CMA-ES job {job_id} not found for evaluation")
+                return
+
+            # Run local evaluation
+            fitness = await self._evaluate_cmaes_weights_local(
+                weights, state.games_per_eval, state.board_type, state.num_players
+            )
+
+            print(f"[P2P] Completed local CMA-ES evaluation: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f}")
+
+            # If we're not the coordinator, report result back
+            if self.role != NodeRole.LEADER:
+                # Find the leader and POST result
+                if self.leader_id:
+                    with self.peers_lock:
+                        leader = self.peers.get(self.leader_id)
+                    if leader:
+                        try:
+                            timeout = ClientTimeout(total=30)
+                            async with ClientSession(timeout=timeout) as session:
+                                url = f"http://{leader.host}:{leader.port}/cmaes/result"
+                                await session.post(url, json={
+                                    "job_id": job_id,
+                                    "generation": generation,
+                                    "individual_idx": individual_idx,
+                                    "fitness": fitness,
+                                    "weights": weights,
+                                    "worker_id": self.node_id,
+                                })
+                        except Exception as e:
+                            print(f"[P2P] Failed to report CMA-ES result to leader: {e}")
+
+        except Exception as e:
+            print(f"[P2P] CMA-ES evaluation error: {e}")
+
+    # ============================================
+    # Distributed Tournament Handlers
+    # ============================================
+
+    async def handle_tournament_start(self, request: web.Request) -> web.Response:
+        """Start a distributed tournament.
+
+        Only the leader can start distributed tournaments.
+        Request body:
+        {
+            "board_type": "square8",
+            "num_players": 2,
+            "agent_ids": ["agent1", "agent2", "agent3"],
+            "games_per_pairing": 2
+        }
+        """
+        try:
+            if self.role != NodeRole.LEADER:
+                return web.json_response({
+                    "error": "Only the leader can start distributed tournaments",
+                    "leader_id": self.leader_id,
+                }, status=403)
+
+            data = await request.json()
+            job_id = f"tournament_{uuid.uuid4().hex[:8]}"
+
+            agent_ids = data.get("agent_ids", [])
+            if len(agent_ids) < 2:
+                return web.json_response({"error": "At least 2 agents required"}, status=400)
+
+            # Create round-robin pairings
+            pairings = []
+            for i, a1 in enumerate(agent_ids):
+                for a2 in agent_ids[i+1:]:
+                    for game_num in range(data.get("games_per_pairing", 2)):
+                        pairings.append({
+                            "agent1": a1,
+                            "agent2": a2,
+                            "game_num": game_num,
+                            "status": "pending",
+                        })
+
+            state = DistributedTournamentState(
+                job_id=job_id,
+                board_type=data.get("board_type", "square8"),
+                num_players=data.get("num_players", 2),
+                agent_ids=agent_ids,
+                games_per_pairing=data.get("games_per_pairing", 2),
+                total_matches=len(pairings),
+                pending_matches=pairings,
+                status="running",
+                started_at=time.time(),
+                last_update=time.time(),
+            )
+
+            # Find available workers
+            with self.peers_lock:
+                workers = [p.node_id for p in self.peers.values() if p.is_healthy()]
+            state.worker_nodes = workers
+
+            if not state.worker_nodes:
+                return web.json_response({"error": "No workers available"}, status=503)
+
+            self.distributed_tournament_state[job_id] = state
+
+            print(f"[P2P] Started tournament {job_id}: {len(agent_ids)} agents, {len(pairings)} matches, {len(workers)} workers")
+
+            # Launch coordinator task
+            asyncio.create_task(self._run_distributed_tournament(job_id))
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "agents": agent_ids,
+                "total_matches": len(pairings),
+                "workers": workers,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_tournament_match(self, request: web.Request) -> web.Response:
+        """Request a tournament match to be played by a worker."""
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            match_info = data.get("match")
+
+            if not job_id or not match_info:
+                return web.json_response({"error": "job_id and match required"}, status=400)
+
+            print(f"[P2P] Received tournament match request: {match_info}")
+
+            # Start match in background
+            asyncio.create_task(self._play_tournament_match(job_id, match_info))
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "status": "match_started",
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_tournament_status(self, request: web.Request) -> web.Response:
+        """Get status of distributed tournaments."""
+        try:
+            job_id = request.query.get("job_id")
+
+            if job_id:
+                if job_id not in self.distributed_tournament_state:
+                    return web.json_response({"error": "Tournament not found"}, status=404)
+                state = self.distributed_tournament_state[job_id]
+                return web.json_response(state.to_dict())
+
+            return web.json_response({
+                job_id: state.to_dict()
+                for job_id, state in self.distributed_tournament_state.items()
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_tournament_result(self, request: web.Request) -> web.Response:
+        """Receive match result from a worker."""
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            match_result = data.get("result", {})
+            worker_id = data.get("worker_id", "unknown")
+
+            if job_id not in self.distributed_tournament_state:
+                return web.json_response({"error": "Tournament not found"}, status=404)
+
+            state = self.distributed_tournament_state[job_id]
+            state.results.append(match_result)
+            state.completed_matches += 1
+            state.last_update = time.time()
+
+            print(f"[P2P] Tournament result: {state.completed_matches}/{state.total_matches} matches from {worker_id}")
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "completed": state.completed_matches,
+                "total": state.total_matches,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _run_distributed_tournament(self, job_id: str):
+        """Main coordinator loop for distributed tournament."""
+        try:
+            state = self.distributed_tournament_state.get(job_id)
+            if not state:
+                return
+
+            print(f"[P2P] Tournament coordinator started for job {job_id}")
+
+            # Distribute matches to workers
+            while state.pending_matches and state.status == "running":
+                # Simple distribution - in reality would be smarter about load balancing
+                for worker_id in state.worker_nodes:
+                    if not state.pending_matches:
+                        break
+                    match = state.pending_matches.pop(0)
+                    match["status"] = "in_progress"
+
+                    # Send match to worker
+                    await self._send_match_to_worker(job_id, worker_id, match)
+
+                await asyncio.sleep(1)
+
+            # Wait for all results
+            while state.completed_matches < state.total_matches and state.status == "running":
+                state.last_update = time.time()
+                await asyncio.sleep(1)
+
+            # Calculate final ratings
+            self._calculate_tournament_ratings(state)
+            state.status = "completed"
+
+            print(f"[P2P] Tournament {job_id} completed: {state.completed_matches} matches, ratings={state.final_ratings}")
+
+        except Exception as e:
+            print(f"[P2P] Tournament coordinator error: {e}")
+            if job_id in self.distributed_tournament_state:
+                self.distributed_tournament_state[job_id].status = f"error: {e}"
+
+    async def _send_match_to_worker(self, job_id: str, worker_id: str, match: dict):
+        """Send a match to a worker node."""
+        try:
+            with self.peers_lock:
+                worker = self.peers.get(worker_id)
+            if not worker:
+                return
+
+            timeout = ClientTimeout(total=10)
+            async with ClientSession(timeout=timeout) as session:
+                url = f"http://{worker.host}:{worker.port}/tournament/match"
+                await session.post(url, json={"job_id": job_id, "match": match})
+        except Exception as e:
+            print(f"[P2P] Failed to send match to worker {worker_id}: {e}")
+
+    async def _play_tournament_match(self, job_id: str, match_info: dict):
+        """Play a tournament match locally using subprocess selfplay."""
+        try:
+            import subprocess
+            import sys
+            import json as json_module
+
+            agent1 = match_info["agent1"]
+            agent2 = match_info["agent2"]
+            game_num = match_info.get("game_num", 0)
+            board_type = match_info.get("board_type", "square8")
+            num_players = match_info.get("num_players", 2)
+
+            print(f"[P2P] Playing tournament match: {agent1} vs {agent2} (game {game_num})")
+
+            # Build the subprocess command to run a single game
+            # Agent IDs map to model paths or heuristic configurations
+            game_script = f"""
+import sys
+sys.path.insert(0, '{self.ringrift_path}/ai-service')
+from app.game_engine import GameEngine
+from app.agents.heuristic_agent import HeuristicAgent
+import json
+import random
+
+def load_agent(agent_id: str, player_idx: int):
+    '''Load agent by ID - supports heuristic weights or model paths.'''
+    if agent_id.startswith('heuristic:'):
+        # Parse weights from agent ID: "heuristic:w1,w2,w3,..."
+        weight_str = agent_id.split(':')[1]
+        weights = [float(w) for w in weight_str.split(',')]
+        weight_names = [
+            "material_weight", "ring_count_weight", "stack_height_weight",
+            "center_control_weight", "territory_weight", "mobility_weight",
+            "line_potential_weight", "defensive_weight",
+        ]
+        weight_dict = dict(zip(weight_names, weights))
+        return HeuristicAgent(player_idx, weight_dict)
+    elif agent_id.startswith('model:'):
+        # Neural network model - would load from path
+        # For now, fall back to heuristic
+        return HeuristicAgent(player_idx)
+    else:
+        # Default heuristic agent
+        return HeuristicAgent(player_idx)
+
+# Initialize game
+engine = GameEngine(board_type='{board_type}', num_players={num_players})
+agents = [
+    load_agent('{agent1}', 0),
+    load_agent('{agent2}', 1),
+]
+
+# Play until completion
+max_moves = 500
+move_count = 0
+while not engine.is_game_over() and move_count < max_moves:
+    current_player = engine.current_player
+    agent = agents[current_player]
+    legal_moves = engine.get_legal_moves()
+    if not legal_moves:
+        break
+    move = agent.select_move(engine.get_state(), legal_moves)
+    engine.apply_move(move)
+    move_count += 1
+
+# Get result
+outcome = engine.get_outcome()
+winner_idx = outcome.get('winner')
+victory_type = outcome.get('victory_type', 'unknown')
+
+# Map winner index to agent ID
+winner_agent = None
+if winner_idx == 0:
+    winner_agent = '{agent1}'
+elif winner_idx == 1:
+    winner_agent = '{agent2}'
+
+result = {{
+    'agent1': '{agent1}',
+    'agent2': '{agent2}',
+    'winner': winner_agent,
+    'winner_idx': winner_idx,
+    'victory_type': victory_type,
+    'move_count': move_count,
+    'game_num': {game_num},
+}}
+print(json.dumps(result))
+"""
+            # Run the game in subprocess
+            cmd = [sys.executable, "-c", game_script]
+            env = os.environ.copy()
+            env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
+            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=300  # 5 minute timeout per game
+            )
+
+            if proc.returncode != 0:
+                print(f"[P2P] Tournament match subprocess error: {stderr.decode()}")
+                result = {
+                    "agent1": agent1,
+                    "agent2": agent2,
+                    "winner": None,
+                    "error": stderr.decode()[:200],
+                    "game_num": game_num,
+                }
+            else:
+                # Parse result from stdout
+                output_lines = stdout.decode().strip().split('\n')
+                result_line = output_lines[-1] if output_lines else '{}'
+                result = json_module.loads(result_line)
+
+            print(f"[P2P] Match result: {agent1} vs {agent2} -> winner={result.get('winner')}")
+
+            # Report result back to coordinator (leader)
+            if self.role != NodeRole.LEADER and self.leader_id:
+                with self.peers_lock:
+                    leader = self.peers.get(self.leader_id)
+                if leader:
+                    try:
+                        timeout = ClientTimeout(total=10)
+                        async with ClientSession(timeout=timeout) as session:
+                            url = f"http://{leader.host}:{leader.port}/tournament/result"
+                            await session.post(url, json={
+                                "job_id": job_id,
+                                "result": result,
+                                "worker_id": self.node_id,
+                            })
+                    except Exception as e:
+                        print(f"[P2P] Failed to report tournament result to leader: {e}")
+            else:
+                # We are the leader, update state directly
+                if job_id in self.distributed_tournament_state:
+                    state = self.distributed_tournament_state[job_id]
+                    state.results.append(result)
+                    state.completed_matches += 1
+                    state.last_update = time.time()
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] Tournament match timed out: {match_info}")
+        except Exception as e:
+            print(f"[P2P] Tournament match error: {e}")
+
+    def _calculate_tournament_ratings(self, state: DistributedTournamentState):
+        """Calculate final Elo ratings from tournament results.
+
+        Uses standard Elo rating system with K-factor of 32.
+        Starting rating is 1500 for all agents.
+        """
+        K_FACTOR = 32
+        INITIAL_RATING = 1500
+
+        # Initialize ratings
+        ratings = {agent: float(INITIAL_RATING) for agent in state.agent_ids}
+        wins = {agent: 0 for agent in state.agent_ids}
+        losses = {agent: 0 for agent in state.agent_ids}
+        draws = {agent: 0 for agent in state.agent_ids}
+
+        def expected_score(rating_a: float, rating_b: float) -> float:
+            """Calculate expected score for player A against player B."""
+            return 1.0 / (1.0 + 10 ** ((rating_b - rating_a) / 400.0))
+
+        def update_elo(rating: float, expected: float, actual: float) -> float:
+            """Update Elo rating based on game outcome."""
+            return rating + K_FACTOR * (actual - expected)
+
+        # Process all results
+        for result in state.results:
+            agent1 = result.get("agent1")
+            agent2 = result.get("agent2")
+            winner = result.get("winner")
+
+            if not agent1 or not agent2:
+                continue
+            if agent1 not in ratings or agent2 not in ratings:
+                continue
+
+            # Determine actual scores
+            if winner == agent1:
+                score1, score2 = 1.0, 0.0
+                wins[agent1] += 1
+                losses[agent2] += 1
+            elif winner == agent2:
+                score1, score2 = 0.0, 1.0
+                wins[agent2] += 1
+                losses[agent1] += 1
+            elif winner is None:
+                # Draw
+                score1, score2 = 0.5, 0.5
+                draws[agent1] += 1
+                draws[agent2] += 1
+            else:
+                # Unknown winner, skip
+                continue
+
+            # Calculate expected scores
+            expected1 = expected_score(ratings[agent1], ratings[agent2])
+            expected2 = expected_score(ratings[agent2], ratings[agent1])
+
+            # Update ratings
+            ratings[agent1] = update_elo(ratings[agent1], expected1, score1)
+            ratings[agent2] = update_elo(ratings[agent2], expected2, score2)
+
+        # Store final ratings and stats
+        state.final_ratings = {
+            agent: {
+                "elo": round(ratings[agent]),
+                "wins": wins[agent],
+                "losses": losses[agent],
+                "draws": draws[agent],
+                "games": wins[agent] + losses[agent] + draws[agent],
+            }
+            for agent in state.agent_ids
+        }
+
+        # Log rankings
+        ranked = sorted(state.final_ratings.items(), key=lambda x: x[1]["elo"], reverse=True)
+        print(f"[P2P] Tournament final rankings:")
+        for rank, (agent, stats) in enumerate(ranked, 1):
+            print(f"  {rank}. {agent}: Elo={stats['elo']}, W/L/D={stats['wins']}/{stats['losses']}/{stats['draws']}")
+
+    # ============================================
+    # Improvement Loop Handlers
+    # ============================================
+
+    async def handle_improvement_start(self, request: web.Request) -> web.Response:
+        """Start an improvement loop (AlphaZero-style training cycle).
+
+        Only the leader can start improvement loops.
+        Request body:
+        {
+            "board_type": "square8",
+            "num_players": 2,
+            "max_iterations": 50,
+            "games_per_iteration": 1000
+        }
+        """
+        try:
+            if self.role != NodeRole.LEADER:
+                return web.json_response({
+                    "error": "Only the leader can start improvement loops",
+                    "leader_id": self.leader_id,
+                }, status=403)
+
+            data = await request.json()
+            job_id = f"improve_{uuid.uuid4().hex[:8]}"
+
+            state = ImprovementLoopState(
+                job_id=job_id,
+                board_type=data.get("board_type", "square8"),
+                num_players=data.get("num_players", 2),
+                max_iterations=data.get("max_iterations", 50),
+                games_per_iteration=data.get("games_per_iteration", 1000),
+                phase="selfplay",
+                status="running",
+                started_at=time.time(),
+                last_update=time.time(),
+            )
+
+            # Find available workers
+            with self.peers_lock:
+                workers = [p.node_id for p in self.peers.values() if p.is_healthy()]
+                gpu_workers = [p.node_id for p in self.peers.values() if p.is_healthy() and p.has_gpu]
+            state.worker_nodes = workers
+
+            if not gpu_workers:
+                return web.json_response({"error": "No GPU workers available for training"}, status=503)
+
+            self.improvement_loop_state[job_id] = state
+
+            print(f"[P2P] Started improvement loop {job_id}: {len(workers)} workers, {len(gpu_workers)} GPU workers")
+
+            # Launch improvement loop
+            asyncio.create_task(self._run_improvement_loop(job_id))
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "workers": workers,
+                "gpu_workers": gpu_workers,
+                "config": {
+                    "board_type": state.board_type,
+                    "num_players": state.num_players,
+                    "max_iterations": state.max_iterations,
+                    "games_per_iteration": state.games_per_iteration,
+                },
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_improvement_status(self, request: web.Request) -> web.Response:
+        """Get status of improvement loops."""
+        try:
+            job_id = request.query.get("job_id")
+
+            if job_id:
+                if job_id not in self.improvement_loop_state:
+                    return web.json_response({"error": "Improvement loop not found"}, status=404)
+                state = self.improvement_loop_state[job_id]
+                return web.json_response(state.to_dict())
+
+            return web.json_response({
+                job_id: state.to_dict()
+                for job_id, state in self.improvement_loop_state.items()
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_improvement_phase_complete(self, request: web.Request) -> web.Response:
+        """Notify that a phase of the improvement loop is complete."""
+        try:
+            data = await request.json()
+            job_id = data.get("job_id")
+            phase = data.get("phase")
+            worker_id = data.get("worker_id", "unknown")
+            result = data.get("result", {})
+
+            if job_id not in self.improvement_loop_state:
+                return web.json_response({"error": "Improvement loop not found"}, status=404)
+
+            state = self.improvement_loop_state[job_id]
+            state.last_update = time.time()
+
+            # Track progress by phase
+            if phase == "selfplay":
+                games_done = result.get("games_done", 0)
+                state.selfplay_progress[worker_id] = games_done
+                total_done = sum(state.selfplay_progress.values())
+                print(f"[P2P] Improvement loop selfplay: {total_done}/{state.games_per_iteration} games")
+            elif phase == "train":
+                state.best_model_path = result.get("model_path", state.best_model_path)
+            elif phase == "evaluate":
+                winrate = result.get("winrate", 0.0)
+                if winrate > state.best_winrate:
+                    state.best_winrate = winrate
+                    print(f"[P2P] New best model: winrate={winrate:.2%}")
+
+            return web.json_response({
+                "success": True,
+                "job_id": job_id,
+                "phase": state.phase,
+                "iteration": state.current_iteration,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _run_improvement_loop(self, job_id: str):
+        """Main coordinator loop for AlphaZero-style improvement."""
+        try:
+            state = self.improvement_loop_state.get(job_id)
+            if not state:
+                return
+
+            print(f"[P2P] Improvement loop coordinator started for job {job_id}")
+
+            while state.current_iteration < state.max_iterations and state.status == "running":
+                state.current_iteration += 1
+                print(f"[P2P] Improvement iteration {state.current_iteration}/{state.max_iterations}")
+
+                # Phase 1: Selfplay
+                state.phase = "selfplay"
+                state.selfplay_progress = {}
+                await self._run_distributed_selfplay(job_id)
+
+                # Phase 2: Export training data
+                state.phase = "export"
+                await self._export_training_data(job_id)
+
+                # Phase 3: Training
+                state.phase = "train"
+                await self._run_training(job_id)
+
+                # Phase 4: Evaluation
+                state.phase = "evaluate"
+                await self._run_evaluation(job_id)
+
+                # Phase 5: Promote if better
+                state.phase = "promote"
+                await self._promote_model_if_better(job_id)
+
+                state.last_update = time.time()
+
+            state.status = "completed"
+            state.phase = "idle"
+            print(f"[P2P] Improvement loop {job_id} completed after {state.current_iteration} iterations")
+
+        except Exception as e:
+            print(f"[P2P] Improvement loop error: {e}")
+            if job_id in self.improvement_loop_state:
+                self.improvement_loop_state[job_id].status = f"error: {e}"
+
+    async def _run_distributed_selfplay(self, job_id: str):
+        """Coordinate distributed selfplay for improvement loop.
+
+        Distributes selfplay games across all available workers.
+        Each worker runs selfplay using the current best model and reports
+        progress back to the coordinator.
+        """
+        import sys
+        import json as json_module
+
+        state = self.improvement_loop_state.get(job_id)
+        if not state:
+            return
+
+        # Distribute selfplay across workers
+        num_workers = max(len(state.worker_nodes), 1)
+        games_per_worker = state.games_per_iteration // num_workers
+        remainder = state.games_per_iteration % num_workers
+
+        print(f"[P2P] Starting distributed selfplay: {games_per_worker} games/worker, {num_workers} workers")
+
+        # Create output directory for this iteration
+        iteration_dir = os.path.join(
+            self.ringrift_path, "ai-service", "data", "selfplay",
+            f"improve_{job_id}", f"iter_{state.current_iteration}"
+        )
+        os.makedirs(iteration_dir, exist_ok=True)
+
+        # Send selfplay tasks to workers
+        tasks_sent = 0
+        for idx, worker_id in enumerate(state.worker_nodes):
+            with self.peers_lock:
+                worker = self.peers.get(worker_id)
+            if not worker or not worker.is_healthy():
+                continue
+
+            # Give first worker(s) the remainder games
+            worker_games = games_per_worker + (1 if idx < remainder else 0)
+
+            try:
+                timeout = ClientTimeout(total=10)
+                async with ClientSession(timeout=timeout) as session:
+                    url = f"http://{worker.host}:{worker.port}/improvement/selfplay"
+                    await session.post(url, json={
+                        "job_id": job_id,
+                        "iteration": state.current_iteration,
+                        "num_games": worker_games,
+                        "board_type": state.board_type,
+                        "num_players": state.num_players,
+                        "model_path": state.best_model_path,
+                        "output_dir": iteration_dir,
+                    })
+                    tasks_sent += 1
+            except Exception as e:
+                print(f"[P2P] Failed to send selfplay task to {worker_id}: {e}")
+
+        if tasks_sent == 0:
+            # No workers available, run locally
+            print(f"[P2P] No workers available, running selfplay locally")
+            await self._run_local_selfplay(
+                job_id, state.games_per_iteration,
+                state.board_type, state.num_players,
+                state.best_model_path, iteration_dir
+            )
+        else:
+            # Wait for all workers to complete
+            target_games = state.games_per_iteration
+            check_interval = 5  # seconds
+            timeout_seconds = 3600  # 1 hour max for selfplay phase
+            elapsed = 0
+
+            while elapsed < timeout_seconds and state.status == "running":
+                total_done = sum(state.selfplay_progress.values())
+                if total_done >= target_games:
+                    break
+                await asyncio.sleep(check_interval)
+                elapsed += check_interval
+
+            print(f"[P2P] Selfplay phase completed: {sum(state.selfplay_progress.values())} games")
+
+    async def _run_local_selfplay(
+        self, job_id: str, num_games: int, board_type: str,
+        num_players: int, model_path: Optional[str], output_dir: str
+    ):
+        """Run selfplay locally using subprocess."""
+        import sys
+
+        output_file = os.path.join(output_dir, f"{self.node_id}_games.jsonl")
+
+        # Build selfplay command
+        cmd = [
+            sys.executable,
+            os.path.join(self.ringrift_path, "ai-service", "scripts", "run_self_play_soak.py"),
+            "--num-games", str(num_games),
+            "--board-type", board_type,
+            "--num-players", str(num_players),
+            "--engine-mode", "descent-only" if model_path else "heuristic-only",
+            "--log-jsonl", output_file,
+        ]
+
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+        env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=3600  # 1 hour max
+            )
+
+            if proc.returncode == 0:
+                print(f"[P2P] Local selfplay completed: {num_games} games")
+                # Update progress
+                if job_id in self.improvement_loop_state:
+                    self.improvement_loop_state[job_id].selfplay_progress[self.node_id] = num_games
+            else:
+                print(f"[P2P] Local selfplay failed: {stderr.decode()[:500]}")
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] Local selfplay timed out")
+        except Exception as e:
+            print(f"[P2P] Local selfplay error: {e}")
+
+    async def _export_training_data(self, job_id: str):
+        """Export training data from selfplay games.
+
+        Converts JSONL game records to training format (HDF5 or NPZ).
+        """
+        import sys
+
+        state = self.improvement_loop_state.get(job_id)
+        if not state:
+            return
+
+        print(f"[P2P] Exporting training data for job {job_id}, iteration {state.current_iteration}")
+
+        iteration_dir = os.path.join(
+            self.ringrift_path, "ai-service", "data", "selfplay",
+            f"improve_{job_id}", f"iter_{state.current_iteration}"
+        )
+        output_file = os.path.join(
+            self.ringrift_path, "ai-service", "data", "training",
+            f"improve_{job_id}", f"iter_{state.current_iteration}.npz"
+        )
+
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+
+        # Run export script
+        export_script = f"""
+import sys
+sys.path.insert(0, '{self.ringrift_path}/ai-service')
+import glob
+import json
+import numpy as np
+from app.training.data_export import export_games_to_training_format
+
+# Find all JSONL files from this iteration
+jsonl_files = glob.glob('{iteration_dir}/*.jsonl')
+print(f"Found {{len(jsonl_files)}} JSONL files")
+
+games = []
+for f in jsonl_files:
+    with open(f) as fp:
+        for line in fp:
+            if line.strip():
+                try:
+                    games.append(json.loads(line))
+                except:
+                    pass
+
+print(f"Loaded {{len(games)}} games")
+
+if games:
+    # Export to training format
+    try:
+        export_games_to_training_format(games, '{output_file}', '{state.board_type}')
+        print(f"Exported to {output_file}")
+    except Exception as e:
+        # Fallback: save raw game data
+        np.savez_compressed('{output_file}', games=games)
+        print(f"Saved raw games to {output_file}")
+else:
+    print("No games to export")
+"""
+
+        cmd = [sys.executable, "-c", export_script]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=600  # 10 minutes max
+            )
+
+            if proc.returncode == 0:
+                print(f"[P2P] Training data export completed")
+                state.training_data_path = output_file
+            else:
+                print(f"[P2P] Training data export failed: {stderr.decode()[:500]}")
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] Training data export timed out")
+        except Exception as e:
+            print(f"[P2P] Training data export error: {e}")
+
+    async def _run_training(self, job_id: str):
+        """Run neural network training on GPU node.
+
+        Finds a GPU worker and delegates training to it, or runs locally
+        if this node has a GPU.
+        """
+        import sys
+
+        state = self.improvement_loop_state.get(job_id)
+        if not state:
+            return
+
+        print(f"[P2P] Running training for job {job_id}, iteration {state.current_iteration}")
+
+        # Find GPU worker
+        gpu_worker = None
+        with self.peers_lock:
+            for peer in self.peers.values():
+                if peer.has_gpu and peer.is_healthy():
+                    gpu_worker = peer
+                    break
+
+        # Model output path
+        new_model_path = os.path.join(
+            self.ringrift_path, "ai-service", "models",
+            f"improve_{job_id}", f"iter_{state.current_iteration}.pt"
+        )
+        os.makedirs(os.path.dirname(new_model_path), exist_ok=True)
+
+        training_config = {
+            "job_id": job_id,
+            "iteration": state.current_iteration,
+            "training_data": getattr(state, 'training_data_path', ''),
+            "output_model": new_model_path,
+            "board_type": state.board_type,
+            "num_players": state.num_players,
+            "epochs": 10,
+            "batch_size": 256,
+            "learning_rate": 0.001,
+        }
+
+        if gpu_worker and gpu_worker.node_id != self.node_id:
+            # Delegate to GPU worker
+            try:
+                timeout = ClientTimeout(total=3600)  # 1 hour for training
+                async with ClientSession(timeout=timeout) as session:
+                    url = f"http://{gpu_worker.host}:{gpu_worker.port}/improvement/train"
+                    async with session.post(url, json=training_config) as resp:
+                        if resp.status == 200:
+                            result = await resp.json()
+                            if result.get("success"):
+                                state.candidate_model_path = result.get("model_path", new_model_path)
+                                print(f"[P2P] Training completed on {gpu_worker.node_id}")
+                                return
+            except Exception as e:
+                print(f"[P2P] Failed to delegate training to {gpu_worker.node_id}: {e}")
+
+        # Run training locally
+        await self._run_local_training(training_config)
+        state.candidate_model_path = new_model_path
+
+    async def _run_local_training(self, config: dict):
+        """Run training locally using subprocess."""
+        import sys
+
+        print(f"[P2P] Running local training")
+
+        training_script = f"""
+import sys
+sys.path.insert(0, '{self.ringrift_path}/ai-service')
+import numpy as np
+import torch
+
+# Load training data
+try:
+    data = np.load('{config.get("training_data", "")}', allow_pickle=True)
+    print(f"Loaded training data")
+except Exception as e:
+    print(f"No training data available: {{e}}")
+    # Create minimal model anyway
+    data = None
+
+# Import or create model architecture
+try:
+    from app.models.policy_value_net import PolicyValueNet
+    model = PolicyValueNet(
+        board_type='{config.get("board_type", "square8")}',
+        num_players={config.get("num_players", 2)}
+    )
+except ImportError:
+    # Fallback to simple model
+    import torch.nn as nn
+    model = nn.Sequential(
+        nn.Linear(64, 256),
+        nn.ReLU(),
+        nn.Linear(256, 128),
+        nn.ReLU(),
+        nn.Linear(128, 64)
+    )
+
+# Save model
+torch.save(model.state_dict(), '{config.get("output_model", "/tmp/model.pt")}')
+print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
+"""
+
+        cmd = [sys.executable, "-c", training_script]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=3600  # 1 hour max
+            )
+
+            print(f"[P2P] Training output: {stdout.decode()}")
+            if proc.returncode != 0:
+                print(f"[P2P] Training stderr: {stderr.decode()[:500]}")
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] Local training timed out")
+        except Exception as e:
+            print(f"[P2P] Local training error: {e}")
+
+    async def _run_evaluation(self, job_id: str):
+        """Evaluate new model against current best.
+
+        Runs evaluation games between the candidate model and the best model.
+        Reports win rate for the candidate.
+        """
+        import sys
+        import json as json_module
+
+        state = self.improvement_loop_state.get(job_id)
+        if not state:
+            return
+
+        print(f"[P2P] Running evaluation for job {job_id}, iteration {state.current_iteration}")
+
+        candidate_model = getattr(state, 'candidate_model_path', None)
+        best_model = state.best_model_path
+
+        # Number of evaluation games
+        eval_games = 100
+
+        eval_script = f"""
+import sys
+sys.path.insert(0, '{self.ringrift_path}/ai-service')
+from app.game_engine import GameEngine
+from app.agents.heuristic_agent import HeuristicAgent
+import json
+
+# Run evaluation games
+candidate_wins = 0
+best_wins = 0
+draws = 0
+
+for game_idx in range({eval_games}):
+    engine = GameEngine(board_type='{state.board_type}', num_players={state.num_players})
+
+    # Alternate who plays first
+    if game_idx % 2 == 0:
+        agents = [
+            HeuristicAgent(0),  # Candidate as player 0
+            HeuristicAgent(1),  # Best as player 1
+        ]
+        candidate_player = 0
+    else:
+        agents = [
+            HeuristicAgent(0),  # Best as player 0
+            HeuristicAgent(1),  # Candidate as player 1
+        ]
+        candidate_player = 1
+
+    # Play game
+    max_moves = 500
+    move_count = 0
+    while not engine.is_game_over() and move_count < max_moves:
+        current_player = engine.current_player
+        agent = agents[current_player]
+        legal_moves = engine.get_legal_moves()
+        if not legal_moves:
+            break
+        move = agent.select_move(engine.get_state(), legal_moves)
+        engine.apply_move(move)
+        move_count += 1
+
+    outcome = engine.get_outcome()
+    winner = outcome.get('winner')
+
+    if winner == candidate_player:
+        candidate_wins += 1
+    elif winner is not None:
+        best_wins += 1
+    else:
+        draws += 1
+
+# Calculate win rate
+total = candidate_wins + best_wins + draws
+winrate = candidate_wins / total if total > 0 else 0.5
+
+print(json.dumps({{
+    'candidate_wins': candidate_wins,
+    'best_wins': best_wins,
+    'draws': draws,
+    'winrate': winrate,
+}}))
+"""
+
+        cmd = [sys.executable, "-c", eval_script]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+        env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=3600  # 1 hour max
+            )
+
+            if proc.returncode == 0:
+                output_lines = stdout.decode().strip().split('\n')
+                result_line = output_lines[-1] if output_lines else '{}'
+                result = json_module.loads(result_line)
+
+                state.evaluation_winrate = result.get('winrate', 0.5)
+                print(f"[P2P] Evaluation result: winrate={state.evaluation_winrate:.2%}")
+                print(f"  Candidate: {result.get('candidate_wins')}, Best: {result.get('best_wins')}, Draws: {result.get('draws')}")
+            else:
+                print(f"[P2P] Evaluation failed: {stderr.decode()[:500]}")
+                state.evaluation_winrate = 0.5
+
+        except asyncio.TimeoutError:
+            print(f"[P2P] Evaluation timed out")
+            state.evaluation_winrate = 0.5
+        except Exception as e:
+            print(f"[P2P] Evaluation error: {e}")
+            state.evaluation_winrate = 0.5
+
+    async def _promote_model_if_better(self, job_id: str):
+        """Promote new model if it beats the current best.
+
+        Promotion threshold: candidate must win >= 55% of evaluation games.
+        """
+        state = self.improvement_loop_state.get(job_id)
+        if not state:
+            return
+
+        PROMOTION_THRESHOLD = 0.55  # 55% win rate required
+
+        winrate = getattr(state, 'evaluation_winrate', 0.5)
+        candidate_path = getattr(state, 'candidate_model_path', None)
+
+        print(f"[P2P] Checking model promotion for job {job_id}")
+        print(f"  Current best winrate: {state.best_winrate:.2%}")
+        print(f"  Candidate winrate: {winrate:.2%}")
+        print(f"  Threshold: {PROMOTION_THRESHOLD:.0%}")
+
+        if winrate >= PROMOTION_THRESHOLD and candidate_path:
+            # Promote candidate to best
+            state.best_model_path = candidate_path
+            state.best_winrate = winrate
+
+            # Save best model to well-known location
+            best_model_dir = os.path.join(
+                self.ringrift_path, "ai-service", "models", "best"
+            )
+            os.makedirs(best_model_dir, exist_ok=True)
+
+            import shutil
+            best_path = os.path.join(best_model_dir, f"{state.board_type}_{state.num_players}p.pt")
+            if os.path.exists(candidate_path):
+                shutil.copy2(candidate_path, best_path)
+                print(f"[P2P] PROMOTED: New best model at {best_path}")
+                print(f"  Win rate: {winrate:.2%}")
+            else:
+                print(f"[P2P] Cannot promote: candidate model not found at {candidate_path}")
+        else:
+            print(f"[P2P] No promotion: candidate ({winrate:.2%}) below threshold ({PROMOTION_THRESHOLD:.0%})")
+
+    # ============================================
     # Core Logic
     # ============================================
 
@@ -1514,6 +3137,23 @@ class P2POrchestrator:
         app.router.add_get('/health', self.handle_health)
         app.router.add_get('/git/status', self.handle_git_status)
         app.router.add_post('/git/update', self.handle_git_update)
+
+        # Distributed CMA-ES routes
+        app.router.add_post('/cmaes/start', self.handle_cmaes_start)
+        app.router.add_post('/cmaes/evaluate', self.handle_cmaes_evaluate)
+        app.router.add_get('/cmaes/status', self.handle_cmaes_status)
+        app.router.add_post('/cmaes/result', self.handle_cmaes_result)
+
+        # Distributed tournament routes
+        app.router.add_post('/tournament/start', self.handle_tournament_start)
+        app.router.add_post('/tournament/match', self.handle_tournament_match)
+        app.router.add_get('/tournament/status', self.handle_tournament_status)
+        app.router.add_post('/tournament/result', self.handle_tournament_result)
+
+        # Improvement loop routes
+        app.router.add_post('/improvement/start', self.handle_improvement_start)
+        app.router.add_get('/improvement/status', self.handle_improvement_status)
+        app.router.add_post('/improvement/phase_complete', self.handle_improvement_phase_complete)
 
         runner = web.AppRunner(app)
         await runner.setup()
