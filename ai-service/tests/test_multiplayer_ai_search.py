@@ -130,6 +130,37 @@ class TestMultiplayerAIRouting(unittest.TestCase):
         self.assertIsNotNone(ai.neural_net)
 
 
+class TestDescentParanoidValueConversion(unittest.TestCase):
+    def test_descent_negates_nn_value_on_opponent_turn_in_3p(self) -> None:
+        config = AIConfig(difficulty=5, think_time=10, use_neural_net=False)
+        ai = DescentAI(player_number=1, config=config)
+
+        game_state = _make_square8_state(num_players=3)
+        game_state.current_player = 2
+
+        ai.neural_net = MagicMock()
+        ai.neural_net.evaluate_position.return_value = 0.25
+
+        self.assertAlmostEqual(ai.evaluate_position(game_state), -0.25, places=6)
+
+    def test_descent_batch_eval_negates_non_root_to_move(self) -> None:
+        config = AIConfig(difficulty=5, think_time=10, use_neural_net=False)
+        ai = DescentAI(player_number=1, config=config)
+
+        s_root = _make_square8_state(num_players=3)
+        s_root.current_player = 1
+        s_opp = _make_square8_state(num_players=3)
+        s_opp.current_player = 2
+
+        ai.neural_net = MagicMock()
+        ai.neural_net.evaluate_batch.return_value = ([0.1, 0.2], [None, None])
+
+        values = ai._batch_evaluate_positions([s_root, s_opp])
+        self.assertEqual(len(values), 2)
+        self.assertAlmostEqual(values[0], 0.1, places=6)
+        self.assertAlmostEqual(values[1], -0.2, places=6)
+
+
 class TestMCTSParanoidBackprop(unittest.TestCase):
     def test_legacy_backprop_does_not_flip_between_opponents(self) -> None:
         ai = MCTSAI(

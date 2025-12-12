@@ -3,11 +3,14 @@
 Analyze recovery eligibility across ALL selfplay games in a directory.
 
 This script replays every game and checks at every move whether any player
-meets the 4 conditions for recovery slide eligibility (RR-CANON-R110):
-1. Zero rings in hand
-2. Zero controlled stacks
-3. At least one marker on board
-4. At least one buried ring
+meets the 3 conditions for recovery slide eligibility (RR-CANON-R110):
+1. Controls no stacks
+2. Owns at least one marker on the board
+3. Has at least one buried ring (their ring at a non-top position in any stack)
+
+Note: Recovery eligibility is independent of rings in hand. This analysis still
+tracks rings-in-hand stats as contextual signals, but they are not part of the
+eligibility contract.
 
 It produces aggregate statistics and finds specific game states where
 recovery should have been possible.
@@ -36,12 +39,15 @@ from app.training.generate_data import create_initial_state
 class RecoveryConditionStats:
     """Track how often each recovery condition is met."""
     total_states_checked: int = 0
+    # Contextual (NOT part of eligibility per RR-CANON-R110)
     zero_rings_in_hand: int = 0
+    nonzero_rings_in_hand: int = 0
+
+    # Canonical eligibility conditions (RR-CANON-R110)
     zero_controlled_stacks: int = 0
     has_markers: int = 0
     has_buried_rings: int = 0
     # Combined conditions
-    all_four_conditions_met: int = 0
     three_conditions_met: int = 0
     two_conditions_met: int = 0
     one_condition_met: int = 0
@@ -73,7 +79,7 @@ class GameStats:
 
 
 def analyze_player_recovery_conditions(state: GameState, player: int) -> Dict[str, Any]:
-    """Analyze all 4 recovery conditions for a player."""
+    """Analyze recovery eligibility conditions for a player (RR-CANON-R110)."""
     board = state.board
     player_state = next((p for p in state.players if p.player_number == player), None)
 
@@ -83,13 +89,11 @@ def analyze_player_recovery_conditions(state: GameState, player: int) -> Dict[st
     buried_rings = count_buried_rings(board, player)
     is_eligible = is_eligible_for_recovery(state, player)
 
-    # Count how many conditions are met
+    # Count how many ELIGIBILITY conditions are met (3 total).
+    # Recovery eligibility is independent of rings in hand.
     conditions_met = 0
     condition_flags = []
 
-    if rings_in_hand == 0:
-        conditions_met += 1
-        condition_flags.append('zero_rings')
     if not controls_stacks:
         conditions_met += 1
         condition_flags.append('no_stacks')
@@ -103,6 +107,7 @@ def analyze_player_recovery_conditions(state: GameState, player: int) -> Dict[st
     return {
         'player': player,
         'rings_in_hand': rings_in_hand,
+        'zero_rings_in_hand': rings_in_hand == 0,
         'controls_stacks': controls_stacks,
         'has_markers': has_markers_val,
         'buried_rings': buried_rings,
@@ -163,6 +168,8 @@ def replay_and_analyze_game(
             # Update condition counts
             if analysis['rings_in_hand'] == 0:
                 stats.zero_rings_in_hand += 1
+            else:
+                stats.nonzero_rings_in_hand += 1
             if not analysis['controls_stacks']:
                 stats.zero_controlled_stacks += 1
             if analysis['has_markers']:
@@ -183,9 +190,7 @@ def replay_and_analyze_game(
 
             # Count conditions met
             n_met = analysis['conditions_met']
-            if n_met == 4:
-                stats.all_four_conditions_met += 1
-            elif n_met == 3:
+            if n_met == 3:
                 stats.three_conditions_met += 1
             elif n_met == 2:
                 stats.two_conditions_met += 1
@@ -198,9 +203,9 @@ def replay_and_analyze_game(
             combo_key = ','.join(sorted(analysis['condition_flags'])) if analysis['condition_flags'] else 'none'
             stats.condition_combos[combo_key] += 1
 
-            # Record near-misses (3 conditions met)
-            if n_met == 3 and len(stats.near_misses) < 100:
-                missing = set(['zero_rings', 'no_stacks', 'has_markers', 'has_buried']) - set(analysis['condition_flags'])
+            # Record near-misses (2 out of 3 eligibility conditions met)
+            if n_met == 2 and len(stats.near_misses) < 100:
+                missing = set(['no_stacks', 'has_markers', 'has_buried']) - set(analysis['condition_flags'])
                 stats.near_misses.append({
                     'game_file': game_file,
                     'game_index': game_index,
@@ -398,8 +403,7 @@ def main():
 
     print(f"\nCONDITIONS MET DISTRIBUTION:")
     if stats.total_states_checked > 0:
-        print(f"  4 conditions (ELIGIBLE): {stats.all_four_conditions_met:>8,} ({pct(stats.all_four_conditions_met):>6.2f}%)")
-        print(f"  3 conditions (near-miss):{stats.three_conditions_met:>8,} ({pct(stats.three_conditions_met):>6.2f}%)")
+        print(f"  3 conditions (ELIGIBLE): {stats.three_conditions_met:>8,} ({pct(stats.three_conditions_met):>6.2f}%)")
         print(f"  2 conditions:            {stats.two_conditions_met:>8,} ({pct(stats.two_conditions_met):>6.2f}%)")
         print(f"  1 condition:             {stats.one_condition_met:>8,} ({pct(stats.one_condition_met):>6.2f}%)")
         print(f"  0 conditions:            {stats.zero_conditions_met:>8,} ({pct(stats.zero_conditions_met):>6.2f}%)")
@@ -411,7 +415,7 @@ def main():
         print(f"  {combo:40s}: {count:>8,} ({pct_val:>6.2f}%)")
 
     if stats.near_misses:
-        print(f"\nNEAR-MISS EXAMPLES (3 conditions met):")
+        print(f"\nNEAR-MISS EXAMPLES (2 conditions met):")
         # Group by missing condition
         by_missing = defaultdict(list)
         for nm in stats.near_misses:
@@ -453,12 +457,12 @@ def main():
             'states_analyzed': stats.total_states_checked,
             'condition_frequencies': {
                 'zero_rings_in_hand': stats.zero_rings_in_hand,
+                'nonzero_rings_in_hand': stats.nonzero_rings_in_hand,
                 'zero_controlled_stacks': stats.zero_controlled_stacks,
                 'has_markers': stats.has_markers,
                 'has_buried_rings': stats.has_buried_rings,
             },
             'conditions_met_distribution': {
-                '4_conditions': stats.all_four_conditions_met,
                 '3_conditions': stats.three_conditions_met,
                 '2_conditions': stats.two_conditions_met,
                 '1_condition': stats.one_condition_met,

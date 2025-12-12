@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 
 AI_MOVE_REQUESTS: Final[Counter] = Counter(
@@ -56,6 +56,17 @@ PYTHON_INVARIANT_VIOLATIONS: Final[Counter] = Counter(
     labelnames=("invariant_id", "type"),
 )
 
+AI_INSTANCE_CACHE_LOOKUPS: Final[Counter] = Counter(
+    "ai_instance_cache_lookups_total",
+    "Total AI instance cache lookups, labeled by ai_type and outcome.",
+    labelnames=("ai_type", "outcome"),
+)
+
+AI_INSTANCE_CACHE_SIZE: Final[Gauge] = Gauge(
+    "ai_instance_cache_size",
+    "Current number of cached AI instances in this process.",
+)
+
 
 def observe_ai_move_start(ai_type: str, difficulty: int) -> tuple[str, str]:
     """Prepare metric label values for a new /ai/move request.
@@ -71,6 +82,8 @@ def observe_ai_move_start(ai_type: str, difficulty: int) -> tuple[str, str]:
 __all__ = [
     "AI_MOVE_REQUESTS",
     "AI_MOVE_LATENCY",
+    "AI_INSTANCE_CACHE_LOOKUPS",
+    "AI_INSTANCE_CACHE_SIZE",
     "PYTHON_INVARIANT_VIOLATIONS",
     "observe_ai_move_start",
 ]

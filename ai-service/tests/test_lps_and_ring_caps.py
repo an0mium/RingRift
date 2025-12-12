@@ -22,6 +22,7 @@ from app.models import (  # noqa: E402
     TimeControl,
 )
 from app.game_engine import GameEngine  # noqa: E402
+from app.rules import global_actions as ga  # noqa: E402
 
 
 def _make_two_player_state() -> GameState:
@@ -341,33 +342,119 @@ class RingCapAndLPSTests(unittest.TestCase):
             GameEngine._has_real_action_for_player = original
 
 
-def test_lps_victory_is_deferred_when_anm_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """LPS victory should not be awarded during ANM sequences (TS parity)."""
-    state = _make_three_player_state()
-    state.current_phase = GamePhase.MOVEMENT
-    state.current_player = 1
-    state.lps_consecutive_exclusive_rounds = 2
-    state.lps_consecutive_exclusive_player = 1
+def test_lps_victory_can_be_awarded_at_turn_start_even_if_ring_placement_is_anm() -> None:
+    """LPS victory is evaluated at turn start even when placement is a forced no-op.
 
-    # Arrange a shape that would otherwise trigger LPS victory.
-    original = GameEngine._has_real_action_for_player
-    try:
-        GameEngine._has_real_action_for_player = staticmethod(
-            lambda s, pid: pid == 1
-        )  # type: ignore[assignment]
+    Canonically, players always enter `ring_placement` first (RR-CANON-R073).
+    When a player has no placements (e.g., ringsInHand == 0) but does have a
+    real action available in later interactive phases (movement/capture),
+    `globalActions.isANMState` may be true at the boundary.
 
-        # Force ANM regardless of the synthetic action predicate.
-        monkeypatch.setattr(
-            "app.rules.global_actions.is_anm_state",
-            lambda gs: True,
-        )
+    The TS engine still evaluates LPS at the start of that interactive turn;
+    Python must mirror that behaviour for parity.
+    """
+    now = datetime.now()
+    board = BoardState(type=BoardType.SQUARE8, size=8)
 
-        GameEngine._maybe_apply_lps_victory_at_turn_start(state)  # type: ignore[attr-defined]
+    # Provide P1 a real action (movement/capture) while leaving ring placement
+    # forbidden (ringsInHand == 0), yielding an ANM ring_placement boundary.
+    pos_a = Position(x=3, y=3)
+    board.stacks[pos_a.to_key()] = RingStack(
+        position=pos_a,
+        rings=[1],
+        stackHeight=1,
+        capHeight=1,
+        controllingPlayer=1,
+    )
 
-        assert state.game_status == GameStatus.ACTIVE
-        assert state.winner is None
-    finally:
-        GameEngine._has_real_action_for_player = original
+    # Ensure other players still have rings in play (buried) so they count for
+    # LPS material checks.
+    pos_b = Position(x=4, y=4)
+    board.stacks[pos_b.to_key()] = RingStack(
+        position=pos_b,
+        rings=[2, 3, 1],
+        stackHeight=3,
+        capHeight=1,
+        controllingPlayer=1,
+    )
+
+    players = [
+        Player(
+            id="p1",
+            username="p1",
+            type="human",
+            playerNumber=1,
+            isReady=True,
+            timeRemaining=60,
+            aiDifficulty=None,
+            ringsInHand=0,
+            eliminatedRings=0,
+            territorySpaces=0,
+        ),
+        Player(
+            id="p2",
+            username="p2",
+            type="human",
+            playerNumber=2,
+            isReady=True,
+            timeRemaining=60,
+            aiDifficulty=None,
+            ringsInHand=0,
+            eliminatedRings=0,
+            territorySpaces=0,
+        ),
+        Player(
+            id="p3",
+            username="p3",
+            type="human",
+            playerNumber=3,
+            isReady=True,
+            timeRemaining=60,
+            aiDifficulty=None,
+            ringsInHand=0,
+            eliminatedRings=0,
+            territorySpaces=0,
+        ),
+    ]
+
+    state = GameState(
+        id="lps-anm-turn-start-test",
+        boardType=BoardType.SQUARE8,
+        board=board,
+        players=players,
+        currentPhase=GamePhase.RING_PLACEMENT,
+        currentPlayer=1,
+        moveHistory=[],
+        timeControl=TimeControl(initialTime=60, increment=0, type="blitz"),
+        spectators=[],
+        gameStatus=GameStatus.ACTIVE,
+        createdAt=now,
+        lastMoveAt=now,
+        isRated=False,
+        maxPlayers=3,
+        totalRingsInPlay=0,
+        totalRingsEliminated=0,
+        victoryThreshold=3,
+        territoryVictoryThreshold=10,
+        chainCaptureState=None,
+        mustMoveFromStackKey=None,
+        zobristHash=0,
+        rngSeed=None,
+        lpsRoundIndex=0,
+        lpsCurrentRoundActorMask={},
+        lpsExclusivePlayerForCompletedRound=None,
+        lpsCurrentRoundFirstPlayer=None,
+        lpsConsecutiveExclusiveRounds=2,
+        lpsConsecutiveExclusivePlayer=1,
+    )
+
+    assert ga.is_anm_state(state)
+
+    GameEngine._maybe_apply_lps_victory_at_turn_start(state)  # type: ignore[attr-defined]
+
+    assert state.game_status == GameStatus.COMPLETED
+    assert state.current_phase == GamePhase.GAME_OVER
+    assert state.winner == 1
 
 
 if __name__ == "__main__":

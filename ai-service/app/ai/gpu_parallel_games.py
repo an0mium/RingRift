@@ -1628,9 +1628,11 @@ def generate_recovery_moves_batch(
     """Generate all valid recovery slide moves for eligible players.
 
     Per RR-CANON-R110-R115:
-    - Player must have no controlled stacks AND no rings in hand
+    - Player must have no controlled stacks
     - Player must have at least one marker on the board
     - Player must have buried rings (can afford the recovery cost)
+    - Recovery eligibility is independent of rings in hand; players with rings
+      may choose recovery over placement (RR-CANON-R110).
     - Recovery slides a marker to an adjacent empty cell
     - "Line mode": slide completes a line of markers (preferred)
     - "Fallback mode": any adjacent slide if no line possible (costs 1 buried ring)
@@ -1673,18 +1675,13 @@ def generate_recovery_moves_batch(
         if has_stacks:
             continue
 
-        # 2. No rings in hand
-        rings_in_hand = state.rings_in_hand[g, player].item()
-        if rings_in_hand > 0:
-            continue
-
-        # 3. Has markers on board
+        # 2. Has markers on board
         my_markers = (state.marker_owner[g] == player)
         marker_positions = torch.nonzero(my_markers, as_tuple=False)
         if marker_positions.shape[0] == 0:
             continue
 
-        # 4. Has buried rings (can afford recovery cost)
+        # 3. Has buried rings (can afford recovery cost)
         buried_rings = state.buried_rings[g, player].item()
         if buried_rings <= 0:
             continue
@@ -2817,16 +2814,19 @@ def evaluate_positions_batch(
     max_dist = center_dist.max()
     center_bonus = (max_dist - center_dist) / max_dist  # 1.0 at center, 0.0 at corners
 
-    # Victory thresholds - derived from board size per BOARD_CONFIGS (RR-CANON)
-    # Territory: floor(totalSpaces/2) + 1; Ring supply per player
-    # square8: 64 spaces, 18 rings; square19: 361 spaces, 60 rings; hex: 469 spaces, 72 rings
-    # Note: Hexagonal board uses size 13 but has 469 total spaces (not 13*13=169)
-    total_spaces = {8: 64, 19: 361, 13: 469}.get(board_size, board_size * board_size)
-    territory_victory_threshold = (total_spaces // 2) + 1  # 33 for 8x8, 181 for 19x19, 235 for hex
-    rings_per_player = {8: 18, 19: 60, 13: 72}.get(board_size, 18)  # Per BOARD_CONFIGS
-    # Per RR-CANON-R061: victoryThreshold = round((2/3)*ownStartingRings + (1/3)*opponentsCombinedStartingRings)
-    # Simplified: round(ringsPerPlayer * (2/3 + 1/3*(numPlayers-1)))
-    ring_victory_threshold = round(rings_per_player * (2 / 3 + (1 / 3) * (num_players - 1)))
+    # Canonical victory thresholds (RR-CANON-R061/R062).
+    # Keep this in sync with app.rules.core.BOARD_CONFIGS.
+    from app.models import BoardType
+    from app.rules.core import get_territory_victory_threshold, get_victory_threshold
+
+    board_type_map = {
+        8: BoardType.SQUARE8,
+        19: BoardType.SQUARE19,
+        13: BoardType.HEXAGONAL,
+    }
+    board_type = board_type_map.get(board_size, BoardType.SQUARE8)
+    territory_victory_threshold = get_territory_victory_threshold(board_type)
+    ring_victory_threshold = get_victory_threshold(board_type, num_players)
 
     # Weight mapping: support both old 8-weight format and new 45-weight format
     def get_weight(new_key: str, old_key: str = None, default: float = 0.0) -> float:
@@ -3089,11 +3089,12 @@ def evaluate_positions_batch(
         multi_leader = opponent_victory_threat / (num_players - 1 + 1e-6)
 
         # === RECOVERY METRICS ===
-        # Recovery potential: value of having recovery available
+        # Per RR-CANON-R110: eligible iff controls no stacks, has a marker,
+        # and has at least one buried ring. Rings in hand do not affect eligibility.
         has_buried = buried_rings > 0
         no_controlled = stack_count == 0
-        no_rings_in_hand = rings_in_hand == 0
-        recovery_eligible = has_buried & no_controlled & no_rings_in_hand
+        has_markers = marker_count > 0
+        recovery_eligible = has_buried & no_controlled & has_markers
         recovery_potential = buried_rings * recovery_eligible.float()
 
         # === PENALTY/BONUS FLAGS ===
@@ -4197,16 +4198,18 @@ class ParallelGameRunner:
         """
         active_mask = self.state.get_active_mask()
 
-        # Calculate canonical thresholds per RR-CANON-R061
-        # Ring elimination: victoryThreshold = round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))
-        # This is: (2/3 × ownStartingRings) + (1/3 × combinedOpponentRings)
-        # Must match create_batch() initialization: {8: 18, 19: 60}
-        rings_per_player = {8: 18, 19: 60}.get(self.board_size, 18)
-        ring_elimination_threshold = round(rings_per_player * (2/3 + (1/3) * (self.num_players - 1)))
+        # Canonical thresholds depend on board type and player count (RR-CANON-R061/R062).
+        from app.models import BoardType
+        from app.rules.core import get_territory_victory_threshold, get_victory_threshold
 
-        # totalSpaces = board_size * board_size for square boards
-        total_spaces = self.board_size * self.board_size
-        territory_victory_threshold = (total_spaces // 2) + 1
+        board_type_map = {
+            8: BoardType.SQUARE8,
+            19: BoardType.SQUARE19,
+            13: BoardType.HEXAGONAL,
+        }
+        board_type = board_type_map.get(self.board_size, BoardType.SQUARE8)
+        ring_elimination_threshold = get_victory_threshold(board_type, self.num_players)
+        territory_victory_threshold = get_territory_victory_threshold(board_type)
 
         for p in range(1, self.num_players + 1):
             # Check ring-elimination victory (RR-CANON-R170)

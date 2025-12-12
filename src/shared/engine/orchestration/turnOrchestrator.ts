@@ -62,6 +62,7 @@ import type {
 
 import { PhaseStateMachine, createTurnProcessingState } from './phaseStateMachine';
 import { flagEnabled, debugLog, fsmTraceLog } from '../../utils/envFlags';
+import { applySwapSidesIdentitySwap, validateSwapSidesMove } from '../swapSidesHelpers';
 
 // FSM imports
 import {
@@ -1461,7 +1462,8 @@ export function processTurn(
   const isPlacementMove =
     move.type === 'place_ring' ||
     move.type === 'skip_placement' ||
-    move.type === 'no_placement_action';
+    move.type === 'no_placement_action' ||
+    move.type === 'swap_sides';
 
   // For decision moves (process_territory_region, eliminate_rings_from_stack, etc.),
   // if the move didn't actually change state (e.g., Q23 prerequisite not met), don't
@@ -1864,6 +1866,22 @@ interface ApplyMoveResult {
  */
 function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
   switch (move.type) {
+    case 'swap_sides': {
+      const validation = validateSwapSidesMove(state, move.player);
+      if (!validation.valid) {
+        throw new Error(validation.reason);
+      }
+
+      const swappedPlayers = applySwapSidesIdentitySwap(state.players);
+
+      return {
+        nextState: {
+          ...state,
+          players: swappedPlayers,
+        },
+      };
+    }
+
     case 'place_ring': {
       const action = {
         type: 'PLACE_RING' as const,

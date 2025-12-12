@@ -77,7 +77,7 @@ from typing import Dict, List, Optional, Tuple
 
 from app.db.game_replay import GameReplayDB, _compute_state_hash
 from app.training.generate_data import create_initial_state
-from app.game_engine import BoardType
+from app.game_engine import BoardType, GameEngine
 from app.rules.serialization import serialize_game_state
 from app.rules.history_validation import validate_canonical_history_for_game
 from app.rules import global_actions as ga
@@ -431,6 +431,64 @@ def summarize_python_state(db: GameReplayDB, game_id: str, move_index: int) -> S
         state_hash=_compute_state_hash(state),
         is_anm=ga.is_anm_state(state),
     )
+
+
+def replay_python_post_move_summaries(
+    db: GameReplayDB,
+    game_id: str,
+    *,
+    limit_moves: Optional[int] = None,
+) -> Dict[int, StateSummary]:
+    """Replay a game once and return per-move post-move summaries.
+
+    This is an O(N) alternative to calling GameReplayDB.get_state_at_move(k)
+    repeatedly (which is O(N^2) when implemented as "replay from initial state").
+    """
+    progress_every = int(os.environ.get("RINGRIFT_PARITY_PROGRESS_EVERY", "250") or "250")
+    if progress_every > 0:
+        print(f"[py-replay] start {game_id}", file=sys.stderr)
+
+    state = db.get_initial_state(game_id)
+    if state is None:
+        metadata = db.get_game_metadata(game_id)
+        if metadata is None:
+            raise RuntimeError(f"Python get_initial_state returned None and no game metadata for {game_id}")
+
+        board_type_str = metadata.get("board_type", "square8")
+        num_players = metadata.get("num_players", 2)
+        board_type = _parse_board_type(board_type_str)
+        state = create_initial_state(board_type=board_type, num_players=num_players)
+
+    moves = db.get_moves(game_id)
+    if limit_moves is not None and limit_moves >= 0:
+        moves = moves[:limit_moves]
+    total_moves = len(moves)
+
+    summaries: Dict[int, StateSummary] = {}
+    working_state = state
+
+    for idx, move in enumerate(moves):
+        working_state = GameEngine.apply_move(working_state, move, trace_mode=True)
+
+        summaries[idx] = StateSummary(
+            move_index=idx,
+            current_player=working_state.current_player,
+            current_phase=working_state.current_phase.value
+            if hasattr(working_state.current_phase, "value")
+            else str(working_state.current_phase),
+            game_status=_canonicalize_status(
+                working_state.game_status.value
+                if hasattr(working_state.game_status, "value")
+                else str(working_state.game_status)
+            ),
+            state_hash=_compute_state_hash(working_state),
+            is_anm=ga.is_anm_state(working_state),
+        )
+
+        if progress_every > 0 and total_moves > 0 and (idx + 1) % progress_every == 0:
+            print(f"[py-replay] {game_id} n={idx + 1}/{total_moves}", file=sys.stderr)
+
+    return summaries
 
 
 def _parse_board_type(board_type_str: str) -> BoardType:
@@ -998,6 +1056,10 @@ def check_game_parity(
         )
 
     total_moves_ts, ts_summaries, ts_event_meta = run_ts_replay(db_path, game_id, view_mode=view)
+    py_post_move_summaries = replay_python_post_move_summaries(db, game_id)
+    # Trust the replayed move count over metadata if they drift.
+    if len(py_post_move_summaries) != total_moves_py:
+        total_moves_py = len(py_post_move_summaries)
 
     diverged_at: Optional[int] = None
     py_summary_at_diverge: Optional[StateSummary] = None
@@ -1061,13 +1123,20 @@ def check_game_parity(
             ts_summary = ts_summaries.get(ts_k)
             if ts_summary is None:
                 diverged_at = ts_k
-                py_summary_at_diverge = summarize_python_state(db, game_id, py_move_index)
+                py_summary_at_diverge = py_post_move_summaries.get(py_move_index)
                 ts_summary_at_diverge = None
                 mismatch_kinds = ["ts_missing_step"]
                 mismatch_context = view
                 break
 
-            py_summary = summarize_python_state(db, game_id, py_move_index)
+            py_summary = py_post_move_summaries.get(py_move_index)
+            if py_summary is None:
+                diverged_at = ts_k
+                py_summary_at_diverge = None
+                ts_summary_at_diverge = ts_summary
+                mismatch_kinds = ["python_missing_step"]
+                mismatch_context = view
+                break
 
             step_mismatches: List[str] = []
             if py_summary.current_player != ts_summary.current_player:
@@ -1115,10 +1184,11 @@ def check_game_parity(
             # at the same move index to verify they agree on the outcome.
             py_move_index = total_moves_ts - 1  # Python uses 0-based move indexing
             if py_move_index >= 0:
-                py_final_summary = summarize_python_state(db, game_id, py_move_index)
+                py_final_summary = py_post_move_summaries.get(py_move_index)
                 # Accept if Python also shows completed AND state hashes match
                 if (
-                    py_final_summary.game_status == "completed"
+                    py_final_summary is not None
+                    and py_final_summary.game_status == "completed"
                     and py_final_summary.state_hash == ts_final_summary.state_hash
                 ):
                     early_victory_acceptable = True
@@ -1261,16 +1331,20 @@ def trace_game(
     if max_k is not None and max_k > 0:
         limit_k = min(limit_k, max_k)
 
+    try:
+        py_post_move_summaries = replay_python_post_move_summaries(
+            db,
+            game_id,
+            limit_moves=limit_k,
+        )
+    except Exception as exc:
+        print("[trace] Python replay failed " f"for db={db_path} game={game_id}: {exc}")
+        return
+
     for ts_k in range(1, limit_k + 1):
         py_index = ts_k - 1
 
-        py_summary: Optional[StateSummary] = None
-        py_error: Optional[str] = None
-        if py_index < total_moves_py:
-            try:
-                py_summary = summarize_python_state(db, game_id, py_index)
-            except Exception as exc:  # pragma: no cover - defensive
-                py_error = str(exc)
+        py_summary = py_post_move_summaries.get(py_index)
 
         ts_summary = ts_summaries.get(ts_k)
 
@@ -1329,8 +1403,6 @@ def trace_game(
             f"ts_hash={ts_hash} "
             f"dims={','.join(dims)}"
         )
-        if py_error:
-            line += f" py_error={json.dumps(py_error)}"
         print(line)
 
 

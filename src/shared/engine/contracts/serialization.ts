@@ -83,6 +83,8 @@ export interface SerializedGameState {
   victoryThreshold: number;
   territoryVictoryThreshold: number;
   totalRingsEliminated?: number;
+  /** Optional rules options (e.g., swapRuleEnabled for 2p pie rule). */
+  rulesOptions?: GameState['rulesOptions'];
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -239,6 +241,10 @@ export function serializeGameState(state: GameState): SerializedGameState {
     totalRingsEliminated: state.totalRingsEliminated,
   };
 
+  if (state.rulesOptions) {
+    serialized.rulesOptions = state.rulesOptions;
+  }
+
   // Include chainCapturePosition if present (during chain_capture phase)
   if (state.chainCapturePosition) {
     serialized.chainCapturePosition = { ...state.chainCapturePosition };
@@ -269,6 +275,12 @@ export function deserializeGameState(data: SerializedGameState): GameState {
   const boardType = (data.board?.type ||
     (dataAny.boardType as string) ||
     'square8') as GameState['boardType'];
+
+  const rulesOptionsRaw = data.rulesOptions ?? (dataAny.rulesOptions as unknown);
+  const rulesOptions =
+    rulesOptionsRaw && typeof rulesOptionsRaw === 'object'
+      ? (rulesOptionsRaw as GameState['rulesOptions'])
+      : undefined;
 
   // Handle players - self-play format may have full Player objects
   const players = data.players.map((p) => {
@@ -310,6 +322,7 @@ export function deserializeGameState(data: SerializedGameState): GameState {
     totalRingsEliminated: data.totalRingsEliminated || 0,
     victoryThreshold: data.victoryThreshold,
     territoryVictoryThreshold: data.territoryVictoryThreshold,
+    rulesOptions,
   };
 }
 

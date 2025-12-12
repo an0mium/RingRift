@@ -22,7 +22,13 @@ except ImportError:
 
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from .metrics import AI_MOVE_LATENCY, AI_MOVE_REQUESTS, observe_ai_move_start
+from .metrics import (
+    AI_INSTANCE_CACHE_LOOKUPS,
+    AI_INSTANCE_CACHE_SIZE,
+    AI_MOVE_LATENCY,
+    AI_MOVE_REQUESTS,
+    observe_ai_move_start,
+)
 from .config.ladder_config import (
     LadderTierConfig,
     get_ladder_tier_config,
@@ -168,6 +174,8 @@ def _prune_ai_cache(now: float) -> None:
     for key, _entry in entries_by_age[:overflow]:
         ai_instances.pop(key, None)
 
+    AI_INSTANCE_CACHE_SIZE.set(len(ai_instances))
+
 
 def _get_cached_ai(key: str) -> Any | None:
     now = time.time()
@@ -177,6 +185,7 @@ def _get_cached_ai(key: str) -> Any | None:
         if entry is None:
             return None
         entry.last_access = now
+        AI_INSTANCE_CACHE_SIZE.set(len(ai_instances))
         return entry.ai
 
 
@@ -185,6 +194,7 @@ def _put_cached_ai(key: str, ai: Any) -> None:
     with _ai_cache_lock:
         _prune_ai_cache(now)
         ai_instances[key] = CachedAIInstance(ai=ai, created_at=now, last_access=now)
+        AI_INSTANCE_CACHE_SIZE.set(len(ai_instances))
 
 
 class MoveRequest(BaseModel):
@@ -447,6 +457,10 @@ async def get_ai_move(request: MoveRequest):
                 config,
             )
             ai = _get_cached_ai(cache_key)
+            if ai is None:
+                AI_INSTANCE_CACHE_LOOKUPS.labels(ai_type.value, "miss").inc()
+            else:
+                AI_INSTANCE_CACHE_LOOKUPS.labels(ai_type.value, "hit").inc()
 
         if ai is None:
             ai = _create_ai_instance(
@@ -1064,6 +1078,7 @@ async def clear_ai_cache():
     with _ai_cache_lock:
         removed = len(ai_instances)
         ai_instances.clear()
+        AI_INSTANCE_CACHE_SIZE.set(0)
     logger.info("AI cache cleared")
     return {"status": "cache cleared", "instances_removed": removed}
 
@@ -1075,6 +1090,7 @@ async def ai_cache_stats():
     with _ai_cache_lock:
         _prune_ai_cache(now)
         count = len(ai_instances)
+        AI_INSTANCE_CACHE_SIZE.set(count)
     return {
         "enabled": AI_INSTANCE_CACHE_ENABLED,
         "count": count,

@@ -32,6 +32,9 @@ class BoardState:
     markers: dict = field(default_factory=dict)
     # Players with rings in hand
     rings_in_hand: dict = field(default_factory=dict)
+    # Canonical starting rings per player for this board type.
+    # Used as a fallback when initial_state omits rings_in_hand.
+    default_rings_per_player: int = 18
 
     def player_controls_any_stack(self, player: int) -> bool:
         """Check if player controls at least one stack."""
@@ -70,13 +73,6 @@ class BoardState:
             return False
 
         return True
-
-    def has_turn_material(self, player: int) -> bool:
-        """Check if player has material to take a turn (old logic)."""
-        has_stacks = self.player_controls_any_stack(player)
-        has_rings_in_hand = self.rings_in_hand.get(player, 0) > 0
-        return has_stacks or has_rings_in_hand
-
 
 @dataclass
 class RecoveryOpportunity:
@@ -119,21 +115,27 @@ def apply_move_to_board(board: BoardState, move: dict, num_players: int):
         to_pos = move.get("to")
         if to_pos:
             key = parse_position_key(to_pos)
-            # Placing 2 rings creates a new stack
-            placement_count = move.get("placement_count", 2)
+            # Canonical placement defaults to 1 ring but may include a placement_count.
+            placement_count = move.get(
+                "placement_count",
+                move.get("placementCount", 1),
+            )
             if key not in board.stacks:
                 board.stacks[key] = {"rings": [], "controller": player}
             board.stacks[key]["rings"] = [player] * placement_count
             board.stacks[key]["controller"] = player
 
             # Reduce rings in hand
-            board.rings_in_hand[player] = max(0, board.rings_in_hand.get(player, 18) - placement_count)
+            board.rings_in_hand[player] = max(
+                0,
+                board.rings_in_hand.get(player, board.default_rings_per_player) - placement_count,
+            )
 
             # Leave marker at placement position
             board.markers[key] = player
 
     elif move_type == "move_stack":
-        from_pos = move.get("from_pos")
+        from_pos = move.get("from_pos") or move.get("from")
         to_pos = move.get("to")
 
         if from_pos and to_pos:
@@ -180,17 +182,35 @@ def replay_game_and_find_recovery_opportunities(
     opportunities = []
 
     moves = game.get("moves", [])
+    board_type_str = game.get("board_type", "square8")
     num_players = game.get("num_players", 2)
     initial_state = game.get("initial_state", {})
 
     # Initialize board state
     board = BoardState()
 
+    # Best-effort canonical rings-per-player fallback for this game.
+    try:
+        from app.models import BoardType
+        from app.rules.core import get_rings_per_player
+
+        board_type_map = {
+            "square8": BoardType.SQUARE8,
+            "square19": BoardType.SQUARE19,
+            "hex": BoardType.HEXAGONAL,
+            "hexagonal": BoardType.HEXAGONAL,
+        }
+        board_type = board_type_map.get(board_type_str, BoardType.SQUARE8)
+        board.default_rings_per_player = get_rings_per_player(board_type)
+    except Exception:
+        # Keep the dataclass default when imports fail (e.g., minimal env).
+        pass
+
     # Set initial rings in hand
     for p in range(1, num_players + 1):
-        # Default to 0; prefer the authoritative initial_state player payload
-        # when available (rings_per_player depends on board type).
-        board.rings_in_hand[p] = 0
+        # Default to canonical starting rings; prefer initial_state player payload
+        # when available (it reflects any non-standard start positions).
+        board.rings_in_hand[p] = board.default_rings_per_player
 
     # Load initial state if provided
     if initial_state:
@@ -210,7 +230,7 @@ def replay_game_and_find_recovery_opportunities(
         init_players = initial_state.get("players", [])
         for pdata in init_players:
             pnum = pdata.get("player_number", 0)
-            board.rings_in_hand[pnum] = pdata.get("rings_in_hand", 18)
+            board.rings_in_hand[pnum] = pdata.get("rings_in_hand", board.default_rings_per_player)
 
     # Track when each player becomes recovery-eligible
     recovery_eligible_since: dict[int, int] = {}  # player -> move_number

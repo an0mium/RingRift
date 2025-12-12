@@ -145,7 +145,11 @@ class GameEngine:
       identical positions.
     """
 
-    # Cache for valid moves: key = f"{state_hash}:{player_number}"
+    # Cache for valid moves. Key includes:
+    #   - board type/size (avoid cross-geometry reuse),
+    #   - canonical structural hash_game_state,
+    #   - player_number + must_move_from_stack_key (movement constraints),
+    #   - move_history length (meta-moves like swap_sides depend on it).
     _move_cache: dict[str, List[Move]] = {}
     _cache_hits: int = 0
     _cache_misses: int = 0
@@ -174,10 +178,18 @@ class GameEngine:
         # board/phase/player but different must_move_from_stack_key have different
         # legal move sets. Without including it in the cache key, the cache would
         # return stale moves from a state where this constraint was different.
+        #
+        # CRITICAL: move generation depends on small pieces of move history for
+        # meta-moves like swap_sides (pie rule). swap_sides does not change the
+        # canonical structural hash_game_state but it *does* change move_history,
+        # and swap eligibility must not remain cached after swap is applied.
         state_hash = BoardManager.hash_game_state(game_state)
         board = game_state.board
         must_move_key = game_state.must_move_from_stack_key or ""
-        cache_key = f"{board.type.value}:{board.size}:{state_hash}:{player_number}:{must_move_key}"
+        history_len = len(game_state.move_history)
+        cache_key = (
+            f"{board.type.value}:{board.size}:{state_hash}:{player_number}:{must_move_key}:{history_len}"
+        )
 
         if cache_key in GameEngine._move_cache:
             GameEngine._cache_hits += 1
@@ -679,6 +691,14 @@ class GameEngine:
         # Check victory conditions
         GameEngine._check_victory(new_state)
 
+        # TS parity: enforce ANM boundary resolution (RR-CANON-R202/R203).
+        # After any move, if the game is still ACTIVE and ANM(state) holds for the
+        # current player, resolve immediately via forced elimination and/or
+        # bare-board stalemate evaluation so no externally visible ACTIVE state
+        # satisfies ANM.
+        if new_state.game_status == GameStatus.ACTIVE:
+            GameEngine._resolve_anm_for_current_player(new_state)
+
         # Strict no-move invariant: after any move that leaves the game ACTIVE,
         # assert that the current player has at least one legal action.
         if STRICT_NO_MOVE_INVARIANT and new_state.game_status == GameStatus.ACTIVE:
@@ -1023,11 +1043,16 @@ class GameEngine:
 
             # Calculate scores for each player
             scores = {}
+            territory_counts = {}
+            for owner in game_state.board.collapsed_spaces.values():
+                if not isinstance(owner, int) or owner <= 0:
+                    continue
+                territory_counts[owner] = territory_counts.get(owner, 0) + 1
             for player in game_state.players:
                 pid = player.player_number
 
                 # 1. Collapsed spaces (territory control)
-                collapsed = player.territory_spaces
+                collapsed = territory_counts.get(pid, 0)
 
                 # 2. Eliminated rings + Rings in hand (when applicable)
                 eliminated = player.eliminated_rings
@@ -1540,6 +1565,41 @@ class GameEngine:
             f"{game_state.current_phase.value} state for player "
             f"{game_state.current_player} has no legal actions",
         )
+
+    @staticmethod
+    def _resolve_anm_for_current_player(game_state: GameState) -> None:
+        """Resolve ANM(state, current_player) chains (TS parity).
+
+        Mirrors TurnOrchestrator.resolveANMForCurrentPlayer:
+        - While the game is ACTIVE and ANM holds for current_player:
+          * If forced elimination is available, apply one elimination.
+          * Otherwise, fall back to victory/stalemate evaluation.
+        - Stop once ANM no longer holds or the game becomes terminal.
+        """
+        from app.rules import global_actions as ga  # local import
+
+        total_rings = getattr(game_state, "total_rings_in_play", None)
+        if not isinstance(total_rings, int):
+            total_rings = sum(p.rings_in_hand for p in game_state.players) + sum(
+                s.stack_height for s in game_state.board.stacks.values()
+            )
+        max_steps = max(4, total_rings + 4)
+
+        for _ in range(max_steps):
+            if game_state.game_status != GameStatus.ACTIVE:
+                return
+            if not ga.is_anm_state(game_state):
+                return
+
+            player = game_state.current_player
+            forced = ga.apply_forced_elimination_for_player(game_state, player)
+            if forced is None:
+                GameEngine._check_victory(game_state)
+                return
+
+            GameEngine._check_victory(game_state)
+            if game_state.game_status != GameStatus.ACTIVE:
+                return
 
     @staticmethod
     def _estimate_rings_per_player(game_state: GameState) -> int:
@@ -2658,12 +2718,18 @@ class GameEngine:
         if game_state.current_phase not in lps_active_phases:
             return
 
-        # Parity guard: TS does not award LPS during ANM sequences. If the
-        # game is currently in an active-no-move state, defer LPS evaluation
-        # until the ANM sequence resolves.
-        from app.rules import global_actions as ga
-        if ga.is_anm_state(game_state):
-            return
+        # NOTE: We intentionally do NOT defer during ANM states.
+        #
+        # TS awards LPS at the start of the candidate's interactive turn
+        # whenever the candidate has any real action available (placement,
+        # movement, capture) and all other players with rings have none,
+        # even if the turn begins in a forced no-op ring_placement substep
+        # (e.g., rings_in_hand == 0 implies the host must emit
+        # no_placement_action before movement becomes available).
+        #
+        # Deferring here causes TS↔Python parity mismatches where TS ends the
+        # game immediately on the turn boundary but Python waits for the
+        # next bookkeeping move.
 
         if game_state.lps_consecutive_exclusive_rounds < 2:
             return

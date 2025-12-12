@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from typing import Any, Optional, Tuple, Iterable
 
-from app.models import GameState
+from app.models import GameState, BoardType
+from app.rules.core import get_territory_victory_threshold, get_victory_threshold
 
 
 def infer_num_players(game_state: GameState) -> int:
@@ -30,6 +31,31 @@ def infer_num_players(game_state: GameState) -> int:
     # Defensive default: treat unknown as 2p so legacy unit tests and small
     # tooling states do not trip multi-player guards.
     return 2
+
+
+def _infer_board_type(state: Any) -> Optional[BoardType]:
+    raw = getattr(state, "board_type", getattr(state, "_board_type", None))
+    if raw is not None:
+        if isinstance(raw, BoardType):
+            return raw
+        try:
+            return BoardType(str(getattr(raw, "value", raw)))
+        except Exception:
+            return None
+
+    board = getattr(state, "board", getattr(state, "_board", None))
+    if board is None:
+        return None
+
+    raw = getattr(board, "type", None)
+    if raw is None:
+        return None
+    if isinstance(raw, BoardType):
+        return raw
+    try:
+        return BoardType(str(getattr(raw, "value", raw)))
+    except Exception:
+        return None
 
 
 def _get_player_counts(state: Any, player_number: int) -> Tuple[int, int]:
@@ -71,18 +97,29 @@ def victory_progress_for_player(state: Any, player_number: int) -> float:
     eliminated, territory = _get_player_counts(state, player_number)
 
     victory_threshold = getattr(
-        state, "victory_threshold", getattr(state, "_victory_threshold", 1)
+        state, "victory_threshold", getattr(state, "_victory_threshold", None)
     )
-    if not isinstance(victory_threshold, int) or victory_threshold <= 0:
-        victory_threshold = 1
-
     territory_threshold = getattr(
         state,
         "territory_victory_threshold",
-        getattr(state, "_territory_victory_threshold", 1),
+        getattr(state, "_territory_victory_threshold", None),
     )
+
+    board_type = _infer_board_type(state)
+    player_numbers = list(_iter_player_numbers(state))
+    num_players = len(player_numbers) if player_numbers else 2
+
+    if not isinstance(victory_threshold, int) or victory_threshold <= 0:
+        if board_type is not None:
+            victory_threshold = get_victory_threshold(board_type, num_players)
+        else:
+            victory_threshold = 1
+
     if not isinstance(territory_threshold, int) or territory_threshold <= 0:
-        territory_threshold = 1
+        if board_type is not None:
+            territory_threshold = get_territory_victory_threshold(board_type)
+        else:
+            territory_threshold = 1
 
     elim_progress = float(eliminated) / float(victory_threshold)
     terr_progress = float(territory) / float(territory_threshold)

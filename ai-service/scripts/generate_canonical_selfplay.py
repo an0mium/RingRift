@@ -90,6 +90,8 @@ def run_selfplay_and_parity(
     db_path: Path,
     num_players: int,
     hosts: str | None = None,
+    difficulty_band: str = "light",
+    parity_limit_games_per_db: int = 0,
 ) -> Dict[str, Any]:
     """
     Delegate to run_canonical_selfplay_parity_gate.py to:
@@ -101,10 +103,31 @@ def run_selfplay_and_parity(
     # If num_games == 0, assume the DB already exists and skip running
     # a new soak. We still run parity on the provided DB path.
     if num_games <= 0:
+        if not db_path.exists():
+            return {
+                "error": "db_missing_for_parity_only_mode",
+                "db_path": str(db_path),
+                "num_games": num_games,
+                "returncode": 1,
+            }
+
+        try:
+            existing_db = GameReplayDB(str(db_path))
+            with existing_db._get_conn() as conn:  # type: ignore[attr-defined]
+                row = conn.execute("SELECT COUNT(*) AS n FROM games").fetchone()
+            num_existing_games = int(row["n"]) if row is not None else 0
+        except Exception:
+            num_existing_games = None
+
         print(
             f"[generate_canonical_selfplay] Skipping soak (num_games={num_games}); running parity on existing DB...",
             flush=True,
         )
+        if num_existing_games is not None:
+            print(
+                f"[generate_canonical_selfplay] Existing DB contains {num_existing_games} game(s): {db_path}",
+                flush=True,
+            )
         cmd = [
             sys.executable,
             "scripts/check_ts_python_replay_parity.py",
@@ -117,6 +140,8 @@ def run_selfplay_and_parity(
             "--summary-json",
             str(summary_path),
         ]
+        if parity_limit_games_per_db and parity_limit_games_per_db > 0:
+            cmd += ["--limit-games-per-db", str(parity_limit_games_per_db)]
         proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, capture_output=False)
     else:
         print(
@@ -136,6 +161,8 @@ def run_selfplay_and_parity(
             str(db_path),
             "--summary",
             str(summary_path),
+            "--difficulty-band",
+            difficulty_band,
         ]
         if hosts:
             cmd += ["--hosts", hosts]
@@ -400,7 +427,11 @@ def main(argv: List[str] | None = None) -> int:
         "--num-games",
         type=int,
         default=32,
-        help="Number of self-play games to run (default: 32).",
+        help=(
+            "Number of self-play games to run (default: 32). "
+            "Use 0 to skip the soak and only run parity/history gates on "
+            "an existing DB."
+        ),
     )
     parser.add_argument(
         "--num-players",
@@ -408,6 +439,27 @@ def main(argv: List[str] | None = None) -> int:
         choices=[2, 3, 4],
         default=2,
         help="Number of players for self-play (default: 2).",
+    )
+    parser.add_argument(
+        "--difficulty-band",
+        type=str,
+        choices=["canonical", "light"],
+        default="light",
+        help=(
+            "AI difficulty band used by the canonical self-play soak. "
+            "'light' avoids heavy MCTS/Descent tiers for faster, more debuggable "
+            "canonical DB generation (default: light)."
+        ),
+    )
+    parser.add_argument(
+        "--parity-limit-games-per-db",
+        type=int,
+        default=0,
+        help=(
+            "Optional cap on number of games to check when --num-games=0 "
+            "(parity-only mode). Uses check_ts_python_replay_parity.py's "
+            "--limit-games-per-db flag. Default: 0 (check all)."
+        ),
     )
     parser.add_argument(
         "--db",
@@ -450,6 +502,8 @@ def main(argv: List[str] | None = None) -> int:
     num_games: int = args.num_games
     num_players: int = args.num_players
     hosts: str | None = args.hosts
+    difficulty_band: str = args.difficulty_band
+    parity_limit_games_per_db: int = args.parity_limit_games_per_db
 
     if args.db:
         db_path = Path(args.db).resolve()
@@ -466,6 +520,8 @@ def main(argv: List[str] | None = None) -> int:
             db_path,
             num_players,
             hosts,
+            difficulty_band=difficulty_band,
+            parity_limit_games_per_db=parity_limit_games_per_db,
         )
     except Exception as e:  # pragma: no cover - debug hook
         payload = {

@@ -825,11 +825,15 @@ def generate_markdown_report(report: AnalysisReport) -> str:
     # Recovery status
     if report.recovery_analysis:
         with_recovery = report.recovery_analysis.get("games_with_recovery", 0)
-        conditions_met = report.recovery_analysis.get("conditions_met_distribution", {}).get("4_conditions", 0)
+        dist = report.recovery_analysis.get("conditions_met_distribution", {}) or {}
+        # Canonical RR-CANON-R110 eligibility is 3 conditions. Keep backward
+        # compatibility with older analysis artifacts that used a (wrong) 4th
+        # "zero rings in hand" condition.
+        conditions_met = dist.get("3_conditions", dist.get("4_conditions", 0))
         lines.append("### Recovery Mechanic Status")
         if with_recovery == 0 and conditions_met > 0:
             lines.append(
-                f"- **Recovery is NOT being used** despite {conditions_met} states meeting all 4 conditions"
+                f"- **Recovery is NOT being used** despite {conditions_met} states meeting all eligibility conditions"
             )
             lines.append("- This suggests turn-skipping prevents recovery-eligible players from taking turns")
         elif with_recovery > 0:

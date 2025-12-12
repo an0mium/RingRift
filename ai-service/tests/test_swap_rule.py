@@ -219,3 +219,33 @@ def test_default_rules_engine_apply_swap_sides_swaps_identities_not_stats() -> N
     assert after_p2.username == before_p1.username
     assert after_p2.type == before_p1.type
     assert after_p2.ai_difficulty == before_p1.ai_difficulty
+
+
+def test_swap_sides_not_offered_again_after_swap_is_applied() -> None:
+    """swap_sides must be offered at most once even with move caching.
+
+    Regression guard: swap_sides is a meta-move that does not change the
+    canonical structural hash_game_state. If the move cache key ignores
+    move_history, swap_sides can remain cached and be offered repeatedly,
+    leading to non-terminating self-play loops.
+    """
+    GameEngine.clear_cache()
+    state = _make_swap_enabled_state()
+
+    p1_moves = GameEngine.get_valid_moves(state, 1)
+    p1_placement = next(
+        (m for m in p1_moves if m.type == MoveType.PLACE_RING),
+        None,
+    )
+    assert p1_placement is not None
+    state_after_p1 = GameEngine.apply_move(state, p1_placement)
+
+    state_for_p2_turn = state_after_p1.model_copy(update={"current_player": 2})
+    p2_moves = GameEngine.get_valid_moves(state_for_p2_turn, 2)
+    swap_move = next((m for m in p2_moves if m.type == MoveType.SWAP_SIDES), None)
+    assert swap_move is not None
+
+    state_after_swap = GameEngine.apply_move(state_for_p2_turn, swap_move)
+
+    p2_moves_after_swap = GameEngine.get_valid_moves(state_after_swap, 2)
+    assert not _contains_swap_sides(p2_moves_after_swap)

@@ -3,7 +3,8 @@
 Analyze recovery eligibility in games with forced elimination.
 
 This script replays games that contain forced_elimination moves and analyzes
-the game state to check if players meet the 4 conditions for recovery slide.
+the game state to check if players meet the recovery eligibility conditions
+per RR-CANON-R110 (3 conditions; eligibility is independent of rings in hand).
 """
 
 import json
@@ -15,7 +16,7 @@ from app.training.generate_data import create_initial_state
 
 
 def analyze_recovery_eligibility(state: GameState, player: int) -> dict:
-    """Analyze all 4 conditions for recovery eligibility."""
+    """Analyze recovery eligibility inputs (RR-CANON-R110)."""
     board = state.board
     player_state = next((p for p in state.players if p.player_number == player), None)
 
@@ -187,7 +188,7 @@ def main():
             for player in [1, 2]:
                 analysis = analyze_recovery_eligibility(state, player)
                 print(f"\n  Player {player} recovery eligibility:")
-                print(f"    Rings in hand: {analysis['rings_in_hand']} (need 0)")
+                print(f"    Rings in hand: {analysis['rings_in_hand']} (does not affect eligibility)")
                 print(f"    Controls stacks: {analysis['controls_stacks']} (need False)")
                 print(f"    Has markers: {analysis['has_markers']} (need True)")
                 print(f"    Buried rings: {analysis['buried_rings']} (need >= 1)")

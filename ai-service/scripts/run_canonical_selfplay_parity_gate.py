@@ -41,24 +41,46 @@ AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_cmd(
-    cmd: list[str], cwd: Path | None = None, env_overrides: Dict[str, str] | None = None
+    cmd: list[str],
+    cwd: Path | None = None,
+    env_overrides: Dict[str, str] | None = None,
+    *,
+    capture_output: bool = True,
+    stream_to_stderr: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run a subprocess and return the completed process."""
     env = os.environ.copy()
     if env_overrides:
         env.update(env_overrides)
+
+    stdout = None
+    stderr = None
+    if stream_to_stderr:
+        # Keep stdout clean for the final JSON gate summary while still
+        # providing progress output during long soaks.
+        stdout = sys.stderr
+        stderr = sys.stderr
+
     proc = subprocess.run(
         cmd,
         cwd=str(cwd or AI_SERVICE_ROOT),
         env=env,
         text=True,
-        capture_output=True,
+        capture_output=capture_output and not stream_to_stderr,
+        stdout=stdout,
+        stderr=stderr,
     )
     return proc
 
 
 def run_selfplay_soak(
-    board_type: str, num_games: int, db_path: Path, seed: int, max_moves: int, num_players: int
+    board_type: str,
+    num_games: int,
+    db_path: Path,
+    seed: int,
+    max_moves: int,
+    num_players: int,
+    difficulty_band: str,
 ) -> Dict[str, Any]:
     """Run a small Python self-play soak and record games to db_path."""
     logs_dir = AI_SERVICE_ROOT / "logs" / "selfplay"
@@ -66,6 +88,12 @@ def run_selfplay_soak(
 
     summary_path = logs_dir / f"soak.{board_type}.parity_gate.summary.json"
     jsonl_path = logs_dir / f"soak.{board_type}.parity_gate.jsonl"
+
+    extra_args: list[str] = []
+    if board_type in {"square19", "hexagonal"}:
+        # Large boards can exhaust memory mid-game; streaming record and intra-game
+        # GC bound peak usage without changing rules semantics.
+        extra_args += ["--streaming-record", "--intra-game-gc-interval", "50"]
 
     cmd = [
         sys.executable,
@@ -82,12 +110,16 @@ def run_selfplay_soak(
         str(max_moves),
         "--seed",
         str(seed),
+        "--difficulty-band",
+        difficulty_band,
         "--record-db",
         str(db_path),
         "--log-jsonl",
         str(jsonl_path),
         "--summary-json",
         str(summary_path),
+        "--fail-on-anomaly",
+        *extra_args,
     ]
 
     # Enable strict invariant by default so soak respects ANM constraints.
@@ -107,12 +139,33 @@ def run_selfplay_soak(
         "MKL_NUM_THREADS": os.environ.get("MKL_NUM_THREADS", "1"),
     }
 
-    proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, env_overrides=env_overrides)
+    print(
+        f"[parity-gate] self-play soak: board={board_type} players={num_players} "
+        f"games={num_games} difficulty_band={difficulty_band}",
+        file=sys.stderr,
+        flush=True,
+    )
+    proc = _run_cmd(
+        cmd,
+        cwd=AI_SERVICE_ROOT,
+        env_overrides=env_overrides,
+        capture_output=False,
+        stream_to_stderr=True,
+    )
+
+    soak_summary: Dict[str, Any] | None = None
+    if summary_path.exists():
+        try:
+            with summary_path.open("r", encoding="utf-8") as f:
+                soak_summary = json.load(f)
+        except Exception:
+            soak_summary = None
+
     result: Dict[str, Any] = {
         "returncode": proc.returncode,
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
         "summary_path": str(summary_path),
+        "summary": soak_summary,
+        "log_jsonl_path": str(jsonl_path),
     }
     return result
 
@@ -127,6 +180,7 @@ def run_parity_check(db_path: Path) -> Dict[str, Any]:
         canonical gate status for this DB, and
       - the process return code is non-zero whenever the canonical gate fails.
     """
+    summary_path = db_path.with_suffix(db_path.suffix + ".parity_summary.json")
     cmd = [
         sys.executable,
         "scripts/check_ts_python_replay_parity.py",
@@ -136,21 +190,41 @@ def run_parity_check(db_path: Path) -> Dict[str, Any]:
         "canonical",
         "--view",
         "post_move",
+        "--summary-json",
+        str(summary_path),
     ]
     env_overrides = {"PYTHONPATH": str(AI_SERVICE_ROOT)}
-    proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, env_overrides=env_overrides)
+    print(
+        f"[parity-gate] parity check: db={db_path.name}",
+        file=sys.stderr,
+        flush=True,
+    )
+    proc = _run_cmd(
+        cmd,
+        cwd=AI_SERVICE_ROOT,
+        env_overrides=env_overrides,
+        capture_output=False,
+        stream_to_stderr=True,
+    )
 
     summary: Dict[str, Any]
-    try:
-        summary = json.loads(proc.stdout)
-    except Exception:
+    if summary_path.exists():
+        try:
+            with summary_path.open("r", encoding="utf-8") as f:
+                summary = json.load(f)
+        except Exception:
+            summary = {
+                "error": "failed_to_load_parity_summary_file",
+                "summary_path": str(summary_path),
+            }
+    else:
         summary = {
-            "error": "failed_to_parse_parity_summary",
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
+            "error": "parity_summary_file_missing",
+            "summary_path": str(summary_path),
         }
 
     summary["returncode"] = proc.returncode
+    summary["summary_path"] = str(summary_path)
     return summary
 
 
@@ -185,6 +259,17 @@ def main() -> None:
         type=int,
         default=20,
         help="Number of self-play games to run for the gate (default: 20).",
+    )
+    parser.add_argument(
+        "--difficulty-band",
+        type=str,
+        choices=["canonical", "light"],
+        default="light",
+        help=(
+            "AI difficulty band for engine_mode='mixed' during the soak. "
+            "'light' avoids heavy MCTS/Descent tiers for faster, more debuggable "
+            "canonical DB generation (default: light)."
+        ),
     )
     parser.add_argument(
         "--num-players",
@@ -277,7 +362,18 @@ def main() -> None:
             "--max-parallel-per-host",
             "2",
         ]
-        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+        print(
+            f"[parity-gate] distributed soak: board={args.board_type} players={args.num_players} "
+            f"games_per_host={args.num_games}",
+            file=sys.stderr,
+            flush=True,
+        )
+        proc = _run_cmd(
+            cmd,
+            cwd=AI_SERVICE_ROOT,
+            capture_output=False,
+            stream_to_stderr=True,
+        )
         soak_result = {
             "returncode": proc.returncode,
             "stdout": proc.stdout,
@@ -292,7 +388,13 @@ def main() -> None:
             parity_summary = run_parity_checks(dbs_to_check)
     else:
         soak_result = run_selfplay_soak(
-            args.board_type, args.num_games, db_path, args.seed, max_moves, args.num_players
+            args.board_type,
+            args.num_games,
+            db_path,
+            args.seed,
+            max_moves,
+            args.num_players,
+            args.difficulty_band,
         )
         parity_summary = run_parity_check(db_path)
 
@@ -322,6 +424,7 @@ def main() -> None:
         "db_path": str(db_path),
         "db_paths_checked": [str(p) for p in dbs_to_check],
         "num_games": args.num_games,
+        "difficulty_band": args.difficulty_band,
         "seed": args.seed,
         "max_moves": max_moves,
         "hosts": args.hosts.split(",") if args.hosts else None,

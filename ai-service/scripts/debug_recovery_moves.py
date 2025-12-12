@@ -107,7 +107,7 @@ def analyze_eligible_state(game_file: str, game_index: int, move_index: int, pla
     board = state.board
 
     print(f"\nRECOVERY ELIGIBILITY CHECK (player {player}):")
-    print(f"  Rings in hand: {player_state.rings_in_hand if player_state else 'N/A'} (need 0)")
+    print(f"  Rings in hand: {player_state.rings_in_hand if player_state else 'N/A'} (does not affect eligibility)")
     print(f"  Controls stacks: {player_controls_any_stack(board, player)} (need False)")
     print(f"  Has markers: {player_has_markers(board, player)} (need True)")
     print(f"  Buried rings: {count_buried_rings(board, player)} (need >= 1)")

@@ -1369,9 +1369,11 @@ class DescentAI(BaseAI):
     ) -> List[float]:
         """Batch-evaluate immutable states with NN when available.
 
-        Returns values in this agent's fixed perspective. For two-player
-        games, NeuralNetAI values are current-player-relative, so we negate
-        when evaluating opponent-to-move states.
+        Returns values in this agent's fixed perspective. NeuralNetAI encodes
+        features relative to each state's ``current_player``; for Paranoid
+        root-vs-coalition reductions (3p/4p) we therefore negate values when
+        evaluating any non-root-to-move state (treating all opponents as a
+        single minimizing coalition).
         """
         if not game_states:
             return []
@@ -1389,8 +1391,7 @@ class DescentAI(BaseAI):
             for val, st in zip(values, game_states):
                 v = float(val)
                 if (
-                    len(st.players) == 2
-                    and st.current_player != self.player_number
+                    st.current_player != self.player_number
                 ):
                     v = -v
                 adjusted.append(max(-0.99, min(0.99, v)))
@@ -1484,12 +1485,11 @@ class DescentAI(BaseAI):
             try:
                 val = self.neural_net.evaluate_position(game_state)
                 # NeuralNetAI encodes features relative to the state's
-                # current_player. For two-player games, convert the resulting
-                # value into this agent's fixed perspective when evaluating
-                # opponent-to-move states.
+                # current_player. For Paranoid-style reductions (root vs
+                # opponent coalition), convert the resulting value into this
+                # agent's fixed perspective by negating opponent-to-move states.
                 if (
-                    len(game_state.players) == 2
-                    and game_state.current_player != self.player_number
+                    game_state.current_player != self.player_number
                 ):
                     val = -val
             except Exception:

@@ -278,6 +278,30 @@ class BaseAI(ABC):
                 return player
         return None
 
+    def reset_for_new_game(self, *, rng_seed: Optional[int] = None) -> None:
+        """Reset per-game mutable state for self-play and evaluation loops.
+
+        Some training/evaluation drivers reuse a single AI instance across
+        multiple games (to amortize neural model loading). This helper makes
+        that reuse safer and more reproducible by:
+
+        - Resetting ``move_count``.
+        - Optionally reseeding the per-instance RNG.
+        - Clearing any retained search tree when supported.
+        """
+        self.move_count = 0
+        if rng_seed is not None:
+            self.rng_seed = int(rng_seed) & 0xFFFFFFFF
+            self.rng = random.Random(self.rng_seed)
+
+        clear_tree = getattr(self, "clear_search_tree", None)
+        if callable(clear_tree):
+            try:
+                clear_tree()
+            except Exception:
+                # Best-effort only: failures should not break self-play.
+                pass
+
     def __repr__(self) -> str:
         """String representation of AI"""
         return (
