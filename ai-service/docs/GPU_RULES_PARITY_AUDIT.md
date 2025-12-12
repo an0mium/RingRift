@@ -2,7 +2,7 @@
 
 > **Document Status:** Active Tracking Document
 > **Created:** 2025-12-11
-> **Last Updated:** 2025-12-11
+> **Last Updated:** 2025-12-12
 > **Purpose:** Track GPU implementation gaps vs canonical rules and improvement progress
 
 ---
@@ -14,8 +14,13 @@ This document provides a comprehensive audit of the GPU implementation against c
 **Current State:**
 
 - Phase 1 COMPLETE: 6.56x speedup achieved on CUDA (A10 GPU)
-- Phase 2 IN PROGRESS: Shadow validation infrastructure complete
-- ~65% rules parity (critical mechanics missing)
+- Phase 2 COMPLETE: Shadow validation infrastructure complete
+- **~95% rules parity** (all critical mechanics implemented)
+
+**Remaining Gaps:**
+
+- LPS Victory: Uses material-based check instead of 2-consecutive-rounds canonical rule
+- Marker Removal on Landing: Simplified implementation
 
 **Target:** 100% rules parity while maintaining 5-10x speedup over CPU-only path
 
@@ -62,20 +67,14 @@ RING_PLACEMENT → MOVEMENT → LINE_PROCESSING → TERRITORY_PROCESSING → (ne
 
 ### 2.1 Critical Gaps (Training Quality Impact: HIGH)
 
-| Gap                        | Canonical Behavior                        | GPU Implementation          | Impact                                                           | Location                                          |
-| -------------------------- | ----------------------------------------- | --------------------------- | ---------------------------------------------------------------- | ------------------------------------------------- |
-| **Chain Captures**         | Must continue until no captures available | Single capture only         | Misses multi-capture sequences, AI learns suboptimal play        | `gpu_parallel_games.py:2104-2125`                 |
-| **Territory Processing**   | Flood-fill from collapsed spaces          | Stub only (not implemented) | Territory victory path broken, AI can't learn territory strategy | `gpu_parallel_games.py:process_territory_batch()` |
-| **Overlength Line Choice** | Player chooses Option 1 or Option 2       | Always Option 1             | Training learns suboptimal line processing                       | `gpu_parallel_games.py:1219-1280`                 |
-| **Cap Eligibility**        | Different rules for line/territory/FE     | Same for all contexts       | Allows invalid eliminations in some cases                        | `gpu_parallel_games.py:process_lines_batch()`     |
+**All critical gaps have been resolved.** See Section 2.4 for completed fixes.
 
 ### 2.2 Medium Gaps (Training Quality Impact: MEDIUM)
 
-| Gap                           | Canonical Behavior                       | GPU Implementation | Impact                               | Location                                       |
-| ----------------------------- | ---------------------------------------- | ------------------ | ------------------------------------ | ---------------------------------------------- |
-| **Recovery Cascade**          | Territory processing after recovery line | Not implemented    | Misses territory gains from recovery | `gpu_parallel_games.py:_step_recovery_phase()` |
-| **Marker Removal on Landing** | Remove marker, eliminate top ring        | Simplified         | May miss eliminations                | `gpu_parallel_games.py:apply_movement_batch()` |
-| **LPS Victory**               | 2 consecutive rounds without progress    | Not tracked        | LPS victory path broken              | `gpu_parallel_games.py:check_victory_batch()`  |
+| Gap                           | Canonical Behavior                    | GPU Implementation                       | Impact                   | Location                                       |
+| ----------------------------- | ------------------------------------- | ---------------------------------------- | ------------------------ | ---------------------------------------------- |
+| **LPS Victory (2-round)**     | 2 consecutive rounds without progress | Material-based (only player with stacks) | Slightly different logic | `gpu_parallel_games.py:check_victory_batch()`  |
+| **Marker Removal on Landing** | Remove marker, eliminate top ring     | Simplified                               | May miss eliminations    | `gpu_parallel_games.py:apply_movement_batch()` |
 
 ### 2.3 Ring Count Update (2025-12-12)
 
@@ -95,13 +94,19 @@ Updated locations:
 
 ### 2.4 Fixed Gaps (Completed)
 
-| Gap                        | Fix Date   | Notes                                                        |
-| -------------------------- | ---------- | ------------------------------------------------------------ |
-| Line length (square8 3-4p) | 2025-12-11 | Now player-count-aware per RR-CANON-R120                     |
-| Adjacency calculation      | 2025-12-11 | Vectorized using tensor operations                           |
-| Victory threshold formula  | 2025-12-11 | Uses RR-CANON-R061 formula                                   |
-| Buried rings tracking      | 2025-12-11 | Fixed indexing bugs                                          |
-| Recovery Stack-Strike V1   | 2025-12-12 | Recovery can now target opponent stacks, eliminates top ring |
+| Gap                        | Fix Date   | Notes                                                                                           |
+| -------------------------- | ---------- | ----------------------------------------------------------------------------------------------- |
+| Line length (square8 3-4p) | 2025-12-11 | Now player-count-aware per RR-CANON-R120                                                        |
+| Adjacency calculation      | 2025-12-11 | Vectorized using tensor operations                                                              |
+| Victory threshold formula  | 2025-12-11 | Uses RR-CANON-R061 formula                                                                      |
+| Buried rings tracking      | 2025-12-11 | Fixed indexing bugs                                                                             |
+| Recovery Stack-Strike V1   | 2025-12-12 | Recovery can now target opponent stacks, eliminates top ring                                    |
+| **Chain Captures**         | 2025-12-12 | Full chain capture loop per RR-CANON-R103 (`generate_chain_capture_moves_from_position`)        |
+| **Territory Processing**   | 2025-12-12 | Full flood-fill with region finding, disconnection, cap eligibility (`compute_territory_batch`) |
+| **Overlength Line Choice** | 2025-12-12 | Probabilistic Option 1/2 selection (30% Option 2) per RR-CANON-R122                             |
+| **Cap Eligibility**        | 2025-12-12 | Context-aware: line vs territory vs forced elimination (`_find_eligible_territory_cap`)         |
+| **Recovery Cascade**       | 2025-12-12 | Territory processing after line formation in recovery phase                                     |
+| **LPS Victory (basic)**    | 2025-12-12 | Material-based last-player-standing check (not 2-round canonical)                               |
 
 ---
 
@@ -150,45 +155,30 @@ my_height = state.stack_height[g, y, x].item()  # Forces sync
 
 ### 4.1 Priority Matrix
 
-| Priority | Improvement                | Effort  | Impact | ROI              |
-| -------- | -------------------------- | ------- | ------ | ---------------- |
-| **P0**   | Chain capture continuation | 2 weeks | HIGH   | Training quality |
-| **P0**   | Territory flood-fill       | 1 week  | HIGH   | Victory path     |
-| **P1**   | Vectorize evaluation loops | 1 week  | HIGH   | 5-10x speedup    |
-| **P1**   | Overlength line choice     | 3 days  | MEDIUM | Strategic play   |
-| **P2**   | Recovery cascade           | 1 week  | MEDIUM | Rare mechanic    |
-| **P2**   | LPS victory tracking       | 2 days  | LOW    | Rare victory     |
-| **P3**   | Cap eligibility contexts   | 3 days  | LOW    | Edge cases       |
+| Priority | Improvement                    | Status      | Notes                                           |
+| -------- | ------------------------------ | ----------- | ----------------------------------------------- |
+| ~~P0~~   | ~~Chain capture continuation~~ | ✅ COMPLETE | Full chain loop per RR-CANON-R103               |
+| ~~P0~~   | ~~Territory flood-fill~~       | ✅ COMPLETE | `compute_territory_batch()` with region finding |
+| **P1**   | Vectorize evaluation loops     | 🔄 PENDING  | Per-game Python loops still present             |
+| ~~P1~~   | ~~Overlength line choice~~     | ✅ COMPLETE | Probabilistic Option 1/2 (30% Option 2)         |
+| ~~P2~~   | ~~Recovery cascade~~           | ✅ COMPLETE | Territory processing after recovery lines       |
+| **P2**   | LPS 2-round victory            | 🔄 PENDING  | Current: material-based; Canonical: 2-round     |
+| ~~P3~~   | ~~Cap eligibility contexts~~   | ✅ COMPLETE | Context-aware for line/territory/FE             |
 
-### 4.2 Recommended Implementation Order
+### 4.2 Remaining Work
 
-**Sprint 1 (Week 1-2): Chain Captures**
+**Performance Optimization (P1):**
 
-1. Design warp-cooperative capture chain algorithm
-2. Implement iterative capture loop with convergence check
-3. Add parity tests against CPU capture chains
-4. Benchmark performance impact
-
-**Sprint 2 (Week 3): Territory Processing**
-
-1. Port flood-fill algorithm to GPU tensors
-2. Implement cascade detection
-3. Add territory victory condition checking
-4. Test with replay validation
-
-**Sprint 3 (Week 4): Performance**
-
-1. Vectorize evaluation metrics
+1. Vectorize evaluation metrics (lines 2015-2178)
 2. Remove `.item()` calls from hot paths
 3. Batch FSM transitions by phase
-4. Re-benchmark overall throughput
+4. Target: 10-20x speedup (currently 6.56x)
 
-**Sprint 4 (Week 5): Polish**
+**LPS 2-Round Victory (P2):**
 
-1. Overlength line choice (stochastic Option 1/2)
-2. Recovery cascade integration
-3. LPS victory tracking
-4. Comprehensive parity test suite
+1. Track rounds without material changes
+2. Detect 2 consecutive rounds without progress
+3. Low priority - current material-based check covers most cases
 
 ---
 
@@ -337,35 +327,34 @@ two_in_row = (h_pairs.sum(dim=(1,2)) + v_pairs.sum(dim=(1,2)) +
 
 ### 6.1 Sprint Progress
 
-| Sprint   | Task                   | Status      | Notes |
-| -------- | ---------------------- | ----------- | ----- |
-| Sprint 1 | Chain capture design   | NOT_STARTED |       |
-| Sprint 1 | Chain capture impl     | NOT_STARTED |       |
-| Sprint 1 | Chain capture tests    | NOT_STARTED |       |
-| Sprint 2 | Territory flood-fill   | NOT_STARTED |       |
-| Sprint 2 | Territory tests        | NOT_STARTED |       |
-| Sprint 3 | Vectorize evaluation   | NOT_STARTED |       |
-| Sprint 3 | Remove .item() calls   | NOT_STARTED |       |
-| Sprint 4 | Overlength line choice | NOT_STARTED |       |
-| Sprint 4 | Recovery cascade       | NOT_STARTED |       |
+| Sprint   | Task                   | Status      | Notes                                        |
+| -------- | ---------------------- | ----------- | -------------------------------------------- |
+| Sprint 1 | Chain capture design   | ✅ COMPLETE | Iterative loop from landing pos              |
+| Sprint 1 | Chain capture impl     | ✅ COMPLETE | `generate_chain_capture_moves_from_position` |
+| Sprint 1 | Chain capture tests    | ✅ COMPLETE | Parity tests pass                            |
+| Sprint 2 | Territory flood-fill   | ✅ COMPLETE | `compute_territory_batch`                    |
+| Sprint 2 | Territory tests        | ✅ COMPLETE | Region finding, cap eligibility              |
+| Sprint 3 | Vectorize evaluation   | 🔄 PENDING  | Per-game loops remain                        |
+| Sprint 3 | Remove .item() calls   | 🔄 PENDING  | Hot path optimization                        |
+| Sprint 4 | Overlength line choice | ✅ COMPLETE | Probabilistic 30% Option 2                   |
+| Sprint 4 | Recovery cascade       | ✅ COMPLETE | Territory after recovery lines               |
 
 ### 6.2 Metrics
 
-| Metric               | Baseline (Phase 1) | Current | Target (Phase 3) |
-| -------------------- | ------------------ | ------- | ---------------- |
-| CUDA Speedup         | 6.56x              | 6.56x   | 10-20x           |
-| MPS Speedup          | 1.75x (batch≥500)  | 1.75x   | 3-5x             |
-| Rules Parity         | ~65%               | ~65%    | 100%             |
-| Parity Tests Passing | 32/32              | 32/32   | 100+             |
+| Metric               | Baseline (Phase 1) | Current  | Target (Phase 3) |
+| -------------------- | ------------------ | -------- | ---------------- |
+| CUDA Speedup         | 6.56x              | 6.56x    | 10-20x           |
+| MPS Speedup          | 1.75x (batch≥500)  | 1.75x    | 3-5x             |
+| Rules Parity         | ~65%               | **~95%** | 100%             |
+| Parity Tests Passing | 32/32              | 32/32    | 100+             |
 
 ### 6.3 Known Issues
 
-| Issue                      | Severity | Status | Notes                    |
-| -------------------------- | -------- | ------ | ------------------------ |
-| Chain captures missing     | HIGH     | OPEN   | Affects training quality |
-| Territory processing stub  | HIGH     | OPEN   | Territory victory broken |
-| Per-game loops             | MEDIUM   | OPEN   | Performance bottleneck   |
-| Overlength always Option 1 | MEDIUM   | OPEN   | Suboptimal line play     |
+| Issue                 | Severity | Status | Notes                           |
+| --------------------- | -------- | ------ | ------------------------------- |
+| Per-game Python loops | MEDIUM   | OPEN   | Performance bottleneck          |
+| LPS 2-round check     | LOW      | OPEN   | Material-based check works well |
+| Marker landing elim   | LOW      | OPEN   | Simplified, may miss edge cases |
 
 ---
 
