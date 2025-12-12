@@ -39,6 +39,7 @@ import sys
 import threading
 import time
 import uuid
+from urllib.parse import urlparse
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from enum import Enum
@@ -86,6 +87,10 @@ GIT_BRANCH_NAME = "main"         # Branch to track
 AUTO_UPDATE_ENABLED = True       # Enable automatic updates
 GRACEFUL_SHUTDOWN_BEFORE_UPDATE = True  # Stop jobs before updating
 
+# Data manifest collection settings
+MANIFEST_JSONL_LINECOUNT_MAX_BYTES = 64 * 1024 * 1024  # Skip line-counting for huge JSONL files
+MANIFEST_JSONL_LINECOUNT_CHUNK_BYTES = 1024 * 1024
+
 # Path to local state database
 STATE_DIR = Path(__file__).parent.parent / "logs" / "p2p_orchestrator"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -118,6 +123,7 @@ class NodeInfo:
     node_id: str
     host: str
     port: int
+    scheme: str = "http"  # How to reach this node (http/https)
     role: NodeRole = NodeRole.FOLLOWER
     last_heartbeat: float = 0.0
     cpu_percent: float = 0.0
@@ -174,6 +180,7 @@ class NodeInfo:
         d = d.copy()
         d['role'] = NodeRole(d.get('role', 'follower'))
         # Handle missing new fields gracefully
+        d.setdefault('scheme', 'http')
         d.setdefault('consecutive_failures', 0)
         d.setdefault('last_failure_time', 0.0)
         d.setdefault('disk_cleanup_needed', False)
@@ -639,6 +646,41 @@ class P2POrchestrator:
                 return str(path)
         return str(Path(__file__).parent.parent.parent)
 
+    def _parse_peer_address(self, peer_addr: str) -> Tuple[str, str, int]:
+        """Parse `--peers` entries.
+
+        Supports:
+        - `host`
+        - `host:port`
+        - `http://host[:port]`
+        - `https://host[:port]`
+        """
+        peer_addr = (peer_addr or "").strip()
+        if not peer_addr:
+            raise ValueError("Empty peer address")
+
+        if "://" in peer_addr:
+            parsed = urlparse(peer_addr)
+            scheme = (parsed.scheme or "http").lower()
+            host = parsed.hostname or ""
+            if not host:
+                raise ValueError(f"Invalid peer URL: {peer_addr}")
+            if parsed.port is not None:
+                port = int(parsed.port)
+            else:
+                port = 443 if scheme == "https" else DEFAULT_PORT
+            return scheme, host, port
+
+        # Back-compat: host[:port]
+        parts = peer_addr.split(":", 1)
+        host = parts[0]
+        port = int(parts[1]) if len(parts) > 1 and parts[1] else DEFAULT_PORT
+        return "http", host, port
+
+    def _url_for_peer(self, peer: NodeInfo, path: str) -> str:
+        scheme = (getattr(peer, "scheme", None) or "http").lower()
+        return f"{scheme}://{peer.host}:{peer.port}{path}"
+
     def _init_database(self):
         """Initialize SQLite database for state persistence."""
         conn = sqlite3.connect(str(self.db_path))
@@ -957,8 +999,6 @@ class P2POrchestrator:
         - training/ - Training data files (.npz)
         - games/ - Synced game databases (.db)
         """
-        import hashlib
-
         data_dir = Path(self.ringrift_path) / "ai-service" / "data"
         manifest = NodeDataManifest(
             node_id=self.node_id,
@@ -970,6 +1010,28 @@ class P2POrchestrator:
             return manifest
 
         files: List[DataFileInfo] = []
+
+        def _count_jsonl_games(file_path: Path, file_size_bytes: int) -> int:
+            if file_size_bytes > MANIFEST_JSONL_LINECOUNT_MAX_BYTES:
+                return 0
+
+            try:
+                with open(file_path, "rb") as f:
+                    line_count = 0
+                    last_byte = b""
+                    while True:
+                        chunk = f.read(MANIFEST_JSONL_LINECOUNT_CHUNK_BYTES)
+                        if not chunk:
+                            break
+                        line_count += chunk.count(b"\n")
+                        last_byte = chunk[-1:]
+
+                if file_size_bytes > 0 and last_byte != b"\n":
+                    line_count += 1
+
+                return int(line_count)
+            except Exception:
+                return 0
 
         # Scan for data files
         patterns = {
@@ -1026,11 +1088,10 @@ class P2POrchestrator:
                             # Count games in JSONL files
                             if rel_path.endswith(".jsonl"):
                                 try:
-                                    with open(file_path, 'r') as f:
-                                        line_count = sum(1 for _ in f)
+                                    line_count = _count_jsonl_games(file_path, stat.st_size)
                                     file_info.game_count = line_count
                                     manifest.selfplay_games += line_count
-                                except:
+                                except Exception:
                                     pass
                         elif file_type == "model":
                             manifest.model_count += 1
@@ -1064,7 +1125,7 @@ class P2POrchestrator:
     async def _request_peer_manifest(self, peer_info: NodeInfo) -> Optional[NodeDataManifest]:
         """Request data manifest from a peer node."""
         try:
-            url = f"http://{peer_info.host}:{peer_info.port}/data_manifest"
+            url = self._url_for_peer(peer_info, "/data_manifest")
             timeout = ClientTimeout(total=30)
             async with ClientSession(timeout=timeout) as session:
                 async with session.get(url) as resp:
@@ -1082,9 +1143,10 @@ class P2POrchestrator:
         )
 
         # Collect from self
+        local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
         with self.manifest_lock:
-            self.local_data_manifest = self._collect_local_data_manifest()
-            cluster_manifest.node_manifests[self.node_id] = self.local_data_manifest
+            self.local_data_manifest = local_manifest
+        cluster_manifest.node_manifests[self.node_id] = local_manifest
 
         # Collect from peers in parallel
         with self.peers_lock:
@@ -1256,7 +1318,7 @@ class P2POrchestrator:
         job.started_at = time.time()
 
         try:
-            url = f"http://{target_peer.host}:{target_peer.port}/sync/pull"
+            url = self._url_for_peer(target_peer, "/sync/pull")
             payload = {
                 "job_id": job.job_id,
                 "source_host": source_peer.host,
@@ -1618,7 +1680,14 @@ class P2POrchestrator:
             peer_info.last_heartbeat = time.time()
             # Prefer the remote socket address over self-reported host so that
             # nodes behind overlays (e.g., Tailscale) use a reachable address.
-            if request.remote:
+            forwarded_for = (
+                request.headers.get("X-Forwarded-For")
+                or request.headers.get("X-Real-IP")
+                or request.headers.get("CF-Connecting-IP")
+            )
+            if forwarded_for:
+                peer_info.host = forwarded_for.split(",")[0].strip()
+            elif request.remote:
                 peer_info.host = request.remote
 
             with self.peers_lock:
@@ -1845,14 +1914,14 @@ class P2POrchestrator:
         Used by leader to collect data inventory from all nodes.
         """
         try:
+            local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
             with self.manifest_lock:
-                if self.local_data_manifest is None:
-                    self.local_data_manifest = self._collect_local_data_manifest()
+                self.local_data_manifest = local_manifest
 
-                return web.json_response({
-                    "node_id": self.node_id,
-                    "manifest": self.local_data_manifest.to_dict(),
-                })
+            return web.json_response({
+                "node_id": self.node_id,
+                "manifest": local_manifest.to_dict(),
+            })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
@@ -1872,27 +1941,29 @@ class P2POrchestrator:
                 }, status=400)
 
             # Collect cluster manifest (refreshes data from all nodes)
+            cluster_manifest = await self._collect_cluster_manifest()
             with self.manifest_lock:
-                self.cluster_data_manifest = await self._collect_cluster_manifest()
+                self.cluster_data_manifest = cluster_manifest
 
-                return web.json_response({
-                    "cluster_manifest": self.cluster_data_manifest.to_dict(),
-                })
+            return web.json_response({
+                "cluster_manifest": cluster_manifest.to_dict(),
+            })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_refresh_manifest(self, request: web.Request) -> web.Response:
         """Force refresh of local data manifest."""
         try:
+            local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
             with self.manifest_lock:
-                self.local_data_manifest = self._collect_local_data_manifest()
+                self.local_data_manifest = local_manifest
 
             return web.json_response({
                 "success": True,
                 "node_id": self.node_id,
-                "total_files": self.local_data_manifest.total_files,
-                "total_size_bytes": self.local_data_manifest.total_size_bytes,
-                "selfplay_games": self.local_data_manifest.selfplay_games,
+                "total_files": local_manifest.total_files,
+                "total_size_bytes": local_manifest.total_size_bytes,
+                "selfplay_games": local_manifest.selfplay_games,
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
@@ -2132,7 +2203,7 @@ class P2POrchestrator:
                             if worker:
                                 timeout = ClientTimeout(total=300)
                                 async with ClientSession(timeout=timeout) as session:
-                                    url = f"http://{worker.host}:{worker.port}/cmaes/evaluate"
+                                    url = self._url_for_peer(worker, "/cmaes/evaluate")
                                     await session.post(url, json={
                                         "job_id": job_id,
                                         "weights": weights,
@@ -2289,7 +2360,7 @@ print(wins / total)
                         try:
                             timeout = ClientTimeout(total=30)
                             async with ClientSession(timeout=timeout) as session:
-                                url = f"http://{leader.host}:{leader.port}/cmaes/result"
+                                url = self._url_for_peer(leader, "/cmaes/result")
                                 await session.post(url, json={
                                     "job_id": job_id,
                                     "generation": generation,
@@ -4785,20 +4856,22 @@ print(json.dumps({{
         self.self_info.role = self.role
         self.self_info.last_heartbeat = time.time()
 
-    async def _send_heartbeat_to_peer(self, peer_host: str, peer_port: int) -> Optional[NodeInfo]:
+    async def _send_heartbeat_to_peer(self, peer_host: str, peer_port: int, scheme: str = "http") -> Optional[NodeInfo]:
         """Send heartbeat to a peer and return their info."""
         try:
             self._update_self_info()
 
             timeout = ClientTimeout(total=10)
             async with ClientSession(timeout=timeout) as session:
-                url = f"http://{peer_host}:{peer_port}/heartbeat"
+                scheme = (scheme or "http").lower()
+                url = f"{scheme}://{peer_host}:{peer_port}/heartbeat"
                 async with session.post(url, json=self.self_info.to_dict()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         info = NodeInfo.from_dict(data)
                         # Use the address we successfully reached instead of any
                         # self-reported interface address.
+                        info.scheme = scheme
                         info.host = peer_host
                         info.port = peer_port
                         return info
@@ -4812,11 +4885,12 @@ print(json.dumps({{
             try:
                 # Send to known peers from config
                 for peer_addr in self.known_peers:
-                    parts = peer_addr.split(':')
-                    host = parts[0]
-                    port = int(parts[1]) if len(parts) > 1 else DEFAULT_PORT
+                    try:
+                        scheme, host, port = self._parse_peer_address(peer_addr)
+                    except Exception:
+                        continue
 
-                    info = await self._send_heartbeat_to_peer(host, port)
+                    info = await self._send_heartbeat_to_peer(host, port, scheme=scheme)
                     if info:
                         with self.peers_lock:
                             info.last_heartbeat = time.time()
@@ -4833,7 +4907,8 @@ print(json.dumps({{
 
                 for peer in peer_list:
                     if peer.node_id != self.node_id:
-                        info = await self._send_heartbeat_to_peer(peer.host, peer.port)
+                        peer_scheme = getattr(peer, "scheme", "http") or "http"
+                        info = await self._send_heartbeat_to_peer(peer.host, peer.port, scheme=peer_scheme)
                         if info:
                             with self.peers_lock:
                                 info.last_heartbeat = time.time()
@@ -4857,6 +4932,7 @@ print(json.dumps({{
 
     async def _manifest_collection_loop(self):
         """Periodically collect manifests for dashboard/training/sync decisions."""
+        await asyncio.sleep(2.0)  # Let the HTTP server come up first
         while self.running:
             try:
                 if self.role == NodeRole.LEADER:
@@ -4864,8 +4940,9 @@ print(json.dumps({{
                     with self.manifest_lock:
                         self.cluster_data_manifest = cluster_manifest
                 else:
+                    local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
                     with self.manifest_lock:
-                        self.local_data_manifest = self._collect_local_data_manifest()
+                        self.local_data_manifest = local_manifest
 
                 self.last_manifest_collection = time.time()
 
@@ -4951,7 +5028,7 @@ print(json.dumps({{
             async with ClientSession(timeout=timeout) as session:
                 for peer in higher_nodes:
                     try:
-                        url = f"http://{peer.host}:{peer.port}/election"
+                        url = self._url_for_peer(peer, "/election")
                         async with session.post(url, json={"candidate_id": self.node_id}) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
@@ -4986,7 +5063,7 @@ print(json.dumps({{
             for peer in peers:
                 if peer.node_id != self.node_id:
                     try:
-                        url = f"http://{peer.host}:{peer.port}/coordinator"
+                        url = self._url_for_peer(peer, "/coordinator")
                         await session.post(url, json={"leader_id": self.node_id})
                     except:
                         pass
@@ -5460,7 +5537,7 @@ def main():
     parser.add_argument("--node-id", required=True, help="Unique identifier for this node")
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="Port to listen on")
-    parser.add_argument("--peers", help="Comma-separated list of known peers (host:port)")
+    parser.add_argument("--peers", help="Comma-separated list of known peers (host[:port] or http(s)://host[:port])")
     parser.add_argument("--ringrift-path", help="Path to RingRift installation")
 
     args = parser.parse_args()

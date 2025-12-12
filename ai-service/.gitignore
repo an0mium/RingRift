@@ -7,6 +7,7 @@ config/distributed_hosts.yaml
 config/remote_hosts.yaml
 config/orchestrator_hosts.yaml
 config/orchestrator_hosts.sh
+config/p2p_hosts.yaml
 
 # Machine-specific sync scripts with private IPs
 scripts/sync_to_mbp64.sh
@@ -15,6 +16,8 @@ scripts/sync_to_mac_studio.sh
 
 # Orchestrator state and logs contain host-specific data
 logs/orchestrator/cluster_state.json
+logs/p2p_orchestrator/
+
 
 # Experimental selfplay data directories (ephemeral analysis artifacts)
 data/selfplay/
