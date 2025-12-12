@@ -29,6 +29,39 @@ Example:
   (architecture version `v3.1.0`, spatial policy heads). The “v5” prefix is
   similarly a checkpoint lineage, not a Python class name.
 
+### Troubleshooting: `value_fc1 in_features` mismatch (212 vs 148)
+
+If you see an error like:
+
+```
+value_fc1 in_features: checkpoint=212, expected=148
+```
+
+That mismatch is **not** about a “v4 architecture”. It means the checkpoint was
+trained with a different `num_filters` than the runtime model was constructed
+with:
+
+- `212 = 192 + 20` → 192 filters, 20 global features (current v2/v3 default).
+- `148 = 128 + 20` → 128 filters, 20 global features (older/legacy default).
+
+**Canonical fix:** use the modern loader that infers architecture hyperparameters
+from checkpoint metadata/weights (see `app/ai/neural_net.py`), and use a
+board-appropriate `nn_model_id`:
+
+- Square8 2p v2 family: `ringrift_v4_sq8_2p`
+- Square8 2p v3 family: `ringrift_v5_sq8_2p_2xh100`
+
+**Debug commands:**
+
+```bash
+PYTHONPATH=ai-service python ai-service/scripts/inspect_nn_checkpoint.py --nn-model-id ringrift_v4_sq8_2p --board-type square8
+PYTHONPATH=ai-service python ai-service/scripts/inspect_nn_checkpoint.py --nn-model-id ringrift_v5_sq8_2p_2xh100 --board-type square8
+```
+
+**Fail-fast mode (recommended for tournaments):** set `RINGRIFT_REQUIRE_NEURAL_NET=1`
+or pass `--require-neural-net` to the tournament scripts so MCTS/Descent tiers
+error instead of silently falling back to heuristic rollouts.
+
 ## Usage
 
 ### Environment Variable Configuration

@@ -45,6 +45,7 @@ playwright/.cache/
 # Temporary files
 *.tmp
 *.temp
+*.backup
 .cache/
 
 # Database
@@ -164,6 +165,7 @@ ai-service-sync.zip
 
 # Large synced selfplay databases and local game data (too large for GitHub)
 ai-service/data/games/
+ai-service/data/quality_games/
 
 # Selfplay debug artifacts (large state bundles and parity summaries)
 ai-service/data/games/*.state_bundles/

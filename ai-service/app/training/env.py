@@ -241,6 +241,9 @@ class TrainingEnvConfig:
     reward_mode: Literal["terminal", "shaped"] = "terminal"
     seed: Optional[int] = None
     use_default_rules_engine: bool = True
+    # Experimental overrides for ablation studies
+    rings_per_player: Optional[int] = None  # Override default rings per player
+    lps_rounds_required: int = 2  # LPS victory threshold (default: 2 consecutive rounds)
 
 
 def make_env(config: Optional[TrainingEnvConfig] = None) -> "RingRiftEnv":
@@ -285,6 +288,8 @@ def make_env(config: Optional[TrainingEnvConfig] = None) -> "RingRiftEnv":
         num_players=config.num_players,
         default_seed=config.seed,
         use_default_rules_engine=config.use_default_rules_engine,
+        rings_per_player=config.rings_per_player,
+        lps_rounds_required=config.lps_rounds_required,
     )
 
 
@@ -368,6 +373,8 @@ class RingRiftEnv:
         *,
         default_seed: Optional[int] = None,
         use_default_rules_engine: bool = True,
+        rings_per_player: Optional[int] = None,
+        lps_rounds_required: int = 2,
     ):
         self.board_type = board_type
         self.max_moves = max_moves
@@ -376,6 +383,10 @@ class RingRiftEnv:
         self._default_seed = default_seed
         self._state: Optional[GameState] = None
         self._move_count: int = 0
+
+        # Experimental overrides for ablation studies
+        self._rings_per_player = rings_per_player
+        self._lps_rounds_required = lps_rounds_required
 
         self._use_default_rules_engine = use_default_rules_engine
         self._rules_engine: Optional[DefaultRulesEngine] = None
@@ -434,6 +445,8 @@ class RingRiftEnv:
         self._state = create_initial_state(
             board_type=self.board_type,
             num_players=self.num_players,
+            rings_per_player_override=self._rings_per_player,
+            lps_rounds_required=self._lps_rounds_required,
         )
         self._move_count = 0
 

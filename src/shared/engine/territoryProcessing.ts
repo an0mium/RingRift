@@ -1,7 +1,7 @@
 import { BoardState, Territory, Position, positionToString } from '../types/game';
 import { findDisconnectedRegions as findDisconnectedRegionsShared } from './territoryDetection';
 import { getBorderMarkerPositionsForRegion } from './territoryBorders';
-import { calculateCapHeight } from './core';
+import { isStackEligibleForElimination } from './aggregates/EliminationAggregate';
 
 /**
  * Shared territory-processing helpers.
@@ -29,6 +29,13 @@ import { calculateCapHeight } from './core';
 export interface TerritoryProcessingContext {
   /** Player who is claiming the region and receiving credited eliminations. */
   player: number;
+  /**
+   * Self-elimination context for territory processing.
+   *
+   * - 'territory' (default): cap elimination from an eligible P-controlled stack outside the region.
+   * - 'recovery': buried-ring extraction from any stack outside the region that contains a buried ring of P.
+   */
+  eliminationContext?: 'territory' | 'recovery';
 }
 
 /**
@@ -90,17 +97,17 @@ function cloneBoard(board: BoardState): BoardState {
 /**
  * Self-elimination prerequisite (FAQ Q23 / §12.2 / RR-CANON-R082):
  *
- * A disconnected region is processable for ctx.player **iff** that player
- * controls at least one **eligible cap target** outside the region.
+ * A disconnected region is processable for ctx.player **iff** they can pay
+ * the mandatory self-elimination cost from **outside** the region.
  *
- * An eligible cap target must be either:
- * (1) A multicolor stack controlled by the player (with other players' rings
- *     buried beneath the player's cap), OR
- * (2) A single-color stack of height > 1 consisting entirely of the player's
- *     colour.
+ * - **Normal territory context:** an eligible cap target outside the region
+ *   must exist under RR-CANON-R145.
+ * - **Recovery context:** an eligible buried-ring extraction target outside the
+ *   region must exist under RR-CANON-R114 (stack need not be controlled).
  *
- * A height-1 standalone ring is NOT an eligible cap target for territory
- * processing.
+ * A height-1 standalone ring is NOT an eligible cap target for normal
+ * territory processing. Recovery extraction also requires a buried ring, so
+ * eligible recovery targets necessarily have stack height ≥ 2.
  *
  * This helper performs only the outside-stack check; it assumes that `region`
  * itself is already a disconnected region as reported by the canonical
@@ -112,25 +119,34 @@ export function canProcessTerritoryRegion(
   ctx: TerritoryProcessingContext
 ): boolean {
   const regionKeySet = new Set(region.spaces.map((p) => positionToString(p)));
+  const eliminationContext = ctx.eliminationContext ?? 'territory';
 
   for (const [key, stack] of board.stacks.entries()) {
-    if (stack.controllingPlayer !== ctx.player) {
-      continue;
-    }
     if (!regionKeySet.has(key)) {
-      // Found a stack controlled by ctx.player outside the region.
-      // Now check if it's an eligible cap target (RR-CANON-R082).
-      const capHeight = calculateCapHeight(stack.rings);
-      const isMulticolor = stack.stackHeight > capHeight;
-      const isSingleColorTall = stack.stackHeight === capHeight && stack.stackHeight > 1;
-      if (isMulticolor || isSingleColorTall) {
+      if (eliminationContext === 'recovery') {
+        // Recovery-context territory processing (RR-CANON-R114): the stack
+        // need not be controlled by ctx.player; it must contain a buried ring of
+        // ctx.player that can be extracted.
+        const eligibility = isStackEligibleForElimination(stack, 'recovery', ctx.player);
+        if (eligibility.eligible) {
+          return true;
+        }
+        continue;
+      }
+
+      // Normal territory context (RR-CANON-R145): must be an eligible cap
+      // target controlled by ctx.player.
+      if (stack.controllingPlayer !== ctx.player) {
+        continue;
+      }
+      const eligibility = isStackEligibleForElimination(stack, 'territory', ctx.player);
+      if (eligibility.eligible) {
         return true;
       }
-      // Otherwise it's a height-1 standalone ring - not eligible
     }
   }
 
-  // No eligible cap targets for this player outside the region.
+  // No eligible self-elimination targets for this player outside the region.
   return false;
 }
 

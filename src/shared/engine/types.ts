@@ -109,9 +109,10 @@ export interface EliminateStackAction extends BaseAction {
    * - 'line': Eliminate exactly ONE ring from the top (RR-CANON-R122)
    * - 'territory': Eliminate entire cap from eligible stack (multicolor or height > 1) (RR-CANON-R145)
    * - 'forced': Eliminate entire cap from any controlled stack (RR-CANON-R100)
+   * - 'recovery': Extract exactly ONE buried ring (RR-CANON-R113/R114)
    * Defaults to 'territory' if not specified for backward compatibility.
    */
-  eliminationContext?: 'line' | 'territory' | 'forced';
+  eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery';
 }
 
 export interface SkipPlacementAction extends BaseAction {

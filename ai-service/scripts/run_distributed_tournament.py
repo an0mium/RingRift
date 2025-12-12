@@ -302,6 +302,7 @@ def run_single_game(
     game_index: Optional[int] = None,
     think_time_scale: float = 1.0,
     nn_model_id: Optional[str] = None,
+    fail_fast: bool = False,
 ) -> MatchResult:
     """Run a single game between two AI tiers."""
     game_id = str(uuid.uuid4())[:8]
@@ -340,6 +341,8 @@ def run_single_game(
             state = engine.apply_move(state, move)
             move_count += 1
         except Exception as e:
+            if fail_fast:
+                raise
             logger.warning(f"Error in game {game_id}: {e}")
             break
 
@@ -388,6 +391,7 @@ class DistributedTournament:
         confidence: float = 0.95,
         report_path: Optional[str] = None,
         worker_label: Optional[str] = None,
+        fail_fast: bool = False,
     ):
         self.tiers = sorted(tiers, key=lambda t: int(t[1:]))
         self.games_per_matchup = games_per_matchup
@@ -401,6 +405,7 @@ class DistributedTournament:
         self.confidence = confidence
         self.report_path = Path(report_path) if report_path else None
         self.worker_label = worker_label
+        self.fail_fast = fail_fast
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         if resume_file and os.path.exists(resume_file):
@@ -493,6 +498,7 @@ class DistributedTournament:
                 game_index=game_idx,
                 think_time_scale=self.think_time_scale,
                 nn_model_id=self.nn_model_id,
+                fail_fast=self.fail_fast,
             )
 
             if game_idx % 2 == 1:
@@ -564,6 +570,8 @@ class DistributedTournament:
 
                 except Exception as e:
                     logger.error(f"Matchup {tier_a} vs {tier_b} failed: {e}")
+                    if self.fail_fast:
+                        raise
 
         duration = time.time() - start_time
 
@@ -903,7 +911,65 @@ def parse_args() -> argparse.Namespace:
             "(defaults to LadderTierConfig.model_id; leave unset to use ladder defaults)."
         ),
     )
+    parser.add_argument(
+        "--require-neural-net",
+        action="store_true",
+        help=(
+            "Fail fast if neural checkpoints cannot be loaded for neural tiers. "
+            "Sets RINGRIFT_REQUIRE_NEURAL_NET=1 and implies --fail-fast."
+        ),
+    )
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Abort the tournament on the first matchup/game exception.",
+    )
     return parser.parse_args()
+
+
+def _preflight_neural_checkpoints(
+    tiers: List[str],
+    board_type: BoardType,
+    *,
+    nn_model_id: Optional[str],
+    think_time_scale: float,
+) -> None:
+    """Fail-fast preflight to ensure neural tiers can load their checkpoints."""
+    neural_ids: set[str] = set()
+    for tier in tiers:
+        difficulty = _tier_to_difficulty(tier)
+        if difficulty <= 1:
+            continue
+        ladder = get_ladder_tier_config(difficulty, board_type, num_players=2)
+        if not ladder.use_neural_net or ladder.ai_type not in {AIType.MCTS, AIType.DESCENT}:
+            continue
+        effective = nn_model_id or ladder.model_id
+        if effective:
+            neural_ids.add(effective)
+
+    if not neural_ids:
+        return
+
+    from app.ai.neural_net import NeuralNetAI
+
+    logger.info(
+        "Preflight: validating %d neural checkpoint id(s): %s",
+        len(neural_ids),
+        ", ".join(sorted(neural_ids)),
+    )
+
+    for model_id in sorted(neural_ids):
+        cfg = AIConfig(
+            difficulty=6,
+            randomness=0.0,
+            think_time=_scaled_think_time_ms(1_000, think_time_scale),
+            rng_seed=123,
+            heuristic_profile_id=None,
+            use_neural_net=True,
+            nn_model_id=model_id,
+            allow_fresh_weights=False,
+        )
+        NeuralNetAI(player_number=1, config=cfg, board_type=board_type)
 
 
 def main() -> None:
@@ -924,6 +990,17 @@ def main() -> None:
     board_type = board_map[args.board]
 
     nn_model_id = args.nn_model_id or None
+    fail_fast = bool(args.fail_fast)
+
+    if args.require_neural_net:
+        os.environ["RINGRIFT_REQUIRE_NEURAL_NET"] = "1"
+        fail_fast = True
+        _preflight_neural_checkpoints(
+            tiers,
+            board_type,
+            nn_model_id=nn_model_id,
+            think_time_scale=args.think_time_scale,
+        )
 
     tournament = DistributedTournament(
         tiers=tiers,
@@ -940,6 +1017,7 @@ def main() -> None:
         confidence=args.wilson_confidence,
         report_path=args.output_report,
         worker_label=args.worker_label,
+        fail_fast=fail_fast,
     )
 
     report = tournament.run()

@@ -31,6 +31,7 @@ import asyncio
 import hashlib
 import json
 import os
+import secrets
 import signal
 import socket
 import sqlite3
@@ -86,6 +87,9 @@ GIT_REMOTE_NAME = "origin"       # Git remote to check
 GIT_BRANCH_NAME = "main"         # Branch to track
 AUTO_UPDATE_ENABLED = True       # Enable automatic updates
 GRACEFUL_SHUTDOWN_BEFORE_UPDATE = True  # Stop jobs before updating
+
+# Shared auth token (optional but strongly recommended if any node is public)
+AUTH_TOKEN_ENV = "RINGRIFT_CLUSTER_AUTH_TOKEN"
 
 # Data manifest collection settings
 MANIFEST_JSONL_LINECOUNT_MAX_BYTES = 64 * 1024 * 1024  # Skip line-counting for huge JSONL files
@@ -562,6 +566,8 @@ class P2POrchestrator:
         port: int = DEFAULT_PORT,
         known_peers: List[str] = None,
         ringrift_path: str = None,
+        auth_token: Optional[str] = None,
+        require_auth: bool = False,
     ):
         self.node_id = node_id
         self.host = host
@@ -569,6 +575,13 @@ class P2POrchestrator:
         self.known_peers = known_peers or []
         self.ringrift_path = ringrift_path or self._detect_ringrift_path()
         self.start_time = time.time()
+
+        # Optional auth token used to protect mutating endpoints and cluster control.
+        # Default is allow-all unless a token is configured.
+        self.auth_token = (auth_token or os.environ.get(AUTH_TOKEN_ENV, "")).strip()
+        self.require_auth = bool(require_auth)
+        if self.require_auth and not self.auth_token:
+            raise ValueError(f"--require-auth set but {AUTH_TOKEN_ENV} / --auth-token is empty")
 
         # Node state
         self.role = NodeRole.FOLLOWER
@@ -631,6 +644,10 @@ class P2POrchestrator:
         print(f"[P2P] Initialized node {node_id} on {host}:{port}")
         print(f"[P2P] RingRift path: {self.ringrift_path}")
         print(f"[P2P] Known peers: {self.known_peers}")
+        if self.auth_token:
+            print(f"[P2P] Auth: enabled via {AUTH_TOKEN_ENV}")
+        else:
+            print(f"[P2P] Auth: disabled (set {AUTH_TOKEN_ENV} to enable)")
 
     def _detect_ringrift_path(self) -> str:
         """Detect the RingRift installation path."""
@@ -680,6 +697,26 @@ class P2POrchestrator:
     def _url_for_peer(self, peer: NodeInfo, path: str) -> str:
         scheme = (getattr(peer, "scheme", None) or "http").lower()
         return f"{scheme}://{peer.host}:{peer.port}{path}"
+
+    def _auth_headers(self) -> Dict[str, str]:
+        if not self.auth_token:
+            return {}
+        return {"Authorization": f"Bearer {self.auth_token}"}
+
+    def _is_request_authorized(self, request: "web.Request") -> bool:
+        if not self.auth_token:
+            return True
+
+        auth_header = request.headers.get("Authorization", "")
+        token = ""
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+        if not token:
+            token = request.headers.get("X-RingRift-Auth", "").strip()
+        if not token:
+            return False
+
+        return secrets.compare_digest(token, self.auth_token)
 
     def _init_database(self):
         """Initialize SQLite database for state persistence."""
@@ -1128,7 +1165,7 @@ class P2POrchestrator:
             url = self._url_for_peer(peer_info, "/data_manifest")
             timeout = ClientTimeout(total=30)
             async with ClientSession(timeout=timeout) as session:
-                async with session.get(url) as resp:
+                async with session.get(url, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         return NodeDataManifest.from_dict(data.get("manifest", {}))
@@ -1327,8 +1364,9 @@ class P2POrchestrator:
                 "files": job.files,
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=30) as resp:
+            timeout = ClientTimeout(total=30)
+            async with ClientSession(timeout=timeout) as session:
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         result = await resp.json()
                         job.status = "completed" if result.get("success") else "failed"
@@ -2212,7 +2250,7 @@ class P2POrchestrator:
                                         "games_per_eval": state.games_per_eval,
                                         "board_type": state.board_type,
                                         "num_players": state.num_players,
-                                    })
+                                    }, headers=self._auth_headers())
                         except Exception as e:
                             print(f"[P2P] Failed to send eval to {worker_id}: {e}")
                             # Fall back to local evaluation
@@ -4865,7 +4903,7 @@ print(json.dumps({{
             async with ClientSession(timeout=timeout) as session:
                 scheme = (scheme or "http").lower()
                 url = f"{scheme}://{peer_host}:{peer_port}/heartbeat"
-                async with session.post(url, json=self.self_info.to_dict()) as resp:
+                async with session.post(url, json=self.self_info.to_dict(), headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         info = NodeInfo.from_dict(data)
@@ -4895,9 +4933,9 @@ print(json.dumps({{
                         with self.peers_lock:
                             info.last_heartbeat = time.time()
                             self.peers[info.node_id] = info
-                        if info.role == NodeRole.LEADER and self.role != NodeRole.LEADER:
-                            if self.leader_id != info.node_id:
-                                print(f"[P2P] Adopted leader from heartbeat: {info.node_id}")
+                        if info.role == NodeRole.LEADER and info.node_id != self.node_id:
+                            if self.leader_id != info.node_id or self.role != NodeRole.FOLLOWER:
+                                print(f"[P2P] Following configured leader from heartbeat: {info.node_id}")
                             self.leader_id = info.node_id
                             self.role = NodeRole.FOLLOWER
 
@@ -5029,7 +5067,7 @@ print(json.dumps({{
                 for peer in higher_nodes:
                     try:
                         url = self._url_for_peer(peer, "/election")
-                        async with session.post(url, json={"candidate_id": self.node_id}) as resp:
+                        async with session.post(url, json={"candidate_id": self.node_id}, headers=self._auth_headers()) as resp:
                             if resp.status == 200:
                                 data = await resp.json()
                                 if data.get("response") == "ALIVE":
@@ -5064,7 +5102,7 @@ print(json.dumps({{
                 if peer.node_id != self.node_id:
                     try:
                         url = self._url_for_peer(peer, "/coordinator")
-                        await session.post(url, json={"leader_id": self.node_id})
+                        await session.post(url, json={"leader_id": self.node_id}, headers=self._auth_headers())
                     except:
                         pass
 
@@ -5235,8 +5273,8 @@ print(json.dumps({{
         try:
             timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
             async with ClientSession(timeout=timeout) as session:
-                url = f"http://{node.host}:{node.port}/cleanup"
-                async with session.post(url, json={}) as resp:
+                url = self._url_for_peer(node, "/cleanup")
+                async with session.post(url, json={}, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         print(f"[P2P] Cleanup requested on {node.node_id}")
         except Exception as e:
@@ -5370,14 +5408,14 @@ print(json.dumps({{
         try:
             timeout = ClientTimeout(total=10)
             async with ClientSession(timeout=timeout) as session:
-                url = f"http://{node.host}:{node.port}/start_job"
+                url = self._url_for_peer(node, "/start_job")
                 payload = {
                     "job_type": job_type.value,
                     "board_type": board_type,
                     "num_players": num_players,
                     "engine_mode": engine_mode,
                 }
-                async with session.post(url, json=payload) as resp:
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         if data.get("success"):
@@ -5437,7 +5475,14 @@ print(json.dumps({{
             return
 
         # Set up HTTP server
-        app = web.Application()
+        @web.middleware
+        async def auth_middleware(request: web.Request, handler):
+            if self.auth_token and request.method not in ("GET", "HEAD", "OPTIONS"):
+                if not self._is_request_authorized(request):
+                    return web.json_response({"error": "unauthorized"}, status=401)
+            return await handler(request)
+
+        app = web.Application(middlewares=[auth_middleware])
         app.router.add_post('/heartbeat', self.handle_heartbeat)
         app.router.add_get('/status', self.handle_status)
         app.router.add_post('/election', self.handle_election)

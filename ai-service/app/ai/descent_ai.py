@@ -101,6 +101,12 @@ class DescentAI(BaseAI):
             "yes",
             "on",
         }
+        self.require_neural_net = os.environ.get("RINGRIFT_REQUIRE_NEURAL_NET", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         use_nn_config = getattr(config, "use_neural_net", None)
         # Default to True (preserve existing behaviour) when unset.
         self.use_neural_net: bool = bool(
@@ -115,16 +121,10 @@ class DescentAI(BaseAI):
         self.hex_encoder: Optional[ActionEncoderHex]
 
         if self.use_neural_net:
-            require_nn_env = os.environ.get("RINGRIFT_REQUIRE_NEURAL_NET", "").lower() in {
-                "1",
-                "true",
-                "yes",
-                "on",
-            }
             try:
                 self.neural_net = NeuralNetAI(player_number, config)
             except Exception:
-                if require_nn_env:
+                if self.require_neural_net:
                     raise
                 # On any failure, degrade gracefully to heuristic-only search.
                 logger.warning(
@@ -1355,6 +1355,13 @@ class DescentAI(BaseAI):
                 adjusted.append(max(-0.99, min(0.99, v)))
             return adjusted
         except Exception:
+            if self.require_neural_net:
+                logger.error(
+                    "DescentAI neural batch evaluation failed with RINGRIFT_REQUIRE_NEURAL_NET=1; "
+                    "raising instead of falling back to heuristic evaluation",
+                    exc_info=True,
+                )
+                raise
             logger.warning(
                 "DescentAI neural batch evaluation failed; falling back to heuristic evaluation",
                 exc_info=True,
@@ -1455,6 +1462,13 @@ class DescentAI(BaseAI):
                 ):
                     val = -val
             except Exception:
+                if self.require_neural_net:
+                    logger.error(
+                        "DescentAI neural evaluation failed with RINGRIFT_REQUIRE_NEURAL_NET=1; "
+                        "raising instead of falling back to heuristic evaluation",
+                        exc_info=True,
+                    )
+                    raise
                 logger.warning(
                     "DescentAI neural evaluation failed; falling back to heuristic evaluation",
                     exc_info=True,

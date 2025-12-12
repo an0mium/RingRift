@@ -66,6 +66,7 @@ import { SQUARE_MOORE_DIRECTIONS } from '../core';
 import {
   eliminateFromStack,
   isStackEligibleForElimination,
+  getRingsToEliminate,
   calculateCapHeight,
   type EliminationContext,
 } from './EliminationAggregate';
@@ -128,6 +129,13 @@ export interface TerritoryProcessingContext {
   player: number;
   /** Optional board type override */
   boardType?: string;
+  /**
+   * Self-elimination context for territory processing.
+   *
+   * - 'territory' (default): cap elimination from an eligible P-controlled stack outside the region.
+   * - 'recovery': buried-ring extraction from any stack outside the region that contains a buried ring of P.
+   */
+  eliminationContext?: 'territory' | 'recovery';
 }
 
 /**
@@ -195,6 +203,17 @@ export interface TerritoryProcessApplicationOutcome {
 export interface TerritoryEliminationScope {
   /** Optional processed region identifier */
   processedRegionId?: string;
+  /**
+   * Optional processed region geometry. When present, elimination targets
+   * are restricted to stacks outside this region.
+   */
+  processedRegion?: Territory;
+  /**
+   * Elimination context for territory self-elimination.
+   * - 'territory': cap elimination (RR-CANON-R145)
+   * - 'recovery': buried-ring extraction (RR-CANON-R114)
+   */
+  eliminationContext?: 'territory' | 'recovery';
   /** Optional stack position to eliminate from */
   stackPosition?: Position;
   /** Maximum rings to eliminate */
@@ -274,6 +293,50 @@ function computeNextMoveNumber(state: GameState): number {
   }
 
   return 1;
+}
+
+function didCurrentTurnIncludeRecoverySlide(state: GameState, player: number): boolean {
+  const history = state.moveHistory;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const move = history[i];
+    if (move.player !== player) {
+      break;
+    }
+    if (move.type === 'recovery_slide') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getPendingTerritorySelfEliminationRegion(
+  state: GameState,
+  player: number
+): Territory | null {
+  const lastMove =
+    state.moveHistory.length > 0 ? state.moveHistory[state.moveHistory.length - 1] : undefined;
+  if (!lastMove || lastMove.player !== player) {
+    return null;
+  }
+
+  const isTerritoryRegionMove =
+    lastMove.type === 'choose_territory_option' || lastMove.type === 'process_territory_region';
+  if (!isTerritoryRegionMove) {
+    return null;
+  }
+
+  const regions = lastMove.disconnectedRegions;
+  if (!regions || regions.length === 0) {
+    return null;
+  }
+  return regions[0] ?? null;
+}
+
+function deriveTerritoryEliminationContext(
+  state: GameState,
+  player: number
+): 'territory' | 'recovery' {
+  return didCurrentTurnIncludeRecoverySlide(state, player) ? 'recovery' : 'territory';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -641,7 +704,22 @@ export function enumerateProcessTerritoryRegionMoves(
   options?: TerritoryEnumerationOptions
 ): Move[] {
   const board = state.board;
-  const ctx: TerritoryProcessingContext = { player };
+  const territoryEliminationContext = deriveTerritoryEliminationContext(state, player);
+
+  // Canonical ordering: when a territory region has been processed, the next
+  // required action is mandatory self-elimination via eliminate_rings_from_stack
+  // before processing any additional regions (RR-CANON-R145).
+  if (state.currentPhase === 'territory_processing') {
+    const pendingRegion = getPendingTerritorySelfEliminationRegion(state, player);
+    if (pendingRegion) {
+      return [];
+    }
+  }
+
+  const ctx: TerritoryProcessingContext = {
+    player,
+    eliminationContext: territoryEliminationContext,
+  };
   const overrideRegions = options?.testOverrideRegions;
 
   const processableRegions =
@@ -681,62 +759,72 @@ export function enumerateProcessTerritoryRegionMoves(
 
 /**
  * Enumerate `eliminate_rings_from_stack` decision moves for territory processing.
+ *
+ * Canonical ordering (RR-CANON-R145 / RR-CANON-R114):
+ * - Player selects a region to process via `choose_territory_option`.
+ * - Player must then immediately pay the mandatory self-elimination cost via
+ *   `eliminate_rings_from_stack` before processing any additional regions.
+ *
+ * This helper returns elimination moves only when that self-elimination is
+ * currently pending (i.e., the most recent move by `player` was a territory
+ * region decision in `territory_processing`).
  */
 export function enumerateTerritoryEliminationMoves(
   state: GameState,
   player: number,
-  _scope?: TerritoryEliminationScope
+  scope?: TerritoryEliminationScope
 ): Move[] {
-  const board = state.board;
-
-  // Per RR-CANON-R075/R076, eliminate_rings_from_stack moves are ONLY valid
-  // in the forced_elimination phase. In territory_processing, elimination is
-  // handled via choose_territory_option moves that include self-elimination
-  // costs when regions exist. When no regions exist, the orchestrator
-  // transitions to forced_elimination phase where this function will be called.
-  //
-  // This ensures TS and Python parity: Python records forced_elimination moves
-  // in an explicit forced_elimination phase, not as territory_processing moves.
-  if (state.currentPhase === 'territory_processing') {
-    // Never return elimination moves in territory_processing phase.
-    // The orchestrator will transition to forced_elimination when needed.
+  if (state.currentPhase !== 'territory_processing') {
     return [];
   }
 
-  const stacks: { key: string; stack: RingStack }[] = [];
-  for (const [key, stack] of board.stacks.entries()) {
-    if (stack.controllingPlayer === player) {
-      stacks.push({ key, stack });
-    }
-  }
+  const eliminationContext: EliminationContext =
+    scope?.eliminationContext ?? deriveTerritoryEliminationContext(state, player);
 
-  if (stacks.length === 0) {
+  const processedRegion =
+    scope?.processedRegion ?? getPendingTerritorySelfEliminationRegion(state, player);
+
+  if (!processedRegion) {
     return [];
   }
 
+  const processedRegionKeySet = new Set(processedRegion.spaces.map((p) => positionToString(p)));
   const nextMoveNumber = computeNextMoveNumber(state);
   const moves: Move[] = [];
 
-  for (const { key, stack } of stacks) {
+  for (const [key, stack] of state.board.stacks.entries()) {
+    if (processedRegionKeySet.has(key)) {
+      continue;
+    }
+
+    if (eliminationContext !== 'recovery' && stack.controllingPlayer !== player) {
+      continue;
+    }
+
+    const eligibility = isStackEligibleForElimination(stack, eliminationContext, player);
+    if (!eligibility.eligible) {
+      continue;
+    }
+
     const capHeight = calculateCapHeight(stack.rings);
     if (capHeight <= 0) {
       continue;
     }
+
+    const ringsToEliminate = getRingsToEliminate(stack, eliminationContext);
 
     moves.push({
       id: `eliminate-${key}`,
       type: 'eliminate_rings_from_stack',
       player,
       to: stack.position,
-      eliminatedRings: [{ player, count: capHeight }],
+      eliminatedRings: [{ player, count: ringsToEliminate }],
       eliminationFromStack: {
         position: stack.position,
         capHeight,
         totalHeight: stack.stackHeight,
       },
-      // CRITICAL: Use 'forced' context since this function only returns moves
-      // in forced_elimination phase. This allows any controlled stack (RR-CANON-R100).
-      eliminationContext: 'forced',
+      eliminationContext,
       timestamp: new Date(),
       thinkTime: 0,
       moveNumber: nextMoveNumber,
@@ -768,14 +856,26 @@ export function canProcessTerritoryRegion(
   ctx: TerritoryProcessingContext
 ): boolean {
   const regionKeySet = new Set(region.spaces.map((p) => positionToString(p)));
+  const eliminationContext = ctx.eliminationContext ?? 'territory';
 
   for (const [key, stack] of board.stacks.entries()) {
-    if (stack.controllingPlayer !== ctx.player) {
-      continue;
-    }
     if (!regionKeySet.has(key)) {
-      // Found a stack controlled by ctx.player outside the region.
-      // Check if it's an eligible cap target using canonical EliminationAggregate.
+      if (eliminationContext === 'recovery') {
+        // Recovery-context territory processing (RR-CANON-R114): the stack need
+        // not be controlled by ctx.player; it must contain a buried ring of
+        // ctx.player that can be extracted.
+        const eligibility = isStackEligibleForElimination(stack, 'recovery', ctx.player);
+        if (eligibility.eligible) {
+          return true;
+        }
+        continue;
+      }
+
+      // Normal territory context (RR-CANON-R145): must be an eligible cap
+      // target controlled by ctx.player.
+      if (stack.controllingPlayer !== ctx.player) {
+        continue;
+      }
       const eligibility = isStackEligibleForElimination(stack, 'territory', ctx.player);
       if (eligibility.eligible) {
         return true;
@@ -968,6 +1068,7 @@ export function applyProcessTerritoryRegionDecision(
   }
 
   const player = move.player;
+  const territoryEliminationContext = deriveTerritoryEliminationContext(state, player);
 
   // Prefer the concrete Territory attached to the Move
   let region: Territory | undefined =
@@ -977,7 +1078,10 @@ export function applyProcessTerritoryRegionDecision(
 
   // Fallback: re-derive a processable region
   if (!region) {
-    const candidates = getProcessableTerritoryRegions(state.board, { player });
+    const candidates = getProcessableTerritoryRegions(state.board, {
+      player,
+      eliminationContext: territoryEliminationContext,
+    });
     if (candidates.length === 1) {
       region = candidates[0];
     } else if (candidates.length > 1) {
@@ -1022,7 +1126,12 @@ export function applyProcessTerritoryRegionDecision(
   }
 
   // Enforce the self-elimination prerequisite
-  if (!canProcessTerritoryRegion(state.board, region, { player })) {
+  if (
+    !canProcessTerritoryRegion(state.board, region, {
+      player,
+      eliminationContext: territoryEliminationContext,
+    })
+  ) {
     const representative = region.spaces[0];
     const regionKey = representative ? positionToString(representative) : 'region-0';
     const processedRegionId =

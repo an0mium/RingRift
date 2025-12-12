@@ -69,7 +69,11 @@ def get_effective_line_length(board_type: BoardType, num_players: int) -> int:
     return BOARD_CONFIGS[board_type].line_length
 
 
-def get_victory_threshold(board_type: BoardType, num_players: int) -> int:
+def get_victory_threshold(
+    board_type: BoardType,
+    num_players: int,
+    rings_per_player_override: Optional[int] = None,
+) -> int:
     """
     Calculate the ring elimination victory threshold for the given board and player count.
 
@@ -80,8 +84,13 @@ def get_victory_threshold(board_type: BoardType, num_players: int) -> int:
     For 2-player games, this equals ringsPerPlayer (must eliminate all opponent rings).
     For 3-player: 24 (8×8), 96 (19×19), 128 (hex)
     For 4-player: 30 (8×8), 120 (19×19), 160 (hex)
+
+    Args:
+        board_type: The board type.
+        num_players: Number of players.
+        rings_per_player_override: Optional override for rings per player (for experiments).
     """
-    rings_per_player = BOARD_CONFIGS[board_type].rings_per_player
+    rings_per_player = rings_per_player_override or BOARD_CONFIGS[board_type].rings_per_player
     return round(rings_per_player * (2/3 + (1/3) * (num_players - 1)))
 
 
@@ -98,7 +107,10 @@ def get_territory_victory_threshold(board_type: BoardType) -> int:
     return (total_spaces // 2) + 1
 
 
-def get_rings_per_player(board_type: BoardType) -> int:
+def get_rings_per_player(
+    board_type: BoardType,
+    override: Optional[int] = None,
+) -> int:
     """
     Return the starting ring supply per player for the given board type.
 
@@ -106,7 +118,13 @@ def get_rings_per_player(board_type: BoardType) -> int:
     - square8: 18
     - square19: 72
     - hexagonal: 96
+
+    Args:
+        board_type: The board type.
+        override: Optional override for rings per player (for experiments).
     """
+    if override is not None:
+        return override
     return BOARD_CONFIGS[board_type].rings_per_player
 
 

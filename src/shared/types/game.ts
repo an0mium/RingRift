@@ -528,10 +528,11 @@ export interface Move {
    * - 'line': Eliminate exactly ONE ring (any controlled stack eligible)
    * - 'territory': Eliminate entire cap (only eligible stacks: multicolor or height > 1)
    * - 'forced': Eliminate entire cap (any controlled stack eligible)
+   * - 'recovery': Extract exactly ONE buried ring from an eligible stack
    * Per RR-CANON-R022 and R122, line processing only requires single-ring
    * elimination while territory processing requires entire cap elimination.
    */
-  eliminationContext?: 'line' | 'territory' | 'forced';
+  eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery';
 
   /** Wall-clock timestamp when the move was created/applied. */
   timestamp: Date;
@@ -1052,8 +1053,9 @@ export interface RingEliminationChoice extends PlayerChoiceBase {
    * - 'line': 1 ring from any controlled stack (RR-CANON-R122)
    * - 'territory': entire cap from eligible stacks (RR-CANON-R145)
    * - 'forced': entire cap from any controlled stack (RR-CANON-R100)
+   * - 'recovery': 1 buried ring extraction from any eligible stack (RR-CANON-R113/R114)
    */
-  eliminationContext?: 'line' | 'territory' | 'forced';
+  eliminationContext?: 'line' | 'territory' | 'forced' | 'recovery';
   options: Array<{
     stackPosition: Position;
     capHeight: number;
@@ -1062,6 +1064,7 @@ export interface RingEliminationChoice extends PlayerChoiceBase {
      * Number of rings that will be eliminated from this stack.
      * For 'line' context: always 1
      * For 'territory' or 'forced' context: equals capHeight
+     * For 'recovery' context: always 1 (buried ring extraction)
      */
     ringsToEliminate: number;
     /**

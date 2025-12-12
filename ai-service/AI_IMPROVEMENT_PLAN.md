@@ -1344,6 +1344,9 @@ python scripts/run_distributed_tournament.py --resume results/tournaments/tourna
 # Use specific board type
 python scripts/run_distributed_tournament.py --board square19 --tiers D2,D4,D6,D8
 
+# Fail fast if neural tiers cannot load CNN checkpoints (recommended for D6+)
+python scripts/run_distributed_tournament.py --tiers D1-D10 --require-neural-net
+
 # Deterministic checkpoint path (useful for multi-host orchestration)
 python scripts/run_distributed_tournament.py \
   --tiers D1,D2 \
@@ -1387,6 +1390,7 @@ python scripts/run_ssh_distributed_tournament.py \
   --tiers D1-D10 \
   --board square8 \
   --games-per-matchup 100 \
+  --require-neural-net \
   --hosts mac-studio,aws-staging \
   --output-dir results/tournaments
 ```

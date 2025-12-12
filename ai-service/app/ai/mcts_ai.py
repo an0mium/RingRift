@@ -613,6 +613,12 @@ class MCTSAI(HeuristicAI):
         disable_nn_env = os.environ.get("RINGRIFT_DISABLE_NEURAL_NET", "").lower() in {
             "1", "true", "yes", "on",
         }
+        self.require_neural_net = os.environ.get("RINGRIFT_REQUIRE_NEURAL_NET", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         use_nn_config = getattr(config, "use_neural_net", None)
         # Neural MCTS is enabled at D6+ by default, can be explicitly disabled
         should_use_neural = (
@@ -627,9 +633,6 @@ class MCTSAI(HeuristicAI):
         # Try to load neural net for evaluation when enabled
         self.neural_net: Optional[NeuralNetAI] = None
         if should_use_neural:
-            require_nn_env = os.environ.get("RINGRIFT_REQUIRE_NEURAL_NET", "").lower() in {
-                "1", "true", "yes", "on",
-            }
             try:
                 self.neural_net = NeuralNetAI(player_number, config)
                 logger.info(
@@ -637,7 +640,7 @@ class MCTSAI(HeuristicAI):
                     "neural evaluation enabled"
                 )
             except Exception as e:
-                if require_nn_env:
+                if self.require_neural_net:
                     raise
                 logger.warning(f"Failed to load neural net for MCTS: {e}")
                 self.neural_net = None
@@ -1261,6 +1264,13 @@ class MCTSAI(HeuristicAI):
             except Exception:
                 # Common causes: missing/incompatible NN checkpoints. Degrade
                 # to heuristic rollouts instead of failing the whole request.
+                if self.require_neural_net:
+                    logger.error(
+                        "MCTS neural evaluation failed with RINGRIFT_REQUIRE_NEURAL_NET=1; "
+                        "raising instead of falling back to heuristic rollouts",
+                        exc_info=True,
+                    )
+                    raise
                 logger.warning(
                     "MCTS neural evaluation failed; falling back to heuristic rollouts",
                     exc_info=True,
@@ -1408,6 +1418,13 @@ class MCTSAI(HeuristicAI):
                     curr_node = parent
                     depth_idx = parent_depth
         except Exception:
+            if self.require_neural_net:
+                logger.error(
+                    "Async MCTS neural evaluation failed with RINGRIFT_REQUIRE_NEURAL_NET=1; "
+                    "raising instead of falling back to heuristic rollouts",
+                    exc_info=True,
+                )
+                raise
             logger.warning(
                 "Async MCTS neural evaluation failed; falling back to heuristic rollouts",
                 exc_info=True,
@@ -1558,6 +1575,13 @@ class MCTSAI(HeuristicAI):
                     curr_node = parent
                     depth_idx = parent_depth
         except Exception:
+            if self.require_neural_net:
+                logger.error(
+                    "Async MCTS neural evaluation failed with RINGRIFT_REQUIRE_NEURAL_NET=1; "
+                    "raising instead of falling back to heuristic rollouts",
+                    exc_info=True,
+                )
+                raise
             logger.warning(
                 "Async MCTS neural evaluation failed; falling back to heuristic rollouts",
                 exc_info=True,
@@ -2162,6 +2186,12 @@ class MCTSAI(HeuristicAI):
                     "MCTS neural evaluation failed; falling back to heuristic rollouts",
                     exc_info=True,
                 )
+                if self.require_neural_net:
+                    logger.error(
+                        "RINGRIFT_REQUIRE_NEURAL_NET=1 set; raising instead of falling back",
+                        exc_info=True,
+                    )
+                    raise
                 self.neural_net = None
 
         # Fallback to Heuristic Rollout with make/unmake

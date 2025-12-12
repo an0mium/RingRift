@@ -771,7 +771,9 @@ class HeuristicAI(BaseAI):
                     light_state, new_player, weights, self.eval_mode
                 )
                 # Add swap bonus for strong opening positions
-                score += self._evaluate_swap_opening_bonus_light(light_state)
+                score += self._evaluate_swap_opening_bonus_light(
+                    light_state, player_number=new_player
+                )
             else:
                 score = evaluate_position_light(
                     light_state, self.player_number, weights, self.eval_mode
@@ -837,14 +839,18 @@ class HeuristicAI(BaseAI):
     def _evaluate_swap_opening_bonus_light(
         self,
         state: LightweightState,
+        player_number: Optional[int] = None,
     ) -> float:
         """Evaluate swap opening bonus using lightweight state.
 
         Delegates to SwapEvaluator.evaluate_swap_light for consistency.
         """
-        return self.swap_evaluator.evaluate_swap_light(
-            state.stacks, self.player_number
+        effective_player = (
+            int(player_number)
+            if isinstance(player_number, int) and player_number > 0
+            else self.player_number
         )
+        return self.swap_evaluator.evaluate_swap_light(state.stacks, effective_player)
 
     def _evaluate_moves_batch(
         self,
@@ -895,15 +901,17 @@ class HeuristicAI(BaseAI):
         for i, move in enumerate(moves):
             score = float(scores[i])
 
-            # For SWAP_SIDES, add the opening bonus
+            # For SWAP_SIDES, batch evaluation scores are in the original
+            # player's perspective; swap changes seat identity, so we must
+            # re-evaluate from the swapped perspective.
             if move.type == MoveType.SWAP_SIDES:
-                # Use the light state for swap bonus calculation
-                opp_player = 2 if self.player_number == 1 else 1
-                opp_stacks = sum(
-                    1 for s in light_state.stacks.values()
-                    if s.controlling_player == opp_player
+                new_player = 1 if self.player_number == 2 else 2
+                score = evaluate_position_light(
+                    light_state, new_player, weights, self.eval_mode
                 )
-                score += opp_stacks * self.WEIGHT_SWAP_OPENING_BONUS * 0.5
+                score += self._evaluate_swap_opening_bonus_light(
+                    light_state, player_number=new_player
+                )
 
             results.append((move, score))
 

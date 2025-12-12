@@ -119,6 +119,8 @@ def extract_mcts_visit_distribution(
 def create_initial_state(
     board_type: BoardType = BoardType.SQUARE8,
     num_players: int = 2,
+    rings_per_player_override: Optional[int] = None,
+    lps_rounds_required: int = 2,
 ) -> GameState:
     """Create an initial GameState for self-play.
 
@@ -132,6 +134,12 @@ def create_initial_state(
         Board geometry to use (square8, square19, hexagonal).
     num_players:
         Number of active players in the game (2–4 supported).
+    rings_per_player_override:
+        Optional override for rings per player (for ablation experiments).
+        If None, uses the default from BOARD_CONFIGS.
+    lps_rounds_required:
+        Number of consecutive exclusive rounds required for LPS victory.
+        Default is 2 (traditional rule).
     """
     # Clamp to a sensible range to avoid constructing degenerate states.
     if num_players < 2:
@@ -149,17 +157,19 @@ def create_initial_state(
     if board_type in BOARD_CONFIGS:
         config = BOARD_CONFIGS[board_type]
         size = config.size
-        rings_per_player = config.rings_per_player
+        rings_per_player = rings_per_player_override or config.rings_per_player
         total_spaces = config.total_spaces
     else:
         # Fallback to square8-style defaults if an unknown board is passed.
         size = 8
-        rings_per_player = 18
+        rings_per_player = rings_per_player_override or 18
         total_spaces = 64
 
     # Victory thresholds per RR-CANON-R061 and RR-CANON-R062
     total_rings = rings_per_player * num_players
-    victory_threshold = get_victory_threshold(board_type, num_players)
+    victory_threshold = get_victory_threshold(
+        board_type, num_players, rings_per_player_override=rings_per_player_override
+    )
     territory_threshold = get_territory_victory_threshold(board_type)
 
     players = [
@@ -225,6 +235,7 @@ def create_initial_state(
         chainCaptureState=None,
         mustMoveFromStackKey=None,
         rulesOptions=rules_options,
+        lpsRoundsRequired=lps_rounds_required,
     )
 
 

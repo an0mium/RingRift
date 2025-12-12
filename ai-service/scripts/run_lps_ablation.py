@@ -1,42 +1,51 @@
 #!/usr/bin/env python
-"""LPS (Last Player Standing) rounds threshold ablation experiment.
+"""LPS (Last Player Standing) rounds threshold + rings ablation experiment.
 
 This script runs self-play games with configurable LPS rounds threshold
-to analyze the impact on termination reason distribution.
+AND rings-per-player to analyze the impact on termination reason distribution.
 
 Background:
 - LPS victory occurs when only one player has "real actions" available
   for consecutive rounds while opponents can only pass/skip.
 - The default threshold is 2 rounds (traditional rule).
-- This experiment tests whether increasing to 3+ rounds produces better
-  game termination diversity (more territory/elimination, less LPS).
+- This experiment tests whether increasing to 3+ rounds and/or changing
+  ring counts produces better game termination diversity.
 
 Usage examples:
-    # Compare 2 vs 3 rounds on square8 2p
+    # Compare 2 vs 3 LPS rounds on square8 2p (default rings)
     python scripts/run_lps_ablation.py \
         --num-games 200 \
         --board-type square8 \
         --num-players 2 \
         --lps-rounds 2 3 \
-        --engine-mode heuristic-only \
-        --output-dir logs/lps_ablation
-
-    # Run on multiple board types
-    python scripts/run_lps_ablation.py \
-        --num-games 100 \
-        --board-type square8 square19 hexagonal \
-        --num-players 2 \
-        --lps-rounds 2 3 \
         --engine-mode heuristic-only
 
-    # Test with increased rings (for larger boards)
+    # Compare LPS AND rings on square19 (96 vs default 72)
     python scripts/run_lps_ablation.py \
         --num-games 100 \
         --board-type square19 \
         --num-players 2 \
         --lps-rounds 2 3 \
-        --rings-per-player 72 96 \
+        --rings-per-player default 96 \
         --engine-mode heuristic-only
+
+    # Test hexagonal with increased rings (120 vs default 96)
+    python scripts/run_lps_ablation.py \
+        --num-games 100 \
+        --board-type hexagonal \
+        --num-players 2 \
+        --lps-rounds 2 3 \
+        --rings-per-player default 120 \
+        --engine-mode heuristic-only
+
+    # Full cross-product experiment on all boards
+    python scripts/run_lps_ablation.py \
+        --num-games 50 \
+        --board-type square8 square19 hexagonal \
+        --num-players 2 \
+        --lps-rounds 2 3 \
+        --rings-per-player default 96 120 \
+        --engine-mode random-only
 
 Environment variables:
     RINGRIFT_DISABLE_FSM_VALIDATION=1  - Disable FSM validation for faster runs
@@ -104,6 +113,7 @@ class GameResult:
     """Result of a single game."""
     game_id: int
     lps_rounds: int
+    rings_per_player: Optional[int]  # None means default
     board_type: str
     num_players: int
     termination_reason: str
@@ -119,6 +129,7 @@ class ExperimentConfig:
     board_types: List[str]
     num_players: int
     lps_rounds_values: List[int]
+    rings_per_player_values: List[Optional[int]]  # None means use default
     engine_mode: str
     seed: int
     output_dir: Optional[str]
@@ -173,40 +184,27 @@ def run_single_game(
     board_type: BoardType,
     num_players: int,
     lps_rounds: int,
+    rings_per_player: Optional[int],
     engine_mode: str,
     seed: int,
     game_id: int,
 ) -> GameResult:
-    """Run a single self-play game with specified LPS threshold."""
+    """Run a single self-play game with specified LPS threshold and rings."""
     start_time = time.time()
 
-    # Create environment
+    # Create environment with experimental overrides
     max_moves = get_theoretical_max_moves(board_type, num_players)
     env_config = TrainingEnvConfig(
         board_type=board_type,
         num_players=num_players,
         max_moves=max_moves,
         seed=seed + game_id,
+        rings_per_player=rings_per_player,
+        lps_rounds_required=lps_rounds,
     )
 
     env = make_env(env_config)
     state = env.reset()
-
-    # Patch the LPS threshold on the environment's internal state
-    # The env holds a reference to the state that gets updated on step
-    def patch_lps_threshold(s: GameState) -> GameState:
-        """Patch LPS threshold on a state."""
-        if hasattr(s, 'model_dump'):
-            # For pydantic models, we need to reconstruct
-            state_dict = s.model_dump(by_alias=True)
-            state_dict['lpsRoundsRequired'] = lps_rounds
-            return GameState(**state_dict)
-        return s
-
-    state = patch_lps_threshold(state)
-    # Also patch the env's internal state if accessible
-    if hasattr(env, '_state'):
-        env._state = state
 
     # Create AI instances
     ai_type = ENGINE_MODE_TO_AI.get(engine_mode, AIType.HEURISTIC)
@@ -234,13 +232,6 @@ def run_single_game(
 
         # Apply move through environment
         state, _reward, done, _info = env.step(move)
-
-        # Re-patch LPS threshold after each step (state is replaced)
-        if not done:
-            state = patch_lps_threshold(state)
-            if hasattr(env, '_state'):
-                env._state = state
-
         move_count += 1
 
     duration_ms = (time.time() - start_time) * 1000
@@ -249,6 +240,7 @@ def run_single_game(
     return GameResult(
         game_id=game_id,
         lps_rounds=lps_rounds,
+        rings_per_player=rings_per_player,
         board_type=board_type.value if hasattr(board_type, 'value') else str(board_type),
         num_players=num_players,
         termination_reason=termination,
@@ -259,14 +251,15 @@ def run_single_game(
 
 
 def run_experiment(config: ExperimentConfig) -> ExperimentResults:
-    """Run the full LPS ablation experiment."""
+    """Run the full LPS + rings ablation experiment."""
     print(f"\n{'='*60}")
-    print("LPS ABLATION EXPERIMENT")
+    print("LPS + RINGS ABLATION EXPERIMENT")
     print(f"{'='*60}")
     print(f"Games per condition: {config.num_games}")
     print(f"Board types: {config.board_types}")
     print(f"Players: {config.num_players}")
     print(f"LPS rounds values: {config.lps_rounds_values}")
+    print(f"Rings per player values: {config.rings_per_player_values}")
     print(f"Engine mode: {config.engine_mode}")
     print(f"{'='*60}\n")
 
@@ -280,49 +273,55 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResults:
             continue
 
         for lps_rounds in config.lps_rounds_values:
-            condition_key = f"{board_type_str}_{config.num_players}p_lps{lps_rounds}"
-            print(f"\n--- Running condition: {condition_key} ---")
+            for rings_per_player in config.rings_per_player_values:
+                # Build condition key
+                rings_label = f"r{rings_per_player}" if rings_per_player else "rdef"
+                condition_key = f"{board_type_str}_{config.num_players}p_lps{lps_rounds}_{rings_label}"
+                print(f"\n--- Running condition: {condition_key} ---")
 
-            condition_results: List[GameResult] = []
-            termination_counts = Counter()
+                condition_results: List[GameResult] = []
+                termination_counts = Counter()
 
-            for game_id in range(config.num_games):
-                if (game_id + 1) % 10 == 0:
-                    print(f"  Game {game_id + 1}/{config.num_games}...")
+                for game_id in range(config.num_games):
+                    if (game_id + 1) % 10 == 0:
+                        print(f"  Game {game_id + 1}/{config.num_games}...")
 
-                result = run_single_game(
-                    board_type=board_type,
-                    num_players=config.num_players,
-                    lps_rounds=lps_rounds,
-                    engine_mode=config.engine_mode,
-                    seed=config.seed,
-                    game_id=game_id,
-                )
-                condition_results.append(result)
-                all_results.append(result)
-                termination_counts[result.termination_reason] += 1
+                    result = run_single_game(
+                        board_type=board_type,
+                        num_players=config.num_players,
+                        lps_rounds=lps_rounds,
+                        rings_per_player=rings_per_player,
+                        engine_mode=config.engine_mode,
+                        seed=config.seed,
+                        game_id=game_id,
+                    )
+                    condition_results.append(result)
+                    all_results.append(result)
+                    termination_counts[result.termination_reason] += 1
 
-            # Compute statistics for this condition
-            total_games = len(condition_results)
-            avg_moves = sum(r.move_count for r in condition_results) / total_games
-            avg_duration = sum(r.duration_ms for r in condition_results) / total_games
+                # Compute statistics for this condition
+                total_games = len(condition_results)
+                avg_moves = sum(r.move_count for r in condition_results) / total_games
+                avg_duration = sum(r.duration_ms for r in condition_results) / total_games
 
-            stats = {
-                "total_games": total_games,
-                "avg_move_count": round(avg_moves, 1),
-                "avg_duration_ms": round(avg_duration, 1),
-                "termination_distribution": {
-                    k: {"count": v, "pct": round(100 * v / total_games, 1)}
-                    for k, v in termination_counts.most_common()
-                },
-            }
-            results_by_condition[condition_key] = stats
+                stats = {
+                    "total_games": total_games,
+                    "lps_rounds": lps_rounds,
+                    "rings_per_player": rings_per_player,
+                    "avg_move_count": round(avg_moves, 1),
+                    "avg_duration_ms": round(avg_duration, 1),
+                    "termination_distribution": {
+                        k: {"count": v, "pct": round(100 * v / total_games, 1)}
+                        for k, v in termination_counts.most_common()
+                    },
+                }
+                results_by_condition[condition_key] = stats
 
-            # Print summary for this condition
-            print(f"\n  Results for {condition_key}:")
-            print(f"    Average moves: {stats['avg_move_count']}")
-            for term, info in stats["termination_distribution"].items():
-                print(f"    {term}: {info['count']} ({info['pct']}%)")
+                # Print summary for this condition
+                print(f"\n  Results for {condition_key}:")
+                print(f"    Average moves: {stats['avg_move_count']}")
+                for term, info in stats["termination_distribution"].items():
+                    print(f"    {term}: {info['count']} ({info['pct']}%)")
 
     return ExperimentResults(
         config=asdict(config) if hasattr(config, '__dataclass_fields__') else vars(config),
@@ -333,28 +332,28 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResults:
 
 def print_comparison_table(results: ExperimentResults) -> None:
     """Print a comparison table of termination distributions."""
-    print(f"\n{'='*70}")
-    print("COMPARISON TABLE: Termination Distribution by LPS Threshold")
-    print(f"{'='*70}")
+    print(f"\n{'='*90}")
+    print("COMPARISON TABLE: Termination Distribution by LPS Threshold and Rings")
+    print(f"{'='*90}")
 
     # Group by board type
     conditions = list(results.results_by_condition.keys())
     board_types = set()
     for cond in conditions:
-        parts = cond.rsplit('_lps', 1)
-        if len(parts) == 2:
+        # Extract board type (everything before _Np_)
+        parts = cond.split('_')
+        if len(parts) >= 2:
             board_types.add(parts[0])
 
     for bt in sorted(board_types):
         print(f"\n{bt}:")
-        print(f"{'LPS Rounds':<12} {'Territory':>10} {'Elimination':>12} {'LPS':>10} {'Other':>10} {'Avg Moves':>10}")
-        print("-" * 66)
+        print(f"{'Condition':<30} {'Territory':>10} {'Elimination':>12} {'LPS':>10} {'Other':>10} {'Avg Moves':>10}")
+        print("-" * 86)
 
         for cond in sorted(conditions):
             if not cond.startswith(bt + "_"):
                 continue
 
-            lps_val = cond.rsplit('_lps', 1)[1]
             stats = results.results_by_condition[cond]
             term_dist = stats["termination_distribution"]
 
@@ -363,12 +362,26 @@ def print_comparison_table(results: ExperimentResults) -> None:
             lps = term_dist.get("lps", {}).get("pct", 0)
             other = 100 - territory - elimination - lps
 
-            print(f"{lps_val:>12} {territory:>9.1f}% {elimination:>11.1f}% {lps:>9.1f}% {other:>9.1f}% {stats['avg_move_count']:>10.1f}")
+            # Extract condition suffix for display
+            display_label = cond[len(bt)+1:]  # Remove board type prefix
+            print(f"{display_label:<30} {territory:>9.1f}% {elimination:>11.1f}% {lps:>9.1f}% {other:>9.1f}% {stats['avg_move_count']:>10.1f}")
+
+
+def parse_rings_value(val: str) -> Optional[int]:
+    """Parse a rings-per-player value from CLI.
+
+    - 'default', '0', or empty string -> None (use default from BOARD_CONFIGS)
+    - positive integer -> that value
+    """
+    val = val.strip().lower()
+    if val in ('', 'default', '0', 'none'):
+        return None
+    return int(val)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run LPS rounds threshold ablation experiment"
+        description="Run LPS + rings ablation experiment"
     )
     parser.add_argument(
         "--num-games", "-n",
@@ -396,6 +409,12 @@ def main():
         help="LPS rounds threshold values to test (default: 2 3)"
     )
     parser.add_argument(
+        "--rings-per-player", "-r",
+        nargs="+",
+        default=["default"],
+        help="Rings per player values to test. Use 'default' or 0 for board default. (default: default)"
+    )
+    parser.add_argument(
         "--engine-mode", "-e",
         default="heuristic-only",
         choices=["heuristic-only", "mcts-only", "descent-only", "random-only"],
@@ -416,11 +435,15 @@ def main():
 
     args = parser.parse_args()
 
+    # Parse rings values
+    rings_values = [parse_rings_value(v) for v in args.rings_per_player]
+
     config = ExperimentConfig(
         num_games=args.num_games,
         board_types=args.board_type,
         num_players=args.num_players,
         lps_rounds_values=args.lps_rounds,
+        rings_per_player_values=rings_values,
         engine_mode=args.engine_mode,
         seed=args.seed,
         output_dir=args.output_dir or "logs/lps_ablation",

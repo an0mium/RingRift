@@ -128,6 +128,15 @@ The following scripts have been instrumented with progress reporters:
 - Emits TS↔Python replay progress every `--parity-progress-every` steps (default: 200).
 - Supports `--soak-timeout-seconds` and `--parity-timeout-seconds` to prevent silent hangs.
 
+If you see “no output” for a long time, it is usually because your runner is only
+capturing stdout. The parity gate writes heartbeats to **stderr** by design.
+Use:
+
+```bash
+PYTHONUNBUFFERED=1 PYTHONPATH=. python scripts/run_canonical_selfplay_parity_gate.py ... 2>&1 | tee /tmp/parity_gate.log
+tail -f /tmp/gate_summary.json
+```
+
 ## Configuration Dataclasses
 
 For optimization scripts, progress configuration is encapsulated in dataclasses:

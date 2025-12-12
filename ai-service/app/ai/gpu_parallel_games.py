@@ -534,6 +534,16 @@ class BatchGameState:
     winner: torch.Tensor           # 0=none, 1-4=player
     swap_offered: torch.Tensor     # bool: whether swap_sides (pie rule) was offered to P2
 
+    # LPS tracking (RR-CANON-R172): tensor mirrors of GameState fields.
+    # We track a full-round cycle over all non-permanently-eliminated players.
+    lps_round_index: torch.Tensor  # int32 (batch_size,)
+    lps_current_round_first_player: torch.Tensor  # int8 (batch_size,) 0=unset
+    lps_current_round_seen_mask: torch.Tensor  # bool (batch_size, num_players+1)
+    lps_current_round_real_action_mask: torch.Tensor  # bool (batch_size, num_players+1)
+    lps_exclusive_player_for_completed_round: torch.Tensor  # int8 (batch_size,) 0=none
+    lps_consecutive_exclusive_rounds: torch.Tensor  # int16 (batch_size,)
+    lps_consecutive_exclusive_player: torch.Tensor  # int8 (batch_size,) 0=none
+
     # Move history: (batch_size, max_moves, 6) - [move_type, player, from_y, from_x, to_y, to_x]
     # -1 indicates unused slot
     move_history: torch.Tensor
@@ -608,6 +618,25 @@ class BatchGameState:
             game_status=torch.zeros(batch_size, dtype=torch.int8, device=device),
             winner=torch.zeros(batch_size, dtype=torch.int8, device=device),
             swap_offered=torch.zeros(batch_size, dtype=torch.bool, device=device),
+            lps_round_index=torch.zeros(batch_size, dtype=torch.int32, device=device),
+            lps_current_round_first_player=torch.zeros(
+                batch_size, dtype=torch.int8, device=device
+            ),
+            lps_current_round_seen_mask=torch.zeros(
+                shape_players, dtype=torch.bool, device=device
+            ),
+            lps_current_round_real_action_mask=torch.zeros(
+                shape_players, dtype=torch.bool, device=device
+            ),
+            lps_exclusive_player_for_completed_round=torch.zeros(
+                batch_size, dtype=torch.int8, device=device
+            ),
+            lps_consecutive_exclusive_rounds=torch.zeros(
+                batch_size, dtype=torch.int16, device=device
+            ),
+            lps_consecutive_exclusive_player=torch.zeros(
+                batch_size, dtype=torch.int8, device=device
+            ),
             move_history=move_history,
             max_history_moves=max_history_moves,
             device=device,
@@ -755,11 +784,12 @@ class BatchGameState:
                     key = f"{x},{y}"
                     # Reconstruct rings list (simplified - all same owner)
                     rings = [owner] * height
+                    cap = self.cap_height[game_idx, y, x].item()
                     stacks[key] = RingStack(
                         position=Position(x=x, y=y),
                         rings=rings,
                         stackHeight=height,
-                        capHeight=height,  # Simplified
+                        capHeight=cap,
                         controllingPlayer=owner,
                     )
 
@@ -824,10 +854,8 @@ class BatchGameState:
         gpu_status = self.game_status[game_idx].item()
         if gpu_status == GameStatus.ACTIVE:
             game_status = CPUGameStatus.ACTIVE
-        elif gpu_status == GameStatus.VICTORY:
-            game_status = CPUGameStatus.COMPLETED
         else:
-            game_status = CPUGameStatus.ACTIVE
+            game_status = CPUGameStatus.COMPLETED
 
         now = datetime.now()
 
@@ -845,6 +873,25 @@ class BatchGameState:
         total_rings_in_play = rings_per_player * self.num_players
         total_rings_eliminated = int(
             self.eliminated_rings[game_idx, 1 : self.num_players + 1].sum().item()
+        )
+
+        # LPS tracking (RR-CANON-R172) for shadow validation / debugging.
+        lps_seen = self.lps_current_round_seen_mask[game_idx].cpu()
+        lps_real = self.lps_current_round_real_action_mask[game_idx].cpu()
+        lps_actor_mask = {
+            int(p): bool(lps_real[p].item())
+            for p in range(1, self.num_players + 1)
+            if bool(lps_seen[p].item())
+        }
+        lps_first = int(self.lps_current_round_first_player[game_idx].item())
+        lps_first_player = lps_first if lps_first > 0 else None
+        lps_exclusive = int(self.lps_exclusive_player_for_completed_round[game_idx].item())
+        lps_exclusive_player = lps_exclusive if lps_exclusive > 0 else None
+        lps_consecutive_player_raw = int(
+            self.lps_consecutive_exclusive_player[game_idx].item()
+        )
+        lps_consecutive_player = (
+            lps_consecutive_player_raw if lps_consecutive_player_raw > 0 else None
         )
 
         return GameState(
@@ -867,6 +914,15 @@ class BatchGameState:
             totalRingsEliminated=total_rings_eliminated,
             victoryThreshold=victory_threshold,
             territoryVictoryThreshold=territory_threshold,
+            lpsRoundIndex=int(self.lps_round_index[game_idx].item()),
+            lpsCurrentRoundActorMask=lps_actor_mask,
+            lpsExclusivePlayerForCompletedRound=lps_exclusive_player,
+            lpsCurrentRoundFirstPlayer=lps_first_player,
+            lpsConsecutiveExclusiveRounds=int(
+                self.lps_consecutive_exclusive_rounds[game_idx].item()
+            ),
+            lpsRoundsRequired=2,
+            lpsConsecutiveExclusivePlayer=lps_consecutive_player,
         )
 
     def get_active_mask(self) -> torch.Tensor:
@@ -1442,46 +1498,79 @@ def generate_capture_moves_batch(
                 continue
 
             for dy, dx in directions:
-                # Move distance must be >= stack height (total, not cap)
-                for dist in range(my_height, board_size):
-                    to_y = from_y + dy * dist
-                    to_x = from_x + dx * dist
+                # Per RR-CANON-R101/R102: capture = (from, target, landing)
+                # Step 1: Find first stack along ray (potential target)
+                target_y, target_x = None, None
+                target_dist = 0
 
-                    if not (0 <= to_y < board_size and 0 <= to_x < board_size):
+                for step in range(1, board_size):
+                    check_y = from_y + dy * step
+                    check_x = from_x + dx * step
+
+                    if not (0 <= check_y < board_size and 0 <= check_x < board_size):
                         break
 
-                    # Per RR-CANON-R101: path from->target must be clear of ANY stacks
-                    # We check intermediate cells only (not destination which is the target)
+                    # Check if collapsed
+                    if state.is_collapsed[g, check_y, check_x].item():
+                        break
+
+                    cell_owner = state.stack_owner[g, check_y, check_x].item()
+                    if cell_owner != 0:
+                        # Found a stack - check if valid target
+                        # Per RR-CANON-R101: target can be ANY owner (own or opponent)
+                        target_cap = state.cap_height[g, check_y, check_x].item()
+                        if my_cap_height >= target_cap:
+                            target_y, target_x = check_y, check_x
+                            target_dist = step
+                        # Any stack stops search along this ray
+                        break
+
+                if target_y is None:
+                    # No valid target in this direction
+                    continue
+
+                # Step 2: Enumerate landing positions BEYOND target
+                # Landing must be at distance >= my_height from origin
+                # and strictly beyond target (target_dist + 1 minimum)
+                min_landing_dist = max(my_height, target_dist + 1)
+
+                for landing_dist in range(min_landing_dist, board_size):
+                    landing_y = from_y + dy * landing_dist
+                    landing_x = from_x + dx * landing_dist
+
+                    if not (0 <= landing_y < board_size and 0 <= landing_x < board_size):
+                        break
+
+                    # Check if landing is collapsed
+                    if state.is_collapsed[g, landing_y, landing_x].item():
+                        break
+
+                    # Check path from target to landing is clear
                     path_clear = True
-                    for step in range(1, dist):  # Don't check destination
+                    for step in range(target_dist + 1, landing_dist):
                         check_y = from_y + dy * step
                         check_x = from_x + dx * step
-                        cell_owner = state.stack_owner[g, check_y, check_x].item()
-
-                        # ANY stack blocks the path (per RR-CANON-R101)
-                        if cell_owner != 0:
+                        if state.stack_owner[g, check_y, check_x].item() != 0:
+                            path_clear = False
+                            break
+                        if state.is_collapsed[g, check_y, check_x].item():
                             path_clear = False
                             break
 
                     if not path_clear:
-                        # Path blocked, cannot continue along this ray
                         break
 
-                    # Check destination for capture
-                    dest_owner = state.stack_owner[g, to_y, to_x].item()
-                    if dest_owner != 0 and dest_owner != player:
-                        # Opponent stack - check if we can capture using CAP HEIGHT
-                        # Per RR-CANON-R101: attacker.cap_height >= target.cap_height
-                        dest_cap_height = state.cap_height[g, to_y, to_x].item()
-                        if my_cap_height >= dest_cap_height:
-                            # Valid capture!
-                            all_game_idx.append(g)
-                            all_from_y.append(from_y)
-                            all_from_x.append(from_x)
-                            all_to_y.append(to_y)
-                            all_to_x.append(to_x)
-                        # Cannot continue past opponent stack (regardless of capture validity)
+                    # Landing must be empty
+                    landing_owner = state.stack_owner[g, landing_y, landing_x].item()
+                    if landing_owner != 0:
                         break
+
+                    # Valid capture: (from, landing) - target is implicit
+                    all_game_idx.append(g)
+                    all_from_y.append(from_y)
+                    all_from_x.append(from_x)
+                    all_to_y.append(landing_y)
+                    all_to_x.append(landing_x)
 
     total_moves = len(all_game_idx)
 
@@ -3426,6 +3515,7 @@ class ParallelGameRunner:
         state_sample_rate: float = 0.01,
         state_threshold: float = 0.001,
         swap_enabled: bool = True,
+        lps_victory_rounds: int = 2,
     ):
         """Initialize parallel game runner.
 
@@ -3441,11 +3531,14 @@ class ParallelGameRunner:
             state_sample_rate: Fraction of states to validate (0.0-1.0)
             state_threshold: Maximum state divergence rate before halt
             swap_enabled: Enable pie rule (swap_sides) for 2-player games (RR-CANON R180-R184)
+            lps_victory_rounds: Number of consecutive rounds one player must have exclusive
+                               real actions to win via LPS (default 2, set to 3 for longer games)
         """
         self.batch_size = batch_size
         self.board_size = board_size
         self.num_players = num_players
         self.swap_enabled = swap_enabled
+        self.lps_victory_rounds = lps_victory_rounds
 
         if device is None:
             self.device = get_device()
@@ -3697,7 +3790,8 @@ class ParallelGameRunner:
                 # Placement moves store position in from_y, from_x (target position)
                 y = moves.from_y[idx].item()
                 x = moves.from_x[idx].item()
-                gpu_positions.append((y, x))
+                # Convert to (x, y) format to match CPU Position format
+                gpu_positions.append((x, y))
 
             # Convert to CPU state and validate
             cpu_state = self.state.to_game_state(g)
@@ -3738,7 +3832,8 @@ class ParallelGameRunner:
                 from_x = movement_moves.from_x[idx].item()
                 to_y = movement_moves.to_y[idx].item()
                 to_x = movement_moves.to_x[idx].item()
-                gpu_movement.append(((from_y, from_x), (to_y, to_x)))
+                # Convert from GPU [y, x] to CPU (x, y) format
+                gpu_movement.append(((from_x, from_y), (to_x, to_y)))
 
             # Extract GPU capture moves
             cap_start = capture_moves.move_offsets[g].item()
@@ -3751,7 +3846,8 @@ class ParallelGameRunner:
                 from_x = capture_moves.from_x[idx].item()
                 to_y = capture_moves.to_y[idx].item()
                 to_x = capture_moves.to_x[idx].item()
-                gpu_captures.append(((from_y, from_x), (to_y, to_x)))
+                # Convert from GPU [y, x] to CPU (x, y) format
+                gpu_captures.append(((from_x, from_y), (to_x, to_y)))
 
             # Convert to CPU state and validate
             cpu_state = self.state.to_game_state(g)
@@ -3766,6 +3862,214 @@ class ParallelGameRunner:
                 self.shadow_validator.validate_capture_moves(
                     gpu_captures, cpu_state, player
                 )
+
+    def _player_has_real_action_gpu(self, g: int, player: int) -> bool:
+        """Return True if player has any RR-CANON-R172 real action in game g.
+
+        Real actions are:
+        - any legal placement (approximated here as ``rings_in_hand > 0``), OR
+        - any legal non-capture movement or overtaking capture.
+
+        Recovery and forced elimination do NOT count as real actions.
+        """
+        # Placement: treat any remaining rings in hand as a real action.
+        if self.state.rings_in_hand[g, player].item() > 0:
+            return True
+
+        # Without controlled stacks, there is no movement/capture.
+        if not (self.state.stack_owner[g] == player).any().item():
+            return False
+
+        prev_player = int(self.state.current_player[g].item())
+        self.state.current_player[g] = player
+        try:
+            single_mask = torch.zeros(
+                self.batch_size, dtype=torch.bool, device=self.device
+            )
+            single_mask[g] = True
+            movement_moves = generate_movement_moves_batch(self.state, single_mask)
+            capture_moves = generate_capture_moves_batch(self.state, single_mask)
+            return bool(
+                (movement_moves.moves_per_game[g].item() > 0)
+                or (capture_moves.moves_per_game[g].item() > 0)
+            )
+        finally:
+            self.state.current_player[g] = prev_player
+
+    def _maybe_apply_lps_victory_at_turn_start(
+        self,
+        mask: torch.Tensor,
+        player_has_rings: Optional[torch.Tensor] = None,
+    ) -> None:
+        """Apply RR-CANON-R172 LPS victory at the start of a player's turn.
+
+        This is called after updating round tracking in ``ring_placement``.
+        We only run the expensive real-action check when a candidate has
+        already achieved the required consecutive exclusive rounds.
+        """
+        active_mask = mask & self.state.get_active_mask()
+        if not active_mask.any():
+            return
+
+        lps_required = self.lps_victory_rounds
+        candidate_mask = (
+            active_mask
+            & (self.state.lps_consecutive_exclusive_rounds >= lps_required)
+            & (self.state.lps_consecutive_exclusive_player > 0)
+            & (
+                self.state.current_player
+                == self.state.lps_consecutive_exclusive_player
+            )
+        )
+        if not candidate_mask.any():
+            return
+
+        if player_has_rings is None:
+            player_has_rings = self._compute_player_ring_status_batch()
+
+        for g in torch.where(candidate_mask)[0].tolist():
+            if self.state.game_status[g].item() != GameStatus.ACTIVE:
+                continue
+
+            candidate = int(self.state.lps_consecutive_exclusive_player[g].item())
+            if candidate <= 0:
+                continue
+
+            if not self._player_has_real_action_gpu(g, candidate):
+                continue
+
+            others_have_real = False
+            for pid in range(1, self.num_players + 1):
+                if pid == candidate:
+                    continue
+                if not bool(player_has_rings[g, pid].item()):
+                    continue
+                if self._player_has_real_action_gpu(g, pid):
+                    others_have_real = True
+                    break
+
+            if others_have_real:
+                continue
+
+            self.state.winner[g] = candidate
+            self.state.game_status[g] = GameStatus.COMPLETED
+
+    def _update_lps_round_tracking_for_current_player(
+        self,
+        mask: torch.Tensor,
+    ) -> None:
+        """Update LPS round tracking (RR-CANON-R172) for games in mask.
+
+        Mirrors the CPU/TS approach:
+        - Track the first player of the current round.
+        - Mark each non-permanently-eliminated player as "seen" once per round.
+        - Record whether that player had any real action available at the start
+          of their turn (placements count; recovery does not).
+        - When cycling back to the first player, finalize the previous round and
+          update consecutive-exclusive round counters.
+        """
+        active_mask = mask & self.state.get_active_mask()
+        if not active_mask.any():
+            return
+
+        player_has_rings = self._compute_player_ring_status_batch()
+        current = self.state.current_player
+        first = self.state.lps_current_round_first_player
+
+        first_has_rings = torch.gather(
+            player_has_rings,
+            dim=1,
+            index=first.unsqueeze(1).long(),
+        ).squeeze(1)
+
+        starting_new_cycle = active_mask & ((first == 0) | (~first_has_rings))
+
+        round_has_entries = self.state.lps_current_round_seen_mask.any(dim=1)
+        finalize_round = (
+            active_mask
+            & (~starting_new_cycle)
+            & (current == first)
+            & round_has_entries
+        )
+
+        if starting_new_cycle.any():
+            idx = starting_new_cycle
+            self.state.lps_round_index[idx] += 1
+            self.state.lps_current_round_first_player[idx] = current[idx]
+            self.state.lps_current_round_seen_mask[idx] = False
+            self.state.lps_current_round_real_action_mask[idx] = False
+            self.state.lps_exclusive_player_for_completed_round[idx] = 0
+
+            # Reset consecutive tracking only if the prior exclusive player
+            # also dropped out (per TS semantics).
+            excl = self.state.lps_consecutive_exclusive_player
+            excl_has_rings = torch.gather(
+                player_has_rings,
+                dim=1,
+                index=excl.unsqueeze(1).long(),
+            ).squeeze(1)
+            reset_consecutive = idx & (~excl_has_rings)
+            if reset_consecutive.any():
+                self.state.lps_consecutive_exclusive_rounds[reset_consecutive] = 0
+                self.state.lps_consecutive_exclusive_player[reset_consecutive] = 0
+
+        if finalize_round.any():
+            idx = finalize_round
+            eligible = player_has_rings & self.state.lps_current_round_seen_mask
+            real_action_players = eligible & self.state.lps_current_round_real_action_mask
+
+            true_counts = real_action_players.sum(dim=1).to(torch.int16)
+            exclusive_pid = torch.argmax(real_action_players.to(torch.int8), dim=1).to(torch.int8)
+            exclusive_pid = torch.where(
+                true_counts == 1,
+                exclusive_pid,
+                torch.zeros_like(exclusive_pid),
+            )
+
+            self.state.lps_exclusive_player_for_completed_round[idx] = exclusive_pid[idx]
+
+            has_exclusive = idx & (exclusive_pid != 0)
+            same_exclusive = has_exclusive & (
+                exclusive_pid == self.state.lps_consecutive_exclusive_player
+            )
+            if same_exclusive.any():
+                self.state.lps_consecutive_exclusive_rounds[same_exclusive] += 1
+
+            diff_exclusive = has_exclusive & (~same_exclusive)
+            if diff_exclusive.any():
+                self.state.lps_consecutive_exclusive_player[diff_exclusive] = exclusive_pid[diff_exclusive]
+                self.state.lps_consecutive_exclusive_rounds[diff_exclusive] = 1
+
+            no_exclusive = idx & (exclusive_pid == 0)
+            if no_exclusive.any():
+                self.state.lps_consecutive_exclusive_rounds[no_exclusive] = 0
+                self.state.lps_consecutive_exclusive_player[no_exclusive] = 0
+
+            # Start a new round from the current (first) player.
+            self.state.lps_round_index[idx] += 1
+            self.state.lps_current_round_first_player[idx] = current[idx]
+            self.state.lps_current_round_seen_mask[idx] = False
+            self.state.lps_current_round_real_action_mask[idx] = False
+
+        # Record that the current player started their turn in this round.
+        game_indices = torch.where(active_mask)[0]
+        player_indices = current[game_indices].long()
+        self.state.lps_current_round_seen_mask[game_indices, player_indices] = True
+
+        # Record initial real-action availability from placements only.
+        # Movement/capture availability is filled in during MOVEMENT phase.
+        rings_for_current = torch.gather(
+            self.state.rings_in_hand,
+            dim=1,
+            index=current.unsqueeze(1).long(),
+        ).squeeze(1)
+        has_placement = rings_for_current > 0
+        self.state.lps_current_round_real_action_mask[
+            game_indices, player_indices
+        ] |= has_placement[game_indices]
+
+        # Apply LPS victory at the start of the candidate's next turn.
+        self._maybe_apply_lps_victory_at_turn_start(active_mask, player_has_rings)
 
     def _step_placement_phase(
         self,
@@ -3783,6 +4087,15 @@ class ParallelGameRunner:
         2. Stays in RING_PLACEMENT phase (player rotation handled by apply_placement_moves_batch)
         3. Only advances to MOVEMENT when ALL players have 0 rings in hand
         """
+        # RR-CANON-R172: update round tracking at the start of the player's
+        # turn (in ring_placement). LPS victory is applied here when eligible.
+        self._update_lps_round_tracking_for_current_player(mask)
+
+        # Some games may have ended by LPS; drop them from this phase step.
+        mask = mask & self.state.get_active_mask()
+        if not mask.any():
+            return
+
         # Check which games have rings to place (vectorized)
         # rings_in_hand shape: (batch_size, num_players + 1)
         # current_player shape: (batch_size,)
@@ -3873,6 +4186,17 @@ class ParallelGameRunner:
 
             # Generate capture moves
             capture_moves = generate_capture_moves_batch(self.state, games_with_stacks)
+
+            # RR-CANON-R172: movement/capture availability counts as a "real action"
+            # for LPS purposes; recovery does not. Record availability at the
+            # start of MOVEMENT (before applying any move).
+            has_real_action = (movement_moves.moves_per_game > 0) | (capture_moves.moves_per_game > 0)
+            lps_game_indices = torch.where(games_with_stacks)[0]
+            if len(lps_game_indices) > 0:
+                lps_players = current_players[lps_game_indices].long()
+                self.state.lps_current_round_real_action_mask[
+                    lps_game_indices, lps_players
+                ] |= has_real_action[lps_game_indices]
 
             # Shadow validation: validate move generation against CPU
             self._validate_movement_moves_sample(movement_moves, capture_moves, games_with_stacks)
@@ -4582,7 +4906,7 @@ class ParallelGameRunner:
             # Check territory victory (RR-CANON-R171)
             territory_victory = self.state.territory_count[:, p] >= territory_victory_threshold
 
-            # Check last-player-standing (RR-CANON-R172)
+            # Check last-player-standing (RR-CANON-R172) - IMMEDIATE version
             # Player wins if they're the only one with controlled stacks or rings in hand
             has_stacks = (self.state.stack_owner == p).any(dim=(1, 2))
             has_rings_in_hand = self.state.rings_in_hand[:, p] > 0
@@ -4596,8 +4920,19 @@ class ParallelGameRunner:
                     other_has_rings = self.state.rings_in_hand[:, other_p] > 0
                     others_have_turn_material |= (other_has_stacks | other_has_rings)
 
-            # Last player standing: this player has material, no others do
-            last_player_standing = has_turn_material & ~others_have_turn_material
+            # Immediate LPS: this player has material, no others do
+            immediate_lps = has_turn_material & ~others_have_turn_material
+
+            # Check N-round LPS (RR-CANON-R172 canonical version)
+            # Player wins if they've had exclusive real actions for N consecutive rounds
+            # This is tracked via lps_consecutive_exclusive_rounds
+            n_round_lps = (
+                (self.state.lps_consecutive_exclusive_player == p) &
+                (self.state.lps_consecutive_exclusive_rounds >= self.lps_victory_rounds)
+            )
+
+            # Combined LPS: either immediate (no material) or N-round (exclusive actions)
+            last_player_standing = immediate_lps | n_round_lps
 
             # Update winners - any victory condition triggers win
             victory_mask = active_mask & (ring_elimination_victory | territory_victory | last_player_standing)

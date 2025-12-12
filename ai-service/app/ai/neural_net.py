@@ -3350,10 +3350,23 @@ class NeuralNetAI(BaseAI):
         """
         Encode a move into a policy index.
 
-        The encoding uses a fixed MAX_N × MAX_N = 19 × 19 canonical grid so
-        that a single policy head can serve 8×8, 19×19, and hexagonal boards.
-        Moves that require coordinates outside this canonical grid return
-        INVALID_MOVE_INDEX and are simply omitted from the policy.
+        This method supports two policy layouts:
+
+        1. Board-specific policy heads (preferred):
+           - SQUARE8: policy_size=7000
+           - SQUARE19: policy_size=67000
+           - HEXAGONAL: policy_size=91876
+
+           When the loaded checkpoint's ``model.policy_size`` matches the
+           board-specific size for the current board, we use
+           :func:`encode_move_for_board` to generate indices that are
+           guaranteed to be in-range.
+
+        2. Legacy MAX_N layout:
+           Some older checkpoints (e.g. `ringrift_v4_*`) were trained against a
+           fixed MAX_N=19 layout. When the checkpoint's policy head size does
+           not match the board-specific layout, we fall back to the legacy
+           encoding below.
 
         For backward compatibility, board_context may be an integer board_size
         (e.g. 8 or 19). In that case we treat coordinates as already expressed
@@ -3374,6 +3387,21 @@ class NeuralNetAI(BaseAI):
             board = None
         else:
             raise TypeError(f"Unsupported board_context type for encode_move: " f"{type(board_context)!r}")
+
+        # If we have an initialized model and a concrete board, prefer the
+        # board-specific encoder when the checkpoint's policy head matches.
+        if board is not None and self.model is not None:
+            try:
+                model_policy_size = int(getattr(self.model, "policy_size"))
+            except Exception:
+                model_policy_size = 0
+
+            board_policy_size = int(get_policy_size_for_board(board.type))
+            if model_policy_size and model_policy_size == board_policy_size:
+                idx = encode_move_for_board(move, board)
+                if 0 <= idx < model_policy_size:
+                    return idx
+                return INVALID_MOVE_INDEX
 
         # Pre-compute layout constants from MAX_N to avoid hard-coded offsets.
         placement_span = 3 * MAX_N * MAX_N  # 0..1082

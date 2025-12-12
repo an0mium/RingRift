@@ -338,7 +338,7 @@ describe('GameEngine line formation scenarios (square8)', () => {
     const moves = engine.getValidMoves(1);
 
     const processLineMoves = moves.filter((m) => m.type === 'process_line');
-    const rewardMoves = moves.filter((m) => m.type === 'choose_line_reward');
+    const rewardMoves = moves.filter((m) => m.type === 'choose_line_option');
 
     // One process_line per player-owned line.
     expect(processLineMoves).toHaveLength(2);
@@ -350,7 +350,7 @@ describe('GameEngine line formation scenarios (square8)', () => {
 
     const overlengthKey = overlengthLine.map((p) => positionToString(p)).join('|');
 
-    // All choose_line_reward moves should embed the overlength line's key
+    // All choose_line_option moves should embed the overlength line's key
     // in their id so tools can map them back to a concrete line geometry.
     const rewardIds = rewardMoves.map((m) => m.id);
     expect(rewardIds.some((id) => id.includes(overlengthKey))).toBe(true);

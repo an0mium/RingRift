@@ -204,6 +204,7 @@ def build_remote_tournament_command(
     wilson_confidence: float,
     worker_label: str,
     nn_model_id: Optional[str],
+    require_neural_net: bool,
 ) -> str:
     cmd: List[str] = [
         "python",
@@ -235,6 +236,8 @@ def build_remote_tournament_command(
     ]
     if nn_model_id:
         cmd.extend(["--nn-model-id", nn_model_id])
+    if require_neural_net:
+        cmd.append("--require-neural-net")
     return _shell_join(cmd)
 
 
@@ -301,6 +304,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=str,
         default=None,
         help="Optional override for the CNN model id used by MCTS/Descent tiers.",
+    )
+    parser.add_argument(
+        "--require-neural-net",
+        action="store_true",
+        help=(
+            "Pass --require-neural-net through to each shard tournament, causing shards "
+            "to fail fast if CNN checkpoints cannot be loaded for neural tiers."
+        ),
     )
     parser.add_argument(
         "--config",
@@ -551,6 +562,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 wilson_confidence=args.wilson_confidence,
                 worker_label=slot.host_name,
                 nn_model_id=args.nn_model_id,
+                require_neural_net=args.require_neural_net,
             )
 
             last_error: Optional[str] = None

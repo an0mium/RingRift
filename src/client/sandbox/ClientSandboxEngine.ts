@@ -2680,8 +2680,34 @@ export class ClientSandboxEngine {
       if (outcome.pendingSelfElimination && actualTerritoryGain > 0) {
         pendingSelfElimination = true;
 
+        const territoryEliminationContext = ((): 'territory' | 'recovery' => {
+          // Recovery-context territory self-elimination (RR-CANON-R114) applies
+          // when the current turn included a recovery_slide.
+          for (let i = state.moveHistory.length - 1; i >= 0; i--) {
+            const prior = state.moveHistory[i];
+            if (prior.player !== movingPlayer) {
+              break;
+            }
+            if (prior.type === 'recovery_slide') {
+              return 'recovery';
+            }
+          }
+          return 'territory';
+        })();
+
         const shouldPromptElimination =
           !!this.interactionHandler && isHumanPlayer && !this.traceMode;
+
+        const processedRegion: Territory = {
+          spaces: regionSpaces,
+          controllingPlayer: movingPlayer,
+          isDisconnected: true,
+        };
+
+        const eliminationMoves = enumerateTerritoryEliminationMoves(state, movingPlayer, {
+          eliminationContext: territoryEliminationContext,
+          processedRegion,
+        });
 
         if (shouldPromptElimination) {
           // Mark the pending flag so parity/diagnostic helpers that inspect
@@ -2689,7 +2715,6 @@ export class ClientSandboxEngine {
           // explicit ring_elimination decision is outstanding.
           this._pendingTerritorySelfElimination = true;
 
-          const eliminationMoves = enumerateTerritoryEliminationMoves(state, movingPlayer);
           if (eliminationMoves.length > 0) {
             let elimMove: Move = eliminationMoves[0];
 
@@ -2700,14 +2725,17 @@ export class ClientSandboxEngine {
                 .map((p) => `(${p.x},${p.y})`)
                 .join(', ');
               const truncated = regionSpaces.length > 4 ? ` +${regionSpaces.length - 4} more` : '';
-              const territoryPrompt = `Territory claimed at ${spacesList}${truncated}. You must eliminate your ENTIRE CAP from an eligible stack outside the region.`;
+              const territoryPrompt =
+                territoryEliminationContext === 'recovery'
+                  ? `Territory claimed at ${spacesList}${truncated}. You must extract ONE buried ring from a stack outside the region.`
+                  : `Territory claimed at ${spacesList}${truncated}. You must eliminate your ENTIRE CAP from an eligible stack outside the region.`;
 
               const choice: RingEliminationChoice = {
                 id: `sandbox-territory-elim-${Date.now()}`,
                 gameId: state.id,
                 playerNumber: movingPlayer,
                 type: 'ring_elimination',
-                eliminationContext: 'territory',
+                eliminationContext: territoryEliminationContext,
                 prompt: territoryPrompt,
                 options: eliminationMoves.map((opt: Move) => {
                   const pos = opt.to as Position;
@@ -2721,12 +2749,16 @@ export class ClientSandboxEngine {
                     (opt.eliminationFromStack && opt.eliminationFromStack.totalHeight) ||
                     (stack ? stack.stackHeight : capHeight || 1);
 
+                  const ringsToEliminate =
+                    typeof opt.eliminatedRings?.[0]?.count === 'number'
+                      ? opt.eliminatedRings[0].count
+                      : capHeight;
+
                   return {
                     stackPosition: pos,
                     capHeight,
                     totalHeight,
-                    // Territory elimination removes entire cap (RR-CANON-R145)
-                    ringsToEliminate: capHeight,
+                    ringsToEliminate,
                     moveId: opt.id || key,
                   };
                 }),
@@ -2753,35 +2785,12 @@ export class ClientSandboxEngine {
 
           this._pendingTerritorySelfElimination = false;
         } else {
-          const candidateStacks: Array<{ key: string; capHeight: number }> = [];
-          for (const [key, stack] of state.board.stacks.entries()) {
-            if (stack.controllingPlayer === movingPlayer && stack.capHeight > 0) {
-              candidateStacks.push({ key, capHeight: stack.capHeight });
-            }
-          }
-
-          if (candidateStacks.length > 0) {
-            candidateStacks.sort((a, b) => b.capHeight - a.capHeight);
-            const target = candidateStacks[0];
-
-            const elimMove: Move = {
-              id: `auto-eliminate-${target.key}-${Date.now()}`,
-              type: 'eliminate_rings_from_stack',
-              player: movingPlayer,
-              to: (() => {
-                const [xStr, yStr, zStr] = target.key.split(',');
-                const x = Number(xStr);
-                const y = Number(yStr);
-                const z = zStr !== undefined && zStr.length > 0 ? Number(zStr) : undefined;
-                return z !== undefined ? { x, y, z } : { x, y };
-              })() as Position,
-              timestamp: new Date(),
-              thinkTime: 0,
-              moveNumber: state.history.length + 1,
-            } as Move;
-
+          if (eliminationMoves.length > 0) {
+            const elimMove = eliminationMoves[0];
+            const beforeElim = state;
             const { nextState } = applyEliminateRingsFromStackDecision(state, elimMove);
             state = nextState;
+            this.appendHistoryEntry(beforeElim, elimMove);
           }
         }
       }
@@ -2915,7 +2924,20 @@ export class ClientSandboxEngine {
     // Per RR-CANON-R122 vs R145: Line elimination uses different rules
     // - Line: any controlled stack (including height-1), eliminate 1 ring
     // - Territory: only eligible caps (multicolor or height > 1), eliminate entire cap
-    const eliminationContext = pendingLineReward ? 'line' : 'territory';
+    const eliminationContext = pendingLineReward
+      ? 'line'
+      : (() => {
+          for (let i = this.gameState.moveHistory.length - 1; i >= 0; i--) {
+            const move = this.gameState.moveHistory[i];
+            if (move.player !== movingPlayer) {
+              break;
+            }
+            if (move.type === 'recovery_slide') {
+              return 'recovery';
+            }
+          }
+          return 'territory';
+        })();
     return enumerateTerritoryEliminationMoves(this.gameState, movingPlayer, { eliminationContext });
   }
 

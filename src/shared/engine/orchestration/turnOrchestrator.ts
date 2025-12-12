@@ -110,6 +110,7 @@ import {
   applyProcessTerritoryRegionDecision,
   applyEliminateRingsFromStackDecision,
 } from '../aggregates/TerritoryAggregate';
+import type { TerritoryEliminationScope } from '../aggregates/TerritoryAggregate';
 
 import { evaluateVictory } from '../aggregates/VictoryAggregate';
 
@@ -1176,7 +1177,13 @@ function derivePendingDecisionFromFSM(
 
     case 'region_order_required': {
       // Enumerate process_territory_region moves
-      const regions = getProcessableTerritoryRegions(state.board, { player });
+      const territoryEliminationContext = didCurrentTurnIncludeRecoverySlide(state, player)
+        ? 'recovery'
+        : 'territory';
+      const regions = getProcessableTerritoryRegions(state.board, {
+        player,
+        eliminationContext: territoryEliminationContext,
+      });
       if (regions.length === 0) {
         return undefined;
       }
@@ -2552,7 +2559,16 @@ function processPostMovePhases(
     // Line-phase move was applied and no more lines; decide the next phase using
     // the canonical FSM helper so TS and Python share the same semantics.
     const player = updatedStateForLines.currentPlayer;
-    const regionsForPlayer = getProcessableTerritoryRegions(updatedStateForLines.board, { player });
+    const territoryEliminationContext = didCurrentTurnIncludeRecoverySlide(
+      updatedStateForLines,
+      player
+    )
+      ? 'recovery'
+      : 'territory';
+    const regionsForPlayer = getProcessableTerritoryRegions(updatedStateForLines.board, {
+      player,
+      eliminationContext: territoryEliminationContext,
+    });
     const hasTerritoryRegions = regionsForPlayer.length > 0;
     // Pass currentMove for parity with Python where move is in history during phase checks
     const hadAnyActionThisTurn = computeHadAnyActionThisTurn(
@@ -2605,8 +2621,60 @@ function processPostMovePhases(
       // IMPORTANT: Use stateMachine.gameState (updated after move application),
       // not the stale `state` snapshot from function start.
       const updatedState = stateMachine.gameState;
+      const territoryEliminationContext = didCurrentTurnIncludeRecoverySlide(
+        updatedState,
+        updatedState.currentPlayer
+      )
+        ? 'recovery'
+        : 'territory';
+
+      // Mandatory self-elimination after processing a region (RR-CANON-R145 / RR-CANON-R114).
+      // If this turn is in recovery context, the cost is a buried-ring extraction.
+      const elimScope: TerritoryEliminationScope = {
+        eliminationContext: territoryEliminationContext,
+      };
+      if (
+        originalMoveType === 'choose_territory_option' ||
+        originalMoveType === 'process_territory_region'
+      ) {
+        const processedRegion = stateMachine.processingState.originalMove.disconnectedRegions?.[0];
+        if (processedRegion) {
+          elimScope.processedRegion = processedRegion;
+        }
+      }
+
+      const eliminationMoves = enumerateTerritoryEliminationMoves(
+        updatedState,
+        updatedState.currentPlayer,
+        elimScope
+      );
+      if (eliminationMoves.length > 0) {
+        return {
+          pendingDecision: {
+            type: 'elimination_target',
+            player: updatedState.currentPlayer,
+            eliminationReason: 'territory_disconnection',
+            options: eliminationMoves,
+            context: {
+              description:
+                territoryEliminationContext === 'recovery'
+                  ? 'Choose which stack to extract a buried ring from (territory via recovery)'
+                  : 'Choose which stack to self-eliminate from (territory disconnection)',
+              relevantPositions: eliminationMoves
+                .map((m) => m.to)
+                .filter((p): p is Position => !!p),
+              extra: {
+                reason: 'territory_disconnection',
+                eliminationContext: territoryEliminationContext,
+              },
+            },
+          },
+        };
+      }
+
       const regions = getProcessableTerritoryRegions(updatedState.board, {
         player: updatedState.currentPlayer,
+        eliminationContext: territoryEliminationContext,
       });
 
       if (regions.length > 1) {
@@ -2777,6 +2845,19 @@ function processPostMovePhases(
   });
 
   return {};
+}
+
+function didCurrentTurnIncludeRecoverySlide(state: GameState, player: number): boolean {
+  for (let i = state.moveHistory.length - 1; i >= 0; i--) {
+    const move = state.moveHistory[i];
+    if (move.player !== player) {
+      break;
+    }
+    if (move.type === 'recovery_slide') {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
