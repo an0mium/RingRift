@@ -745,6 +745,44 @@ jobs:
           path: ai-service/results/ai_eval_baseline_vs_random.json
           retention-days: 14
 
+  python-ai-strength-regression:
+    name: Python AI Strength Regression Gate
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, python-core]
+    # CI Safety: deterministic eval-pool matchups with a gate.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        working-directory: ai-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run strength regression gate (CI preset)
+        working-directory: ai-service
+        run: |
+          mkdir -p results
+          python scripts/run_strength_regression_gate.py \
+            --mode ci \
+            --output-json results/ai_strength_regression_gate.json
+
+      - name: Upload strength regression gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-strength-regression-gate
+          path: ai-service/results/ai_strength_regression_gate.json
+          retention-days: 14
+
   e2e-tests:
     name: Playwright E2E Tests
     runs-on: ubuntu-latest
