@@ -185,7 +185,7 @@ A player who controls **zero stacks**, has **at least one marker**, and has **at
    - **Adjacent stack** (stack-strike, RR-CANON-R112(b2)): only in fallback-class recovery; the marker is sacrificed and does not occupy the destination.
 2. **Success criteria:** Legal if **either**:
    - **(a) Line formation:** Completes a line of **at least** `lineLength` consecutive markers of your colour. The line must be uninterrupted—collapsed spaces, opponent markers, or stacks break the line and segments on either side do not count toward the length requirement.
-   - **(b) Fallback-class recovery:** If no line-forming slide exists, one of the following adjacent recovery actions is permitted:
+   - **(b) Fallback-class recovery:** If no line-forming slide exists anywhere on the board for you, one of the following adjacent recovery actions is permitted:
      - **(b1) Fallback repositioning:** Slide to an adjacent empty cell (including slides that cause territory disconnection).
      - **(b2) Stack-strike:** Slide onto an adjacent stack, sacrificing the marker to eliminate that stack's top ring (credited to you).
 3. **Skip option:** You may skip recovery entirely, preserving buried rings for later.

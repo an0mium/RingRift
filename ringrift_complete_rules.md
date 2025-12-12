@@ -82,7 +82,7 @@ To align this prose with the canonical spec and engine SSoT, apply these clarifi
 
 - **Square8 line length:** Required line length is **4 for 2-player games** and **3 for 3–4 player games** on 8×8. Any “3+ on 8×8” shorthand without the 2p exception is superseded by this rule.
 - **Capture/movement landing on markers:** Landing after movement or capture may be on an empty space or a marker of **any** colour. If you land on a marker, remove it and eliminate the top ring of the landing stack’s cap. Disregard wording that limits landing to empty or own markers.
-- **Recovery slide legality:** Recovery slides are legal when they slide to an adjacent empty cell and complete a line of the required length; they need not “create” a brand-new line beyond that.
+- **Recovery slide legality:** Recovery actions (RR‑CANON‑R110–R115) happen in `movement` for recovery‑eligible players. A recovery slide may form a line by sliding a marker to an adjacent **empty** cell; if **no** line‑forming recovery slide exists anywhere, fallback‑class recovery is allowed (adjacent empty‑cell repositioning, including slides that cause territory disconnection, or stack‑strike onto an adjacent stack).
 - **Ring supply accounting:** Hand + on-board rings of a colour can be **less than** the starting supply once eliminations occur. Supply accounting should include eliminated rings (hand + on-board + eliminated = starting supply), not force hand + on-board to remain equal to supply.
 - **Digital/engine semantics:** In the digital/canonical implementation, all phase transitions and forced actions are explicit recorded moves (no silent “automatic” steps). When this document uses “automatic” language, read it as “forced but still recorded” for digital play.
 
@@ -571,7 +571,7 @@ This option is available **only once**, immediately after Player 1's first turn,
 
 > **Strategic Note:** Recovery actions are a powerful mechanic that lets players re-enter active play even after losing all their stacks. Unlike forced elimination (which is mandatory and removes your caps), recovery actions are voluntary and let you form lines or reposition markers while paying only a single buried ring. Maintaining buried rings in opponent stacks is a form of "survival insurance."
 
-A **recovery action** allows a player who controls no stacks but has markers and buried rings to take meaningful action during their turn. Recovery eligibility is independent of rings in hand; players with rings may choose recovery over placement.
+A **recovery action** allows a player who controls no stacks but has markers and buried rings to take meaningful action during their turn. Recovery eligibility is independent of rings in hand; even with rings in hand, you may skip placement and take recovery instead.
 
 • **Prerequisites:** A player may perform a recovery action during the movement phase if and only if **all** of the following conditions are met:
 
@@ -609,7 +609,7 @@ A **recovery action** allows a player who controls no stacks but has markers and
 - The stack's height decreases by 1. Remaining rings shift down. Stack control is determined by the new top ring.
 - If the stack becomes empty, it is removed from the board.
 
-• **Cascade Processing (Line Recovery Only):** If the line collapse creates disconnected territory regions (per Section 12), process them normally:
+• **Cascade Processing (Territory Disconnection):** If the recovery slide (line or fallback) creates disconnected territory regions (per Section 12), process them normally:
 
 - For each territory region the player chooses to claim, all rings inside are eliminated (credited to the player).
 - For each territory's self-elimination cost, the player must extract another buried ring from a stack **outside** that region.

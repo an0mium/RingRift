@@ -202,8 +202,8 @@ forced elimination.
 
 If you control **no stacks** but have **markers on the board** and **buried rings**
 (your rings at the bottom of opponents' stacks), you may perform a **recovery action**.
-Recovery eligibility is independent of rings in hand; players with rings may choose
-recovery over placement:
+Recovery eligibility is independent of rings in hand; even if you have rings in hand,
+you may skip placement and take recovery instead:
 
 1. **Slide** one of your markers to an adjacent destination:
    - **Empty cell** (normal recovery slide), or
@@ -221,9 +221,9 @@ recovery over placement:
 6. **Pay the cost** by extracting your bottommost ring from any stack containing your buried rings:
    - That ring is permanently eliminated (credited to you).
    - The stack shrinks by 1; its new top ring determines control.
-7. **Line recovery only:** If the line collapse creates **territory regions**, you may claim them by
-   extracting additional buried rings (one per region, from stacks outside
-   each region).
+7. **Territory disconnection:** If your recovery slide (line or fallback) results in
+   claimable **disconnected regions**, you may claim them by extracting additional buried rings
+   (one per region, from stacks outside each region).
 
 Recovery actions allow temporarily eliminated players to strike back from
 apparent defeat, turning buried rings into a strategic resource.

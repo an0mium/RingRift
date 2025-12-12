@@ -630,8 +630,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
     - P controls **zero stacks** (no cell has a top ring belonging to P).
     - P has **at least one marker** on the board.
     - P has **at least one buried ring**: a ring of P's colour that is **not** at the top position of any stack (i.e., it is underneath at least one other ring).
-  - Recovery eligibility is independent of rings in hand. Players with rings may choose recovery over placement.
-  - A player meeting these conditions may use recovery to regain board control even if they still have rings in hand.
+  - Recovery eligibility is independent of rings in hand.
+    - A recovery-eligible player may reach recovery by voluntarily recording `skip_placement` in `ring_placement` when `ringsInHand[P] > 0`.
+    - If `ringsInHand[P] == 0` (or no legal placements exist), the player records `no_placement_action` and proceeds to `movement` as usual.
+  - A player meeting these conditions may use recovery to regain board control even if they still have rings in hand (by skipping placement).
   - Recovery action is **NOT** a real action for Last-Player-Standing purposes (RR-CANON-R172). Like forced elimination, recovery does not reset the LPS countdown. Only ring placements and stack movements/captures count as real actions.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §4.5.
 
@@ -652,7 +654,7 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
 - **[RR-CANON-R112] Recovery action success criteria.**
   - A recovery marker slide is legal if **either** of these conditions is satisfied:
     - **(a) Line formation:** The resulting marker position completes a line of **at least `lineLength`** consecutive markers of P's colour (as defined by `lineAdjacency` for the board type).
-    - **(b) Fallback-class recovery:** If no slide satisfies condition (a), one of the following adjacent recovery actions is permitted:
+    - **(b) Fallback-class recovery:** If no slide anywhere on the board satisfies condition (a), one of the following adjacent recovery actions is permitted:
       - **(b1) Fallback repositioning:** Slide a marker to an adjacent empty cell (including slides that cause territory disconnection).
       - **(b2) Stack-strike:** Slide a marker onto an adjacent stack; the marker is removed from play and the attacked stack's top ring is eliminated and credited to P.
   - The minimum required length for line formation:
@@ -684,10 +686,10 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §4.5.4.
 
 - **[RR-CANON-R114] Recovery action cascade processing.**
-  - After the line is processed (markers collapse to territory), if the collapse creates one or more **disconnected territory regions** that P could claim:
+  - After the recovery slide (line or fallback), if it creates one or more **disconnected territory regions** that P could claim:
     - Each claimable region is processed per standard territory rules (RR-CANON-R140–R146).
     - Each territory claim requires its own self-elimination cost.
-    - For recovery actions, **each additional self-elimination must be paid by extracting another buried ring** from a stack **outside** the region being claimed.
+    - For recovery actions, **each territory self-elimination is paid by extracting one buried ring** from a stack **outside** the region being claimed.
     - If P has no buried rings in stacks outside a given region, that region cannot be claimed and remains unprocessed.
   - After all line and territory processing completes, victory conditions are evaluated per RR-CANON-R170–R173.
   - References: [`ringrift_compact_rules.md`](ringrift_compact_rules.md) §2.4; [`ringrift_complete_rules.md`](ringrift_complete_rules.md) §§4.5.5–4.5.7.
@@ -742,9 +744,9 @@ The Compact Spec is generally treated as primary for formal semantics, and the C
   - **Line processing bundled into `recovery_slide` (line mode only):**
     - For `recoveryMode == 'line'`, the line collapse and self-elimination are bundled into the `recovery_slide` move effect.
     - This is analogous to how `move_stack` bundles marker interactions along the movement path.
-    - After `recovery_slide`, the engine does **not** enter a separate `line_processing` phase (unless overlength).
+    - After `recovery_slide`, the turn still proceeds to the canonical `line_processing` and `territory_processing` phases (RR-CANON-R073/R075). If no additional lines exist for P, an explicit `no_line_action` is recorded.
   - **Phase: `territory_processing` (if cascades exist)**
-    - If the line collapse creates disconnected territory regions per RR-CANON-R140–R142, the engine enters `territory_processing` as usual.
+    - If the recovery slide (line or fallback) creates disconnected territory regions per RR-CANON-R140–R142, the engine enters `territory_processing` as usual.
     - P processes each claimable region via standard `choose_territory_option` decisions.
     - Self-elimination for each territory claim uses `eliminate_rings_from_stack`:
       - **Normal territory processing:** eliminates the entire cap (all consecutive top rings of P's colour) from a P-controlled stack outside the region.

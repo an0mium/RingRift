@@ -1,0 +1,45 @@
+{
+  "tournament_id": "27ec6c36",
+  "started_at": "2025-12-12T18:13:49.742859+00:00",
+  "board_type": "square8",
+  "games_per_matchup": 1,
+  "tiers": ["D1", "D2"],
+  "base_seed": 1,
+  "think_time_scale": 0.05,
+  "nn_model_id": null,
+  "matches": [
+    {
+      "tier_a": "D1",
+      "tier_b": "D2",
+      "winner": null,
+      "game_length": 50,
+      "duration_sec": 4.915637969970703,
+      "worker": "worker_0",
+      "game_id": "6aad5e61",
+      "timestamp": "2025-12-12T18:13:54.658910+00:00",
+      "seed": 3237300316,
+      "game_index": 0
+    }
+  ],
+  "tier_stats": {
+    "D1": {
+      "tier": "D1",
+      "wins": 0,
+      "losses": 0,
+      "draws": 1,
+      "games_played": 1,
+      "win_rate": 0.5,
+      "elo": 1500.0
+    },
+    "D2": {
+      "tier": "D2",
+      "wins": 0,
+      "losses": 0,
+      "draws": 1,
+      "games_played": 1,
+      "win_rate": 0.5,
+      "elo": 1500.0
+    }
+  },
+  "completed_matchups": [["D1", "D2"]]
+}

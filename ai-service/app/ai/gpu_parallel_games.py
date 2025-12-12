@@ -896,8 +896,9 @@ class BatchGameState:
         moves = []
         num_moves = min(self.move_count[game_idx].item(), self.max_history_moves)
 
-        # Move type names for output - must match canonical MoveType enum values
+        # Move type names for output - must match MoveType enum values
         # from app/models/core.py for compatibility with jsonl_to_npz.py
+        # MoveType.PLACE_RING = "place_ring", MoveType.MOVE_STACK = "move_stack"
         move_type_names = {
             MoveType.PLACEMENT: "place_ring",
             MoveType.MOVEMENT: "move_stack",

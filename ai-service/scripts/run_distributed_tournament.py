@@ -24,9 +24,6 @@ Usage:
     # Quick validation run
     python scripts/run_distributed_tournament.py --games-per-matchup 10 --tiers D1,D2,D3
 
-    # Use specific hosts only
-    python scripts/run_distributed_tournament.py --hosts aws-staging,lambda-gpu
-
     # Resume from previous run
     python scripts/run_distributed_tournament.py --resume results/tournament_20251211.json
 """
