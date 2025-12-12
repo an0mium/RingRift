@@ -323,7 +323,7 @@ function useBackendDiagnosticsLog(
     lastConnectionStatusRef.current = connectionStatus;
   }, [connectionStatus]);
 
-  // Weird-state (ANM / forced elimination / structural stalemate) diagnostics.
+  // Weird-state (ANM / forced elimination / structural stalemate / LPS) diagnostics.
   useEffect(() => {
     if (!gameState) {
       lastWeirdStateTypeRef.current = null;
@@ -394,6 +394,15 @@ function useBackendDiagnosticsLog(
     if (nextType === 'structural-stalemate' && prevType !== 'structural-stalemate') {
       events.push(
         'Structural stalemate: no legal placements, movements, captures, or forced eliminations remain. The game ended by plateau auto-resolution.'
+      );
+    }
+
+    // Detect last-player-standing terminal condition.
+    if (nextType === 'last-player-standing' && prevType !== 'last-player-standing') {
+      const winner = (weird as Extract<typeof weird, { winner?: number }>).winner;
+      const label = typeof winner === 'number' ? `P${winner}` : 'A player';
+      events.push(
+        `Last Player Standing: ${label} won after two complete rounds where only they had real moves available.`
       );
     }
 
@@ -582,7 +591,7 @@ export const BackendGameHost: React.FC<BackendGameHostProps> = ({ gameId: routeG
   const [isResignConfirmOpen, setIsResignConfirmOpen] = useState(false);
 
   // Weird-state tracking for rules-UX telemetry.
-  // We only care about coarse weird-state categories (ANM/FE/structural stalemate)
+  // We only care about coarse weird-state categories (ANM/FE/structural stalemate/LPS)
   // and a single coarse timestamp for "seconds since weird state" on resign.
   const weirdStateFirstSeenAtRef = useRef<number | null>(null);
   const weirdStateTypeRef = useRef<RulesUxWeirdStateType | 'none'>('none');

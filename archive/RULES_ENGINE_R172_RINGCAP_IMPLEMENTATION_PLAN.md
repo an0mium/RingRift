@@ -88,7 +88,7 @@ Shared state and board helpers:
   - Holds global fields such as `currentPlayer`, `currentPhase`, `gameStatus`, `moveHistory`, `history`, and thresholds.
   - Currently no explicit LPS-tracking metadata.
 - [`BOARD_CONFIGS`](src/shared/types/game.ts:602)
-  - Source of `ringsPerPlayer` for each board: 18 (square8), 36 (square19, hexagonal).
+  - Source of `ringsPerPlayer` for each board: 18 (square8), 48 (square19), 72 (hexagonal).
 - [`MovementBoardView` and `hasAnyLegalMoveOrCaptureFromOnBoard()`](src/shared/engine/core.ts:173)
   - Core reachability helper for non-capture moves and overtaking captures; used both for no-dead-placement and forced elimination.
 - **New shared helper (to be added)**:

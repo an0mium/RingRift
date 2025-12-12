@@ -285,7 +285,7 @@ function setIsMobile(value: boolean) {
 
 function createMockSandboxContext(overrides: Partial<any> = {}): any {
   const config = createLocalConfig();
-  return {
+  const base = {
     config,
     setConfig: jest.fn(),
     isConfigured: false,
@@ -308,13 +308,27 @@ function createMockSandboxContext(overrides: Partial<any> = {}): any {
     sandboxDiagnosticsEnabled: true,
     developerToolsEnabled: false,
     setDeveloperToolsEnabled: jest.fn(),
-    developerToolsEnabled: false,
-    setDeveloperToolsEnabled: jest.fn(),
     initLocalSandboxEngine: jest.fn(),
     getSandboxGameState: jest.fn(() => null),
     resetSandboxEngine: jest.fn(),
-    ...overrides,
   };
+
+  const merged = { ...base, ...overrides };
+
+  if (merged.sandboxEngine) {
+    const engine = merged.sandboxEngine;
+    merged.sandboxEngine = {
+      ...engine,
+      getLpsTrackingState:
+        typeof engine.getLpsTrackingState === 'function'
+          ? engine.getLpsTrackingState
+          : jest.fn(() => null),
+      getValidMoves:
+        typeof engine.getValidMoves === 'function' ? engine.getValidMoves : jest.fn(() => []),
+    };
+  }
+
+  return merged;
 }
 
 // Helper: find a square-board cell for sandbox BoardView
@@ -344,6 +358,8 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('ringrift_sandbox_sidebar_show_advanced', 'true');
     lastBoardViewProps = null;
     mockSandboxValue = createMockSandboxContext();
     mockMaybeRunSandboxAiIfNeeded.mockReset();
@@ -406,6 +422,8 @@ describe('SandboxGameHost (React host behaviour)', () => {
       getGameState: jest.fn(() => sandboxState),
       getVictoryResult: jest.fn(() => null as GameResult | null),
       getGameEndExplanation: jest.fn(() => null),
+      getLpsTrackingState: jest.fn(() => null),
+      getValidMoves: jest.fn(() => []),
     };
 
     mockSandboxValue = createMockSandboxContext({
@@ -1274,6 +1292,8 @@ describe('SandboxGameHost (React host behaviour)', () => {
 
     render(<SandboxGameHost />);
 
+    fireEvent.click(screen.getByRole('button', { name: /Show advanced options/i }));
+
     const launchButton = screen.getByRole('button', { name: /Launch Game/i });
     fireEvent.click(launchButton);
 
@@ -1473,6 +1493,10 @@ describe('SandboxGameHost (React host behaviour)', () => {
     const initLocalSandboxEngine = jest.fn();
     const fakeEngine = {
       getGameState: jest.fn(() => sandboxState),
+      getVictoryResult: jest.fn(() => null as GameResult | null),
+      getGameEndExplanation: jest.fn(() => null),
+      getLpsTrackingState: jest.fn(() => null),
+      getValidMoves: jest.fn(() => []),
       initFromSerializedState: jest.fn(),
     };
     initLocalSandboxEngine.mockReturnValue(fakeEngine);

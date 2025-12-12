@@ -334,6 +334,7 @@ function getSquareCell(x: number, y: number): HTMLButtonElement {
 describe('BackendGameHost (React host behaviour)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    localStorage.clear();
 
     // Default weird-state helper behaviour: no weird state unless a test
     // overrides it explicitly.
@@ -466,6 +467,7 @@ describe('BackendGameHost (React host behaviour)', () => {
       },
     ];
 
+    localStorage.setItem('ringrift_backend_sidebar_show_advanced', 'true');
     render(<BackendGameHost gameId="game-123" />);
 
     // Attempting to click a legal move as a spectator must not submit moves.
