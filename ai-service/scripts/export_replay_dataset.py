@@ -50,10 +50,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from app.db import GameReplayDB
 from app.models import AIConfig, BoardType, GameState, Move
