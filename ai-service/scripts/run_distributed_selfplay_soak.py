@@ -270,7 +270,10 @@ def get_remote_memory_gb(host_name: str, host_config: Dict) -> Tuple[int, int]:
         Tuple of (total_gb, available_gb)
     """
     ssh_host = host_config["ssh_host"]
+    ssh_user = host_config.get("ssh_user")
+    ssh_port = host_config.get("ssh_port")
     ssh_key = host_config.get("ssh_key")
+    ssh_target = f"{ssh_user}@{ssh_host}" if ssh_user else ssh_host
 
     # First check if memory_gb is in config (for total)
     if "memory_gb" in host_config:
@@ -280,6 +283,8 @@ def get_remote_memory_gb(host_name: str, host_config: Dict) -> Tuple[int, int]:
         config_total = None
 
     ssh_cmd_base = ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes"]
+    if ssh_port:
+        ssh_cmd_base.extend(["-p", str(ssh_port)])
     if ssh_key:
         ssh_cmd_base.extend(["-i", os.path.expanduser(ssh_key)])
 
@@ -292,7 +297,7 @@ def get_remote_memory_gb(host_name: str, host_config: Dict) -> Tuple[int, int]:
             total_gb = config_total
         else:
             ssh_cmd = ssh_cmd_base + [
-                ssh_host,
+                ssh_target,
                 "sysctl -n hw.memsize 2>/dev/null || grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2 * 1024}'",
             ]
             result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
@@ -314,7 +319,7 @@ else
     echo 4
 fi
 """
-        ssh_cmd = ssh_cmd_base + [ssh_host, vm_stat_script]
+        ssh_cmd = ssh_cmd_base + [ssh_target, vm_stat_script]
         result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=15)
         if result.returncode == 0 and result.stdout.strip():
             available_gb = int(result.stdout.strip())
@@ -406,6 +411,7 @@ class JobConfig:
     num_players: int
     num_games: int
     max_moves: int
+    difficulty_band: str
     output_db: str
     log_jsonl: str
     seed: int
@@ -416,6 +422,7 @@ def generate_job_configs(
     hosts: List[str],
     output_dir: str,
     base_seed: int = 42,
+    difficulty_band: str = "light",
     host_memory: Optional[Dict[str, int]] = None,
     allowed_board_types: Optional[List[str]] = None,
     allowed_num_players: Optional[List[int]] = None,
@@ -474,6 +481,7 @@ def generate_job_configs(
                         num_players=num_players,
                         num_games=host_games,
                         max_moves=max_moves,
+                        difficulty_band=difficulty_band,
                         output_db=os.path.join(output_dir, f"selfplay_{config_id}_{host}.db"),
                         log_jsonl=os.path.join(output_dir, f"selfplay_{config_id}_{host}.jsonl"),
                         seed=job_seed,
@@ -489,6 +497,15 @@ def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
     cmd_parts = [
         "PYTHONPATH=.",
         "RINGRIFT_SKIP_SHADOW_CONTRACTS=true",
+        # Canonical self-play invariants / parity enforcement.
+        # Keep these strict by default so distributed soaks produce debuggable,
+        # parity-safe recordings (especially for training data).
+        "RINGRIFT_STRICT_NO_MOVE_INVARIANT=1",
+        "RINGRIFT_PARITY_VALIDATION=strict",
+        "RINGRIFT_FORCE_BOOKKEEPING_MOVES=1",
+        # Keep OpenMP usage conservative for stability across hosts/containers.
+        "OMP_NUM_THREADS=1",
+        "MKL_NUM_THREADS=1",
     ]
     # Propagate experimental recovery flag if set
     if os.getenv("RINGRIFT_RECOVERY_STACK_STRIKE_V1", "").lower() in ("1", "true"):
@@ -502,15 +519,17 @@ def build_soak_command(job: JobConfig, is_remote: bool = False) -> str:
         f"--max-moves {job.max_moves}",
         f"--seed {job.seed}",
         "--engine-mode mixed",
-        "--difficulty-band canonical",
+        f"--difficulty-band {job.difficulty_band}",
         f"--log-jsonl {job.log_jsonl}",
         f"--record-db {job.output_db}",
+        "--fail-on-anomaly",
         "--verbose 10",
         "--gc-interval 5",
     ])
 
     # Add memory constraints for large boards
     if job.board_type in ("square19", "hexagonal"):
+        cmd_parts.extend(["--streaming-record", "--intra-game-gc-interval 50"])
         cmd_parts.append("--memory-constrained")
 
     return " ".join(cmd_parts)
@@ -553,6 +572,7 @@ def run_remote_job(job: JobConfig, host_config: Dict) -> Tuple[str, bool, str]:
     """Run a self-play job on a remote machine via SSH."""
     ssh_host = host_config["ssh_host"]
     ssh_user = host_config.get("ssh_user")
+    ssh_port = host_config.get("ssh_port")
     ringrift_path = host_config.get("ringrift_path") or host_config.get("work_dir", "~/Development/RingRift")
     venv_activate = host_config.get("venv_activate", "source venv/bin/activate")
     ssh_key = host_config.get("ssh_key")
@@ -571,6 +591,8 @@ def run_remote_job(job: JobConfig, host_config: Dict) -> Tuple[str, bool, str]:
         "-o",
         "ServerAliveInterval=60",
     ]
+    if ssh_port:
+        ssh_cmd.extend(["-p", str(ssh_port)])
     if ssh_key:
         ssh_cmd.extend(["-i", os.path.expanduser(ssh_key)])
     ssh_cmd.extend([ssh_target, remote_cmd])
@@ -615,7 +637,12 @@ def run_job(job: JobConfig, ringrift_ai_dir: str) -> Tuple[str, bool, str]:
         return job.job_id, False, f"Unknown host: {job.host}"
 
 
-def fetch_remote_results(jobs: List[JobConfig], output_dir: str) -> List[str]:
+def fetch_remote_results(
+    jobs: List[JobConfig],
+    output_dir: str,
+    *,
+    fetch_jsonl: bool,
+) -> List[str]:
     """Fetch database files from remote hosts.
 
     Returns:
@@ -628,6 +655,7 @@ def fetch_remote_results(jobs: List[JobConfig], output_dir: str) -> List[str]:
             host_config = REMOTE_HOSTS[job.host]
             ssh_host = host_config["ssh_host"]
             ssh_user = host_config.get("ssh_user")
+            ssh_port = host_config.get("ssh_port")
             ssh_key = host_config.get("ssh_key")
             ringrift_path = host_config.get("ringrift_path") or host_config.get("work_dir", "~/Development/RingRift")
 
@@ -642,6 +670,8 @@ def fetch_remote_results(jobs: List[JobConfig], output_dir: str) -> List[str]:
             scp_cmd = ["scp"]
             if ssh_key:
                 scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
+            if ssh_port:
+                scp_cmd.extend(["-P", str(ssh_port)])
             scp_cmd.extend([f"{ssh_target}:{remote_db}", local_db])
 
             try:
@@ -657,6 +687,31 @@ def fetch_remote_results(jobs: List[JobConfig], output_dir: str) -> List[str]:
                 print(f"  -> Failed to fetch: {e}")
             except subprocess.TimeoutExpired:
                 print(f"  -> Fetch timed out")
+
+            if fetch_jsonl:
+                remote_jsonl = f"{ringrift_path}/ai-service/{job.log_jsonl}"
+                local_jsonl = os.path.join(output_dir, os.path.basename(job.log_jsonl))
+                print(f"Fetching {remote_jsonl} from {ssh_target}...")
+
+                scp_cmd = ["scp"]
+                if ssh_key:
+                    scp_cmd.extend(["-i", os.path.expanduser(ssh_key)])
+                if ssh_port:
+                    scp_cmd.extend(["-P", str(ssh_port)])
+                scp_cmd.extend([f"{ssh_target}:{remote_jsonl}", local_jsonl])
+
+                try:
+                    subprocess.run(
+                        scp_cmd,
+                        check=True,
+                        capture_output=True,
+                        timeout=300,
+                    )
+                    print(f"  -> Saved to {local_jsonl}")
+                except subprocess.CalledProcessError as e:
+                    print(f"  -> Failed to fetch JSONL: {e}")
+                except subprocess.TimeoutExpired:
+                    print(f"  -> JSONL fetch timed out")
         elif job.host == "local":
             # Local jobs already have their DB in the output dir
             local_db = os.path.join(output_dir, os.path.basename(job.output_db))
@@ -768,6 +823,17 @@ def main():
         help="Base random seed for reproducibility",
     )
     parser.add_argument(
+        "--difficulty-band",
+        type=str,
+        choices=["canonical", "light"],
+        default="light",
+        help=(
+            "AI difficulty band for engine_mode='mixed' during the soak. "
+            "'light' avoids heavy MCTS/Descent tiers for faster, more debuggable runs "
+            "(default: light)."
+        ),
+    )
+    parser.add_argument(
         "--max-parallel-per-host",
         type=int,
         default=2,
@@ -782,6 +848,11 @@ def main():
         "--skip-fetch",
         action="store_true",
         help="Skip fetching results from remote hosts",
+    )
+    parser.add_argument(
+        "--fetch-jsonl",
+        action="store_true",
+        help="Also fetch per-job JSONL logs from remote hosts.",
     )
     parser.add_argument(
         "--run-parity",
@@ -853,6 +924,7 @@ def main():
         hosts=hosts,
         output_dir=args.output_dir,
         base_seed=args.base_seed,
+        difficulty_band=args.difficulty_band,
         host_memory=host_memory,
         allowed_board_types=allowed_board_types,
         allowed_num_players=allowed_num_players,
@@ -862,6 +934,7 @@ def main():
     print(f"Distributed Self-Play Soak Configuration")
     print(f"{'='*60}")
     print(f"Games per config: {args.games_per_config}")
+    print(f"Difficulty band: {args.difficulty_band}")
     print(f"Hosts: {', '.join(hosts)}")
     print(f"Output directory: {output_dir}")
     print(f"Total jobs: {len(jobs)}")
@@ -935,7 +1008,11 @@ def main():
     if not args.skip_fetch:
         print()
         print("Fetching results from remote hosts...")
-        fetched_dbs = fetch_remote_results(jobs, output_dir)
+        fetched_dbs = fetch_remote_results(
+            jobs,
+            output_dir,
+            fetch_jsonl=bool(args.fetch_jsonl),
+        )
         print(f"Fetched {len(fetched_dbs)} database(s) to {output_dir}")
 
     # Run parity checks if requested

@@ -41,8 +41,8 @@ Status tags:
   `generate_canonical_selfplay.py`; parity + canonical history pass and the
   registry is updated (`canonical_ok=true`).
 - **done** Gated initial `canonical_square8_3p.db` (3P) (`canonical_ok=true`).
-- **next** Fix/re-generate `canonical_square8_4p.db` (4P); parity gate currently
-  fails (`canonical_ok=false`).
+- **done** Gated initial `canonical_square8_4p.db` (4P) (`canonical_ok=true`);
+  scale up before training.
 - **done** Gated initial `canonical_square19.db` (2P) (`canonical_ok=true`);
   scale up before training.
 - **next** Regenerate `canonical_hex.db` (radius‑12) and gate it, then update
@@ -59,6 +59,9 @@ Status tags:
   to keep self-play runs reproducible under a base seed and reduce correlated RNG.
 - **done** Promotion gating in `ai-service/scripts/run_improvement_loop.py` now uses
   a Wilson CI lower-bound check (configurable `--promotion-confidence` and `--eval-games`).
+- **in_progress** Re-run distributed D1–D10 tournaments (10 games/matchup) on GPU
+  hosts with `TORCH_COMPILE_DISABLE=1` for stability; collect reports from
+  `ai-service/results/tournaments/report_*.json`.
 - **next** Implement real ReAnalyze over DB‑stored games
   (`ai-service/app/training/reanalyze.py`) to refresh targets with newer models.
 - **next** Generalize tier tournaments / gates to square19 + hex and 3P/4P pools

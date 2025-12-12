@@ -55,13 +55,7 @@ from app.db.game_replay import GameReplayDB
 from app.rules.history_validation import validate_canonical_history_for_game
 
 
-
-def _run_cmd(
-    cmd: List[str],
-    cwd: Path | None = None,
-    *,
-    capture_output: bool = True,
-) -> subprocess.CompletedProcess:
+def _build_env() -> Dict[str, str]:
     env = os.environ.copy()
     # Ensure PYTHONPATH includes ai-service root when invoked from repo root.
     # Prepend absolute AI_SERVICE_ROOT if missing so relative PYTHONPATH values
@@ -71,17 +65,69 @@ def _run_cmd(
     if str(AI_SERVICE_ROOT) not in parts:
         parts.insert(0, str(AI_SERVICE_ROOT))
     env["PYTHONPATH"] = os.pathsep.join(parts)
+
     # Keep OpenMP usage conservative by default.
     env.setdefault("OMP_NUM_THREADS", os.environ.get("OMP_NUM_THREADS", "1"))
     env.setdefault("MKL_NUM_THREADS", os.environ.get("MKL_NUM_THREADS", "1"))
+    return env
+
+
+
+def _run_cmd(
+    cmd: List[str],
+    cwd: Path | None = None,
+    *,
+    capture_output: bool = True,
+    stream_to_stderr: bool = False,
+) -> subprocess.CompletedProcess:
+    env = _build_env()
+    stdout = None
+    stderr = None
+    if stream_to_stderr:
+        # Keep stdout clean for the final JSON gate summary while still
+        # providing progress output during long runs.
+        stdout = sys.stderr
+        stderr = sys.stderr
     proc = subprocess.run(
         cmd,
         cwd=str(cwd or AI_SERVICE_ROOT),
         env=env,
         text=True,
-        capture_output=capture_output,
+        capture_output=capture_output and not stream_to_stderr,
+        stdout=stdout,
+        stderr=stderr,
     )
     return proc
+
+
+def _run_cmd_tee(
+    cmd: List[str],
+    cwd: Path | None = None,
+    *,
+    max_output_lines: int = 5000,
+) -> subprocess.CompletedProcess:
+    """Run a command while streaming output to stderr and capturing it."""
+    env = _build_env()
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd or AI_SERVICE_ROOT),
+        env=env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    assert proc.stdout is not None
+
+    lines: list[str] = []
+    for line in proc.stdout:
+        print(line, end="", file=sys.stderr, flush=True)
+        lines.append(line)
+        if len(lines) > max_output_lines:
+            lines.pop(0)
+
+    rc = proc.wait()
+    stdout = "".join(lines)
+    return subprocess.CompletedProcess(cmd, rc, stdout=stdout, stderr="")
 
 
 def run_selfplay_and_parity(
@@ -121,11 +167,13 @@ def run_selfplay_and_parity(
 
         print(
             f"[generate_canonical_selfplay] Skipping soak (num_games={num_games}); running parity on existing DB...",
+            file=sys.stderr,
             flush=True,
         )
         if num_existing_games is not None:
             print(
                 f"[generate_canonical_selfplay] Existing DB contains {num_existing_games} game(s): {db_path}",
+                file=sys.stderr,
                 flush=True,
             )
         cmd = [
@@ -142,10 +190,16 @@ def run_selfplay_and_parity(
         ]
         if parity_limit_games_per_db and parity_limit_games_per_db > 0:
             cmd += ["--limit-games-per-db", str(parity_limit_games_per_db)]
-        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, capture_output=False)
+        proc = _run_cmd(
+            cmd,
+            cwd=AI_SERVICE_ROOT,
+            capture_output=False,
+            stream_to_stderr=True,
+        )
     else:
         print(
             f"[generate_canonical_selfplay] Running canonical soak ({num_games} games) + parity gate...",
+            file=sys.stderr,
             flush=True,
         )
         cmd = [
@@ -167,7 +221,12 @@ def run_selfplay_and_parity(
         if hosts:
             cmd += ["--hosts", hosts]
 
-        proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT, capture_output=False)
+        proc = _run_cmd(
+            cmd,
+            cwd=AI_SERVICE_ROOT,
+            capture_output=False,
+            stream_to_stderr=True,
+        )
 
     parity_summary: Dict[str, Any]
     if summary_path.exists():
@@ -257,7 +316,20 @@ def run_canonical_history_check(db_path: Path) -> Dict[str, Any]:
 
     issues_by_game: Dict[str, List[Dict[str, Any]]] = {}
 
-    for gid in game_ids:
+    if game_ids:
+        print(
+            f"[generate_canonical_selfplay] Canonical history check: {len(game_ids)} game(s)",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    for idx, gid in enumerate(game_ids):
+        if idx and idx % 25 == 0:
+            print(
+                f"[generate_canonical_selfplay] Canonical history progress: {idx}/{len(game_ids)}",
+                file=sys.stderr,
+                flush=True,
+            )
         report = validate_canonical_history_for_game(db, gid)
         if not report.is_canonical:
             issues_by_game[gid] = [
@@ -305,17 +377,24 @@ def run_fe_territory_fixtures(board_type: str) -> bool:
             f"board_type={board_type!r}; "
             "treating as fe_territory_fixtures_ok=True."
         )
-        print(msg)
+        print(msg, file=sys.stderr, flush=True)
         return True
 
     cmd = [sys.executable, "-m", "pytest", *test_args]
-    proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+    print(
+        f"[generate_canonical_selfplay] Running FE/territory fixtures: {board_type}",
+        file=sys.stderr,
+        flush=True,
+    )
+    proc = _run_cmd_tee(cmd, cwd=AI_SERVICE_ROOT)
 
     if proc.returncode != 0:
         joined_cmd = " ".join(cmd)
         print(
             "[generate_canonical_selfplay] FE/territory fixture tests FAILED "
-            f"for board_type={board_type!r} using command: {joined_cmd}"
+            f"for board_type={board_type!r} using command: {joined_cmd}",
+            file=sys.stderr,
+            flush=True,
         )
 
         output = (proc.stdout or "") + (proc.stderr or "")
@@ -324,7 +403,9 @@ def run_fe_territory_fixtures(board_type: str) -> bool:
             preview = "\n".join(lines[:20])
             print(
                 "[generate_canonical_selfplay] Pytest output (truncated):\n"
-                f"{preview}"
+                f"{preview}",
+                file=sys.stderr,
+                flush=True,
             )
 
         return False
@@ -352,7 +433,12 @@ def run_anm_invariants(board_type: str) -> Dict[str, Any]:
         "-q",
     ]
     cmd = [sys.executable, "-m", "pytest", *test_args]
-    proc = _run_cmd(cmd, cwd=AI_SERVICE_ROOT)
+    print(
+        f"[generate_canonical_selfplay] Running ANM invariants: {board_type}",
+        file=sys.stderr,
+        flush=True,
+    )
+    proc = _run_cmd_tee(cmd, cwd=AI_SERVICE_ROOT)
 
     output = (proc.stdout or "") + (proc.stderr or "")
     num_tests: int | None = None
@@ -606,6 +692,11 @@ def main(argv: List[str] | None = None) -> int:
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         with summary_path.open("w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2, sort_keys=True)
+        print(
+            f"[generate_canonical_selfplay] Wrote summary: {summary_path}",
+            file=sys.stderr,
+            flush=True,
+        )
 
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0 if canonical_ok else 1

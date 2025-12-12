@@ -359,12 +359,15 @@ def main() -> None:
             str(args.num_players),
             "--base-seed",
             str(args.seed),
+            "--difficulty-band",
+            args.difficulty_band,
             "--max-parallel-per-host",
             "2",
+            "--fetch-jsonl",
         ]
         print(
             f"[parity-gate] distributed soak: board={args.board_type} players={args.num_players} "
-            f"games_per_host={args.num_games}",
+            f"games_per_config={args.num_games} difficulty_band={args.difficulty_band}",
             file=sys.stderr,
             flush=True,
         )

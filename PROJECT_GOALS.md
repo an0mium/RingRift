@@ -189,6 +189,8 @@ To avoid duplicating live metrics, this section describes the **shape** of the t
 
 ### 4.3 Feature completion criteria
 
+These are **release gate criteria**, not a live progress checklist. For current status, see [`CURRENT_STATE_ASSESSMENT.md`](CURRENT_STATE_ASSESSMENT.md:1).
+
 - [ ] All 24 FAQ scenarios from the rules document have corresponding tests
 - [ ] All three board types (8×8, 19×19, hex) fully playable end-to-end
 - [ ] All victory conditions (Ring Elimination, Territory Control, Last Player Standing) correctly implemented and surfaced via game-end explanations

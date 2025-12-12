@@ -315,6 +315,8 @@ def run_selfplay(
             str(games),
             "--num-players",
             str(players),
+            "--difficulty-band",
+            str(config.get("selfplay_difficulty_band", "canonical")),
             "--db",
             str(replay_db_path),
             "--summary",
@@ -445,32 +447,57 @@ def export_training_data(
             best_model = AI_SERVICE_ROOT / "models" / f"{board}_{players}p_best.pth"
             if best_model.exists():
                 nn_model_id = best_model.stem
+        if nn_model_id is None:
+            nn_model_id = _resolve_default_reanalysis_nn_model_id(board, int(players))
 
-        cmd = [
-            "python",
-            "scripts/reanalyze_replay_dataset.py",
-            "--db",
-            str(replay_db_path),
-            "--board-type",
-            board,
-            "--num-players",
-            str(players),
-            "--output",
-            str(output_path),
-            "--require-completed",
-            "--min-moves",
-            "20",
-            "--policy-target",
-            dataset_policy_target,
-            "--policy-search-think-time-ms",
-            str(policy_search_think_time_ms),
-            "--policy-temperature",
-            str(policy_temperature),
-        ]
-        if nn_model_id:
-            cmd += ["--nn-model-id", str(nn_model_id)]
-
-        timeout_sec = 7200
+        if not nn_model_id:
+            print(
+                "[reanalysis] No usable NN checkpoint found; "
+                "falling back to played policy targets. "
+                "(Pass --policy-nn-model-id or train a *_best.pth to enable reanalysis.)",
+                file=sys.stderr,
+            )
+            dataset_policy_target = "played"
+            cmd = [
+                "python",
+                "scripts/export_replay_dataset.py",
+                "--db",
+                str(replay_db_path),
+                "--board-type",
+                board,
+                "--num-players",
+                str(players),
+                "--output",
+                str(output_path),
+                "--require-completed",
+                "--min-moves",
+                "20",
+            ]
+        else:
+            cmd = [
+                "python",
+                "scripts/reanalyze_replay_dataset.py",
+                "--db",
+                str(replay_db_path),
+                "--board-type",
+                board,
+                "--num-players",
+                str(players),
+                "--output",
+                str(output_path),
+                "--require-completed",
+                "--min-moves",
+                "20",
+                "--policy-target",
+                dataset_policy_target,
+                "--policy-search-think-time-ms",
+                str(policy_search_think_time_ms),
+                "--policy-temperature",
+                str(policy_temperature),
+                "--nn-model-id",
+                str(nn_model_id),
+            ]
+            timeout_sec = 7200
 
     if dataset_max_games is not None:
         cmd += ["--max-games", str(int(dataset_max_games))]
@@ -867,6 +894,18 @@ def main():
         help="Number of evaluation games per iteration (default: 100).",
     )
     parser.add_argument(
+        "--selfplay-difficulty-band",
+        type=str,
+        choices=["canonical", "light"],
+        default="canonical",
+        help=(
+            "Difficulty band for canonical self-play. "
+            "'canonical' samples across the full ladder (includes MCTS/Descent+NN); "
+            "'light' restricts to Random/Heuristic/Minimax for speed. "
+            "(default: canonical)"
+        ),
+    )
+    parser.add_argument(
         "--dataset-policy-target",
         type=str,
         choices=["played", "mcts_visits", "descent_softmax"],
@@ -952,6 +991,7 @@ def main():
         "promotion_threshold": args.promotion_threshold,
         "promotion_confidence": args.promotion_confidence,
         "eval_games": args.eval_games,
+        "selfplay_difficulty_band": args.selfplay_difficulty_band,
         "dataset_policy_target": args.dataset_policy_target,
         "dataset_max_games": args.dataset_max_games,
         "policy_search_think_time_ms": args.policy_search_think_time_ms,
@@ -984,6 +1024,7 @@ def main():
         print(f"Gate summary: {gate_summary_path}")
     print(f"Iterations: {start_iter + 1} to {args.iterations}")
     print(f"Games per iteration: {args.games_per_iter}")
+    print(f"Self-play difficulty band: {args.selfplay_difficulty_band}")
     print(f"Eval games per iteration: {args.eval_games}")
     print(f"Promotion threshold: {args.promotion_threshold:.0%}")
     print(f"Promotion confidence: {args.promotion_confidence:.0%}")

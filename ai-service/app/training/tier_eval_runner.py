@@ -231,13 +231,24 @@ def _play_matchup(
 
     for game_index in range(games_to_play):
         stats.games += 1
-        # Alternate seats to reduce first-move bias.
-        candidate_seat = 1 if (game_index % 2 == 0) else 2
-        opponent_seat = 2 if candidate_seat == 1 else 1
+        # Rotate the candidate across all seats to reduce first-move bias.
+        # In 3p/4p, all non-candidate seats are controlled by independent
+        # opponent AIs configured from the same TierOpponentConfig.
+        num_players = int(tier_config.num_players)
+        if num_players < 2:
+            raise ValueError(
+                f"tier_eval_runner requires num_players>=2 (got {num_players})"
+            )
+        candidate_seat = (game_index % num_players) + 1
 
         game_seed: Optional[int] = None
         if base_seed is not None:
             game_seed = (base_seed * 1_000_003 + game_index) & 0x7FFFFFFF
+
+        def _derive_player_seed(base: Optional[int], player: int) -> Optional[int]:
+            if base is None:
+                return None
+            return (base * 1_000_003 + player * 97) & 0x7FFFFFFF
 
         candidate_ai = _create_ladder_ai_instance(
             tier_config=tier_config,
@@ -249,20 +260,25 @@ def _play_matchup(
                 else tier_config.time_budget_ms
             ),
             ai_type_override=None,
-            rng_seed=game_seed,
+            rng_seed=_derive_player_seed(game_seed, candidate_seat),
         )
-        opponent_ai = _create_ladder_ai_instance(
-            tier_config=tier_config,
-            difficulty=opponent.difficulty,
-            player_number=opponent_seat,
-            time_budget_ms=(
-                time_budget_ms_override
-                if time_budget_ms_override is not None
-                else tier_config.time_budget_ms
-            ),
-            ai_type_override=resolved_ai_type,
-            rng_seed=game_seed,
-        )
+
+        ai_by_player: Dict[int, Any] = {candidate_seat: candidate_ai}
+        for player_number in range(1, num_players + 1):
+            if player_number == candidate_seat:
+                continue
+            ai_by_player[player_number] = _create_ladder_ai_instance(
+                tier_config=tier_config,
+                difficulty=opponent.difficulty,
+                player_number=player_number,
+                time_budget_ms=(
+                    time_budget_ms_override
+                    if time_budget_ms_override is not None
+                    else tier_config.time_budget_ms
+                ),
+                ai_type_override=resolved_ai_type,
+                rng_seed=_derive_player_seed(game_seed, player_number),
+            )
 
         game_state = env.reset(seed=game_seed)
         done = False
@@ -271,27 +287,21 @@ def _play_matchup(
 
         while not done:
             current_player = game_state.current_player
-            current_ai = (
-                candidate_ai
-                if current_player == candidate_seat
-                else opponent_ai
-            )
-            current_ai.player_number = current_player
+            current_ai = ai_by_player.get(current_player)
+            if current_ai is None:
+                raise RuntimeError(
+                    f"tier_eval_runner: missing AI for player {current_player}"
+                )
             move = current_ai.select_move(game_state)
             if move is None:
                 # Treat lack of move as immediate loss for the side that
                 # failed to produce a move.
-                winner = (
-                    opponent_seat
-                    if current_player == candidate_seat
-                    else candidate_seat
-                )
-                if winner == candidate_seat:
-                    stats.wins += 1
-                else:
+                if current_player == candidate_seat:
                     stats.losses += 1
-                stats.victory_reasons["unknown"] = (
-                    stats.victory_reasons.get("unknown", 0) + 1
+                else:
+                    stats.wins += 1
+                stats.victory_reasons["ai_no_move"] = (
+                    stats.victory_reasons.get("ai_no_move", 0) + 1
                 )
                 stats.total_moves += moves_played
                 break
@@ -313,10 +323,10 @@ def _play_matchup(
             winner = game_state.winner
             if winner == candidate_seat:
                 stats.wins += 1
-            elif winner == opponent_seat:
-                stats.losses += 1
-            else:
+            elif winner is None:
                 stats.draws += 1
+            else:
+                stats.losses += 1
 
             victory_reason = last_info.get("victory_reason", "unknown")
             stats.victory_reasons[victory_reason] = (
