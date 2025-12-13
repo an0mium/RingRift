@@ -447,7 +447,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=(
             "File selection profile: 'broad' scans all data/selfplay JSONLs (recursive) + top-level logs/selfplay JSONLs; "
             "'recent' excludes top-level data/selfplay/*.jsonl and known legacy/sync buckets (data/selfplay/new_ruleset/**, "
-            "data/selfplay/vast_sync/**, data/selfplay/combined_gpu/**) to reduce stale/backfilled drift."
+            "data/selfplay/vast_sync/**, data/selfplay/combined_gpu/**, data/selfplay/toxic_archives/**) to reduce stale/backfilled drift."
         ),
     )
     parser.add_argument(

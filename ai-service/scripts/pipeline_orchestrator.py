@@ -219,21 +219,29 @@ class PipelineOrchestrator:
             return json.load(f)
 
     def _load_state(self) -> PipelineState:
-        """Load pipeline state from disk."""
+        """Load pipeline state from disk with proper type handling."""
         if os.path.exists(self.state_path):
             try:
                 with open(self.state_path, "r") as f:
                     data = json.load(f)
+                # Convert seen_game_hashes from list to set
+                if "seen_game_hashes" in data:
+                    data["seen_game_hashes"] = set(data["seen_game_hashes"])
                 return PipelineState(**data)
-            except (json.JSONDecodeError, TypeError):
-                pass
+            except (json.JSONDecodeError, TypeError) as e:
+                self.log(f"Warning: Could not load state file: {e}", "WARN")
         return PipelineState()
 
     def _save_state(self) -> None:
-        """Save pipeline state to disk."""
+        """Save pipeline state to disk with proper serialization."""
         os.makedirs(os.path.dirname(self.state_path) or ".", exist_ok=True)
+        # Convert state to dict with proper serialization
+        state_dict = self.state.__dict__.copy()
+        # Convert set to list for JSON serialization
+        if "seen_game_hashes" in state_dict:
+            state_dict["seen_game_hashes"] = list(state_dict["seen_game_hashes"])
         with open(self.state_path, "w") as f:
-            json.dump(self.state.__dict__, f, indent=2, default=str)
+            json.dump(state_dict, f, indent=2, default=str)
 
     def log(self, message: str, level: str = "INFO") -> None:
         """Log a message with timestamp."""
@@ -246,9 +254,14 @@ class PipelineOrchestrator:
         worker: WorkerConfig,
         command: str,
         background: bool = False,
+        log_output_on_error: bool = True,
     ) -> Tuple[int, str, str]:
-        """Run a command on a remote worker via SSH."""
-        ssh_cmd = ["ssh", "-o", "ConnectTimeout=10"]
+        """Run a command on a remote worker via SSH with retry logic.
+
+        Uses exponential backoff for transient network failures.
+        Logs full stdout/stderr on errors for debugging.
+        """
+        ssh_cmd = ["ssh", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=30"]
         if worker.ssh_key:
             ssh_cmd.extend(["-i", worker.ssh_key])
         if worker.ssh_port != 22:
@@ -257,7 +270,9 @@ class PipelineOrchestrator:
 
         if background:
             # Wrap command with nohup for background execution
-            full_cmd = f"cd {worker.remote_path} && nohup bash -c '{command}' > /dev/null 2>&1 &"
+            # Save output to log file for later inspection
+            log_file = f"/tmp/ringrift_bg_{int(time.time())}.log"
+            full_cmd = f"cd {worker.remote_path} && nohup bash -c '{command}' > {log_file} 2>&1 &"
         else:
             full_cmd = f"cd {worker.remote_path} && {command}"
 
@@ -267,16 +282,69 @@ class PipelineOrchestrator:
             self.log(f"[DRY RUN] {worker.name}: {full_cmd[:100]}...")
             return 0, "", ""
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *ssh_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            return proc.returncode or 0, stdout.decode(), stderr.decode()
-        except Exception as e:
-            return 1, "", str(e)
+        # Retry loop with exponential backoff
+        last_error = ""
+        for attempt in range(SSH_MAX_RETRIES):
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    *ssh_cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=300,  # 5 minute timeout per command
+                )
+                stdout = stdout_bytes.decode()
+                stderr = stderr_bytes.decode()
+                returncode = proc.returncode or 0
+
+                # Log full output on error for debugging
+                if returncode != 0 and log_output_on_error:
+                    self._log_command_failure(worker, command, returncode, stdout, stderr)
+
+                return returncode, stdout, stderr
+
+            except asyncio.TimeoutError:
+                last_error = "Command timed out after 5 minutes"
+                self.log(f"SSH timeout to {worker.name} (attempt {attempt + 1}/{SSH_MAX_RETRIES})", "WARN")
+
+            except Exception as e:
+                last_error = str(e)
+                self.log(f"SSH error to {worker.name}: {e} (attempt {attempt + 1}/{SSH_MAX_RETRIES})", "WARN")
+
+            # Exponential backoff with jitter
+            if attempt < SSH_MAX_RETRIES - 1:
+                delay = min(
+                    SSH_BASE_DELAY * (SSH_BACKOFF_FACTOR ** attempt) + random.uniform(0, 1),
+                    SSH_MAX_DELAY,
+                )
+                await asyncio.sleep(delay)
+
+        # All retries exhausted
+        self.log(f"SSH to {worker.name} failed after {SSH_MAX_RETRIES} attempts: {last_error}", "ERROR")
+        self.state.errors.append(f"SSH failure to {worker.name}: {last_error}")
+        return 1, "", last_error
+
+    def _log_command_failure(
+        self,
+        worker: WorkerConfig,
+        command: str,
+        returncode: int,
+        stdout: str,
+        stderr: str,
+    ) -> None:
+        """Log detailed command failure for debugging."""
+        log_file = self.log_dir / f"errors_{datetime.now().strftime('%Y%m%d')}.log"
+        with open(log_file, "a") as f:
+            f.write(f"\n{'='*60}\n")
+            f.write(f"COMMAND FAILURE at {datetime.now().isoformat()}\n")
+            f.write(f"Worker: {worker.name} ({worker.host})\n")
+            f.write(f"Return code: {returncode}\n")
+            f.write(f"Command: {command[:500]}...\n" if len(command) > 500 else f"Command: {command}\n")
+            f.write(f"\n--- STDOUT ---\n{stdout[:5000]}\n")
+            f.write(f"\n--- STDERR ---\n{stderr[:5000]}\n")
+            f.write(f"{'='*60}\n")
 
     async def check_worker_health(self, worker: WorkerConfig) -> bool:
         """Check if a worker is reachable and healthy."""
@@ -286,13 +354,439 @@ class PipelineOrchestrator:
     async def get_worker_game_count(self, worker: WorkerConfig) -> int:
         """Get the total game count from a worker's selfplay.db."""
         cmd = "source venv/bin/activate && sqlite3 data/games/selfplay.db 'SELECT COUNT(*) FROM games WHERE status=\"completed\"' 2>/dev/null || echo 0"
-        code, stdout, _ = await self.run_remote_command(worker, cmd)
+        code, stdout, _ = await self.run_remote_command(worker, cmd, log_output_on_error=False)
         if code == 0:
             try:
                 return int(stdout.strip())
             except ValueError:
                 pass
         return 0
+
+    # =========================================================================
+    # Smart Polling Methods
+    # =========================================================================
+
+    async def poll_for_selfplay_completion(
+        self,
+        min_games: int = SELFPLAY_MIN_GAMES_THRESHOLD,
+        max_wait_minutes: int = 30,
+    ) -> int:
+        """Poll workers until sufficient selfplay games are generated.
+
+        Returns total games generated across all workers.
+        """
+        self.log(f"Polling for selfplay completion (min {min_games} games, max {max_wait_minutes} min)...")
+        start_time = time.time()
+        max_wait_seconds = max_wait_minutes * 60
+
+        while time.time() - start_time < max_wait_seconds:
+            total_games = 0
+            for worker in WORKERS:
+                if worker.role in ["selfplay", "mixed"]:
+                    count = await self.get_worker_game_count(worker)
+                    total_games += count
+
+            elapsed_min = (time.time() - start_time) / 60
+            self.log(f"  Selfplay progress: {total_games} games ({elapsed_min:.1f} min elapsed)")
+
+            if total_games >= min_games:
+                self.log(f"Selfplay target reached: {total_games} games", "OK")
+                return total_games
+
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+        self.log(f"Selfplay timeout after {max_wait_minutes} min with {total_games} games", "WARN")
+        return total_games
+
+    async def poll_for_cmaes_completion(
+        self,
+        max_wait_minutes: int = MAX_PHASE_WAIT_MINUTES,
+    ) -> bool:
+        """Poll workers until CMA-ES jobs complete.
+
+        Returns True if all CMA-ES jobs completed, False if timed out.
+        """
+        self.log(f"Polling for CMA-ES completion (max {max_wait_minutes} min)...")
+        start_time = time.time()
+        max_wait_seconds = max_wait_minutes * 60
+
+        while time.time() - start_time < max_wait_seconds:
+            running_count = 0
+            completed_count = 0
+
+            for worker in WORKERS:
+                if worker.role in ["cmaes", "mixed", "training"]:
+                    code, stdout, _ = await self.run_remote_command(
+                        worker, CMAES_COMPLETION_CHECK_CMD, log_output_on_error=False
+                    )
+                    if code == 0:
+                        if "running" in stdout:
+                            running_count += 1
+                        else:
+                            completed_count += 1
+
+            elapsed_min = (time.time() - start_time) / 60
+            self.log(f"  CMA-ES progress: {completed_count} done, {running_count} running ({elapsed_min:.1f} min)")
+
+            if running_count == 0:
+                self.log("All CMA-ES jobs completed", "OK")
+                return True
+
+            await asyncio.sleep(POLL_INTERVAL_SECONDS * 2)  # Less frequent polling for CMA-ES
+
+        self.log(f"CMA-ES timeout after {max_wait_minutes} min", "WARN")
+        return False
+
+    async def poll_for_training_completion(
+        self,
+        worker: WorkerConfig,
+        max_wait_minutes: int = 60,
+    ) -> bool:
+        """Poll a worker until training job completes."""
+        self.log(f"Polling {worker.name} for training completion...")
+        start_time = time.time()
+        max_wait_seconds = max_wait_minutes * 60
+        check_cmd = "pgrep -f 'app.training.train' >/dev/null && echo running || echo done"
+
+        while time.time() - start_time < max_wait_seconds:
+            code, stdout, _ = await self.run_remote_command(
+                worker, check_cmd, log_output_on_error=False
+            )
+            if code == 0 and "done" in stdout:
+                self.log(f"Training on {worker.name} completed", "OK")
+                return True
+
+            elapsed_min = (time.time() - start_time) / 60
+            if int(elapsed_min) % 5 == 0 and elapsed_min > 0:  # Log every 5 minutes
+                self.log(f"  Training still running on {worker.name} ({elapsed_min:.0f} min)")
+
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+        self.log(f"Training timeout on {worker.name} after {max_wait_minutes} min", "WARN")
+        return False
+
+    # =========================================================================
+    # Elo Rating System
+    # =========================================================================
+
+    def update_elo_rating(
+        self,
+        player_a: str,
+        player_b: str,
+        score_a: float,  # 1.0 = A wins, 0.5 = draw, 0.0 = B wins
+        k_factor: float = 32.0,
+    ) -> Tuple[float, float]:
+        """Update Elo ratings for two players after a match.
+
+        Uses standard Elo formula with configurable K-factor.
+        Returns (new_rating_a, new_rating_b).
+        """
+        # Initialize ratings if not seen before
+        if player_a not in self.state.elo_ratings:
+            self.state.elo_ratings[player_a] = 1500.0
+        if player_b not in self.state.elo_ratings:
+            self.state.elo_ratings[player_b] = 1500.0
+
+        rating_a = self.state.elo_ratings[player_a]
+        rating_b = self.state.elo_ratings[player_b]
+
+        # Expected scores
+        expected_a = 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
+        expected_b = 1 - expected_a
+
+        # New ratings
+        new_rating_a = rating_a + k_factor * (score_a - expected_a)
+        new_rating_b = rating_b + k_factor * ((1 - score_a) - expected_b)
+
+        # Update state
+        self.state.elo_ratings[player_a] = new_rating_a
+        self.state.elo_ratings[player_b] = new_rating_b
+
+        # Record history
+        self.state.elo_history.append({
+            "timestamp": datetime.now().isoformat(),
+            "player_a": player_a,
+            "player_b": player_b,
+            "score_a": score_a,
+            "rating_a_before": rating_a,
+            "rating_b_before": rating_b,
+            "rating_a_after": new_rating_a,
+            "rating_b_after": new_rating_b,
+        })
+
+        self._save_state()
+        return new_rating_a, new_rating_b
+
+    def get_elo_leaderboard(self, top_n: int = 10) -> List[Tuple[str, float]]:
+        """Get top N models by Elo rating."""
+        sorted_ratings = sorted(
+            self.state.elo_ratings.items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )
+        return sorted_ratings[:top_n]
+
+    # =========================================================================
+    # Model Registry
+    # =========================================================================
+
+    def register_model(
+        self,
+        model_id: str,
+        model_path: str,
+        config: str,
+        parent_id: Optional[str] = None,
+        metrics: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Register a trained model in the registry.
+
+        Tracks model lineage, training config, and performance metrics.
+        """
+        self.state.model_registry[model_id] = {
+            "model_id": model_id,
+            "path": model_path,
+            "config": config,
+            "parent_id": parent_id,
+            "created_at": datetime.now().isoformat(),
+            "iteration": self.state.iteration,
+            "metrics": metrics or {},
+            "status": "active",
+        }
+        self._save_state()
+        self.log(f"Registered model: {model_id}", "OK")
+
+    def get_best_model(self, config: str) -> Optional[str]:
+        """Get the best performing model for a configuration based on Elo."""
+        matching_models = [
+            (mid, meta)
+            for mid, meta in self.state.model_registry.items()
+            if meta.get("config") == config and meta.get("status") == "active"
+        ]
+        if not matching_models:
+            return None
+
+        # Sort by Elo rating (if available) or fallback to recency
+        def sort_key(item: Tuple[str, Dict]) -> float:
+            mid, _ = item
+            return self.state.elo_ratings.get(mid, 1500.0)
+
+        best = max(matching_models, key=sort_key)
+        return best[0]
+
+    def deprecate_model(self, model_id: str, reason: str = "") -> None:
+        """Mark a model as deprecated in the registry."""
+        if model_id in self.state.model_registry:
+            self.state.model_registry[model_id]["status"] = "deprecated"
+            self.state.model_registry[model_id]["deprecated_at"] = datetime.now().isoformat()
+            self.state.model_registry[model_id]["deprecation_reason"] = reason
+            self._save_state()
+            self.log(f"Deprecated model: {model_id} ({reason})")
+
+    # =========================================================================
+    # Game Deduplication
+    # =========================================================================
+
+    def hash_game(self, game_data: Dict[str, Any]) -> str:
+        """Generate a unique hash for a game based on its moves."""
+        # Use moves + initial state + outcome for uniqueness
+        key_data = json.dumps({
+            "moves": game_data.get("moves", []),
+            "board_type": game_data.get("board_type"),
+            "num_players": game_data.get("num_players"),
+            "outcome": game_data.get("outcome"),
+        }, sort_keys=True)
+        return hashlib.sha256(key_data.encode()).hexdigest()[:16]
+
+    def is_duplicate_game(self, game_data: Dict[str, Any]) -> bool:
+        """Check if a game is a duplicate of one we've already seen."""
+        game_hash = self.hash_game(game_data)
+        if game_hash in self.state.seen_game_hashes:
+            return True
+        self.state.seen_game_hashes.add(game_hash)
+        return False
+
+    async def deduplicate_training_data(self, db_path: str) -> int:
+        """Remove duplicate games from a training database.
+
+        Returns the number of duplicates removed.
+        """
+        self.log(f"Deduplicating games in {db_path}...")
+
+        # Read all games from the database
+        cmd = f"sqlite3 {db_path} \"SELECT game_id, board_type, num_players, move_history, outcome FROM games WHERE status='completed'\""
+        code, stdout, stderr = await self.run_remote_command(
+            WORKERS[0] if WORKERS else WorkerConfig("local", "localhost", "training", []),
+            cmd,
+            log_output_on_error=False,
+        )
+
+        if code != 0 or not stdout.strip():
+            self.log(f"Could not read games for deduplication: {stderr}", "WARN")
+            return 0
+
+        # Parse games and identify duplicates
+        duplicates = []
+        for line in stdout.strip().split("\n"):
+            if not line.strip():
+                continue
+            parts = line.split("|")
+            if len(parts) >= 5:
+                game_id, board_type, num_players, moves, outcome = parts[:5]
+                game_data = {
+                    "board_type": board_type,
+                    "num_players": int(num_players) if num_players.isdigit() else 2,
+                    "moves": moves,
+                    "outcome": outcome,
+                }
+                if self.is_duplicate_game(game_data):
+                    duplicates.append(game_id)
+
+        # Remove duplicates
+        if duplicates:
+            game_ids = "','".join(duplicates)
+            delete_cmd = f"sqlite3 {db_path} \"DELETE FROM games WHERE game_id IN ('{game_ids}')\""
+            await self.run_remote_command(
+                WORKERS[0] if WORKERS else WorkerConfig("local", "localhost", "training", []),
+                delete_cmd,
+            )
+            self.log(f"Removed {len(duplicates)} duplicate games", "OK")
+
+        self._save_state()
+        return len(duplicates)
+
+    # =========================================================================
+    # Tier Gating
+    # =========================================================================
+
+    async def check_tier_promotion(
+        self,
+        config: str,
+        current_tier: str,
+        win_rate_threshold: float = 0.55,
+    ) -> Tuple[bool, str]:
+        """Check if a model should be promoted to the next tier.
+
+        Promotion requires winning > threshold against current tier opponents.
+        Returns (should_promote, new_tier).
+        """
+        # Tier progression: D2 -> D4 -> D6 -> D8
+        TIER_PROGRESSION = {
+            "D2": "D4",
+            "D4": "D6",
+            "D6": "D8",
+            "D8": "D8",  # Max tier
+        }
+
+        if current_tier not in TIER_PROGRESSION:
+            return False, current_tier
+
+        next_tier = TIER_PROGRESSION[current_tier]
+        if next_tier == current_tier:
+            self.log(f"{config} already at max tier {current_tier}")
+            return False, current_tier
+
+        # Check recent tournament results for this config
+        model_key = f"{config}_best"
+        if model_key not in self.state.elo_ratings:
+            self.log(f"No Elo data for {config}, skipping tier check")
+            return False, current_tier
+
+        # Compare against tier benchmark
+        tier_benchmark = f"tier_{current_tier}_benchmark"
+        if tier_benchmark not in self.state.elo_ratings:
+            # No benchmark yet, allow promotion based on raw Elo
+            if self.state.elo_ratings.get(model_key, 1500) > 1600:
+                return True, next_tier
+            return False, current_tier
+
+        # Check win rate from recent matches
+        recent_matches = [
+            m for m in self.state.elo_history[-50:]  # Last 50 matches
+            if m.get("player_a") == model_key or m.get("player_b") == model_key
+        ]
+
+        if len(recent_matches) < 10:
+            self.log(f"Insufficient matches for {config} tier gating ({len(recent_matches)}/10)")
+            return False, current_tier
+
+        wins = sum(
+            1 for m in recent_matches
+            if (m.get("player_a") == model_key and m.get("score_a", 0) > 0.5)
+            or (m.get("player_b") == model_key and m.get("score_a", 0) < 0.5)
+        )
+        win_rate = wins / len(recent_matches)
+
+        if win_rate >= win_rate_threshold:
+            self.log(f"{config} promoted from {current_tier} to {next_tier} (win rate: {win_rate:.1%})", "OK")
+            self.state.tier_promotions[config] = next_tier
+            self._save_state()
+            return True, next_tier
+
+        self.log(f"{config} remains at {current_tier} (win rate: {win_rate:.1%} < {win_rate_threshold:.1%})")
+        return False, current_tier
+
+    async def run_tier_gating_phase(self) -> Dict[str, str]:
+        """Run tier gating checks for all configurations.
+
+        Returns dict of config -> new_tier for any promotions.
+        """
+        self.log("=== Running Tier Gating Checks ===")
+
+        promotions = {}
+        configs = ["square8_2p", "square8_3p", "square8_4p",
+                   "square19_2p", "square19_3p", "square19_4p",
+                   "hex_2p", "hex_3p", "hex_4p"]
+
+        for config in configs:
+            current_tier = self.state.tier_promotions.get(config, "D2")
+            promoted, new_tier = await self.check_tier_promotion(config, current_tier)
+            if promoted:
+                promotions[config] = new_tier
+
+        if promotions:
+            self.log(f"Tier promotions: {promotions}", "OK")
+        else:
+            self.log("No tier promotions this iteration")
+
+        return promotions
+
+    # =========================================================================
+    # Resource Monitoring
+    # =========================================================================
+
+    async def get_worker_resources(self, worker: WorkerConfig) -> Dict[str, Any]:
+        """Get resource utilization from a worker."""
+        cmd = """
+        echo "cpu:$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo 0)"
+        echo "mem:$(free -m 2>/dev/null | awk '/Mem:/{print $3/$2*100}' || echo 0)"
+        echo "disk:$(df -h . 2>/dev/null | awk 'NR==2{print $5}' | tr -d '%' || echo 0)"
+        echo "gpu:$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits 2>/dev/null || echo 0)"
+        """
+        code, stdout, _ = await self.run_remote_command(worker, cmd, log_output_on_error=False)
+
+        resources = {"cpu": 0.0, "mem": 0.0, "disk": 0.0, "gpu": 0.0}
+        if code == 0:
+            for line in stdout.strip().split("\n"):
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    try:
+                        resources[key] = float(value.strip())
+                    except ValueError:
+                        pass
+
+        return resources
+
+    async def log_resource_usage(self) -> None:
+        """Log resource usage across all workers."""
+        self.log("=== Resource Usage ===")
+        for worker in WORKERS:
+            if await self.check_worker_health(worker):
+                resources = await self.get_worker_resources(worker)
+                self.log(
+                    f"  {worker.name}: CPU={resources['cpu']:.0f}%, "
+                    f"MEM={resources['mem']:.0f}%, DISK={resources['disk']:.0f}%, "
+                    f"GPU={resources['gpu']:.0f}%"
+                )
 
     async def dispatch_selfplay(
         self,
@@ -904,59 +1398,138 @@ python scripts/run_ai_tournament.py \\
         return matchup_key, True, win_rate
 
     async def run_full_iteration(self, iteration: int) -> bool:
-        """Run a complete pipeline iteration.
+        """Run a complete pipeline iteration with checkpointing and smart polling.
 
         Pipeline flow:
         1. Selfplay: Generate games with current models/heuristics
-        2. Sync: Pull selfplay data from workers
+        2. Sync: Pull selfplay data from workers + deduplicate
         3. CMA-ES: Optimize heuristics for all 9 board×player configs (background)
-        4. NN Training: Train neural network on new data (parallel with CMA-ES wait)
+        4. NN Training: Train neural network on new data + register models
         5. Profile Sync: Pull trained heuristics, merge, push to all workers
-        6. Evaluation: Tournament to compare new vs old models
+        6. Evaluation: Tournament + Elo updates
+        7. Tier Gating: Check for model promotions
+        8. Resource Monitoring: Log worker utilization
         """
         self.log(f"\n{'='*60}")
         self.log(f"=== Pipeline Iteration {iteration} ===")
         self.log(f"{'='*60}\n")
 
-        self.state.iteration = iteration
+        # Only reset phase tracking if this is a new iteration
+        # (not when resuming an interrupted iteration)
+        if self.state.iteration != iteration:
+            self.state.iteration = iteration
+            self.state.phase_completed = {}  # Reset phase tracking for new iteration
+        elif not self.state.phase_completed:
+            self.state.phase_completed = {}
+
         self._save_state()
 
         # Phase 1: Selfplay - Generate games across all board×player configs
-        selfplay_result = await self.run_selfplay_phase(iteration)
-        if not selfplay_result.get("dispatched", 0):
-            self.log("Selfplay phase failed", "ERROR")
-            return False
+        if not self.state.phase_completed.get("selfplay"):
+            selfplay_result = await self.run_selfplay_phase(iteration)
+            if not selfplay_result.get("dispatched", 0):
+                self.log("Selfplay phase failed", "ERROR")
+                return False
 
-        # Wait for selfplay jobs to accumulate data
-        if not self.dry_run:
-            self.log("Waiting for selfplay jobs to generate data...")
-            await asyncio.sleep(300)  # 5 minutes initial wait
+            # Smart polling instead of fixed wait
+            if not self.dry_run:
+                total_games = await self.poll_for_selfplay_completion(
+                    min_games=SELFPLAY_MIN_GAMES_THRESHOLD,
+                    max_wait_minutes=30,
+                )
+                self.state.games_generated[f"iter_{iteration}"] = total_games
 
-        # Phase 2: Sync selfplay data from workers
-        if not await self.run_sync_phase():
-            self.log("Sync phase failed, continuing...", "WARN")
+            self.state.phase_completed["selfplay"] = True
+            self._save_state()
+        else:
+            self.log("Selfplay phase already completed, skipping...")
+            selfplay_result = {"dispatched": 0, "total": 0, "resumed": True}
+
+        # Phase 2: Sync selfplay data from workers + deduplicate
+        if not self.state.phase_completed.get("sync"):
+            if not await self.run_sync_phase():
+                self.log("Sync phase failed, continuing...", "WARN")
+
+            # Deduplicate training data
+            if not self.dry_run:
+                await self.deduplicate_training_data("data/games/merged_latest.db")
+
+            self.state.phase_completed["sync"] = True
+            self._save_state()
+        else:
+            self.log("Sync phase already completed, skipping...")
 
         # Phase 3: CMA-ES heuristic optimization (dispatches background jobs)
-        # This runs all 9 board×player configurations across available workers
-        cmaes_results = await self.run_cmaes_phase(iteration)
+        if not self.state.phase_completed.get("cmaes"):
+            cmaes_results = await self.run_cmaes_phase(iteration)
+            self.state.phase_completed["cmaes"] = True
+            self._save_state()
+        else:
+            self.log("CMA-ES phase already completed, skipping...")
+            cmaes_results = {}
 
-        # Phase 4: NN Training (runs while CMA-ES jobs process in background)
-        training_results = await self.run_training_phase(iteration)
+        # Phase 4: NN Training with model registration
+        if not self.state.phase_completed.get("training"):
+            training_results = await self.run_training_phase(iteration)
+
+            # Register trained models
+            for config_key, success in training_results.items():
+                if success:
+                    model_id = f"{config_key}_iter{iteration}"
+                    model_path = f"models/{model_id}.pth"
+                    parent_id = self.get_best_model(config_key)  # Link to previous best
+                    self.register_model(
+                        model_id=model_id,
+                        model_path=model_path,
+                        config=config_key,
+                        parent_id=parent_id,
+                        metrics={"training_iteration": iteration},
+                    )
+
+            self.state.phase_completed["training"] = True
+            self._save_state()
+        else:
+            self.log("Training phase already completed, skipping...")
+            training_results = {}
 
         # Phase 5: Wait for CMA-ES completion and sync heuristic profiles
-        if any(cmaes_results.values()):
+        if cmaes_results and any(cmaes_results.values()):
             if not self.dry_run:
-                # Wait for CMA-ES jobs to complete (they run in background)
-                # CMA-ES typically takes 30-60 minutes per config
-                cmaes_wait_minutes = 45
-                self.log(f"Waiting {cmaes_wait_minutes} min for CMA-ES jobs to complete...")
-                await asyncio.sleep(cmaes_wait_minutes * 60)
+                # Smart polling for CMA-ES completion
+                await self.poll_for_cmaes_completion(max_wait_minutes=MAX_PHASE_WAIT_MINUTES)
 
             # Pull trained heuristic profiles from all workers and merge
             await self.sync_heuristic_profiles()
 
-        # Phase 6: Evaluation - Compare models/heuristics
-        eval_results = await self.run_evaluation_phase(iteration)
+        # Phase 6: Evaluation with Elo updates
+        if not self.state.phase_completed.get("evaluation"):
+            eval_results = await self.run_evaluation_phase(iteration)
+
+            # Update Elo ratings based on tournament results
+            for matchup_key, win_rate in eval_results.items():
+                if "_vs_" in matchup_key:
+                    parts = matchup_key.split("_vs_")
+                    if len(parts) == 2:
+                        player_a = parts[0]
+                        player_b = parts[1].split("_")[0]  # Remove board suffix
+                        self.update_elo_rating(player_a, player_b, win_rate)
+
+            self.state.phase_completed["evaluation"] = True
+            self._save_state()
+        else:
+            self.log("Evaluation phase already completed, skipping...")
+            eval_results = {}
+
+        # Phase 7: Tier gating checks
+        tier_promotions = await self.run_tier_gating_phase()
+
+        # Phase 8: Resource monitoring
+        await self.log_resource_usage()
+
+        # Print Elo leaderboard
+        self.log("\n=== Elo Leaderboard ===")
+        for rank, (model, elo) in enumerate(self.get_elo_leaderboard(10), 1):
+            self.log(f"  {rank}. {model}: {elo:.0f}")
 
         self.state.phase = "complete"
         self._save_state()
@@ -964,10 +1537,11 @@ python scripts/run_ai_tournament.py \\
         self.log(f"\n{'='*60}")
         self.log(f"=== Iteration {iteration} Complete ===")
         self.log(f"{'='*60}")
-        self.log(f"Selfplay:  {selfplay_result}")
-        self.log(f"CMA-ES:    {cmaes_results}")
-        self.log(f"Training:  {training_results}")
-        self.log(f"Eval:      {eval_results}")
+        self.log(f"Selfplay:    {selfplay_result}")
+        self.log(f"CMA-ES:      {cmaes_results}")
+        self.log(f"Training:    {training_results}")
+        self.log(f"Eval:        {eval_results}")
+        self.log(f"Promotions:  {tier_promotions}")
         self.log(f"{'='*60}\n")
 
         return True
@@ -977,9 +1551,17 @@ python scripts/run_ai_tournament.py \\
         iterations: int = 1,
         start_iteration: int = 0,
         phase: Optional[str] = None,
+        resume: bool = False,
     ) -> None:
         """Run the pipeline."""
         self.log("RingRift AI Training Pipeline")
+
+        # Handle resume mode - start from last saved iteration
+        if resume and not phase:
+            start_iteration = self.state.iteration
+            self.log(f"Resuming from iteration {start_iteration} (phase: {self.state.phase})")
+            # Don't reset phase_completed to allow skipping completed phases
+
         self.log(f"Iterations: {iterations}, Start: {start_iteration}")
         if self.dry_run:
             self.log("*** DRY RUN MODE - No commands will be executed ***")
@@ -1000,6 +1582,10 @@ python scripts/run_ai_tournament.py \\
                 await self.sync_heuristic_profiles()
             elif phase == "evaluation":
                 await self.run_evaluation_phase(iteration)
+            elif phase == "tier-gating":
+                await self.run_tier_gating_phase()
+            elif phase == "resources":
+                await self.log_resource_usage()
             else:
                 self.log(f"Unknown phase: {phase}", "ERROR")
             return
@@ -1037,8 +1623,13 @@ def main():
     parser.add_argument(
         "--phase",
         type=str,
-        choices=["selfplay", "sync", "training", "cmaes", "profile-sync", "evaluation"],
+        choices=["selfplay", "sync", "training", "cmaes", "profile-sync", "evaluation", "tier-gating", "resources"],
         help="Run only a specific phase",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from last saved state (skips completed phases)",
     )
     parser.add_argument(
         "--dry-run",
@@ -1064,6 +1655,7 @@ def main():
             iterations=args.iterations,
             start_iteration=args.start_iteration,
             phase=args.phase,
+            resume=args.resume,
         )
     )
 
