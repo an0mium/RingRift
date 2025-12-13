@@ -563,6 +563,35 @@ def apply_recovery_moves_vectorized(
             state.rings_caused_eliminated[g, player] += 1
 
 
+def apply_no_action_moves_batch(
+    state: "BatchGameState",
+    mask: torch.Tensor,
+) -> None:
+    """Record a NO_ACTION move for each masked active game.
+
+    This is used to avoid silent phase progression when a player has no
+    legal action in an interactive phase (RR-CANON-R075).
+    """
+    active_mask = mask & state.get_active_mask()
+    if not active_mask.any():
+        return
+
+    game_indices = torch.where(active_mask)[0]
+    for g in game_indices.tolist():
+        mc = int(state.move_count[g].item())
+        player = int(state.current_player[g].item())
+
+        if mc < state.max_history_moves:
+            state.move_history[g, mc, 0] = MoveType.NO_ACTION
+            state.move_history[g, mc, 1] = player
+            state.move_history[g, mc, 2] = -1
+            state.move_history[g, mc, 3] = -1
+            state.move_history[g, mc, 4] = -1
+            state.move_history[g, mc, 5] = -1
+
+        state.move_count[g] += 1
+
+
 # =============================================================================
 # Constants
 # =============================================================================
@@ -657,6 +686,9 @@ class BatchGameState:
     move_history: torch.Tensor
     max_history_moves: int
 
+    # LPS configuration: consecutive exclusive rounds required for victory.
+    lps_rounds_required: int
+
     # Configuration
     device: torch.device
     batch_size: int
@@ -671,6 +703,7 @@ class BatchGameState:
         num_players: int = 2,
         device: Optional[torch.device] = None,
         max_history_moves: int = 500,
+        lps_rounds_required: int = 3,
         rings_per_player: Optional[int] = None,
         board_type: Optional[str] = None,
     ) -> "BatchGameState":
@@ -766,6 +799,7 @@ class BatchGameState:
             ),
             move_history=move_history,
             max_history_moves=max_history_moves,
+            lps_rounds_required=int(lps_rounds_required),
             device=device,
             batch_size=batch_size,
             board_size=board_size,
@@ -1138,7 +1172,7 @@ class BatchGameState:
             lpsConsecutiveExclusiveRounds=int(
                 self.lps_consecutive_exclusive_rounds[game_idx].item()
             ),
-            lpsRoundsRequired=3,  # Default LPS rounds required
+            lpsRoundsRequired=int(self.lps_rounds_required),
             lpsConsecutiveExclusivePlayer=lps_consecutive_player,
             mustMoveFromStackKey=must_move_from_stack_key,
         )
@@ -1317,7 +1351,7 @@ class BatchGameState:
                 return ("ring_elimination", None)
 
             # Last-player-standing (RR-CANON-R172) via round tracker.
-            lps_required = 3
+            lps_required = int(getattr(self, "lps_rounds_required", 3) or 3)
             if (
                 self.lps_consecutive_exclusive_player[game_idx].item() == winner
                 and self.lps_consecutive_exclusive_rounds[game_idx].item()
@@ -1969,12 +2003,312 @@ def generate_capture_moves_batch(
     - Path must be clear of ANY stacks (no passing through own or opponent stacks)
     - This generator stores only (from -> landing); the implicit target is the first stack along the ray.
 
+    This function delegates to the fully vectorized implementation for GPU performance.
+    Set RINGRIFT_GPU_CAPTURE_LEGACY=1 to use the old Python-loop implementation.
+
     Args:
         state: Current batch game state
         active_mask: Mask of games to generate moves for
 
     Returns:
         BatchMoves with all valid capture moves
+    """
+    import os
+    if os.environ.get("RINGRIFT_GPU_CAPTURE_LEGACY", "0") == "1":
+        return _generate_capture_moves_batch_legacy(state, active_mask)
+    return generate_capture_moves_batch_vectorized(state, active_mask)
+
+
+def generate_capture_moves_batch_vectorized(
+    state: BatchGameState,
+    active_mask: Optional[torch.Tensor] = None,
+) -> BatchMoves:
+    """Fully vectorized capture move generation.
+
+    Per RR-CANON-R100-R103:
+    - Find target: first stack along ray where my_cap_height >= target_cap_height
+    - Landing: empty cell beyond target at distance >= my_height
+    - Path from origin to target must be clear (no stacks or collapsed)
+    - Path from target to landing must be clear (no stacks or collapsed beyond target)
+
+    Args:
+        state: Current batch game state
+        active_mask: Mask of games to generate moves for
+
+    Returns:
+        BatchMoves with all valid capture moves
+    """
+    if active_mask is None:
+        active_mask = state.get_active_mask()
+
+    device = state.device
+    batch_size = state.batch_size
+    board_size = state.board_size
+    directions = DIRECTIONS.to(device)
+    max_dist = board_size - 1
+    n_dirs = 8
+
+    # === Step 1: Find all player stacks ===
+    player_expanded = state.current_player.view(-1, 1, 1).expand(-1, board_size, board_size)
+    player_stacks = (
+        (state.stack_owner == player_expanded) &
+        (state.stack_height > 0) &
+        active_mask.view(-1, 1, 1)
+    )
+
+    # Handle must_move_from constraint
+    has_constraint = (state.must_move_from_y >= 0)
+    if has_constraint.any():
+        y_grid = torch.arange(board_size, device=device).view(1, -1, 1).expand(batch_size, -1, board_size)
+        x_grid = torch.arange(board_size, device=device).view(1, 1, -1).expand(batch_size, board_size, -1)
+        must_y = state.must_move_from_y.view(-1, 1, 1).expand(-1, board_size, board_size)
+        must_x = state.must_move_from_x.view(-1, 1, 1).expand(-1, board_size, board_size)
+        constraint_mask = (y_grid == must_y) & (x_grid == must_x)
+        constraint_applies = has_constraint.view(-1, 1, 1).expand(-1, board_size, board_size)
+        player_stacks = player_stacks & (~constraint_applies | constraint_mask)
+
+    stack_game_idx, stack_y, stack_x = torch.where(player_stacks)
+    n_stacks = stack_game_idx.shape[0]
+
+    if n_stacks == 0:
+        return _empty_batch_moves(batch_size, device)
+
+    # Get stack properties
+    stack_heights = state.stack_height[stack_game_idx, stack_y, stack_x]
+    stack_cap_heights = state.cap_height[stack_game_idx, stack_y, stack_x]
+
+    # === Step 2: For each (stack, direction), find target and compute captures ===
+    # Expand for directions: (N_stacks, 8)
+    stack_game_idx_dir = stack_game_idx.unsqueeze(1).expand(-1, n_dirs).long()
+    stack_y_dir = stack_y.unsqueeze(1).expand(-1, n_dirs)
+    stack_x_dir = stack_x.unsqueeze(1).expand(-1, n_dirs)
+    stack_heights_dir = stack_heights.unsqueeze(1).expand(-1, n_dirs)
+    stack_cap_heights_dir = stack_cap_heights.unsqueeze(1).expand(-1, n_dirs)
+
+    dir_dy = directions[:, 0].view(1, n_dirs)
+    dir_dx = directions[:, 1].view(1, n_dirs)
+
+    # Compute cells along each ray: (N_stacks, 8, max_dist)
+    steps = torch.arange(1, max_dist + 1, device=device)
+    ray_y = stack_y_dir.unsqueeze(2) + dir_dy.unsqueeze(2) * steps
+    ray_x = stack_x_dir.unsqueeze(2) + dir_dx.unsqueeze(2) * steps
+    game_idx_exp = stack_game_idx_dir.unsqueeze(2).expand(-1, -1, max_dist)
+
+    # Check bounds
+    in_bounds = (ray_y >= 0) & (ray_y < board_size) & (ray_x >= 0) & (ray_x < board_size)
+
+    # Safe indexing
+    ray_y_safe = torch.clamp(ray_y, 0, board_size - 1).long()
+    ray_x_safe = torch.clamp(ray_x, 0, board_size - 1).long()
+
+    # Get cell properties along rays
+    ray_collapsed = state.is_collapsed[game_idx_exp, ray_y_safe, ray_x_safe]
+    ray_owner = state.stack_owner[game_idx_exp, ray_y_safe, ray_x_safe]
+    ray_cap_height = state.cap_height[game_idx_exp, ray_y_safe, ray_x_safe]
+
+    # Find first blocker (collapsed or OOB) along each ray
+    is_blocker = ~in_bounds | ray_collapsed
+    blocker_cumsum = torch.cumsum(is_blocker.to(torch.int32), dim=2)
+    before_blocker = blocker_cumsum == 0  # True for cells before any blocker
+
+    # Find cells with stacks (potential targets) that are before any blocker
+    has_stack = (ray_owner != 0) & before_blocker
+
+    # Find target: first stack along ray where my_cap_height >= target_cap_height
+    my_cap_exp = stack_cap_heights_dir.unsqueeze(2).expand(-1, -1, max_dist)
+    valid_target = has_stack & (my_cap_exp >= ray_cap_height)
+
+    # Find first valid target distance for each (stack, direction)
+    # Use argmax - but need to handle case where no valid target exists
+    has_any_target = valid_target.any(dim=2)  # (N_stacks, 8)
+    first_target_idx = valid_target.to(torch.int32).argmax(dim=2)  # (N_stacks, 8)
+    target_dist = first_target_idx + 1  # Convert index to distance
+
+    # Also need to check that there's no stack before the target that we can't capture
+    # (a stack with target_cap > my_cap blocks the ray even if there's a valid target beyond)
+    invalid_stack = has_stack & (my_cap_exp < ray_cap_height)
+    invalid_stack_cumsum = torch.cumsum(invalid_stack.to(torch.int32), dim=2)
+
+    # Target is only valid if no invalid stack exists before it
+    target_idx_exp = first_target_idx.unsqueeze(2)  # (N_stacks, 8, 1)
+    step_indices = torch.arange(max_dist, device=device).view(1, 1, -1)  # (1, 1, max_dist)
+    before_target = step_indices < target_idx_exp
+    invalid_before_target = (invalid_stack_cumsum * before_target.to(torch.int32)).sum(dim=2) > 0
+
+    # Final valid target mask
+    has_valid_target = has_any_target & ~invalid_before_target  # (N_stacks, 8)
+
+    # === Step 3: For (stack, direction) pairs with valid targets, enumerate landings ===
+    # Flatten to process only valid (stack, direction) pairs
+    valid_sd_indices = torch.where(has_valid_target.reshape(-1))[0]
+
+    if valid_sd_indices.numel() == 0:
+        return _empty_batch_moves(batch_size, device)
+
+    # Extract valid (stack, direction) data
+    n_valid_sd = valid_sd_indices.numel()
+    sd_game_idx = stack_game_idx_dir.reshape(-1)[valid_sd_indices]
+    sd_from_y = stack_y_dir.reshape(-1)[valid_sd_indices]
+    sd_from_x = stack_x_dir.reshape(-1)[valid_sd_indices]
+    sd_height = stack_heights_dir.reshape(-1)[valid_sd_indices]
+    sd_target_dist = target_dist.reshape(-1)[valid_sd_indices]
+    sd_dir_dy = dir_dy.expand(n_stacks, -1).reshape(-1)[valid_sd_indices]
+    sd_dir_dx = dir_dx.expand(n_stacks, -1).reshape(-1)[valid_sd_indices]
+
+    # Min landing distance = max(stack_height, target_dist + 1)
+    sd_min_landing = torch.maximum(sd_height, sd_target_dist + 1)
+
+    # Expand for all possible landing distances: (n_valid_sd, max_dist)
+    landing_dists = torch.arange(1, max_dist + 1, device=device).view(1, -1)  # (1, max_dist)
+
+    # Expand sd data: (n_valid_sd, max_dist)
+    sd_game_idx_exp = sd_game_idx.unsqueeze(1).expand(-1, max_dist)
+    sd_from_y_exp = sd_from_y.unsqueeze(1).expand(-1, max_dist)
+    sd_from_x_exp = sd_from_x.unsqueeze(1).expand(-1, max_dist)
+    sd_target_dist_exp = sd_target_dist.unsqueeze(1).expand(-1, max_dist)
+    sd_min_landing_exp = sd_min_landing.unsqueeze(1).expand(-1, max_dist)
+    sd_dir_dy_exp = sd_dir_dy.unsqueeze(1).expand(-1, max_dist)
+    sd_dir_dx_exp = sd_dir_dx.unsqueeze(1).expand(-1, max_dist)
+
+    # Compute landing positions
+    landing_y = sd_from_y_exp + sd_dir_dy_exp * landing_dists
+    landing_x = sd_from_x_exp + sd_dir_dx_exp * landing_dists
+
+    # Filter 1: landing_dist >= min_landing_dist
+    valid_landing_dist = landing_dists >= sd_min_landing_exp
+
+    # Filter 2: landing in bounds
+    landing_in_bounds = (
+        (landing_y >= 0) & (landing_y < board_size) &
+        (landing_x >= 0) & (landing_x < board_size)
+    )
+
+    # Safe indexing for landing
+    landing_y_safe = torch.clamp(landing_y, 0, board_size - 1).long()
+    landing_x_safe = torch.clamp(landing_x, 0, board_size - 1).long()
+
+    # Filter 3: landing not collapsed
+    landing_collapsed = state.is_collapsed[sd_game_idx_exp.long(), landing_y_safe, landing_x_safe]
+    landing_not_collapsed = ~landing_collapsed
+
+    # Filter 4: landing is empty
+    landing_owner = state.stack_owner[sd_game_idx_exp.long(), landing_y_safe, landing_x_safe]
+    landing_empty = landing_owner == 0
+
+    # Combine filters so far
+    valid_mask = valid_landing_dist & landing_in_bounds & landing_not_collapsed & landing_empty
+
+    # === Step 4: Path validation from target+1 to landing-1 ===
+    # For each candidate landing, check that cells between target and landing are clear
+    # This is cells at distances (target_dist+1) to (landing_dist-1)
+
+    # Compute path cells for all (sd, landing_dist) combinations
+    # We need to check if any cell at dist in (target_dist, landing_dist) is blocked
+    # Use the ray data we already computed
+
+    # Get ray data for these (stack, direction) pairs
+    # valid_sd_indices maps to (stack_idx * n_dirs + dir_idx)
+    stack_idx = valid_sd_indices // n_dirs
+    dir_idx = valid_sd_indices % n_dirs
+
+    # For each valid (sd, landing), check path
+    # Path is blocked if any cell at dist in [target_dist+1, landing_dist) has stack or collapsed
+    # Use the ray_owner and ray_collapsed we computed earlier
+
+    # Index into ray data: (n_valid_sd, max_dist)
+    ray_owner_sd = ray_owner[stack_idx, dir_idx, :]  # (n_valid_sd, max_dist)
+    ray_collapsed_sd = ray_collapsed[stack_idx, dir_idx, :]
+    ray_in_bounds_sd = in_bounds[stack_idx, dir_idx, :]
+
+    # For each candidate (n_valid_sd, max_dist landing), check path
+    # Path cell at step s (0-indexed) corresponds to distance s+1
+    # We need to check steps where: target_dist < step+1 < landing_dist
+    # i.e., steps where: target_dist-1 < step < landing_dist-1
+    # i.e., steps in range [target_dist, landing_dist-1)
+
+    step_indices_2d = torch.arange(max_dist, device=device).view(1, 1, -1).expand(n_valid_sd, max_dist, -1)
+    target_dist_3d = sd_target_dist.view(-1, 1, 1).expand(-1, max_dist, max_dist)
+    landing_dist_3d = landing_dists.view(1, -1, 1).expand(n_valid_sd, -1, max_dist)
+
+    # Mask for steps that are in the path (between target and landing)
+    in_path = (step_indices_2d >= target_dist_3d) & (step_indices_2d < landing_dist_3d - 1)
+
+    # Check if path cells are blocked (have stack or collapsed or OOB)
+    ray_owner_3d = ray_owner_sd.unsqueeze(1).expand(-1, max_dist, -1)
+    ray_collapsed_3d = ray_collapsed_sd.unsqueeze(1).expand(-1, max_dist, -1)
+    ray_in_bounds_3d = ray_in_bounds_sd.unsqueeze(1).expand(-1, max_dist, -1)
+
+    path_cell_blocked = (ray_owner_3d != 0) | ray_collapsed_3d | ~ray_in_bounds_3d
+    path_blocked_at_step = path_cell_blocked & in_path
+
+    # Path is blocked if any step in path is blocked
+    path_blocked = path_blocked_at_step.any(dim=2)  # (n_valid_sd, max_dist)
+
+    # === Step 5: Blocking distance for landings ===
+    # In legacy, if we hit a collapsed or occupied landing, we break
+    # But we only iterate starting from min_landing, so cells before don't count as blockers
+    # Only consider cells at distance >= min_landing as potential blockers
+    landing_invalid = ~(landing_in_bounds & landing_not_collapsed & landing_empty)
+    # Mask out cells before min_landing - they don't count as blockers
+    landing_invalid_in_range = landing_invalid & (landing_dists >= sd_min_landing_exp)
+    landing_invalid_cumsum = torch.cumsum(landing_invalid_in_range.to(torch.int32), dim=1)
+    before_first_invalid_landing = landing_invalid_cumsum == 0
+
+    # Combine all filters
+    valid_mask = valid_mask & ~path_blocked & before_first_invalid_landing
+
+    # === Step 6: Extract valid captures ===
+    valid_indices = torch.where(valid_mask.reshape(-1))[0]
+
+    if valid_indices.numel() == 0:
+        return _empty_batch_moves(batch_size, device)
+
+    # Flatten and extract
+    game_idx_flat = sd_game_idx_exp.reshape(-1)
+    from_y_flat = sd_from_y_exp.reshape(-1)
+    from_x_flat = sd_from_x_exp.reshape(-1)
+    to_y_flat = landing_y.reshape(-1)
+    to_x_flat = landing_x.reshape(-1)
+
+    final_game_idx = game_idx_flat[valid_indices].int()
+    final_from_y = from_y_flat[valid_indices].int()
+    final_from_x = from_x_flat[valid_indices].int()
+    final_to_y = to_y_flat[valid_indices].int()
+    final_to_x = to_x_flat[valid_indices].int()
+
+    total_moves = valid_indices.numel()
+
+    # Count moves per game
+    moves_per_game = torch.zeros(batch_size, dtype=torch.int32, device=device)
+    ones = torch.ones(total_moves, dtype=torch.int32, device=device)
+    moves_per_game.scatter_add_(0, final_game_idx.long(), ones)
+
+    move_offsets = torch.cumsum(
+        torch.cat([torch.tensor([0], device=device, dtype=torch.int32), moves_per_game[:-1]]),
+        dim=0
+    ).int()
+
+    return BatchMoves(
+        game_idx=final_game_idx,
+        move_type=torch.full((total_moves,), MoveType.CAPTURE, dtype=torch.int8, device=device),
+        from_y=final_from_y,
+        from_x=final_from_x,
+        to_y=final_to_y,
+        to_x=final_to_x,
+        moves_per_game=moves_per_game,
+        move_offsets=move_offsets,
+        total_moves=total_moves,
+        device=device,
+    )
+
+
+def _generate_capture_moves_batch_legacy(
+    state: BatchGameState,
+    active_mask: Optional[torch.Tensor] = None,
+) -> BatchMoves:
+    """Legacy Python-loop based capture generation.
+
+    Kept for debugging and comparison.
     """
     if active_mask is None:
         active_mask = state.get_active_mask()
@@ -2002,7 +2336,6 @@ def generate_capture_moves_batch(
         must_y = int(state.must_move_from_y[g].item())
         must_x = int(state.must_move_from_x[g].item())
 
-        # Find all stacks controlled by current player
         my_stacks = (state.stack_owner[g] == player)
         stack_positions = torch.nonzero(my_stacks, as_tuple=False)
 
@@ -2018,8 +2351,6 @@ def generate_capture_moves_batch(
                 continue
 
             for dy, dx in directions:
-                # Per RR-CANON-R101/R102: capture = (from, target, landing)
-                # Step 1: Find first stack along ray (potential target)
                 target_y, target_x = None, None
                 target_dist = 0
 
@@ -2030,28 +2361,20 @@ def generate_capture_moves_batch(
                     if not (0 <= check_y < board_size and 0 <= check_x < board_size):
                         break
 
-                    # Check if collapsed
                     if state.is_collapsed[g, check_y, check_x].item():
                         break
 
                     cell_owner = state.stack_owner[g, check_y, check_x].item()
                     if cell_owner != 0:
-                        # Found a stack - check if valid target
-                        # Per RR-CANON-R101: target can be ANY owner (own or opponent)
                         target_cap = state.cap_height[g, check_y, check_x].item()
                         if my_cap_height >= target_cap:
                             target_y, target_x = check_y, check_x
                             target_dist = step
-                        # Any stack stops search along this ray
                         break
 
                 if target_y is None:
-                    # No valid target in this direction
                     continue
 
-                # Step 2: Enumerate landing positions BEYOND target
-                # Landing must be at distance >= my_height from origin
-                # and strictly beyond target (target_dist + 1 minimum)
                 min_landing_dist = max(my_height, target_dist + 1)
 
                 for landing_dist in range(min_landing_dist, board_size):
@@ -2061,11 +2384,9 @@ def generate_capture_moves_batch(
                     if not (0 <= landing_y < board_size and 0 <= landing_x < board_size):
                         break
 
-                    # Check if landing is collapsed
                     if state.is_collapsed[g, landing_y, landing_x].item():
                         break
 
-                    # Check path from target to landing is clear
                     path_clear = True
                     for step in range(target_dist + 1, landing_dist):
                         check_y = from_y + dy * step
@@ -2080,12 +2401,10 @@ def generate_capture_moves_batch(
                     if not path_clear:
                         break
 
-                    # Landing must be empty
                     landing_owner = state.stack_owner[g, landing_y, landing_x].item()
                     if landing_owner != 0:
                         break
 
-                    # Valid capture: (from, landing) - target is implicit
                     all_game_idx.append(g)
                     all_from_y.append(from_y)
                     all_from_x.append(from_x)
@@ -2095,18 +2414,7 @@ def generate_capture_moves_batch(
     total_moves = len(all_game_idx)
 
     if total_moves == 0:
-        return BatchMoves(
-            game_idx=torch.tensor([], dtype=torch.int32, device=device),
-            move_type=torch.tensor([], dtype=torch.int8, device=device),
-            from_y=torch.tensor([], dtype=torch.int32, device=device),
-            from_x=torch.tensor([], dtype=torch.int32, device=device),
-            to_y=torch.tensor([], dtype=torch.int32, device=device),
-            to_x=torch.tensor([], dtype=torch.int32, device=device),
-            moves_per_game=torch.zeros(batch_size, dtype=torch.int32, device=device),
-            move_offsets=torch.zeros(batch_size, dtype=torch.int32, device=device),
-            total_moves=0,
-            device=device,
-        )
+        return _empty_batch_moves(batch_size, device)
 
     game_idx_t = torch.tensor(all_game_idx, dtype=torch.int32, device=device)
     from_y_t = torch.tensor(all_from_y, dtype=torch.int32, device=device)
@@ -4194,6 +4502,7 @@ class ParallelGameRunner:
             device=self.device,
             rings_per_player=rings_per_player,
             board_type=board_type,
+            lps_rounds_required=self.lps_victory_rounds,
         )
 
         # Shadow validation for GPU/CPU parity checking (Phase 2 - move generation)
@@ -4871,9 +5180,12 @@ class ParallelGameRunner:
                     self.state, selected_recovery, recovery_moves, games_with_recovery
                 )
 
-            # Check for stalemate in games that had no stacks AND no recovery moves
+            # No movement/capture/recovery action is available for the current player.
+            # Do not treat this as an immediate stalemate (RR-CANON-R173 is global and
+            # evaluated only for bare-board terminality); instead, record an explicit
+            # NO_ACTION move and allow turn/round machinery (including LPS) to proceed.
             if games_no_recovery.any():
-                self._check_stalemate(games_no_recovery)
+                apply_no_action_moves_batch(self.state, games_no_recovery)
 
         # Games WITH stacks: generate movement and capture moves
         if games_with_stacks.any():
@@ -4902,6 +5214,7 @@ class ParallelGameRunner:
             # exist from the new landing position, the chain MUST continue.
             games_with_captures = games_with_stacks & (capture_moves.moves_per_game > 0)
             games_movement_only = games_with_stacks & (capture_moves.moves_per_game == 0) & (movement_moves.moves_per_game > 0)
+            games_no_action = games_with_stacks & (capture_moves.moves_per_game == 0) & (movement_moves.moves_per_game == 0)
 
             # Apply capture moves with chain capture support (RR-CANON-R103)
             if games_with_captures.any():
@@ -4967,6 +5280,9 @@ class ParallelGameRunner:
                 apply_movement_moves_vectorized(
                     self.state, selected_movements, movement_moves, games_movement_only
                 )
+
+            if games_no_action.any():
+                apply_no_action_moves_batch(self.state, games_no_action)
 
         # After movement, advance to LINE_PROCESSING phase
         self.state.current_phase[mask] = GamePhase.LINE_PROCESSING

@@ -23,6 +23,8 @@ from app.ai.gpu_parallel_games import (
     generate_movement_moves_batch,
     generate_movement_moves_batch_vectorized,
     _generate_movement_moves_batch_legacy,
+    generate_capture_moves_batch_vectorized,
+    _generate_capture_moves_batch_legacy,
     generate_placement_moves_batch,
 )
 from app.ai.gpu_batch import get_device
@@ -50,26 +52,37 @@ def moves_to_set(moves):
     return result
 
 
-def test_parity_single_state(state, round_num=0) -> bool:
+def test_parity_single_state(state, round_num=0, move_type="movement") -> bool:
     """Test that vectorized and legacy produce same moves for a given state."""
     active_mask = state.get_active_mask()
 
-    # Run vectorized version
-    t0 = time.perf_counter()
-    moves_vec = generate_movement_moves_batch_vectorized(state, active_mask)
-    t_vec = time.perf_counter() - t0
+    if move_type == "movement":
+        # Run vectorized version
+        t0 = time.perf_counter()
+        moves_vec = generate_movement_moves_batch_vectorized(state, active_mask)
+        t_vec = time.perf_counter() - t0
 
-    # Run legacy version
-    t0 = time.perf_counter()
-    moves_leg = _generate_movement_moves_batch_legacy(state, active_mask)
-    t_leg = time.perf_counter() - t0
+        # Run legacy version
+        t0 = time.perf_counter()
+        moves_leg = _generate_movement_moves_batch_legacy(state, active_mask)
+        t_leg = time.perf_counter() - t0
+    else:  # capture
+        # Run vectorized version
+        t0 = time.perf_counter()
+        moves_vec = generate_capture_moves_batch_vectorized(state, active_mask)
+        t_vec = time.perf_counter() - t0
+
+        # Run legacy version
+        t0 = time.perf_counter()
+        moves_leg = _generate_capture_moves_batch_legacy(state, active_mask)
+        t_leg = time.perf_counter() - t0
 
     # Convert to sets for comparison
     set_vec = moves_to_set(moves_vec)
     set_leg = moves_to_set(moves_leg)
 
     if set_vec != set_leg:
-        logger.error(f"Round {round_num}: MISMATCH!")
+        logger.error(f"Round {round_num} ({move_type}): MISMATCH!")
         logger.error(f"  Vectorized: {len(set_vec)} moves")
         logger.error(f"  Legacy: {len(set_leg)} moves")
 
@@ -134,11 +147,11 @@ def setup_test_state(batch_size: int, board_size: int, device: torch.device, see
     return state
 
 
-def run_parity_tests(args):
+def run_parity_tests(args, move_type="movement"):
     """Run parity tests between vectorized and legacy implementations."""
     device = get_device()
     logger.info(f"Device: {device}")
-    logger.info(f"Running {args.rounds} parity test rounds")
+    logger.info(f"Running {args.rounds} {move_type} parity test rounds")
 
     passed = 0
     failed = 0
@@ -152,7 +165,7 @@ def run_parity_tests(args):
             seed=seed,
         )
 
-        if test_parity_single_state(state, round_num):
+        if test_parity_single_state(state, round_num, move_type):
             passed += 1
         else:
             failed += 1
@@ -163,15 +176,15 @@ def run_parity_tests(args):
         if (round_num + 1) % 10 == 0:
             logger.info(f"  Round {round_num + 1}/{args.rounds}: {passed} passed, {failed} failed")
 
-    logger.info(f"\nParity Results: {passed}/{passed + failed} passed")
+    logger.info(f"\n{move_type.capitalize()} Parity Results: {passed}/{passed + failed} passed")
     return failed == 0
 
 
-def run_benchmark(args):
+def run_benchmark(args, move_type="movement"):
     """Benchmark vectorized vs legacy performance."""
     device = get_device()
     logger.info(f"Device: {device}")
-    logger.info(f"Running benchmark: batch_size={args.batch_size}, iterations={args.iterations}")
+    logger.info(f"Running {move_type} benchmark: batch_size={args.batch_size}, iterations={args.iterations}")
 
     # Create a stable test state
     state = setup_test_state(
@@ -182,10 +195,17 @@ def run_benchmark(args):
     )
     active_mask = state.get_active_mask()
 
+    if move_type == "movement":
+        vec_func = generate_movement_moves_batch_vectorized
+        leg_func = _generate_movement_moves_batch_legacy
+    else:
+        vec_func = generate_capture_moves_batch_vectorized
+        leg_func = _generate_capture_moves_batch_legacy
+
     # Warmup
     for _ in range(3):
-        _ = generate_movement_moves_batch_vectorized(state, active_mask)
-        _ = _generate_movement_moves_batch_legacy(state, active_mask)
+        _ = vec_func(state, active_mask)
+        _ = leg_func(state, active_mask)
 
     if device.type == "cuda":
         torch.cuda.synchronize()
@@ -193,7 +213,7 @@ def run_benchmark(args):
     # Benchmark vectorized
     t0 = time.perf_counter()
     for _ in range(args.iterations):
-        _ = generate_movement_moves_batch_vectorized(state, active_mask)
+        _ = vec_func(state, active_mask)
     if device.type == "cuda":
         torch.cuda.synchronize()
     t_vec = time.perf_counter() - t0
@@ -201,7 +221,7 @@ def run_benchmark(args):
     # Benchmark legacy
     t0 = time.perf_counter()
     for _ in range(args.iterations):
-        _ = _generate_movement_moves_batch_legacy(state, active_mask)
+        _ = leg_func(state, active_mask)
     if device.type == "cuda":
         torch.cuda.synchronize()
     t_leg = time.perf_counter() - t0
@@ -213,7 +233,7 @@ def run_benchmark(args):
 
     speedup = t_leg / t_vec if t_vec > 0 else float('inf')
 
-    logger.info(f"\n=== Benchmark Results ===")
+    logger.info(f"\n=== {move_type.capitalize()} Benchmark Results ===")
     logger.info(f"Vectorized: {vec_per_iter:.2f} ms/iter, {vec_games_per_sec:.1f} games/sec")
     logger.info(f"Legacy:     {leg_per_iter:.2f} ms/iter, {leg_games_per_sec:.1f} games/sec")
     logger.info(f"Speedup:    {speedup:.2f}x")
@@ -222,8 +242,9 @@ def run_benchmark(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test vectorized movement generation")
+    parser = argparse.ArgumentParser(description="Test vectorized movement and capture generation")
     parser.add_argument("--mode", choices=["parity", "benchmark", "both"], default="both")
+    parser.add_argument("--move-type", choices=["movement", "capture", "all"], default="all")
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--board-size", type=int, default=8)
     parser.add_argument("--rounds", type=int, default=50)
@@ -233,19 +254,21 @@ def main():
     args = parser.parse_args()
 
     success = True
+    move_types = ["movement", "capture"] if args.move_type == "all" else [args.move_type]
 
-    if args.mode in ["parity", "both"]:
-        logger.info("\n" + "=" * 60)
-        logger.info("PARITY TESTS")
-        logger.info("=" * 60)
-        if not run_parity_tests(args):
-            success = False
+    for move_type in move_types:
+        if args.mode in ["parity", "both"]:
+            logger.info("\n" + "=" * 60)
+            logger.info(f"{move_type.upper()} PARITY TESTS")
+            logger.info("=" * 60)
+            if not run_parity_tests(args, move_type):
+                success = False
 
-    if args.mode in ["benchmark", "both"]:
-        logger.info("\n" + "=" * 60)
-        logger.info("BENCHMARK")
-        logger.info("=" * 60)
-        run_benchmark(args)
+        if args.mode in ["benchmark", "both"]:
+            logger.info("\n" + "=" * 60)
+            logger.info(f"{move_type.upper()} BENCHMARK")
+            logger.info("=" * 60)
+            run_benchmark(args, move_type)
 
     sys.exit(0 if success else 1)
 

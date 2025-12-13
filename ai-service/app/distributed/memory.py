@@ -98,7 +98,9 @@ def get_current_rss_mb() -> int:
         else:
             # Linux returns kilobytes
             return int(usage.ru_maxrss / 1024)
-    except Exception:
+    except (OSError, AttributeError, ValueError):
+        # OSError: resource unavailable, AttributeError: missing constant,
+        # ValueError: invalid conversion
         pass
 
     try:
@@ -108,7 +110,9 @@ def get_current_rss_mb() -> int:
                 if line.startswith("VmRSS:"):
                     kb = int(line.split()[1])
                     return kb // 1024
-    except Exception:
+    except (FileNotFoundError, PermissionError, IOError, ValueError, IndexError):
+        # FileNotFoundError/PermissionError: file access issues
+        # IOError: read errors, ValueError/IndexError: parsing errors
         pass
 
     try:
@@ -122,7 +126,9 @@ def get_current_rss_mb() -> int:
         )
         if result.returncode == 0:
             return int(result.stdout.strip()) // 1024
-    except Exception:
+    except (subprocess.SubprocessError, OSError, FileNotFoundError, ValueError):
+        # SubprocessError: process execution issues, OSError/FileNotFoundError: ps not found
+        # ValueError: invalid conversion
         pass
 
     return 0
@@ -139,7 +145,9 @@ def get_peak_rss_mb() -> int:
             return int(usage.ru_maxrss / (1024 * 1024))
         else:
             return int(usage.ru_maxrss / 1024)
-    except Exception:
+    except (OSError, AttributeError, ValueError):
+        # OSError: resource unavailable, AttributeError: missing constant,
+        # ValueError: invalid conversion
         return get_current_rss_mb()
 
 
@@ -161,7 +169,9 @@ def get_process_rss_mb(pid: int) -> Optional[int]:
         )
         if result.returncode == 0 and result.stdout.strip():
             return int(result.stdout.strip()) // 1024
-    except Exception:
+    except (subprocess.SubprocessError, OSError, FileNotFoundError, ValueError):
+        # SubprocessError: process execution issues (includes TimeoutExpired)
+        # OSError/FileNotFoundError: ps not found, ValueError: invalid int conversion
         pass
     return None
 
@@ -283,7 +293,8 @@ class MemoryTracker:
                 current, peak = tracemalloc.get_traced_memory()
                 tracemalloc_current = current / (1024 * 1024)
                 tracemalloc_peak = peak / (1024 * 1024)
-            except Exception:
+            except RuntimeError:
+                # tracemalloc raises RuntimeError if not started
                 pass
 
         sample = MemorySample(

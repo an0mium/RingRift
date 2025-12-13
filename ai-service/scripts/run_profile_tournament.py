@@ -121,6 +121,61 @@ def run_game(
     move_types = []
     phases_seen = set()
 
+    def _timeout_tiebreak_winner(final_state: GameState) -> Optional[int]:
+        """Deterministically select a winner for evaluation-only timeouts."""
+        players = getattr(final_state, "players", None) or []
+        if not players:
+            return None
+
+        board = getattr(final_state, "board", None)
+        collapsed_spaces = {}
+        markers = {}
+        if board is not None:
+            collapsed_spaces = (
+                getattr(board, "collapsed_spaces", None)
+                or getattr(board, "collapsedSpaces", None)
+                or {}
+            )
+            markers = getattr(board, "markers", None) or {}
+
+        territory_counts: Dict[int, int] = {}
+        try:
+            for p_id in collapsed_spaces.values():
+                territory_counts[int(p_id)] = territory_counts.get(int(p_id), 0) + 1
+        except Exception:
+            pass
+
+        marker_counts: Dict[int, int] = {int(p.player_number): 0 for p in players}
+        try:
+            for marker in markers.values():
+                owner = int(getattr(marker, "player", getattr(marker, "player_number", 0)) or 0)
+                if owner:
+                    marker_counts[owner] = marker_counts.get(owner, 0) + 1
+        except Exception:
+            pass
+
+        last_actor: Optional[int] = None
+        try:
+            if final_state.move_history:
+                last_actor = int(getattr(final_state.move_history[-1], "player", 0) or 0) or None
+        except Exception:
+            last_actor = None
+
+        sorted_players = sorted(
+            players,
+            key=lambda p: (
+                territory_counts.get(int(p.player_number), 0),
+                int(getattr(p, "eliminated_rings", 0) or 0),
+                marker_counts.get(int(p.player_number), 0),
+                1 if last_actor == int(p.player_number) else 0,
+                -int(p.player_number),
+            ),
+            reverse=True,
+        )
+        if not sorted_players:
+            return None
+        return int(sorted_players[0].player_number)
+
     while game_state.game_status == GameStatus.ACTIVE and move_count < max_moves:
         current_player_num = game_state.current_player
         current_ai = ais[current_player_num - 1]
@@ -178,7 +233,9 @@ def run_game(
         )
 
     if game_state.game_status == GameStatus.ACTIVE:
-        return None, game_info  # Draw
+        winner = _timeout_tiebreak_winner(game_state)
+        game_info["timeout_tiebreak_winner"] = winner
+        return winner, game_info
 
     return game_state.winner, game_info
 

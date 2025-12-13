@@ -12,8 +12,8 @@ import threading
 
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, TypedDict
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional, Dict, Any, TypedDict, Self
 
 try:  # Python 3.10 compatibility (NotRequired added in 3.11)
     from typing import NotRequired  # type: ignore
@@ -225,7 +225,7 @@ def _put_cached_ai(key: str, ai: Any) -> None:
 class MoveRequest(BaseModel):
     """Request model for AI move selection"""
     game_state: GameState
-    player_number: int
+    player_number: int = Field(ge=1, description="Player number (1-indexed)")
     difficulty: int = Field(ge=1, le=10, default=5)
     ai_type: Optional[AIType] = None
     seed: Optional[int] = Field(
@@ -234,6 +234,18 @@ class MoveRequest(BaseModel):
         le=0x7FFFFFFF,
         description="Optional RNG seed for deterministic AI behavior"
     )
+
+    @model_validator(mode="after")
+    def validate_player_number(self) -> Self:
+        """Ensure player_number is valid for the given game_state."""
+        players = getattr(self.game_state, "players", None)
+        if not players:
+            raise ValueError("game_state.players cannot be empty")
+        if self.player_number > len(players):
+            raise ValueError(
+                f"player_number {self.player_number} exceeds number of players ({len(players)})"
+            )
+        return self
 
 
 class MoveResponse(BaseModel):
@@ -251,7 +263,19 @@ class MoveResponse(BaseModel):
 class EvaluationRequest(BaseModel):
     """Request model for position evaluation"""
     game_state: GameState
-    player_number: int
+    player_number: int = Field(ge=1, description="Player number (1-indexed)")
+
+    @model_validator(mode="after")
+    def validate_player_number(self) -> Self:
+        """Ensure player_number is valid for the given game_state."""
+        players = getattr(self.game_state, "players", None)
+        if not players:
+            raise ValueError("game_state.players cannot be empty")
+        if self.player_number > len(players):
+            raise ValueError(
+                f"player_number {self.player_number} exceeds number of players ({len(players)})"
+            )
+        return self
 
 
 class EvaluationResponse(BaseModel):

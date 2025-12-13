@@ -73,6 +73,54 @@ def play_nn_vs_nn_game(
     from datetime import datetime
     from app.ai.neural_net import NeuralNetAI, clear_model_cache
 
+    def _timeout_tiebreak_winner(final_state: GameState) -> Optional[int]:
+        """Deterministically select a winner for evaluation-only timeouts."""
+        players = getattr(final_state, "players", None) or []
+        if not players:
+            return None
+
+        territory_counts: Dict[int, int] = {}
+        try:
+            for p_id in final_state.board.collapsed_spaces.values():
+                territory_counts[int(p_id)] = territory_counts.get(int(p_id), 0) + 1
+        except Exception:
+            pass
+
+        marker_counts: Dict[int, int] = {int(p.player_number): 0 for p in players}
+        try:
+            for marker in final_state.board.markers.values():
+                owner = int(marker.player)
+                marker_counts[owner] = marker_counts.get(owner, 0) + 1
+        except Exception:
+            pass
+
+        last_actor: Optional[int] = None
+        try:
+            if final_state.move_history:
+                last_actor = int(final_state.move_history[-1].player)
+        except Exception:
+            last_actor = None
+
+        sorted_players = sorted(
+            players,
+            key=lambda p: (
+                territory_counts.get(int(p.player_number), 0),
+                int(getattr(p, "eliminated_rings", 0) or 0),
+                marker_counts.get(int(p.player_number), 0),
+                1 if last_actor == int(p.player_number) else 0,
+                -int(p.player_number),
+            ),
+            reverse=True,
+        )
+        if not sorted_players:
+            return None
+        return int(sorted_players[0].player_number)
+
+    def _winner_label_for_player(player_num: int) -> str:
+        # Players are assigned model_a/model_b alternating by position index:
+        # P1,P3 -> model_a; P2,P4 -> model_b.
+        return "model_a" if ((int(player_num) - 1) % 2) == 0 else "model_b"
+
     # Move history for training data export
     move_history = []
 
@@ -192,6 +240,19 @@ def play_nn_vs_nn_game(
     victory_type, stalemate_tb = derive_victory_type(game_state, max_moves)
     status = "completed" if game_state.game_status == GameStatus.COMPLETED else str(game_state.game_status.value)
 
+    # Evaluation-only timeout tie-break (avoid draw-heavy tournaments).
+    winner_player: Optional[int] = None
+    if game_state.winner is not None:
+        try:
+            winner_player = int(game_state.winner)
+        except Exception:
+            winner_player = None
+
+    timed_out = bool(move_count >= max_moves and winner_player is None)
+    evaluation_tiebreak_player: Optional[int] = None
+    if winner_player is None:
+        evaluation_tiebreak_player = _timeout_tiebreak_winner(game_state)
+
     # Build game record for training data export in canonical format (matching run_random_selfplay.py)
     game_record = None
     if save_game_history:
@@ -227,23 +288,26 @@ def play_nn_vs_nn_game(
             # === Source tracking ===
             'source': 'run_model_elo_tournament.py',
         }
+        if evaluation_tiebreak_player is not None:
+            if timed_out:
+                game_record["timeout_tiebreak_winner"] = int(evaluation_tiebreak_player)
+                game_record["timeout_tiebreak_winner_model"] = _winner_label_for_player(int(evaluation_tiebreak_player))
+            else:
+                game_record["evaluation_tiebreak_winner"] = int(evaluation_tiebreak_player)
+                game_record["evaluation_tiebreak_winner_model"] = _winner_label_for_player(int(evaluation_tiebreak_player))
 
-    if game_state.game_status == GameStatus.COMPLETED and game_state.winner is not None:
-        # Winner is 1-indexed player number
-        winner = "model_a" if game_state.winner == 1 else "model_b"
-        return {
-            "winner": winner,
-            "game_length": move_count,
-            "duration_sec": duration,
-            "game_record": game_record,
-        }
-    else:
-        return {
-            "winner": "draw",
-            "game_length": move_count,
-            "duration_sec": duration,
-            "game_record": game_record,
-        }
+    winner_label = "draw"
+    if winner_player is not None:
+        winner_label = _winner_label_for_player(winner_player)
+    elif evaluation_tiebreak_player is not None:
+        winner_label = _winner_label_for_player(evaluation_tiebreak_player)
+
+    return {
+        "winner": winner_label,
+        "game_length": move_count,
+        "duration_sec": duration,
+        "game_record": game_record,
+    }
 
 
 def run_model_matchup(
@@ -270,7 +334,7 @@ def run_model_matchup(
 
     # Setup game saving directory
     if save_games_dir is None:
-        save_games_dir = AI_SERVICE_ROOT / "data" / "selfplay" / "elo_tournaments"
+        save_games_dir = AI_SERVICE_ROOT / "data" / "holdouts" / "elo_tournaments"
     save_games_dir.mkdir(parents=True, exist_ok=True)
     jsonl_path = save_games_dir / f"tournament_{tournament_id}_{board_type}_{num_players}p.jsonl"
 

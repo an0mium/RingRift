@@ -38,6 +38,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -513,7 +514,9 @@ def main() -> None:
 
     if args.hosts:
         hosts = [h.strip() for h in args.hosts.split(",") if h.strip()]
-        output_dir = db_path.parent
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        run_dir_name = f"distributed_soak_{args.board_type}_{args.num_players}p_{ts}"
+        output_dir = db_path.parent / "distributed_soak_runs" / run_dir_name
         output_dir.mkdir(parents=True, exist_ok=True)
         # Delegate to distributed soak runner with filters
         try:
@@ -564,6 +567,7 @@ def main() -> None:
             "stdout": proc.stdout,
             "stderr": proc.stderr,
             "distributed": True,
+            "output_dir": str(output_dir),
         }
         # Collect DBs produced for this config
         dbs_to_check = list(output_dir.glob(f"selfplay_{args.board_type}_{args.num_players}p_*.db"))

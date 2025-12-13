@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socket
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -159,8 +160,16 @@ class WorkerClient:
             request = Request(url, method="GET")
             with urlopen(request, timeout=5.0) as response:
                 return json.loads(response.read().decode("utf-8"))
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+        except HTTPError as e:
+            return {"status": "error", "error": f"HTTP {e.code}"}
+        except URLError as e:
+            return {"status": "error", "error": f"URL error: {e.reason}"}
+        except (socket.timeout, TimeoutError):
+            return {"status": "error", "error": "Request timeout"}
+        except json.JSONDecodeError as e:
+            return {"status": "error", "error": f"Invalid JSON: {e}"}
+        except OSError as e:
+            return {"status": "error", "error": f"Network error: {e}"}
 
     def is_healthy(self) -> bool:
         """Check if worker is healthy."""
@@ -214,8 +223,16 @@ class WorkerClient:
             request = Request(url, method="GET")
             with urlopen(request, timeout=5.0) as response:
                 return json.loads(response.read().decode("utf-8"))
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+        except HTTPError as e:
+            return {"status": "error", "error": f"HTTP {e.code}"}
+        except URLError as e:
+            return {"status": "error", "error": f"URL error: {e.reason}"}
+        except (socket.timeout, TimeoutError):
+            return {"status": "error", "error": "Request timeout"}
+        except json.JSONDecodeError as e:
+            return {"status": "error", "error": f"Invalid JSON: {e}"}
+        except OSError as e:
+            return {"status": "error", "error": f"Network error: {e}"}
 
     def preload_pool(
         self,
@@ -255,8 +272,16 @@ class WorkerClient:
             )
             with urlopen(request, timeout=30.0) as response:
                 return json.loads(response.read().decode("utf-8"))
-        except Exception as e:
-            return {"status": "error", "error": str(e)}
+        except HTTPError as e:
+            return {"status": "error", "error": f"HTTP {e.code}"}
+        except URLError as e:
+            return {"status": "error", "error": f"URL error: {e.reason}"}
+        except (socket.timeout, TimeoutError):
+            return {"status": "error", "error": "Request timeout"}
+        except json.JSONDecodeError as e:
+            return {"status": "error", "error": f"Invalid JSON: {e}"}
+        except OSError as e:
+            return {"status": "error", "error": f"Network error: {e}"}
 
     def evaluate(self, task: Dict[str, Any]) -> TaskResult:
         """
@@ -307,7 +332,7 @@ class WorkerClient:
                 status="error",
                 error=f"URL error: {e.reason}",
             )
-        except Exception as e:
+        except (socket.timeout, TimeoutError):
             return TaskResult(
                 task_id=task.get("task_id", ""),
                 candidate_id=task.get("candidate_id", -1),
@@ -316,7 +341,30 @@ class WorkerClient:
                 evaluation_time_sec=0.0,
                 worker_id=self.worker_url,
                 status="error",
-                error=str(e),
+                error="Request timeout",
+            )
+        except json.JSONDecodeError as e:
+            return TaskResult(
+                task_id=task.get("task_id", ""),
+                candidate_id=task.get("candidate_id", -1),
+                fitness=0.0,
+                games_played=0,
+                evaluation_time_sec=0.0,
+                worker_id=self.worker_url,
+                status="error",
+                error=f"Invalid JSON response: {e}",
+            )
+        except OSError as e:
+            # Catch-all for socket/network errors not covered by URLError
+            return TaskResult(
+                task_id=task.get("task_id", ""),
+                candidate_id=task.get("candidate_id", -1),
+                fitness=0.0,
+                games_played=0,
+                evaluation_time_sec=0.0,
+                worker_id=self.worker_url,
+                status="error",
+                error=f"Network error: {e}",
             )
 
 
@@ -893,5 +941,7 @@ class QueueDistributedEvaluator:
             elif hasattr(self.queue, "get_queue_attributes"):
                 return self.queue.get_queue_attributes()
             return {}
-        except Exception as e:
+        except (AttributeError, RuntimeError, TypeError) as e:
+            # AttributeError: method doesn't exist, RuntimeError: queue invalid state
+            # TypeError: method called with wrong arguments
             return {"error": str(e)}

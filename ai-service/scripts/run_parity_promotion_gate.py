@@ -240,8 +240,8 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--max-moves",
         type=int,
-        default=200,
-        help="Maximum moves per game before declaring a draw (default: 200).",
+        default=10000,
+        help="Maximum moves per game before applying evaluation tie-breaks (default: 10000).",
     )
     parser.add_argument(
         "--min-ci-lower-bound",
