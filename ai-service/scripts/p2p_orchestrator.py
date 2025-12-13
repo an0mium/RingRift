@@ -96,6 +96,46 @@ AUTH_TOKEN_FILE_ENV = "RINGRIFT_CLUSTER_AUTH_TOKEN_FILE"
 MANIFEST_JSONL_LINECOUNT_MAX_BYTES = 64 * 1024 * 1024  # Skip line-counting for huge JSONL files
 MANIFEST_JSONL_LINECOUNT_CHUNK_BYTES = 1024 * 1024
 
+# GPU Power Rankings for training node priority
+# Higher score = more powerful GPU = higher priority for receiving training data
+# Scores are approximate TFLOPS (FP16) for relative comparison
+GPU_POWER_RANKINGS = {
+    # Data center GPUs (highest priority)
+    "H100": 2000,      # ~2000 TFLOPS FP16
+    "H200": 2500,      # ~2500 TFLOPS FP16
+    "A100": 624,       # ~624 TFLOPS FP16
+    "A10G": 250,       # ~250 TFLOPS FP16
+    "A10": 250,        # ~250 TFLOPS FP16
+    "L40": 362,        # ~362 TFLOPS FP16
+    "V100": 125,       # ~125 TFLOPS FP16
+    # Consumer GPUs - RTX 50 series
+    "5090": 419,       # ~419 TFLOPS FP16 (estimated)
+    "5080": 300,       # ~300 TFLOPS FP16 (estimated)
+    "5070": 200,       # ~200 TFLOPS FP16 (estimated)
+    # Consumer GPUs - RTX 40 series
+    "4090": 330,       # ~330 TFLOPS FP16
+    "4080": 242,       # ~242 TFLOPS FP16
+    "4070": 184,       # ~184 TFLOPS FP16
+    "4060": 120,       # ~120 TFLOPS FP16
+    # Consumer GPUs - RTX 30 series
+    "3090": 142,       # ~142 TFLOPS FP16
+    "3080": 119,       # ~119 TFLOPS FP16
+    "3070": 81,        # ~81 TFLOPS FP16
+    "3060": 51,        # ~51 TFLOPS FP16
+    # Apple Silicon
+    "Apple M3": 30,    # Approximate
+    "Apple M2": 25,    # Approximate
+    "Apple M1": 20,    # Approximate
+    "Apple MPS": 15,   # Generic Apple GPU
+    # Fallback
+    "Unknown": 10,
+}
+
+# Training node sync settings
+TRAINING_NODE_COUNT = 3          # Top N GPU nodes to prioritize for sync
+TRAINING_SYNC_INTERVAL = 300.0   # Sync to training nodes every 5 minutes
+MIN_GAMES_FOR_SYNC = 100         # Minimum new games before triggering sync
+
 # Path to local state database
 STATE_DIR = Path(__file__).parent.parent / "logs" / "p2p_orchestrator"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -172,6 +212,30 @@ class NodeInfo:
             return True
         # LEARNED LESSONS - Retry dead nodes periodically
         return time.time() - self.last_failure_time > RETRY_DEAD_NODE_INTERVAL
+
+    def gpu_power_score(self) -> int:
+        """Get GPU processing power score based on GPU model.
+
+        Higher score = more powerful GPU = better for training.
+        Used for prioritizing which nodes receive selfplay data first.
+        """
+        if not self.has_gpu or not self.gpu_name:
+            return 0
+
+        gpu_upper = self.gpu_name.upper()
+
+        # Check each GPU model pattern
+        for gpu_key, score in GPU_POWER_RANKINGS.items():
+            if gpu_key.upper() in gpu_upper:
+                # Multi-GPU bonus: assume more memory = more GPUs
+                # H100 80GB = 1x, 160GB = 2x, etc.
+                if self.memory_gb and self.memory_gb > 100:
+                    # Likely multi-GPU system
+                    gpu_count = max(1, self.memory_gb // 80)
+                    return score * gpu_count
+                return score
+
+        return GPU_POWER_RANKINGS.get("Unknown", 10)
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -623,6 +687,13 @@ class P2POrchestrator:
         self.sync_in_progress = False
         self.last_sync_time = 0.0
         self.auto_sync_interval = 600.0  # Auto-sync every 10 minutes when data is missing
+
+        # Training node priority sync state (leader-only)
+        self.training_sync_interval = TRAINING_SYNC_INTERVAL
+        self.last_training_sync_time = 0.0
+        self.training_nodes_cache: List[str] = []  # Cached list of top GPU nodes
+        self.training_nodes_cache_time = 0.0
+        self.games_synced_to_training: Dict[str, int] = {}  # node_id -> last synced game count
 
         # Phase 3: Training pipeline state (leader-only)
         self.training_jobs: Dict[str, TrainingJob] = {}
@@ -1495,6 +1566,267 @@ class P2POrchestrator:
         }
 
     # ============================================
+    # Training Node Priority Sync
+    # ============================================
+
+    def _get_training_primary_nodes(self, count: int = TRAINING_NODE_COUNT) -> List[NodeInfo]:
+        """Get the top N nodes by GPU power for training priority.
+
+        Returns nodes sorted by GPU processing power (highest first).
+        These nodes should receive selfplay data first for training.
+        """
+        with self.peers_lock:
+            # Include self if we have a GPU
+            all_nodes = list(self.peers.values())
+            if self.self_info.has_gpu:
+                all_nodes.append(self.self_info)
+
+        # Filter to only GPU nodes that are alive and healthy
+        gpu_nodes = [
+            node for node in all_nodes
+            if node.has_gpu and node.is_alive() and node.gpu_power_score() > 0
+        ]
+
+        # Sort by GPU power score (descending)
+        gpu_nodes.sort(key=lambda n: n.gpu_power_score(), reverse=True)
+
+        # Return top N
+        return gpu_nodes[:count]
+
+    def _get_training_nodes_ranked(self) -> List[Dict[str, Any]]:
+        """Get all GPU nodes with their power rankings for dashboard display."""
+        with self.peers_lock:
+            all_nodes = list(self.peers.values())
+            if self.self_info.has_gpu:
+                all_nodes.append(self.self_info)
+
+        result = []
+        for node in all_nodes:
+            if node.has_gpu:
+                result.append({
+                    "node_id": node.node_id,
+                    "gpu_name": node.gpu_name,
+                    "gpu_power_score": node.gpu_power_score(),
+                    "memory_gb": node.memory_gb,
+                    "is_alive": node.is_alive(),
+                    "is_healthy": node.is_healthy(),
+                    "gpu_percent": node.gpu_percent,
+                })
+
+        # Sort by power score
+        result.sort(key=lambda x: x["gpu_power_score"], reverse=True)
+        return result
+
+    def _should_sync_to_node(self, node: NodeInfo) -> bool:
+        """Check if we should sync data TO this node based on disk space."""
+        # Don't sync to nodes with critical disk usage
+        if node.disk_percent >= DISK_CRITICAL_THRESHOLD:
+            print(f"[P2P] Skipping sync to {node.node_id}: disk critical ({node.disk_percent:.1f}%)")
+            return False
+        # Warn but allow sync to nodes with warning-level disk
+        if node.disk_percent >= DISK_WARNING_THRESHOLD:
+            print(f"[P2P] Warning: {node.node_id} disk at {node.disk_percent:.1f}%")
+        return True
+
+    def _should_cleanup_source(self, node: NodeInfo) -> bool:
+        """Check if source node needs disk cleanup after sync."""
+        return node.disk_percent >= DISK_CLEANUP_THRESHOLD
+
+    async def _cleanup_synced_files(self, node_id: str, files: List[str]) -> bool:
+        """Delete synced files from source node to free disk space.
+
+        Only called after successful sync to training nodes.
+        """
+        with self.peers_lock:
+            node = self.peers.get(node_id)
+        if not node or not node.is_alive():
+            return False
+
+        try:
+            # Request cleanup via HTTP endpoint
+            url = self._url_for_peer(node, "/cleanup/files")
+            timeout = ClientTimeout(total=60)
+            async with ClientSession(timeout=timeout) as session:
+                async with session.post(
+                    url,
+                    json={"files": files, "reason": "post_sync_cleanup"},
+                    headers=self._auth_headers()
+                ) as resp:
+                    if resp.status == 200:
+                        result = await resp.json()
+                        freed_bytes = result.get("freed_bytes", 0)
+                        print(f"[P2P] Cleanup on {node_id}: freed {freed_bytes / 1e6:.1f}MB")
+                        return True
+        except Exception as e:
+            print(f"[P2P] Failed to cleanup files on {node_id}: {e}")
+        return False
+
+    async def _sync_selfplay_to_training_nodes(self) -> Dict[str, Any]:
+        """Sync selfplay data to training primary nodes.
+
+        This is called periodically by the leader to ensure training nodes
+        have the latest selfplay data for model training.
+
+        Features:
+        - Prioritizes nodes by GPU power (H100 > 5090 > 4090 > etc.)
+        - Skips syncing TO nodes with critical disk usage
+        - Cleans up source nodes with high disk usage after successful sync
+        """
+        if not self._is_leader():
+            return {"success": False, "error": "Not the leader"}
+
+        # Get training primary nodes
+        training_nodes = self._get_training_primary_nodes()
+        if not training_nodes:
+            return {"success": False, "error": "No training nodes available"}
+
+        # Filter out nodes with critical disk space
+        eligible_training_nodes = [n for n in training_nodes if self._should_sync_to_node(n)]
+        if not eligible_training_nodes:
+            return {"success": False, "error": "All training nodes have critical disk usage"}
+
+        print(f"[P2P] Training sync: {len(eligible_training_nodes)} eligible training nodes")
+        for node in eligible_training_nodes:
+            print(f"[P2P]   - {node.node_id}: {node.gpu_name} (power={node.gpu_power_score()}, disk={node.disk_percent:.1f}%)")
+
+        # Collect current cluster manifest if stale
+        if (time.time() - self.last_manifest_collection > self.manifest_collection_interval
+                or not self.cluster_data_manifest):
+            print("[P2P] Collecting fresh cluster manifest for training sync...")
+            self.cluster_data_manifest = await self._collect_cluster_manifest()
+            self.last_manifest_collection = time.time()
+
+        if not self.cluster_data_manifest:
+            return {"success": False, "error": "Failed to collect cluster manifest"}
+
+        # Track source nodes that need cleanup after sync
+        sources_to_cleanup: Dict[str, List[str]] = {}  # node_id -> list of synced files
+
+        # Find selfplay files that training nodes don't have
+        sync_jobs_created = 0
+        for target_node in eligible_training_nodes:
+            target_manifest = self.cluster_data_manifest.node_manifests.get(target_node.node_id)
+            target_files = set()
+            if target_manifest:
+                target_files = set(target_manifest.files_by_path.keys())
+
+            # Find source nodes with selfplay data this target doesn't have
+            for source_id, source_manifest in self.cluster_data_manifest.node_manifests.items():
+                if source_id == target_node.node_id:
+                    continue
+
+                # Check if source node needs disk cleanup
+                source_node = self.peers.get(source_id)
+                needs_cleanup = source_node and self._should_cleanup_source(source_node)
+
+                # Find selfplay files to sync
+                files_to_sync = []
+                for file_info in source_manifest.files:
+                    if file_info.file_type == "selfplay" and file_info.path not in target_files:
+                        files_to_sync.append(file_info.path)
+
+                if files_to_sync:
+                    # Create sync job
+                    job_id = f"training_sync_{source_id}_to_{target_node.node_id}_{int(time.time())}"
+                    job = DataSyncJob(
+                        job_id=job_id,
+                        source_node=source_id,
+                        target_node=target_node.node_id,
+                        files=files_to_sync[:50],  # Limit files per job
+                        status="pending",
+                    )
+                    self.active_sync_jobs[job_id] = job
+                    sync_jobs_created += 1
+                    print(f"[P2P] Created training sync job: {len(files_to_sync)} files from {source_id} to {target_node.node_id}")
+
+                    # Track files for cleanup if source has high disk usage
+                    if needs_cleanup:
+                        if source_id not in sources_to_cleanup:
+                            sources_to_cleanup[source_id] = []
+                        sources_to_cleanup[source_id].extend(files_to_sync[:50])
+
+        # Execute sync jobs
+        successful_syncs = 0
+        if sync_jobs_created > 0:
+            await self._execute_pending_sync_jobs()
+            # Count successful syncs
+            successful_syncs = sum(
+                1 for job in self.active_sync_jobs.values()
+                if job.status == "completed"
+            )
+
+        # Cleanup source nodes with high disk usage after successful syncs
+        cleanup_results = {}
+        if successful_syncs > 0 and sources_to_cleanup:
+            print(f"[P2P] Running post-sync cleanup on {len(sources_to_cleanup)} source nodes...")
+            for source_id, files in sources_to_cleanup.items():
+                success = await self._cleanup_synced_files(source_id, files)
+                cleanup_results[source_id] = success
+
+        self.last_training_sync_time = time.time()
+
+        return {
+            "success": True,
+            "training_nodes": [n.node_id for n in eligible_training_nodes],
+            "sync_jobs_created": sync_jobs_created,
+            "successful_syncs": successful_syncs,
+            "sources_cleaned": sum(cleanup_results.values()),
+        }
+
+    async def _execute_pending_sync_jobs(self):
+        """Execute all pending sync jobs."""
+        with self.sync_lock:
+            pending_jobs = [
+                job for job in self.active_sync_jobs.values()
+                if job.status == "pending"
+            ]
+
+        for job in pending_jobs:
+            try:
+                success = await self._request_node_sync(job)
+                if success:
+                    job.status = "completed"
+                    job.completed_at = time.time()
+                else:
+                    job.status = "failed"
+            except Exception as e:
+                print(f"[P2P] Sync job {job.job_id} failed: {e}")
+                job.status = "failed"
+                job.error_message = str(e)
+
+    async def _training_sync_loop(self):
+        """Background loop to periodically sync data to training nodes.
+
+        Leader-only: Runs every TRAINING_SYNC_INTERVAL seconds to ensure
+        training nodes have the latest selfplay data.
+        """
+        print(f"[P2P] Training sync loop started (interval: {self.training_sync_interval}s)")
+
+        while self.running:
+            try:
+                await asyncio.sleep(self.training_sync_interval)
+
+                if not self._is_leader():
+                    continue
+
+                # Check if enough time has passed since last sync
+                if time.time() - self.last_training_sync_time < self.training_sync_interval:
+                    continue
+
+                print("[P2P] Running periodic training node sync...")
+                result = await self._sync_selfplay_to_training_nodes()
+                if result.get("success"):
+                    print(f"[P2P] Training sync completed: {result.get('sync_jobs_created', 0)} jobs created")
+                else:
+                    print(f"[P2P] Training sync failed: {result.get('error', 'Unknown error')}")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[P2P] Training sync loop error: {e}")
+                await asyncio.sleep(60)  # Wait before retrying
+
+    # ============================================
     # Git Auto-Update Methods
     # ============================================
 
@@ -1862,6 +2194,80 @@ class P2POrchestrator:
                 "success": True,
                 "disk_percent_before": usage["disk_percent"],
                 "message": "Cleanup initiated",
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_cleanup_files(self, request: web.Request) -> web.Response:
+        """Delete specific files from this node (for post-sync cleanup).
+
+        Called by leader after successful sync to training nodes to free
+        disk space on source nodes with high disk usage.
+        """
+        try:
+            data = await request.json()
+            files = data.get("files", [])
+            reason = data.get("reason", "manual")
+
+            if not files:
+                return web.json_response({"success": False, "error": "No files specified"}, status=400)
+
+            print(f"[P2P] Cleanup files request: {len(files)} files, reason={reason}")
+
+            data_dir = Path(self.ringrift_path) / "ai-service" / "data"
+            freed_bytes = 0
+            deleted_count = 0
+
+            for file_path in files:
+                # Security: only allow deletion within data directory
+                full_path = data_dir / file_path
+                if not str(full_path.resolve()).startswith(str(data_dir.resolve())):
+                    print(f"[P2P] Cleanup: skipping path outside data dir: {file_path}")
+                    continue
+
+                if full_path.exists():
+                    try:
+                        size = full_path.stat().st_size
+                        full_path.unlink()
+                        freed_bytes += size
+                        deleted_count += 1
+                    except Exception as e:
+                        print(f"[P2P] Failed to delete {file_path}: {e}")
+
+            print(f"[P2P] Cleanup complete: {deleted_count} files, {freed_bytes / 1e6:.1f}MB freed")
+
+            return web.json_response({
+                "success": True,
+                "freed_bytes": freed_bytes,
+                "deleted_count": deleted_count,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_training_sync(self, request: web.Request) -> web.Response:
+        """Manually trigger sync of selfplay data to training nodes.
+
+        Leader-only: Syncs selfplay data to the top GPU nodes for training.
+        """
+        try:
+            result = await self._sync_selfplay_to_training_nodes()
+            return web.json_response(result)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_gpu_rankings(self, request: web.Request) -> web.Response:
+        """Get GPU power rankings for all nodes in the cluster.
+
+        Returns nodes sorted by GPU processing power for training priority.
+        """
+        try:
+            rankings = self._get_training_nodes_ranked()
+            training_nodes = self._get_training_primary_nodes()
+
+            return web.json_response({
+                "rankings": rankings,
+                "training_primary_nodes": [n.node_id for n in training_nodes],
+                "training_node_count": TRAINING_NODE_COUNT,
             })
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
@@ -5539,6 +5945,9 @@ print(json.dumps({{
         app.router.add_get('/sync/status', self.handle_sync_status)
         app.router.add_post('/sync/pull', self.handle_sync_pull)
         app.router.add_post('/sync/job_update', self.handle_sync_job_update)
+        app.router.add_post('/sync/training', self.handle_training_sync)  # Training node priority sync
+        app.router.add_get('/gpu/rankings', self.handle_gpu_rankings)      # GPU power rankings
+        app.router.add_post('/cleanup/files', self.handle_cleanup_files)   # File-specific cleanup
 
         # Phase 3: Training pipeline routes
         app.router.add_post('/training/start', self.handle_training_start)
@@ -5574,6 +5983,9 @@ print(json.dumps({{
         # Add git update loop if enabled
         if AUTO_UPDATE_ENABLED:
             tasks.append(asyncio.create_task(self._git_update_loop()))
+
+        # Add training node priority sync loop (leader-only sync to high-GPU nodes)
+        tasks.append(asyncio.create_task(self._training_sync_loop()))
 
         # If no leader known, start election after short delay
         await asyncio.sleep(5)
