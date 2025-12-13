@@ -41,7 +41,7 @@ import threading
 import time
 import uuid
 from urllib.parse import urlparse
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields as dataclass_fields
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -291,6 +291,9 @@ class NodeInfo:
         d.setdefault('last_oom_time', 0.0)
         d.setdefault('nat_blocked', False)
         d.setdefault('relay_via', '')
+        # Ignore unknown keys for rolling upgrades.
+        allowed = {f.name for f in dataclass_fields(cls)}
+        d = {k: v for k, v in d.items() if k in allowed}
         return cls(**d)
 
 
@@ -929,6 +932,73 @@ class P2POrchestrator:
         if not self.auth_token:
             return {}
         return {"Authorization": f"Bearer {self.auth_token}"}
+
+    def _get_leader_peer(self) -> Optional[NodeInfo]:
+        if self._is_leader():
+            return self.self_info
+
+        leader_id = self.leader_id
+        with self.peers_lock:
+            peers_snapshot = dict(self.peers)
+
+        if leader_id and leader_id in peers_snapshot:
+            return peers_snapshot[leader_id]
+
+        for peer in peers_snapshot.values():
+            try:
+                if peer.role == NodeRole.LEADER:
+                    return peer
+            except Exception:
+                continue
+
+        return None
+
+    async def _proxy_to_leader(self, request: web.Request) -> web.StreamResponse:
+        """Best-effort proxy for leader-only APIs when the dashboard hits a follower."""
+        leader = self._get_leader_peer()
+        if not leader:
+            return web.json_response(
+                {"success": False, "error": "leader_unknown", "leader_id": self.leader_id},
+                status=503,
+            )
+
+        target_url = self._url_for_peer(leader, request.raw_path)
+        forward_headers: Dict[str, str] = {}
+        for h in ("Authorization", "X-RingRift-Auth", "Content-Type"):
+            if h in request.headers:
+                forward_headers[h] = request.headers[h]
+
+        body: bytes | None = None
+        if request.method not in ("GET", "HEAD", "OPTIONS"):
+            body = await request.read()
+
+        timeout = ClientTimeout(total=60)
+        try:
+            async with ClientSession(timeout=timeout) as session:
+                async with session.request(
+                    request.method,
+                    target_url,
+                    data=body,
+                    headers=forward_headers,
+                ) as resp:
+                    payload = await resp.read()
+                    content_type = resp.headers.get("Content-Type")
+                    headers: Dict[str, str] = {}
+                    if content_type:
+                        headers["Content-Type"] = content_type
+                    headers["X-RingRift-Proxied-By"] = self.node_id
+                    return web.Response(body=payload, status=resp.status, headers=headers)
+        except Exception as exc:
+            return web.json_response(
+                {
+                    "success": False,
+                    "error": "leader_proxy_failed",
+                    "message": str(exc),
+                    "leader_id": self.leader_id,
+                    "leader_url": target_url,
+                },
+                status=502,
+            )
 
     def _is_request_authorized(self, request: "web.Request") -> bool:
         if not self.auth_token:
@@ -4240,6 +4310,8 @@ print(json.dumps(result))
         generates a sync plan, and dispatches rsync jobs to nodes.
         """
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                return await self._proxy_to_leader(request)
             if not self._is_leader():
                 return web.json_response({
                     "error": "Not the leader. Only leader can start cluster sync.",
@@ -4260,6 +4332,11 @@ print(json.dumps(result))
         Returns the current sync plan (if any), active sync jobs, and overall status.
         """
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                proxied = await self._proxy_to_leader(request)
+                if proxied.status not in (502, 503):
+                    return proxied
+
             with self.sync_lock:
                 sync_plan_dict = self.current_sync_plan.to_dict() if self.current_sync_plan else None
                 active_jobs_dict = {
@@ -5834,6 +5911,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     async def handle_pipeline_start(self, request: web.Request) -> web.Response:
         """POST /pipeline/start - Start a canonical pipeline phase."""
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                return await self._proxy_to_leader(request)
             if not self._is_leader():
                 return web.json_response({"success": False, "error": "Only leader can start pipeline phases",
                                          "leader_id": self.leader_id}, status=403)
@@ -5861,6 +5940,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
     async def handle_pipeline_status(self, request: web.Request) -> web.Response:
         """GET /pipeline/status - Get current pipeline phase status."""
+        if not self._is_leader() and request.query.get("local") != "1":
+            proxied = await self._proxy_to_leader(request)
+            if proxied.status not in (502, 503):
+                return proxied
         pipeline_status = getattr(self, '_pipeline_status', {})
         return web.json_response({"success": True, "node_id": self.node_id,
                                  "is_leader": self._is_leader(), "current_job": pipeline_status})
@@ -6059,6 +6142,11 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     async def handle_api_cluster_status(self, request: web.Request) -> web.Response:
         """Get comprehensive cluster status for external clients and dashboard."""
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                proxied = await self._proxy_to_leader(request)
+                if proxied.status not in (502, 503):
+                    return proxied
+
             # Ensure local resource stats are fresh for dashboard consumers.
             try:
                 self._update_self_info()
@@ -6183,6 +6271,11 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     async def handle_api_selfplay_stats(self, request: web.Request) -> web.Response:
         """Get aggregated selfplay game statistics for dashboard charts."""
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                proxied = await self._proxy_to_leader(request)
+                if proxied.status not in (502, 503):
+                    return proxied
+
             with self.manifest_lock:
                 cluster_manifest = self.cluster_data_manifest
                 local_manifest = self.local_data_manifest
@@ -6351,6 +6444,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     async def handle_api_canonical_health(self, request: web.Request) -> web.Response:
         """List canonical gate summary JSONs found on this node."""
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                return await self._proxy_to_leader(request)
+
             ai_root = Path(self.ringrift_path) / "ai-service"
             games_dir = (ai_root / "data" / "games").resolve()
             summaries: List[Dict[str, Any]] = []
@@ -6402,6 +6498,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     async def handle_api_canonical_jobs_list(self, request: web.Request) -> web.Response:
         """List canonical gate jobs started from this node."""
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                return await self._proxy_to_leader(request)
+
             with self.canonical_gate_jobs_lock:
                 jobs = list(self.canonical_gate_jobs.values())
             jobs.sort(key=lambda j: float(j.get("started_at", 0.0) or 0.0), reverse=True)
@@ -6420,6 +6519,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     async def handle_api_canonical_job_get(self, request: web.Request) -> web.Response:
         """Get details for a canonical gate job."""
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                return await self._proxy_to_leader(request)
+
             job_id = (request.match_info.get("job_id") or "").strip()
             if not job_id:
                 return web.json_response({"success": False, "error": "job_id is required"}, status=400)
@@ -6434,6 +6536,9 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
     async def handle_api_canonical_job_log(self, request: web.Request) -> web.Response:
         """Tail the log file for a canonical gate job."""
         try:
+            if not self._is_leader() and request.query.get("local") != "1":
+                return await self._proxy_to_leader(request)
+
             job_id = (request.match_info.get("job_id") or "").strip()
             if not job_id:
                 return web.json_response({"success": False, "error": "job_id is required"}, status=400)
@@ -6485,6 +6590,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
     async def handle_api_canonical_generate(self, request: web.Request) -> web.Response:
         """Start a canonical selfplay+gate run (leader-only, dashboard-triggered)."""
+        if not self._is_leader() and request.query.get("local") != "1":
+            return await self._proxy_to_leader(request)
         if not self._is_leader():
             return web.json_response(
                 {"success": False, "error": "Only leader can start canonical gate runs", "leader_id": self.leader_id},
@@ -6575,6 +6682,8 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
     async def handle_api_canonical_job_cancel(self, request: web.Request) -> web.Response:
         """Cancel a running canonical gate job."""
+        if not self._is_leader() and request.query.get("local") != "1":
+            return await self._proxy_to_leader(request)
         if not self._is_leader():
             return web.json_response(
                 {"success": False, "error": "Only leader can cancel canonical gate runs", "leader_id": self.leader_id},
@@ -6692,12 +6801,17 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
     async def handle_api_jobs_submit(self, request: web.Request) -> web.Response:
         """Submit a new job via REST API."""
-        if self.role != NodeRole.LEADER:
-            return web.json_response({
-                "success": False,
-                "error": "Not the leader. Please submit to leader node.",
-                "leader_id": self.leader_id,
-            }, status=400)
+        if not self._is_leader() and request.query.get("local") != "1":
+            return await self._proxy_to_leader(request)
+        if not self._is_leader():
+            return web.json_response(
+                {
+                    "success": False,
+                    "error": "Not the leader. Please submit to leader node.",
+                    "leader_id": self.leader_id,
+                },
+                status=400,
+            )
 
         try:
             data = await request.json()
@@ -6856,11 +6970,16 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
 
     async def handle_api_job_cancel(self, request: web.Request) -> web.Response:
         """Cancel a pending or running job."""
-        if self.role != NodeRole.LEADER:
-            return web.json_response({
-                "success": False,
-                "error": "Not the leader",
-            }, status=400)
+        if not self._is_leader() and request.query.get("local") != "1":
+            return await self._proxy_to_leader(request)
+        if not self._is_leader():
+            return web.json_response(
+                {
+                    "success": False,
+                    "error": "Not the leader",
+                },
+                status=400,
+            )
 
         try:
             job_id = request.match_info.get("job_id")
