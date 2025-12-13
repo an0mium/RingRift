@@ -51,11 +51,18 @@ class NodeConfig:
     ai_service_dir: str
     num_gpus: int
     selfplay_script: str = "scripts/run_gpu_selfplay.py"
-    p2p_port: int = 8765
+    p2p_port: int = 8770
+    peers: str = ""  # comma-separated list for p2p_orchestrator.py --peers
     check_interval: int = 60  # seconds
     reconnect_interval: int = 300  # seconds
     max_local_selfplay_procs: int = 4
     disk_threshold: int = 80  # percent - trigger cleanup above this
+    min_free_gb: float = 2.0  # trigger cleanup if free space is low
+    fallback_board: str = "square8"
+    fallback_num_players: int = 2
+    fallback_num_games_gpu: int = 3000
+    fallback_num_games_cpu: int = 300
+    fallback_batch_size_gpu: int = 16
 
 
 class NodeResilience:
@@ -63,7 +70,7 @@ class NodeResilience:
 
     def __init__(self, config: NodeConfig):
         self.config = config
-        self.local_selfplay_pids: List[int] = []
+        self.local_selfplay_pids: List[int] = self._discover_fallback_pids()
         self.last_p2p_check = 0
         self.last_registration = 0
         self.p2p_connected = False
@@ -92,6 +99,9 @@ class NodeResilience:
             url = f"http://localhost:{self.config.p2p_port}/health"
             with urllib.request.urlopen(url, timeout=5) as response:
                 data = json.loads(response.read().decode())
+                if "healthy" in data:
+                    return bool(data.get("healthy"))
+                # Back-compat for older health payloads
                 return data.get("status") == "ok"
         except Exception:
             return False
@@ -99,9 +109,11 @@ class NodeResilience:
     def check_coordinator_reachable(self) -> bool:
         """Check if the coordinator is reachable."""
         try:
-            url = f"{self.config.coordinator_url}/health"
+            url = f"{self.config.coordinator_url.rstrip('/')}/health"
             with urllib.request.urlopen(url, timeout=10) as response:
                 data = json.loads(response.read().decode())
+                if "healthy" in data:
+                    return bool(data.get("healthy"))
                 return data.get("status") == "ok"
         except Exception:
             return False
@@ -114,7 +126,7 @@ class NodeResilience:
             return False
 
         try:
-            url = f"{self.config.coordinator_url}/register"
+            url = f"{self.config.coordinator_url.rstrip('/')}/register"
             payload = {
                 "node_id": self.config.node_id,
                 "host": ip,
@@ -137,8 +149,60 @@ class NodeResilience:
         return False
 
     def _get_ssh_port(self) -> int:
-        """Get SSH port from environment or default."""
-        return int(os.environ.get("SSH_PORT", 22))
+        """Get SSH port for dynamic registry registration.
+
+        Prefer explicit env (SSH_PORT), otherwise attempt to read the local
+        distributed host config so Vast nodes register the externally-forwarded
+        SSH port (not the internal port 22).
+        """
+        env_port = (os.environ.get("SSH_PORT") or "").strip()
+        if env_port:
+            try:
+                return int(env_port)
+            except ValueError:
+                pass
+
+        try:
+            cfg_path = Path(self.config.ai_service_dir) / "config" / "distributed_hosts.yaml"
+            if not cfg_path.exists():
+                return 22
+            try:
+                import yaml  # type: ignore
+            except Exception:
+                return 22
+            data = yaml.safe_load(cfg_path.read_text()) or {}
+            hosts = data.get("hosts", {}) or {}
+            node_cfg = hosts.get(self.config.node_id, {}) or {}
+            port = node_cfg.get("ssh_port", 22) or 22
+            return int(port)
+        except Exception:
+            return 22
+
+    def _discover_fallback_pids(self) -> List[int]:
+        """Recover fallback selfplay PIDs from process table (for daemon restarts)."""
+        marker = f"fallback/{self.config.node_id}"
+        try:
+            out = subprocess.run(
+                ["pgrep", "-f", marker],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if out.returncode != 0:
+                return []
+            pids = []
+            for token in out.stdout.strip().split():
+                try:
+                    pids.append(int(token))
+                except ValueError:
+                    continue
+            return sorted(set(pids))
+        except Exception:
+            return []
+
+    def _ringrift_root(self) -> str:
+        """Infer RingRift repo root from ai-service dir."""
+        return str(Path(self.config.ai_service_dir).resolve().parent)
 
     def start_p2p_orchestrator(self) -> bool:
         """Start the P2P orchestrator if not running."""
@@ -150,17 +214,31 @@ class NodeResilience:
             env = os.environ.copy()
             env["PYTHONPATH"] = self.config.ai_service_dir
 
-            proc = subprocess.Popen(
-                [
-                    sys.executable,
-                    os.path.join(self.config.ai_service_dir, "scripts/p2p_orchestrator.py"),
-                    "--port", str(self.config.p2p_port),
-                ],
-                cwd=self.config.ai_service_dir,
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            # Ensure we have peers so cloud nodes can find the coordinator.
+            peers = self.config.peers.strip() or self.config.coordinator_url.strip()
+
+            log_dir = Path(self.config.ai_service_dir) / "logs" / "node_resilience"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / "p2p_orchestrator.log"
+
+            log_handle = open(log_path, "a")
+            try:
+                proc = subprocess.Popen(
+                    [
+                        sys.executable,
+                        os.path.join(self.config.ai_service_dir, "scripts/p2p_orchestrator.py"),
+                        "--node-id", self.config.node_id,
+                        "--port", str(self.config.p2p_port),
+                        "--peers", peers,
+                        "--ringrift-path", self._ringrift_root(),
+                    ],
+                    cwd=self.config.ai_service_dir,
+                    env=env,
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                )
+            finally:
+                log_handle.close()
             time.sleep(3)
             if proc.poll() is None and self.check_p2p_health():
                 logger.info(f"P2P orchestrator started (PID {proc.pid})")
@@ -169,43 +247,40 @@ class NodeResilience:
             logger.error(f"Failed to start P2P orchestrator: {e}")
         return False
 
-    def start_local_selfplay(self) -> None:
-        """Start local selfplay processes as fallback when P2P is unavailable."""
-        # Clean up dead processes
-        self.local_selfplay_pids = [
-            pid for pid in self.local_selfplay_pids
-            if self._process_running(pid)
-        ]
-
-        num_to_start = min(
-            self.config.num_gpus,
-            self.config.max_local_selfplay_procs
-        ) - len(self.local_selfplay_pids)
-
-        if num_to_start <= 0:
+    def _start_gpu_fallback_selfplay(self, num_to_start: int) -> None:
+        """Start GPU fallback selfplay workers."""
+        if self.config.num_gpus <= 0 or num_to_start <= 0:
             return
 
-        logger.info(f"Starting {num_to_start} local selfplay processes (P2P fallback)")
-
+        logger.info(f"Starting {num_to_start} GPU fallback selfplay workers")
         for i in range(num_to_start):
-            gpu_id = (len(self.local_selfplay_pids) + i) % self.config.num_gpus
+            gpu_id = (len(self.local_selfplay_pids) + i) % max(self.config.num_gpus, 1)
             try:
                 env = os.environ.copy()
                 env["PYTHONPATH"] = self.config.ai_service_dir
                 env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+                env["RINGRIFT_JOB_ORIGIN"] = "resilience_fallback"
+
+                ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                output_dir = os.path.join(
+                    self.config.ai_service_dir,
+                    "data/selfplay/fallback",
+                    self.config.node_id,
+                    f"gpu{gpu_id}",
+                    ts,
+                )
 
                 proc = subprocess.Popen(
                     [
                         sys.executable,
-                        os.path.join(self.config.ai_service_dir, self.config.selfplay_script),
-                        "--board-type", "square8",
-                        "--num-players", "2",
-                        "--games", "1000",
-                        "--output-dir", os.path.join(
-                            self.config.ai_service_dir,
-                            f"data/selfplay/local_fallback_{self.config.node_id}"
-                        ),
+                        os.path.join(self.config.ai_service_dir, "scripts/run_gpu_selfplay.py"),
+                        "--board", self.config.fallback_board,
+                        "--num-players", str(self.config.fallback_num_players),
+                        "--num-games", str(self.config.fallback_num_games_gpu),
+                        "--batch-size", str(self.config.fallback_batch_size_gpu),
+                        "--output-dir", output_dir,
+                        "--seed", str(int(time.time()) + gpu_id),
                     ],
                     cwd=self.config.ai_service_dir,
                     env=env,
@@ -213,9 +288,80 @@ class NodeResilience:
                     stderr=subprocess.DEVNULL,
                 )
                 self.local_selfplay_pids.append(proc.pid)
-                logger.info(f"Started local selfplay on GPU {gpu_id} (PID {proc.pid})")
+                logger.info(f"Started GPU fallback selfplay on GPU {gpu_id} (PID {proc.pid})")
             except Exception as e:
-                logger.error(f"Failed to start selfplay on GPU {gpu_id}: {e}")
+                logger.error(f"Failed to start GPU fallback selfplay on GPU {gpu_id}: {e}")
+
+    def _start_cpu_fallback_selfplay(self, num_to_start: int) -> None:
+        """Start CPU fallback selfplay workers (for non-GPU nodes)."""
+        if num_to_start <= 0:
+            return
+
+        logger.info(f"Starting {num_to_start} CPU fallback selfplay workers")
+        for i in range(num_to_start):
+            try:
+                env = os.environ.copy()
+                env["PYTHONPATH"] = self.config.ai_service_dir
+                env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+                env["RINGRIFT_JOB_ORIGIN"] = "resilience_fallback"
+
+                ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                out_dir = Path(self.config.ai_service_dir) / "data" / "selfplay" / "fallback" / self.config.node_id / "cpu" / ts
+                out_dir.mkdir(parents=True, exist_ok=True)
+
+                log_jsonl = str(out_dir / "games.jsonl")
+                summary_json = str(out_dir / "summary.json")
+
+                proc = subprocess.Popen(
+                    [
+                        sys.executable,
+                        os.path.join(self.config.ai_service_dir, "scripts/run_self_play_soak.py"),
+                        "--num-games", str(self.config.fallback_num_games_cpu),
+                        "--board-type", self.config.fallback_board,
+                        "--num-players", str(self.config.fallback_num_players),
+                        "--engine-mode", "mixed",
+                        "--difficulty-band", "light",
+                        "--log-jsonl", log_jsonl,
+                        "--summary-json", summary_json,
+                        "--lean-db",
+                        "--record-db", str(out_dir / "games.db"),
+                        "--verbose", "0",
+                    ],
+                    cwd=self.config.ai_service_dir,
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                self.local_selfplay_pids.append(proc.pid)
+                logger.info(f"Started CPU fallback selfplay (PID {proc.pid})")
+            except Exception as e:
+                logger.error(f"Failed to start CPU fallback selfplay: {e}")
+
+    def start_local_fallback_work(self) -> None:
+        """Start local fallback work when P2P is unavailable."""
+        # Clean up dead processes
+        self.local_selfplay_pids = [
+            pid for pid in self.local_selfplay_pids
+            if self._process_running(pid)
+        ]
+
+        # Avoid spawning new work when disk is under pressure.
+        if not self.check_and_cleanup_disk():
+            logger.warning("Skipping fallback work due to disk pressure")
+            return
+
+        max_procs = max(1, self.config.max_local_selfplay_procs)
+        num_to_start = max_procs - len(self.local_selfplay_pids)
+
+        if num_to_start <= 0:
+            return
+
+        if self.config.num_gpus > 0:
+            # Prefer one worker per GPU, but respect the overall cap.
+            self._start_gpu_fallback_selfplay(num_to_start=min(num_to_start, self.config.num_gpus))
+        else:
+            # CPU-only nodes: keep it conservative by default.
+            self._start_cpu_fallback_selfplay(num_to_start=min(num_to_start, 1))
 
     def stop_local_selfplay(self) -> None:
         """Stop all local selfplay processes (when P2P reconnects)."""
@@ -234,16 +380,31 @@ class NodeResilience:
             total = stat.f_blocks * stat.f_frsize
             free = stat.f_bavail * stat.f_frsize
             used_percent = ((total - free) / total) * 100 if total > 0 else 0
+            free_gb = free / (1024 ** 3) if free > 0 else 0.0
 
-            if used_percent > self.config.disk_threshold:
+            if used_percent > self.config.disk_threshold or free_gb < self.config.min_free_gb:
                 logger.warning(f"Disk usage {used_percent:.1f}% exceeds threshold {self.config.disk_threshold}%")
+                if free_gb < self.config.min_free_gb:
+                    logger.warning(f"Low disk headroom: {free_gb:.2f}GB free (< {self.config.min_free_gb}GB)")
 
                 # Try to run disk_monitor.py if available
                 disk_monitor = os.path.join(self.config.ai_service_dir, "scripts/disk_monitor.py")
                 if os.path.exists(disk_monitor):
                     logger.info("Running disk cleanup...")
+                    cmd = [
+                        sys.executable,
+                        disk_monitor,
+                        "--threshold",
+                        str(self.config.disk_threshold),
+                        "--ringrift-path",
+                        self._ringrift_root(),
+                    ]
+                    # When very low on space, force cleanup even if the percent calculation is skewed.
+                    if free_gb < self.config.min_free_gb:
+                        cmd.append("--force")
+                    cmd.append("--aggressive")
                     result = subprocess.run(
-                        [sys.executable, disk_monitor, "--aggressive", "--threshold", str(self.config.disk_threshold)],
+                        cmd,
                         cwd=self.config.ai_service_dir,
                         capture_output=True,
                         text=True,
@@ -310,9 +471,8 @@ class NodeResilience:
             if not p2p_healthy:
                 self.start_p2p_orchestrator()
 
-            # Start local selfplay as fallback
-            if self.config.num_gpus > 0:
-                self.start_local_selfplay()
+            # Start local fallback work
+            self.start_local_fallback_work()
 
         # Periodic registration
         if now - self.last_registration > self.config.reconnect_interval:
@@ -351,8 +511,12 @@ def main():
     parser.add_argument("--ai-service-dir", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         help="AI service directory")
     parser.add_argument("--num-gpus", type=int, default=0, help="Number of GPUs (auto-detect if 0)")
-    parser.add_argument("--p2p-port", type=int, default=8765, help="P2P orchestrator port")
+    parser.add_argument("--p2p-port", type=int, default=8770, help="P2P orchestrator port")
+    parser.add_argument("--peers", default="", help="Comma-separated peer list for P2P orchestrator (defaults to coordinator URL)")
     parser.add_argument("--check-interval", type=int, default=60, help="Health check interval (seconds)")
+    parser.add_argument("--max-local-procs", type=int, default=4, help="Max fallback workers to run when disconnected")
+    parser.add_argument("--disk-threshold", type=int, default=80, help="Disk usage percent threshold for cleanup")
+    parser.add_argument("--min-free-gb", type=float, default=2.0, help="Minimum free GB headroom before forcing cleanup")
     parser.add_argument("--once", action="store_true", help="Run once and exit (for cron)")
 
     args = parser.parse_args()
@@ -363,7 +527,11 @@ def main():
         ai_service_dir=args.ai_service_dir,
         num_gpus=args.num_gpus,
         p2p_port=args.p2p_port,
+        peers=args.peers,
         check_interval=args.check_interval,
+        max_local_selfplay_procs=args.max_local_procs,
+        disk_threshold=args.disk_threshold,
+        min_free_gb=args.min_free_gb,
     )
 
     resilience = NodeResilience(config)

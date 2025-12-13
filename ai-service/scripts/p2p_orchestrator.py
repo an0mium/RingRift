@@ -1106,21 +1106,28 @@ class P2POrchestrator:
         training = 0
 
         try:
-            # Count python processes running selfplay
-            out = subprocess.run(
-                ["pgrep", "-f", "run_self_play"],
-                capture_output=True, text=True, timeout=5
-            )
-            if out.returncode == 0:
-                selfplay = len(out.stdout.strip().split('\n'))
+            # Count python processes running selfplay (CPU + GPU runners).
+            # Use PID union to avoid double-counting.
+            selfplay_pids: Set[str] = set()
+            for pattern in ("run_self_play_soak.py", "run_gpu_selfplay.py"):
+                out = subprocess.run(
+                    ["pgrep", "-f", pattern],
+                    capture_output=True, text=True, timeout=5
+                )
+                if out.returncode == 0 and out.stdout.strip():
+                    selfplay_pids.update([p for p in out.stdout.strip().split() if p])
+            selfplay = len(selfplay_pids)
 
             # Count training processes
-            out = subprocess.run(
-                ["pgrep", "-f", "train_"],
-                capture_output=True, text=True, timeout=5
-            )
-            if out.returncode == 0:
-                training = len([p for p in out.stdout.strip().split('\n') if p])
+            training_pids: Set[str] = set()
+            for pattern in ("train_", "train.py"):
+                out = subprocess.run(
+                    ["pgrep", "-f", pattern],
+                    capture_output=True, text=True, timeout=5
+                )
+                if out.returncode == 0 and out.stdout.strip():
+                    training_pids.update([p for p in out.stdout.strip().split() if p])
+            training = len(training_pids)
         except:
             pass
 
@@ -1418,7 +1425,7 @@ class P2POrchestrator:
             # Execute jobs for each target node
             for target_node, jobs in jobs_by_target.items():
                 peer = self.peers.get(target_node)
-                if not peer or not peer.is_alive:
+                if target_node != self.node_id and (not peer or not peer.is_alive()):
                     print(f"[P2P] Target node {target_node} not available, skipping sync")
                     for job in jobs:
                         job.status = "failed"
@@ -1447,7 +1454,12 @@ class P2POrchestrator:
     async def _request_node_sync(self, job: DataSyncJob) -> bool:
         """Request a target node to pull files from a source node."""
         target_peer = self.peers.get(job.target_node)
+        if job.target_node == self.node_id:
+            target_peer = self.self_info
+
         source_peer = self.peers.get(job.source_node)
+        if job.source_node == self.node_id:
+            source_peer = self.self_info
 
         if not target_peer or not source_peer:
             job.status = "failed"
@@ -1458,41 +1470,63 @@ class P2POrchestrator:
         job.started_at = time.time()
 
         try:
-            url = self._url_for_peer(target_peer, "/sync/pull")
-            payload = {
-                "job_id": job.job_id,
-                "source_host": source_peer.host,
-                "source_port": source_peer.port,
-                "source_node_id": job.source_node,
-                "files": job.files,
-            }
+            # Local target: execute the pull directly (no HTTP round-trip).
+            if job.target_node == self.node_id:
+                result = await self._handle_sync_pull_request(
+                    source_host=source_peer.host,
+                    source_port=source_peer.port,
+                    source_node_id=job.source_node,
+                    files=job.files,
+                )
+            else:
+                url = self._url_for_peer(target_peer, "/sync/pull")
+                payload = {
+                    "job_id": job.job_id,
+                    # Back-compat: target will prefer source_node_id lookup.
+                    "source_host": source_peer.host,
+                    "source_port": source_peer.port,
+                    "source_node_id": job.source_node,
+                    "files": job.files,
+                }
 
-            timeout = ClientTimeout(total=30)
-            async with ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
-                    if resp.status == 200:
+                timeout = ClientTimeout(total=600)
+                async with ClientSession(timeout=timeout) as session:
+                    async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
+                        if resp.status != 200:
+                            job.status = "failed"
+                            job.error_message = f"HTTP {resp.status}"
+                            if self.current_sync_plan:
+                                self.current_sync_plan.jobs_failed += 1
+                            return False
                         result = await resp.json()
-                        job.status = "completed" if result.get("success") else "failed"
-                        job.completed_at = time.time()
-                        if result.get("success"):
-                            self.current_sync_plan.jobs_completed += 1
-                            print(f"[P2P] Sync job {job.job_id[:8]} completed: "
-                                  f"{job.source_node} -> {job.target_node}")
-                        else:
-                            job.error_message = result.get("error", "Unknown error")
-                            self.current_sync_plan.jobs_failed += 1
-                        return result.get("success", False)
-                    else:
-                        job.status = "failed"
-                        job.error_message = f"HTTP {resp.status}"
-                        self.current_sync_plan.jobs_failed += 1
-                        return False
+
+            ok = bool(result.get("success"))
+            job.status = "completed" if ok else "failed"
+            job.completed_at = time.time()
+            job.bytes_transferred = int(result.get("bytes_transferred", 0) or 0)
+            job.files_completed = int(result.get("files_completed", 0) or 0)
+            if not ok:
+                job.error_message = str(result.get("error") or "Unknown error")
+
+            if self.current_sync_plan:
+                if ok:
+                    self.current_sync_plan.jobs_completed += 1
+                else:
+                    self.current_sync_plan.jobs_failed += 1
+
+            if ok:
+                print(f"[P2P] Sync job {job.job_id[:8]} completed: {job.source_node} -> {job.target_node}")
+            else:
+                print(f"[P2P] Sync job {job.job_id[:8]} failed: {job.error_message}")
+
+            return ok
 
         except Exception as e:
             job.status = "failed"
             job.error_message = str(e)
             job.completed_at = time.time()
-            self.current_sync_plan.jobs_failed += 1
+            if self.current_sync_plan:
+                self.current_sync_plan.jobs_failed += 1
             print(f"[P2P] Sync job {job.job_id[:8]} failed: {e}")
             return False
 
@@ -1500,58 +1534,101 @@ class P2POrchestrator:
                                          source_node_id: str, files: List[str]) -> Dict[str, Any]:
         """
         Handle incoming request to pull files from a source node.
-        Executes rsync to pull the files.
+        Pulls files over the P2P HTTP channel to avoid SSH/rsync dependencies.
         """
+        data_dir = Path(self.ringrift_path) / "ai-service" / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        bytes_transferred = 0
+        files_completed = 0
+        errors: List[str] = []
+
+        # Back-compat: if caller passed an SSH-like port (22), try DEFAULT_PORT too.
+        ports_to_try: List[int] = []
         try:
-            # Build rsync command
-            # Files are relative to data/ directory
-            data_dir = Path(self.ringrift_path) / "ai-service" / "data"
-            source_data_dir = f"data/"
+            ports_to_try.append(int(source_port))
+        except Exception:
+            ports_to_try.append(DEFAULT_PORT)
+        if DEFAULT_PORT not in ports_to_try:
+            ports_to_try.append(DEFAULT_PORT)
 
-            # Determine SSH user based on source host
-            ssh_user = "ubuntu"  # Default
-            if "root@" in source_host or source_port != 22:
-                ssh_user = "root"
+        timeout = ClientTimeout(total=None, sock_connect=HTTP_CONNECT_TIMEOUT, sock_read=600)
 
-            # Build file list for rsync
-            includes = []
-            for f in files:
-                includes.extend(["--include", f])
-            includes.extend(["--include", "*/"])  # Include directories
-            includes.append("--exclude=*")  # Exclude everything else
+        async with ClientSession(timeout=timeout) as session:
+            for rel_path in files:
+                rel_path = (rel_path or "").lstrip("/")
+                if not rel_path:
+                    errors.append("empty_path")
+                    continue
 
-            # Build rsync command
-            ssh_opts = f"-e 'ssh -o StrictHostKeyChecking=no -p {source_port}'"
-            source_path = f"{ssh_user}@{source_host}:{source_data_dir}"
+                # Security: keep all writes within ai-service/data.
+                dest_path = (data_dir / rel_path)
+                try:
+                    data_root = data_dir.resolve()
+                    dest_resolved = dest_path.resolve()
+                    dest_resolved.relative_to(data_root)
+                except Exception:
+                    errors.append(f"invalid_path:{rel_path}")
+                    continue
 
-            rsync_cmd = [
-                "rsync", "-avz", "--progress",
-                *includes,
-                source_path,
-                str(data_dir) + "/"
-            ]
+                dest_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = dest_path.with_name(dest_path.name + ".partial")
 
-            print(f"[P2P] Executing rsync from {source_node_id}: {' '.join(rsync_cmd[:5])}...")
+                last_err: Optional[str] = None
+                success = False
 
-            result = subprocess.run(
-                rsync_cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout
-                cwd=str(data_dir.parent)
-            )
+                for port in ports_to_try:
+                    url = f"http://{source_host}:{port}/sync/file"
+                    try:
+                        async with session.get(
+                            url,
+                            params={"path": rel_path},
+                            headers=self._auth_headers(),
+                        ) as resp:
+                            if resp.status != 200:
+                                text = ""
+                                try:
+                                    text = (await resp.text())[:200]
+                                except Exception:
+                                    text = ""
+                                last_err = f"{resp.status} {text}".strip()
+                                continue
 
-            if result.returncode == 0:
-                print(f"[P2P] Rsync from {source_node_id} completed successfully")
-                return {"success": True, "files_synced": len(files)}
-            else:
-                print(f"[P2P] Rsync failed: {result.stderr[:200]}")
-                return {"success": False, "error": result.stderr[:200]}
+                            with open(tmp_path, "wb") as out_f:
+                                async for chunk in resp.content.iter_chunked(1024 * 1024):
+                                    out_f.write(chunk)
+                                    bytes_transferred += len(chunk)
 
-        except subprocess.TimeoutExpired:
-            return {"success": False, "error": "Rsync timeout (5 minutes)"}
-        except Exception as e:
-            return {"success": False, "error": str(e)}
+                            tmp_path.replace(dest_path)
+                            files_completed += 1
+                            success = True
+                            break
+
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+
+                if not success:
+                    errors.append(f"{rel_path}: {last_err or 'download_failed'}")
+                    try:
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+                    except Exception:
+                        pass
+
+        if errors:
+            return {
+                "success": False,
+                "files_completed": files_completed,
+                "bytes_transferred": bytes_transferred,
+                "error": "; ".join(errors[:5]),
+            }
+
+        return {
+            "success": True,
+            "files_completed": files_completed,
+            "bytes_transferred": bytes_transferred,
+        }
 
     async def start_cluster_sync(self) -> Dict[str, Any]:
         """
@@ -2268,15 +2345,19 @@ class P2POrchestrator:
 
             for file_path in files:
                 # Security: only allow deletion within data directory
-                full_path = data_dir / file_path
-                if not str(full_path.resolve()).startswith(str(data_dir.resolve())):
+                full_path = data_dir / (file_path or "").lstrip("/")
+                try:
+                    data_root = data_dir.resolve()
+                    resolved = full_path.resolve()
+                    resolved.relative_to(data_root)
+                except Exception:
                     print(f"[P2P] Cleanup: skipping path outside data dir: {file_path}")
                     continue
 
-                if full_path.exists():
+                if resolved.exists():
                     try:
-                        size = full_path.stat().st_size
-                        full_path.unlink()
+                        size = resolved.stat().st_size
+                        resolved.unlink()
                         freed_bytes += size
                         deleted_count += 1
                     except Exception as e:
@@ -3826,7 +3907,7 @@ print(json.dumps(result))
     async def handle_sync_pull(self, request: web.Request) -> web.Response:
         """POST /sync/pull - Handle incoming request to pull files from a source node.
 
-        This is called by the leader to tell this node to rsync files from another node.
+        This is called by the leader to tell this node to pull files from another node.
 
         Request body:
         {
@@ -3838,14 +3919,28 @@ print(json.dumps(result))
         """
         try:
             data = await request.json()
-            source_host = data.get("source_host")
-            source_port = data.get("source_port", 22)  # SSH port for rsync
             source_node_id = data.get("source_node_id")
             files = data.get("files", [])
 
-            if not source_host or not source_node_id or not files:
+            if not source_node_id or not files:
                 return web.json_response({
-                    "error": "Missing required fields: source_host, source_node_id, files"
+                    "error": "Missing required fields: source_node_id, files"
+                }, status=400)
+
+            # Prefer the local peer table for reachability (avoids leader guessing our routes).
+            source_host = data.get("source_host")
+            source_port = int(data.get("source_port", DEFAULT_PORT) or DEFAULT_PORT)
+            with self.peers_lock:
+                peer = self.peers.get(source_node_id)
+            if source_node_id == self.node_id:
+                peer = self.self_info
+            if peer:
+                source_host = peer.host
+                source_port = peer.port
+
+            if not source_host:
+                return web.json_response({
+                    "error": "Missing required fields: source_host (or unknown source_node_id)"
                 }, status=400)
 
             print(f"[P2P] Received sync pull request: {len(files)} files from {source_node_id}")
@@ -3864,6 +3959,54 @@ print(json.dumps(result))
             traceback.print_exc()
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_sync_file(self, request: web.Request) -> web.StreamResponse:
+        """GET /sync/file?path=<relative_path> - Stream a data file to a peer.
+
+        Security:
+        - Only serves files within `ai-service/data/**`.
+        - Requires auth when RINGRIFT_CLUSTER_AUTH_TOKEN is set (even though it's a GET).
+        """
+        try:
+            if self.auth_token and not self._is_request_authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
+
+            rel_path = (request.query.get("path") or "").lstrip("/")
+            if not rel_path:
+                return web.json_response({"error": "Missing required query param: path"}, status=400)
+
+            data_dir = Path(self.ringrift_path) / "ai-service" / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
+            data_root = data_dir.resolve()
+            full_path = (data_dir / rel_path)
+            try:
+                resolved = full_path.resolve()
+                resolved.relative_to(data_root)
+            except Exception:
+                return web.json_response({"error": "Invalid path"}, status=400)
+
+            if not resolved.exists() or not resolved.is_file():
+                return web.json_response({"error": "Not found"}, status=404)
+
+            stat = resolved.stat()
+            resp = web.StreamResponse(
+                status=200,
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(stat.st_size),
+                },
+            )
+            await resp.prepare(request)
+            with open(resolved, "rb") as f:
+                while True:
+                    chunk = f.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    await resp.write(chunk)
+            await resp.write_eof()
+            return resp
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
     async def handle_sync_job_update(self, request: web.Request) -> web.Response:
         """POST /sync/job_update - Worker reports sync job status back to leader.
 
@@ -3871,18 +4014,18 @@ print(json.dumps(result))
         {
             "job_id": "sync-123",
             "status": "completed|failed",
-            "files_synced": 10,
+            "files_completed": 10,
             "bytes_transferred": 1048576,
-            "error": "optional error message"
+            "error_message": "optional error message"
         }
         """
         try:
             data = await request.json()
             job_id = data.get("job_id")
             status = data.get("status")
-            files_synced = data.get("files_synced", 0)
+            files_completed = data.get("files_completed", data.get("files_synced", 0))
             bytes_transferred = data.get("bytes_transferred", 0)
-            error = data.get("error")
+            error_message = data.get("error_message", data.get("error"))
 
             if not job_id or not status:
                 return web.json_response({
@@ -3893,13 +4036,13 @@ print(json.dumps(result))
                 if job_id in self.active_sync_jobs:
                     job = self.active_sync_jobs[job_id]
                     job.status = status
-                    job.files_synced = files_synced
-                    job.bytes_transferred = bytes_transferred
+                    job.files_completed = int(files_completed or 0)
+                    job.bytes_transferred = int(bytes_transferred or 0)
                     job.completed_at = time.time()
-                    if error:
-                        job.error = error
+                    if error_message:
+                        job.error_message = str(error_message)
 
-                    print(f"[P2P] Sync job {job_id} {status}: {files_synced} files, {bytes_transferred} bytes")
+                    print(f"[P2P] Sync job {job_id} {status}: {job.files_completed} files, {job.bytes_transferred} bytes")
 
                     # Update sync plan status if all jobs are done
                     if self.current_sync_plan:
@@ -6003,10 +6146,10 @@ print(json.dumps({{
                 # Job configuration diversity - cycle through different board types/players
                 # This matches cluster_orchestrator behavior for full autonomy
                 selfplay_configs = [
-                    {"board_type": "square8", "num_players": 2, "engine_mode": "hybrid"},
-                    {"board_type": "square8", "num_players": 3, "engine_mode": "hybrid"},
+                    {"board_type": "square8", "num_players": 2, "engine_mode": "mixed"},
+                    {"board_type": "square8", "num_players": 3, "engine_mode": "mixed"},
                     {"board_type": "square8", "num_players": 4, "engine_mode": "heuristic-only"},
-                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "hybrid"},
+                    {"board_type": "hexagonal", "num_players": 2, "engine_mode": "heuristic-only"},
                     {"board_type": "hexagonal", "num_players": 3, "engine_mode": "heuristic-only"},
                     {"board_type": "square19", "num_players": 2, "engine_mode": "heuristic-only"},
                     {"board_type": "square19", "num_players": 3, "engine_mode": "heuristic-only"},
@@ -6014,8 +6157,10 @@ print(json.dumps({{
 
                 # Start jobs (max 2 at a time to avoid overwhelming)
                 for i in range(min(needed, 2)):
-                    # Choose GPU selfplay for GPU nodes, CPU selfplay otherwise
-                    job_type = JobType.GPU_SELFPLAY if node.has_gpu else JobType.SELFPLAY
+                    # Choose GPU selfplay only for CUDA-capable nodes (not Apple MPS).
+                    gpu_name = (node.gpu_name or "").upper()
+                    is_cuda_gpu = node.has_gpu and "MPS" not in gpu_name and "APPLE" not in gpu_name
+                    job_type = JobType.GPU_SELFPLAY if is_cuda_gpu else JobType.SELFPLAY
 
                     # Cycle through configs based on node hash + iteration
                     config_idx = (hash(node.node_id) + i + int(time.time() // 3600)) % len(selfplay_configs)
@@ -6046,36 +6191,42 @@ print(json.dumps({{
         """
         print("[P2P] Running local disk cleanup...")
         try:
-            # Find and remove old .db files in deprecated locations
-            deprecated_patterns = [
-                f"{self.ringrift_path}/ai-service/data/games/deprecated_*",
-                f"{self.ringrift_path}/ai-service/data/selfplay_old/*",
-                "/tmp/*.db",  # Temporary test databases
-            ]
+            # Prefer the shared disk monitor (used by cron/resilience) for consistent cleanup policy.
+            disk_monitor = Path(self.ringrift_path) / "ai-service" / "scripts" / "disk_monitor.py"
+            if disk_monitor.exists():
+                usage = self._get_resource_usage()
+                disk_percent = float(usage.get("disk_percent", 0.0) or 0.0)
+                cmd = [
+                    "python3",
+                    str(disk_monitor),
+                    "--threshold",
+                    str(DISK_CLEANUP_THRESHOLD),
+                    "--ringrift-path",
+                    str(self.ringrift_path),
+                    "--aggressive",
+                ]
+                if disk_percent >= DISK_CRITICAL_THRESHOLD:
+                    cmd.append("--force")
 
-            for pattern in deprecated_patterns:
-                import glob
-                files = glob.glob(pattern)
-                for f in files:
-                    try:
-                        path = Path(f)
-                        if path.exists():
-                            # Only delete files older than 1 day
-                            if time.time() - path.stat().st_mtime > 86400:
-                                path.unlink()
-                                print(f"[P2P] Cleaned: {f}")
-                    except Exception as e:
-                        print(f"[P2P] Failed to clean {f}: {e}")
-
-            # Clear old log files
-            log_dirs = [
-                f"{self.ringrift_path}/ai-service/logs",
-            ]
-            for log_dir in log_dirs:
-                for logfile in Path(log_dir).rglob("*.log"):
-                    if time.time() - logfile.stat().st_mtime > 7 * 86400:  # 7 days
-                        logfile.unlink()
-                        print(f"[P2P] Cleaned old log: {logfile}")
+                out = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    cwd=str(Path(self.ringrift_path) / "ai-service"),
+                )
+                if out.returncode == 0:
+                    print("[P2P] Disk monitor cleanup completed")
+                else:
+                    print(f"[P2P] Disk monitor cleanup failed: {out.stderr[:200]}")
+            else:
+                # Minimal fallback: clear old logs if disk monitor isn't available.
+                log_dir = Path(self.ringrift_path) / "ai-service" / "logs"
+                if log_dir.exists():
+                    for logfile in log_dir.rglob("*.log"):
+                        if time.time() - logfile.stat().st_mtime > 7 * 86400:  # 7 days
+                            logfile.unlink()
+                            print(f"[P2P] Cleaned old log: {logfile}")
 
         except Exception as e:
             print(f"[P2P] Disk cleanup error: {e}")
@@ -6104,32 +6255,68 @@ print(json.dumps({{
             job_id = str(uuid.uuid4())[:8]
 
             if job_type == JobType.SELFPLAY:
+                # Normalize engine_mode to what run_self_play_soak.py supports.
+                supported_engine_modes = {
+                    "descent-only",
+                    "mixed",
+                    "random-only",
+                    "heuristic-only",
+                    "minimax-only",
+                    "mcts-only",
+                    "nn-only",
+                }
+                engine_mode_norm = engine_mode if engine_mode in supported_engine_modes else "mixed"
+
+                # Memory-safety defaults for large boards.
+                num_games = 1000
+                extra_args: List[str] = []
+                if board_type in ("square19", "hexagonal"):
+                    num_games = 200 if board_type == "square19" else 100
+                    extra_args.extend(["--memory-constrained"])
+
+                output_dir = Path(
+                    self.ringrift_path,
+                    "ai-service",
+                    "data",
+                    "selfplay",
+                    "p2p",
+                    f"{board_type}_{num_players}p",
+                    job_id,
+                )
+                output_dir.mkdir(parents=True, exist_ok=True)
+
                 cmd = [
                     "python3",
                     f"{self.ringrift_path}/ai-service/scripts/run_self_play_soak.py",
-                    "--num-games", "1000",
+                    "--num-games", str(num_games),
                     "--board-type", board_type,
                     "--num-players", str(num_players),
-                    "--engine-mode", engine_mode,
-                    "--log-jsonl", f"{self.ringrift_path}/ai-service/data/selfplay/{board_type}_{num_players}p/games.jsonl",
+                    "--engine-mode", engine_mode_norm,
+                    "--log-jsonl", str(output_dir / "games.jsonl"),
+                    "--summary-json", str(output_dir / "summary.json"),
+                    "--record-db", str(output_dir / "games.db"),
+                    "--lean-db",
+                    "--verbose", "0",
+                    *extra_args,
                 ]
-
-                # Create output directory
-                output_dir = Path(f"{self.ringrift_path}/ai-service/data/selfplay/{board_type}_{num_players}p")
-                output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Start process
                 env = os.environ.copy()
                 env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+                env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
 
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=open(output_dir / "run.log", "a"),
-                    stderr=subprocess.STDOUT,
-                    env=env,
-                    cwd=self.ringrift_path,
-                )
+                log_handle = open(output_dir / "run.log", "a")
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
+                        env=env,
+                        cwd=self.ringrift_path,
+                    )
+                finally:
+                    log_handle.close()
 
                 job = ClusterJob(
                     job_id=job_id,
@@ -6137,7 +6324,7 @@ print(json.dumps({{
                     node_id=self.node_id,
                     board_type=board_type,
                     num_players=num_players,
-                    engine_mode=engine_mode,
+                    engine_mode=engine_mode_norm,
                     pid=proc.pid,
                     started_at=time.time(),
                     status="running",
@@ -6153,37 +6340,102 @@ print(json.dumps({{
             elif job_type == JobType.GPU_SELFPLAY:
                 # GPU-accelerated parallel selfplay using run_gpu_selfplay.py
                 # Only start on nodes with GPU (check done in _manage_cluster_jobs)
-                batch_size = 256 if "5090" in self.self_info.gpu_name.lower() else 128
+                # NOTE: run_gpu_selfplay uses CUDA; avoid scheduling on Apple MPS nodes.
+                gpu_name_upper = (self.self_info.gpu_name or "").upper()
+                if "MPS" in gpu_name_upper or "APPLE" in gpu_name_upper:
+                    return await self._start_local_job(
+                        JobType.SELFPLAY,
+                        board_type=board_type,
+                        num_players=num_players,
+                        engine_mode="mixed",
+                    )
+
+                if "H100" in gpu_name_upper or "H200" in gpu_name_upper:
+                    batch_size = 64
+                elif "5090" in gpu_name_upper or "4090" in gpu_name_upper or "A100" in gpu_name_upper:
+                    batch_size = 32
+                else:
+                    batch_size = 16
+
+                # run_gpu_selfplay expects --board (square8/square19/hex/hexagonal).
+                board_arg = {
+                    "square8": "square8",
+                    "square19": "square19",
+                    "hexagonal": "hexagonal",
+                    "hex": "hex",
+                }.get(board_type, "square8")
+
+                # Normalize engine_mode to GPU runner's supported values.
+                gpu_engine_mode = engine_mode if engine_mode in ("random-only", "heuristic-only") else "heuristic-only"
+
+                num_games = 3000
+                if board_arg == "square19":
+                    num_games = 1500
+                elif board_arg in ("hex", "hexagonal"):
+                    num_games = 500
+
+                output_dir = Path(
+                    self.ringrift_path,
+                    "ai-service",
+                    "data",
+                    "selfplay",
+                    "p2p_gpu",
+                    f"{board_type}_{num_players}p",
+                    job_id,
+                )
+                output_dir.mkdir(parents=True, exist_ok=True)
 
                 cmd = [
                     "python3",
                     f"{self.ringrift_path}/ai-service/scripts/run_gpu_selfplay.py",
-                    "--num-games", "1000",
-                    "--board-size", "8" if board_type == "square8" else "19",
+                    "--board", board_arg,
+                    "--engine-mode", gpu_engine_mode,
+                    "--num-games", str(num_games),
                     "--num-players", str(num_players),
                     "--batch-size", str(batch_size),
-                    "--output-dir", f"{self.ringrift_path}/ai-service/data/selfplay/gpu_{board_type}_{num_players}p",
+                    "--output-dir", str(output_dir),
                 ]
-
-                # Create output directory
-                output_dir = Path(f"{self.ringrift_path}/ai-service/data/selfplay/gpu_{board_type}_{num_players}p")
-                output_dir.mkdir(parents=True, exist_ok=True)
 
                 # Start process with GPU environment
                 env = os.environ.copy()
                 env["PYTHONPATH"] = f"{self.ringrift_path}/ai-service"
                 env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
-                # Ensure CUDA is visible
-                if "CUDA_VISIBLE_DEVICES" not in env:
-                    env["CUDA_VISIBLE_DEVICES"] = "0"
+                env["RINGRIFT_JOB_ORIGIN"] = "p2p_orchestrator"
 
-                proc = subprocess.Popen(
-                    cmd,
-                    stdout=open(output_dir / "gpu_run.log", "a"),
-                    stderr=subprocess.STDOUT,
-                    env=env,
-                    cwd=self.ringrift_path,
-                )
+                # Choose a GPU automatically if not explicitly pinned.
+                if "CUDA_VISIBLE_DEVICES" not in env:
+                    gpu_count = 0
+                    try:
+                        out = subprocess.run(
+                            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        if out.returncode == 0 and out.stdout.strip():
+                            gpu_count = len([l for l in out.stdout.splitlines() if l.strip()])
+                    except Exception:
+                        gpu_count = 0
+
+                    if gpu_count > 0:
+                        with self.jobs_lock:
+                            running_gpu_jobs = sum(
+                                1 for j in self.local_jobs.values()
+                                if j.job_type == JobType.GPU_SELFPLAY and j.status == "running"
+                            )
+                        env["CUDA_VISIBLE_DEVICES"] = str(running_gpu_jobs % gpu_count)
+                    else:
+                        env["CUDA_VISIBLE_DEVICES"] = "0"
+
+                log_handle = open(output_dir / "gpu_run.log", "a")
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
+                        env=env,
+                        cwd=self.ringrift_path,
+                    )
+                finally:
+                    log_handle.close()
 
                 job = ClusterJob(
                     job_id=job_id,
@@ -6191,7 +6443,7 @@ print(json.dumps({{
                     node_id=self.node_id,
                     board_type=board_type,
                     num_players=num_players,
-                    engine_mode="gpu",
+                    engine_mode=gpu_engine_mode,
                     pid=proc.pid,
                     started_at=time.time(),
                     status="running",
@@ -6341,6 +6593,7 @@ print(json.dumps({{
         app.router.add_post('/sync/start', self.handle_sync_start)
         app.router.add_get('/sync/status', self.handle_sync_status)
         app.router.add_post('/sync/pull', self.handle_sync_pull)
+        app.router.add_get('/sync/file', self.handle_sync_file)
         app.router.add_post('/sync/job_update', self.handle_sync_job_update)
         app.router.add_post('/sync/training', self.handle_training_sync)  # Training node priority sync
         app.router.add_get('/gpu/rankings', self.handle_gpu_rankings)      # GPU power rankings
