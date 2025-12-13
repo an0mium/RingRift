@@ -56,12 +56,17 @@ export interface AuthenticatedSocket extends Socket<ClientToServerEvents, Server
 const CHAT_RATE_LIMIT_WINDOW_SECONDS = 10;
 const CHAT_RATE_LIMIT_MAX_MESSAGES = 20;
 
-type InMemoryChatCounter = {
+// Matchmaking rate limit: 5 join attempts per 60 seconds per user
+const MATCHMAKING_RATE_LIMIT_WINDOW_SECONDS = 60;
+const MATCHMAKING_RATE_LIMIT_MAX_ATTEMPTS = 5;
+
+type InMemoryRateLimitCounter = {
   count: number;
   resetAt: number;
 };
 
-const inMemoryChatCounters = new Map<string, InMemoryChatCounter>();
+const inMemoryChatCounters = new Map<string, InMemoryRateLimitCounter>();
+const inMemoryMatchmakingCounters = new Map<string, InMemoryRateLimitCounter>();
 
 async function checkChatRateLimit(socket: AuthenticatedSocket, gameId: string): Promise<boolean> {
   const userKey = socket.userId ?? socket.id;
@@ -125,6 +130,76 @@ async function checkChatRateLimit(socket: AuthenticatedSocket, gameId: string): 
     logger.warn('Chat rate limiter failure, allowing chat message', {
       userId: socket.userId,
       gameId,
+      key,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return true;
+  }
+}
+
+/**
+ * Check matchmaking join rate limit per user.
+ * Uses Redis with in-memory fallback, similar to chat rate limiting.
+ */
+async function checkMatchmakingRateLimit(socket: AuthenticatedSocket): Promise<boolean> {
+  const userKey = socket.userId ?? socket.id;
+  const key = `matchmaking:join:${userKey}`;
+  const windowSeconds = MATCHMAKING_RATE_LIMIT_WINDOW_SECONDS;
+  const maxAttempts = MATCHMAKING_RATE_LIMIT_MAX_ATTEMPTS;
+
+  try {
+    const redis = getRedisClient();
+
+    if (redis) {
+      try {
+        const current = await redis.incr(key);
+        if (current === 1) {
+          await redis.expire(key, windowSeconds);
+        }
+
+        if (current > maxAttempts) {
+          logger.warn('Matchmaking rate limit exceeded (redis)', {
+            userId: socket.userId,
+            key,
+            count: current,
+          });
+          return false;
+        }
+
+        return true;
+      } catch (error) {
+        logger.warn('Matchmaking rate limiter Redis error, falling back to in-memory', {
+          userId: socket.userId,
+          key,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    // In-memory fallback
+    const now = Date.now();
+    const windowMs = windowSeconds * 1000;
+
+    const existing = inMemoryMatchmakingCounters.get(key);
+    if (!existing || existing.resetAt <= now) {
+      inMemoryMatchmakingCounters.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
+    }
+
+    if (existing.count >= maxAttempts) {
+      logger.warn('Matchmaking rate limit exceeded (memory)', {
+        userId: socket.userId,
+        key,
+        count: existing.count + 1,
+      });
+      return false;
+    }
+
+    existing.count += 1;
+    return true;
+  } catch (error) {
+    logger.warn('Matchmaking rate limiter failure, allowing request', {
+      userId: socket.userId,
       key,
       error: error instanceof Error ? error.message : String(error),
     });
@@ -370,6 +445,18 @@ export class WebSocketServer {
               socket,
               'ACCESS_DENIED',
               'Authentication required to join matchmaking',
+              'matchmaking:join'
+            );
+            return;
+          }
+
+          // Rate limit matchmaking join attempts to prevent queue flooding
+          const allowed = await checkMatchmakingRateLimit(socket);
+          if (!allowed) {
+            this.emitError(
+              socket,
+              'RATE_LIMITED',
+              'Too many matchmaking attempts. Please wait before trying again.',
               'matchmaking:join'
             );
             return;
