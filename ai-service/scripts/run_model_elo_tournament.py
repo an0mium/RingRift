@@ -151,8 +151,10 @@ def play_nn_vs_nn_game(
 
         # Record move for training data in canonical format (matching run_random_selfplay.py)
         if save_game_history:
+            # Move object uses 'type' attribute (not 'move_type')
+            move_type_val = move.type.value if hasattr(move.type, 'value') else str(move.type)
             move_record = {
-                'type': move.move_type.value if hasattr(move.move_type, 'value') else str(move.move_type),
+                'type': move_type_val,
                 'player': current_player,
             }
             # Add position data (handle both key-based and coordinate-based moves)
@@ -480,11 +482,11 @@ def register_models(conn: sqlite3.Connection, models: List[Dict[str, Any]]):
             m["version"], m["created_at"], now, now
         ))
 
-        # Initialize Elo rating if not exists (composite key: model_id + board_type + num_players)
+        # Initialize Elo rating if not exists
+        # Use INSERT OR IGNORE for compatibility with both old (model_id PK) and new (composite PK) schemas
         cursor.execute("""
-            INSERT INTO elo_ratings (model_id, board_type, num_players, rating, games_played, last_update)
+            INSERT OR IGNORE INTO elo_ratings (model_id, board_type, num_players, rating, games_played, last_update)
             VALUES (?, ?, ?, 1500.0, 0, ?)
-            ON CONFLICT(model_id, board_type, num_players) DO NOTHING
         """, (m["model_id"], m["board_type"], m["num_players"], now))
 
     conn.commit()

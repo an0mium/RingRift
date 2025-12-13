@@ -17,6 +17,7 @@ import type { GameState, Move, GameResult } from '../../shared/engine';
 import { hashGameState } from '../../shared/engine';
 import type { GameEndExplanation } from '../../shared/engine/gameEndExplanation';
 import { createHistoryEntry } from '../../shared/engine/historyHelpers';
+import { serializeGameState } from '../../shared/engine/contracts/serialization';
 import {
   processTurn,
   getValidMoves,
@@ -831,7 +832,27 @@ export class SandboxOrchestratorAdapter {
         const playerInfo = this.stateAccessor.getPlayerInfo(playerId);
 
         if (playerInfo.type === 'ai') {
-          // AI auto-selects from options
+          const difficultyRaw = playerInfo.aiDifficulty;
+          const difficulty =
+            typeof difficultyRaw === 'number'
+              ? Math.max(1, Math.min(10, Math.round(difficultyRaw)))
+              : 5;
+
+          const stateForService = this.stateAccessor.getGameState();
+          const serviceMove = await this.tryRequestSandboxAIMove({
+            state: serializeGameState(stateForService),
+            difficulty,
+            playerNumber: decision.player,
+          });
+
+          if (serviceMove) {
+            const desiredKey = this.moveMatchKey(serviceMove);
+            const matched = decision.options.find((opt) => this.moveMatchKey(opt) === desiredKey);
+            if (matched) {
+              return matched;
+            }
+          }
+
           return this.autoSelectDecision(decision);
         }
 
@@ -869,6 +890,105 @@ export class SandboxOrchestratorAdapter {
       thinkTime: 0,
       moveNumber: state.moveHistory.length + 1,
     };
+  }
+
+  private moveMatchKey(move: Move): string {
+    const positionKey = (pos: unknown): string => {
+      if (!pos || typeof pos !== 'object') return '';
+      const rec = pos as Record<string, unknown>;
+      const x = typeof rec.x === 'number' ? rec.x : '';
+      const y = typeof rec.y === 'number' ? rec.y : '';
+      const z = typeof rec.z === 'number' ? rec.z : '';
+      return `${x},${y},${z}`;
+    };
+
+    const positionsKey = (positions: unknown): string => {
+      if (!Array.isArray(positions) || positions.length === 0) return '';
+      return positions.map((p) => positionKey(p)).join('|');
+    };
+
+    const formedLinesKey = (lines: unknown): string => {
+      if (!Array.isArray(lines) || lines.length === 0) return '';
+      return lines
+        .map((line) => {
+          if (!line || typeof line !== 'object') return '';
+          const l = line as Record<string, unknown>;
+          const player = typeof l.player === 'number' ? l.player : '';
+          return `${player}:${positionsKey(l.positions)}`;
+        })
+        .join('||');
+    };
+
+    const territoriesKey = (territories: unknown): string => {
+      if (!Array.isArray(territories) || territories.length === 0) return '';
+      return territories
+        .map((territory) => {
+          if (!territory || typeof territory !== 'object') return '';
+          const t = territory as Record<string, unknown>;
+          const controllingPlayer =
+            typeof t.controllingPlayer === 'number' ? t.controllingPlayer : '';
+          const isDisconnected = t.isDisconnected ? 'd' : 'c';
+          return `${controllingPlayer}:${isDisconnected}:${positionsKey(t.spaces)}`;
+        })
+        .join('||');
+    };
+
+    const rec = move as unknown as Record<string, unknown>;
+    const buildAmount = typeof rec.buildAmount === 'number' ? rec.buildAmount : '';
+    const placementCount = typeof rec.placementCount === 'number' ? rec.placementCount : '';
+    const recoveryOption = typeof rec.recoveryOption === 'number' ? rec.recoveryOption : '';
+
+    const eliminationContext =
+      typeof rec.eliminationContext === 'string' ? rec.eliminationContext : '';
+    const eliminationFromStackPos =
+      rec.eliminationFromStack && typeof rec.eliminationFromStack === 'object'
+        ? positionKey((rec.eliminationFromStack as Record<string, unknown>).position)
+        : '';
+
+    return [
+      move.type,
+      String(move.player),
+      positionKey(move.from),
+      positionKey(move.to),
+      positionKey((rec as any).captureTarget),
+      String(buildAmount),
+      String(placementCount),
+      String(recoveryOption),
+      positionsKey((rec as any).collapsedMarkers),
+      formedLinesKey((rec as any).formedLines),
+      territoriesKey((rec as any).disconnectedRegions),
+      eliminationContext,
+      eliminationFromStackPos,
+    ].join('|');
+  }
+
+  private async tryRequestSandboxAIMove(payload: {
+    state: ReturnType<typeof serializeGameState>;
+    difficulty: number;
+    playerNumber: number;
+  }): Promise<Move | null> {
+    if (typeof fetch !== 'function') {
+      return null;
+    }
+
+    try {
+      const response = await fetch('/api/games/sandbox/ai/move', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = (await response.json()) as { move?: Move | null } | null;
+      return data?.move ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**

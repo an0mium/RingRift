@@ -51,23 +51,23 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
   },
   {
     id: 3,
-    name: 'Casual (between D2 and D4)',
+    name: 'Casual (D3 – Minimax)',
     shortDescription:
-      'More consistent than Learner; still forgiving and beatable with basic tactics.',
+      'Entry-level minimax that sees short tactics but still leaves chances to outplay it.',
     detailedDescription:
-      'Intended as a bridge between D2 and the intermediate D4 tier. Plays more purposeful moves than D2 and converts simple advantages more reliably, but still allows tactical comebacks and will occasionally mis-handle complex fights.',
+      'Backed by the canonical D3 minimax profile (heuristic evaluation only). Sees short tactical sequences and avoids many one-move blunders, but remains beatable through deeper planning, resource management, and complex multi-threat positions.',
     recommendedAudience:
       'Players who can reliably beat D2 and want a slightly tougher but still relaxed experience.',
     notes:
-      'Interpolated difficulty between heuristic D2 and minimax D4. Exact engine parameters may vary by board type.',
+      'Canonical ladder tier: minimax (non-neural). Search budget and randomness are tuned per board/profile.',
   },
   {
     id: 4,
     name: 'Challenging (D4 – Intermediate)',
     shortDescription:
-      'Intermediate minimax AI that punishes obvious mistakes and wins many close games.',
+      'Minimax with NNUE evaluation that punishes obvious mistakes and wins many close games.',
     detailedDescription:
-      'Backed by the square8 2-player minimax profile used for the canonical D4 ladder tier. Sees short tactics, avoids most outright blunders, and reliably converts clear material or territory advantages. Stronger casual players should find this engaging but still winnable.',
+      'Backed by the canonical D4 minimax profile (NNUE evaluation). Sees short tactics, avoids most outright blunders, and reliably converts clear material or territory advantages. Stronger casual players should find this engaging but still winnable.',
     recommendedAudience:
       'Intermediate RingRift players and experienced abstract-board-game players (e.g. club-night Chess or Go strength).',
     notes:
@@ -75,22 +75,21 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
   },
   {
     id: 5,
-    name: 'Tough (between D4 and D6)',
+    name: 'Tough (D5 – MCTS)',
     shortDescription:
-      'Noticeably tougher than D4; accuracy and conversion improve, especially in the midgame.',
+      'First MCTS tier: tougher conversion and stronger tactical awareness than minimax.',
     detailedDescription:
-      'Designed as a step up from the D4 intermediate tier. Uses a stronger search configuration than D4 or equivalent tuning, reducing unforced mistakes and closing out more slightly-better positions. Many intermediate players will lose more often than they win.',
+      'Backed by the canonical D5 MCTS profile (heuristic rollouts; no neural net). Plays with stronger global search than minimax tiers, improving midgame conversion and reducing unforced mistakes while remaining fast enough for casual sandbox play.',
     recommendedAudience:
       'Players who beat D4 consistently and want a demanding but not yet “expert” opponent.',
-    notes:
-      'Interpolated tier between minimax D4 and high minimax D6. Exact engine profile is determined by the backend ladder.',
+    notes: 'Canonical ladder tier: MCTS (non-neural).',
   },
   {
     id: 6,
-    name: 'Advanced (D6 – Strong club)',
-    shortDescription: 'High-search minimax AI that punishes shallow plans and weak structures.',
+    name: 'Advanced (D6 – Neural MCTS)',
+    shortDescription: 'Neural-guided MCTS that punishes shallow plans and weak structures.',
     detailedDescription:
-      'Backed by the extended-search minimax profile used for the canonical D6 ladder tier on square8 2-player. Avoids most obvious tactical shots, punishes over-extensions, and steadily converts small advantages over many moves. Games often feel tense and technical.',
+      'Backed by the canonical D6 MCTS profile (neural value/policy guidance). Avoids most obvious tactical shots, punishes over-extensions, and steadily converts small advantages over many moves. Games often feel tense and technical.',
     recommendedAudience:
       'Strong club-level abstract-game players and advanced RingRift players who already handle D4 comfortably.',
     notes:
@@ -98,21 +97,20 @@ export const DIFFICULTY_DESCRIPTORS: readonly DifficultyDescriptor[] = [
   },
   {
     id: 7,
-    name: 'Expert (between D6 and D8)',
-    shortDescription: 'Bridging tier approaching D8 strength; mistakes are punished quickly.',
+    name: 'Expert (D7 – Neural MCTS)',
+    shortDescription: 'Neural-guided MCTS with higher budget; mistakes are punished quickly.',
     detailedDescription:
-      'Sits between the advanced D6 minimax tier and the strong D8 tier (typically backed by MCTS on square8 2-player). Plays with high tactical awareness and strong conversion, and will quickly capitalise on poor trades or slow play.',
+      'Backed by the canonical D7 MCTS profile (neural guidance with higher search budget). Plays with high tactical awareness and strong conversion, and will quickly capitalise on poor trades or slow play.',
     recommendedAudience:
       'Very strong regular players who beat D6 at a healthy rate but are not yet ready for the full D8 challenge.',
-    notes:
-      'Interpolated expert tier; exact engine configuration is implementation-defined but should feel clearly tougher than D6.',
+    notes: 'Canonical ladder tier: MCTS (neural).',
   },
   {
     id: 8,
     name: 'Strong Expert (D8 – Near‑expert)',
     shortDescription: 'Strong search-based AI intended as the top calibrated tier for most humans.',
     detailedDescription:
-      'Backed by the square8 2-player MCTS profile used for the canonical D8 ladder tier. Rarely blunders outright, converts small advantages, and punishes greedy territory or elimination attempts. Even very strong human players should find sustaining a high win rate difficult.',
+      'Backed by the canonical D8 MCTS profile (neural guidance with large search budget). Rarely blunders outright, converts small advantages, and punishes greedy territory or elimination attempts. Even very strong human players should find sustaining a high win rate difficult.',
     recommendedAudience:
       'Very strong RingRift players and serious abstract-game enthusiasts who want a near‑expert challenge.',
     notes:
