@@ -11,7 +11,11 @@ from __future__ import annotations
 from typing import Any, Optional, Tuple, Iterable
 
 from app.models import GameState, BoardType
-from app.rules.core import get_territory_victory_threshold, get_victory_threshold
+from app.rules.core import (
+    get_rings_per_player,
+    get_territory_victory_threshold,
+    get_victory_threshold,
+)
 
 
 def infer_num_players(game_state: GameState) -> int:
@@ -96,6 +100,21 @@ def victory_progress_for_player(state: Any, player_number: int) -> float:
     """
     eliminated, territory = _get_player_counts(state, player_number)
 
+    rules_options = getattr(
+        state, "rules_options", getattr(state, "rulesOptions", None)
+    )
+    rings_override: Optional[int] = None
+    if isinstance(rules_options, dict):
+        raw_rings_override = rules_options.get("ringsPerPlayer")
+        try:
+            rings_override = (
+                int(raw_rings_override)
+                if raw_rings_override is not None
+                else None
+            )
+        except Exception:
+            rings_override = None
+
     victory_threshold = getattr(
         state, "victory_threshold", getattr(state, "_victory_threshold", None)
     )
@@ -111,7 +130,9 @@ def victory_progress_for_player(state: Any, player_number: int) -> float:
 
     if not isinstance(victory_threshold, int) or victory_threshold <= 0:
         if board_type is not None:
-            victory_threshold = get_victory_threshold(board_type, num_players)
+            victory_threshold = get_victory_threshold(
+                board_type, num_players, rings_per_player_override=rings_override
+            )
         else:
             victory_threshold = 1
 
@@ -163,6 +184,31 @@ def victory_progress_for_player(state: Any, player_number: int) -> float:
             lps_progress = 0.90 + 0.09 * frac
 
     return max(base_progress, lps_progress)
+
+
+def infer_rings_per_player(state: Any) -> int:
+    """Infer the effective rings-per-player supply for this state.
+
+    Prefer an explicit per-game override from ``rulesOptions.ringsPerPlayer``
+    when present (used for ablation/optimization research). Fall back to the
+    canonical board default.
+    """
+    board_type = _infer_board_type(state)
+    if board_type is None:
+        return 1
+
+    rules_options = getattr(
+        state, "rules_options", getattr(state, "rulesOptions", None)
+    )
+    override: Optional[int] = None
+    if isinstance(rules_options, dict):
+        raw = rules_options.get("ringsPerPlayer")
+        try:
+            override = int(raw) if raw is not None else None
+        except Exception:
+            override = None
+
+    return get_rings_per_player(board_type, override=override)
 
 
 def _iter_player_numbers(state: Any) -> Iterable[int]:

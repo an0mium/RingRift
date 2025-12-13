@@ -500,6 +500,27 @@ describe('PlacementAggregate branch coverage', () => {
         expect(result.code).toBe('NO_CONTROLLED_STACKS');
       });
 
+      it('allows skip when player has no stacks but is recovery-eligible', () => {
+        const state = makeGameState();
+        // Recovery eligibility: no controlled stacks, has a marker, and has a buried ring.
+        // Create an opponent-controlled stack with a buried ring of player 1.
+        addStack(state, pos(4, 4), 2, [2, 1]);
+        const marker: Marker = {
+          player: 1,
+          position: pos(0, 0),
+          type: 'regular',
+        };
+        state.board.markers.set(positionToString(marker.position), marker);
+
+        const action: SkipPlacementAction = {
+          type: 'SKIP_PLACEMENT',
+          playerId: 1,
+        };
+
+        const result = validateSkipPlacement(state, action);
+        expect(result.valid).toBe(true);
+      });
+
       it('skips stacks not controlled by player', () => {
         const state = makeGameState();
         addStack(state, pos(3, 3), 2, [2, 2]); // Player 2's stack
@@ -685,6 +706,21 @@ describe('PlacementAggregate branch coverage', () => {
         const result = evaluateSkipPlacementEligibility(state, 1);
         expect(result.eligible).toBe(false);
         expect(result.code).toBe('NO_CONTROLLED_STACKS');
+      });
+
+      it('returns eligible when player is recovery-eligible with no controlled stacks', () => {
+        const state = makeGameState();
+        // Recovery eligibility: no controlled stacks, has a marker, and has a buried ring.
+        addStack(state, pos(4, 4), 2, [2, 1]);
+        const marker: Marker = {
+          player: 1,
+          position: pos(0, 0),
+          type: 'regular',
+        };
+        state.board.markers.set(positionToString(marker.position), marker);
+
+        const result = evaluateSkipPlacementEligibility(state, 1);
+        expect(result.eligible).toBe(true);
       });
     });
 

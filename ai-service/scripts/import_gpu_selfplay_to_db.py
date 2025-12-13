@@ -42,34 +42,27 @@ def parse_position(pos_dict: Dict[str, Any]) -> Position:
 
 def parse_move(move_dict: Dict[str, Any], move_number: int, timestamp: str) -> Move:
     """Parse a move dict into a Move object."""
-    move_type_str = move_dict.get("type", "unknown")
+    move_type_str = str(move_dict.get("type") or "").strip()
+    if not move_type_str:
+        raise ValueError("GPU move is missing required 'type' field")
 
-    # Map move type strings to MoveType enum
-    move_type_map = {
-        "place_ring": MoveType.PLACE_RING,
-        "move_stack": MoveType.MOVE_STACK,
-        "overtaking_capture": MoveType.OVERTAKING_CAPTURE,
-        "continue_capture_segment": MoveType.CONTINUE_CAPTURE_SEGMENT,
-        "end_capture_chain": MoveType.END_CAPTURE_CHAIN,
-        "choose_line_option": MoveType.CHOOSE_LINE_OPTION,
-        "choose_line_reward": MoveType.CHOOSE_LINE_REWARD,
-        "process_line": MoveType.PROCESS_LINE,
-        "no_line_action": MoveType.NO_LINE_ACTION,
-        "choose_territory_option": MoveType.CHOOSE_TERRITORY_OPTION,
-        "process_territory_region": MoveType.PROCESS_TERRITORY_REGION,
-        "no_territory_action": MoveType.NO_TERRITORY_ACTION,
-        "eliminate_rings_from_stack": MoveType.ELIMINATE_RINGS_FROM_STACK,
-        "recovery_slide": MoveType.RECOVERY_SLIDE,
-        "skip_recovery": MoveType.SKIP_RECOVERY,
-        "pass_turn": MoveType.PASS_TURN,
-    }
-
-    move_type = move_type_map.get(move_type_str, MoveType.PLACE_RING)
+    # GPU JSONLs may contain both canonical move types and legacy/internal
+    # bookkeeping types (e.g. line_formation / territory_claim). We parse them
+    # into the shared MoveType enum and decide later whether to skip them.
+    try:
+        move_type = MoveType(move_type_str)
+    except Exception as exc:
+        raise ValueError(f"Unknown MoveType for GPU import: {move_type_str!r}") from exc
 
     # Parse positions
     from_pos = parse_position(move_dict["from"]) if "from" in move_dict else None
     to_pos = parse_position(move_dict["to"]) if "to" in move_dict else None
-    capture_target = parse_position(move_dict["capture_target"]) if "capture_target" in move_dict else None
+    capture_target_dict = move_dict.get("capture_target") or move_dict.get("captureTarget")
+    capture_target = (
+        parse_position(capture_target_dict)
+        if isinstance(capture_target_dict, dict)
+        else None
+    )
 
     return Move(
         id=f"move-{move_number}",
@@ -202,6 +195,12 @@ def expand_gpu_jsonl_moves_to_canonical(
 
     for gpu_move in gpu_moves:
         ts = gpu_move.timestamp
+        # GPU JSONL streams sometimes include legacy/internal bookkeeping moves
+        # (line_formation, territory_claim) that do not map 1:1 to the canonical
+        # per-phase move surface. Canonicalisation is driven by the CPU engine's
+        # phase machine, so we ignore these markers here.
+        if gpu_move.type in {MoveType.LINE_FORMATION, MoveType.TERRITORY_CLAIM}:
+            continue
 
         # Advance through any implied phases until the GPU move becomes applicable.
         safety = 0
@@ -257,6 +256,8 @@ def expand_gpu_jsonl_moves_to_canonical(
         # In CHAIN_CAPTURE, GPU records segments as overtaking_capture but the
         # canonical engine expects continue_capture_segment.
         desired_type = gpu_move.type
+        if desired_type == MoveType.CHAIN_CAPTURE:
+            desired_type = MoveType.CONTINUE_CAPTURE_SEGMENT
         if desired_type == MoveType.OVERTAKING_CAPTURE and state.current_phase == GamePhase.CHAIN_CAPTURE:
             desired_type = MoveType.CONTINUE_CAPTURE_SEGMENT
 
@@ -269,7 +270,10 @@ def expand_gpu_jsonl_moves_to_canonical(
         )
         if matched is None:
             raise RuntimeError(
-                f"No matching candidate move for gpu={gpu_move.type.value} desired={desired_type.value} "
+                "No matching candidate move "
+                f"(gpu_move_number={gpu_move.move_number}, gpu_player={gpu_move.player}, "
+                f"state_player={state.current_player}) "
+                f"for gpu={gpu_move.type.value} desired={desired_type.value} "
                 f"from={gpu_move.from_pos} to={gpu_move.to} phase={state.current_phase.value}"
             )
 

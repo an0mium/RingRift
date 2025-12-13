@@ -28,8 +28,11 @@ from app.ai.neural_net import (
     _pos_from_key,
 )
 from app.rules.geometry import BoardGeometry
-from app.rules.core import get_rings_per_player
-from app.ai.game_state_utils import infer_num_players, select_threat_opponent
+from app.ai.game_state_utils import (
+    infer_num_players,
+    infer_rings_per_player,
+    select_threat_opponent,
+)
 
 
 def encode_legal_moves(
@@ -447,13 +450,12 @@ class HexStateEncoder:
                     None,
                 )
 
+        rings_per_player = float(infer_rings_per_player(state))
         if my_player:
-            rings_per_player = float(get_rings_per_player(state.board.type))
             globals_vec[5] = my_player.rings_in_hand / rings_per_player
             globals_vec[7] = my_player.eliminated_rings / rings_per_player
 
         if opp_player:
-            rings_per_player = float(get_rings_per_player(state.board.type))
             globals_vec[6] = opp_player.rings_in_hand / rings_per_player
             globals_vec[8] = opp_player.eliminated_rings / rings_per_player
 

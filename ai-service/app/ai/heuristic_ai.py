@@ -424,17 +424,30 @@ class HeuristicAI(BaseAI):
 
         Uses configurable weight constants for full training exploration.
         """
-        # LPS proximity: if a player has already completed an exclusive-action
-        # round, they are effectively one step from LPS victory (R172). Treat
-        # this as a full victory threat so Paranoid search respects it.
+        # LPS proximity: treat a player nearing the required consecutive
+        # exclusive rounds as an imminent victory threat. This must respect
+        # per-game overrides (rulesOptions.lpsRoundsRequired).
         lps_player = getattr(game_state, "lps_consecutive_exclusive_player", None)
         lps_rounds = getattr(game_state, "lps_consecutive_exclusive_rounds", 0)
-        if (
-            lps_player == getattr(player, "player_number", None)
-            and isinstance(lps_rounds, int)
-            and lps_rounds >= 1
+        if lps_player == getattr(player, "player_number", None) and isinstance(
+            lps_rounds, int
         ):
-            return self.WEIGHT_VICTORY_THRESHOLD_BONUS
+            required_rounds = getattr(
+                game_state,
+                "lps_rounds_required",
+                getattr(game_state, "lpsRoundsRequired", 2),
+            )
+            if not isinstance(required_rounds, int) or required_rounds <= 0:
+                required_rounds = 2
+
+            if lps_rounds >= required_rounds and required_rounds >= 1:
+                return self.WEIGHT_VICTORY_THRESHOLD_BONUS
+            if lps_rounds > 0:
+                if required_rounds <= 1:
+                    return self.WEIGHT_VICTORY_THRESHOLD_BONUS
+                denom = float(required_rounds - 1)
+                frac = min(1.0, max(0.0, float(lps_rounds) / denom))
+                return self.WEIGHT_VICTORY_THRESHOLD_BONUS * (0.90 + 0.09 * frac)
 
         rings_needed = game_state.victory_threshold - player.eliminated_rings
         territory_needed = (

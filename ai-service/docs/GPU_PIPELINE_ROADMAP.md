@@ -141,17 +141,17 @@ def _step_movement_phase(self, mask, weights_list):
 
 ### 3.1 Critical Rule Deviations
 
-| Rule                            | Canonical Spec                                                | GPU Implementation    | Impact                               |
-| ------------------------------- | ------------------------------------------------------------- | --------------------- | ------------------------------------ |
-| **Line length (8×8)**           | 4 for 2-player, 3 for 3-4 player (RR-CANON-R120)              | ✅ Player-count-aware | ~~CRITICAL~~ **FIXED 2025-12-11**    |
-| **Overlength line choice**      | Option 1 (all + eliminate) or Option 2 (subset, no eliminate) | ✅ Probabilistic 1/2  | **FIXED** - 30% Option 2 probability |
-| **Chain capture continuation**  | Must continue until no captures available                     | ✅ Full chain support | **FIXED 2025-12-11**                 |
-| **Cap eligibility (territory)** | Multicolor OR single-color height>1; NOT height-1             | Any controlled stack  | Allows invalid eliminations          |
-| **Cap eligibility (line)**      | Any controlled stack including height-1                       | Same as territory     | Correct by accident                  |
-| **Cap eligibility (forced)**    | Any controlled stack including height-1                       | Same                  | Correct                              |
-| **Recovery cascade**            | Territory processing after recovery line                      | ✅ Cascade check      | **FIXED** - returns to LINE phase    |
-| **Swap sides (pie rule)**       | P2 can swap after P1's first turn (R180-R184)                 | ✅ Heuristic-based    | **ADDED 2025-12-12**                 |
-| **Marker removal on landing**   | Remove marker, eliminate top ring                             | Simplified            | May miss eliminations                |
+| Rule                            | Canonical Spec                                                | GPU Implementation     | Impact                               |
+| ------------------------------- | ------------------------------------------------------------- | ---------------------- | ------------------------------------ |
+| **Line length (8×8)**           | 4 for 2-player, 3 for 3-4 player (RR-CANON-R120)              | ✅ Player-count-aware  | ~~CRITICAL~~ **FIXED 2025-12-11**    |
+| **Overlength line choice**      | Option 1 (all + eliminate) or Option 2 (subset, no eliminate) | ✅ Probabilistic 1/2   | **FIXED** - 30% Option 2 probability |
+| **Chain capture continuation**  | Must continue until no captures available                     | ✅ Full chain support  | **FIXED 2025-12-11**                 |
+| **Cap eligibility (territory)** | Multicolor OR single-color height>1; NOT height-1             | Any controlled stack   | Allows invalid eliminations          |
+| **Cap eligibility (line)**      | Any controlled stack including height-1                       | Same as territory      | Correct by accident                  |
+| **Cap eligibility (forced)**    | Any controlled stack including height-1                       | Same                   | Correct                              |
+| **Recovery cascade**            | Territory processing after recovery line                      | ✅ Cascade check       | **FIXED** - returns to LINE phase    |
+| **Swap sides (pie rule)**       | P2 can swap after P1's first turn (R180-R184)                 | ⚠ Offered-only (no-op) | Prevents non-replayable silent swaps |
+| **Marker removal on landing**   | Remove marker, eliminate top ring                             | Simplified             | May miss eliminations                |
 
 ### 3.2 Locations of Rule Simplifications
 
@@ -1109,8 +1109,9 @@ rings_per_player = {8: 18, 19: 48}.get(board_size, 18)  # Missing hex config
 **After (correct):**
 
 ```python
-total_spaces = {8: 64, 19: 361, 13: 469}.get(board_size, board_size * board_size)
-rings_per_player = {8: 18, 19: 72, 13: 96}.get(board_size, 18)
+# GPU hex kernels use a 25×25 embedding (radius-12 -> 2r+1).
+total_spaces = {8: 64, 19: 361, 13: 469, 25: 469}.get(board_size, board_size * board_size)
+rings_per_player = {8: 18, 19: 72, 13: 96, 25: 96}.get(board_size, 18)
 ```
 
 **Verification:** Added hex board types to parameterized victory threshold tests.
@@ -1549,20 +1550,20 @@ runner = ParallelGameRunner(
 
 **Location:** `gpu_parallel_games.py:_check_and_apply_swap_sides()`, `BatchGameState.swap_offered`
 
-**Implementation:**
+**Implementation status:**
 
 - Added `swap_offered: torch.Tensor` field to BatchGameState to track pie rule state
-- Added `swap_enabled: bool = True` parameter to ParallelGameRunner
-- Implemented `_check_and_apply_swap_sides()` method:
-  - Checks eligibility: 2p game, P2's turn, not yet offered
-  - Uses position evaluation heuristic (stack + territory advantage) to decide acceptance
-  - Applies swap by exchanging all board ownership between P1 and P2 (vectorized)
-  - Swaps player stats: rings_in_hand, territory_count, eliminated_rings, buried_rings
+- Added `swap_enabled: bool` parameter to ParallelGameRunner (now defaults **false**).
+- `_check_and_apply_swap_sides()` currently:
+  - Checks eligibility and sets `swap_offered[g]=True` for observability.
+  - Does **not** apply a semantic swap yet.
+
+**Rationale:** GPU self-play move histories are coarse and do not record `swap_sides` moves explicitly. Applying a semantic swap inside the GPU runner would create non-replayable traces and break parity tooling. Until GPU move history supports an explicit `swap_sides` move, the GPU pipeline treats the pie rule as “offered but always declined”.
 
 ```python
 runner = ParallelGameRunner(
     batch_size=64,
-    swap_enabled=True,  # Enable pie rule (default)
+    swap_enabled=True,  # Marks offered; does not swap yet
 )
 ```
 

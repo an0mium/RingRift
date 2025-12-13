@@ -9,6 +9,7 @@ if ROOT not in sys.path:
 from app.models import (  # noqa: E402
     Position,
     RingStack,
+    MarkerInfo,
 )
 from app.game_engine import GameEngine  # noqa: E402
 from app.rules.placement import (  # noqa: E402
@@ -101,12 +102,11 @@ def test_validate_placement_on_board_py_respects_ring_cap() -> None:
     assert result.error_code == "NO_RINGS_AVAILABLE"
 
 
-def test_skip_eligibility_requires_controlled_stack() -> None:
+def test_skip_eligibility_requires_controlled_stack_when_not_recovery_eligible() -> None:
     """
     Skip-placement is ineligible when the player controls no stacks.
 
-    Mirrors TS evaluateSkipPlacementEligibility NO_CONTROLLED_STACKS
-    path.
+    Mirrors the NO_CONTROLLED_STACKS path for non-recovery-eligible players.
     """
     state = _make_base_game_state()
     board = state.board
@@ -117,6 +117,44 @@ def test_skip_eligibility_requires_controlled_stack() -> None:
 
     assert result.eligible is False
     assert result.code == "NO_CONTROLLED_STACKS"
+
+
+def test_skip_eligibility_allows_recovery_eligible_player_without_stacks() -> None:
+    """
+    Canonical recovery: skip_placement is the voluntary gateway to recovery.
+
+    A recovery-eligible player (no controlled stacks, has a marker, has a
+    buried ring) may record skip_placement even with zero controlled stacks.
+    """
+    state = _make_base_game_state()
+    board = state.board
+    board.stacks.clear()
+    board.markers.clear()
+
+    player = state.current_player
+    opponent = 2 if player == 1 else 1
+    # Create an opponent-controlled stack with a buried ring of `player`.
+    pos = Position(x=4, y=4)
+    pos_key = pos.to_key()
+    stack = RingStack(
+        position=pos,
+        rings=[player, opponent],  # bottom -> top (top ring is opponent)
+        stackHeight=2,
+        capHeight=1,
+        controllingPlayer=opponent,
+    )
+    board.stacks[pos_key] = stack
+
+    marker_pos = Position(x=0, y=0)
+    board.markers[marker_pos.to_key()] = MarkerInfo(
+        player=player,
+        position=marker_pos,
+        type="regular",
+    )
+
+    result = evaluate_skip_placement_eligibility_py(state, player)
+
+    assert result.eligible is True
 
 
 def test_skip_eligibility_true_when_stack_has_action() -> None:

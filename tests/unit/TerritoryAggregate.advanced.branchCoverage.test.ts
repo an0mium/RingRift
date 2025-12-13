@@ -36,7 +36,7 @@ import {
   pos,
 } from '../utils/fixtures';
 import { positionToString } from '../../src/shared/types/game';
-import type { GameState, Position, Territory, BoardState } from '../../src/shared/types/game';
+import type { GameState, Position, Territory, BoardState, Move } from '../../src/shared/types/game';
 
 /**
  * Helper to add a territory region to the board
@@ -135,18 +135,34 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
   // Mini-region elimination and disconnected region ordering
   // ==========================================================================
   describe('mini-region and region ordering branches', () => {
-    it('enumerates elimination moves in line_processing phase when stack exists', () => {
-      // Note: In territory_processing phase, elimination moves are only surfaced
-      // when getProcessableTerritoryRegions returns regions. That function uses
-      // findDisconnectedRegionsShared which detects regions algorithmically from
-      // board state, NOT from board.territories map. In line_processing phase,
-      // the phase guard is skipped and elimination moves are always enumerated.
+    it('enumerates elimination moves in territory_processing when self-elimination is pending', () => {
+      // Canonical territory self-elimination (RR-CANON-R145 / R114) is only legal
+      // as an immediate follow-up after choosing a region to process.
       const state = createTestGameState();
-      state.currentPhase = 'line_processing';
+      state.currentPhase = 'territory_processing';
       state.currentPlayer = 1;
 
       // Add a ring stack that could be eliminated
       addStack(state.board, { x: 0, y: 0 }, 1, 2, 2);
+
+      const region: Territory = {
+        spaces: [{ x: 1, y: 1 }],
+        controllingPlayer: 1,
+        isDisconnected: true,
+      };
+
+      state.moveHistory = [
+        {
+          id: 'choose-territory-1,1',
+          type: 'choose_territory_option',
+          player: 1,
+          to: { x: 1, y: 1 },
+          disconnectedRegions: [region],
+          timestamp: new Date(),
+          thinkTime: 0,
+          moveNumber: 1,
+        } as Move,
+      ];
 
       // Elimination moves should be surfaced for stacks
       const elimMoves = enumerateTerritoryEliminationMoves(state, 1);
@@ -271,7 +287,7 @@ describe('TerritoryAggregate - Branch Coverage (Advanced)', () => {
       };
 
       expect(() => applyProcessTerritoryRegionDecision(state, wrongMove)).toThrow(
-        "applyProcessTerritoryRegionDecision expected move.type === 'process_territory_region'"
+        "applyProcessTerritoryRegionDecision expected move.type === 'choose_territory_option'"
       );
     });
 

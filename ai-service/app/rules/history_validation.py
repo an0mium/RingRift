@@ -18,9 +18,15 @@ move as authoritative for:
 """
 
 from dataclasses import dataclass
-from typing import List
+from typing import Any, List, Optional
 
 from app.db.game_replay import GameReplayDB
+from app.models import GameState
+from app.rules.core import (
+    BOARD_CONFIGS,
+    get_territory_victory_threshold,
+    get_victory_threshold,
+)
 from app.rules.history_contract import (
     CanonicalMoveCheckResult,
     phase_move_contract,
@@ -42,6 +48,120 @@ class CanonicalHistoryReport:
     game_id: str
     is_canonical: bool
     issues: List[CanonicalHistoryIssue]
+
+
+@dataclass
+class CanonicalConfigIssue:
+    game_id: str
+    reason: str
+    observed: Optional[Any] = None
+    expected: Optional[Any] = None
+
+
+@dataclass
+class CanonicalConfigReport:
+    game_id: str
+    is_canonical: bool
+    issues: List[CanonicalConfigIssue]
+
+
+def validate_canonical_config_for_game(
+    db: GameReplayDB,
+    game_id: str,
+) -> CanonicalConfigReport:
+    """Validate canonical rules parameters from the game's initial state.
+
+    This is intentionally separate from :func:`validate_canonical_history_for_game`.
+    The phase↔move contract is useful for parity/debug tooling even when running
+    experimental non-canonical rulesOptions (e.g. ringsPerPlayer ablations).
+    """
+    issues: List[CanonicalConfigIssue] = []
+
+    state: GameState | None = db.get_initial_state(game_id)
+    if state is None:
+        issues.append(
+            CanonicalConfigIssue(
+                game_id=game_id,
+                reason="missing_initial_state",
+            )
+        )
+        return CanonicalConfigReport(game_id=game_id, is_canonical=False, issues=issues)
+
+    board_type = state.board_type
+    num_players = len(state.players)
+    config = BOARD_CONFIGS[board_type]
+
+    expected_rings = config.rings_per_player
+    expected_victory_threshold = get_victory_threshold(board_type, num_players)
+    expected_territory_threshold = get_territory_victory_threshold(board_type)
+    expected_lps_rounds_required = 2
+
+    if state.victory_threshold != expected_victory_threshold:
+        issues.append(
+            CanonicalConfigIssue(
+                game_id=game_id,
+                reason="victory_threshold_mismatch",
+                observed=state.victory_threshold,
+                expected=expected_victory_threshold,
+            )
+        )
+
+    if state.territory_victory_threshold != expected_territory_threshold:
+        issues.append(
+            CanonicalConfigIssue(
+                game_id=game_id,
+                reason="territory_victory_threshold_mismatch",
+                observed=state.territory_victory_threshold,
+                expected=expected_territory_threshold,
+            )
+        )
+
+    if state.lps_rounds_required != expected_lps_rounds_required:
+        issues.append(
+            CanonicalConfigIssue(
+                game_id=game_id,
+                reason="lps_rounds_required_mismatch",
+                observed=state.lps_rounds_required,
+                expected=expected_lps_rounds_required,
+            )
+        )
+
+    for player in state.players:
+        if player.rings_in_hand != expected_rings:
+            issues.append(
+                CanonicalConfigIssue(
+                    game_id=game_id,
+                    reason=f"starting_rings_in_hand_mismatch_p{player.player_number}",
+                    observed=player.rings_in_hand,
+                    expected=expected_rings,
+                )
+            )
+
+    rules_options = state.rules_options
+    if isinstance(rules_options, dict):
+        rings_override = rules_options.get("ringsPerPlayer")
+        if rings_override is not None and rings_override != expected_rings:
+            issues.append(
+                CanonicalConfigIssue(
+                    game_id=game_id,
+                    reason="noncanonical_rules_options.ringsPerPlayer",
+                    observed=rings_override,
+                    expected=expected_rings,
+                )
+            )
+
+        lps_override = rules_options.get("lpsRoundsRequired")
+        if lps_override is not None and lps_override != expected_lps_rounds_required:
+            issues.append(
+                CanonicalConfigIssue(
+                    game_id=game_id,
+                    reason="noncanonical_rules_options.lpsRoundsRequired",
+                    observed=lps_override,
+                    expected=expected_lps_rounds_required,
+                )
+            )
+
+    return CanonicalConfigReport(game_id=game_id, is_canonical=len(issues) == 0, issues=issues)
 
 
 def validate_canonical_history_for_game(db: GameReplayDB, game_id: str) -> CanonicalHistoryReport:

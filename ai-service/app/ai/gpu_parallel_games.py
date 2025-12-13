@@ -234,6 +234,10 @@ def apply_capture_moves_vectorized(
         to_x = selected_to_x[g].item()
         player = current_players[g].item()
         mc = int(state.move_count[g].item())
+        # Clear must-move constraint after the first movement/capture action
+        # following a placement (RR-CANON-R090).
+        state.must_move_from_y[g] = -1
+        state.must_move_from_x[g] = -1
 
         # Record in history
         if mc < state.max_history_moves:
@@ -393,6 +397,8 @@ def apply_movement_moves_vectorized(
         to_x = selected_to_x[g].item()
         player = current_players[g].item()
         mc = int(state.move_count[g].item())
+        state.must_move_from_y[g] = -1
+        state.must_move_from_x[g] = -1
 
         # Record in history
         if mc < state.max_history_moves:
@@ -630,6 +636,12 @@ class BatchGameState:
     winner: torch.Tensor           # 0=none, 1-4=player
     swap_offered: torch.Tensor     # bool: whether swap_sides (pie rule) was offered to P2
 
+    # Per-turn movement constraint (RR-CANON-R090):
+    # When a placement occurs, the subsequent movement/capture must originate
+    # from that exact stack. -1 indicates "no constraint".
+    must_move_from_y: torch.Tensor  # int16 (batch_size,)
+    must_move_from_x: torch.Tensor  # int16 (batch_size,)
+
     # LPS tracking (RR-CANON-R172): tensor mirrors of GameState fields.
     # We track a full-round cycle over all non-permanently-eliminated players.
     lps_round_index: torch.Tensor  # int32 (batch_size,)
@@ -665,7 +677,7 @@ class BatchGameState:
 
         Args:
             batch_size: Number of parallel games
-            board_size: Board dimension (8, 19)
+            board_size: Board dimension (8, 19) or hex embedding (25)
             num_players: Number of players (2-4)
             device: GPU device (auto-detected if None)
             max_history_moves: Maximum moves to track in history
@@ -687,8 +699,11 @@ class BatchGameState:
         if rings_per_player is not None:
             starting_rings = rings_per_player
         else:
-            # Board size -> default rings mapping
-            starting_rings = {8: 18, 19: 72, 13: 96}.get(board_size, 18)
+            # Board size -> default rings mapping.
+            #
+            # NOTE: GPU hex kernels use a 25×25 embedding (radius-12 -> 2r+1),
+            # so the canonical hex supply must map to board_size=25 as well.
+            starting_rings = {8: 18, 19: 72, 13: 96, 25: 96}.get(board_size, 18)
 
         rings = torch.zeros(shape_players, dtype=torch.int16, device=device)
         rings[:, 1:num_players+1] = starting_rings
@@ -721,6 +736,12 @@ class BatchGameState:
             game_status=torch.zeros(batch_size, dtype=torch.int8, device=device),
             winner=torch.zeros(batch_size, dtype=torch.int8, device=device),
             swap_offered=torch.zeros(batch_size, dtype=torch.bool, device=device),
+            must_move_from_y=torch.full(
+                (batch_size,), -1, dtype=torch.int16, device=device
+            ),
+            must_move_from_x=torch.full(
+                (batch_size,), -1, dtype=torch.int16, device=device
+            ),
             lps_round_index=torch.zeros(batch_size, dtype=torch.int32, device=device),
             lps_current_round_first_player=torch.zeros(
                 batch_size, dtype=torch.int8, device=device
@@ -793,6 +814,17 @@ class BatchGameState:
         # Copy board state (Pydantic converts to snake_case for access)
         # Note: Hex boards use 3D coordinates (x,y,z), square boards use 2D (x,y)
         is_hex = board_type == BoardType.HEXAGONAL
+
+        # mustMoveFromStackKey (TS) -> must_move_from_{y,x} (GPU)
+        must_key = getattr(game_state, "must_move_from_stack_key", None)
+        if isinstance(must_key, str) and must_key:
+            try:
+                parts = [int(p) for p in must_key.split(",")]
+                if len(parts) >= 2 and not is_hex:
+                    batch.must_move_from_x[0] = parts[0]
+                    batch.must_move_from_y[0] = parts[1]
+            except Exception:
+                pass
 
         for key, stack in game_state.board.stacks.items():
             coords = list(map(int, key.split(",")))
@@ -1302,9 +1334,14 @@ def generate_placement_moves_batch(
 
     # Find all valid placement positions per game:
     # - Must not be collapsed
+    # - Must not contain a marker (placement never occurs onto an existing marker)
     # - Game must be active
     # valid_positions: (batch_size, board_size, board_size) bool
-    valid_positions = (~state.is_collapsed) & active_mask.view(-1, 1, 1)
+    valid_positions = (
+        (~state.is_collapsed)
+        & (state.marker_owner == 0)
+        & active_mask.view(-1, 1, 1)
+    )
 
     # Get indices of all valid positions
     game_idx, y_idx, x_idx = torch.where(valid_positions)
@@ -1446,6 +1483,8 @@ def generate_movement_moves_batch(
             continue
 
         player = state.current_player[g].item()
+        must_y = int(state.must_move_from_y[g].item())
+        must_x = int(state.must_move_from_x[g].item())
 
         # Find all stacks controlled by current player
         my_stacks = (state.stack_owner[g] == player)
@@ -1454,6 +1493,8 @@ def generate_movement_moves_batch(
         for pos_idx in range(stack_positions.shape[0]):
             from_y = stack_positions[pos_idx, 0].item()
             from_x = stack_positions[pos_idx, 1].item()
+            if must_y >= 0 and (from_y != must_y or from_x != must_x):
+                continue
             stack_height = state.stack_height[g, from_y, from_x].item()
 
             if stack_height <= 0:
@@ -1609,6 +1650,8 @@ def generate_capture_moves_batch(
             continue
 
         player = state.current_player[g].item()
+        must_y = int(state.must_move_from_y[g].item())
+        must_x = int(state.must_move_from_x[g].item())
 
         # Find all stacks controlled by current player
         my_stacks = (state.stack_owner[g] == player)
@@ -1617,6 +1660,8 @@ def generate_capture_moves_batch(
         for pos_idx in range(stack_positions.shape[0]):
             from_y = stack_positions[pos_idx, 0].item()
             from_x = stack_positions[pos_idx, 1].item()
+            if must_y >= 0 and (from_y != must_y or from_x != must_x):
+                continue
             my_height = state.stack_height[g, from_y, from_x].item()
             my_cap_height = state.cap_height[g, from_y, from_x].item()
 
@@ -2321,12 +2366,43 @@ def apply_placement_moves_batch(
             state.move_history[g, move_idx, 5] = x  # to_x same as from for placement
 
         # Apply placement
-        # For a new single-ring placement, cap_height == stack_height == 1
-        # (the entire stack is owned by the placing player)
-        state.stack_owner[g, y, x] = player
-        state.stack_height[g, y, x] = 1
-        state.cap_height[g, y, x] = 1
+        # Canonical placement semantics:
+        # - Empty cell: create a new stack of height 1, capHeight 1.
+        # - Existing stack: place exactly one ring on top, increasing height
+        #   and setting controlling player to the placer.
+        #
+        # NOTE: GPU state does not track full per-ring colours, only
+        # (stack_owner, stack_height, cap_height). This is sufficient to
+        # model the canonical placement *shape* and movement distance rules
+        # (RR-CANON-R090: d >= stackHeight).
+        dest_owner = int(state.stack_owner[g, y, x].item())
+        dest_height = int(state.stack_height[g, y, x].item())
+        dest_cap = int(state.cap_height[g, y, x].item())
+
+        if dest_height <= 0:
+            state.stack_owner[g, y, x] = player
+            state.stack_height[g, y, x] = 1
+            state.cap_height[g, y, x] = 1
+        else:
+            # Place on top of an existing stack.
+            new_height = min(127, dest_height + 1)
+            state.stack_owner[g, y, x] = player
+            state.stack_height[g, y, x] = new_height
+            if dest_owner == player:
+                state.cap_height[g, y, x] = min(127, dest_cap + 1)
+            else:
+                state.cap_height[g, y, x] = 1
+
+            # Best-effort buried-ring accounting: the previous top ring becomes
+            # buried under the new controller when placing onto an opponent
+            # stack. This affects recovery eligibility (RR-CANON-R110–R115).
+            if dest_owner not in (0, player):
+                state.buried_rings[g, dest_owner] += 1
         state.rings_in_hand[g, player] -= 1
+        # Per RR-CANON-R090: after a placement, the mover must move/capture
+        # with that exact stack on their subsequent movement phase.
+        state.must_move_from_y[g] = y
+        state.must_move_from_x[g] = x
 
         # Advance move counter; player rotation happens in END_TURN.
         state.move_count[g] += 1
@@ -3428,7 +3504,7 @@ def evaluate_positions_batch(
         # DIAGONAL patterns (down-right): check (y,x), (y+1,x+1), etc.
         d1_2 = (player_stacks_float[:, :-1, :-1] * player_stacks_float[:, 1:, 1:]).sum(dim=(1, 2))
         d1_3 = (player_stacks_float[:, :-2, :-2] * player_stacks_float[:, 1:-1, 1:-1] * player_stacks_float[:, 2:, 2:]).sum(dim=(1, 2))
-        d1_4 = (player_stacks_float[:, :-3, :-3] * player_stacks_float[:, 1:-2, 1:-1] * player_stacks_float[:, 2:-1, 2:-1] * player_stacks_float[:, 3:, 3:]).sum(dim=(1, 2))
+        d1_4 = (player_stacks_float[:, :-3, :-3] * player_stacks_float[:, 1:-2, 1:-2] * player_stacks_float[:, 2:-1, 2:-1] * player_stacks_float[:, 3:, 3:]).sum(dim=(1, 2))
 
         # ANTI-DIAGONAL patterns (down-left): check (y,x), (y+1,x-1), etc.
         d2_2 = (player_stacks_float[:, :-1, 1:] * player_stacks_float[:, 1:, :-1]).sum(dim=(1, 2))
@@ -3484,7 +3560,7 @@ def evaluate_positions_batch(
             # DIAGONAL opponent lines (down-right)
             opp_d1_2 = (opp_stacks[:, :-1, :-1] * opp_stacks[:, 1:, 1:]).sum(dim=(1, 2))
             opp_d1_3 = (opp_stacks[:, :-2, :-2] * opp_stacks[:, 1:-1, 1:-1] * opp_stacks[:, 2:, 2:]).sum(dim=(1, 2))
-            opp_d1_4 = (opp_stacks[:, :-3, :-3] * opp_stacks[:, 1:-2, 1:-1] * opp_stacks[:, 2:-1, 2:-1] * opp_stacks[:, 3:, 3:]).sum(dim=(1, 2))
+            opp_d1_4 = (opp_stacks[:, :-3, :-3] * opp_stacks[:, 1:-2, 1:-2] * opp_stacks[:, 2:-1, 2:-1] * opp_stacks[:, 3:, 3:]).sum(dim=(1, 2))
 
             # ANTI-DIAGONAL opponent lines (down-left)
             opp_d2_2 = (opp_stacks[:, :-1, 1:] * opp_stacks[:, 1:, :-1]).sum(dim=(1, 2))
@@ -3720,7 +3796,7 @@ class ParallelGameRunner:
         state_validation: bool = False,
         state_sample_rate: float = 0.01,
         state_threshold: float = 0.001,
-        swap_enabled: bool = True,
+        swap_enabled: bool = False,
         lps_victory_rounds: Optional[int] = None,
         rings_per_player: Optional[int] = None,
     ):
@@ -4647,6 +4723,8 @@ class ParallelGameRunner:
         # Per RR-CANON-R073: ALL players start in RING_PLACEMENT without exception.
         # NO PHASE SKIPPING - this is a core invariant for parity with TS/Python engines.
         self.state.current_phase[mask] = GamePhase.RING_PLACEMENT
+        self.state.must_move_from_y[mask] = -1
+        self.state.must_move_from_x[mask] = -1
 
         # Swap sides (pie rule) check for 2-player games (RR-CANON R180-R184)
         # Offered to P2 immediately after P1's first complete turn
@@ -4654,7 +4732,7 @@ class ParallelGameRunner:
             self._check_and_apply_swap_sides(mask)
 
     def _check_and_apply_swap_sides(self, mask: torch.Tensor) -> None:
-        """Check for swap_sides eligibility and apply if AI decides to accept.
+        """Check for swap_sides eligibility and mark it as offered.
 
         Per RR-CANON R180-R184: The pie rule allows P2 to swap colours/seats
         with P1 immediately after P1's first complete turn.
@@ -4665,8 +4743,16 @@ class ParallelGameRunner:
         3. Swap not already offered in this game
         4. P1 has completed at least one full turn (has moves in history)
 
-        For selfplay, we use a simple heuristic: P2 accepts the swap if P1's
-        position is significantly better (based on stack control advantage).
+        IMPORTANT (GPU parity):
+        The canonical engines implement swap_sides as an *identity swap* that
+        does not change board ownership or per-seat counters (ringsInHand,
+        eliminatedRings, territorySpaces). GPU self-play does not currently
+        record explicit swap_sides moves in its coarse move_history format, so
+        applying a semantic swap here would create non-replayable traces.
+
+        Until GPU move history is upgraded to represent swap_sides explicitly,
+        we treat the pie rule as "offered but always declined" and only set
+        swap_offered for observability/debugging.
         """
         # Identify games where swap should be offered:
         # - In mask (just completed END_TURN)
@@ -4681,99 +4767,7 @@ class ParallelGameRunner:
 
         # Mark swap as offered for these games (regardless of acceptance)
         self.state.swap_offered[swap_eligible] = True
-
-        # Evaluate position to decide whether to accept swap
-        # Simple heuristic: count stacks controlled by each player
-        p1_stacks = (self.state.stack_owner == 1).sum(dim=(1, 2)).float()
-        p2_stacks = (self.state.stack_owner == 2).sum(dim=(1, 2)).float()
-
-        # Also consider territory control
-        p1_territory = self.state.territory_count[:, 1].float()
-        p2_territory = self.state.territory_count[:, 2].float()
-
-        # Combined advantage score (positive = P1 is ahead)
-        stack_advantage = p1_stacks - p2_stacks
-        territory_advantage = p1_territory - p2_territory
-        combined_advantage = stack_advantage + territory_advantage * 2.0
-
-        # Accept swap if P1 has significant advantage (threshold: 1.0)
-        # This means P2 should swap if P1 has more stacks/territory
-        swap_threshold = 1.0
-        should_swap = swap_eligible & (combined_advantage > swap_threshold)
-
-        if not should_swap.any():
-            return
-
-        # Apply swap: exchange ownership between P1 and P2
-        # This swaps who controls what on the board
-
-        # Swap stack ownership using torch.where for vectorization
-        swap_mask_3d = should_swap.unsqueeze(-1).unsqueeze(-1).expand_as(self.state.stack_owner)
-        p1_stacks_mask = self.state.stack_owner == 1
-        p2_stacks_mask = self.state.stack_owner == 2
-        self.state.stack_owner = torch.where(
-            swap_mask_3d & p1_stacks_mask,
-            torch.tensor(2, dtype=self.state.stack_owner.dtype, device=self.device),
-            self.state.stack_owner
-        )
-        self.state.stack_owner = torch.where(
-            swap_mask_3d & p2_stacks_mask,
-            torch.tensor(1, dtype=self.state.stack_owner.dtype, device=self.device),
-            self.state.stack_owner
-        )
-
-        # Swap marker ownership
-        p1_markers_mask = self.state.marker_owner == 1
-        p2_markers_mask = self.state.marker_owner == 2
-        self.state.marker_owner = torch.where(
-            swap_mask_3d & p1_markers_mask,
-            torch.tensor(2, dtype=self.state.marker_owner.dtype, device=self.device),
-            self.state.marker_owner
-        )
-        self.state.marker_owner = torch.where(
-            swap_mask_3d & p2_markers_mask,
-            torch.tensor(1, dtype=self.state.marker_owner.dtype, device=self.device),
-            self.state.marker_owner
-        )
-
-        # Swap territory ownership
-        p1_terr_mask = self.state.territory_owner == 1
-        p2_terr_mask = self.state.territory_owner == 2
-        self.state.territory_owner = torch.where(
-            swap_mask_3d & p1_terr_mask,
-            torch.tensor(2, dtype=self.state.territory_owner.dtype, device=self.device),
-            self.state.territory_owner
-        )
-        self.state.territory_owner = torch.where(
-            swap_mask_3d & p2_terr_mask,
-            torch.tensor(1, dtype=self.state.territory_owner.dtype, device=self.device),
-            self.state.territory_owner
-        )
-
-        # Swap player stats vectorized
-        # Swap rings_in_hand
-        p1_rings = self.state.rings_in_hand[:, 1].clone()
-        p2_rings = self.state.rings_in_hand[:, 2].clone()
-        self.state.rings_in_hand[:, 1] = torch.where(should_swap, p2_rings, self.state.rings_in_hand[:, 1])
-        self.state.rings_in_hand[:, 2] = torch.where(should_swap, p1_rings, self.state.rings_in_hand[:, 2])
-
-        # Swap territory_count
-        p1_terr = self.state.territory_count[:, 1].clone()
-        p2_terr = self.state.territory_count[:, 2].clone()
-        self.state.territory_count[:, 1] = torch.where(should_swap, p2_terr, self.state.territory_count[:, 1])
-        self.state.territory_count[:, 2] = torch.where(should_swap, p1_terr, self.state.territory_count[:, 2])
-
-        # Swap eliminated_rings
-        p1_elim = self.state.eliminated_rings[:, 1].clone()
-        p2_elim = self.state.eliminated_rings[:, 2].clone()
-        self.state.eliminated_rings[:, 1] = torch.where(should_swap, p2_elim, self.state.eliminated_rings[:, 1])
-        self.state.eliminated_rings[:, 2] = torch.where(should_swap, p1_elim, self.state.eliminated_rings[:, 2])
-
-        # Swap buried_rings
-        p1_buried = self.state.buried_rings[:, 1].clone()
-        p2_buried = self.state.buried_rings[:, 2].clone()
-        self.state.buried_rings[:, 1] = torch.where(should_swap, p2_buried, self.state.buried_rings[:, 1])
-        self.state.buried_rings[:, 2] = torch.where(should_swap, p1_buried, self.state.buried_rings[:, 2])
+        return
 
     def _compute_player_ring_status_batch(self) -> torch.Tensor:
         """Compute which players have any rings in each game (vectorized).

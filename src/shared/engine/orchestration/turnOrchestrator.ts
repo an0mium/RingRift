@@ -2664,47 +2664,59 @@ function processPostMovePhases(
         : 'territory';
 
       // Mandatory self-elimination after processing a region (RR-CANON-R145 / RR-CANON-R114).
-      // If this turn is in recovery context, the cost is a buried-ring extraction.
-      const elimScope: TerritoryEliminationScope = {
-        eliminationContext: territoryEliminationContext,
-      };
-      if (
+      //
+      // Important host/orchestrator detail: backend hosts append the applied
+      // Move into moveHistory *after* processTurn returns. That means helper
+      // functions that key off "last move in moveHistory" (like
+      // enumerateTerritoryEliminationMoves) must be driven by the current
+      // move type, not by the previous moveHistory tail.
+      //
+      // Concretely: we only surface elimination_target immediately after a
+      // territory region decision move (choose_territory_option / legacy
+      // process_territory_region). After an eliminate_rings_from_stack move, the
+      // self-elimination requirement has been satisfied and we must not re-open
+      // an elimination_target decision based on the stale moveHistory tail.
+      const shouldCheckEliminationAfterRegion =
         originalMoveType === 'choose_territory_option' ||
-        originalMoveType === 'process_territory_region'
-      ) {
+        originalMoveType === 'process_territory_region';
+      if (shouldCheckEliminationAfterRegion) {
+        // If this turn is in recovery context, the cost is a buried-ring extraction.
+        const elimScope: TerritoryEliminationScope = {
+          eliminationContext: territoryEliminationContext,
+        };
         const processedRegion = stateMachine.processingState.originalMove.disconnectedRegions?.[0];
         if (processedRegion) {
           elimScope.processedRegion = processedRegion;
         }
-      }
 
-      const eliminationMoves = enumerateTerritoryEliminationMoves(
-        updatedState,
-        updatedState.currentPlayer,
-        elimScope
-      );
-      if (eliminationMoves.length > 0) {
-        return {
-          pendingDecision: {
-            type: 'elimination_target',
-            player: updatedState.currentPlayer,
-            eliminationReason: 'territory_disconnection',
-            options: eliminationMoves,
-            context: {
-              description:
-                territoryEliminationContext === 'recovery'
-                  ? 'Choose which stack to extract a buried ring from (territory via recovery)'
-                  : 'Choose which stack to self-eliminate from (territory disconnection)',
-              relevantPositions: eliminationMoves
-                .map((m) => m.to)
-                .filter((p): p is Position => !!p),
-              extra: {
-                reason: 'territory_disconnection',
-                eliminationContext: territoryEliminationContext,
+        const eliminationMoves = enumerateTerritoryEliminationMoves(
+          updatedState,
+          updatedState.currentPlayer,
+          elimScope
+        );
+        if (eliminationMoves.length > 0) {
+          return {
+            pendingDecision: {
+              type: 'elimination_target',
+              player: updatedState.currentPlayer,
+              eliminationReason: 'territory_disconnection',
+              options: eliminationMoves,
+              context: {
+                description:
+                  territoryEliminationContext === 'recovery'
+                    ? 'Choose which stack to extract a buried ring from (territory via recovery)'
+                    : 'Choose which stack to self-eliminate from (territory disconnection)',
+                relevantPositions: eliminationMoves
+                  .map((m) => m.to)
+                  .filter((p): p is Position => !!p),
+                extra: {
+                  reason: 'territory_disconnection',
+                  eliminationContext: territoryEliminationContext,
+                },
               },
             },
-          },
-        };
+          };
+        }
       }
 
       const regions = getProcessableTerritoryRegions(updatedState.board, {

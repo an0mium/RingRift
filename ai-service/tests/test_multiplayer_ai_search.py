@@ -5,7 +5,11 @@ from unittest.mock import MagicMock, patch
 from app.ai.descent_ai import DescentAI
 from app.ai.mcts_ai import MCTSAI, MCTSNode, MCTSNodeLite
 from app.ai.minimax_ai import MinimaxAI
-from app.ai.game_state_utils import select_threat_opponent, victory_progress_for_player
+from app.ai.game_state_utils import (
+    infer_rings_per_player,
+    select_threat_opponent,
+    victory_progress_for_player,
+)
 from app.models import (
     AIConfig,
     BoardState,
@@ -192,6 +196,13 @@ class TestMCTSParanoidBackprop(unittest.TestCase):
 
 
 class TestThreatOpponentSelection(unittest.TestCase):
+    def test_infer_rings_per_player_respects_rules_options_override(self) -> None:
+        game_state = _make_square8_state(num_players=3)
+        self.assertEqual(infer_rings_per_player(game_state), 18)
+
+        game_state.rules_options = {"ringsPerPlayer": 25}
+        self.assertEqual(infer_rings_per_player(game_state), 25)
+
     def test_select_threat_opponent_prefers_territory_leader(self) -> None:
         game_state = _make_square8_state(num_players=3)
 

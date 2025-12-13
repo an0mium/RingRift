@@ -62,6 +62,7 @@ Canonical DBs must pass all of:
    - `ai-service/scripts/generate_canonical_selfplay.py`:
      - Runs a canonical self‑play soak.
      - Runs the parity harness.
+     - Validates initial-state rules parameters match canonical defaults (no per-game overrides).
      - Runs canonical history validation across all games.
      - Yields `canonical_ok: true` only if everything passes and at least one game exists.
 

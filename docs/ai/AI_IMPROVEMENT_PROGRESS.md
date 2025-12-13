@@ -45,8 +45,10 @@ Status tags:
 - **done** Gated initial `canonical_square8_3p.db` (3P) (`canonical_ok=true`).
 - **done** Gated initial `canonical_square8_4p.db` (4P) (`canonical_ok=true`);
   scale up before training.
-- **done** Gated initial `canonical_square19.db` (2P) (`canonical_ok=true`);
-  scale up before training.
+- **blocked** `canonical_square19.db` (2P) needs regeneration; latest parity-only
+  recheck fails a phase/move invariant (`place_ring` applied during
+  `territory_processing`). Re-run `generate_canonical_selfplay.py` to rebuild the DB
+  and update `ai-service/TRAINING_DATA_REGISTRY.md` once `canonical_ok=true`.
 - **next** Regenerate `canonical_hex.db` (radius‑12) and gate it, then update
   `ai-service/TRAINING_DATA_REGISTRY.md` with gate summaries.
 - **done** Canonical dataset export path fixed (`build_canonical_dataset.py`

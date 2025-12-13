@@ -61,7 +61,13 @@ def get_parity_mode() -> str:
 
 def get_parity_dump_dir() -> Path:
     """Get the directory for dumping parity failure state bundles."""
-    return Path(os.environ.get("RINGRIFT_PARITY_DUMP_DIR", "parity_failures"))
+    raw = Path(os.environ.get("RINGRIFT_PARITY_DUMP_DIR", "parity_failures"))
+    # Use an absolute path so TS and Python agree on dump location even when
+    # running with different CWDs (e.g. TS scripts run from repo root while
+    # Python tooling often runs from ai-service/).
+    if raw.is_absolute():
+        return raw
+    return (_repo_root() / raw).resolve()
 
 
 def is_parity_validation_enabled() -> bool:

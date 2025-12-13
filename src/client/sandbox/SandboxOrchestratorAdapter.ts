@@ -24,11 +24,18 @@ import {
 } from '../../shared/engine/orchestration/turnOrchestrator';
 import { validateMoveWithFSM } from '../../shared/engine/fsm/FSMAdapter';
 import { validatePlacement } from '../../shared/engine/aggregates/PlacementAggregate';
+import {
+  debugLog,
+  isSandboxAiStallDiagnosticsEnabled,
+  isTestEnvironment,
+} from '../../shared/utils/envFlags';
 import type {
   ProcessTurnResult,
   PendingDecision,
   TurnProcessingDelegates,
 } from '../../shared/engine/orchestration/types';
+
+const SANDBOX_ORCHESTRATOR_TRACE_DEBUG = isSandboxAiStallDiagnosticsEnabled();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Types
@@ -283,14 +290,17 @@ export class SandboxOrchestratorAdapter {
       let result = runProcessTurn(workingState, move);
 
       // RR-DEBUG-2025-12-13: Trace decision loop entry for all moves
-      // eslint-disable-next-line no-console
-      console.log('[SandboxOrchestratorAdapter.processMove] After runProcessTurn:', {
-        moveType: move.type,
-        resultStatus: result.status,
-        pendingDecision: result.pendingDecision?.type ?? 'none',
-        nextPhase: result.nextState.currentPhase,
-        nextPlayer: result.nextState.currentPlayer,
-      });
+      debugLog(
+        SANDBOX_ORCHESTRATOR_TRACE_DEBUG,
+        '[SandboxOrchestratorAdapter.processMove] After runProcessTurn:',
+        {
+          moveType: move.type,
+          resultStatus: result.status,
+          pendingDecision: result.pendingDecision?.type ?? 'none',
+          nextPhase: result.nextState.currentPhase,
+          nextPlayer: result.nextState.currentPlayer,
+        }
+      );
 
       const afterPrimary = result.nextState;
       const primaryEntry = createHistoryEntry(workingState, afterPrimary, move, {
@@ -317,24 +327,30 @@ export class SandboxOrchestratorAdapter {
         decisionLoopIteration++;
 
         // RR-DEBUG-2025-12-13: Log every decision loop iteration
-        // eslint-disable-next-line no-console
-        console.log('[SandboxOrchestratorAdapter.processMove] Decision loop iteration:', {
-          iteration: decisionLoopIteration,
-          decisionType: decision.type,
-          decisionPlayer: decision.player,
-          skipTerritoryAutoResolve: this.skipTerritoryAutoResolve,
-          currentPhase: workingState.currentPhase,
-        });
+        debugLog(
+          SANDBOX_ORCHESTRATOR_TRACE_DEBUG,
+          '[SandboxOrchestratorAdapter.processMove] Decision loop iteration:',
+          {
+            iteration: decisionLoopIteration,
+            decisionType: decision.type,
+            decisionPlayer: decision.player,
+            skipTerritoryAutoResolve: this.skipTerritoryAutoResolve,
+            currentPhase: workingState.currentPhase,
+          }
+        );
 
         // DEBUG: Trace decision loop for choose_line_reward
-        if (process.env.NODE_ENV === 'test' && move.type === 'choose_line_reward') {
-          // eslint-disable-next-line no-console
-          console.log('[SandboxOrchestratorAdapter] Decision loop:', {
+        debugLog(
+          isTestEnvironment() &&
+            SANDBOX_ORCHESTRATOR_TRACE_DEBUG &&
+            move.type === 'choose_line_reward',
+          '[SandboxOrchestratorAdapter] Decision loop:',
+          {
             decisionType: decision.type,
             decisionPlayer: decision.player,
             stacksAtDecisionStart: Array.from(workingState.board.stacks.keys()),
-          });
-        }
+          }
+        );
 
         // Chain-capture decisions are handled specially: expose the available
         // continuation moves via getValidMoves() and return without auto-resolving.
@@ -444,15 +460,18 @@ export class SandboxOrchestratorAdapter {
         let chosenMove = await delegates.resolveDecision(decision);
 
         // DEBUG: Trace resolved decision for choose_line_reward
-        if (process.env.NODE_ENV === 'test' && move.type === 'choose_line_reward') {
-          // eslint-disable-next-line no-console
-          console.log('[SandboxOrchestratorAdapter] Decision resolved:', {
+        debugLog(
+          isTestEnvironment() &&
+            SANDBOX_ORCHESTRATOR_TRACE_DEBUG &&
+            move.type === 'choose_line_reward',
+          '[SandboxOrchestratorAdapter] Decision resolved:',
+          {
             chosenMoveType: chosenMove.type,
             chosenMoveFrom: chosenMove.from,
             chosenMoveTo: chosenMove.to,
             eliminationTarget: (chosenMove as any).eliminationTarget,
-          });
-        }
+          }
+        );
 
         // WORKAROUND: The shared engine's TerritoryAggregate throws if passed 'forced_elimination',
         // but turnOrchestrator passes it through. We must convert to 'eliminate_rings_from_stack'

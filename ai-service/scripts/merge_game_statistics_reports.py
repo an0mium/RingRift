@@ -55,6 +55,40 @@ def _merge_counter_dict(target: dict[str, int], source: dict[str, Any] | None) -
             continue
 
 
+def _merge_breakdown_dict(target: dict[str, Any], source: dict[str, Any] | None) -> None:
+    """Merge analyzer "breakdown" dicts keyed by config value.
+
+    Expected payload shape:
+      { "<key>": {"games": int, "total_moves": int, "victory_types": { "<vt>": int, ... } }, ... }
+    """
+    if not source:
+        return
+    if not isinstance(source, dict):
+        return
+
+    for key, payload in source.items():
+        if not isinstance(payload, dict):
+            continue
+        out = target.setdefault(key, {"games": 0, "total_moves": 0, "victory_types": {}})
+        try:
+            out["games"] = int(out.get("games", 0) or 0) + int(payload.get("games", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            out["total_moves"] = int(out.get("total_moves", 0) or 0) + int(payload.get("total_moves", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+
+        vt_out = out.setdefault("victory_types", {})
+        vt_in = payload.get("victory_types", {}) or {}
+        if isinstance(vt_in, dict) and isinstance(vt_out, dict):
+            for vt, count in vt_in.items():
+                try:
+                    vt_out[vt] = int(vt_out.get(vt, 0) or 0) + int(count or 0)
+                except (TypeError, ValueError):
+                    continue
+
+
 def _config_key(board_type: str, num_players: int) -> str:
     return f"{board_type}_{num_players}p"
 
@@ -71,9 +105,6 @@ def _derive_aggregated_victory_types(cfg: dict[str, Any]) -> dict[str, int]:
     stalemate_total = int(victory_types.get("stalemate", 0) or 0)
     stalemate_territory = int(stalemate_by_tb.get("territory", 0) or 0)
     stalemate_ring_elim = int(stalemate_by_tb.get("ring_elimination", 0) or 0)
-
-    if stalemate_total > 0 and not stalemate_by_tb:
-        stalemate_territory = stalemate_total
 
     return {
         "territory": territory + stalemate_territory,
@@ -160,6 +191,10 @@ def merge_reports(report_paths: list[Path], *, strict: bool) -> dict[str, Any]:
                     "victory_threshold_counts": {},
                     "territory_victory_threshold_counts": {},
                     "lps_rounds_required_counts": {},
+                    "starting_rings_per_player_breakdown": {},
+                    "victory_threshold_breakdown": {},
+                    "games_with_starting_rings_mismatch": 0,
+                    "games_with_victory_threshold_mismatch": 0,
                     "recovery_slides_by_mode": {},
                     "games_with_stack_strike": 0,
                     "wins_with_stack_strike": 0,
@@ -179,6 +214,12 @@ def merge_reports(report_paths: list[Path], *, strict: bool) -> dict[str, Any]:
             out["games_with_late_fe_winner"] += int(cfg.get("games_with_late_fe_winner", 0) or 0)
             out["games_with_stack_strike"] += int(cfg.get("games_with_stack_strike", 0) or 0)
             out["wins_with_stack_strike"] += int(cfg.get("wins_with_stack_strike", 0) or 0)
+            out["games_with_starting_rings_mismatch"] += int(
+                cfg.get("games_with_starting_rings_mismatch", 0) or 0
+            )
+            out["games_with_victory_threshold_mismatch"] += int(
+                cfg.get("games_with_victory_threshold_mismatch", 0) or 0
+            )
 
             # Float fields
             try:
@@ -203,6 +244,12 @@ def merge_reports(report_paths: list[Path], *, strict: bool) -> dict[str, Any]:
             )
             _merge_counter_dict(
                 out["lps_rounds_required_counts"], cfg.get("lps_rounds_required_counts")
+            )
+            _merge_breakdown_dict(
+                out["starting_rings_per_player_breakdown"], cfg.get("starting_rings_per_player_breakdown")
+            )
+            _merge_breakdown_dict(
+                out["victory_threshold_breakdown"], cfg.get("victory_threshold_breakdown")
             )
             _merge_counter_dict(out["recovery_slides_by_mode"], cfg.get("recovery_slides_by_mode"))
             _merge_counter_dict(out["timeout_move_count_hist"], cfg.get("timeout_move_count_hist"))
@@ -254,6 +301,22 @@ def merge_reports(report_paths: list[Path], *, strict: bool) -> dict[str, Any]:
 
 
 def _format_markdown_summary(report: dict[str, Any]) -> str:
+    try:
+        from app.models.core import BoardType
+        from app.rules.core import BOARD_CONFIGS, get_victory_threshold
+
+        board_type_map = {
+            "square8": BoardType.SQUARE8,
+            "square19": BoardType.SQUARE19,
+            "hexagonal": BoardType.HEXAGONAL,
+        }
+        canonical_available = True
+    except Exception:
+        canonical_available = False
+        board_type_map = {}
+        BOARD_CONFIGS = {}
+        get_victory_threshold = None  # type: ignore[assignment]
+
     lines: list[str] = []
     summary = report.get("summary", {}) or {}
     lines.append("# RingRift Combined Selfplay Summary")
@@ -264,25 +327,110 @@ def _format_markdown_summary(report: dict[str, Any]) -> str:
     lines.append(f"**Data Sources:** {summary.get('data_sources', 0):,}")
     lines.append("")
 
-    lines.append("## Aggregated Victory Categories")
+    lines.append("## Outcomes (victory_type)")
     lines.append("")
-    lines.append("| Config | Games | LPS | Elimination | Territory |")
-    lines.append("|--------|-------|-----|-------------|-----------|")
+    lines.append("| Config | Games | LPS | Elim | Terr | Stalemate | Timeout | Draw | Unknown |")
+    lines.append("|--------|-------|-----|------|------|----------:|--------:|-----:|--------:|")
     for cfg_key, cfg in (report.get("configurations", {}) or {}).items():
         total_games = int(cfg.get("total_games", 0) or 0)
         if total_games <= 0:
             continue
-        agg = cfg.get("aggregated_victory_types") or _derive_aggregated_victory_types(cfg)
-        lps = int(agg.get("lps", 0) or 0)
-        elim = int(agg.get("elimination", 0) or 0)
-        terr = int(agg.get("territory", 0) or 0)
+        vtypes = cfg.get("victory_types", {}) or {}
+        lps = int(vtypes.get("lps", 0) or 0)
+        terr = int(vtypes.get("territory", 0) or 0)
+        elim = int(vtypes.get("elimination", 0) or 0) + int(vtypes.get("ring_elimination", 0) or 0)
+        stalemate = int(vtypes.get("stalemate", 0) or 0)
+        timeout = int(vtypes.get("timeout", 0) or 0)
+        draw = int(vtypes.get("draw", 0) or 0)
+        unknown = int(vtypes.get("unknown", 0) or 0)
         lines.append(
             f"| {cfg_key} | {total_games} | "
             f"{100*lps/total_games:.1f}% ({lps}) | "
             f"{100*elim/total_games:.1f}% ({elim}) | "
-            f"{100*terr/total_games:.1f}% ({terr}) |"
+            f"{100*terr/total_games:.1f}% ({terr}) | "
+            f"{stalemate} | {timeout} | {draw} | {unknown} |"
         )
     lines.append("")
+
+    lines.append("## Config Drift (ring supply)")
+    lines.append("")
+    lines.append("| Config | Observed ringsPerPlayer | Expected ringsPerPlayer | Observed victoryThreshold | Expected victoryThreshold |")
+    lines.append("|--------|------------------------|-------------------------|--------------------------|---------------------------|")
+    for cfg_key, cfg in (report.get("configurations", {}) or {}).items():
+        total_games = int(cfg.get("total_games", 0) or 0)
+        if total_games <= 0:
+            continue
+
+        observed_rings = cfg.get("starting_rings_per_player_counts", {}) or {}
+        observed_threshold = cfg.get("victory_threshold_counts", {}) or {}
+
+        board_type = str(cfg.get("board_type", "unknown"))
+        num_players = int(cfg.get("num_players", 2) or 2)
+        expected_rings = ""
+        expected_threshold = ""
+
+        if canonical_available and board_type in board_type_map:
+            bt = board_type_map[board_type]
+            expected_rings = str(BOARD_CONFIGS[bt].rings_per_player) if bt in BOARD_CONFIGS else ""
+            expected_threshold = str(get_victory_threshold(bt, num_players)) if get_victory_threshold else ""
+
+        lines.append(
+            f"| {cfg_key} | {json.dumps(observed_rings, sort_keys=True)} | "
+            f"{expected_rings or '-'} | {json.dumps(observed_threshold, sort_keys=True)} | "
+            f"{expected_threshold or '-'} |"
+        )
+    lines.append("")
+
+    # If configs are mixed, show outcome breakdown by observed ringsPerPlayer.
+    any_mixed = any(
+        len((cfg.get("starting_rings_per_player_breakdown", {}) or {}).keys()) > 1
+        for cfg in (report.get("configurations", {}) or {}).values()
+    )
+    if any_mixed:
+        lines.append("## Outcomes By ringsPerPlayer (mixed configs)")
+        lines.append("")
+        lines.append("| Config | ringsPerPlayer | Games | Avg moves | Stalemate | LPS | Elim | Terr | Timeout | Unknown |")
+        lines.append("|--------|--------------:|------:|----------:|----------:|----:|-----:|-----:|--------:|--------:|")
+
+        for cfg_key, cfg in (report.get("configurations", {}) or {}).items():
+            breakdown = cfg.get("starting_rings_per_player_breakdown", {}) or {}
+            if not isinstance(breakdown, dict) or len(breakdown.keys()) <= 1:
+                continue
+
+            rows: list[tuple[int, str, dict[str, Any]]] = []
+            for rings_key, payload in breakdown.items():
+                if not isinstance(payload, dict):
+                    continue
+                games = int(payload.get("games", 0) or 0)
+                rows.append((games, str(rings_key), payload))
+
+            for games, rings_key, payload in sorted(rows, key=lambda t: (-t[0], t[1]))[:5]:
+                if games <= 0:
+                    continue
+                total_moves = int(payload.get("total_moves", 0) or 0)
+                avg_moves = total_moves / games if games else 0.0
+                vtypes = payload.get("victory_types", {}) or {}
+                if not isinstance(vtypes, dict):
+                    vtypes = {}
+
+                stalemate = int(vtypes.get("stalemate", 0) or 0)
+                timeout = int(vtypes.get("timeout", 0) or 0)
+                unknown = int(vtypes.get("unknown", 0) or 0)
+                lps = int(vtypes.get("lps", 0) or 0)
+                terr = int(vtypes.get("territory", 0) or 0)
+                elim = int(vtypes.get("elimination", 0) or 0) + int(vtypes.get("ring_elimination", 0) or 0)
+
+                lines.append(
+                    f"| {cfg_key} | {rings_key} | {games} | {avg_moves:.1f} | "
+                    f"{100*stalemate/games:.1f}% ({stalemate}) | "
+                    f"{100*lps/games:.1f}% ({lps}) | "
+                    f"{100*elim/games:.1f}% ({elim}) | "
+                    f"{100*terr/games:.1f}% ({terr}) | "
+                    f"{100*timeout/games:.1f}% ({timeout}) | "
+                    f"{100*unknown/games:.1f}% ({unknown}) |"
+                )
+
+        lines.append("")
     return "\n".join(lines)
 
 

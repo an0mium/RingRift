@@ -2222,9 +2222,11 @@ class GameEngine:
 
         Mirrors TS PlacementAggregate.validateSkipPlacement semantics:
         - Only during RING_PLACEMENT phase.
-        - Player must have at least one stack.
-        - At least one controlled stack must have a legal move or capture
-          in the current board state.
+        - Player must have rings in hand.
+        - Player must either:
+          - control at least one stack with a legal move/capture, OR
+          - be recovery-eligible (no stacks, marker(s), buried ring), in which
+            case skip_placement is the voluntary gateway to recovery in movement.
         """
         if game_state.current_phase != GamePhase.RING_PLACEMENT:
             return []
@@ -2244,7 +2246,21 @@ class GameEngine:
         board = game_state.board
         player_stacks = BoardManager.get_player_stacks(board, player_number)
         if not player_stacks:
-            return []
+            from app.rules.core import is_eligible_for_recovery
+
+            if not is_eligible_for_recovery(game_state, player_number):
+                return []
+
+            return [
+                Move(
+                    id="simulated",
+                    type=MoveType.SKIP_PLACEMENT,
+                    player=player_number,
+                    timestamp=game_state.last_move_at,
+                    thinkTime=0,
+                    moveNumber=len(game_state.move_history) + 1,
+                )
+            ]
 
         # Check if at least one controlled stack has a legal move or capture.
         has_any_action = False

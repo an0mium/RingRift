@@ -460,6 +460,12 @@ HEURISTIC_V1_4P: HeuristicWeights = {
 # ``AIConfig.heuristic_profile_id`` and the canonical difficulty ladder refer
 # to. We include both high-level persona ids and the ladder-oriented ids used
 # today so that existing configs/tests continue to work unchanged.
+#
+# Profile key naming convention:
+#   - Board×player specific: "heuristic_v1_{board}_{n}p" (e.g., "heuristic_v1_sq8_2p")
+#   - Legacy player-only: "heuristic_v1_{n}p" (aliases to sq8 profiles for backwards compat)
+#
+# Board abbreviations: sq8 = square8, sq19 = square19, hex = hexagonal
 
 HEURISTIC_WEIGHT_PROFILES: Dict[str, HeuristicWeights] = {
     # High-level, persona-oriented ids (preferred for new configs).
@@ -467,17 +473,40 @@ HEURISTIC_WEIGHT_PROFILES: Dict[str, HeuristicWeights] = {
     "heuristic_v1_aggressive": HEURISTIC_V1_AGGRESSIVE,
     "heuristic_v1_territorial": HEURISTIC_V1_TERRITORIAL,
     "heuristic_v1_defensive": HEURISTIC_V1_DEFENSIVE,
-    # Player-count-specific profiles optimized via CMA-ES.
-    # Use get_weights_for_player_count() to auto-select the right profile.
-    "heuristic_v1_2p": HEURISTIC_V1_BALANCED,  # 2p uses balanced (95.8% fitness)
-    "heuristic_v1_3p": HEURISTIC_V1_3P,        # 3p CMA-ES optimized (65% fitness)
-    "heuristic_v1_4p": HEURISTIC_V1_4P,        # 4p CMA-ES optimized (75% fitness)
-    # Board-type-specific profiles optimized via CMA-ES.
-    # Use get_weights_for_board() to auto-select the right profile.
-    "heuristic_v1_square19_2p": HEURISTIC_V1_SQUARE19_2P,  # 19x19 2p (83.3% fitness)
+    #
+    # === Board × Player Matrix (9 combinations) ===
+    # These are the canonical profile keys for CMA-ES training.
+    # Each board×player combination gets its own optimized weights.
+    #
+    # Square8 profiles (primary training board)
+    "heuristic_v1_sq8_2p": HEURISTIC_V1_BALANCED,   # square8 2p (baseline)
+    "heuristic_v1_sq8_3p": HEURISTIC_V1_3P,         # square8 3p (CMA-ES optimized)
+    "heuristic_v1_sq8_4p": HEURISTIC_V1_4P,         # square8 4p (CMA-ES optimized)
+    #
+    # Square19 profiles (larger board, different strategic dynamics)
+    "heuristic_v1_sq19_2p": HEURISTIC_V1_SQUARE19_2P,  # square19 2p (CMA-ES optimized)
+    "heuristic_v1_sq19_3p": HEURISTIC_V1_3P,           # square19 3p (fallback to 3p base)
+    "heuristic_v1_sq19_4p": HEURISTIC_V1_4P,           # square19 4p (fallback to 4p base)
+    #
+    # Hexagonal profiles (different topology)
+    "heuristic_v1_hex_2p": HEURISTIC_V1_BALANCED,   # hex 2p (fallback to balanced)
+    "heuristic_v1_hex_3p": HEURISTIC_V1_3P,         # hex 3p (fallback to 3p base)
+    "heuristic_v1_hex_4p": HEURISTIC_V1_4P,         # hex 4p (fallback to 4p base)
+    #
+    # === Legacy player-count-only profiles (backwards compatibility) ===
+    # These alias to the corresponding square8 profiles.
+    # Use get_weights_for_board() for new code to get board-specific weights.
+    "heuristic_v1_2p": HEURISTIC_V1_BALANCED,  # Alias -> sq8_2p
+    "heuristic_v1_3p": HEURISTIC_V1_3P,        # Alias -> sq8_3p
+    "heuristic_v1_4p": HEURISTIC_V1_4P,        # Alias -> sq8_4p
+    #
+    # Legacy board-specific key (long form, deprecated - use sq19_2p)
+    "heuristic_v1_square19_2p": HEURISTIC_V1_SQUARE19_2P,
+    #
     # Optimized ensemble profile (average of player-specific trained weights).
     # Falls back to balanced until trained weights are loaded.
     "heuristic_v1_optimized": HEURISTIC_V1_BALANCED,
+    #
     # Canonical ladder-linked ids. These currently all reference the
     # balanced profile but can be re-pointed in future without changing the
     # external difficulty contract.
@@ -497,12 +526,30 @@ PLAYER_COUNT_PROFILE_MAP: Dict[int, str] = {
 }
 
 # Board-type-specific profiles (keyed by board_type, num_players)
-# Larger boards have different strategic requirements than smaller boards.
+# This is the full 9-combination matrix. Each board×player combo gets
+# its own CMA-ES optimized weights.
+#
+# Board type normalization: "square8" -> "sq8", "square19" -> "sq19", "hexagonal" -> "hex"
+BOARD_ABBREV: Dict[str, str] = {
+    "square8": "sq8",
+    "square19": "sq19",
+    "hexagonal": "hex",
+    "hex": "hex",  # Allow short form too
+}
+
 BOARD_PROFILE_MAP: Dict[tuple, str] = {
-    ("square19", 2): "heuristic_v1_square19_2p",
-    # Add more as training completes:
-    # ("hexagonal", 2): "heuristic_v1_hex_2p",
-    # ("square19", 3): "heuristic_v1_square19_3p",
+    # Square8 (primary training board)
+    ("square8", 2): "heuristic_v1_sq8_2p",
+    ("square8", 3): "heuristic_v1_sq8_3p",
+    ("square8", 4): "heuristic_v1_sq8_4p",
+    # Square19 (larger board, different strategic dynamics)
+    ("square19", 2): "heuristic_v1_sq19_2p",
+    ("square19", 3): "heuristic_v1_sq19_3p",
+    ("square19", 4): "heuristic_v1_sq19_4p",
+    # Hexagonal (different topology)
+    ("hexagonal", 2): "heuristic_v1_hex_2p",
+    ("hexagonal", 3): "heuristic_v1_hex_3p",
+    ("hexagonal", 4): "heuristic_v1_hex_4p",
 }
 
 
@@ -600,6 +647,53 @@ def get_weights(profile_id: str) -> HeuristicWeights:
     """
 
     return HEURISTIC_WEIGHT_PROFILES.get(profile_id, {})
+
+
+def get_profile_key(board_type: str, num_players: int) -> str:
+    """Get the canonical profile key for a board×player combination.
+
+    This is the standard profile key format used by CMA-ES training scripts
+    to save and load board-specific heuristic weights.
+
+    Parameters
+    ----------
+    board_type:
+        Board type identifier: "square8", "square19", "hexagonal", or "hex".
+    num_players:
+        Number of players (2, 3, or 4).
+
+    Returns
+    -------
+    str
+        Profile key in format "heuristic_v1_{board_abbrev}_{n}p".
+
+    Example
+    -------
+    >>> get_profile_key("square8", 2)
+    'heuristic_v1_sq8_2p'
+    >>> get_profile_key("hexagonal", 3)
+    'heuristic_v1_hex_3p'
+    """
+    board_abbrev = BOARD_ABBREV.get(board_type, board_type[:3])
+    return f"heuristic_v1_{board_abbrev}_{num_players}p"
+
+
+def get_legacy_profile_key(num_players: int) -> str:
+    """Get the legacy player-count-only profile key (for backwards compat).
+
+    DEPRECATED: Use get_profile_key(board_type, num_players) instead.
+
+    Parameters
+    ----------
+    num_players:
+        Number of players (2, 3, or 4).
+
+    Returns
+    -------
+    str
+        Legacy profile key in format "heuristic_v1_{n}p".
+    """
+    return f"heuristic_v1_{num_players}p"
 
 
 TRAINED_PROFILES_ENV = "RINGRIFT_TRAINED_HEURISTIC_PROFILES"

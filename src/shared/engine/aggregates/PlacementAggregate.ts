@@ -30,6 +30,8 @@ import {
   calculateCapHeight,
 } from '../core';
 
+import { isEligibleForRecovery } from '../playerStateHelpers';
+
 import { isValidPosition } from '../validators/utils';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -437,6 +439,13 @@ export function validateSkipPlacement(
   }
 
   if (!hasControlledStack) {
+    // RR-CANON-R201/RR-CANON-R110: Recovery eligibility is independent of rings
+    // in hand. A recovery-eligible player (no stacks, marker(s), buried ring)
+    // may voluntarily record skip_placement to reach movement and attempt a
+    // recovery slide.
+    if (isEligibleForRecovery(state, action.playerId)) {
+      return { valid: true };
+    }
     return {
       valid: false,
       reason: 'Cannot skip placement when you control no stacks on the board',
@@ -605,6 +614,9 @@ export function evaluateSkipPlacementEligibility(
   }
 
   if (!hasControlledStack) {
+    if (isEligibleForRecovery(state, player)) {
+      return { eligible: true };
+    }
     return {
       eligible: false,
       reason: 'Cannot skip placement when you control no stacks on the board',

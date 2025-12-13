@@ -6,6 +6,7 @@ import {
   countRingsOnBoardForPlayer,
 } from '../core';
 import { isValidPosition } from './utils';
+import { isEligibleForRecovery } from '../playerStateHelpers';
 
 /**
  * Context required to validate a prospective ring placement independently of
@@ -292,8 +293,10 @@ export function validatePlacement(state: GameState, action: PlaceRingAction): Va
  *
  * - Only legal during the ring_placement phase.
  * - Player must have rings in hand (otherwise there is nothing to skip).
- * - Player must control at least one stack on the board.
- * - At least one controlled stack must have a legal move or capture.
+ * - Player must either:
+ *   - control at least one stack on the board with a legal move/capture, OR
+ *   - be recovery-eligible (no stacks, marker(s), buried ring), in which case
+ *     skip_placement is the voluntary gateway to recovery in movement.
  */
 export function validateSkipPlacement(
   state: GameState,
@@ -365,6 +368,9 @@ export function validateSkipPlacement(
   }
 
   if (!hasControlledStack) {
+    if (isEligibleForRecovery(state, action.playerId)) {
+      return { valid: true };
+    }
     return {
       valid: false,
       reason: 'Cannot skip placement when you control no stacks on the board',

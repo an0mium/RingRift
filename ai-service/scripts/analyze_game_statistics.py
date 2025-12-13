@@ -40,6 +40,25 @@ AI_SERVICE_ROOT = Path(PROJECT_ROOT).resolve()
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# Optional canonical config imports (used only for drift detection). Keep this
+# script usable in partial environments / older checkouts.
+try:  # pragma: no cover
+    from app.models.core import BoardType as _BoardType
+    from app.rules.core import BOARD_CONFIGS as _CANON_BOARD_CONFIGS
+    from app.rules.core import get_victory_threshold as _get_canon_victory_threshold
+
+    _BOARD_TYPE_TO_ENUM = {
+        "square8": _BoardType.SQUARE8,
+        "square19": _BoardType.SQUARE19,
+        "hexagonal": _BoardType.HEXAGONAL,
+    }
+    CANONICAL_RULES_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _BOARD_TYPE_TO_ENUM = {}
+    _CANON_BOARD_CONFIGS = {}
+    _get_canon_victory_threshold = None  # type: ignore[assignment]
+    CANONICAL_RULES_AVAILABLE = False
+
 
 # =============================================================================
 # Schema Normalization - handles old and new JSONL formats
@@ -289,6 +308,11 @@ class GameStats:
     victory_threshold_counts: dict[str, int] = field(default_factory=dict)
     territory_victory_threshold_counts: dict[str, int] = field(default_factory=dict)
     lps_rounds_required_counts: dict[str, int] = field(default_factory=dict)
+    # Joined breakdowns (rings/threshold -> outcomes), useful for mixed datasets.
+    starting_rings_per_player_breakdown: dict[str, dict[str, Any]] = field(default_factory=dict)
+    victory_threshold_breakdown: dict[str, dict[str, Any]] = field(default_factory=dict)
+    games_with_starting_rings_mismatch: int = 0
+    games_with_victory_threshold_mismatch: int = 0
     # Recovery mode breakdown (RR-CANON-R112)
     recovery_slides_by_mode: dict[str, int] = field(default_factory=dict)
     games_with_stack_strike: int = 0
@@ -349,9 +373,6 @@ class GameStats:
         """
         territory = self.victory_types.get("territory", 0)
         stalemate_territory = self.stalemate_by_tiebreaker.get("territory", 0)
-        # If no stalemate breakdown, assume all stalemate are territory
-        if not self.stalemate_by_tiebreaker and self.victory_types.get("stalemate", 0) > 0:
-            stalemate_territory = self.victory_types.get("stalemate", 0)
 
         elimination = self.victory_types.get("elimination", 0)
         ring_elim = self.victory_types.get("ring_elimination", 0)
@@ -520,6 +541,19 @@ def collect_stats_from_jsonl(
 
             stats = report.stats_by_config[key]
 
+            expected_rings: int | None = None
+            expected_victory_threshold: int | None = None
+            if CANONICAL_RULES_AVAILABLE and board_type in _BOARD_TYPE_TO_ENUM:
+                bt = _BOARD_TYPE_TO_ENUM[board_type]
+                cfg = _CANON_BOARD_CONFIGS.get(bt)
+                if cfg is not None:
+                    expected_rings = int(cfg.rings_per_player)
+                if _get_canon_victory_threshold is not None:
+                    try:
+                        expected_victory_threshold = int(_get_canon_victory_threshold(bt, num_players))
+                    except Exception:
+                        expected_victory_threshold = None
+
             stats.total_games += 1
             move_count = game.get("move_count", len(game.get("moves", [])))
             stats.total_moves += move_count
@@ -528,18 +562,24 @@ def collect_stats_from_jsonl(
 
             # Initial-state sanity checks / drift detection.
             starting_rings = _extract_starting_rings_per_player(game)
+            starting_rings_key: str | None = None
             if starting_rings is not None:
-                key_str = str(starting_rings)
-                stats.starting_rings_per_player_counts[key_str] = (
-                    stats.starting_rings_per_player_counts.get(key_str, 0) + 1
+                starting_rings_key = str(starting_rings)
+                stats.starting_rings_per_player_counts[starting_rings_key] = (
+                    stats.starting_rings_per_player_counts.get(starting_rings_key, 0) + 1
                 )
+                if expected_rings is not None and starting_rings != expected_rings:
+                    stats.games_with_starting_rings_mismatch += 1
 
             victory_threshold = _extract_victory_threshold(game)
+            victory_threshold_key: str | None = None
             if victory_threshold is not None:
-                key_str = str(victory_threshold)
-                stats.victory_threshold_counts[key_str] = (
-                    stats.victory_threshold_counts.get(key_str, 0) + 1
+                victory_threshold_key = str(victory_threshold)
+                stats.victory_threshold_counts[victory_threshold_key] = (
+                    stats.victory_threshold_counts.get(victory_threshold_key, 0) + 1
                 )
+                if expected_victory_threshold is not None and victory_threshold != expected_victory_threshold:
+                    stats.games_with_victory_threshold_mismatch += 1
 
             territory_threshold = _extract_territory_victory_threshold(game)
             if territory_threshold is not None:
@@ -561,14 +601,34 @@ def collect_stats_from_jsonl(
                 stats.wins_by_player[str(winner)] = stats.wins_by_player.get(str(winner), 0) + 1
 
             # Victory type
-            victory_type = game.get("victory_type")
-            if victory_type:
-                stats.victory_types[victory_type] = stats.victory_types.get(victory_type, 0) + 1
-                if victory_type == "timeout":
-                    move_key = str(int(move_count) if isinstance(move_count, int) else 0)
-                    stats.timeout_move_count_hist[move_key] = (
-                        stats.timeout_move_count_hist.get(move_key, 0) + 1
-                    )
+            victory_type = game.get("victory_type") or "unknown"
+            stats.victory_types[victory_type] = stats.victory_types.get(victory_type, 0) + 1
+            if victory_type == "timeout":
+                move_key = str(int(move_count) if isinstance(move_count, int) else 0)
+                stats.timeout_move_count_hist[move_key] = (
+                    stats.timeout_move_count_hist.get(move_key, 0) + 1
+                )
+
+            # Joined breakdowns (rings/threshold -> outcomes).
+            if starting_rings_key is not None:
+                entry = stats.starting_rings_per_player_breakdown.setdefault(
+                    starting_rings_key,
+                    {"games": 0, "total_moves": 0, "victory_types": {}},
+                )
+                entry["games"] = int(entry.get("games", 0) or 0) + 1
+                entry["total_moves"] = int(entry.get("total_moves", 0) or 0) + int(move_count or 0)
+                vt = entry.setdefault("victory_types", {})
+                vt[victory_type] = int(vt.get(victory_type, 0) or 0) + 1
+
+            if victory_threshold_key is not None:
+                entry = stats.victory_threshold_breakdown.setdefault(
+                    victory_threshold_key,
+                    {"games": 0, "total_moves": 0, "victory_types": {}},
+                )
+                entry["games"] = int(entry.get("games", 0) or 0) + 1
+                entry["total_moves"] = int(entry.get("total_moves", 0) or 0) + int(move_count or 0)
+                vt = entry.setdefault("victory_types", {})
+                vt[victory_type] = int(vt.get(victory_type, 0) or 0) + 1
 
             # Stalemate tiebreaker
             tiebreaker = game.get("stalemate_tiebreaker")
@@ -1299,6 +1359,10 @@ def generate_json_report(report: AnalysisReport) -> dict[str, Any]:
             "victory_threshold_counts": stats.victory_threshold_counts,
             "territory_victory_threshold_counts": stats.territory_victory_threshold_counts,
             "lps_rounds_required_counts": stats.lps_rounds_required_counts,
+            "starting_rings_per_player_breakdown": stats.starting_rings_per_player_breakdown,
+            "victory_threshold_breakdown": stats.victory_threshold_breakdown,
+            "games_with_starting_rings_mismatch": stats.games_with_starting_rings_mismatch,
+            "games_with_victory_threshold_mismatch": stats.games_with_victory_threshold_mismatch,
             "recovery_slides_by_mode": stats.recovery_slides_by_mode,
             "games_with_stack_strike": stats.games_with_stack_strike,
             "wins_with_stack_strike": stats.wins_with_stack_strike,

@@ -20,6 +20,9 @@ Current implementation:
 - Uses scripts/run_canonical_selfplay_parity_gate.py for step (1) + (2).
 - Uses a strict trace replay validation (GameEngine.apply_move(trace_mode=True))
     over GameReplayDB moves for step (3).
+- Validates the initial-state rules parameters match canonical defaults
+    (rings per player, victory thresholds, LPS rounds required) so that
+    non-canonical per-game overrides are not accidentally promoted.
 
 Typical usage (from ai-service/):
 
@@ -54,6 +57,7 @@ if str(AI_SERVICE_ROOT) not in sys.path:
 
 from app.db.game_replay import GameReplayDB
 from app.game_engine import GameEngine
+from app.rules.history_validation import validate_canonical_config_for_game
 
 
 def _build_env() -> Dict[str, str]:
@@ -438,6 +442,58 @@ def run_canonical_history_check(db_path: Path) -> Dict[str, Any]:
     }
 
 
+def run_canonical_config_check(db_path: Path) -> Dict[str, Any]:
+    """Validate initial-state canonical configuration for every game."""
+    db = GameReplayDB(str(db_path))
+
+    with db._get_conn() as conn:  # type: ignore[attr-defined]
+        rows = conn.execute("SELECT game_id FROM games").fetchall()
+        game_ids = [row["game_id"] for row in rows]
+
+    issues_by_game: Dict[str, List[Dict[str, Any]]] = {}
+
+    if game_ids:
+        print(
+            f"[generate_canonical_selfplay] Canonical config check: {len(game_ids)} game(s)",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    for idx, gid in enumerate(game_ids):
+        if idx and idx % 100 == 0:
+            print(
+                f"[generate_canonical_selfplay] Canonical config progress: {idx}/{len(game_ids)}",
+                file=sys.stderr,
+                flush=True,
+            )
+
+        report = validate_canonical_config_for_game(db, gid)
+        if report.is_canonical:
+            continue
+
+        issues_by_game[gid] = [
+            {
+                "reason": issue.reason,
+                "observed": issue.observed,
+                "expected": issue.expected,
+            }
+            for issue in report.issues[:25]
+        ]
+
+    games_checked = len(game_ids)
+    non_canonical_games = len(issues_by_game)
+
+    sample_issues: Dict[str, Any] = {}
+    for gid, issues in list(issues_by_game.items())[:5]:
+        sample_issues[gid] = issues[:5]
+
+    return {
+        "games_checked": games_checked,
+        "non_canonical_games": non_canonical_games,
+        "sample_issues": sample_issues,
+    }
+
+
 def run_fe_territory_fixtures(board_type: str) -> bool:
     """
     Run a small pytest subset that validates FE/territory fixtures for the
@@ -761,10 +817,16 @@ def main(argv: List[str] | None = None) -> int:
     base_ok = passed_gate and parity_rc == 0 and db_path.exists() and merge_ok
 
     canonical_history: Dict[str, Any] = {}
+    canonical_config: Dict[str, Any] = {}
     games_checked = 0
     non_canonical = 0
+    config_non_canonical = 0
 
     if base_ok:
+        canonical_config = run_canonical_config_check(db_path)
+        config_non_canonical = int(
+            canonical_config.get("non_canonical_games", 0) or 0
+        )
         canonical_history = run_canonical_history_check(db_path)
         games_checked = int(
             canonical_history.get("games_checked", 0) or 0
@@ -779,6 +841,7 @@ def main(argv: List[str] | None = None) -> int:
 
     canonical_ok = (
         base_ok
+        and config_non_canonical == 0
         and games_checked > 0
         and non_canonical == 0
         and fe_territory_fixtures_ok
@@ -792,6 +855,7 @@ def main(argv: List[str] | None = None) -> int:
         "num_games_requested": num_games,
         "parity_gate": parity_summary,
         "merge_result": merge_result,
+        "canonical_config": canonical_config,
         "canonical_history": canonical_history,
         "fe_territory_fixtures_ok": bool(fe_territory_fixtures_ok),
         "anm_invariants": anm_invariants,

@@ -206,7 +206,7 @@ def load_all_hosts() -> list[HostConfig]:
     return sorted(hosts, key=lambda h: h.name)
 
 
-def _build_remote_collection_command(*, host: HostConfig, ts: str, hours: float) -> str:
+def _build_remote_collection_command(*, host: HostConfig, ts: str, hours: float, scan_profile: str) -> str:
     out_dir = f"logs/selfplay/collected_last24h/{ts}"
     manifest_rel = f"{out_dir}/manifests/{host.name}.tsv"
     report_rel = f"{out_dir}/reports/{host.name}.json"
@@ -223,6 +223,7 @@ from pathlib import Path
 ts = os.environ["RR_TS"]
 host = os.environ["RR_HOST"]
 hours = float(os.environ["RR_HOURS"])
+scan_profile = os.environ.get("RR_SCAN_PROFILE", "broad")
 
 root = Path.cwd()
 out_dir = root / "logs" / "selfplay" / "collected_last24h" / ts
@@ -248,6 +249,24 @@ for scan_root, recursive in scan_specs:
             rel = str(p.relative_to(root))
         except ValueError:
             rel = str(p)
+
+        if scan_profile == "recent":
+            parts = Path(rel).parts
+            # Exclude top-level ad-hoc files under data/selfplay/*.jsonl. These are
+            # often merged/backfilled archives whose mtime doesn't reflect when
+            # the contained games were played.
+            if len(parts) == 3 and parts[0] == "data" and parts[1] == "selfplay":
+                continue
+            # Exclude known legacy/analysis buckets that tend to contain older
+            # rulesets (e.g. 48/72 ring supplies) even when recently rewritten.
+            if (
+                len(parts) >= 4
+                and parts[0] == "data"
+                and parts[1] == "selfplay"
+                and parts[2] in {"new_ruleset", "vast_sync", "combined_gpu"}
+            ):
+                continue
+
         entries.append((int(st.st_mtime), int(st.st_size), rel))
 
 entries.sort(key=lambda t: (-t[0], -t[1], t[2]))
@@ -266,7 +285,8 @@ PY
             "set -euo pipefail; "
             f"cd {host.ai_service_dir}; "
             f"{activate}"
-            f"export RR_TS={sh_quote(ts)} RR_HOST={sh_quote(host.name)} RR_HOURS={sh_quote(str(hours))}; "
+            f"export RR_TS={sh_quote(ts)} RR_HOST={sh_quote(host.name)} RR_HOURS={sh_quote(str(hours))} "
+            f"RR_SCAN_PROFILE={sh_quote(scan_profile)}; "
             f"mkdir -p {sh_quote(out_dir + '/manifests')} {sh_quote(out_dir + '/reports')}; "
             f"{python_manifest}\n"
             "python scripts/analyze_game_statistics.py "
@@ -284,7 +304,9 @@ def sh_quote(s: str) -> str:
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
-def collect_from_host(host: HostConfig, *, ts: str, hours: float, local_out: Path, deploy: bool) -> HostCollectionResult:
+def collect_from_host(
+    host: HostConfig, *, ts: str, hours: float, local_out: Path, deploy: bool, scan_profile: str
+) -> HostCollectionResult:
     out_dir = f"logs/selfplay/collected_last24h/{ts}"
     manifest_remote = f"{host.ai_service_dir}/{out_dir}/manifests/{host.name}.tsv"
     report_remote = f"{host.ai_service_dir}/{out_dir}/reports/{host.name}.json"
@@ -306,7 +328,7 @@ def collect_from_host(host: HostConfig, *, ts: str, hours: float, local_out: Pat
                     error=proc.stderr.strip() or "failed to deploy analyze_game_statistics.py",
                 )
 
-        cmd = _build_remote_collection_command(host=host, ts=ts, hours=hours)
+        cmd = _build_remote_collection_command(host=host, ts=ts, hours=hours, scan_profile=scan_profile)
         proc = _ssh(host, cmd, timeout=1800)
         if proc.returncode != 0:
             return HostCollectionResult(
@@ -326,7 +348,7 @@ def collect_from_host(host: HostConfig, *, ts: str, hours: float, local_out: Pat
         return HostCollectionResult(host=host.name, ok=False, error=str(e))
 
 
-def collect_local(*, ts: str, hours: float, local_out: Path) -> HostCollectionResult:
+def collect_local(*, ts: str, hours: float, local_out: Path, scan_profile: str) -> HostCollectionResult:
     out_dir = local_out
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "manifests").mkdir(parents=True, exist_ok=True)
@@ -354,6 +376,17 @@ def collect_local(*, ts: str, hours: float, local_out: Path) -> HostCollectionRe
             if st.st_size <= 0 or st.st_mtime < cutoff:
                 continue
             rel = str(p.relative_to(AI_SERVICE_ROOT))
+            if scan_profile == "recent":
+                parts = Path(rel).parts
+                if len(parts) == 3 and parts[0] == "data" and parts[1] == "selfplay":
+                    continue
+                if (
+                    len(parts) >= 4
+                    and parts[0] == "data"
+                    and parts[1] == "selfplay"
+                    and parts[2] in {"new_ruleset", "vast_sync", "combined_gpu"}
+                ):
+                    continue
             entries.append((int(st.st_mtime), int(st.st_size), rel))
 
     entries.sort(key=lambda t: (-t[0], -t[1], t[2]))
@@ -408,6 +441,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hours", type=float, default=24.0, help="Lookback window in hours (default: 24).")
     parser.add_argument("--workers", type=int, default=4, help="Parallel SSH workers (default: 4).")
     parser.add_argument(
+        "--scan-profile",
+        choices=["broad", "recent"],
+        default="broad",
+        help=(
+            "File selection profile: 'broad' scans all data/selfplay JSONLs (recursive) + top-level logs/selfplay JSONLs; "
+            "'recent' excludes top-level data/selfplay/*.jsonl and known legacy/sync buckets (data/selfplay/new_ruleset/**, "
+            "data/selfplay/vast_sync/**, data/selfplay/combined_gpu/**) to reduce stale/backfilled drift."
+        ),
+    )
+    parser.add_argument(
         "--hosts",
         nargs="*",
         help="Optional subset of hosts to collect (names from distributed_hosts.yaml + aws-selfplay-extra).",
@@ -429,6 +472,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     ts = str(args.timestamp or _now_ts())
     hours = float(args.hours)
+    scan_profile = str(args.scan_profile)
 
     hosts = load_all_hosts()
     if args.hosts:
@@ -447,7 +491,7 @@ def main(argv: list[str] | None = None) -> int:
     (local_out / "reports").mkdir(parents=True, exist_ok=True)
 
     results: list[HostCollectionResult] = []
-    results.append(collect_local(ts=ts, hours=hours, local_out=local_out))
+    results.append(collect_local(ts=ts, hours=hours, local_out=local_out, scan_profile=scan_profile))
 
     deploy = not args.no_deploy
 
@@ -455,7 +499,15 @@ def main(argv: list[str] | None = None) -> int:
 
     with ThreadPoolExecutor(max_workers=max(1, int(args.workers))) as pool:
         futures = [
-            pool.submit(collect_from_host, host, ts=ts, hours=hours, local_out=local_out, deploy=deploy)
+            pool.submit(
+                collect_from_host,
+                host,
+                ts=ts,
+                hours=hours,
+                local_out=local_out,
+                deploy=deploy,
+                scan_profile=scan_profile,
+            )
             for host in hosts
         ]
         for fut in as_completed(futures):

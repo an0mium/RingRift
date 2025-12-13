@@ -274,7 +274,7 @@ describe('territoryDecisionHelpers branch coverage', () => {
         };
 
         expect(() => applyProcessTerritoryRegionDecision(state, wrongMove)).toThrow(
-          "applyProcessTerritoryRegionDecision expected move.type === 'process_territory_region'"
+          "applyProcessTerritoryRegionDecision expected move.type === 'choose_territory_option'"
         );
       });
     });

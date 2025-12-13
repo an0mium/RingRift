@@ -326,6 +326,26 @@ describe('PlacementValidator', () => {
       expect(result.code).toBe('NO_CONTROLLED_STACKS');
     });
 
+    it('allows skip when player is recovery-eligible with no controlled stacks', () => {
+      // Recovery eligibility: no controlled stacks, has a marker, and has a buried ring.
+      state.board.stacks.clear();
+      state.board.stacks.set(posStr(4, 4), {
+        position: pos(4, 4),
+        rings: [2, 1],
+        stackHeight: 2,
+        capHeight: 1,
+        controllingPlayer: 2,
+      });
+      state.board.markers.set(posStr(0, 0), { player: 1, position: pos(0, 0), type: 'regular' });
+
+      const action: SkipPlacementAction = {
+        type: 'skip_placement',
+        playerId: 1,
+      };
+      const result = validateSkipPlacement(state, action);
+      expect(result.valid).toBe(true);
+    });
+
     it('rejects skip when no legal moves from controlled stacks', () => {
       // Block all directions from the stack
       state.board.collapsedSpaces.set(posStr(4, 3), 1);

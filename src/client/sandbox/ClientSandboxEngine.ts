@@ -83,6 +83,7 @@ import type {
 } from '../../shared/types/game';
 import {
   isSandboxAiTraceModeEnabled,
+  isSandboxAiStallDiagnosticsEnabled,
   isSandboxLpsDebugEnabled,
   isTestEnvironment,
   debugLog,
@@ -117,6 +118,8 @@ import {
   buildCaptureDirectionChoice,
   type DecisionMappingContext,
 } from './sandboxDecisionMapping';
+
+const SANDBOX_AI_STALL_DIAGNOSTICS = isSandboxAiStallDiagnosticsEnabled();
 
 /**
  * Client-local engine harness for the /sandbox route.
@@ -396,6 +399,24 @@ export class ClientSandboxEngine {
     };
   }
 
+  /**
+   * Record history playback snapshots for an action that was already appended
+   * to `moveHistory`/`history` by the SandboxOrchestratorAdapter.
+   *
+   * This avoids double-recording GameHistoryEntry rows (which inflates
+   * `historyLength` and produces odd/even moveNumber gaps in exported fixtures),
+   * while still keeping `_stateSnapshots` aligned for HistoryPlayback UX.
+   */
+  private recordHistorySnapshotsOnly(before: GameState): void {
+    const afterSnapshot = this.cloneGameState(this.gameState);
+
+    if (this._stateSnapshots.length === 0) {
+      this._initialStateSnapshot = this.cloneGameState(before);
+    }
+
+    this._stateSnapshots.push(afterSnapshot);
+  }
+
   constructor(opts: ClientSandboxEngineOptions) {
     const { config, interactionHandler, traceMode } = opts;
     this.interactionHandler = interactionHandler;
@@ -575,31 +596,25 @@ export class ClientSandboxEngine {
     // Diagnostic logging for AI stall investigation
     const stateBefore = adapter.getGameState();
 
-    if (isTestEnvironment()) {
-      // eslint-disable-next-line no-console
-      console.log('[processMoveViaAdapter] Before processMove:', {
-        moveType: move.type,
-        movePlayer: move.player,
-        moveFrom: move.from ? positionToString(move.from) : null,
-        moveTo: move.to ? positionToString(move.to) : null,
-        stateCurrentPlayer: stateBefore.currentPlayer,
-        stateCurrentPhase: stateBefore.currentPhase,
-        stateGameStatus: stateBefore.gameStatus,
-      });
-    }
+    debugLog(SANDBOX_AI_STALL_DIAGNOSTICS, '[processMoveViaAdapter] Before processMove:', {
+      moveType: move.type,
+      movePlayer: move.player,
+      moveFrom: move.from ? positionToString(move.from) : null,
+      moveTo: move.to ? positionToString(move.to) : null,
+      stateCurrentPlayer: stateBefore.currentPlayer,
+      stateCurrentPhase: stateBefore.currentPhase,
+      stateGameStatus: stateBefore.gameStatus,
+    });
 
     const result = await adapter.processMove(move);
 
-    if (isTestEnvironment()) {
-      // eslint-disable-next-line no-console
-      console.log('[processMoveViaAdapter] After processMove:', {
-        success: result.success,
-        error: result.error,
-        stateChanged: result.metadata?.stateChanged,
-        nextPhase: result.nextState.currentPhase,
-        nextPlayer: result.nextState.currentPlayer,
-      });
-    }
+    debugLog(SANDBOX_AI_STALL_DIAGNOSTICS, '[processMoveViaAdapter] After processMove:', {
+      success: result.success,
+      error: result.error,
+      stateChanged: result.metadata?.stateChanged,
+      nextPhase: result.nextState.currentPhase,
+      nextPlayer: result.nextState.currentPlayer,
+    });
 
     if (!result.success) {
       const message = result.error || 'Orchestrator processMove failed';
@@ -1082,7 +1097,9 @@ export class ClientSandboxEngine {
         return;
       }
 
-      this.appendHistoryEntry(beforeState, move);
+      // The orchestrator adapter already recorded the canonical Move into
+      // moveHistory/history. Capture snapshots only so HistoryPlayback remains aligned.
+      this.recordHistorySnapshotsOnly(beforeState);
     } else if (phase === 'movement' || phase === 'capture') {
       // Human-driven movement click. Record canonical history via the
       // movement engine hooks without interfering with canonical replays.
@@ -2488,10 +2505,10 @@ export class ClientSandboxEngine {
     // next AI turn. This keeps sandbox traces aligned with backend
     // move-driven decision phases.
     if (this.gameState.currentPhase === 'line_processing') {
-      if (isTestEnvironment()) {
-        // eslint-disable-next-line no-console
-        console.log('[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: line_processing');
-      }
+      debugLog(
+        SANDBOX_AI_STALL_DIAGNOSTICS,
+        '[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: line_processing'
+      );
       return;
     }
 
@@ -2500,14 +2517,11 @@ export class ClientSandboxEngine {
 
     // Same traceMode handling for territory_processing
     if (this.gameState.currentPhase === 'territory_processing') {
-      if (isTestEnvironment()) {
-        // eslint-disable-next-line no-console
-        console.log(
-          '[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: territory_processing',
-          'currentPlayer=',
-          this.gameState.currentPlayer
-        );
-      }
+      debugLog(
+        SANDBOX_AI_STALL_DIAGNOSTICS,
+        '[ClientSandboxEngine.advanceAfterMovement] EARLY RETURN: territory_processing',
+        { currentPlayer: this.gameState.currentPlayer }
+      );
       return;
     }
 
@@ -2528,14 +2542,11 @@ export class ClientSandboxEngine {
       currentPhase: 'territory_processing',
     };
 
-    if (isTestEnvironment()) {
-      // eslint-disable-next-line no-console
-      console.log(
-        '[ClientSandboxEngine.advanceAfterMovement] Calling advanceTurnAndPhaseForCurrentPlayer',
-        'currentPlayer=',
-        this.gameState.currentPlayer
-      );
-    }
+    debugLog(
+      SANDBOX_AI_STALL_DIAGNOSTICS,
+      '[ClientSandboxEngine.advanceAfterMovement] Calling advanceTurnAndPhaseForCurrentPlayer',
+      { currentPlayer: this.gameState.currentPlayer }
+    );
 
     this.advanceTurnAndPhaseForCurrentPlayer();
     this.debugCheckpoint('after-advanceTurnAndPhaseForCurrentPlayer');
@@ -2972,9 +2983,8 @@ export class ClientSandboxEngine {
     // Test-only diagnostic logging: when a victory is detected, emit a
     // compact snapshot so we can understand why gameStatus flipped to
     // 'completed' in early-turn scenarios (e.g. mixedPlayers tests).
-    if (result && isTestEnvironment()) {
-      // eslint-disable-next-line no-console
-      console.log('[ClientSandboxEngine Victory Debug]', {
+    if (result) {
+      debugLog(SANDBOX_AI_STALL_DIAGNOSTICS, '[ClientSandboxEngine Victory Debug]', {
         reason: result.reason,
         currentPlayerBefore: before.currentPlayer,
         currentPhaseBefore: before.currentPhase,
@@ -3388,6 +3398,10 @@ export class ClientSandboxEngine {
       // These advance the phase without changing board state.
       'no_placement_action',
       'no_movement_action',
+      // RR-FIX-2025-12-13: Line/territory no-action moves emitted when the AI
+      // is in line_processing or territory_processing with no interactive moves.
+      'no_line_action',
+      'no_territory_action',
     ];
 
     if (!supportedTypes.includes(move.type)) {
@@ -3425,11 +3439,9 @@ export class ClientSandboxEngine {
         }
       }
 
-      // Record history AFTER advancing the turn for captures.
-      // This matches backend ordering where history is recorded after advanceGame().
-      // Note: The orchestrator adapter already adds the move to moveHistory, so we
-      // skip that here to avoid duplicate entries.
-      this.appendHistoryEntry(beforeStateForHistory, move, { skipMoveHistory: true });
+      // The orchestrator adapter already recorded the canonical Move into
+      // moveHistory/history. Capture snapshots only so HistoryPlayback remains aligned.
+      this.recordHistorySnapshotsOnly(beforeStateForHistory);
     }
   }
 
@@ -3511,16 +3523,19 @@ export class ClientSandboxEngine {
     });
 
     // Debug: trace phase after orchestrator for move_stack parity investigation
-    if (move.type === 'move_stack' && isTestEnvironment()) {
-      // eslint-disable-next-line no-console
-      console.log('[applyCanonicalMoveForReplay] POST-ORCHESTRATOR move_stack:', {
-        movePlayer: move.player,
-        moveTo: move.to ? positionToString(move.to) : null,
-        currentPhase: this.gameState.currentPhase,
-        currentPlayer: this.gameState.currentPlayer,
-        gameStatus: this.gameState.gameStatus,
-        changed,
-      });
+    if (move.type === 'move_stack') {
+      debugLog(
+        SANDBOX_AI_STALL_DIAGNOSTICS,
+        '[applyCanonicalMoveForReplay] POST-ORCHESTRATOR move_stack:',
+        {
+          movePlayer: move.player,
+          moveTo: move.to ? positionToString(move.to) : null,
+          currentPhase: this.gameState.currentPhase,
+          currentPlayer: this.gameState.currentPlayer,
+          gameStatus: this.gameState.gameStatus,
+          changed,
+        }
+      );
     }
 
     if (changed) {
@@ -3609,16 +3624,16 @@ export class ClientSandboxEngine {
         move.to
       ) {
         const capturesFromLanding = this.enumerateCaptureSegmentsFrom(move.to, move.player);
-        // Debug: trace capture enumeration for parity investigation
-        if (isTestEnvironment()) {
-          // eslint-disable-next-line no-console
-          console.log('[applyCanonicalMoveForReplay] RR-CANON-R073 capture check:', {
+        debugLog(
+          SANDBOX_AI_STALL_DIAGNOSTICS,
+          '[applyCanonicalMoveForReplay] RR-CANON-R073 capture check:',
+          {
             movePlayer: move.player,
             moveTo: positionToString(move.to),
             capturesFound: capturesFromLanding.length,
             willTransition: capturesFromLanding.length > 0,
-          });
-        }
+          }
+        );
         if (capturesFromLanding.length > 0) {
           // Transition to capture phase per RR-CANON-R073
           this.gameState = {
@@ -3769,7 +3784,7 @@ export class ClientSandboxEngine {
 
       // Note: The orchestrator adapter already adds the move to moveHistory, so we
       // skip that here to avoid duplicate entries.
-      this.appendHistoryEntry(beforeStateForHistory, move, { skipMoveHistory: true });
+      this.recordHistorySnapshotsOnly(beforeStateForHistory);
     } else {
       // No semantic change, but we still want a stable history step for
       // replay purposes. Record a history entry with identical before/after
@@ -3858,9 +3873,10 @@ export class ClientSandboxEngine {
         };
       }
 
-      // For no-change moves, the orchestrator adapter doesn't add to moveHistory,
-      // so we need to add it here (don't skip).
-      this.appendHistoryEntry(beforeStateForHistory, move);
+      // Even when the orchestrator reports no semantic change, the adapter
+      // still records the move into moveHistory/history (normalized). Capture
+      // snapshots only to keep HistoryPlayback aligned.
+      this.recordHistorySnapshotsOnly(beforeStateForHistory);
     }
   }
 

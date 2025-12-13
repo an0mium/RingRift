@@ -103,6 +103,7 @@ def _parse_move(move_dict: Dict[str, Any], move_number: int, timestamp: str) -> 
         "place_ring": MoveType.PLACE_RING,
         "skip_placement": MoveType.SKIP_PLACEMENT,
         "no_placement_action": MoveType.NO_PLACEMENT_ACTION,
+        "swap_sides": MoveType.SWAP_SIDES,
         "move_stack": MoveType.MOVE_STACK,
         "move_ring": MoveType.MOVE_RING,
         "no_movement_action": MoveType.NO_MOVEMENT_ACTION,

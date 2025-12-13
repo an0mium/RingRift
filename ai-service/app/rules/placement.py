@@ -330,6 +330,13 @@ def evaluate_skip_placement_eligibility_py(
             break
 
     if not has_controlled_stack:
+        from app.rules.core import is_eligible_for_recovery
+
+        # RR-CANON-R201/RR-CANON-R110: Recovery eligibility is independent of rings
+        # in hand. A recovery-eligible player may record skip_placement to reach
+        # movement without placing and attempt recovery.
+        if is_eligible_for_recovery(state, player):
+            return SkipPlacementEligibilityResultPy(eligible=True)
         return SkipPlacementEligibilityResultPy(
             eligible=False,
             reason=(

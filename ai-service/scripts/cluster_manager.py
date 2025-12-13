@@ -739,6 +739,340 @@ def cmd_benchmark(args) -> None:
 
 
 # =============================================================================
+# Improvement Loop Manager (SSH-based)
+# =============================================================================
+
+
+@dataclass
+class ImprovementLoopStatus:
+    """Status of an improvement loop on a host."""
+
+    host_name: str
+    board_type: str
+    is_running: bool
+    pid: Optional[int] = None
+    progress: Optional[str] = None
+    last_update: Optional[datetime] = None
+    error: Optional[str] = None
+
+
+class ImprovementLoopManager:
+    """Manage improvement loops across distributed hosts via SSH."""
+
+    LOOP_SCRIPT = "scripts/run_improvement_loop.py"
+    LOOP_LOG_TEMPLATE = "logs/improvement_loop_{board}.log"
+    BOARD_TYPES = ["sq8", "sq19", "hex"]
+
+    def __init__(self, hosts: Optional[List[str]] = None):
+        """Initialize improvement loop manager.
+
+        Args:
+            hosts: List of host names to manage. If None, uses GPU-capable hosts.
+        """
+        self._hosts_config = load_remote_hosts()
+
+        if hosts:
+            self._hosts = {name: cfg for name, cfg in self._hosts_config.items() if name in hosts}
+        else:
+            # Default to hosts with GPUs
+            self._hosts = {
+                name: cfg
+                for name, cfg in self._hosts_config.items()
+                if cfg.properties.get("gpu") or cfg.properties.get("role", "").startswith("nn_")
+            }
+
+        self._executors: Dict[str, SSHExecutor] = {}
+        for name, config in self._hosts.items():
+            self._executors[name] = SSHExecutor(config)
+
+    @property
+    def host_names(self) -> List[str]:
+        """Get list of managed host names."""
+        return list(self._hosts.keys())
+
+    def _board_to_arg(self, board_short: str) -> str:
+        """Convert short board name to script argument."""
+        return {
+            "sq8": "square8",
+            "sq19": "square19",
+            "hex": "hexagonal",
+        }.get(board_short, board_short)
+
+    def check_loop_status(self, host_name: str, board_short: str) -> ImprovementLoopStatus:
+        """Check status of an improvement loop on a host."""
+        executor = self._executors.get(host_name)
+        if not executor:
+            return ImprovementLoopStatus(
+                host_name=host_name,
+                board_type=board_short,
+                is_running=False,
+                error=f"Unknown host: {host_name}",
+            )
+
+        status = ImprovementLoopStatus(
+            host_name=host_name,
+            board_type=board_short,
+            is_running=False,
+        )
+
+        try:
+            board_arg = self._board_to_arg(board_short)
+            result = executor.run(
+                f"pgrep -f 'run_improvement_loop.py.*--board {board_arg}'",
+                timeout=10,
+            )
+
+            if result.returncode == 0 and result.stdout.strip():
+                pids = result.stdout.strip().split("\n")
+                status.pid = int(pids[0])
+                status.is_running = True
+
+            # Get progress from log
+            log_file = self.LOOP_LOG_TEMPLATE.format(board=board_short)
+            progress_result = executor.run(
+                f"grep -E 'PROGRESS|Iteration' {log_file} 2>/dev/null | tail -1",
+                timeout=10,
+            )
+            if progress_result.returncode == 0 and progress_result.stdout.strip():
+                status.progress = progress_result.stdout.strip()[:200]
+                status.last_update = datetime.now()
+
+        except Exception as e:
+            status.error = str(e)
+
+        return status
+
+    def get_all_loop_status(self, host_name: str) -> List[ImprovementLoopStatus]:
+        """Get status of all improvement loops on a host."""
+        statuses = []
+        for board in self.BOARD_TYPES:
+            statuses.append(self.check_loop_status(host_name, board))
+        return statuses
+
+    def start_loop(
+        self,
+        host_name: str,
+        board_short: str,
+        games: int = 200,
+        eval_games: int = 50,
+        extra_args: str = "",
+    ) -> bool:
+        """Start an improvement loop on a host."""
+        executor = self._executors.get(host_name)
+        if not executor:
+            logger.error(f"Unknown host: {host_name}")
+            return False
+
+        status = self.check_loop_status(host_name, board_short)
+        if status.is_running:
+            logger.info(f"Loop already running on {host_name} for {board_short} (PID {status.pid})")
+            return True
+
+        try:
+            # Ensure directories exist
+            executor.run("mkdir -p logs models data/games", timeout=10)
+
+            board_arg = self._board_to_arg(board_short)
+            log_file = self.LOOP_LOG_TEMPLATE.format(board=board_short)
+            cmd = (
+                f"python {self.LOOP_SCRIPT} --board {board_arg} "
+                f"--games {games} --eval-games {eval_games}"
+            )
+            if extra_args:
+                cmd += f" {extra_args}"
+
+            result = executor.run_async(cmd, log_file)
+
+            if result.returncode != 0:
+                logger.error(f"Failed to start loop on {host_name}: {result.stderr}")
+                return False
+
+            time.sleep(3)
+            status = self.check_loop_status(host_name, board_short)
+
+            if status.is_running:
+                logger.info(f"Started improvement loop on {host_name} for {board_short} (PID {status.pid})")
+                return True
+            else:
+                logger.error(f"Loop failed to start on {host_name}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error starting loop on {host_name}: {e}")
+            return False
+
+    def stop_loop(self, host_name: str, board_short: str) -> bool:
+        """Stop an improvement loop on a host."""
+        executor = self._executors.get(host_name)
+        if not executor:
+            logger.error(f"Unknown host: {host_name}")
+            return False
+
+        try:
+            board_arg = self._board_to_arg(board_short)
+            executor.run(
+                f"pkill -f 'run_improvement_loop.py.*--board {board_arg}'",
+                timeout=10,
+            )
+
+            time.sleep(1)
+            status = self.check_loop_status(host_name, board_short)
+
+            if not status.is_running:
+                logger.info(f"Stopped loop on {host_name} for {board_short}")
+                return True
+            else:
+                # Force kill
+                executor.run(
+                    f"pkill -9 -f 'run_improvement_loop.py.*--board {board_arg}'",
+                    timeout=10,
+                )
+                logger.info(f"Force-killed loop on {host_name} for {board_short}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Error stopping loop on {host_name}: {e}")
+            return False
+
+    def start_all_loops(
+        self,
+        host_name: str,
+        games: int = 200,
+        eval_games: int = 50,
+    ) -> int:
+        """Start all improvement loops on a host."""
+        started = 0
+        for board in self.BOARD_TYPES:
+            if self.start_loop(host_name, board, games, eval_games):
+                started += 1
+        return started
+
+    def stop_all_loops(self, host_name: str) -> int:
+        """Stop all improvement loops on a host."""
+        stopped = 0
+        for board in self.BOARD_TYPES:
+            if self.stop_loop(host_name, board):
+                stopped += 1
+        return stopped
+
+    def get_cluster_loop_status(self) -> Dict[str, List[ImprovementLoopStatus]]:
+        """Get improvement loop status across all hosts."""
+        results = {}
+        for host_name in self._hosts:
+            results[host_name] = self.get_all_loop_status(host_name)
+        return results
+
+
+def print_loop_status(statuses: Dict[str, List[ImprovementLoopStatus]]) -> None:
+    """Print improvement loop status to console."""
+    print(f"\n{'=' * 80}")
+    print(f"Improvement Loop Status - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'=' * 80}")
+
+    for host_name, host_statuses in statuses.items():
+        print(f"\n{host_name}:")
+        print(f"{'-' * 40}")
+
+        for status in host_statuses:
+            state = "RUNNING" if status.is_running else "STOPPED"
+            if status.error:
+                state = f"ERROR: {status.error[:30]}"
+
+            pid_str = f"PID={status.pid}" if status.pid else "PID=-"
+            print(f"  {status.board_type:5} {state:12} {pid_str:12}")
+
+            if status.progress:
+                # Extract key metrics from progress string
+                progress_short = status.progress[:70] + "..." if len(status.progress) > 70 else status.progress
+                print(f"         {progress_short}")
+
+    print()
+
+
+# =============================================================================
+# Improvement Loop Command Handlers
+# =============================================================================
+
+
+def cmd_loop_status(args) -> None:
+    """Show improvement loop status across hosts."""
+    hosts = None
+    if hasattr(args, "hosts") and args.hosts:
+        hosts = [h.strip() for h in args.hosts.split(",")]
+
+    manager = ImprovementLoopManager(hosts=hosts)
+
+    if not manager.host_names:
+        print("No GPU hosts configured.")
+        return
+
+    statuses = manager.get_cluster_loop_status()
+
+    if args.json:
+        output = {}
+        for host, host_statuses in statuses.items():
+            output[host] = [
+                {
+                    "board": s.board_type,
+                    "running": s.is_running,
+                    "pid": s.pid,
+                    "progress": s.progress,
+                    "error": s.error,
+                }
+                for s in host_statuses
+            ]
+        print(json.dumps(output, indent=2))
+    else:
+        print_loop_status(statuses)
+
+
+def cmd_loop_start(args) -> None:
+    """Start improvement loops on hosts."""
+    hosts = None
+    if hasattr(args, "hosts") and args.hosts:
+        hosts = [h.strip() for h in args.hosts.split(",")]
+
+    manager = ImprovementLoopManager(hosts=hosts)
+
+    if not manager.host_names:
+        print("No GPU hosts configured.")
+        return
+
+    boards = args.boards.split(",") if args.boards else manager.BOARD_TYPES
+    total_started = 0
+
+    for host_name in manager.host_names:
+        for board in boards:
+            if manager.start_loop(host_name, board, args.games, args.eval_games):
+                total_started += 1
+
+    print(f"Started {total_started} improvement loop(s)")
+
+
+def cmd_loop_stop(args) -> None:
+    """Stop improvement loops on hosts."""
+    hosts = None
+    if hasattr(args, "hosts") and args.hosts:
+        hosts = [h.strip() for h in args.hosts.split(",")]
+
+    manager = ImprovementLoopManager(hosts=hosts)
+
+    if not manager.host_names:
+        print("No GPU hosts configured.")
+        return
+
+    boards = args.boards.split(",") if args.boards else manager.BOARD_TYPES
+    total_stopped = 0
+
+    for host_name in manager.host_names:
+        for board in boards:
+            if manager.stop_loop(host_name, board):
+                total_stopped += 1
+
+    print(f"Stopped {total_stopped} improvement loop(s)")
+
+
+# =============================================================================
 # mDNS/HTTP-based Discovery Commands (original)
 # =============================================================================
 
@@ -1038,6 +1372,27 @@ def main() -> None:
     p_bench.add_argument("--output", help="Output JSON file")
     p_bench.add_argument("--hosts", help="Comma-separated list of hosts")
 
+    # =========================================================================
+    # Improvement Loop Management Commands
+    # =========================================================================
+
+    # loop-status command
+    p_loop_status = subparsers.add_parser("loop-status", help="Show improvement loop status")
+    p_loop_status.add_argument("--json", action="store_true", help="Output as JSON")
+    p_loop_status.add_argument("--hosts", help="Comma-separated list of hosts")
+
+    # loop-start command
+    p_loop_start = subparsers.add_parser("loop-start", help="Start improvement loops")
+    p_loop_start.add_argument("--hosts", help="Comma-separated list of hosts")
+    p_loop_start.add_argument("--boards", help="Comma-separated boards (sq8,sq19,hex)")
+    p_loop_start.add_argument("--games", type=int, default=200, help="Games per iteration")
+    p_loop_start.add_argument("--eval-games", type=int, default=50, help="Evaluation games")
+
+    # loop-stop command
+    p_loop_stop = subparsers.add_parser("loop-stop", help="Stop improvement loops")
+    p_loop_stop.add_argument("--hosts", help="Comma-separated list of hosts")
+    p_loop_stop.add_argument("--boards", help="Comma-separated boards (sq8,sq19,hex)")
+
     args = parser.parse_args()
 
     # mDNS/HTTP commands
@@ -1068,6 +1423,13 @@ def main() -> None:
         cmd_run_soak(args)
     elif args.command == "benchmark":
         cmd_benchmark(args)
+    # Improvement Loop commands
+    elif args.command == "loop-status":
+        cmd_loop_status(args)
+    elif args.command == "loop-start":
+        cmd_loop_start(args)
+    elif args.command == "loop-stop":
+        cmd_loop_stop(args)
     else:
         parser.print_help()
 

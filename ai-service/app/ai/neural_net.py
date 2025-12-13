@@ -41,7 +41,11 @@ from ..models import (
 )
 from ..rules.geometry import BoardGeometry
 from ..rules.core import get_rings_per_player
-from .game_state_utils import infer_num_players, select_threat_opponent
+from .game_state_utils import (
+    infer_num_players,
+    infer_rings_per_player,
+    select_threat_opponent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -4254,7 +4258,7 @@ class NeuralNetAI(BaseAI):
                     None,
                 )
 
-        ring_norm = float(get_rings_per_player(board.type))
+        ring_norm = float(infer_rings_per_player(game_state))
         if my_player:
             globals[5] = my_player.rings_in_hand / ring_norm
             globals[7] = my_player.eliminated_rings / ring_norm

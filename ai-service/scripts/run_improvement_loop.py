@@ -315,7 +315,7 @@ def run_selfplay(
     if canonical_mode:
         gate_summary_path = Path(config["gate_summary"])
         cmd = [
-            "python",
+            sys.executable,
             "scripts/generate_canonical_selfplay.py",
             "--board-type",
             board,
@@ -355,7 +355,7 @@ def run_selfplay(
         return True, games
 
     cmd = [
-        "python",
+        sys.executable,
         "scripts/run_self_play_soak.py",
         "--num-games",
         str(games),
@@ -432,7 +432,7 @@ def export_training_data(
     timeout_sec = 600
     if dataset_policy_target == "played":
         cmd = [
-            "python",
+            sys.executable,
             "scripts/export_replay_dataset.py",
             "--db",
             str(replay_db_path),
@@ -467,7 +467,7 @@ def export_training_data(
             )
             dataset_policy_target = "played"
             cmd = [
-                "python",
+                sys.executable,
                 "scripts/export_replay_dataset.py",
                 "--db",
                 str(replay_db_path),
@@ -483,7 +483,7 @@ def export_training_data(
             ]
         else:
             cmd = [
-                "python",
+                sys.executable,
                 "scripts/reanalyze_replay_dataset.py",
                 "--db",
                 str(replay_db_path),
@@ -550,7 +550,7 @@ def train_model(
     best_model = models_dir / f"{board}_{players}p_best.pth"
 
     cmd = [
-        "python",
+        sys.executable,
         "app/training/train.py",
         "--data-path",
         str(data_path),
@@ -626,7 +626,7 @@ def evaluate_model(
         opponent_args = []
 
     cmd = [
-        "python",
+        sys.executable,
         "scripts/evaluate_ai_models.py",
         "--player1",
         "neural_network",

@@ -165,9 +165,30 @@ def check_nn_quality_gate(
         return False, 0.0
 
 
-def get_profile_key(num_players: int) -> str:
-    """Get the profile key for trained_heuristic_profiles.json."""
-    return f"heuristic_v1_{num_players}p"
+def get_profile_key(board: str, num_players: int) -> str:
+    """Get the board-specific profile key for trained_heuristic_profiles.json.
+
+    Uses the canonical board×player format: heuristic_v1_{board_abbrev}_{n}p
+
+    Parameters
+    ----------
+    board:
+        Board type: "square8", "square19", or "hex"
+    num_players:
+        Number of players (2, 3, or 4)
+
+    Returns
+    -------
+    str
+        Profile key like "heuristic_v1_sq8_2p" or "heuristic_v1_hex_3p"
+    """
+    board_abbrev = {
+        "square8": "sq8",
+        "square19": "sq19",
+        "hexagonal": "hex",
+        "hex": "hex",
+    }.get(board, board[:3])
+    return f"heuristic_v1_{board_abbrev}_{num_players}p"
 
 
 def load_trained_profiles(profiles_path: str) -> Dict[str, Any]:
@@ -407,7 +428,7 @@ def update_baseline(
 
     # Update trained profiles
     profiles = load_trained_profiles(profiles_path)
-    profile_key = get_profile_key(num_players)
+    profile_key = get_profile_key(board, num_players)
 
     # Round weights to 2 decimal places for cleaner JSON
     rounded_weights = {k: round(v, 2) for k, v in best_weights.items()}

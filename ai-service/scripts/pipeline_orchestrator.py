@@ -67,9 +67,11 @@ class SelfplayJob:
     board_type: str
     num_players: int
     num_games: int
-    engine_mode: str = "descent-only"
+    engine_mode: str = "mixed"  # Use mixed for diverse training data
     max_moves: int = 500
     seed: int = 0
+    use_trained_profiles: bool = True  # Load CMA-ES optimized heuristics
+    use_neural_net: bool = False  # Enable NN for descent/mcts
 
 
 @dataclass
@@ -117,16 +119,54 @@ def load_workers_from_config() -> List[WorkerConfig]:
 WORKERS = load_workers_from_config()
 
 # Default selfplay configuration per iteration
+# Each board×player gets multiple engine modes for diverse training data:
+# - mixed: Samples from canonical ladder (random, heuristic, minimax, mcts, descent)
+# - heuristic-only: Pure heuristic games (benefits from CMA-ES trained weights)
+# - descent-only: Pure descent games (benefits from NN when available)
+# - nn-only: Neural-enabled descent/mcts (when NN checkpoint exists)
+#
+# The mix ensures:
+# 1. Heuristics are exercised (so CMA-ES improvements get tested)
+# 2. Search algorithms get trained heuristics for leaf evaluation
+# 3. NN gets diverse training data from all skill levels
+# 4. Self-play covers the full strength spectrum
+
 DEFAULT_SELFPLAY_CONFIG = {
-    "square8_2p": SelfplayJob("square8", 2, 100, max_moves=500),
-    "square8_3p": SelfplayJob("square8", 3, 60, max_moves=600),
-    "square8_4p": SelfplayJob("square8", 4, 40, max_moves=700),
-    "square19_2p": SelfplayJob("square19", 2, 50, max_moves=800),
-    "square19_3p": SelfplayJob("square19", 3, 30, max_moves=1000),
-    "square19_4p": SelfplayJob("square19", 4, 20, max_moves=1200),
-    "hex_2p": SelfplayJob("hexagonal", 2, 50, max_moves=800),
-    "hex_3p": SelfplayJob("hexagonal", 3, 30, max_moves=1000),
-    "hex_4p": SelfplayJob("hexagonal", 4, 20, max_moves=1200),
+    # Square8 2p - Primary training config, most games
+    "square8_2p_mixed": SelfplayJob("square8", 2, 40, "mixed", 500),
+    "square8_2p_heuristic": SelfplayJob("square8", 2, 20, "heuristic-only", 500),
+    "square8_2p_minimax": SelfplayJob("square8", 2, 15, "minimax-only", 500),
+    "square8_2p_mcts": SelfplayJob("square8", 2, 15, "mcts-only", 500),
+    "square8_2p_descent": SelfplayJob("square8", 2, 20, "descent-only", 500),
+    "square8_2p_nn": SelfplayJob("square8", 2, 10, "nn-only", 500, use_neural_net=True),
+
+    # Square8 3p
+    "square8_3p_mixed": SelfplayJob("square8", 3, 25, "mixed", 600),
+    "square8_3p_heuristic": SelfplayJob("square8", 3, 15, "heuristic-only", 600),
+    "square8_3p_descent": SelfplayJob("square8", 3, 15, "descent-only", 600),
+
+    # Square8 4p
+    "square8_4p_mixed": SelfplayJob("square8", 4, 20, "mixed", 700),
+    "square8_4p_heuristic": SelfplayJob("square8", 4, 10, "heuristic-only", 700),
+    "square8_4p_descent": SelfplayJob("square8", 4, 10, "descent-only", 700),
+
+    # Square19 2p - Larger board, fewer games
+    "square19_2p_mixed": SelfplayJob("square19", 2, 20, "mixed", 800),
+    "square19_2p_heuristic": SelfplayJob("square19", 2, 15, "heuristic-only", 800),
+    "square19_2p_descent": SelfplayJob("square19", 2, 15, "descent-only", 800),
+
+    # Square19 3p/4p
+    "square19_3p_mixed": SelfplayJob("square19", 3, 15, "mixed", 1000),
+    "square19_4p_mixed": SelfplayJob("square19", 4, 10, "mixed", 1200),
+
+    # Hexagonal - Similar to square19
+    "hex_2p_mixed": SelfplayJob("hexagonal", 2, 20, "mixed", 800),
+    "hex_2p_heuristic": SelfplayJob("hexagonal", 2, 15, "heuristic-only", 800),
+    "hex_2p_descent": SelfplayJob("hexagonal", 2, 15, "descent-only", 800),
+
+    # Hex 3p/4p
+    "hex_3p_mixed": SelfplayJob("hexagonal", 3, 15, "mixed", 1000),
+    "hex_4p_mixed": SelfplayJob("hexagonal", 4, 10, "mixed", 1200),
 }
 
 
@@ -234,25 +274,55 @@ class PipelineOrchestrator:
         worker: WorkerConfig,
         job: SelfplayJob,
         iteration: int,
+        job_key: str,
     ) -> bool:
-        """Dispatch a selfplay job to a worker."""
+        """Dispatch a selfplay job to a worker.
+
+        The job will use trained heuristic profiles if available on the worker,
+        and neural networks if the job requests them and checkpoints exist.
+        """
         seed = iteration * 10000 + job.seed
-        log_file = f"logs/selfplay/iter{iteration}_{job.board_type}_{job.num_players}p.jsonl"
+        log_file = f"logs/selfplay/iter{iteration}_{job_key}.jsonl"
+
+        # Build optional flags
+        optional_flags = []
+
+        # Use trained heuristic profiles if available
+        if job.use_trained_profiles:
+            # Workers should have trained_heuristic_profiles.json synced from profile-sync phase
+            optional_flags.append(
+                f"--heuristic-weights-file {worker.remote_path}/data/trained_heuristic_profiles.json"
+            )
+            # Use board-specific profile key
+            board_abbrev = {"square8": "sq8", "square19": "sq19", "hexagonal": "hex"}.get(
+                job.board_type, job.board_type[:3]
+            )
+            profile_key = f"heuristic_v1_{board_abbrev}_{job.num_players}p"
+            optional_flags.append(f"--heuristic-profile {profile_key}")
+
+        # Enable neural network for nn-only or when explicitly requested
+        env_extras = ""
+        if job.use_neural_net or job.engine_mode == "nn-only":
+            env_extras = "export RINGRIFT_USE_NEURAL_NET=1\n"
+
+        flags_str = " \\\n    ".join(optional_flags) if optional_flags else ""
 
         cmd = f"""
 source venv/bin/activate
 export PYTHONPATH={worker.remote_path}
 export RINGRIFT_SKIP_SHADOW_CONTRACTS=true
-python scripts/run_self_play_soak.py \
-    --num-games {job.num_games} \
-    --board-type {job.board_type} \
-    --engine-mode {job.engine_mode} \
-    --num-players {job.num_players} \
-    --max-moves {job.max_moves} \
-    --seed {seed} \
-    --log-jsonl {log_file}
+export RINGRIFT_TRAINED_HEURISTIC_PROFILES={worker.remote_path}/data/trained_heuristic_profiles.json
+{env_extras}python scripts/run_self_play_soak.py \\
+    --num-games {job.num_games} \\
+    --board-type {job.board_type} \\
+    --engine-mode {job.engine_mode} \\
+    --num-players {job.num_players} \\
+    --max-moves {job.max_moves} \\
+    --seed {seed} \\
+    --log-jsonl {log_file} \\
+    {flags_str}
 """
-        self.log(f"Dispatching {job.board_type} {job.num_players}p ({job.num_games} games) to {worker.name}")
+        self.log(f"Dispatching {job_key} ({job.num_games} {job.engine_mode} games) to {worker.name}")
 
         code, _, stderr = await self.run_remote_command(worker, cmd, background=True)
         if code != 0:
@@ -280,23 +350,24 @@ python scripts/run_self_play_soak.py \
             self.log("No healthy workers available!", "ERROR")
             return {}
 
-        # Distribute jobs across workers
-        jobs = list(DEFAULT_SELFPLAY_CONFIG.values())
-        job_idx = 0
+        # Distribute jobs across workers with round-robin assignment
+        # This ensures all job types get dispatched, not just the first few
+        job_items = list(DEFAULT_SELFPLAY_CONFIG.items())
         tasks = []
+        worker_idx = 0
 
-        for worker in healthy_workers:
-            for _ in range(worker.max_parallel_jobs):
-                if job_idx >= len(jobs):
-                    break
-                job = jobs[job_idx]
-                tasks.append(self.dispatch_selfplay(worker, job, iteration))
-                job_idx += 1
+        for job_key, job in job_items:
+            if not healthy_workers:
+                break
+            # Round-robin worker assignment
+            worker = healthy_workers[worker_idx % len(healthy_workers)]
+            tasks.append(self.dispatch_selfplay(worker, job, iteration, job_key))
+            worker_idx += 1
 
         # Wait for all dispatches to complete
         results = await asyncio.gather(*tasks)
         success_count = sum(1 for r in results if r)
-        self.log(f"Dispatched {success_count}/{len(tasks)} selfplay jobs")
+        self.log(f"Dispatched {success_count}/{len(tasks)} selfplay jobs across {len(healthy_workers)} workers")
 
         return {"dispatched": success_count, "total": len(tasks)}
 
@@ -337,86 +408,311 @@ python scripts/run_self_play_soak.py \
             self.log(f"Sync error: {e}", "ERROR")
             return False
 
+    async def sync_heuristic_profiles(self) -> bool:
+        """Sync trained heuristic profiles from all workers.
+
+        After CMA-ES completes on remote workers, this method pulls the
+        trained_heuristic_profiles.json from each worker and merges them
+        into a unified local copy. The merged profiles are then pushed
+        back to all workers so they use the latest heuristics for selfplay.
+        """
+        self.log("=== Syncing Trained Heuristic Profiles ===")
+
+        local_profiles_path = Path("data/trained_heuristic_profiles.json")
+        merged_profiles: Dict[str, Any] = {
+            "version": "1.3.0",
+            "created": datetime.now().strftime("%Y-%m-%d"),
+            "updated": datetime.now().strftime("%Y-%m-%d"),
+            "description": "CMA-ES optimized heuristic profiles (merged from distributed workers)",
+            "profiles": {},
+            "training_metadata": {},
+        }
+
+        # Load existing local profiles
+        if local_profiles_path.exists():
+            try:
+                with open(local_profiles_path) as f:
+                    existing = json.load(f)
+                    merged_profiles["profiles"].update(existing.get("profiles", {}))
+                    merged_profiles["training_metadata"].update(existing.get("training_metadata", {}))
+            except (json.JSONDecodeError, OSError) as e:
+                self.log(f"Warning: Could not load existing profiles: {e}", "WARN")
+
+        # Pull profiles from each worker
+        pull_count = 0
+        for worker in WORKERS:
+            if not await self.check_worker_health(worker):
+                continue
+
+            # Fetch remote profiles
+            cmd = f"cat {worker.remote_path}/data/trained_heuristic_profiles.json 2>/dev/null || echo '{{}}'"
+            code, stdout, _ = await self.run_remote_command(worker, cmd)
+
+            if code == 0 and stdout.strip() and stdout.strip() != "{}":
+                try:
+                    remote_profiles = json.loads(stdout)
+                    remote_data = remote_profiles.get("profiles", {})
+                    remote_meta = remote_profiles.get("training_metadata", {})
+
+                    # Merge profiles, preferring higher fitness
+                    for key, weights in remote_data.items():
+                        existing_meta = merged_profiles["training_metadata"].get(key, {})
+                        new_meta = remote_meta.get(key, {})
+
+                        existing_fitness = existing_meta.get("fitness", 0)
+                        new_fitness = new_meta.get("fitness", 0)
+
+                        if new_fitness > existing_fitness or key not in merged_profiles["profiles"]:
+                            merged_profiles["profiles"][key] = weights
+                            merged_profiles["training_metadata"][key] = new_meta
+                            self.log(f"  Merged {key} from {worker.name} (fitness: {new_fitness:.3f})")
+                            pull_count += 1
+                except json.JSONDecodeError as e:
+                    self.log(f"Warning: Invalid JSON from {worker.name}: {e}", "WARN")
+
+        if pull_count > 0:
+            # Save merged profiles locally
+            local_profiles_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(local_profiles_path, "w") as f:
+                json.dump(merged_profiles, f, indent=2)
+            self.log(f"Saved merged profiles to {local_profiles_path}", "OK")
+
+            # Push merged profiles back to all workers
+            profiles_json = json.dumps(merged_profiles)
+            push_count = 0
+            for worker in WORKERS:
+                if not await self.check_worker_health(worker):
+                    continue
+
+                push_cmd = f"mkdir -p {worker.remote_path}/data && cat > {worker.remote_path}/data/trained_heuristic_profiles.json << 'EOFPROFILES'\n{profiles_json}\nEOFPROFILES"
+                code, _, _ = await self.run_remote_command(worker, push_cmd)
+                if code == 0:
+                    push_count += 1
+
+            self.log(f"Pushed merged profiles to {push_count} workers", "OK")
+
+        return pull_count > 0
+
     async def run_training_phase(self, iteration: int) -> Dict[str, bool]:
-        """Run NN training on Mac Studio."""
+        """Run NN training on Mac Studio for all board×player configurations.
+
+        Trains neural networks for each configuration that has sufficient
+        training data. Prioritizes square8 2p (most data) then expands to
+        other configs based on available games.
+        """
         self.state.phase = "training"
         self._save_state()
         self.log(f"=== Starting Training Phase (Iteration {iteration}) ===")
 
         results = {}
 
-        # Find Mac Studio worker
-        mac_studio = next((w for w in WORKERS if w.name == "mac-studio"), None)
-        if not mac_studio:
-            self.log("Mac Studio worker not configured", "ERROR")
+        # Find Mac Studio worker (or any training-capable worker)
+        training_worker = next(
+            (w for w in WORKERS if w.role in ["training", "mixed"] and w.name == "mac-studio"),
+            next((w for w in WORKERS if w.role in ["training", "mixed"]), None)
+        )
+        if not training_worker:
+            self.log("No training worker configured", "ERROR")
             return results
 
-        if not await self.check_worker_health(mac_studio):
-            self.log("Mac Studio not reachable", "ERROR")
+        if not await self.check_worker_health(training_worker):
+            self.log(f"{training_worker.name} not reachable", "ERROR")
             return results
 
-        # Train square8 2p model (primary)
-        train_cmd = f"""
+        # Training configurations: (board, players, epochs, min_games_required)
+        # More epochs for primary configs, fewer for secondary
+        TRAINING_CONFIGS = [
+            # Primary configs - full training
+            ("square8", 2, 50, 100),
+            ("square8", 3, 40, 50),
+            ("square8", 4, 40, 40),
+            # Secondary configs - lighter training
+            ("square19", 2, 30, 50),
+            ("hexagonal", 2, 30, 50),
+            # Tertiary configs - minimal training if data available
+            ("square19", 3, 20, 30),
+            ("square19", 4, 20, 20),
+            ("hexagonal", 3, 20, 30),
+            ("hexagonal", 4, 20, 20),
+        ]
+
+        for board, players, epochs, min_games in TRAINING_CONFIGS:
+            config_key = f"{board}_{players}p"
+
+            # Check if sufficient training data exists
+            check_cmd = f"sqlite3 {training_worker.remote_path}/data/games/merged_latest.db \"SELECT COUNT(*) FROM games WHERE board_type='{board}' AND num_players={players} AND status='completed'\" 2>/dev/null || echo 0"
+            code, stdout, _ = await self.run_remote_command(training_worker, check_cmd)
+            game_count = int(stdout.strip()) if code == 0 and stdout.strip().isdigit() else 0
+
+            if game_count < min_games:
+                self.log(f"{config_key}: Skipping (only {game_count}/{min_games} games)", "WARN")
+                results[config_key] = False
+                continue
+
+            # Train this configuration
+            train_cmd = f"""
 source venv/bin/activate
-export PYTHONPATH={mac_studio.remote_path}
-python app/training/train.py \
-    --data-path data/games/merged_latest.db \
-    --board-type square8 \
-    --num-players 2 \
-    --epochs 50 \
-    --batch-size 256 \
-    --device mps \
-    --save-path models/square8_2p_iter{iteration}.pth
+export PYTHONPATH={training_worker.remote_path}
+export RINGRIFT_TRAINED_HEURISTIC_PROFILES={training_worker.remote_path}/data/trained_heuristic_profiles.json
+python -m app.training.train \\
+    --data-path data/games/merged_latest.db \\
+    --board-type {board} \\
+    --num-players {players} \\
+    --epochs {epochs} \\
+    --batch-size 256 \\
+    --device mps \\
+    --save-path models/{config_key}_iter{iteration}.pth \\
+    --save-best models/{config_key}_best.pth
 """
-        self.log("Starting NN training for square8 2p...")
-        code, stdout, stderr = await self.run_remote_command(mac_studio, train_cmd, background=False)
-        results["square8_2p"] = code == 0
-        if code == 0:
-            self.log("square8 2p training completed", "OK")
-            self.state.models_trained.append(f"square8_2p_iter{iteration}")
-        else:
-            self.log(f"square8 2p training failed: {stderr[:200]}", "ERROR")
+            self.log(f"Training {config_key} ({game_count} games, {epochs} epochs)...")
+            code, stdout, stderr = await self.run_remote_command(training_worker, train_cmd, background=False)
+            results[config_key] = code == 0
+
+            if code == 0:
+                self.log(f"{config_key} training completed", "OK")
+                self.state.models_trained.append(f"{config_key}_iter{iteration}")
+            else:
+                self.log(f"{config_key} training failed: {stderr[:200]}", "ERROR")
 
         self._save_state()
         return results
 
     async def run_cmaes_phase(self, iteration: int) -> Dict[str, bool]:
-        """Run CMA-ES optimization on staging."""
+        """Run CMA-ES optimization across all board×player configurations.
+
+        This phase runs iterative CMA-ES heuristic tuning for each of the 9
+        board×player combinations. Jobs are distributed across available
+        workers based on their capabilities (some workers may not support
+        larger boards due to memory constraints).
+
+        The trained heuristic profiles are saved to data/trained_heuristic_profiles.json
+        and automatically loaded by subsequent selfplay phases.
+        """
         self.state.phase = "cmaes"
         self._save_state()
         self.log(f"=== Starting CMA-ES Phase (Iteration {iteration}) ===")
 
         results = {}
 
-        # Find staging worker
-        staging = next((w for w in WORKERS if w.name == "staging"), None)
-        if not staging:
-            self.log("Staging worker not configured", "ERROR")
+        # Define all 9 board×player CMA-ES configurations
+        # Format: (board, num_players, generations_per_iter, max_iterations, capabilities_required)
+        CMAES_CONFIGS = [
+            # Square8 - can run on any worker (low memory)
+            ("square8", 2, 15, 5, ["square8"]),
+            ("square8", 3, 12, 4, ["square8"]),
+            ("square8", 4, 10, 4, ["square8"]),
+            # Square19 - requires more memory, LAN workers preferred
+            ("square19", 2, 12, 4, ["square19"]),
+            ("square19", 3, 10, 3, ["square19"]),
+            ("square19", 4, 8, 3, ["square19"]),
+            # Hexagonal - similar to square19
+            ("hexagonal", 2, 12, 4, ["hex"]),
+            ("hexagonal", 3, 10, 3, ["hex"]),
+            ("hexagonal", 4, 8, 3, ["hex"]),
+        ]
+
+        # Find workers capable of CMA-ES
+        cmaes_workers = []
+        for worker in WORKERS:
+            if worker.role in ["cmaes", "mixed", "training"]:
+                if await self.check_worker_health(worker):
+                    cmaes_workers.append(worker)
+                    self.log(f"CMA-ES worker {worker.name}: healthy (caps: {worker.capabilities})", "OK")
+                else:
+                    self.log(f"CMA-ES worker {worker.name}: unreachable", "WARN")
+
+        if not cmaes_workers:
+            self.log("No healthy CMA-ES workers available!", "ERROR")
             return results
 
-        if not await self.check_worker_health(staging):
-            self.log("Staging not reachable", "ERROR")
-            return results
+        # Match configs to capable workers
+        async def dispatch_cmaes_job(
+            worker: WorkerConfig,
+            board: str,
+            num_players: int,
+            gens_per_iter: int,
+            max_iters: int,
+        ) -> Tuple[str, bool]:
+            """Dispatch a single CMA-ES job to a worker."""
+            config_key = f"{board}_{num_players}p"
+            output_dir = f"logs/cmaes/iter{iteration}/{config_key}"
 
-        # Run CMA-ES for square8 2p
-        cmaes_cmd = f"""
+            # Determine worker URLs for distributed mode
+            # Use all workers that support this board type
+            compatible_workers = [
+                w for w in cmaes_workers
+                if any(cap in w.capabilities for cap in [board[:3], board, "all"])
+            ]
+            worker_urls = ",".join([
+                f"http://{w.host.split('@')[-1]}:8765"
+                for w in compatible_workers
+                if w != worker  # Exclude self for distributed workers
+            ]) if len(compatible_workers) > 1 else ""
+
+            distributed_flag = "--distributed" if worker_urls else ""
+            workers_arg = f"--workers {worker_urls}" if worker_urls else ""
+
+            cmaes_cmd = f"""
 source venv/bin/activate
-export PYTHONPATH={staging.remote_path}
+export PYTHONPATH={worker.remote_path}
 export RINGRIFT_SKIP_SHADOW_CONTRACTS=true
-python scripts/run_iterative_cmaes.py \
-    --board square8 \
-    --num-players 2 \
-    --generations-per-iter 10 \
-    --max-iterations 3 \
-    --output-dir logs/cmaes/iter{iteration}/square8_2p
+python scripts/run_iterative_cmaes.py \\
+    --board {board} \\
+    --num-players {num_players} \\
+    --generations-per-iter {gens_per_iter} \\
+    --max-iterations {max_iters} \\
+    --population-size 14 \\
+    --games-per-eval 8 \\
+    --sigma 0.5 \\
+    --output-dir {output_dir} \\
+    {distributed_flag} {workers_arg}
 """
-        self.log("Starting CMA-ES optimization for square8 2p...")
-        code, _, stderr = await self.run_remote_command(staging, cmaes_cmd, background=True)
-        results["square8_2p"] = code == 0
-        if code == 0:
-            self.log("CMA-ES square8 2p dispatched", "OK")
-        else:
-            self.log(f"CMA-ES dispatch failed: {stderr[:200]}", "ERROR")
+            self.log(f"Dispatching CMA-ES {config_key} to {worker.name}...")
+            code, _, stderr = await self.run_remote_command(worker, cmaes_cmd, background=True)
+
+            if code == 0:
+                self.log(f"CMA-ES {config_key} dispatched to {worker.name}", "OK")
+                return config_key, True
+            else:
+                self.log(f"CMA-ES {config_key} dispatch failed: {stderr[:200]}", "ERROR")
+                return config_key, False
+
+        # Distribute jobs across workers, matching capabilities
+        tasks = []
+        worker_idx = 0
+
+        for board, num_players, gens, max_iters, required_caps in CMAES_CONFIGS:
+            # Find a worker with required capabilities
+            capable_worker = None
+            for i in range(len(cmaes_workers)):
+                worker = cmaes_workers[(worker_idx + i) % len(cmaes_workers)]
+                # Check if worker has required capability (or "all")
+                if "all" in worker.capabilities or any(
+                    cap in worker.capabilities for cap in required_caps
+                ):
+                    capable_worker = worker
+                    worker_idx = (worker_idx + i + 1) % len(cmaes_workers)
+                    break
+
+            if capable_worker:
+                tasks.append(dispatch_cmaes_job(
+                    capable_worker, board, num_players, gens, max_iters
+                ))
+            else:
+                config_key = f"{board}_{num_players}p"
+                self.log(f"No worker capable of {config_key} (needs {required_caps})", "WARN")
+                results[config_key] = False
+
+        # Execute all dispatches concurrently
+        if tasks:
+            dispatch_results = await asyncio.gather(*tasks)
+            for config_key, success in dispatch_results:
+                results[config_key] = success
+
+        # Summary
+        success_count = sum(1 for v in results.values() if v)
+        total_count = len(results)
+        self.log(f"CMA-ES phase: dispatched {success_count}/{total_count} jobs")
 
         return results
 
@@ -458,7 +754,16 @@ python scripts/run_ai_tournament.py \
         return results
 
     async def run_full_iteration(self, iteration: int) -> bool:
-        """Run a complete pipeline iteration."""
+        """Run a complete pipeline iteration.
+
+        Pipeline flow:
+        1. Selfplay: Generate games with current models/heuristics
+        2. Sync: Pull selfplay data from workers
+        3. CMA-ES: Optimize heuristics for all 9 board×player configs (background)
+        4. NN Training: Train neural network on new data (parallel with CMA-ES wait)
+        5. Profile Sync: Pull trained heuristics, merge, push to all workers
+        6. Evaluation: Tournament to compare new vs old models
+        """
         self.log(f"\n{'='*60}")
         self.log(f"=== Pipeline Iteration {iteration} ===")
         self.log(f"{'='*60}\n")
@@ -466,7 +771,7 @@ python scripts/run_ai_tournament.py \
         self.state.iteration = iteration
         self._save_state()
 
-        # Phase 1: Selfplay
+        # Phase 1: Selfplay - Generate games across all board×player configs
         selfplay_result = await self.run_selfplay_phase(iteration)
         if not selfplay_result.get("dispatched", 0):
             self.log("Selfplay phase failed", "ERROR")
@@ -477,18 +782,30 @@ python scripts/run_ai_tournament.py \
             self.log("Waiting for selfplay jobs to generate data...")
             await asyncio.sleep(300)  # 5 minutes initial wait
 
-        # Phase 2: Sync
+        # Phase 2: Sync selfplay data from workers
         if not await self.run_sync_phase():
             self.log("Sync phase failed, continuing...", "WARN")
 
-        # Phase 3: Training (parallel with CMA-ES)
-        training_task = asyncio.create_task(self.run_training_phase(iteration))
-        cmaes_task = asyncio.create_task(self.run_cmaes_phase(iteration))
+        # Phase 3: CMA-ES heuristic optimization (dispatches background jobs)
+        # This runs all 9 board×player configurations across available workers
+        cmaes_results = await self.run_cmaes_phase(iteration)
 
-        training_results = await training_task
-        cmaes_results = await cmaes_task
+        # Phase 4: NN Training (runs while CMA-ES jobs process in background)
+        training_results = await self.run_training_phase(iteration)
 
-        # Phase 4: Evaluation
+        # Phase 5: Wait for CMA-ES completion and sync heuristic profiles
+        if any(cmaes_results.values()):
+            if not self.dry_run:
+                # Wait for CMA-ES jobs to complete (they run in background)
+                # CMA-ES typically takes 30-60 minutes per config
+                cmaes_wait_minutes = 45
+                self.log(f"Waiting {cmaes_wait_minutes} min for CMA-ES jobs to complete...")
+                await asyncio.sleep(cmaes_wait_minutes * 60)
+
+            # Pull trained heuristic profiles from all workers and merge
+            await self.sync_heuristic_profiles()
+
+        # Phase 6: Evaluation - Compare models/heuristics
         eval_results = await self.run_evaluation_phase(iteration)
 
         self.state.phase = "complete"
@@ -496,10 +813,11 @@ python scripts/run_ai_tournament.py \
 
         self.log(f"\n{'='*60}")
         self.log(f"=== Iteration {iteration} Complete ===")
-        self.log(f"Selfplay: {selfplay_result}")
-        self.log(f"Training: {training_results}")
-        self.log(f"CMA-ES: {cmaes_results}")
-        self.log(f"Evaluation: {eval_results}")
+        self.log(f"{'='*60}")
+        self.log(f"Selfplay:  {selfplay_result}")
+        self.log(f"CMA-ES:    {cmaes_results}")
+        self.log(f"Training:  {training_results}")
+        self.log(f"Eval:      {eval_results}")
         self.log(f"{'='*60}\n")
 
         return True
@@ -528,6 +846,8 @@ python scripts/run_ai_tournament.py \
                 await self.run_training_phase(iteration)
             elif phase == "cmaes":
                 await self.run_cmaes_phase(iteration)
+            elif phase == "profile-sync":
+                await self.sync_heuristic_profiles()
             elif phase == "evaluation":
                 await self.run_evaluation_phase(iteration)
             else:
@@ -567,7 +887,7 @@ def main():
     parser.add_argument(
         "--phase",
         type=str,
-        choices=["selfplay", "sync", "training", "cmaes", "evaluation"],
+        choices=["selfplay", "sync", "training", "cmaes", "profile-sync", "evaluation"],
         help="Run only a specific phase",
     )
     parser.add_argument(

@@ -28,7 +28,10 @@ from pathlib import Path
 from typing import List
 
 from app.db import GameReplayDB
-from app.rules.history_validation import validate_canonical_history_for_game
+from app.rules.history_validation import (
+    validate_canonical_config_for_game,
+    validate_canonical_history_for_game,
+)
 
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +64,17 @@ def run_history_validator() -> bool:
             game_ids = [row["game_id"] for row in rows]
 
         for gid in game_ids:
+            cfg_report = validate_canonical_config_for_game(db, gid)
+            if not cfg_report.is_canonical:
+                _log(f"  NON-CANONICAL config for game {gid}:")
+                for issue in cfg_report.issues[:5]:
+                    _log(
+                        "    "
+                        f"reason={issue.reason} observed={issue.observed} expected={issue.expected}"
+                    )
+                all_ok = False
+                break
+
             report = validate_canonical_history_for_game(db, gid)
             if not report.is_canonical:
                 _log(f"  NON-CANONICAL game {gid}:")
