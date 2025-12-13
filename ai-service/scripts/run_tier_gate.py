@@ -44,6 +44,7 @@ from app.training.tier_eval_runner import (  # noqa: E402
 from app.config.ladder_config import (  # noqa: E402
     get_ladder_tier_config,
 )
+from app.models import AIType  # noqa: E402
 
 
 def _get_heuristic_tier_spec(tier_id: str) -> HeuristicTierSpec:
@@ -141,6 +142,18 @@ def parse_args() -> argparse.Namespace:
             "metrics. When the candidate fails, a descriptor with "
             "decision='reject' is still written so CI can consume a "
             "uniform format."
+        ),
+    )
+    parser.add_argument(
+        "--use-candidate-artifact",
+        action="store_true",
+        help=(
+            "When set, attempt to load the candidate artefact referenced by "
+            "--candidate-model-id (heuristic profile id, NNUE model id, or "
+            "neural checkpoint id). If the artefact cannot be resolved, an "
+            "explicit failing gate criterion is recorded and overall_pass is "
+            "forced to False so promotion plans do not accidentally promote "
+            "a label-only candidate."
         ),
     )
     return parser.parse_args()
@@ -277,14 +290,58 @@ def _run_difficulty_mode(args: argparse.Namespace) -> int:
         production_ladder = None
         current_model_id = None
 
+    candidate_override_id: str | None = None
+    if args.use_candidate_artifact and production_ladder is not None:
+        candidate_id = str(args.candidate_model_id)
+        ai_type = production_ladder.ai_type
+
+        if ai_type == AIType.HEURISTIC:
+            try:
+                from app.ai.heuristic_weights import HEURISTIC_WEIGHT_PROFILES
+
+                if candidate_id in HEURISTIC_WEIGHT_PROFILES:
+                    candidate_override_id = candidate_id
+            except Exception:
+                candidate_override_id = None
+        elif ai_type == AIType.MINIMAX:
+            import os as _os
+
+            nnue_path = _os.path.join(
+                PROJECT_ROOT,
+                "models",
+                "nnue",
+                f"{candidate_id}.pt",
+            )
+            if _os.path.exists(nnue_path):
+                candidate_override_id = candidate_id
+        else:
+            import os as _os
+
+            for suffix in (".pth", "_mps.pth"):
+                ckpt_path = _os.path.join(
+                    PROJECT_ROOT,
+                    "models",
+                    f"{candidate_id}{suffix}",
+                )
+                if _os.path.exists(ckpt_path):
+                    candidate_override_id = candidate_id
+                    break
+
     result = run_tier_evaluation(
         tier_config=tier_config,
         candidate_id=args.candidate_model_id,
+        candidate_override_id=candidate_override_id,
         seed=args.seed,
         num_games_override=args.num_games,
         time_budget_ms_override=args.time_budget_ms,
         max_moves_override=args.max_moves,
     )
+
+    if args.use_candidate_artifact:
+        used = candidate_override_id is not None
+        result.criteria["candidate_artifact_present"] = used
+        if not used:
+            result.overall_pass = False
 
     _print_difficulty_summary(
         tier_name=tier_name,
@@ -301,6 +358,11 @@ def _run_difficulty_mode(args: argparse.Namespace) -> int:
     if args.candidate_model_id:
         payload.setdefault("ladder", {})
         payload["ladder"]["candidate_model_id"] = args.candidate_model_id
+    payload.setdefault("ladder", {})
+    payload["ladder"]["candidate_artifact_present"] = bool(
+        candidate_override_id is not None
+    )
+    payload["ladder"]["use_candidate_artifact"] = bool(args.use_candidate_artifact)
 
     if args.output_json:
         out_path = os.path.abspath(args.output_json)
@@ -316,6 +378,8 @@ def _run_difficulty_mode(args: argparse.Namespace) -> int:
         ts = datetime.now(timezone.utc).isoformat()
         reason = {
             "overall_pass": result.overall_pass,
+            "candidate_artifact_present": bool(candidate_override_id is not None),
+            "use_candidate_artifact": bool(args.use_candidate_artifact),
             "win_rate_vs_baseline": payload["metrics"].get("win_rate_vs_baseline"),
             "win_rate_vs_baseline_ci_low": payload["metrics"].get(
                 "win_rate_vs_baseline_ci_low"

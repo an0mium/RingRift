@@ -224,8 +224,11 @@ def enumerate_capture_moves_py(
 
     It walks each capture ray, finds the first capturable target stack with
     attacker.cap_height >= target.cap_height, and then enumerates all legal
-    landing positions beyond that target, delegating the detailed segment
-    legality to validate_capture_segment_on_board_py.
+    landing positions beyond that target.
+
+    OPTIMIZATION: This version inlines the distance and path validation to
+    avoid redundant re-validation of attacker/target/path-to-target that
+    was being done in validate_capture_segment_on_board_py for each landing.
     """
     board = state.board
     board_type = board.type
@@ -235,6 +238,7 @@ def enumerate_capture_moves_py(
     if not attacker or attacker.controlling_player != player:
         return []
 
+    attacker_stack_height = attacker.stack_height
     move_num = (
         move_number
         if move_number is not None
@@ -245,8 +249,10 @@ def enumerate_capture_moves_py(
 
     for direction in directions:
         # Step 1: find the first potential target along this ray.
+        # This implicitly validates the path from attacker to target is clear.
         step = 1
         target_pos: Optional[Position] = None
+        steps_to_target = 0
 
         while True:
             pos = BoardManager._add_direction(from_pos, direction, step)
@@ -259,6 +265,7 @@ def enumerate_capture_moves_py(
             if stack_at_pos and stack_at_pos.stack_height > 0:
                 if attacker.cap_height >= stack_at_pos.cap_height:
                     target_pos = pos
+                    steps_to_target = step
                 break
 
             step += 1
@@ -267,8 +274,12 @@ def enumerate_capture_moves_py(
             continue
 
         # Step 2: enumerate possible landing positions beyond the target.
+        # We track cumulative distance and validate path incrementally.
         landing_step = 1
-        while True:
+        # Track intermediate positions between target and landing for validation
+        path_from_target_clear = True
+
+        while path_from_target_clear:
             landing_pos = BoardManager._add_direction(
                 target_pos,
                 direction,
@@ -285,14 +296,20 @@ def enumerate_capture_moves_py(
             if BoardManager.get_stack(landing_pos, board):
                 break
 
-            if validate_capture_segment_on_board_py(
-                board_type,
-                from_pos,
-                target_pos,
-                landing_pos,
-                player,
-                board,
-            ):
+            # Total distance from attacker to landing
+            total_steps = steps_to_target + landing_step
+
+            # Distance constraint: total_distance >= attacker.stack_height
+            # For square boards, steps = distance
+            # For hex boards, calculate actual distance
+            if board_type == BoardType.HEXAGONAL:
+                segment_distance = BoardGeometry.calculate_distance(
+                    board_type, from_pos, landing_pos
+                )
+            else:
+                segment_distance = total_steps
+
+            if segment_distance >= attacker_stack_height:
                 move_type = (
                     MoveType.OVERTAKING_CAPTURE
                     if kind == "initial"

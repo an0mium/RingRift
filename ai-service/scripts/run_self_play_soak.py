@@ -2592,6 +2592,17 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable lean recording mode; store full state history for debugging.",
     )
+    # Training data (moves + initial_state) is now ALWAYS included in JSONL output.
+    # Accept the historical flag for backwards compatibility with older scripts
+    # (e.g. canonical parity gates) that still pass it.
+    parser.add_argument(
+        "--include-training-data",
+        action="store_true",
+        help=(
+            "Deprecated no-op. Training data is always included in JSONL output "
+            "(RR-DATA-QUALITY-2024-12)."
+        ),
+    )
     # NOTE: Training data (moves + initial_state) is ALWAYS included in JSONL output.
     # This is mandatory to ensure all game data can be converted to NPZ for training.
     # The --no-include-training-data option has been removed to prevent generating

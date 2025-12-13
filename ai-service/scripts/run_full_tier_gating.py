@@ -137,6 +137,12 @@ def _run_tier_gate_cli(
         "--promotion-plan-out",
         plan_path,
     ]
+    # In non-demo runs, the candidate id should refer to a concrete artefact
+    # produced by the tier training pipeline. Enable candidate loading so the
+    # gate does not accidentally evaluate the production ladder while
+    # emitting a promotion plan for a label-only candidate.
+    if num_games_override is None:
+        cmd.append("--use-candidate-artifact")
     if seed is not None:
         cmd.extend(["--seed", str(seed)])
     if num_games_override is not None:

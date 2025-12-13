@@ -17,8 +17,10 @@ from app.models import (  # noqa: E402
     GamePhase,
     GameState,
     GameStatus,
+    Move,
     MoveType,
     Player,
+    Position,
     TimeControl,
 )
 from app.rules.default_engine import DefaultRulesEngine  # noqa: E402
@@ -91,6 +93,24 @@ def _contains_swap_sides(moves) -> bool:
 
 def _count_swap_sides(moves) -> int:
     return sum(1 for m in moves if m.type == MoveType.SWAP_SIDES)
+
+
+def _dummy_move(
+    *,
+    move_type: MoveType,
+    player: int,
+    move_number: int,
+    ts: datetime,
+) -> Move:
+    return Move(
+        id=f"dummy-{player}-{move_number}",
+        type=move_type,
+        player=player,
+        to=Position(x=0, y=0),
+        timestamp=ts,
+        thinkTime=0,
+        moveNumber=move_number,
+    )
 
 
 def test_swap_rule_offered_exactly_once_for_player_two_after_p1_first_move() -> None:
@@ -277,3 +297,54 @@ def test_swap_sides_cache_key_respects_rules_options_swap_rule_enabled() -> None
     )
     p2_moves_disabled = GameEngine.get_valid_moves(state_for_p2_turn_disabled, 2)
     assert _count_swap_sides(p2_moves_disabled) == 0
+
+
+def test_swap_sides_cache_key_accounts_for_p2_non_swap_move_presence() -> None:
+    """swap_sides eligibility depends on move history composition.
+
+    Regression guard: in canonical history, a single player may record
+    multiple moves per turn (bookkeeping + choices). Using only
+    ``move_history`` length in the move cache key can therefore cause a
+    swap-enabled move surface to leak into a state where Player 2 has
+    already taken a non-swap move, producing illegal SWAP_SIDES actions
+    in self-play.
+    """
+    GameEngine.clear_cache()
+    base = _make_swap_enabled_state()
+    ts = datetime.now()
+
+    p1_only_history = [
+        _dummy_move(
+            move_type=MoveType.PLACE_RING,
+            player=1,
+            move_number=i + 1,
+            ts=ts,
+        )
+        for i in range(7)
+    ]
+
+    swap_eligible = base.model_copy(
+        update={
+            "current_player": 2,
+            "move_history": p1_only_history,
+        }
+    )
+    moves_swap_eligible = GameEngine.get_valid_moves(swap_eligible, 2)
+    assert _count_swap_sides(moves_swap_eligible) == 1
+
+    not_swap_eligible = base.model_copy(
+        update={
+            "current_player": 2,
+            "move_history": p1_only_history[:6]
+            + [
+                _dummy_move(
+                    move_type=MoveType.SKIP_PLACEMENT,
+                    player=2,
+                    move_number=7,
+                    ts=ts,
+                )
+            ],
+        }
+    )
+    moves_not_swap_eligible = GameEngine.get_valid_moves(not_swap_eligible, 2)
+    assert _count_swap_sides(moves_not_swap_eligible) == 0

@@ -101,6 +101,97 @@ def test_tier_eval_runner_uses_ladder_tier_config(monkeypatch) -> None:
     assert cfg.rng_seed == 42
 
 
+def test_tier_eval_runner_threads_ladder_model_id_into_ai_config(monkeypatch) -> None:
+    """Tier eval should propagate LadderTierConfig.model_id into AIConfig.nn_model_id."""
+    tier_cfg = get_tier_config("D6")
+
+    sentinel_model_id = "ringrift_model_sentinel"
+    ladder_cfg = LadderTierConfig(
+        difficulty=tier_cfg.candidate_difficulty,
+        board_type=tier_cfg.board_type,
+        num_players=tier_cfg.num_players,
+        ai_type=AIType.MCTS,
+        model_id=sentinel_model_id,
+        heuristic_profile_id=None,
+        randomness=0.0,
+        think_time_ms=1234,
+        use_neural_net=True,
+        notes="test override",
+    )
+
+    def _fake_get_ladder_tier_config(difficulty, board_type, num_players):
+        assert difficulty == tier_cfg.candidate_difficulty
+        assert board_type == tier_cfg.board_type
+        assert num_players == tier_cfg.num_players
+        return ladder_cfg
+
+    captured = {}
+
+    def _fake_create_ai_instance(ai_type, player_number, config):
+        captured["ai_type"] = ai_type
+        captured["player_number"] = player_number
+        captured["config"] = config
+        return object()
+
+    monkeypatch.setattr(runner, "get_ladder_tier_config", _fake_get_ladder_tier_config)
+    monkeypatch.setattr(runner, "_create_ai_instance", _fake_create_ai_instance)
+
+    runner._create_ladder_ai_instance(  # type: ignore[attr-defined]
+        tier_config=tier_cfg,
+        difficulty=tier_cfg.candidate_difficulty,
+        player_number=1,
+        time_budget_ms=None,
+        ai_type_override=None,
+        rng_seed=7,
+    )
+
+    cfg = captured["config"]
+    assert cfg.nn_model_id == sentinel_model_id
+    assert cfg.use_neural_net is True
+
+
+def test_tier_eval_runner_candidate_override_sets_nn_model_id(monkeypatch) -> None:
+    """Candidate overrides should replace the model id when enabled."""
+    tier_cfg = get_tier_config("D6")
+
+    ladder_cfg = LadderTierConfig(
+        difficulty=tier_cfg.candidate_difficulty,
+        board_type=tier_cfg.board_type,
+        num_players=tier_cfg.num_players,
+        ai_type=AIType.MCTS,
+        model_id="prod_model",
+        heuristic_profile_id=None,
+        randomness=0.0,
+        think_time_ms=1234,
+        use_neural_net=True,
+        notes="test override",
+    )
+
+    def _fake_get_ladder_tier_config(difficulty, board_type, num_players):
+        return ladder_cfg
+
+    captured = {}
+
+    def _fake_create_ai_instance(ai_type, player_number, config):
+        captured["config"] = config
+        return object()
+
+    monkeypatch.setattr(runner, "get_ladder_tier_config", _fake_get_ladder_tier_config)
+    monkeypatch.setattr(runner, "_create_ai_instance", _fake_create_ai_instance)
+
+    runner._create_ladder_ai_instance(  # type: ignore[attr-defined]
+        tier_config=tier_cfg,
+        difficulty=tier_cfg.candidate_difficulty,
+        player_number=1,
+        time_budget_ms=None,
+        ai_type_override=None,
+        candidate_override_id="candidate_model",
+        rng_seed=7,
+    )
+
+    assert captured["config"].nn_model_id == "candidate_model"
+
+
 def test_multiboard_and_multiplayer_tier_eval_configs_exist() -> None:
     """Tier evaluation configs exist for multiboard and multiplayer tiers."""
     cases = [

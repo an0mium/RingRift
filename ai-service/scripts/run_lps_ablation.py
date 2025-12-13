@@ -105,6 +105,7 @@ ENGINE_MODE_TO_AI = {
     "mcts-only": AIType.MCTS,
     "descent-only": AIType.DESCENT,
     "random-only": AIType.RANDOM,
+    "hybrid-gpu": None,  # Special case: uses HybridGPUEvaluator
 }
 
 
@@ -192,6 +193,7 @@ def run_single_game(
     game_id: int,
     verbose: bool = False,
     progress_interval: int = 10,
+    hybrid_evaluator=None,
 ) -> GameResult:
     """Run a single self-play game with specified LPS threshold and rings."""
     start_time = time.time()
@@ -210,29 +212,37 @@ def run_single_game(
     env = make_env(env_config)
     state = env.reset()
 
-    # Create AI instances
-    ai_type = ENGINE_MODE_TO_AI.get(engine_mode, AIType.HEURISTIC)
-    ai_config = AIConfig(
-        type=ai_type,
-        difficulty=5,
-        useNeuralNetwork=False,
-    )
+    # For hybrid-gpu mode, use GPU-accelerated move selection
+    use_hybrid = engine_mode == "hybrid-gpu" and hybrid_evaluator is not None
 
-    ais = {}
-    for p in range(1, num_players + 1):
-        ais[p] = _create_ai_instance(ai_type, p, ai_config)
+    if not use_hybrid:
+        # Create standard CPU AI instances
+        ai_type = ENGINE_MODE_TO_AI.get(engine_mode, AIType.HEURISTIC)
+        ai_config = AIConfig(
+            type=ai_type,
+            difficulty=5,
+            useNeuralNetwork=False,
+        )
+        ais = {}
+        for p in range(1, num_players + 1):
+            ais[p] = _create_ai_instance(ai_type, p, ai_config)
 
     # Play the game
     move_count = 0
     done = False
-    last_progress_time = start_time
     while not done and move_count < max_moves:
         current_player = state.current_player
-        ai = ais[current_player]
 
         # Get move from AI
         move_start = time.time()
-        move = ai.select_move(state)
+
+        if use_hybrid:
+            # Use hybrid GPU evaluator for move selection
+            move = hybrid_evaluator.select_move(state, current_player)
+        else:
+            ai = ais[current_player]
+            move = ai.select_move(state)
+
         move_time_ms = (time.time() - move_start) * 1000
         if move is None:
             break
@@ -281,6 +291,18 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResults:
     print(f"Engine mode: {config.engine_mode}")
     print(f"{'='*60}\n")
 
+    # Initialize hybrid GPU evaluator if using hybrid-gpu mode
+    hybrid_evaluator = None
+    if config.engine_mode == "hybrid-gpu":
+        try:
+            from app.ai.hybrid_gpu import create_hybrid_evaluator
+            print("Initializing Hybrid GPU Evaluator...")
+            # We'll create per-board-type evaluators in the loop
+        except ImportError as e:
+            print(f"Warning: Could not import hybrid_gpu: {e}")
+            print("Falling back to heuristic-only mode")
+            config.engine_mode = "heuristic-only"
+
     all_results: List[GameResult] = []
     results_by_condition: Dict[str, Dict[str, Any]] = {}
 
@@ -289,6 +311,20 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResults:
         if board_type is None:
             print(f"Warning: Unknown board type {board_type_str}, skipping")
             continue
+
+        # Create hybrid evaluator for this board type if using hybrid-gpu mode
+        if config.engine_mode == "hybrid-gpu":
+            try:
+                from app.ai.hybrid_gpu import create_hybrid_evaluator
+                hybrid_evaluator = create_hybrid_evaluator(
+                    board_type=board_type_str,
+                    num_players=config.num_players,
+                    prefer_gpu=True,
+                )
+                print(f"  Created hybrid evaluator for {board_type_str}")
+            except Exception as e:
+                print(f"  Warning: Failed to create hybrid evaluator: {e}")
+                hybrid_evaluator = None
 
         for lps_rounds in config.lps_rounds_values:
             for rings_per_player in config.rings_per_player_values:
@@ -314,6 +350,7 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResults:
                         game_id=game_id,
                         verbose=config.verbose,
                         progress_interval=config.progress_interval,
+                        hybrid_evaluator=hybrid_evaluator,
                     )
                     condition_results.append(result)
                     all_results.append(result)
@@ -437,8 +474,8 @@ def main():
     parser.add_argument(
         "--engine-mode", "-e",
         default="heuristic-only",
-        choices=["heuristic-only", "mcts-only", "descent-only", "random-only"],
-        help="AI engine mode (default: heuristic-only)"
+        choices=["heuristic-only", "mcts-only", "descent-only", "random-only", "hybrid-gpu"],
+        help="AI engine mode. hybrid-gpu uses GPU-accelerated heuristic evaluation (default: heuristic-only)"
     )
     parser.add_argument(
         "--seed", "-s",

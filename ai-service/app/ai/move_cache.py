@@ -25,6 +25,32 @@ MOVE_CACHE_SIZE = int(os.getenv('RINGRIFT_MOVE_CACHE_SIZE', '1000'))
 USE_MOVE_CACHE = os.getenv('RINGRIFT_USE_MOVE_CACHE', 'true').lower() == 'true'
 
 
+def _move_type_str(move: object) -> str:
+    raw = getattr(move, "type", None)
+    if raw is None and isinstance(move, dict):
+        raw = move.get("type")
+    if raw is None:
+        return ""
+    if hasattr(raw, "value"):
+        try:
+            return str(getattr(raw, "value"))
+        except Exception:
+            pass
+    return str(raw)
+
+
+def _move_player_int(move: object) -> int | None:
+    raw = getattr(move, "player", None)
+    if raw is None and isinstance(move, dict):
+        raw = move.get("player")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except Exception:
+        return None
+
+
 class MoveCache:
     """
     LRU cache for valid moves keyed by board state hash.
@@ -55,6 +81,13 @@ class MoveCache:
         if not USE_MOVE_CACHE:
             return None
 
+        # chainCaptureState metadata (visited positions / remaining captures)
+        # affects legal move generation but is not encoded in board geometry or
+        # zobristHash. Bypass caching for these transient states to avoid stale
+        # move lists during chain-capture sequences.
+        if getattr(state, "chain_capture_state", None) is not None:
+            return None
+
         key = self._compute_key(state, player)
         if key in self._cache:
             self._hits += 1
@@ -68,6 +101,9 @@ class MoveCache:
     def put(self, state: 'GameState', player: int, moves: List['Move']):
         """Cache moves for a game state."""
         if not USE_MOVE_CACHE:
+            return
+
+        if getattr(state, "chain_capture_state", None) is not None:
             return
 
         key = self._compute_key(state, player)
@@ -101,8 +137,9 @@ class MoveCache:
         CRITICAL: Legal move generation depends on small pieces of metadata
         that are NOT captured by board structure alone:
 
-        - move_history length: meta-moves like swap_sides (pie rule) depend on
-          it and do not change the board hash.
+        - move_history: meta-moves like swap_sides (pie rule) depend on the
+          *presence* of certain earlier moves (P1 moved? P2 moved? swap used?)
+          and do not change the structural board hash.
         - must_move_from_stack_key: constrains legal movement/capture options
           after certain placements; this is not encoded in board geometry.
         - rulesOptions: rule toggles like swapRuleEnabled can change the move
@@ -150,6 +187,35 @@ class MoveCache:
         else:
             rules_digest = ""
 
+        # swap_sides eligibility depends on move history composition (not just length).
+        # Without encoding this, a cached move surface can leak swap_sides into a
+        # position where Player 2 has already taken a non-swap move (or where swap
+        # has already been applied), causing illegal move selection in self-play.
+        swap_sig = ""
+        try:
+            swap_enabled = bool(rules_options.get("swapRuleEnabled", False))
+        except Exception:
+            swap_enabled = False
+
+        if swap_enabled and player == 2 and max_players == 2:
+            has_p1_move = False
+            has_p2_non_swap_move = False
+            has_swap_move = False
+            for mv in (state.move_history or []):
+                mv_type = _move_type_str(mv)
+                mv_player = _move_player_int(mv)
+                if mv_type == "swap_sides":
+                    has_swap_move = True
+                if mv_player == 1:
+                    has_p1_move = True
+                elif mv_player == 2 and mv_type != "swap_sides":
+                    has_p2_non_swap_move = True
+                if has_swap_move and has_p2_non_swap_move and has_p1_move:
+                    break
+            swap_sig = (
+                f"sw:{int(has_p1_move)}:{int(has_p2_non_swap_move)}:{int(has_swap_move)}"
+            )
+
         # Use Zobrist hash if available (fast)
         if state.zobrist_hash is not None:
             # Include board metadata so identical hashes on different boards
@@ -157,7 +223,7 @@ class MoveCache:
             return (
                 f"{board_type}:{board_size}:{max_players}:{players_digest}:"
                 f"{state.zobrist_hash}:{player}:{phase_value}:{history_len}:"
-                f"{must_move_key}:{rules_digest}"
+                f"{must_move_key}:{rules_digest}:{swap_sig}"
             )
 
         # Fallback: compute hash from board state
@@ -172,6 +238,7 @@ class MoveCache:
             f"hl:{history_len}",  # History length for swap_sides eligibility
             f"mm:{must_move_key}",
             f"ro:{rules_digest}",
+            f"{swap_sig}",
         ]
 
         # Add stack positions (sorted for determinism)

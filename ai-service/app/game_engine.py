@@ -141,19 +141,12 @@ class GameEngine:
       training, and TS↔Python parity tests.
     - Exposes `get_valid_moves` and `apply_move` as the primary APIs for
       AI agents and training loops.
-    - Maintains a small in‑memory move cache keyed by a canonical
-      `hash_game_state` string to avoid recomputing legal moves for
-      identical positions.
+    - Uses the shared `app.ai.move_cache` (LRU) to avoid recomputing legal
+      moves for identical positions. This cache is keyed by `zobristHash`
+      when available (full-fidelity board state, including stack ring
+      composition) plus the small pieces of metadata that affect move
+      legality (phase, player, rulesOptions, etc).
     """
-
-    # Cache for valid moves. Key includes:
-    #   - board type/size (avoid cross-geometry reuse),
-    #   - canonical structural hash_game_state,
-    #   - player_number + must_move_from_stack_key (movement constraints),
-    #   - move_history length (meta-moves like swap_sides depend on it).
-    _move_cache: dict[str, List[Move]] = {}
-    _cache_hits: int = 0
-    _cache_misses: int = 0
 
     @staticmethod
     def get_valid_moves(game_state: GameState, player_number: int) -> List[Move]:
@@ -166,65 +159,20 @@ class GameEngine:
         if game_state.current_player != player_number:
             return []
 
-        # Check cache
-        # Include board type/size in the cache key so that move surfaces are
-        # never reused across different board geometries (e.g. square8 vs
-        # square19 vs hexagonal), even when the lightweight hash of the empty
-        # board + players is identical. This avoids subtle cross-board-type
-        # bleed-through in tests and training while preserving the underlying
-        # hash_game_state semantics used for TS↔Python parity tooling.
+        # Move generation caching is delegated to app.ai.move_cache so that:
+        # - keys include `zobristHash` (full ring composition) when available,
+        # - keys include phase + move_history length + must_move_from_stack_key
+        #   + rulesOptions, preventing stale move surfaces,
+        # - caching can be bounded (LRU) and toggled via env flags.
         #
-        # CRITICAL: must_move_from_stack_key affects which stacks can move/capture
-        # during the movement phase after a ring placement. Two states with identical
-        # board/phase/player but different must_move_from_stack_key have different
-        # legal move sets. Without including it in the cache key, the cache would
-        # return stale moves from a state where this constraint was different.
-        #
-        # CRITICAL: move generation depends on small pieces of move history for
-        # meta-moves like swap_sides (pie rule). swap_sides does not change the
-        # canonical structural hash_game_state but it *does* change move_history,
-        # and swap eligibility must not remain cached after swap is applied.
-        #
-        # CRITICAL: rules_options (e.g. rulesOptions.swapRuleEnabled) can change
-        # the legal move surface without changing the board structure or the
-        # canonical hash_game_state. Include a stable digest of rules_options in
-        # the cache key so per-process caching cannot leak moves between callers
-        # with different rules settings.
-        #
-        # NOTE: chain capture legality can depend on chainCaptureState metadata
-        # (visited positions, available moves). The canonical structural hash does
-        # not encode this, so we conservatively disable caching when a chain
-        # capture state is present.
-        cache_key: Optional[str]
-        if game_state.chain_capture_state is not None:
-            cache_key = None
-        else:
-            state_hash = BoardManager.hash_game_state(game_state)
-            board = game_state.board
-            must_move_key = game_state.must_move_from_stack_key or ""
-            history_len = len(game_state.move_history)
-            rules_options = game_state.rules_options or {}
-            if rules_options:
-                rules_str = json.dumps(
-                    rules_options,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    default=str,
-                )
-                rules_digest = hashlib.md5(rules_str.encode()).hexdigest()
-            else:
-                rules_digest = ""
-            cache_key = (
-                f"{board.type.value}:{board.size}:{state_hash}:"
-                f"{player_number}:{must_move_key}:{history_len}:{rules_digest}"
-            )
+        # NOTE: chainCaptureState affects legal capture sequences but is not
+        # encoded in Zobrist or board structure; move_cache bypasses caching
+        # when chainCaptureState is present.
+        from .ai.move_cache import get_cached_moves, cache_moves
 
-        if cache_key is not None and cache_key in GameEngine._move_cache:
-            GameEngine._cache_hits += 1
-            _debug(f"DEBUG: Cache hit for {cache_key}\n")
-            return GameEngine._move_cache[cache_key]
-
-        GameEngine._cache_misses += 1
+        cached = get_cached_moves(game_state, player_number)
+        if cached is not None:
+            return cached
 
         phase = game_state.current_phase
         moves: List[Move] = []
@@ -330,17 +278,15 @@ class GameEngine:
         # exposes FE via dedicated phase logic; it does not auto-fallback to
         # FORCED_ELIMINATION moves from get_valid_moves (RR-CANON-R076).
 
-        # Cache result (when enabled for this state).
-        if cache_key is not None:
-            GameEngine._move_cache[cache_key] = moves
+        cache_moves(game_state, player_number, moves)
         return moves
 
     @staticmethod
     def clear_cache():
         """Clear the move cache"""
-        GameEngine._move_cache.clear()
-        GameEngine._cache_hits = 0
-        GameEngine._cache_misses = 0
+        from .ai.move_cache import clear_move_cache
+
+        clear_move_cache()
 
     @staticmethod
     def get_phase_requirement(game_state: GameState, player_number: int) -> Optional[PhaseRequirement]:

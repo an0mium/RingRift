@@ -133,6 +133,7 @@ def _create_ladder_ai_instance(
     player_number: int,
     time_budget_ms: Optional[int],
     ai_type_override: Optional[AIType] = None,
+    candidate_override_id: Optional[str] = None,
     rng_seed: Optional[int] = None,
 ):
     """Create an AI instance using the canonical difficulty ladder.
@@ -176,11 +177,29 @@ def _create_ladder_ai_instance(
     else:
         think_time_ms = profile["think_time_ms"]
 
+    use_neural_net = (
+        ladder_config.use_neural_net
+        if ladder_config is not None
+        else bool(profile.get("use_neural_net", False))
+    )
+
     heuristic_profile_id: Optional[str] = None
     if ladder_config is not None and ladder_config.heuristic_profile_id:
         heuristic_profile_id = ladder_config.heuristic_profile_id
     elif ai_type == AIType.HEURISTIC:
         heuristic_profile_id = profile.get("profile_id")
+
+    nn_model_id: Optional[str] = None
+    if use_neural_net and ladder_config is not None and ladder_config.model_id:
+        nn_model_id = ladder_config.model_id
+
+    # Candidate overrides are used only by higher-level promotion tooling and
+    # should not affect default ladder evaluation unless explicitly enabled.
+    if candidate_override_id:
+        if ai_type == AIType.HEURISTIC:
+            heuristic_profile_id = candidate_override_id
+        elif use_neural_net:
+            nn_model_id = candidate_override_id
 
     config = AIConfig(
         difficulty=difficulty,
@@ -188,7 +207,8 @@ def _create_ladder_ai_instance(
         think_time=think_time_ms,
         rngSeed=rng_seed,
         heuristic_profile_id=heuristic_profile_id,
-        nn_model_id=None,
+        nn_model_id=nn_model_id,
+        use_neural_net=use_neural_net,
     )
     return _create_ai_instance(ai_type, player_number, config)
 
@@ -197,6 +217,7 @@ def _play_matchup(
     tier_config: TierEvaluationConfig,
     opponent: TierOpponentConfig,
     base_seed: Optional[int],
+    candidate_override_id: Optional[str] = None,
     num_games_override: Optional[int] = None,
     time_budget_ms_override: Optional[int] = None,
     max_moves_override: Optional[int] = None,
@@ -260,6 +281,7 @@ def _play_matchup(
                 else tier_config.time_budget_ms
             ),
             ai_type_override=None,
+            candidate_override_id=candidate_override_id,
             rng_seed=_derive_player_seed(game_seed, candidate_seat),
         )
 
@@ -277,6 +299,7 @@ def _play_matchup(
                     else tier_config.time_budget_ms
                 ),
                 ai_type_override=resolved_ai_type,
+                candidate_override_id=None,
                 rng_seed=_derive_player_seed(game_seed, player_number),
             )
 
@@ -355,6 +378,7 @@ def run_tier_evaluation(
     tier_config: TierEvaluationConfig,
     candidate_id: str,
     *,
+    candidate_override_id: Optional[str] = None,
     seed: Optional[int] = None,
     num_games_override: Optional[int] = None,
     time_budget_ms_override: Optional[int] = None,
@@ -387,6 +411,7 @@ def run_tier_evaluation(
             tier_config=tier_config,
             opponent=opponent,
             base_seed=seed,
+            candidate_override_id=candidate_override_id,
             num_games_override=num_games_override,
             time_budget_ms_override=time_budget_ms_override,
             max_moves_override=max_moves_override,

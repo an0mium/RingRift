@@ -7,6 +7,7 @@ from app.models import (
     GamePhase,
     GameState,
     GameStatus,
+    ChainCaptureState,
     Player,
     TimeControl,
 )
@@ -20,6 +21,7 @@ def _make_state(
     zobrist_hash: int = 12345,
     must_move_from_stack_key: str | None = None,
     rules_options: dict | None = None,
+    chain_capture_state: ChainCaptureState | None = None,
 ) -> GameState:
     now = datetime.now()
     board = BoardState(type=board_type, size=board_size)
@@ -60,7 +62,7 @@ def _make_state(
         totalRingsEliminated=0,
         victoryThreshold=21,
         territoryVictoryThreshold=33,
-        chainCaptureState=None,
+        chainCaptureState=chain_capture_state,
         mustMoveFromStackKey=must_move_from_stack_key,
         zobristHash=zobrist_hash,
         rulesOptions=rules_options,
@@ -111,3 +113,18 @@ def test_move_cache_key_includes_player_meta() -> None:
     cache_moves(base, 1, ["m"])
     assert get_cached_moves(base, 1) == ["m"]
     assert get_cached_moves(changed, 1) is None
+
+
+def test_move_cache_bypasses_chain_capture_state() -> None:
+    chain_state = ChainCaptureState(
+        playerNumber=1,
+        startPosition={"x": 0, "y": 0},
+        currentPosition={"x": 0, "y": 0},
+        segments=[],
+        availableMoves=[],
+        visitedPositions=[],
+    )
+
+    state = _make_state(zobrist_hash=999, chain_capture_state=chain_state)
+    cache_moves(state, 1, ["m"])
+    assert get_cached_moves(state, 1) is None
