@@ -37,10 +37,16 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler("/tmp/node_resilience.log"),
     ],
 )
 logger = logging.getLogger(__name__)
+
+_log_file = (os.environ.get("RINGRIFT_NODE_RESILIENCE_LOG_FILE") or "").strip()
+if _log_file:
+    try:
+        logger.addHandler(logging.FileHandler(_log_file))
+    except Exception as e:
+        logger.warning(f"Failed to add file logger { _log_file }: {e}")
 
 
 @dataclass
