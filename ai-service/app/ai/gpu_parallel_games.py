@@ -1457,6 +1457,299 @@ def generate_placement_moves_batch(
 # =============================================================================
 
 
+# Pre-computed direction vectors for 8-directional movement
+# Shape: (8, 2) for (dy, dx) pairs
+DIRECTIONS = torch.tensor([
+    [-1, 0], [-1, 1], [0, 1], [1, 1],
+    [1, 0], [1, -1], [0, -1], [-1, -1]
+], dtype=torch.int32)
+
+
+def _validate_paths_vectorized_fast(
+    state: BatchGameState,
+    game_indices: torch.Tensor,  # (N,)
+    from_y: torch.Tensor,        # (N,)
+    from_x: torch.Tensor,        # (N,)
+    to_y: torch.Tensor,          # (N,)
+    to_x: torch.Tensor,          # (N,)
+    max_path_len: int,
+) -> torch.Tensor:
+    """Fully vectorized path validation.
+
+    Validates all paths in parallel using tensor operations.
+    Per RR-CANON-R091, checks that no stacks block intermediate path cells.
+
+    Args:
+        state: BatchGameState
+        game_indices: (N,) game index for each candidate move
+        from_y, from_x: (N,) origin positions
+        to_y, to_x: (N,) destination positions
+        max_path_len: Maximum path length to check
+
+    Returns:
+        Boolean tensor (N,) - True if path is valid
+    """
+    device = state.device
+    N = game_indices.shape[0]
+
+    if N == 0:
+        return torch.tensor([], dtype=torch.bool, device=device)
+
+    # Compute direction vectors and distances
+    dy = torch.sign(to_y - from_y)  # (N,)
+    dx = torch.sign(to_x - from_x)  # (N,)
+    dist = torch.maximum(torch.abs(to_y - from_y), torch.abs(to_x - from_x))  # (N,)
+
+    # Generate step indices: (N, max_path_len-1) for steps 1 to max_path_len-1
+    # We exclude step 0 (origin) and step dist (destination)
+    steps = torch.arange(1, max_path_len, device=device).unsqueeze(0)  # (1, max_path_len-1)
+
+    # Compute path cell coordinates for all moves at all steps
+    # path_y[i, s] = from_y[i] + dy[i] * (s+1) for step s+1
+    path_y = from_y.unsqueeze(1) + dy.unsqueeze(1) * steps  # (N, max_path_len-1)
+    path_x = from_x.unsqueeze(1) + dx.unsqueeze(1) * steps  # (N, max_path_len-1)
+
+    # Create mask for valid intermediate steps (step < dist for each move)
+    # step s corresponds to distance s+1 from origin
+    valid_step_mask = steps < dist.unsqueeze(1)  # (N, max_path_len-1)
+
+    # Clamp coordinates to valid board range for indexing
+    board_size = state.board_size
+    path_y_clamped = torch.clamp(path_y, 0, board_size - 1).long()
+    path_x_clamped = torch.clamp(path_x, 0, board_size - 1).long()
+    game_idx_expanded = game_indices.unsqueeze(1).expand(-1, max_path_len - 1).long()
+
+    # Look up stack owners at all path cells
+    # Use advanced indexing to get (N, max_path_len-1) tensor of owners
+    path_owners = state.stack_owner[game_idx_expanded, path_y_clamped, path_x_clamped]
+
+    # Check for collapsed cells too
+    path_collapsed = state.is_collapsed[game_idx_expanded, path_y_clamped, path_x_clamped]
+
+    # A path cell is blocked if it has a stack (owner != 0) or is collapsed
+    path_blocked = (path_owners != 0) | path_collapsed
+
+    # Apply the valid step mask - only check cells that are actual intermediate steps
+    # Set blocked to False for steps >= dist (those aren't part of the path)
+    path_blocked = path_blocked & valid_step_mask
+
+    # Path is valid if NO intermediate cells are blocked
+    valid = ~path_blocked.any(dim=1)  # (N,)
+
+    return valid
+
+
+def generate_movement_moves_batch_vectorized(
+    state: BatchGameState,
+    active_mask: Optional[torch.Tensor] = None,
+) -> BatchMoves:
+    """Fully vectorized movement move generation.
+
+    This replaces the Python-loop version with tensor operations for GPU speedup.
+
+    Per RR-CANON-R090-R092:
+    - Move in straight line (8 directions: N, NE, E, SE, S, SW, W, NW)
+    - Distance must be >= stack height at origin
+    - Cannot pass through ANY stacks on intermediate cells
+    - Cannot land on ANY stacks
+    - Once a ray hits a blocker (collapsed or stack), all further cells in that direction are invalid
+
+    Args:
+        state: Current batch game state
+        active_mask: Mask of games to generate moves for
+
+    Returns:
+        BatchMoves with all valid movement moves
+    """
+    if active_mask is None:
+        active_mask = state.get_active_mask()
+
+    device = state.device
+    batch_size = state.batch_size
+    board_size = state.board_size
+    directions = DIRECTIONS.to(device)
+
+    # === Step 1: Find all player stacks across all games ===
+    player_expanded = state.current_player.view(-1, 1, 1).expand(-1, board_size, board_size)
+
+    player_stacks = (
+        (state.stack_owner == player_expanded) &
+        (state.stack_height > 0) &
+        active_mask.view(-1, 1, 1)
+    )
+
+    # Handle must_move_from constraint
+    has_constraint = (state.must_move_from_y >= 0)
+
+    if has_constraint.any():
+        y_grid = torch.arange(board_size, device=device).view(1, -1, 1).expand(batch_size, -1, board_size)
+        x_grid = torch.arange(board_size, device=device).view(1, 1, -1).expand(batch_size, board_size, -1)
+
+        must_y = state.must_move_from_y.view(-1, 1, 1).expand(-1, board_size, board_size)
+        must_x = state.must_move_from_x.view(-1, 1, 1).expand(-1, board_size, board_size)
+
+        constraint_mask = (y_grid == must_y) & (x_grid == must_x)
+        constraint_applies = has_constraint.view(-1, 1, 1).expand(-1, board_size, board_size)
+        player_stacks = player_stacks & (~constraint_applies | constraint_mask)
+
+    stack_game_idx, stack_y, stack_x = torch.where(player_stacks)
+    n_stacks = stack_game_idx.shape[0]
+
+    if n_stacks == 0:
+        return _empty_batch_moves(batch_size, device)
+
+    stack_heights = state.stack_height[stack_game_idx, stack_y, stack_x]
+    max_dist = board_size - 1
+    n_dirs = 8
+
+    # === Step 2: Compute ray-blocking distances for each (stack, direction) ===
+    # For each stack and direction, find the first distance at which we hit a blocker
+    # (out-of-bounds, collapsed, or occupied cell). Moves beyond that are invalid.
+
+    # Shape: (N_stacks, 8)
+    stack_game_idx_dir = stack_game_idx.unsqueeze(1).expand(-1, n_dirs).long()
+    stack_y_dir = stack_y.unsqueeze(1).expand(-1, n_dirs)
+    stack_x_dir = stack_x.unsqueeze(1).expand(-1, n_dirs)
+
+    dir_dy = directions[:, 0].view(1, n_dirs)
+    dir_dx = directions[:, 1].view(1, n_dirs)
+
+    # For each (stack, direction), compute blocking distance
+    # Start with max_dist + 1 (no blocker found)
+    blocking_dist = torch.full((n_stacks, n_dirs), max_dist + 1, dtype=torch.int32, device=device)
+
+    # Check each distance step to find first blocker
+    # Shape after expansion: (N_stacks, 8, max_dist)
+    steps = torch.arange(1, max_dist + 1, device=device)
+    check_y = stack_y_dir.unsqueeze(2) + dir_dy.unsqueeze(2) * steps  # (N_stacks, 8, max_dist)
+    check_x = stack_x_dir.unsqueeze(2) + dir_dx.unsqueeze(2) * steps
+
+    # Out of bounds check
+    out_of_bounds = (check_y < 0) | (check_y >= board_size) | (check_x < 0) | (check_x >= board_size)
+
+    # Clamp for safe indexing
+    check_y_safe = torch.clamp(check_y, 0, board_size - 1).long()
+    check_x_safe = torch.clamp(check_x, 0, board_size - 1).long()
+    game_idx_exp = stack_game_idx_dir.unsqueeze(2).expand(-1, -1, max_dist)
+
+    # Check collapsed and occupied
+    is_collapsed_check = state.is_collapsed[game_idx_exp, check_y_safe, check_x_safe]
+    is_occupied_check = state.stack_owner[game_idx_exp, check_y_safe, check_x_safe] != 0
+
+    # Cell is blocking if: out of bounds, collapsed, or occupied
+    is_blocking = out_of_bounds | is_collapsed_check | is_occupied_check  # (N_stacks, 8, max_dist)
+
+    # Find first blocking distance for each (stack, direction)
+    # Use argmax on the blocking mask - it returns first True index
+    # If no blocker, argmax returns 0, so we need to handle that
+    has_any_blocker = is_blocking.any(dim=2)  # (N_stacks, 8)
+
+    # For rays with blockers, find the first blocking step
+    # argmax returns the index of first True, but we need to add 1 because steps start at 1
+    first_blocker_idx = is_blocking.to(torch.int32).argmax(dim=2)  # (N_stacks, 8)
+    blocking_dist = torch.where(
+        has_any_blocker,
+        first_blocker_idx + 1,  # +1 because step index 0 means distance 1
+        torch.tensor(max_dist + 1, device=device, dtype=torch.int32)
+    )
+
+    # === Step 3: Generate valid moves ===
+    # A move is valid if: distance >= stack_height AND distance < blocking_dist
+
+    # Expand for all distances
+    stack_heights_exp = stack_heights.unsqueeze(1).expand(-1, n_dirs)  # (N_stacks, 8)
+
+    # For each (stack, direction), valid distances are [stack_height, blocking_dist)
+    # Generate all candidate moves
+    distances_tensor = torch.arange(1, max_dist + 1, device=device).view(1, 1, -1)  # (1, 1, max_dist)
+
+    # Expand all to (N_stacks, 8, max_dist)
+    stack_heights_full = stack_heights_exp.unsqueeze(2).expand(-1, -1, max_dist)
+    blocking_dist_full = blocking_dist.unsqueeze(2).expand(-1, -1, max_dist)
+    distances_full = distances_tensor.expand(n_stacks, n_dirs, -1)
+
+    # Valid move mask
+    valid_mask = (distances_full >= stack_heights_full) & (distances_full < blocking_dist_full)
+
+    # Also need to check that destination is in bounds and not collapsed/occupied
+    dest_y = stack_y_dir.unsqueeze(2) + dir_dy.unsqueeze(2) * distances_tensor
+    dest_x = stack_x_dir.unsqueeze(2) + dir_dx.unsqueeze(2) * distances_tensor
+
+    dest_in_bounds = (
+        (dest_y >= 0) & (dest_y < board_size) &
+        (dest_x >= 0) & (dest_x < board_size)
+    )
+
+    dest_y_safe = torch.clamp(dest_y, 0, board_size - 1).long()
+    dest_x_safe = torch.clamp(dest_x, 0, board_size - 1).long()
+
+    dest_not_collapsed = ~state.is_collapsed[game_idx_exp, dest_y_safe, dest_x_safe]
+    dest_not_occupied = state.stack_owner[game_idx_exp, dest_y_safe, dest_x_safe] == 0
+
+    valid_mask = valid_mask & dest_in_bounds & dest_not_collapsed & dest_not_occupied
+
+    # === Step 4: Extract valid moves ===
+    valid_indices = torch.where(valid_mask.reshape(-1))[0]
+
+    if valid_indices.numel() == 0:
+        return _empty_batch_moves(batch_size, device)
+
+    # Flatten source tensors
+    game_idx_flat = stack_game_idx_dir.unsqueeze(2).expand(-1, -1, max_dist).reshape(-1)
+    from_y_flat = stack_y_dir.unsqueeze(2).expand(-1, -1, max_dist).reshape(-1)
+    from_x_flat = stack_x_dir.unsqueeze(2).expand(-1, -1, max_dist).reshape(-1)
+    to_y_flat = dest_y.reshape(-1)
+    to_x_flat = dest_x.reshape(-1)
+
+    # Extract valid moves
+    final_game_idx = game_idx_flat[valid_indices].int()
+    final_from_y = from_y_flat[valid_indices].int()
+    final_from_x = from_x_flat[valid_indices].int()
+    final_to_y = to_y_flat[valid_indices].int()
+    final_to_x = to_x_flat[valid_indices].int()
+
+    total_moves = valid_indices.numel()
+
+    # Count moves per game
+    moves_per_game = torch.zeros(batch_size, dtype=torch.int32, device=device)
+    ones = torch.ones(total_moves, dtype=torch.int32, device=device)
+    moves_per_game.scatter_add_(0, final_game_idx.long(), ones)
+
+    move_offsets = torch.cumsum(
+        torch.cat([torch.tensor([0], device=device, dtype=torch.int32), moves_per_game[:-1]]),
+        dim=0
+    ).int()
+
+    return BatchMoves(
+        game_idx=final_game_idx,
+        move_type=torch.full((total_moves,), MoveType.MOVEMENT, dtype=torch.int8, device=device),
+        from_y=final_from_y,
+        from_x=final_from_x,
+        to_y=final_to_y,
+        to_x=final_to_x,
+        moves_per_game=moves_per_game,
+        move_offsets=move_offsets,
+        total_moves=total_moves,
+        device=device,
+    )
+
+
+def _empty_batch_moves(batch_size: int, device: torch.device) -> BatchMoves:
+    """Return empty BatchMoves structure."""
+    return BatchMoves(
+        game_idx=torch.tensor([], dtype=torch.int32, device=device),
+        move_type=torch.tensor([], dtype=torch.int8, device=device),
+        from_y=torch.tensor([], dtype=torch.int32, device=device),
+        from_x=torch.tensor([], dtype=torch.int32, device=device),
+        to_y=torch.tensor([], dtype=torch.int32, device=device),
+        to_x=torch.tensor([], dtype=torch.int32, device=device),
+        moves_per_game=torch.zeros(batch_size, dtype=torch.int32, device=device),
+        move_offsets=torch.zeros(batch_size, dtype=torch.int32, device=device),
+        total_moves=0,
+        device=device,
+    )
+
+
 def _validate_paths_vectorized(
     state: BatchGameState,
     game_indices: torch.Tensor,
@@ -1528,11 +1821,9 @@ def generate_movement_moves_batch(
     - Distance must be >= stack height at origin
     - Cannot pass through ANY stacks (own or opponent) on intermediate cells
     - Cannot land on ANY stacks (landing on opponent is capture, not movement)
-    - Can land on empty spaces or markers
 
-    Implementation uses a two-phase approach:
-    1. Generate all candidate moves based on position/height constraints
-    2. Validate paths to filter out moves blocked by any stacks
+    This function delegates to the fully vectorized implementation for GPU performance.
+    Set RINGRIFT_GPU_MOVEMENT_LEGACY=1 to use the old Python-loop implementation.
 
     Args:
         state: Current batch game state
@@ -1540,6 +1831,21 @@ def generate_movement_moves_batch(
 
     Returns:
         BatchMoves with all valid movement moves
+    """
+    import os
+    if os.environ.get("RINGRIFT_GPU_MOVEMENT_LEGACY", "0") == "1":
+        return _generate_movement_moves_batch_legacy(state, active_mask)
+    return generate_movement_moves_batch_vectorized(state, active_mask)
+
+
+def _generate_movement_moves_batch_legacy(
+    state: BatchGameState,
+    active_mask: Optional[torch.Tensor] = None,
+) -> BatchMoves:
+    """Legacy Python-loop based movement generation.
+
+    Kept for debugging and comparison. Use generate_movement_moves_batch_vectorized
+    for production GPU workloads.
     """
     if active_mask is None:
         active_mask = state.get_active_mask()
@@ -1554,8 +1860,6 @@ def generate_movement_moves_batch(
         (1, 0), (1, -1), (0, -1), (-1, -1)
     ]
 
-    # Phase 1: Generate all candidate moves (without path validation)
-    # This reduces Python loop overhead by deferring path checks
     candidate_game_idx = []
     candidate_from = []
     candidate_to = []
@@ -1569,7 +1873,6 @@ def generate_movement_moves_batch(
         must_y = int(state.must_move_from_y[g].item())
         must_x = int(state.must_move_from_x[g].item())
 
-        # Find all stacks controlled by current player
         my_stacks = (state.stack_owner[g] == player)
         stack_positions = torch.nonzero(my_stacks, as_tuple=False)
 
@@ -1583,76 +1886,40 @@ def generate_movement_moves_batch(
             if stack_height <= 0:
                 continue
 
-            # Try each direction
             for dy, dx in directions:
-                # Move distance must be >= stack height
                 for dist in range(stack_height, board_size):
                     to_y = from_y + dy * dist
                     to_x = from_x + dx * dist
 
-                    # Check bounds
                     if not (0 <= to_y < board_size and 0 <= to_x < board_size):
                         break
 
-                    # Per RR-CANON-R091: landing cell must not be collapsed
                     if state.is_collapsed[g, to_y, to_x].item():
-                        # Collapsed space blocks further movement along this ray
                         break
 
-                    # Per RR-CANON-R091: landing cell must contain NO stack (any owner)
-                    # Movement cannot land on ANY stack - that's what captures are for
                     dest_owner = state.stack_owner[g, to_y, to_x].item()
                     if dest_owner != 0:
-                        # ANY stack (own or opponent) blocks landing and further movement
                         break
 
-                    # Add as candidate (path validation deferred)
                     candidate_game_idx.append(g)
                     candidate_from.append([from_y, from_x])
                     candidate_to.append([to_y, to_x])
                     candidate_player.append(player)
 
     if not candidate_game_idx:
-        return BatchMoves(
-            game_idx=torch.tensor([], dtype=torch.int32, device=device),
-            move_type=torch.tensor([], dtype=torch.int8, device=device),
-            from_y=torch.tensor([], dtype=torch.int32, device=device),
-            from_x=torch.tensor([], dtype=torch.int32, device=device),
-            to_y=torch.tensor([], dtype=torch.int32, device=device),
-            to_x=torch.tensor([], dtype=torch.int32, device=device),
-            moves_per_game=torch.zeros(batch_size, dtype=torch.int32, device=device),
-            move_offsets=torch.zeros(batch_size, dtype=torch.int32, device=device),
-            total_moves=0,
-            device=device,
-        )
+        return _empty_batch_moves(batch_size, device)
 
-    # Convert candidates to tensors
     game_idx_t = torch.tensor(candidate_game_idx, dtype=torch.int64, device=device)
     from_t = torch.tensor(candidate_from, dtype=torch.int64, device=device)
     to_t = torch.tensor(candidate_to, dtype=torch.int64, device=device)
     player_t = torch.tensor(candidate_player, dtype=torch.int64, device=device)
 
-    # Phase 2: Validate paths
     valid_mask = _validate_paths_vectorized(state, game_idx_t, from_t, to_t, player_t)
-
-    # Filter to valid moves only
     valid_indices = torch.where(valid_mask)[0]
 
     if valid_indices.numel() == 0:
-        return BatchMoves(
-            game_idx=torch.tensor([], dtype=torch.int32, device=device),
-            move_type=torch.tensor([], dtype=torch.int8, device=device),
-            from_y=torch.tensor([], dtype=torch.int32, device=device),
-            from_x=torch.tensor([], dtype=torch.int32, device=device),
-            to_y=torch.tensor([], dtype=torch.int32, device=device),
-            to_x=torch.tensor([], dtype=torch.int32, device=device),
-            moves_per_game=torch.zeros(batch_size, dtype=torch.int32, device=device),
-            move_offsets=torch.zeros(batch_size, dtype=torch.int32, device=device),
-            total_moves=0,
-            device=device,
-        )
+        return _empty_batch_moves(batch_size, device)
 
-    # Extract valid moves
     valid_game_idx = game_idx_t[valid_indices].int()
     valid_from_y = from_t[valid_indices, 0].int()
     valid_from_x = from_t[valid_indices, 1].int()
@@ -1661,7 +1928,6 @@ def generate_movement_moves_batch(
 
     total_moves = valid_indices.numel()
 
-    # Count moves per game using scatter_add
     moves_per_game = torch.zeros(batch_size, dtype=torch.int32, device=device)
     ones = torch.ones(total_moves, dtype=torch.int32, device=device)
     moves_per_game.scatter_add_(0, valid_game_idx.long(), ones)

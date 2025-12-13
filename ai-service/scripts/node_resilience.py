@@ -75,6 +75,19 @@ def _acquire_singleton_lock(node_id: str):
     return fh
 
 
+def _load_cluster_auth_token() -> str:
+    token = (os.environ.get("RINGRIFT_CLUSTER_AUTH_TOKEN") or "").strip()
+    if token:
+        return token
+    token_file = (os.environ.get("RINGRIFT_CLUSTER_AUTH_TOKEN_FILE") or "").strip()
+    if token_file:
+        try:
+            return Path(token_file).read_text().strip()
+        except Exception:
+            return ""
+    return ""
+
+
 @dataclass
 class NodeConfig:
     """Configuration for this node."""
@@ -190,7 +203,7 @@ class NodeResilience:
             }
             data = json.dumps(payload).encode("utf-8")
             headers = {"Content-Type": "application/json"}
-            token = (os.environ.get("RINGRIFT_CLUSTER_AUTH_TOKEN") or "").strip()
+            token = _load_cluster_auth_token()
             if token:
                 headers["Authorization"] = f"Bearer {token}"
             request = urllib.request.Request(

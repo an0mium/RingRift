@@ -930,6 +930,96 @@ describe('GameConnection - Event Handlers', () => {
       expect(handlers.onPositionEvaluation).toHaveBeenCalledWith(evalPayload);
     });
   });
+
+  describe('Player Disconnect/Reconnect Events', () => {
+    it('should call onPlayerDisconnected for player_disconnected event', async () => {
+      (handlers as any).onPlayerDisconnected = jest.fn();
+
+      await connection.connect('game-1');
+
+      const connectHandler = eventListeners.get('connect');
+      if (connectHandler) {
+        connectHandler(undefined);
+      }
+
+      const disconnectPayload = {
+        type: 'player_disconnected',
+        data: {
+          gameId: 'game-1',
+          player: {
+            id: 'user-2',
+            username: 'Player2',
+          },
+          reconnectionTimeoutMs: 30000,
+        },
+        timestamp: new Date().toISOString(),
+      };
+
+      const playerDisconnectedHandler = eventListeners.get('player_disconnected');
+      if (playerDisconnectedHandler) {
+        playerDisconnectedHandler(disconnectPayload);
+      }
+
+      expect((handlers as any).onPlayerDisconnected).toHaveBeenCalledWith(disconnectPayload);
+    });
+
+    it('should call onPlayerReconnected for player_reconnected event', async () => {
+      (handlers as any).onPlayerReconnected = jest.fn();
+
+      await connection.connect('game-1');
+
+      const connectHandler = eventListeners.get('connect');
+      if (connectHandler) {
+        connectHandler(undefined);
+      }
+
+      const reconnectPayload = {
+        type: 'player_reconnected',
+        data: {
+          gameId: 'game-1',
+          player: {
+            id: 'user-2',
+            username: 'Player2',
+          },
+        },
+        timestamp: new Date().toISOString(),
+      };
+
+      const playerReconnectedHandler = eventListeners.get('player_reconnected');
+      if (playerReconnectedHandler) {
+        playerReconnectedHandler(reconnectPayload);
+      }
+
+      expect((handlers as any).onPlayerReconnected).toHaveBeenCalledWith(reconnectPayload);
+    });
+
+    it('should not throw if onPlayerDisconnected handler is not defined', async () => {
+      // handlers without onPlayerDisconnected
+      await connection.connect('game-1');
+
+      const connectHandler = eventListeners.get('connect');
+      if (connectHandler) {
+        connectHandler(undefined);
+      }
+
+      const disconnectPayload = {
+        type: 'player_disconnected',
+        data: {
+          gameId: 'game-1',
+          player: { id: 'user-2', username: 'Player2' },
+        },
+        timestamp: new Date().toISOString(),
+      };
+
+      // Should not throw
+      const playerDisconnectedHandler = eventListeners.get('player_disconnected');
+      expect(() => {
+        if (playerDisconnectedHandler) {
+          playerDisconnectedHandler(disconnectPayload);
+        }
+      }).not.toThrow();
+    });
+  });
 });
 
 describe('GameConnection - Edge Cases', () => {

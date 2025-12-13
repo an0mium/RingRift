@@ -419,14 +419,17 @@ def test_get_valid_moves_territory_processing_pre_elimination(
     moves = GameEngine.get_valid_moves(state, 1)
     assert moves, "Expected territory-processing moves"
 
-    # Only CHOOSE_TERRITORY_OPTION (canonical) / PROCESS_TERRITORY_REGION (legacy) should be surfaced.
+    # CHOOSE_TERRITORY_OPTION (canonical) / PROCESS_TERRITORY_REGION (legacy) and
+    # SKIP_TERRITORY_PROCESSING (per RR-CANON-R075) should be surfaced.
     assert all(
-        m.type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION) for m in moves
+        m.type in (MoveType.CHOOSE_TERRITORY_OPTION, MoveType.PROCESS_TERRITORY_REGION, MoveType.SKIP_TERRITORY_PROCESSING) for m in moves
     )
 
-    # Each move should carry the disconnected region geometry and point
-    # to one of its spaces.
+    # Each territory-processing move (not SKIP) should carry the disconnected
+    # region geometry and point to one of its spaces.
     for m in moves:
+        if m.type == MoveType.SKIP_TERRITORY_PROCESSING:
+            continue  # Skip moves don't have disconnected_regions
         assert m.disconnected_regions
         region = list(m.disconnected_regions)[0]
         assert list(region.spaces) == list(region_territory.spaces)

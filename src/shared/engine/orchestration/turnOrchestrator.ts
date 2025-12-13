@@ -47,6 +47,7 @@ import {
   computeGlobalLegalActionsSummary,
   enumerateForcedEliminationOptions,
   playerHasAnyRings,
+  hasAnyGlobalMovementOrCapture,
 } from '../globalActions';
 
 import type {
@@ -1949,8 +1950,7 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
         count: move.placementCount ?? 1,
       };
       const newState = mutatePlacement(state, action);
-      // After placement, advance to movement phase.
-      // Also set mustMoveFromStackKey to enforce that only the updated stack
+      // Set mustMoveFromStackKey to enforce that only the updated stack
       // can move/capture this turn. This matches Python's must_move_from_stack_key
       // semantics for TS/Python parity.
       const placementKey = move.to ? positionToString(move.to) : undefined;
@@ -1962,13 +1962,50 @@ function applyMoveWithChainInfo(state: GameState, move: Move): ApplyMoveResult {
           placementKey
         );
       }
-      return {
-        nextState: {
-          ...newState,
-          currentPhase: 'movement' as GamePhase,
-          mustMoveFromStackKey: placementKey,
-        },
+
+      // RR-PARITY-FIX-2025-12-13: After place_ring, check if the player has any valid
+      // movements or captures. If not, advance directly to line_processing (skipping
+      // movement phase). This matches Python's phase_machine.py behavior after PLACE_RING
+      // where it checks _has_valid_movements and _has_valid_captures and advances directly
+      // to line_processing when neither is available.
+      const stateAfterPlacement: GameState = {
+        ...newState,
+        mustMoveFromStackKey: placementKey,
       };
+      const playerHasMovesOrCaptures = hasAnyGlobalMovementOrCapture(
+        stateAfterPlacement,
+        move.player
+      );
+
+      if (process.env.RINGRIFT_TRACE_DEBUG === '1') {
+        // eslint-disable-next-line no-console
+        console.log(
+          '[applyMoveWithChainInfo] place_ring playerHasMovesOrCaptures:',
+          playerHasMovesOrCaptures
+        );
+      }
+
+      if (playerHasMovesOrCaptures) {
+        // Normal flow: enter movement phase
+        return {
+          nextState: {
+            ...stateAfterPlacement,
+            currentPhase: 'movement' as GamePhase,
+          },
+        };
+      } else {
+        // No valid movements or captures: skip movement and go directly to line_processing
+        // Per RR-CANON-R075, all phases must be visited. The AI/player must select
+        // NO_MOVEMENT_ACTION which will be synthesized by the orchestrator when
+        // entering line_processing with no movement available.
+        return {
+          nextState: {
+            ...stateAfterPlacement,
+            currentPhase: 'line_processing' as GamePhase,
+            mustMoveFromStackKey: undefined, // Clear since we're skipping movement
+          },
+        };
+      }
     }
 
     case 'skip_placement': {

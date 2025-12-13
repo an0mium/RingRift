@@ -4,11 +4,11 @@ This document tracks the provenance and canonical status of all self-play databa
 
 ## Data Classification
 
-| Status                  | Meaning                                                                                                                                                                                                                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **canonical**           | Generated and gated via `scripts/generate_canonical_selfplay.py` with `canonical_ok == true` in the gate summary JSON (for supported boards this also implies a passing TS↔Python parity gate, canonical phase history, FE/territory fixtures, and ANM invariants: `anm_ok == true`) |
-| **legacy_noncanonical** | Pre-dates 7-phase/FE/canonical-history fixes; **DO NOT** use for new training                                                                                                                                                                                                        |
-| **pending_gate**        | Not yet validated; requires `generate_canonical_selfplay.py` (or equivalent gate) before any training use                                                                                                                                                                            |
+| Status                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **canonical**           | Training-approved canonical rules data. A DB is canonical when every game it contains passes canonical config + canonical phase-history validation and TS↔Python replay parity (no structural issues, no semantic divergence). Canonical DBs may be regenerated with `scripts/generate_canonical_selfplay.py` or incrementally extended by ingesting other sources via `scripts/build_canonical_training_pool_db.py` (per-game fail-closed gates; tournament/eval treated as holdout). |
+| **legacy_noncanonical** | Pre-dates 7-phase/FE/canonical-history fixes; **DO NOT** use for new training                                                                                                                                                                                                                                                                                                                                                                                                          |
+| **pending_gate**        | Not yet validated; requires `generate_canonical_selfplay.py` (or equivalent gate) before any training use                                                                                                                                                                                                                                                                                                                                                                              |
 
 ---
 
@@ -91,7 +91,7 @@ Once canonical self-play DBs are generated and exported, retrain these models:
 
 1. **All new training runs** must ONLY use databases listed as `canonical` in this registry.
 
-2. **To add a new DB to the canonical allowlist:**
+2. **To add a new DB to the canonical allowlist (regenerate-from-scratch path):**
 
    Use the unified canonical generator + gate:
 
@@ -126,7 +126,31 @@ Once canonical self-play DBs are generated and exported, retrain these models:
    considered **v1 gating** and SHOULD be migrated to the new script the next
    time those DBs are regenerated.
 
-3. **Legacy DBs** may be used for:
+3. **To incorporate additional self-play sources into canonical training data (incremental ingestion path):**
+
+   Any generator (CMA-ES, tournaments, soaks, hybrid self-play, etc.) may write
+   games into a **staging** `GameReplayDB`, as long as those games are rules‑correct.
+   Use the strict per-game ingestion gate to merge only canonical games into a
+   canonical training DB and quarantine anything that fails:
+
+   ```bash
+   cd ai-service
+   PYTHONPATH=. python scripts/build_canonical_training_pool_db.py \
+     --input-db data/games/staging/<source>.db \
+     --output-db data/games/canonical_<board>.db \
+     --board-type <board> \
+     --num-players <N> \
+     --require-completed \
+     --holdout-db data/games/holdouts/holdout_<board>_<N>p.db \
+     --quarantine-db data/games/quarantine/quarantine_<board>_<N>p.db \
+     --report-json logs/ingest_reports/ingest_<board>_<N>p_<ts>.json
+   ```
+
+   Policy:
+   - **Tournament/evaluation games are holdout**: they are excluded from training and may be copied into `--holdout-db`.
+   - **Per-game gates are fail-closed**: any game failing canonical config/history or TS↔Python parity is excluded and may be copied into `--quarantine-db`.
+
+4. **Legacy DBs** may be used for:
    - Historical comparison experiments
    - Ablation studies (comparing legacy vs canonical)
    - Debugging parity issues
@@ -136,7 +160,7 @@ Once canonical self-play DBs are generated and exported, retrain these models:
    - Evaluation baselines
    - Curriculum learning seeds
 
-4. **Model version tracking:**
+5. **Model version tracking:**
    - All new models must use the `ModelVersionManager` from `app/training/model_versioning.py`
    - Checkpoints include architecture version, config, and SHA256 checksum
    - Version mismatch errors are thrown explicitly (no silent fallback)

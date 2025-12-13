@@ -237,11 +237,13 @@ def test_territory_mutator_shadow_contract_uses_diff_mapping_keys(
     territory_moves = GameEngine._get_territory_processing_moves(state, 1)
     assert territory_moves, "Expected at least one territory move"
 
+    # Territory moves can be either PROCESS_TERRITORY_REGION (legacy) or
+    # CHOOSE_TERRITORY_OPTION (canonical) depending on engine version.
     process_region_moves = [
-        m for m in territory_moves if m.type == MoveType.PROCESS_TERRITORY_REGION
+        m for m in territory_moves if m.type in (MoveType.PROCESS_TERRITORY_REGION, MoveType.CHOOSE_TERRITORY_OPTION)
     ]
     assert process_region_moves, (
-        "Expected at least one PROCESS_TERRITORY_REGION move from "
+        "Expected at least one PROCESS_TERRITORY_REGION or CHOOSE_TERRITORY_OPTION move from "
         "_get_territory_processing_moves",
     )
     move = process_region_moves[0]

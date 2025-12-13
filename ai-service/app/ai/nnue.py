@@ -461,7 +461,8 @@ def load_nnue_model(
     # Apply torch.compile() optimization for faster inference on CUDA
     try:
         from .gpu_batch import compile_model
-        if device not in ("cpu", "mps"):
+        dev_type = device.type if isinstance(device, torch.device) else str(device)
+        if dev_type not in ("cpu", "mps"):
             model = compile_model(
                 model,
                 device=torch.device(device) if isinstance(device, str) else device,

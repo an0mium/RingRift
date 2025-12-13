@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field, asdict
@@ -49,6 +50,7 @@ DEGRADED_THRESHOLD = 2          # Failures before degraded
 OFFLINE_THRESHOLD = 5           # Failures before offline
 RECOVERY_CHECKS = 2             # Successful checks to go from degraded to online
 VAST_API_CHECK_INTERVAL = 300   # Check Vast API every 5 minutes
+AWS_API_CHECK_INTERVAL = 300    # Check AWS (CLI) every 5 minutes
 STATE_FILE = "logs/p2p_orchestrator/dynamic_registry.json"
 
 
@@ -69,6 +71,7 @@ class DynamicNodeInfo:
     last_registration_time: float = 0.0
     failure_reason: Optional[str] = None
     vast_instance_id: Optional[str] = None   # For Vast.ai API queries
+    aws_instance_id: Optional[str] = None    # For AWS CLI queries (ec2 instance id)
 
     @property
     def effective_host(self) -> str:
@@ -92,6 +95,7 @@ class DynamicHostRegistry:
         self._state_file.parent.mkdir(parents=True, exist_ok=True)
         self._vast_api_key: Optional[str] = os.environ.get("VAST_API_KEY")
         self._last_vast_check = 0.0
+        self._last_aws_check = 0.0
 
         # Load static config
         self._load_static_config()
@@ -118,6 +122,8 @@ class DynamicHostRegistry:
                         props = host_config.properties
                         if "vast_instance_id" in props:
                             self._nodes[name].vast_instance_id = props["vast_instance_id"]
+                        if "aws_instance_id" in props:
+                            self._nodes[name].aws_instance_id = props["aws_instance_id"]
                         elif name.startswith("vast-"):
                             # Try to extract from comments in YAML
                             for key, val in props.items():
@@ -150,6 +156,7 @@ class DynamicHostRegistry:
                             node.dynamic_host = node_data.get("dynamic_host")
                             node.dynamic_port = node_data.get("dynamic_port")
                             node.vast_instance_id = node_data.get("vast_instance_id")
+                            node.aws_instance_id = node_data.get("aws_instance_id")
                             # Don't restore state - re-check on startup
                             node.state = NodeState.UNKNOWN
                             node.consecutive_failures = 0
@@ -170,6 +177,7 @@ class DynamicHostRegistry:
                             "dynamic_host": node.dynamic_host,
                             "dynamic_port": node.dynamic_port,
                             "vast_instance_id": node.vast_instance_id,
+                            "aws_instance_id": node.aws_instance_id,
                             "state": node.state.value,
                             "last_success_time": node.last_success_time,
                         }
@@ -334,15 +342,14 @@ class DynamicHostRegistry:
         Returns:
             Number of nodes updated
         """
-        if not self._vast_api_key:
-            logger.debug("No VAST_API_KEY set, skipping Vast IP update")
-            return 0
-
         # Rate limit API calls
         if time.time() - self._last_vast_check < VAST_API_CHECK_INTERVAL:
             return 0
 
         self._last_vast_check = time.time()
+
+        if not self._vast_api_key:
+            return await self._update_vast_ips_via_cli()
 
         try:
             import aiohttp
@@ -400,6 +407,141 @@ class DynamicHostRegistry:
         if updated:
             self._save_state()
 
+        return updated
+
+    async def _update_vast_ips_via_cli(self) -> int:
+        """Fallback Vast.ai discovery via `vastai` CLI when VAST_API_KEY is not set."""
+        try:
+            import asyncio
+
+            def _run() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(
+                    ["vastai", "show", "instances", "--raw"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+
+            result = await asyncio.to_thread(_run)
+            if result.returncode != 0:
+                return 0
+
+            try:
+                instances = json.loads(result.stdout or "[]")
+            except Exception:
+                return 0
+
+            updated = 0
+            with self._lock:
+                instance_to_node = {
+                    str(node.vast_instance_id): node_id
+                    for node_id, node in self._nodes.items()
+                    if node.vast_instance_id
+                }
+                for inst in instances:
+                    instance_id = str(inst.get("id") or "")
+                    if not instance_id or instance_id not in instance_to_node:
+                        continue
+                    ssh_host = inst.get("ssh_host")
+                    ssh_port = inst.get("ssh_port")
+                    if not ssh_host or not ssh_port:
+                        continue
+                    node_id = instance_to_node[instance_id]
+                    node = self._nodes[node_id]
+                    if ssh_host != node.dynamic_host or ssh_port != node.dynamic_port:
+                        logger.info(f"Vast CLI: {node_id} IP updated to {ssh_host}:{ssh_port}")
+                        node.dynamic_host = ssh_host
+                        node.dynamic_port = ssh_port
+                        node.consecutive_failures = 0
+                        node.state = NodeState.UNKNOWN
+                        updated += 1
+
+            if updated:
+                self._save_state()
+            return updated
+        except FileNotFoundError:
+            return 0
+        except Exception:
+            return 0
+
+    async def update_aws_ips(self) -> int:
+        """Query AWS (via `aws` CLI) and update IPs for configured EC2 instances.
+
+        Nodes must define `aws_instance_id` in distributed_hosts.yaml properties.
+
+        Returns:
+            Number of nodes updated
+        """
+        # Rate limit calls.
+        if time.time() - self._last_aws_check < AWS_API_CHECK_INTERVAL:
+            return 0
+        self._last_aws_check = time.time()
+
+        instance_ids: List[str] = []
+        with self._lock:
+            for node in self._nodes.values():
+                if node.aws_instance_id:
+                    instance_ids.append(str(node.aws_instance_id))
+
+        if not instance_ids:
+            return 0
+
+        try:
+            import asyncio
+
+            region = (
+                os.environ.get("AWS_REGION")
+                or os.environ.get("AWS_DEFAULT_REGION")
+                or ""
+            ).strip()
+
+            cmd = ["aws", "ec2", "describe-instances", "--instance-ids", *instance_ids, "--output", "json"]
+            if region:
+                cmd.extend(["--region", region])
+
+            def _run() -> subprocess.CompletedProcess[str]:
+                return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            result = await asyncio.to_thread(_run)
+            if result.returncode != 0:
+                return 0
+
+            payload = json.loads(result.stdout or "{}")
+        except FileNotFoundError:
+            return 0
+        except Exception:
+            return 0
+
+        updated = 0
+        with self._lock:
+            id_to_node = {
+                str(node.aws_instance_id): node_id
+                for node_id, node in self._nodes.items()
+                if node.aws_instance_id
+            }
+
+            reservations = payload.get("Reservations") or []
+            for reservation in reservations:
+                instances = reservation.get("Instances") or []
+                for inst in instances:
+                    instance_id = str(inst.get("InstanceId") or "")
+                    if not instance_id or instance_id not in id_to_node:
+                        continue
+                    public_ip = inst.get("PublicIpAddress") or ""
+                    if not public_ip:
+                        continue
+                    node_id = id_to_node[instance_id]
+                    node = self._nodes[node_id]
+                    if public_ip != node.dynamic_host:
+                        logger.info(f"AWS CLI: {node_id} IP updated to {public_ip}:{node.static_port}")
+                        node.dynamic_host = public_ip
+                        node.dynamic_port = node.static_port
+                        node.consecutive_failures = 0
+                        node.state = NodeState.UNKNOWN
+                        updated += 1
+
+        if updated:
+            self._save_state()
         return updated
 
     def update_yaml_config(self) -> bool:

@@ -26,6 +26,69 @@ interface RateLimiterRejection {
 let redisClient: RedisClientType | null = null;
 
 /**
+ * Load test bypass configuration.
+ *
+ * When RATE_LIMIT_BYPASS_ENABLED=true, requests from load test users
+ * or whitelisted IPs will bypass rate limiting.
+ *
+ * Environment variables:
+ *   RATE_LIMIT_BYPASS_ENABLED - Set to 'true' to enable bypass
+ *   RATE_LIMIT_BYPASS_USER_PATTERN - Regex pattern for user emails (default: loadtest.*@loadtest\\.local)
+ *   RATE_LIMIT_BYPASS_IPS - Comma-separated list of whitelisted IPs
+ */
+const isRateLimitBypassEnabled = (): boolean => {
+  return process.env.RATE_LIMIT_BYPASS_ENABLED === 'true';
+};
+
+const getBypassUserPattern = (): RegExp | null => {
+  if (!isRateLimitBypassEnabled()) return null;
+  const pattern = process.env.RATE_LIMIT_BYPASS_USER_PATTERN || 'loadtest.*@loadtest\\.local';
+  try {
+    return new RegExp(pattern, 'i');
+  } catch {
+    logger.warn('Invalid RATE_LIMIT_BYPASS_USER_PATTERN, bypass disabled');
+    return null;
+  }
+};
+
+const getBypassIPs = (): Set<string> => {
+  if (!isRateLimitBypassEnabled()) return new Set();
+  const ips = process.env.RATE_LIMIT_BYPASS_IPS || '';
+  return new Set(
+    ips
+      .split(',')
+      .map((ip) => ip.trim())
+      .filter(Boolean)
+  );
+};
+
+/**
+ * Check if a request should bypass rate limiting.
+ * Returns true for load test users or whitelisted IPs.
+ */
+export const shouldBypassRateLimit = (req: Request): boolean => {
+  if (!isRateLimitBypassEnabled()) return false;
+
+  // Check IP whitelist
+  const bypassIPs = getBypassIPs();
+  if (req.ip && bypassIPs.has(req.ip)) {
+    return true;
+  }
+
+  // Check user email pattern
+  const authReq = req as AuthenticatedRequest;
+  const userEmail = authReq.user?.email;
+  if (userEmail) {
+    const pattern = getBypassUserPattern();
+    if (pattern && pattern.test(userEmail)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+/**
  * Rate limit configuration type for type safety
  */
 export interface RateLimitConfig {
@@ -335,6 +398,11 @@ const createRateLimiter = (
   } = {}
 ) => {
   return async (req: Request, res: Response, next: NextFunction) => {
+    // Check for load test bypass
+    if (shouldBypassRateLimit(req)) {
+      return next();
+    }
+
     const limiter = rateLimiters[limiterKey];
     const config = getRateLimitConfigsCached()[limiterKey];
 
@@ -419,6 +487,11 @@ export const adaptiveRateLimiter = (
   anonymousKey: string = 'api'
 ) => {
   return async (req: Request, res: Response, next: NextFunction) => {
+    // Check for load test bypass
+    if (shouldBypassRateLimit(req)) {
+      return next();
+    }
+
     const authReq = req as AuthenticatedRequest;
     // Choose limiter based on authentication status
     const isAuthenticated = !!authReq.user?.id;
@@ -479,6 +552,11 @@ export const adaptiveRateLimiter = (
 // Custom rate limiter for specific endpoints with runtime configuration
 export const customRateLimiter = (points: number, duration: number, blockDuration?: number) => {
   return async (req: Request, res: Response, next: NextFunction) => {
+    // Check for load test bypass
+    if (shouldBypassRateLimit(req)) {
+      return next();
+    }
+
     // Create limiter with appropriate storage
     const limiter = redisClient
       ? new RateLimiterRedis({
@@ -542,6 +620,11 @@ export const customRateLimiter = (points: number, duration: number, blockDuratio
  */
 export const userRateLimiter = (limiterKey: string) => {
   return async (req: Request, res: Response, next: NextFunction) => {
+    // Check for load test bypass
+    if (shouldBypassRateLimit(req)) {
+      return next();
+    }
+
     const limiter = rateLimiters[limiterKey];
     const config = getRateLimitConfigsCached()[limiterKey];
 

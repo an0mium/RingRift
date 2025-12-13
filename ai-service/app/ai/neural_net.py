@@ -3049,7 +3049,8 @@ class NeuralNetAI(BaseAI):
         # This provides 2-3x speedup for batch inference
         try:
             from .gpu_batch import compile_model
-            if self.device != "cpu" and self.device != "mps":
+            dev_type = self.device.type if isinstance(self.device, torch.device) else str(self.device)
+            if dev_type not in {"cpu", "mps"}:
                 self.model = compile_model(
                     self.model,
                     device=torch.device(self.device) if isinstance(self.device, str) else self.device,

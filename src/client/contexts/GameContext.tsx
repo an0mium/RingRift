@@ -318,6 +318,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         if (status === 'reconnecting') {
           toast('Reconnecting...', { icon: '🔄', id: 'reconnecting' });
         } else if (status === 'connected') {
+          // Clear any connection-related error when we successfully reconnect.
+          // While onGameState will also clear the error, this provides more
+          // immediate feedback and handles edge cases where game_state may
+          // be delayed after reconnection.
+          if (previous === 'reconnecting') {
+            setError(null);
+          }
           if (hasEverConnectedRef.current && previous === 'reconnecting') {
             toast.success('Reconnected!', { id: 'reconnecting' });
           }

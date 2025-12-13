@@ -128,9 +128,17 @@ if [ -n "${RINGRIFT_ADVERTISE_PORT:-}" ]; then
     echo "RINGRIFT_ADVERTISE_PORT=$RINGRIFT_ADVERTISE_PORT" >> /etc/ringrift/node.conf
 fi
 
+# Store cluster auth token in a root-only file (avoid leaking secrets into env files/cron).
+TOKEN_FILE="/etc/ringrift/cluster_auth_token"
 if [ -n "${RINGRIFT_CLUSTER_AUTH_TOKEN:-}" ]; then
-    echo "RINGRIFT_CLUSTER_AUTH_TOKEN=$RINGRIFT_CLUSTER_AUTH_TOKEN" >> /etc/ringrift/node.conf
+    umask 077
+    printf "%s" "$RINGRIFT_CLUSTER_AUTH_TOKEN" > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
 fi
+if [ -f "$TOKEN_FILE" ]; then
+    echo "RINGRIFT_CLUSTER_AUTH_TOKEN_FILE=$TOKEN_FILE" >> /etc/ringrift/node.conf
+fi
+chmod 600 /etc/ringrift/node.conf
 
 echo "Created /etc/ringrift/node.conf"
 
@@ -167,7 +175,7 @@ PATH=/usr/local/bin:/usr/bin:/bin
 PYTHONPATH=$RINGRIFT_DIR
 P2P_PORT=$P2P_PORT
 SSH_PORT=$SSH_PORT
-RINGRIFT_CLUSTER_AUTH_TOKEN=${RINGRIFT_CLUSTER_AUTH_TOKEN:-}
+RINGRIFT_CLUSTER_AUTH_TOKEN_FILE=/etc/ringrift/cluster_auth_token
 
 # Health check and reconnection every 5 minutes
 */5 * * * * root python3 $RINGRIFT_DIR/scripts/node_resilience.py --node-id $NODE_ID --coordinator $COORDINATOR_URL --ai-service-dir $RINGRIFT_DIR --p2p-port $P2P_PORT --once >> $LOG_DIR/cron.log 2>&1

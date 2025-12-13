@@ -1265,3 +1265,408 @@ describe('GameContext - Submit moves', () => {
     });
   });
 });
+
+describe('GameContext - Player disconnect/reconnect events', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    capturedHandlers = null;
+    mockConnect.mockResolvedValue(undefined);
+  });
+
+  it('should track disconnected players on player_disconnected event', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    expect(result.current.disconnectedOpponents).toEqual([]);
+
+    act(() => {
+      capturedHandlers?.onPlayerDisconnected?.({
+        type: 'player_disconnected',
+        data: {
+          gameId: 'game-123',
+          player: {
+            id: 'user-2',
+            username: 'Player2',
+          },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect(result.current.disconnectedOpponents).toHaveLength(1);
+    expect(result.current.disconnectedOpponents[0].id).toBe('user-2');
+    expect(result.current.disconnectedOpponents[0].username).toBe('Player2');
+    expect(result.current.disconnectedOpponents[0].disconnectedAt).toBeDefined();
+  });
+
+  it('should not add duplicate disconnected players', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    const disconnectPayload = {
+      type: 'player_disconnected' as const,
+      data: {
+        gameId: 'game-123',
+        player: { id: 'user-2', username: 'Player2' },
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    act(() => {
+      capturedHandlers?.onPlayerDisconnected?.(disconnectPayload);
+    });
+
+    act(() => {
+      capturedHandlers?.onPlayerDisconnected?.(disconnectPayload);
+    });
+
+    expect(result.current.disconnectedOpponents).toHaveLength(1);
+  });
+
+  it('should remove player from disconnected list on player_reconnected event', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    // First disconnect
+    act(() => {
+      capturedHandlers?.onPlayerDisconnected?.({
+        type: 'player_disconnected',
+        data: {
+          gameId: 'game-123',
+          player: { id: 'user-2', username: 'Player2' },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect(result.current.disconnectedOpponents).toHaveLength(1);
+
+    // Then reconnect
+    act(() => {
+      capturedHandlers?.onPlayerReconnected?.({
+        type: 'player_reconnected',
+        data: {
+          gameId: 'game-123',
+          player: { id: 'user-2', username: 'Player2' },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect(result.current.disconnectedOpponents).toHaveLength(0);
+  });
+
+  it('should show toast on player disconnect', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    act(() => {
+      capturedHandlers?.onPlayerDisconnected?.({
+        type: 'player_disconnected',
+        data: {
+          gameId: 'game-123',
+          player: { id: 'user-2', username: 'Player2' },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect(mockToast).toHaveBeenCalledWith('Player2 disconnected', expect.any(Object));
+  });
+
+  it('should show success toast on player reconnect', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    act(() => {
+      capturedHandlers?.onPlayerReconnected?.({
+        type: 'player_reconnected',
+        data: {
+          gameId: 'game-123',
+          player: { id: 'user-2', username: 'Player2' },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect((mockToast as any).success).toHaveBeenCalledWith(
+      'Player2 reconnected',
+      expect.any(Object)
+    );
+  });
+
+  it('should clear disconnected opponents on disconnect', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    act(() => {
+      capturedHandlers?.onPlayerDisconnected?.({
+        type: 'player_disconnected',
+        data: {
+          gameId: 'game-123',
+          player: { id: 'user-2', username: 'Player2' },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect(result.current.disconnectedOpponents).toHaveLength(1);
+
+    act(() => {
+      result.current.disconnect();
+    });
+
+    expect(result.current.disconnectedOpponents).toEqual([]);
+  });
+});
+
+describe('GameContext - gameEndedByAbandonment', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    capturedHandlers = null;
+    mockConnect.mockResolvedValue(undefined);
+  });
+
+  it('should return true when victory reason is abandonment', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    expect(result.current.gameEndedByAbandonment).toBe(false);
+
+    act(() => {
+      capturedHandlers?.onGameOver({
+        type: 'game_over',
+        data: {
+          gameId: 'game-123',
+          gameState: {} as any,
+          gameResult: {
+            winner: 1,
+            reason: 'abandonment',
+            finalScore: {
+              ringsEliminated: { 1: 0, 2: 0 },
+              territorySpaces: { 1: 0, 2: 0 },
+              ringsRemaining: { 1: 18, 2: 18 },
+            },
+          },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect(result.current.gameEndedByAbandonment).toBe(true);
+  });
+
+  it('should return false when victory reason is not abandonment', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    act(() => {
+      capturedHandlers?.onGameOver({
+        type: 'game_over',
+        data: {
+          gameId: 'game-123',
+          gameState: {} as any,
+          gameResult: {
+            winner: 1,
+            reason: 'ring_elimination',
+            finalScore: {
+              ringsEliminated: { 1: 5, 2: 10 },
+              territorySpaces: { 1: 0, 2: 0 },
+              ringsRemaining: { 1: 13, 2: 8 },
+            },
+          },
+        },
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    expect(result.current.gameEndedByAbandonment).toBe(false);
+  });
+});
+
+describe('GameContext - Reconnection toast behavior', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    capturedHandlers = null;
+    mockConnect.mockResolvedValue(undefined);
+  });
+
+  it('should show reconnecting toast when status changes to reconnecting', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    // First connect
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('connected');
+    });
+
+    // Simulate reconnecting
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('reconnecting');
+    });
+
+    expect(mockToast).toHaveBeenCalledWith(
+      'Reconnecting...',
+      expect.objectContaining({ id: 'reconnecting' })
+    );
+    expect(result.current.connectionStatus).toBe('reconnecting');
+    expect(result.current.isConnecting).toBe(true);
+  });
+
+  it('should show reconnected toast on successful reconnection after previous connection', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    // Simulate initial connection
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('connected');
+    });
+
+    // Simulate disconnect then reconnecting
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('reconnecting');
+    });
+
+    // Simulate successful reconnect
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('connected');
+    });
+
+    expect((mockToast as any).success).toHaveBeenCalledWith(
+      'Reconnected!',
+      expect.objectContaining({ id: 'reconnecting' })
+    );
+  });
+
+  it('should not show reconnected toast on first connection', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    (mockToast as any).success.mockClear();
+
+    // First connection
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('connected');
+    });
+
+    // Should not show "Reconnected!" on first connection
+    expect((mockToast as any).success).not.toHaveBeenCalledWith('Reconnected!', expect.any(Object));
+  });
+
+  it('should clear error when connection status changes from reconnecting to connected', async () => {
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <GameProvider>{children}</GameProvider>
+    );
+
+    const { result } = renderHook(() => useGame(), { wrapper });
+
+    await act(async () => {
+      await result.current.connectToGame('game-123');
+    });
+
+    // Simulate initial connection
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('connected');
+    });
+
+    // Simulate an error during reconnection
+    act(() => {
+      capturedHandlers?.onError({ message: 'Connection temporarily lost' });
+    });
+
+    expect(result.current.error).toBe('Connection temporarily lost');
+
+    // Simulate reconnecting status
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('reconnecting');
+    });
+
+    // Error should still be present during reconnection
+    expect(result.current.error).toBe('Connection temporarily lost');
+
+    // Simulate successful reconnection
+    act(() => {
+      capturedHandlers?.onConnectionStatusChange?.('connected');
+    });
+
+    // Error should be cleared immediately when reconnection succeeds
+    expect(result.current.error).toBeNull();
+  });
+});

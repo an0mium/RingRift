@@ -152,9 +152,19 @@ def compile_model(
         logger.debug(f"torch.compile() requires PyTorch 2.0+, got {torch.__version__}")
         return model
 
-    # MPS has limited compile support - skip for now
-    if device is not None and device.type == "mps":
+    # torch.compile is most valuable on CUDA inference workloads. On CPU it can
+    # be brittle (especially on macOS toolchains) and the speedups are often
+    # marginal for our batch sizes, so we skip compilation unless the target is
+    # a CUDA device.
+    if device is None:
+        return model
+
+    if device.type == "mps":
         logger.debug("Skipping torch.compile() on MPS (limited support)")
+        return model
+
+    if device.type == "cpu":
+        logger.debug("Skipping torch.compile() on CPU")
         return model
 
     # Check if already compiled

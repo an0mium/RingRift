@@ -11,7 +11,7 @@
 import http from 'k6/http';
 import { check, sleep } from 'k6';
 import { Counter, Rate, Trend } from 'k6/metrics';
-import { loginAndGetToken } from '../auth/helpers.js';
+import { getValidToken } from '../auth/helpers.js';
 import { makeHandleSummary } from '../summary.js';
 
 const thresholdsConfig = JSON.parse(open('../config/thresholds.json'));
@@ -170,7 +170,12 @@ function classifyImmediateGetGameFailure(res, gameId) {
 }
 
 /**
- * Setup function - runs once before the test and returns shared auth state
+ * Setup function - runs once before the test and returns shared config.
+ *
+ * Multi-user mode:
+ *   When LOADTEST_USER_POOL_SIZE is set, each VU will authenticate as a
+ *   different user from the pool. This distributes load across users to
+ *   avoid per-user rate limits.
  */
 export function setup() {
   console.log(`Starting game creation load test against ${BASE_URL}`);
@@ -182,17 +187,7 @@ export function setup() {
     'health check successful': (r) => r.status === 200,
   });
 
-  // Login once as a pre-seeded load-test user and share the token with all VUs.
-  const { token } = loginAndGetToken(BASE_URL, {
-    apiPrefix: API_PREFIX,
-    tags: { name: 'auth-login-setup' },
-    metrics: {
-      contractFailures,
-      capacityFailures,
-    },
-  });
-
-  return { baseUrl: BASE_URL, token };
+  return { baseUrl: BASE_URL };
 }
 
 /**
@@ -200,7 +195,17 @@ export function setup() {
  */
 export default function(data) {
   const baseUrl = data.baseUrl;
-  const token = data.token;
+
+  // Each VU logs in as its own user (when multi-user pool is configured)
+  // getValidToken handles caching and token refresh per-VU
+  const { token } = getValidToken(baseUrl, {
+    apiPrefix: API_PREFIX,
+    tags: { name: 'auth-login' },
+    metrics: {
+      contractFailures,
+      capacityFailures,
+    },
+  });
 
   const authHeaders = {
     'Content-Type': 'application/json',

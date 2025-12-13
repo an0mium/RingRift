@@ -7,6 +7,55 @@ const TOKEN_REFRESH_SAFETY_WINDOW_SECONDS = Number(
 );
 
 /**
+ * Multi-user pool configuration.
+ *
+ * When LOADTEST_USER_POOL_SIZE is set (e.g., 400), users will be selected
+ * from loadtest_user_1@loadtest.local through loadtest_user_N@loadtest.local
+ * based on the VU number. This distributes load across multiple users to
+ * avoid per-user rate limits.
+ *
+ * Environment variables:
+ *   LOADTEST_USER_POOL_SIZE - Number of users in the pool (default: 0 = single user mode)
+ *   LOADTEST_USER_POOL_PASSWORD - Shared password for all pool users (default: LoadTestK6Pass123)
+ *   LOADTEST_USER_POOL_PREFIX - Email prefix pattern (default: loadtest_user_)
+ *   LOADTEST_USER_POOL_DOMAIN - Email domain (default: loadtest.local)
+ */
+const USER_POOL_SIZE = Number(__ENV.LOADTEST_USER_POOL_SIZE || 0);
+const USER_POOL_PASSWORD = __ENV.LOADTEST_USER_POOL_PASSWORD || 'LoadTestK6Pass123';
+const USER_POOL_PREFIX = __ENV.LOADTEST_USER_POOL_PREFIX || 'loadtest_user_';
+const USER_POOL_DOMAIN = __ENV.LOADTEST_USER_POOL_DOMAIN || 'loadtest.local';
+
+/**
+ * Get credentials for the current VU.
+ * When USER_POOL_SIZE > 0, selects user based on VU number.
+ * Otherwise falls back to single-user mode.
+ *
+ * @param {number} [vuOverride] - Optional VU number override (useful in setup phase)
+ * @returns {{ email: string, password: string, userIndex: number }}
+ */
+export function getVUCredentials(vuOverride) {
+  if (USER_POOL_SIZE > 0) {
+    // __VU is 1-indexed, user pool is 1-indexed
+    // During setup phase, __VU is 0, so default to user 1
+    // Use modulo to wrap around if VUs exceed pool size
+    const vu = typeof vuOverride === 'number' ? vuOverride : (__VU || 1);
+    const userIndex = ((vu - 1) % USER_POOL_SIZE) + 1;
+    return {
+      email: `${USER_POOL_PREFIX}${userIndex}@${USER_POOL_DOMAIN}`,
+      password: USER_POOL_PASSWORD,
+      userIndex,
+    };
+  }
+
+  // Single-user fallback mode
+  return {
+    email: __ENV.LOADTEST_EMAIL || 'loadtest_user_1@loadtest.local',
+    password: __ENV.LOADTEST_PASSWORD || 'TestPassword123!',
+    userIndex: 1,
+  };
+}
+
+/**
  * Simple per-VU cache of the most recent successful login.
  * k6 executes each VU in its own JS runtime, so this state is per-VU.
  */
@@ -45,8 +94,10 @@ export function loginAndGetToken(baseUrl, options) {
   const contractFailures = metrics.contractFailures;
   const capacityFailures = metrics.capacityFailures;
 
-  const email = __ENV.LOADTEST_EMAIL || 'loadtest_user_1@loadtest.local';
-  const password = __ENV.LOADTEST_PASSWORD || 'TestPassword123!';
+  // Use multi-user pool when configured, otherwise fall back to single user
+  const credentials = getVUCredentials();
+  const email = credentials.email;
+  const password = credentials.password;
 
   let res = http.post(
     `${baseUrl}${apiPrefix}/auth/login`,

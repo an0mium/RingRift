@@ -105,6 +105,16 @@ HTTP_TOTAL_TIMEOUT = 30       # Total request timeout
 MAX_CONSECUTIVE_FAILURES = 3  # Mark node dead after 3 failures
 RETRY_DEAD_NODE_INTERVAL = 300  # Retry dead nodes every 5 minutes
 
+# NAT/relay settings
+# Nodes that can't receive inbound connections can operate in relay mode:
+# they send heartbeats to a relay (/relay/heartbeat) and poll for commands.
+NAT_INBOUND_HEARTBEAT_STALE_SECONDS = 180  # seconds since last inbound /heartbeat
+RELAY_HEARTBEAT_INTERVAL = 30  # seconds between relay heartbeats when enabled
+RELAY_COMMAND_TTL_SECONDS = 1800  # expire queued commands after 30 minutes
+RELAY_COMMAND_MAX_BATCH = 16
+RELAY_COMMAND_MAX_ATTEMPTS = 3
+RELAY_MAX_PENDING_START_JOBS = 4
+
 # Peer bootstrap settings
 # Seed peers are used to import a snapshot of cluster membership (via /relay/peers)
 # so new nodes can join existing clusters without needing every peer preconfigured.
@@ -233,6 +243,10 @@ class NodeInfo:
     memory_gb: int = 0
     capabilities: List[str] = field(default_factory=list)
     version: str = "1.0.0"
+    # Self-reported endpoint (may be different from the observed reachable
+    # endpoint stored in `host`/`port`, e.g. overlays or containers).
+    reported_host: str = ""
+    reported_port: int = 0
     # LEARNED LESSONS - Track connection failures for adaptive retry
     consecutive_failures: int = 0
     last_failure_time: float = 0.0
@@ -346,6 +360,8 @@ class NodeInfo:
         # Handle missing new fields gracefully
         d.setdefault('scheme', 'http')
         d.setdefault('cpu_count', 0)
+        d.setdefault('reported_host', '')
+        d.setdefault('reported_port', 0)
         d.setdefault('consecutive_failures', 0)
         d.setdefault('last_failure_time', 0.0)
         d.setdefault('disk_cleanup_needed', False)
@@ -878,6 +894,7 @@ class P2POrchestrator:
         self.sync_lock = threading.Lock()
         self.training_lock = threading.Lock()
         self.ssh_tournament_lock = threading.Lock()
+        self.relay_lock = threading.Lock()
 
         # State persistence
         self.db_path = STATE_DIR / f"{node_id}_state.db"
@@ -896,6 +913,16 @@ class P2POrchestrator:
         # Job completion tracking for auto-restart
         self.completed_jobs: Dict[str, float] = {}  # node_id -> last job completion time
         self.jobs_started_at: Dict[str, Dict[str, float]] = {}  # node_id -> {job_id: start_time}
+
+        # NAT/relay support (for nodes without inbound connectivity).
+        # NAT-blocked nodes poll a relay endpoint for commands; the leader enqueues
+        # commands keyed by node_id.
+        self.last_inbound_heartbeat: float = 0.0
+        self.last_relay_heartbeat: float = 0.0
+        self.relay_command_queue: Dict[str, List[Dict[str, Any]]] = {}
+        self.pending_relay_acks: Set[str] = set()
+        self.pending_relay_results: List[Dict[str, Any]] = []
+        self.relay_command_attempts: Dict[str, int] = {}
 
         # Load persisted state
         self._load_state()
@@ -2314,17 +2341,12 @@ class P2POrchestrator:
                 await asyncio.sleep(60)  # Wait before retrying
 
     async def _vast_ip_update_loop(self):
-        """Background loop to periodically check Vast.ai API for IP changes.
+        """Background loop to periodically refresh Vast instance connection info.
 
-        Only runs if VAST_API_KEY is set. Updates the dynamic registry with
-        current IPs for all Vast instances.
+        Uses VAST_API_KEY when available, otherwise falls back to the `vastai`
+        CLI if installed (see DynamicHostRegistry.update_vast_ips).
         """
         if not HAS_DYNAMIC_REGISTRY:
-            return
-
-        vast_api_key = os.environ.get("VAST_API_KEY")
-        if not vast_api_key:
-            print("[P2P] Vast IP update loop disabled (no VAST_API_KEY)")
             return
 
         print("[P2P] Vast IP update loop started")
@@ -2342,6 +2364,32 @@ class P2POrchestrator:
                 break
             except Exception as e:
                 print(f"[P2P] Vast IP update loop error: {e}")
+                await asyncio.sleep(60)
+
+    async def _aws_ip_update_loop(self):
+        """Background loop to periodically refresh AWS instance connection info.
+
+        Uses the `aws` CLI (see DynamicHostRegistry.update_aws_ips). No-op when
+        no AWS instances are configured in distributed_hosts.yaml properties.
+        """
+        if not HAS_DYNAMIC_REGISTRY:
+            return
+
+        print("[P2P] AWS IP update loop started")
+        registry = get_registry()
+
+        while self.running:
+            try:
+                await asyncio.sleep(300)  # Check every 5 minutes
+
+                updated = await registry.update_aws_ips()
+                if updated > 0:
+                    print(f"[P2P] Updated {updated} AWS instance IPs via CLI")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[P2P] AWS IP update loop error: {e}")
                 await asyncio.sleep(60)
 
     async def _data_management_loop(self):
@@ -2767,8 +2815,15 @@ class P2POrchestrator:
     async def handle_heartbeat(self, request: web.Request) -> web.Response:
         """Handle heartbeat from peer node."""
         try:
+            # Receiving any inbound heartbeat implies we're reachable inbound.
+            self.last_inbound_heartbeat = time.time()
             data = await request.json()
             peer_info = NodeInfo.from_dict(data)
+            # Preserve the node's self-reported endpoint for multi-path retries.
+            if not peer_info.reported_host:
+                peer_info.reported_host = peer_info.host
+            if not peer_info.reported_port:
+                peer_info.reported_port = peer_info.port
             peer_info.last_heartbeat = time.time()
             # Prefer the remote socket address over self-reported host so that
             # nodes behind overlays (e.g., Tailscale) use a reachable address.
@@ -2847,6 +2902,7 @@ class P2POrchestrator:
         Also handles lease-based leadership updates.
         """
         try:
+            self._update_self_info()
             data = await request.json()
             new_leader_raw = data.get("leader_id")
             if not new_leader_raw:
@@ -2868,6 +2924,16 @@ class P2POrchestrator:
                 else:
                     print(f"[P2P] Rejecting leader announcement from lower-priority node: {new_leader} < {self.node_id}")
                     return web.json_response({"accepted": False, "reason": "lower_priority"})
+
+            # Reject leadership from nodes that are not directly reachable / uniquely addressable.
+            if new_leader != self.node_id:
+                with self.peers_lock:
+                    peer = self.peers.get(new_leader)
+                    peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
+                if peer:
+                    conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
+                    if not self._is_leader_eligible(peer, conflict_keys, require_alive=False):
+                        return web.json_response({"accepted": False, "reason": "leader_ineligible"})
 
             if is_renewal:
                 # Just a lease renewal, update expiry silently
@@ -2899,8 +2965,15 @@ class P2POrchestrator:
             board_type = data.get("board_type", "square8")
             num_players = data.get("num_players", 2)
             engine_mode = data.get("engine_mode", "descent-only")
+            job_id = data.get("job_id")
 
-            job = await self._start_local_job(job_type, board_type, num_players, engine_mode)
+            job = await self._start_local_job(
+                job_type,
+                board_type=board_type,
+                num_players=num_players,
+                engine_mode=engine_mode,
+                job_id=job_id,
+            )
 
             if job:
                 return web.json_response({"success": True, "job": job.to_dict()})
@@ -3093,7 +3166,13 @@ class P2POrchestrator:
         """
         try:
             data = await request.json()
+            relay_ack = data.get("relay_ack") or []
+            relay_results = data.get("relay_results") or []
             peer_info = NodeInfo.from_dict(data)
+            if not peer_info.reported_host:
+                peer_info.reported_host = peer_info.host
+            if not peer_info.reported_port:
+                peer_info.reported_port = peer_info.port
             peer_info.last_heartbeat = time.time()
             peer_info.nat_blocked = True  # Mark as NAT-blocked
             peer_info.relay_via = self.node_id  # This node is their relay
@@ -3102,14 +3181,49 @@ class P2POrchestrator:
             forwarded_for = (
                 request.headers.get("X-Forwarded-For")
                 or request.headers.get("X-Real-IP")
+                or request.headers.get("CF-Connecting-IP")
             )
             real_ip = forwarded_for.split(",")[0].strip() if forwarded_for else request.remote
+            if real_ip:
+                peer_info.host = real_ip
 
             # Store in peers list (they're part of the cluster even if not directly reachable)
             with self.peers_lock:
                 self.peers[peer_info.node_id] = peer_info
 
             print(f"[P2P] Relay heartbeat from {peer_info.node_id} (real IP: {real_ip})")
+
+            # Apply relay ACKs/results and return any queued commands.
+            commands_to_send: List[Dict[str, Any]] = []
+            with self.relay_lock:
+                queue = list(self.relay_command_queue.get(peer_info.node_id, []))
+                now = time.time()
+                queue = [
+                    cmd for cmd in queue
+                    if float(cmd.get("expires_at", 0.0) or 0.0) > now
+                ]
+
+                if relay_ack:
+                    ack_set = {str(c) for c in relay_ack if c}
+                    queue = [cmd for cmd in queue if str(cmd.get("id", "")) not in ack_set]
+
+                if relay_results:
+                    for item in relay_results:
+                        try:
+                            cmd_id = str(item.get("id") or "")
+                            ok = bool(item.get("ok", False))
+                            err = str(item.get("error") or "")
+                            if not cmd_id:
+                                continue
+                            if ok:
+                                print(f"[P2P] Relay command {cmd_id} on {peer_info.node_id}: ok")
+                            else:
+                                print(f"[P2P] Relay command {cmd_id} on {peer_info.node_id}: failed {err[:200]}")
+                        except Exception:
+                            continue
+
+                self.relay_command_queue[peer_info.node_id] = queue
+                commands_to_send = queue[:RELAY_COMMAND_MAX_BATCH]
 
             # Return cluster state so they can see all peers
             self._update_self_info()
@@ -3122,6 +3236,7 @@ class P2POrchestrator:
                 "peers": peers,
                 "leader_id": self.leader_id,
                 "relay_node": self.node_id,
+                "commands": commands_to_send,
             })
 
         except Exception as e:
@@ -3133,6 +3248,8 @@ class P2POrchestrator:
         Used by nodes to discover the full cluster including NAT-blocked members.
         """
         try:
+            if self.auth_token and not self._is_request_authorized(request):
+                return web.json_response({"error": "unauthorized"}, status=401)
             self._update_self_info()
             with self.peers_lock:
                 all_peers = {k: v.to_dict() for k, v in self.peers.items()}
@@ -3232,9 +3349,9 @@ class P2POrchestrator:
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_registry_update_vast(self, request: web.Request) -> web.Response:
-        """POST /registry/update_vast - Query Vast.ai API and update IPs.
+        """POST /registry/update_vast - Refresh Vast instance IPs in the dynamic registry.
 
-        Requires VAST_API_KEY environment variable to be set.
+        Uses VAST_API_KEY when available, otherwise attempts the `vastai` CLI.
         """
         if not HAS_DYNAMIC_REGISTRY:
             return web.json_response({
@@ -3250,6 +3367,22 @@ class P2POrchestrator:
                 "nodes_updated": updated,
             })
 
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_registry_update_aws(self, request: web.Request) -> web.Response:
+        """POST /registry/update_aws - Refresh AWS instance IPs in the dynamic registry.
+
+        Uses the `aws` CLI and requires nodes to define `aws_instance_id` in
+        distributed_hosts.yaml properties.
+        """
+        if not HAS_DYNAMIC_REGISTRY:
+            return web.json_response({"error": "Dynamic registry not available"}, status=501)
+
+        try:
+            registry = get_registry()
+            updated = await registry.update_aws_ips()
+            return web.json_response({"success": True, "nodes_updated": updated})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=500)
 
@@ -7786,6 +7919,21 @@ print(json.dumps({{
         usage = self._get_resource_usage()
         selfplay, training = self._count_local_jobs()
 
+        # NAT/relay detection: if we haven't received any inbound heartbeats for a
+        # while (but we do know about other peers), assume we're not reachable
+        # inbound and must poll a relay for commands.
+        now = time.time()
+        if self.role != NodeRole.LEADER and (self.known_peers or self.peers):
+            last_inbound = self.last_inbound_heartbeat or self.start_time
+            self.self_info.nat_blocked = (now - last_inbound) >= NAT_INBOUND_HEARTBEAT_STALE_SECONDS
+        else:
+            self.self_info.nat_blocked = False
+
+        if not self.self_info.nat_blocked:
+            self.self_info.relay_via = ""
+        elif self.leader_id and self.leader_id != self.node_id:
+            self.self_info.relay_via = self.leader_id
+
         self.self_info.cpu_percent = usage["cpu_percent"]
         self.self_info.memory_percent = usage["memory_percent"]
         self.self_info.disk_percent = usage["disk_percent"]
@@ -7809,6 +7957,10 @@ print(json.dumps({{
                     if resp.status == 200:
                         data = await resp.json()
                         info = NodeInfo.from_dict(data)
+                        if not info.reported_host:
+                            info.reported_host = info.host
+                        if not info.reported_port:
+                            info.reported_port = info.port
                         # Use the address we successfully reached instead of any
                         # self-reported interface address.
                         info.scheme = scheme
@@ -7907,10 +8059,19 @@ print(json.dumps({{
             async with ClientSession(timeout=timeout) as session:
                 # Use /relay/heartbeat endpoint
                 url = f"{relay_url.rstrip('/')}/relay/heartbeat"
-                async with session.post(url, json=self.self_info.to_dict(), headers=self._auth_headers()) as resp:
+                payload = self.self_info.to_dict()
+                if self.pending_relay_acks:
+                    payload["relay_ack"] = sorted(self.pending_relay_acks)
+                if self.pending_relay_results:
+                    payload["relay_results"] = list(self.pending_relay_results)
+                async with session.post(url, json=payload, headers=self._auth_headers()) as resp:
                     if resp.status == 200:
                         data = await resp.json()
                         if data.get("success"):
+                            # Clear pending acks/results only after a successful round-trip.
+                            self.pending_relay_acks.clear()
+                            self.pending_relay_results.clear()
+
                             # Update our peer list with all peers from relay
                             peers_data = data.get("peers", {})
                             with self.peers_lock:
@@ -7918,6 +8079,11 @@ print(json.dumps({{
                                     if node_id != self.node_id:
                                         peer_info = NodeInfo.from_dict(peer_dict)
                                         self.peers[node_id] = peer_info
+
+                            # Execute any queued commands addressed to us.
+                            commands = data.get("commands") or []
+                            if isinstance(commands, list) and commands:
+                                await self._execute_relay_commands(commands)
 
                             # Update leader if provided
                             leader_id = data.get("leader_id")
@@ -7931,11 +8097,86 @@ print(json.dumps({{
                                 "success": True,
                                 "peers_received": len(peers_data),
                                 "leader_id": leader_id,
+                                "commands_received": len(commands) if isinstance(commands, list) else 0,
                             }
                         return {"success": False, "error": data.get("error", "Unknown error")}
                     return {"success": False, "error": f"HTTP {resp.status}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    async def _execute_relay_commands(self, commands: List[Dict[str, Any]]) -> None:
+        """Execute relay commands (polling mode for NAT-blocked nodes)."""
+        for cmd in commands:
+            try:
+                cmd_id = str(cmd.get("id") or "")
+                cmd_type = str(cmd.get("type") or "")
+                payload = cmd.get("payload") or {}
+                if not cmd_id or not cmd_type:
+                    continue
+
+                attempts = int(self.relay_command_attempts.get(cmd_id, 0) or 0) + 1
+                self.relay_command_attempts[cmd_id] = attempts
+
+                ok = False
+                err = ""
+                if cmd_type == "start_job":
+                    job_type = JobType(str(payload.get("job_type") or "selfplay"))
+                    board_type = str(payload.get("board_type") or "square8")
+                    num_players = int(payload.get("num_players") or 2)
+                    engine_mode = str(payload.get("engine_mode") or "mixed")
+                    job_id = str(payload.get("job_id") or "")
+
+                    if job_id:
+                        with self.jobs_lock:
+                            existing = self.local_jobs.get(job_id)
+                        if existing and existing.status == "running":
+                            ok = True
+                        else:
+                            job = await self._start_local_job(
+                                job_type,
+                                board_type=board_type,
+                                num_players=num_players,
+                                engine_mode=engine_mode,
+                                job_id=job_id,
+                            )
+                            ok = job is not None
+                    else:
+                        job = await self._start_local_job(
+                            job_type,
+                            board_type=board_type,
+                            num_players=num_players,
+                            engine_mode=engine_mode,
+                        )
+                        ok = job is not None
+                elif cmd_type == "cleanup":
+                    asyncio.create_task(self._cleanup_local_disk())
+                    ok = True
+                else:
+                    ok = False
+                    err = f"unknown_command_type:{cmd_type}"
+
+                if ok:
+                    self.pending_relay_acks.add(cmd_id)
+                    self.pending_relay_results.append({"id": cmd_id, "ok": True})
+                    self.relay_command_attempts.pop(cmd_id, None)
+                else:
+                    if not err:
+                        err = "command_failed"
+                    if attempts >= RELAY_COMMAND_MAX_ATTEMPTS:
+                        self.pending_relay_acks.add(cmd_id)
+                        self.pending_relay_results.append({"id": cmd_id, "ok": False, "error": err})
+                        self.relay_command_attempts.pop(cmd_id, None)
+            except Exception as exc:
+                try:
+                    cmd_id = str(cmd.get("id") or "")
+                    if cmd_id:
+                        attempts = int(self.relay_command_attempts.get(cmd_id, 0) or 0)
+                        if attempts >= RELAY_COMMAND_MAX_ATTEMPTS:
+                            self.pending_relay_acks.add(cmd_id)
+                            self.pending_relay_results.append({"id": cmd_id, "ok": False, "error": str(exc)})
+                            self.relay_command_attempts.pop(cmd_id, None)
+                except Exception:
+                    continue
 
     async def _heartbeat_loop(self):
         """Send heartbeats to all known peers."""
@@ -7968,14 +8209,32 @@ print(json.dumps({{
                             self.leader_id = info.node_id
                             self.role = NodeRole.FOLLOWER
 
-                # Send to discovered peers (skip NAT-blocked peers - they can't receive)
+                # Send to discovered peers (skip NAT-blocked peers and ambiguous endpoints).
                 with self.peers_lock:
-                    peer_list = [p for p in self.peers.values() if not p.nat_blocked]
+                    peers_snapshot = list(self.peers.values())
+                conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
+                peer_list = [
+                    p for p in peers_snapshot
+                    if (
+                        not p.nat_blocked
+                        and self._endpoint_key(p) not in conflict_keys
+                    )
+                ]
 
                 for peer in peer_list:
                     if peer.node_id != self.node_id:
                         peer_scheme = getattr(peer, "scheme", "http") or "http"
                         info = await self._send_heartbeat_to_peer(peer.host, peer.port, scheme=peer_scheme)
+                        if not info and getattr(peer, "reported_host", "") and getattr(peer, "reported_port", 0):
+                            # Multi-path retry: fall back to self-reported endpoint when the
+                            # observed reachable endpoint fails (e.g., mixed overlays).
+                            try:
+                                rh = str(getattr(peer, "reported_host", "") or "").strip()
+                                rp = int(getattr(peer, "reported_port", 0) or 0)
+                            except Exception:
+                                rh, rp = "", 0
+                            if rh and rp and (rh != peer.host or rp != peer.port):
+                                info = await self._send_heartbeat_to_peer(rh, rp, scheme=peer_scheme)
                         if info:
                             with self.peers_lock:
                                 info.last_heartbeat = time.time()
@@ -7988,10 +8247,31 @@ print(json.dumps({{
 
                 # If we're only connected to a seed peer (or lost cluster membership),
                 # pull a fresh peer snapshot so leader election converges quickly.
-                with self.peers_lock:
-                    peer_count = len(self.peers)
-                if self.known_peers and (not self.leader_id or peer_count < PEER_BOOTSTRAP_MIN_PEERS):
+                if self.known_peers:
                     await self._bootstrap_from_known_peers()
+
+                # NAT-blocked nodes: poll a relay endpoint for peer snapshots + commands.
+                if getattr(self.self_info, "nat_blocked", False) and self.known_peers:
+                    now = time.time()
+                    if now - self.last_relay_heartbeat >= RELAY_HEARTBEAT_INTERVAL:
+                        relay_urls: List[str] = []
+                        leader_peer = self._get_leader_peer()
+                        if leader_peer and leader_peer.node_id != self.node_id:
+                            relay_urls.append(f"{leader_peer.scheme}://{leader_peer.host}:{leader_peer.port}")
+                        for peer_addr in self.known_peers:
+                            try:
+                                scheme, host, port = self._parse_peer_address(peer_addr)
+                            except Exception:
+                                continue
+                            relay_urls.append(f"{scheme}://{host}:{port}")
+                        seen: Set[str] = set()
+                        relay_urls = [u for u in relay_urls if not (u in seen or seen.add(u))]
+
+                        for relay_url in relay_urls:
+                            result = await self._send_relay_heartbeat(relay_url)
+                            if result.get("success"):
+                                self.last_relay_heartbeat = now
+                                break
 
                 # Check for dead peers
                 self._check_dead_peers()
@@ -8055,16 +8335,58 @@ print(json.dumps({{
             # Never let dashboard bookkeeping break manifest collection.
             return
 
+    def _endpoint_key(self, info: NodeInfo) -> Optional[Tuple[str, str, int]]:
+        """Return the normalized reachable endpoint key for a peer (scheme, host, port)."""
+        host = str(getattr(info, "host", "") or "").strip()
+        if not host:
+            return None
+        scheme = str(getattr(info, "scheme", "http") or "http").lower()
+        try:
+            port = int(getattr(info, "port", DEFAULT_PORT) or DEFAULT_PORT)
+        except Exception:
+            port = DEFAULT_PORT
+        return (scheme, host, port)
+
+    def _endpoint_conflict_keys(self, peers: List[NodeInfo]) -> Set[Tuple[str, str, int]]:
+        """Compute endpoint keys that are shared by >1 node (NAT/port collisions)."""
+        counts: Dict[Tuple[str, str, int], int] = {}
+        for p in peers:
+            key = self._endpoint_key(p)
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+        return {k for k, v in counts.items() if v > 1}
+
+    def _is_leader_eligible(
+        self,
+        peer: NodeInfo,
+        conflict_keys: Set[Tuple[str, str, int]],
+        *,
+        require_alive: bool = True,
+    ) -> bool:
+        """Heuristic: leaders must be directly reachable and uniquely addressable."""
+        if require_alive and not peer.is_alive():
+            return False
+        if getattr(peer, "nat_blocked", False):
+            return False
+        key = self._endpoint_key(peer)
+        if key and key in conflict_keys:
+            return False
+        return True
+
     def _maybe_adopt_leader_from_peers(self) -> bool:
         """If we can already see a healthy leader, adopt it and avoid elections."""
         if self.role == NodeRole.LEADER:
             return False
 
         with self.peers_lock:
-            leaders = [
-                p for p in self.peers.values()
-                if p.node_id != self.node_id and p.role == NodeRole.LEADER and p.is_alive()
-            ]
+            peers = [p for p in self.peers.values() if p.node_id != self.node_id]
+
+        conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers)
+        leaders = [
+            p for p in peers
+            if p.role == NodeRole.LEADER and self._is_leader_eligible(p, conflict_keys)
+        ]
 
         if not leaders:
             return False
@@ -8096,16 +8418,31 @@ print(json.dumps({{
         if self.leader_id and self.leader_id != self.node_id:
             with self.peers_lock:
                 leader = self.peers.get(self.leader_id)
-                if leader and not leader.is_alive():
-                    print(f"[P2P] Leader {self.leader_id} is dead, starting election")
+                peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
+            if leader:
+                conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
+                if not self._is_leader_eligible(leader, conflict_keys):
+                    reason = "dead" if not leader.is_alive() else "ineligible"
+                    print(f"[P2P] Leader {self.leader_id} is {reason}, starting election")
                     asyncio.create_task(self._start_election())
 
     async def _start_election(self):
         """Start leader election using Bully algorithm."""
+        self._update_self_info()
+
+        # NAT-blocked nodes cannot act as a leader because peers can't reach them.
+        if getattr(self.self_info, "nat_blocked", False):
+            return
+
+        with self.peers_lock:
+            peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
+
+        conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
+
         if self.leader_id and self.leader_id != self.node_id:
             with self.peers_lock:
                 leader = self.peers.get(self.leader_id)
-            if leader and leader.is_alive():
+            if leader and self._is_leader_eligible(leader, conflict_keys):
                 return
         if self._maybe_adopt_leader_from_peers():
             return
@@ -8119,11 +8456,13 @@ print(json.dumps({{
 
         try:
             # Send election message to all nodes with higher IDs
-            higher_nodes = []
             with self.peers_lock:
                 higher_nodes = [
                     p for p in self.peers.values()
-                    if p.node_id > self.node_id and p.is_alive()
+                    if (
+                        p.node_id > self.node_id
+                        and self._is_leader_eligible(p, conflict_keys)
+                    )
                 ]
 
             got_response = False
@@ -8144,7 +8483,9 @@ print(json.dumps({{
 
             # If no higher node responded, we become leader
             if not got_response:
-                await self._become_leader()
+                # Only become leader if we're eligible (unique + directly reachable).
+                if self._is_leader_eligible(self.self_info, conflict_keys):
+                    await self._become_leader()
             else:
                 # Wait for coordinator message
                 await asyncio.sleep(ELECTION_TIMEOUT * 2)
@@ -8154,6 +8495,10 @@ print(json.dumps({{
 
     async def _become_leader(self):
         """Become the cluster leader with lease-based leadership."""
+        self._update_self_info()
+        if getattr(self.self_info, "nat_blocked", False):
+            print(f"[P2P] Refusing leadership while NAT-blocked: {self.node_id}")
+            return
         import uuid
         print(f"[P2P] I am now the leader: {self.node_id}")
         self.role = NodeRole.LEADER
@@ -8242,19 +8587,31 @@ print(json.dumps({{
         if self.role != NodeRole.LEADER:
             return False
 
-        # Gather all peers claiming to be leader
-        other_leaders = []
         with self.peers_lock:
-            for peer in self.peers.values():
-                if peer.role == NodeRole.LEADER and peer.node_id != self.node_id and peer.is_alive():
-                    other_leaders.append(peer)
+            peers_snapshot = [p for p in self.peers.values() if p.node_id != self.node_id]
+
+        conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
+
+        # Gather all peers claiming to be leader.
+        other_leaders = [
+            peer for peer in peers_snapshot
+            if peer.role == NodeRole.LEADER and peer.is_alive()
+        ]
 
         if not other_leaders:
             return False  # No split-brain
 
-        # Find the highest-priority leader (including ourselves)
-        all_leaders = other_leaders + [self.self_info]
-        highest_leader = max(all_leaders, key=lambda p: p.node_id)
+        # Find the highest-priority *eligible* leader (including ourselves).
+        eligible_leaders = [
+            p for p in other_leaders
+            if self._is_leader_eligible(p, conflict_keys)
+        ]
+        if self._is_leader_eligible(self.self_info, conflict_keys):
+            eligible_leaders.append(self.self_info)
+
+        # If none are eligible, fall back to bully ordering (best-effort).
+        candidates = eligible_leaders or (other_leaders + [self.self_info])
+        highest_leader = max(candidates, key=lambda p: p.node_id)
 
         if highest_leader.node_id != self.node_id:
             # We're not the highest-priority leader - step down
@@ -8262,6 +8619,8 @@ print(json.dumps({{
             print(f"[P2P] Stepping down in favor of higher-priority leader: {highest_leader.node_id}")
             self.role = NodeRole.FOLLOWER
             self.leader_id = highest_leader.node_id
+            self.leader_lease_id = ""
+            self.leader_lease_expires = 0.0
             self._save_state()
             return True
 
@@ -8273,7 +8632,15 @@ print(json.dumps({{
             for peer in other_leaders:
                 try:
                     url = self._url_for_peer(peer, "/coordinator")
-                    await session.post(url, json={"leader_id": self.node_id}, headers=self._auth_headers())
+                    await session.post(
+                        url,
+                        json={
+                            "leader_id": self.node_id,
+                            "lease_id": self.leader_lease_id,
+                            "lease_expires": self.leader_lease_expires,
+                        },
+                        headers=self._auth_headers(),
+                    )
                 except:
                     pass
 
@@ -8560,6 +8927,10 @@ print(json.dumps({{
     async def _request_remote_cleanup(self, node: NodeInfo):
         """Request a remote node to clean up disk space."""
         try:
+            if getattr(node, "nat_blocked", False):
+                self._enqueue_relay_command(node.node_id, "cleanup", {})
+                print(f"[P2P] Enqueued relay cleanup for {node.node_id}")
+                return
             timeout = ClientTimeout(total=HTTP_TOTAL_TIMEOUT)
             async with ClientSession(timeout=timeout) as session:
                 url = self._url_for_peer(node, "/cleanup")
@@ -8628,10 +8999,18 @@ print(json.dumps({{
         board_type: str = "square8",
         num_players: int = 2,
         engine_mode: str = "descent-only",
+        job_id: Optional[str] = None,
     ) -> Optional[ClusterJob]:
         """Start a job on the local node."""
         try:
-            job_id = str(uuid.uuid4())[:8]
+            if job_id:
+                job_id = str(job_id)
+                with self.jobs_lock:
+                    existing = self.local_jobs.get(job_id)
+                if existing and existing.status == "running":
+                    return existing
+            else:
+                job_id = str(uuid.uuid4())[:8]
 
             if job_type == JobType.SELFPLAY:
                 # Normalize engine_mode to what run_self_play_soak.py supports.
@@ -8928,10 +9307,32 @@ print(json.dumps({{
     ):
         """Request a remote node to start a job with specific configuration."""
         try:
+            job_id = f"{job_type.value}_{board_type}_{num_players}p_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+
+            # NAT-blocked nodes can't accept inbound /start_job; enqueue a relay command instead.
+            if getattr(node, "nat_blocked", False):
+                payload = {
+                    "job_id": job_id,
+                    "job_type": job_type.value,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                    "engine_mode": engine_mode,
+                }
+                cmd_id = self._enqueue_relay_command(node.node_id, "start_job", payload)
+                if cmd_id:
+                    print(
+                        f"[P2P] Enqueued relay job for {node.node_id}: "
+                        f"{job_type.value} {board_type} {num_players}p ({job_id})"
+                    )
+                else:
+                    print(f"[P2P] Relay queue full for {node.node_id}; skipping enqueue")
+                return
+
             timeout = ClientTimeout(total=10)
             async with ClientSession(timeout=timeout) as session:
                 url = self._url_for_peer(node, "/start_job")
                 payload = {
+                    "job_id": job_id,
                     "job_type": job_type.value,
                     "board_type": board_type,
                     "num_players": num_players,
@@ -8946,6 +9347,45 @@ print(json.dumps({{
                             print(f"[P2P] Failed to start remote job: {data.get('error')}")
         except Exception as e:
             print(f"[P2P] Failed to request remote job from {node.node_id}: {e}")
+
+    def _enqueue_relay_command(self, node_id: str, cmd_type: str, payload: Dict[str, Any]) -> Optional[str]:
+        """Leader-side: enqueue a command for a NAT-blocked node to pull."""
+        now = time.time()
+        cmd_type = str(cmd_type)
+        payload = dict(payload or {})
+
+        with self.relay_lock:
+            queue = list(self.relay_command_queue.get(node_id, []))
+            queue = [
+                cmd for cmd in queue
+                if float(cmd.get("expires_at", 0.0) or 0.0) > now
+            ]
+
+            if cmd_type == "start_job":
+                pending = sum(1 for c in queue if str(c.get("type") or "") == "start_job")
+                if pending >= RELAY_MAX_PENDING_START_JOBS:
+                    self.relay_command_queue[node_id] = queue
+                    return None
+
+                job_id = str(payload.get("job_id") or "")
+                if job_id:
+                    for c in queue:
+                        if str(c.get("payload", {}).get("job_id") or "") == job_id:
+                            self.relay_command_queue[node_id] = queue
+                            return str(c.get("id") or "")
+
+            cmd_id = uuid.uuid4().hex
+            queue.append(
+                {
+                    "id": cmd_id,
+                    "type": cmd_type,
+                    "payload": payload,
+                    "created_at": now,
+                    "expires_at": now + RELAY_COMMAND_TTL_SECONDS,
+                }
+            )
+            self.relay_command_queue[node_id] = queue
+            return cmd_id
 
     async def _discovery_loop(self):
         """Broadcast UDP discovery messages to find peers on local network."""
@@ -9021,6 +9461,7 @@ print(json.dumps({{
         app.router.add_post('/register', self.handle_register)
         app.router.add_get('/registry/status', self.handle_registry_status)
         app.router.add_post('/registry/update_vast', self.handle_registry_update_vast)
+        app.router.add_post('/registry/update_aws', self.handle_registry_update_aws)
         app.router.add_post('/registry/save_yaml', self.handle_registry_save_yaml)
 
         # Relay/Hub routes for NAT-blocked nodes
@@ -9120,9 +9561,10 @@ print(json.dumps({{
         # Add training node priority sync loop (leader-only sync to high-GPU nodes)
         tasks.append(asyncio.create_task(self._training_sync_loop()))
 
-        # Add Vast.ai IP update loop (if VAST_API_KEY is set)
+        # Add cloud IP refresh loops (best-effort; no-op if not configured).
         if HAS_DYNAMIC_REGISTRY:
             tasks.append(asyncio.create_task(self._vast_ip_update_loop()))
+            tasks.append(asyncio.create_task(self._aws_ip_update_loop()))
 
         # Add automatic data management loop (export triggers, training triggers, data sync)
         tasks.append(asyncio.create_task(self._data_management_loop()))
