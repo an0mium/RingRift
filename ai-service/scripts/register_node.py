@@ -135,10 +135,33 @@ def register_with_coordinator(
         return False
 
 
+def register_with_any_coordinator(
+    coordinator_urls: list[str],
+    node_id: str,
+    host: str,
+    port: int,
+    vast_instance_id: Optional[str] = None,
+) -> bool:
+    for coordinator_url in coordinator_urls:
+        if register_with_coordinator(
+            coordinator_url=coordinator_url,
+            node_id=node_id,
+            host=host,
+            port=port,
+            vast_instance_id=vast_instance_id,
+        ):
+            return True
+    return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Register this node with the P2P cluster")
     parser.add_argument("--node-id", required=True, help="Node identifier (e.g., vast-5090-quad)")
-    parser.add_argument("--coordinator", required=True, help="P2P coordinator URL (e.g., http://192.222.53.22:8770)")
+    parser.add_argument(
+        "--coordinator",
+        required=True,
+        help="Comma-separated seed coordinator URLs (e.g., http://host:8770,http://host2:8770)",
+    )
     parser.add_argument("--host", help="IP address to register (auto-detect if not specified)")
     parser.add_argument("--port", type=int, help="SSH port to register (auto-detect if not specified)")
     parser.add_argument("--auto-ip", action="store_true", help="Auto-detect public IP")
@@ -170,10 +193,11 @@ def main():
     # Determine port
     port = args.port or get_ssh_port()
 
-    print(f"Registering {args.node_id} at {host}:{port} with {args.coordinator}")
+    coordinators = [c.strip() for c in (args.coordinator or "").split(",") if c.strip()]
+    print(f"Registering {args.node_id} at {host}:{port} with {coordinators}")
 
-    success = register_with_coordinator(
-        coordinator_url=args.coordinator,
+    success = register_with_any_coordinator(
+        coordinators,
         node_id=args.node_id,
         host=host,
         port=port,

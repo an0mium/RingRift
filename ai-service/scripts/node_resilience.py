@@ -123,6 +123,12 @@ class NodeResilience:
         self.last_registration = 0
         self.p2p_connected = False
         self.running = True
+        self._last_good_coordinator: str = ""
+
+    def _coordinator_urls(self) -> List[str]:
+        raw = (self.config.coordinator_url or "").strip()
+        urls = [u.strip() for u in raw.split(",") if u.strip()]
+        return urls
 
     def get_public_ip(self) -> Optional[str]:
         """Get this machine's public IP address."""
@@ -177,15 +183,21 @@ class NodeResilience:
 
     def check_coordinator_reachable(self) -> bool:
         """Check if the coordinator is reachable."""
-        try:
-            url = f"{self.config.coordinator_url.rstrip('/')}/health"
-            with urllib.request.urlopen(url, timeout=10) as response:
-                data = json.loads(response.read().decode())
-                if "healthy" in data:
-                    return bool(data.get("healthy"))
-                return data.get("status") == "ok"
-        except Exception:
-            return False
+        for base in self._coordinator_urls():
+            try:
+                url = f"{base.rstrip('/')}/health"
+                with urllib.request.urlopen(url, timeout=10) as response:
+                    data = json.loads(response.read().decode())
+                    if "healthy" in data:
+                        ok = bool(data.get("healthy"))
+                    else:
+                        ok = data.get("status") == "ok"
+                    if ok:
+                        self._last_good_coordinator = base
+                        return True
+            except Exception:
+                continue
+        return False
 
     def register_with_coordinator(self) -> bool:
         """Register this node with the coordinator."""
@@ -194,31 +206,35 @@ class NodeResilience:
             logger.warning("Failed to get public IP for registration")
             return False
 
-        try:
-            url = f"{self.config.coordinator_url.rstrip('/')}/register"
-            payload = {
-                "node_id": self.config.node_id,
-                "host": ip,
-                "port": self._get_ssh_port(),
-            }
-            data = json.dumps(payload).encode("utf-8")
-            headers = {"Content-Type": "application/json"}
-            token = _load_cluster_auth_token()
-            if token:
-                headers["Authorization"] = f"Bearer {token}"
-            request = urllib.request.Request(
-                url,
-                data=data,
-                headers=headers,
-                method="POST",
-            )
-            with urllib.request.urlopen(request, timeout=10) as response:
-                result = json.loads(response.read().decode())
-                if result.get("success"):
-                    logger.info(f"Registered {self.config.node_id} at {ip}")
-                    return True
-        except Exception as e:
-            logger.warning(f"Registration failed: {e}")
+        payload = {
+            "node_id": self.config.node_id,
+            "host": ip,
+            "port": self._get_ssh_port(),
+        }
+        data = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        token = _load_cluster_auth_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        for base in self._coordinator_urls():
+            try:
+                url = f"{base.rstrip('/')}/register"
+                request = urllib.request.Request(
+                    url,
+                    data=data,
+                    headers=headers,
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    result = json.loads(response.read().decode())
+                    if result.get("success"):
+                        self._last_good_coordinator = base
+                        logger.info(f"Registered {self.config.node_id} at {ip} via {base}")
+                        return True
+            except Exception as e:
+                logger.warning(f"Registration failed via {base}: {e}")
+                continue
         return False
 
     def _get_ssh_port(self) -> int:
@@ -688,7 +704,7 @@ class NodeResilience:
 def main():
     parser = argparse.ArgumentParser(description="Node resilience daemon")
     parser.add_argument("--node-id", required=True, help="Node identifier")
-    parser.add_argument("--coordinator", required=True, help="Coordinator URL")
+    parser.add_argument("--coordinator", required=True, help="Comma-separated seed coordinator URLs")
     parser.add_argument("--ai-service-dir", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                         help="AI service directory")
     parser.add_argument("--num-gpus", type=int, default=0, help="Number of GPUs (auto-detect if 0)")
