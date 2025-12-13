@@ -254,7 +254,7 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
           expect(moves.length).toBe(1);
 
           const move = moves[0];
-          expect(move.type).toBe('process_territory_region');
+          expect(move.type).toBe('choose_territory_option');
           expect(move.player).toBe(movingPlayer);
           expect(move.disconnectedRegions && move.disconnectedRegions.length).toBeGreaterThan(0);
 
@@ -334,9 +334,14 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
           const regionMoves = enumerateProcessTerritoryRegionMoves(state, movingPlayer);
           expect(regionMoves.length).toBe(1);
 
-          const { nextState } = applyProcessTerritoryRegionDecision(state, regionMoves[0]);
+          const regionMove = regionMoves[0];
+          const { nextState } = applyProcessTerritoryRegionDecision(state, regionMove);
+          const nextStateWithHistory: GameState = {
+            ...nextState,
+            moveHistory: [...nextState.moveHistory, regionMove],
+          };
 
-          const boardAfterRegion = nextState.board;
+          const boardAfterRegion = nextStateWithHistory.board;
 
           // RR-CANON-R082: Only eligible cap targets are surfaced:
           // (1) Multicolor stacks (stackHeight > capHeight), OR
@@ -353,7 +358,7 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
             }
           }
 
-          const elimMoves = enumerateTerritoryEliminationMoves(nextState, movingPlayer);
+          const elimMoves = enumerateTerritoryEliminationMoves(nextStateWithHistory, movingPlayer);
           const moveTargets = new Set(
             elimMoves
               .map((m) => (m.to ? positionToString(m.to) : undefined))
@@ -372,7 +377,10 @@ describe('territoryDecisionHelpers.property – decision enumeration and self-el
           const totalBefore = nextState.totalRingsEliminated;
 
           const chosen = elimMoves[0];
-          const { nextState: afterElim } = applyEliminateRingsFromStackDecision(nextState, chosen);
+          const { nextState: afterElim } = applyEliminateRingsFromStackDecision(
+            nextStateWithHistory,
+            chosen
+          );
 
           const boardAfterElim = afterElim.board;
           const p1After = afterElim.players.find((p) => p.playerNumber === movingPlayer)!;

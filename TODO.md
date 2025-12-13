@@ -317,7 +317,7 @@ Operational drills completed:
   - [x] `canonical_square8_3p.db` (3P) — `canonical_ok=true` (`ai-service/data/games/db_health.canonical_square8_3p.json`)
   - [x] `canonical_square8_4p.db` (4P) — `canonical_ok=true` (`ai-service/data/games/db_health.canonical_square8_4p.json`)
   - [x] `canonical_square19.db` (2P) — `canonical_ok=true` (`ai-service/data/games/db_health.canonical_square19.json`, low volume; scale up)
-  - [ ] `canonical_hex.db` (radius‑12) — pending
+  - [x] `canonical_hex.db` (radius‑12) — `canonical_ok=true` (`ai-service/data/games/db_health.canonical_hex.json`, low volume; scale up)
 - [x] Add and keep a small golden replay pack in CI that replays in TS + Python and fails on any semantic drift
   - [x] Exported new canonical golden from `canonical_square8_2p.db` -> `tests/fixtures/golden-games/golden_square8_2p_d033.json`
 - [x] Audit orchestrator/Python `game_engine.py` changes for silent transitions or forced elimination without recorded moves

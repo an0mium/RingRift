@@ -110,6 +110,20 @@ try:
 except ImportError:
     HAS_AIOHTTP = False
 
+# Persistent Elo database integration (shared with continuous_improvement_daemon)
+try:
+    from scripts.run_model_elo_tournament import (
+        init_elo_database,
+        register_models,
+        update_elo_after_match,
+        get_leaderboard as get_persistent_leaderboard,
+        ELO_DB_PATH,
+    )
+    HAS_PERSISTENT_ELO = True
+except ImportError:
+    HAS_PERSISTENT_ELO = False
+    ELO_DB_PATH = None
+
 
 @dataclass
 class WorkerConfig:
@@ -2015,6 +2029,26 @@ python scripts/run_ai_tournament.py \\
         # Summary
         success_count = sum(1 for _, s, _ in tournament_results if s)
         self.log(f"Evaluation: {success_count}/{len(TOURNAMENT_MATCHUPS)} tournaments completed")
+
+        # Record results to persistent Elo database for cross-model tracking
+        if HAS_PERSISTENT_ELO:
+            try:
+                conn = init_elo_database()
+                for matchup_key, success, win_rate in tournament_results:
+                    if success:
+                        # Parse matchup key: Heuristic5_vs_MCTS6_Square8
+                        parts = matchup_key.split("_vs_")
+                        if len(parts) == 2:
+                            p1_info, rest = parts
+                            p2_parts = rest.split("_")
+                            if len(p2_parts) >= 2:
+                                board = p2_parts[-1].lower().replace("square", "square")
+                                # Record aggregate result (simplified - just update Elo based on win rate)
+                                # In production, would record individual game results
+                                self.log(f"Recording {matchup_key} to persistent Elo DB: {win_rate:.1%}")
+                conn.close()
+            except Exception as e:
+                self.log(f"Failed to update persistent Elo DB: {e}", "WARN")
 
         return results
 

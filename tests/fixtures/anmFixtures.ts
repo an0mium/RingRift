@@ -265,7 +265,16 @@ export function makeAnmScen06_GlobalStalemateBareBoard(): GameState {
   board.markers.clear();
 
   // Collapse every space on the board so that no legal placement exists.
-  collapseEntireBoard(board, 1);
+  //
+  // IMPORTANT: Split ownership evenly so we do NOT accidentally trigger a
+  // primary territory-control victory before the bare-board stalemate ladder.
+  // (Territory victory is checked before stalemate tie-breaks.)
+  for (let x = 0; x < board.size; x += 1) {
+    for (let y = 0; y < board.size; y += 1) {
+      const owner = (x + y) % 2 === 0 ? 1 : 2;
+      board.collapsedSpaces.set(positionToString({ x, y }), owner);
+    }
+  }
 
   const players = [
     // Player 1: more rings in hand for stalemate ladder tie-break.
@@ -281,6 +290,8 @@ export function makeAnmScen06_GlobalStalemateBareBoard(): GameState {
     boardType: 'square8',
     board,
     players,
+    // RR-CANON-R062: floor(64/2)+1 = 33 (strict majority).
+    territoryVictoryThreshold: 33,
     // Use a non-participating currentPlayer so that isANMState(state) is false
     // (hasTurnMaterial(state, currentPlayer) === false) while the stalemate
     // ladder in VictoryAggregate still evaluates over players[1..N].

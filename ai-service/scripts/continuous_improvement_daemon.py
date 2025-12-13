@@ -48,6 +48,82 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 AI_SERVICE_ROOT = Path(__file__).resolve().parents[1]
 
+# Import persistent Elo database functions
+try:
+    from scripts.run_model_elo_tournament import (
+        init_elo_database,
+        register_models,
+        update_elo_after_match,
+        get_leaderboard as get_persistent_leaderboard,
+        ELO_DB_PATH,
+    )
+    HAS_PERSISTENT_ELO = True
+except ImportError:
+    HAS_PERSISTENT_ELO = False
+    ELO_DB_PATH = None
+
+# =============================================================================
+# P2P Orchestrator Integration
+# =============================================================================
+#
+# The daemon can optionally coordinate with the P2P orchestrator for:
+# - Distributed selfplay across cluster nodes
+# - Centralized data manifest tracking
+# - Coordinated training schedules
+# - Shared Elo leaderboard
+
+P2P_ORCHESTRATOR_URL = os.environ.get("P2P_ORCHESTRATOR_URL", "http://localhost:8770")
+P2P_AUTH_TOKEN = os.environ.get("RINGRIFT_CLUSTER_AUTH_TOKEN", "")
+USE_P2P_ORCHESTRATOR = os.environ.get("USE_P2P_ORCHESTRATOR", "").lower() in ("1", "true", "yes")
+
+
+async def get_p2p_cluster_status() -> Optional[Dict[str, Any]]:
+    """Query P2P orchestrator for cluster status and data manifest."""
+    if not USE_P2P_ORCHESTRATOR:
+        return None
+
+    try:
+        import aiohttp
+        headers = {"Authorization": f"Bearer {P2P_AUTH_TOKEN}"} if P2P_AUTH_TOKEN else {}
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{P2P_ORCHESTRATOR_URL}/cluster_data_manifest",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+    except Exception as e:
+        print(f"[Daemon] P2P orchestrator query failed: {e}")
+    return None
+
+
+async def notify_p2p_training_complete(model_id: str, board_type: str, num_players: int) -> bool:
+    """Notify P2P orchestrator that training completed (for coordinated promotion)."""
+    if not USE_P2P_ORCHESTRATOR:
+        return True
+
+    try:
+        import aiohttp
+        headers = {"Authorization": f"Bearer {P2P_AUTH_TOKEN}"} if P2P_AUTH_TOKEN else {}
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{P2P_ORCHESTRATOR_URL}/improvement/phase_complete",
+                headers=headers,
+                json={
+                    "phase": "training",
+                    "model_id": model_id,
+                    "board_type": board_type,
+                    "num_players": num_players,
+                },
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                return resp.status == 200
+    except Exception as e:
+        print(f"[Daemon] P2P notification failed: {e}")
+    return False
+
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -70,7 +146,24 @@ PROMOTION_THRESHOLD = 0.55         # Win rate needed for promotion
 
 # Selfplay configuration
 SELFPLAY_BATCH_SIZE = 100          # Games per selfplay batch
-SELFPLAY_ENGINES = ["mixed", "descent-only", "mcts-only"]
+# Diverse engine modes for richer training data:
+# - mixed: Random sampling from D1-D10 ladder (all AI types)
+# - descent-only: Pure AlphaZero-style (best for NN training)
+# - mcts-only: Monte Carlo tree search (exploration focused)
+# - heuristic-only: Pure heuristic (CMA-ES optimization)
+# - minimax-only: Traditional search (complements MCTS)
+SELFPLAY_ENGINES = ["mixed", "descent-only", "mcts-only", "heuristic-only", "minimax-only"]
+
+# Asymmetric matchup configurations for diverse training data
+# These pit different AI types against each other to explore more of the game tree
+ASYMMETRIC_MATCHUPS = [
+    # Format: (engine1, diff1, engine2, diff2) - creates imbalanced games
+    ("heuristic-only", 5, "mcts-only", 6),      # Heuristic vs MCTS
+    ("heuristic-only", 4, "descent-only", 7),   # Weak heuristic vs strong descent
+    ("minimax-only", 5, "mcts-only", 5),        # Minimax vs MCTS (same level)
+    ("random-only", 1, "descent-only", 9),      # Random vs strong (exploration)
+    ("mcts-only", 4, "descent-only", 6),        # MCTS vs Descent
+]
 
 # Retry configuration
 MAX_RETRIES = 3
@@ -323,9 +416,76 @@ def get_training_data_stats(state: DaemonState) -> Dict[str, Dict[str, int]]:
     return stats
 
 
-async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) -> int:
-    """Run selfplay balanced across board types based on priority and need."""
+async def run_asymmetric_selfplay(state: DaemonState, board_type: str, num_players: int) -> int:
+    """Run asymmetric selfplay games between different AI types.
+
+    This generates diverse training data by pitting different AI algorithms
+    against each other, exploring more of the game tree than homogeneous selfplay.
+    """
     total_games = 0
+    key = get_config_key(board_type, num_players)
+
+    # Select a random asymmetric matchup
+    if not ASYMMETRIC_MATCHUPS:
+        return 0
+
+    matchup = random.choice(ASYMMETRIC_MATCHUPS)
+    engine1, diff1, engine2, diff2 = matchup
+
+    output_file = AI_SERVICE_ROOT / "data" / "selfplay" / f"daemon_{key}_asymmetric" / f"games_{int(time.time())}.jsonl"
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    # Use run_ai_tournament.py for asymmetric matchups since run_self_play_soak.py
+    # uses homogeneous engine modes. Map engine modes to AI types.
+    ai_type_map = {
+        "heuristic-only": "Heuristic",
+        "minimax-only": "Minimax",
+        "mcts-only": "MCTS",
+        "descent-only": "MCTS",  # Descent uses MCTS with neural net
+        "random-only": "Random",
+    }
+
+    p1_type = ai_type_map.get(engine1, "Heuristic")
+    p2_type = ai_type_map.get(engine2, "Heuristic")
+
+    # Run 10 asymmetric games per matchup
+    cmd = [
+        sys.executable, "scripts/run_ai_tournament.py",
+        "--p1", p1_type,
+        "--p1-diff", str(diff1),
+        "--p2", p2_type,
+        "--p2-diff", str(diff2),
+        "--board", board_type.replace("square", "Square").replace("hex", "Hex"),
+        "--games", "10",
+        "--output-dir", str(output_file.parent),
+    ]
+
+    print(f"[Daemon] Running asymmetric selfplay: {p1_type}(D{diff1}) vs {p2_type}(D{diff2}) on {key}")
+    success, output = run_command(cmd, timeout=300)
+
+    if success:
+        total_games = 10  # Tournament runs specified number of games
+        print(f"[Daemon] Asymmetric selfplay completed: {total_games} diverse games")
+    else:
+        print(f"[Daemon] Asymmetric selfplay failed: {output[:200]}")
+
+    return total_games
+
+
+async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) -> int:
+    """Run selfplay balanced across board types based on priority and need.
+
+    Incorporates P2P cluster data manifest if available for smarter balancing.
+    """
+    total_games = 0
+
+    # Query P2P orchestrator for cluster-wide data manifest
+    cluster_manifest = await get_p2p_cluster_status()
+    cluster_games_by_config = {}
+    if cluster_manifest and "by_board_type" in cluster_manifest:
+        for board_key, board_data in cluster_manifest["by_board_type"].items():
+            cluster_games_by_config[board_key] = board_data.get("total_games", 0)
+        print(f"[Daemon] Using cluster manifest: {sum(cluster_games_by_config.values())} total games across cluster")
 
     # Calculate weights based on priority and data deficit
     weights = []
@@ -333,8 +493,11 @@ async def run_balanced_selfplay(state: DaemonState, duration_minutes: int = 10) 
         key = get_config_key(config["board"], config["players"])
         bs = state.board_states.get(key, BoardTypeState(config["board"], config["players"]))
 
+        # Use cluster-wide game count if available, else local count
+        total_games_for_config = cluster_games_by_config.get(key, bs.total_games)
+
         # Higher weight if we have less data relative to minimum
-        deficit_ratio = max(0, 1 - bs.total_games / config["min_games"])
+        deficit_ratio = max(0, 1 - total_games_for_config / config["min_games"])
         weight = config["priority"] * (1 + deficit_ratio)
         weights.append((config, weight))
 
@@ -526,7 +689,7 @@ async def run_model_comparison(state: DaemonState, new_model_id: str) -> Optiona
     except Exception:
         win_rate = 0.5
 
-    # Update Elo ratings
+    # Update Elo ratings (in-memory)
     score = win_rate
     new_rating, best_rating = update_elo(
         state.elo_ratings.get(new_model_id, 1500),
@@ -535,6 +698,46 @@ async def run_model_comparison(state: DaemonState, new_model_id: str) -> Optiona
     )
     state.elo_ratings[new_model_id] = new_rating
     state.elo_ratings[bs.best_model_id] = best_rating
+
+    # Also persist to SQLite database for cross-model leaderboard
+    if HAS_PERSISTENT_ELO:
+        try:
+            conn = init_elo_database()
+            # Register models if not already registered
+            register_models(conn, [
+                {
+                    "model_id": new_model_id,
+                    "model_path": model_info.path,
+                    "board_type": model_info.board_type,
+                    "num_players": model_info.num_players,
+                    "version": "v" + str(model_info.iteration),
+                    "created_at": time.time(),
+                },
+                {
+                    "model_id": bs.best_model_id,
+                    "model_path": best_model.path,
+                    "board_type": best_model.board_type,
+                    "num_players": best_model.num_players,
+                    "version": "v" + str(best_model.iteration),
+                    "created_at": time.time(),
+                },
+            ])
+            # Record match results
+            for _ in range(int(win_rate * TOURNAMENT_GAMES)):
+                update_elo_after_match(
+                    conn, new_model_id, bs.best_model_id, new_model_id,
+                    model_info.board_type, model_info.num_players,
+                    tournament_id=f"daemon_{state.total_tournaments}"
+                )
+            for _ in range(int((1 - win_rate) * TOURNAMENT_GAMES)):
+                update_elo_after_match(
+                    conn, new_model_id, bs.best_model_id, bs.best_model_id,
+                    model_info.board_type, model_info.num_players,
+                    tournament_id=f"daemon_{state.total_tournaments}"
+                )
+            conn.close()
+        except Exception as e:
+            print(f"[Daemon] Warning: Could not update persistent Elo DB: {e}")
 
     # Update model stats
     model_info.elo_rating = new_rating
@@ -568,6 +771,95 @@ async def run_model_comparison(state: DaemonState, new_model_id: str) -> Optiona
         "best_elo": best_rating,
         "promoted": promoted,
     }
+
+
+async def run_cross_model_tournament(state: DaemonState, top_n: int = 10, games_per_matchup: int = 4) -> int:
+    """Run a round-robin tournament between top models to keep Elo ratings fresh.
+
+    This ensures all models play against each other, not just new vs best.
+    Runs every 10 cycles (configured in daemon_cycle).
+
+    Returns number of games played.
+    """
+    if not HAS_PERSISTENT_ELO:
+        print("[Daemon] Cross-model tournament requires persistent Elo database")
+        return 0
+
+    # Get top N models from each board config
+    conn = init_elo_database()
+    total_games = 0
+
+    for config in BOARD_CONFIGS[:3]:  # Focus on main configs (square8 2p, 3p, 4p)
+        key = get_config_key(config["board"], config["players"])
+        leaderboard = get_persistent_leaderboard(
+            conn, config["board"], config["players"], limit=top_n
+        )
+
+        if len(leaderboard) < 2:
+            continue
+
+        print(f"[Daemon] Running cross-model tournament for {key} with {len(leaderboard)} models")
+
+        # Generate matchups (round-robin but limited)
+        matchups = []
+        for i, entry_a in enumerate(leaderboard):
+            for entry_b in leaderboard[i+1:]:
+                matchups.append((entry_a["model_id"], entry_b["model_id"]))
+
+        # Limit matchups to avoid excessive runtime
+        max_matchups = 15
+        if len(matchups) > max_matchups:
+            random.shuffle(matchups)
+            matchups = matchups[:max_matchups]
+
+        # Run games using external tournament runner
+        for model_a_id, model_b_id in matchups:
+            # Find model paths
+            model_a = state.models.get(model_a_id)
+            model_b = state.models.get(model_b_id)
+
+            if not model_a or not model_b:
+                continue
+
+            tournament_cmd = [
+                sys.executable, "scripts/run_tournament.py",
+                "--player1", f"nn:{model_a.path}",
+                "--player2", f"nn:{model_b.path}",
+                "--board", config["board"],
+                "--num-players", str(config["players"]),
+                "--games", str(games_per_matchup),
+            ]
+
+            success, output = run_command(tournament_cmd, timeout=600)
+
+            if success:
+                # Parse results
+                import re
+                match = re.search(r"P1.*?(\d+)/(\d+)", output)
+                if match:
+                    wins = int(match.group(1))
+                    total = int(match.group(2))
+
+                    # Update persistent Elo for each game result
+                    for _ in range(wins):
+                        update_elo_after_match(
+                            conn, model_a_id, model_b_id, model_a_id,
+                            config["board"], config["players"],
+                            tournament_id=f"crossmodel_{state.total_cycles}"
+                        )
+                    for _ in range(total - wins):
+                        update_elo_after_match(
+                            conn, model_a_id, model_b_id, model_b_id,
+                            config["board"], config["players"],
+                            tournament_id=f"crossmodel_{state.total_cycles}"
+                        )
+
+                    total_games += total
+                    print(f"[Daemon]   {model_a_id[:25]} vs {model_b_id[:25]}: {wins}/{total}")
+
+    conn.close()
+    state.total_tournaments += 1
+    return total_games
 
 
 def print_leaderboard(state: DaemonState) -> None:
@@ -630,10 +922,21 @@ async def daemon_cycle(state: DaemonState) -> bool:
 
         print(f"\n[Daemon] === Cycle {state.total_cycles} at {state.last_cycle_at} ===")
 
-        # Phase 1: Balanced selfplay
-        print("[Daemon] Phase 1: Running balanced selfplay...")
+        # Phase 1a: Balanced selfplay (homogeneous engine modes)
+        print("[Daemon] Phase 1a: Running balanced selfplay...")
         games = await run_balanced_selfplay(state, duration_minutes=5)
-        print(f"[Daemon] Generated {games} total games this cycle")
+        print(f"[Daemon] Generated {games} homogeneous selfplay games")
+
+        # Phase 1b: Asymmetric selfplay (every 3rd cycle for diversity)
+        if state.total_cycles % 3 == 0:
+            print("[Daemon] Phase 1b: Running asymmetric selfplay for diverse training data...")
+            for config in BOARD_CONFIGS[:3]:  # Focus on main configs
+                asymmetric_games = await run_asymmetric_selfplay(
+                    state, config["board"], config["players"]
+                )
+                games += asymmetric_games
+                state.total_games_generated += asymmetric_games
+            print(f"[Daemon] Generated {games} total games (including asymmetric)")
 
         # Phase 2: Check and run training
         print("[Daemon] Phase 2: Checking training thresholds...")
@@ -647,7 +950,13 @@ async def daemon_cycle(state: DaemonState) -> bool:
                 if result:
                     print(f"[Daemon] Tournament result: {result}")
 
-        # Phase 4: Print status
+        # Phase 4: Periodic cross-model tournament (every 10 cycles)
+        if state.total_cycles % 10 == 0:
+            print("[Daemon] Phase 4: Running scheduled cross-model tournament...")
+            games = await run_cross_model_tournament(state, top_n=10, games_per_matchup=4)
+            print(f"[Daemon] Cross-model tournament completed: {games} games played")
+
+        # Phase 5: Print status
         print_leaderboard(state)
 
         # Reset failure counter on success

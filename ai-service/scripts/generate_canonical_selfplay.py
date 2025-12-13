@@ -34,6 +34,7 @@ Typical usage (from ai-service/):
 
 The summary JSON includes:
   - board_type, db_path
+  - db_stats (games/moves totals, swap_sides counts)
   - parity_gate (raw summary from run_canonical_selfplay_parity_gate)
   - canonical_history (games_checked, non_canonical_games, sample_issues)
   - fe_territory_fixtures_ok (boolean)
@@ -170,6 +171,62 @@ def _count_games_in_db_ro(db_path: Path) -> int | None:
         return int(row[0])
     except Exception:
         return None
+    finally:
+        conn.close()
+
+
+def collect_db_stats(db_path: Path) -> Dict[str, Any]:
+    """Collect lightweight aggregate stats from a GameReplayDB.
+
+    This intentionally uses direct SQLite queries (not GameReplayDB replay) so
+    it stays fast even for large databases.
+    """
+
+    def _row_int(row: object | None, default: int = 0) -> int:
+        if row is None:
+            return default
+        try:
+            return int(row[0])  # type: ignore[index]
+        except Exception:
+            return default
+
+    if not db_path.exists():
+        return {"error": "db_missing", "db_path": str(db_path)}
+
+    try:
+        conn = sqlite3.connect(str(db_path), timeout=1.0)
+    except Exception as exc:
+        return {"error": "failed_to_open_db", "db_path": str(db_path), "message": str(exc)}
+
+    try:
+        cur = conn.cursor()
+        games_total = _row_int(cur.execute("SELECT COUNT(*) FROM games").fetchone())
+        games_completed = _row_int(
+            cur.execute("SELECT COUNT(*) FROM games WHERE game_status = 'completed'").fetchone()
+        )
+        moves_total = _row_int(cur.execute("SELECT COUNT(*) FROM game_moves").fetchone())
+
+        swap_moves = _row_int(
+            cur.execute(
+                "SELECT COUNT(*) FROM game_moves WHERE move_type = ?",
+                ("swap_sides",),
+            ).fetchone()
+        )
+        swap_games = _row_int(
+            cur.execute(
+                "SELECT COUNT(DISTINCT game_id) FROM game_moves WHERE move_type = ?",
+                ("swap_sides",),
+            ).fetchone()
+        )
+
+        return {
+            "games_total": games_total,
+            "games_completed": games_completed,
+            "moves_total": moves_total,
+            "swap_sides": {"moves": swap_moves, "games": swap_games},
+        }
+    except Exception as exc:
+        return {"error": "failed_to_query_db", "db_path": str(db_path), "message": str(exc)}
     finally:
         conn.close()
 
@@ -916,11 +973,14 @@ def main(argv: List[str] | None = None) -> int:
         and anm_ok
     )
 
+    db_stats = collect_db_stats(db_path)
+
     summary: Dict[str, Any] = {
         "board_type": board_type,
         "num_players": num_players,
         "db_path": str(db_path),
         "num_games_requested": num_games,
+        "db_stats": db_stats,
         "parity_gate": parity_summary,
         "archived_dest_db": archived_dest_db,
         "merge_result": merge_result,

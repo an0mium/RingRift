@@ -66,6 +66,22 @@ describe('sandboxVictory', () => {
 
     it('returns territory_control reason when territory threshold reached', () => {
       const board = createTestBoard(boardType);
+      // Territory victory is computed from collapsedSpaces (authoritative),
+      // not players[].territorySpaces.
+      let idx = 0;
+      for (let x = 0; x < board.size; x += 1) {
+        for (let y = 0; y < board.size; y += 1) {
+          if (idx < 33) {
+            board.collapsedSpaces.set(`${x},${y}`, 1);
+          } else if (idx < 38) {
+            board.collapsedSpaces.set(`${x},${y}`, 2);
+          } else {
+            break;
+          }
+          idx += 1;
+        }
+        if (idx >= 38) break;
+      }
 
       const state = createTestGameState({
         boardType,
@@ -144,6 +160,21 @@ describe('sandboxVictory', () => {
       // Bare board where territory is the first tie-breaker
       const board = createTestBoard(boardType);
       board.stacks.clear();
+      // Stalemate ladder territory tie-break uses collapsedSpaces.
+      let idx = 0;
+      for (let x = 0; x < board.size; x += 1) {
+        for (let y = 0; y < board.size; y += 1) {
+          if (idx < 5) {
+            board.collapsedSpaces.set(`${x},${y}`, 1);
+          } else if (idx < 8) {
+            board.collapsedSpaces.set(`${x},${y}`, 2);
+          } else {
+            break;
+          }
+          idx += 1;
+        }
+        if (idx >= 8) break;
+      }
 
       const state = createTestGameState({
         boardType,

@@ -118,6 +118,8 @@ Once canonical self-play DBs are generated and exported, retrain these models:
        - `tests/parity/test_anm_global_actions_parity.py`
        - `tests/invariants/test_anm_and_termination_invariants.py`
 
+   The gate summary also includes `db_stats` (informational only) with lightweight totals (games/moves) and `swap_sides` counts to help spot low-volume DBs and baseline coverage quickly.
+
    For other board types, `fe_territory_fixtures_ok` and `anm_ok` may be `true` by construction until dedicated FE/territory/ANM fixtures are added; once such fixtures exist, `canonical_ok` will also encode their success.
 
    Older flows that called `run_canonical_selfplay_parity_gate.py` directly are

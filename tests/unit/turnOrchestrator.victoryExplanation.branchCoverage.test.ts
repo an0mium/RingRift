@@ -222,6 +222,17 @@ describe('TurnOrchestrator victory explanation branch coverage', () => {
       state.territoryVictoryThreshold = 10;
       // Player 2 has fewer territory spaces
       state.players[1].territorySpaces = 3;
+      // Territory victory is derived from collapsedSpaces (authoritative),
+      // not players[].territorySpaces.
+      for (let x = 0; x < state.board.size; x += 1) {
+        state.board.collapsedSpaces.set(positionToString({ x, y: 0 }), 1);
+      }
+      for (let x = 0; x < 4; x += 1) {
+        state.board.collapsedSpaces.set(positionToString({ x, y: 1 }), 1);
+      }
+      for (let x = 0; x < 3; x += 1) {
+        state.board.collapsedSpaces.set(positionToString({ x, y: 7 }), 2);
+      }
       // Keep stacks on board (not bare board)
       state.board.stacks.set('3,3', {
         position: { x: 3, y: 3 },
@@ -252,6 +263,13 @@ describe('TurnOrchestrator victory explanation branch coverage', () => {
       state.board.collapsedSpaces.set('6,6', 1);
       state.board.collapsedSpaces.set('6,7', 1);
       state.board.collapsedSpaces.set('7,6', 1);
+      // Add additional collapsed spaces so territory threshold is actually met.
+      state.board.collapsedSpaces.set('2,2', 1);
+      state.board.collapsedSpaces.set('1,3', 1);
+      state.board.collapsedSpaces.set('2,3', 1);
+      state.board.collapsedSpaces.set('7,7', 1);
+      state.board.collapsedSpaces.set('5,6', 1);
+      state.board.collapsedSpaces.set('5,7', 1);
       // Keep stacks on board
       state.board.stacks.set('3,3', {
         position: { x: 3, y: 3 },
@@ -688,12 +706,18 @@ describe('TurnOrchestrator victory explanation branch coverage', () => {
         composition: [{ player: 1, count: 2 }],
         rings: [1, 1],
       });
-      // Add some territories for mini-region detection
-      state.board.territories.set('1,1', {
-        position: { x: 1, y: 1 },
-        player: 1,
-        type: 'collapsed',
-      });
+      // Mini-region detection is driven by collapsedSpaces owned by the winner.
+      // Create 2 disconnected regions totaling >= territoryVictoryThreshold.
+      state.board.collapsedSpaces.set('1,1', 1);
+      state.board.collapsedSpaces.set('1,2', 1);
+      state.board.collapsedSpaces.set('2,1', 1);
+      state.board.collapsedSpaces.set('2,2', 1);
+      state.board.collapsedSpaces.set('1,3', 1);
+      state.board.collapsedSpaces.set('6,6', 1);
+      state.board.collapsedSpaces.set('6,7', 1);
+      state.board.collapsedSpaces.set('7,6', 1);
+      state.board.collapsedSpaces.set('7,7', 1);
+      state.board.collapsedSpaces.set('5,6', 1);
 
       const result = toVictoryState(state);
 
