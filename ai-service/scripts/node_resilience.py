@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
 import os
@@ -47,6 +48,31 @@ if _log_file:
         logger.addHandler(logging.FileHandler(_log_file))
     except Exception as e:
         logger.warning(f"Failed to add file logger { _log_file }: {e}")
+
+
+def _acquire_singleton_lock(node_id: str):
+    """Acquire a non-blocking singleton lock so we don't run duplicate daemons.
+
+    This prevents double-start situations from tmux/systemd + cron overlap, which
+    can otherwise spawn multiple P2P orchestrators and fallback jobs.
+    """
+    lock_path = os.environ.get("RINGRIFT_NODE_RESILIENCE_LOCK_FILE") or f"/tmp/ringrift_node_resilience_{node_id}.lock"
+    path = Path(lock_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(path, "a+")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        return None
+    try:
+        fh.seek(0)
+        fh.truncate()
+        fh.write(str(os.getpid()))
+        fh.flush()
+    except Exception:
+        pass
+    return fh
 
 
 @dataclass
@@ -667,6 +693,11 @@ def main():
     parser.add_argument("--once", action="store_true", help="Run once and exit (for cron)")
 
     args = parser.parse_args()
+
+    lock_handle = _acquire_singleton_lock(args.node_id)
+    if lock_handle is None:
+        logger.info(f"node_resilience already running for {args.node_id}; exiting")
+        return
 
     config = NodeConfig(
         node_id=args.node_id,
