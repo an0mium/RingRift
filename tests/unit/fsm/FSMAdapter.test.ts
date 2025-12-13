@@ -344,7 +344,8 @@ describe('FSMAdapter', () => {
       expect(context.boardType).toBe('square8');
       expect(context.numPlayers).toBe(2);
       expect(context.ringsPerPlayer).toBe(18);
-      expect(context.lineLength).toBe(3);
+      // Per RR-CANON-R120: square8 2-player uses line length 4 (3+ player uses 3)
+      expect(context.lineLength).toBe(4);
     });
   });
 
@@ -555,27 +556,39 @@ describe('FSMAdapter', () => {
   });
 
   describe('phase ↔ MoveType mapping', () => {
+    // These match VALID_MOVES_BY_PHASE in phaseValidation.ts exactly
+    // swap_sides is valid in interactive phases per RR-CANON R180-R184
     const phaseExpectations: Record<GamePhase, MoveType[]> = {
-      ring_placement: ['place_ring', 'skip_placement', 'no_placement_action'],
+      ring_placement: ['place_ring', 'skip_placement', 'no_placement_action', 'swap_sides'],
       movement: [
         'move_stack',
         'move_ring',
+        'build_stack',
+        'no_movement_action',
         'overtaking_capture',
         'continue_capture_segment',
-        'no_movement_action',
         'recovery_slide',
         'skip_recovery',
+        'swap_sides',
       ],
-      capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture'],
-      chain_capture: ['overtaking_capture', 'continue_capture_segment'],
-      line_processing: ['process_line', 'choose_line_reward', 'no_line_action'],
+      capture: ['overtaking_capture', 'continue_capture_segment', 'skip_capture', 'swap_sides'],
+      chain_capture: ['overtaking_capture', 'continue_capture_segment', 'swap_sides'],
+      line_processing: [
+        'process_line',
+        'choose_line_option',
+        'choose_line_reward',
+        'no_line_action',
+        'line_formation',
+      ],
       territory_processing: [
+        'choose_territory_option',
         'process_territory_region',
         'eliminate_rings_from_stack',
-        'skip_territory_processing',
         'no_territory_action',
+        'skip_territory_processing',
+        'territory_claim',
       ],
-      forced_elimination: ['forced_elimination', 'eliminate_rings_from_stack'],
+      forced_elimination: ['forced_elimination'],
       game_over: [],
     };
 
@@ -594,20 +607,26 @@ describe('FSMAdapter', () => {
           'place_ring',
           'skip_placement',
           'no_placement_action',
+          'swap_sides',
           'move_stack',
           'move_ring',
+          'build_stack',
           'overtaking_capture',
           'continue_capture_segment',
           'no_movement_action',
           'recovery_slide',
           'skip_recovery',
           'process_line',
+          'choose_line_option',
           'choose_line_reward',
           'no_line_action',
+          'line_formation',
           'process_territory_region',
+          'choose_territory_option',
           'eliminate_rings_from_stack',
           'skip_territory_processing',
           'no_territory_action',
+          'territory_claim',
           'skip_capture',
           'forced_elimination',
         ];
@@ -620,7 +639,7 @@ describe('FSMAdapter', () => {
       });
     });
 
-    it('should treat meta/legacy move types as valid in any phase for backwards compatibility', () => {
+    it('should treat resign/timeout as valid in any phase for backwards compatibility', () => {
       const phases: GamePhase[] = [
         'ring_placement',
         'movement',
@@ -631,13 +650,25 @@ describe('FSMAdapter', () => {
         'forced_elimination',
         'game_over',
       ];
-      const metaMoveTypes: MoveType[] = ['swap_sides', 'line_formation', 'territory_claim'];
+      // Per ALWAYS_VALID_MOVES, only resign and timeout are valid everywhere
+      const alwaysValidMoveTypes: MoveType[] = ['resign', 'timeout'];
 
       for (const phase of phases) {
-        for (const moveType of metaMoveTypes) {
+        for (const moveType of alwaysValidMoveTypes) {
           expect(isMoveTypeValidForPhase(phase, moveType)).toBe(true);
         }
       }
+    });
+
+    it('should treat swap_sides as valid in interactive phases only', () => {
+      // swap_sides is valid in interactive phases per RR-CANON R180-R184
+      expect(isMoveTypeValidForPhase('ring_placement', 'swap_sides')).toBe(true);
+      expect(isMoveTypeValidForPhase('movement', 'swap_sides')).toBe(true);
+      expect(isMoveTypeValidForPhase('capture', 'swap_sides')).toBe(true);
+      expect(isMoveTypeValidForPhase('chain_capture', 'swap_sides')).toBe(true);
+      // NOT valid in processing phases
+      expect(isMoveTypeValidForPhase('line_processing', 'swap_sides')).toBe(false);
+      expect(isMoveTypeValidForPhase('territory_processing', 'swap_sides')).toBe(false);
     });
 
     it('should reject obviously invalid combinations (smoke test)', () => {
