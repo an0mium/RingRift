@@ -250,6 +250,43 @@ class NodeInfo:
             return False
         return True
 
+    def get_load_score(self) -> float:
+        """Calculate a load score for load balancing (lower = less loaded).
+
+        LEARNED LESSONS - Smart load balancing:
+        - Weights CPU, memory, and job counts for overall load estimation
+        - GPU utilization is weighted separately for GPU nodes
+        - Returns 0-100 scale where 0 = idle, 100 = overloaded
+        """
+        # Base score from CPU and memory utilization
+        cpu_weight = 0.4
+        mem_weight = 0.3
+        jobs_weight = 0.3
+
+        # Normalize job count (assume 8 selfplay jobs = fully loaded)
+        job_score = min(100.0, (self.selfplay_jobs + self.training_jobs * 2) * 12.5)
+
+        load = (
+            self.cpu_percent * cpu_weight +
+            self.memory_percent * mem_weight +
+            job_score * jobs_weight
+        )
+
+        # For GPU nodes, also consider GPU utilization
+        if self.has_gpu and self.gpu_percent > 0:
+            load = load * 0.7 + self.gpu_percent * 0.3
+
+        return min(100.0, load)
+
+    def is_gpu_node(self) -> bool:
+        """Check if this node has a CUDA GPU (not Apple MPS)."""
+        gpu_name = (self.gpu_name or "").upper()
+        return self.has_gpu and "MPS" not in gpu_name and "APPLE" not in gpu_name
+
+    def is_cpu_only_node(self) -> bool:
+        """Check if this node is CPU-only (no CUDA GPU)."""
+        return not self.is_gpu_node()
+
     def should_retry(self) -> bool:
         """Check if we should retry connecting to a failed node."""
         if self.consecutive_failures < MAX_CONSECUTIVE_FAILURES:
@@ -8074,19 +8111,19 @@ print(json.dumps({{
                     del self.gpu_idle_since[node.node_id]
 
         # Phase 2: Calculate desired job distribution for healthy nodes
-        for node in all_nodes:
-            # LEARNED LESSONS - Use is_healthy() to check both connectivity AND resources
-            if not node.is_healthy():
-                reason = []
-                if not node.is_alive():
-                    reason.append("unreachable")
-                if node.disk_percent >= DISK_CRITICAL_THRESHOLD:
-                    reason.append(f"disk={node.disk_percent:.0f}%")
-                if node.memory_percent >= MEMORY_CRITICAL_THRESHOLD:
-                    reason.append(f"mem={node.memory_percent:.0f}%")
-                print(f"[P2P] Skipping {node.node_id}: {', '.join(reason)}")
-                continue
+        # LEARNED LESSONS - Sort nodes by load score for load balancing
+        # Least-loaded nodes get jobs first to ensure even distribution
+        healthy_nodes = [n for n in all_nodes if n.is_healthy()]
+        healthy_nodes.sort(key=lambda n: n.get_load_score())
 
+        if healthy_nodes:
+            load_summary = ", ".join(
+                f"{n.node_id[:12]}={n.get_load_score():.0f}%"
+                for n in healthy_nodes[:5]
+            )
+            print(f"[P2P] Load balancing: {load_summary}")
+
+        for node in healthy_nodes:
             # LEARNED LESSONS - Reduce target when approaching limits
             target_selfplay = 2  # Base minimum
             if node.memory_gb >= 64:
@@ -8137,20 +8174,19 @@ print(json.dumps({{
 
                 # Start jobs (max 2 at a time to avoid overwhelming)
                 for i in range(min(needed, 2)):
-                    # Choose GPU selfplay only for CUDA-capable nodes (not Apple MPS).
-                    gpu_name = (node.gpu_name or "").upper()
-                    is_cuda_gpu = node.has_gpu and "MPS" not in gpu_name and "APPLE" not in gpu_name
-
-                    # LEARNED LESSONS - Ensure GPU nodes get GPU-utilizing tasks
-                    # Use HYBRID_SELFPLAY (CPU rules + GPU eval) as default for GPU nodes
-                    # HYBRID is preferred over GPU_SELFPLAY because:
-                    # - 100% rule fidelity (CPU handles all game rules canonically)
-                    # - GPU accelerates heuristic evaluation (5-20x speedup)
-                    # - GPU_SELFPLAY (pure GPU) is experimental and not sound yet
-                    if is_cuda_gpu:
+                    # LEARNED LESSONS - Smart CPU/GPU task routing:
+                    # - GPU nodes (CUDA) get HYBRID_SELFPLAY (CPU rules + GPU eval)
+                    # - CPU-only nodes get regular SELFPLAY
+                    # This ensures expensive GPU resources are utilized properly
+                    # while CPU instances handle CPU-bound tasks efficiently
+                    if node.is_gpu_node():
                         job_type = JobType.HYBRID_SELFPLAY
+                        task_type_str = "HYBRID (GPU)"
                     else:
                         job_type = JobType.SELFPLAY
+                        task_type_str = "CPU-only"
+
+                    print(f"[P2P] Assigning {task_type_str} task to {node.node_id} (load={node.get_load_score():.0f}%)")
 
                     # Weighted config selection based on priority
                     # Use ImprovementCycleManager for dynamic data-aware diverse selection
