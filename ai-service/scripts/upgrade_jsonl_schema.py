@@ -29,7 +29,8 @@ from collections import Counter
 BOARD_SIZE_TO_TYPE = {
     8: "square8",
     19: "square19",
-    25: "square25",
+    # Legacy hex embedding size used by early GPU/selfplay outputs.
+    25: "hexagonal",
     11: "hexagonal",  # Common hex size
     13: "hexagonal",
     15: "hexagonal",
@@ -59,11 +60,12 @@ def infer_board_type(game: Dict[str, Any]) -> str:
     """Infer board_type from available fields."""
     # Check if already present
     if "board_type" in game:
-        return game["board_type"]
+        return "hexagonal" if game["board_type"] == "square25" else game["board_type"]
 
     # Check nested config
     if "config" in game and "board_type" in game["config"]:
-        return game["config"]["board_type"]
+        value = game["config"]["board_type"]
+        return "hexagonal" if value == "square25" else value
 
     # Infer from board_size
     board_size = game.get("board_size")
@@ -85,7 +87,7 @@ def infer_board_type(game: Dict[str, Any]) -> str:
         elif max_coord <= 18:
             return "square19"
         elif max_coord <= 24:
-            return "square25"
+            return "hexagonal"
 
     # Check initial_state for board info
     if "initial_state" in game:

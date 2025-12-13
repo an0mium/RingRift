@@ -49,7 +49,8 @@ if PROJECT_ROOT not in sys.path:
 BOARD_SIZE_TO_TYPE = {
     8: "square8",
     19: "square19",
-    25: "square25",
+    # Legacy hex embedding size used by early GPU/selfplay outputs.
+    25: "hexagonal",
     11: "hexagonal",
     13: "hexagonal",
     15: "hexagonal",
@@ -169,6 +170,9 @@ def normalize_game(game: dict[str, Any], file_path: str = "") -> dict[str, Any]:
                 normalized["board_type"] = f"square{max_coord + 1}"
         else:
             normalized["board_type"] = "unknown"
+    elif normalized.get("board_type") == "square25":
+        # Legacy alias used by some historical JSONLs / embeddings.
+        normalized["board_type"] = "hexagonal"
 
     # --- Normalize num_players ---
     if "num_players" not in normalized:

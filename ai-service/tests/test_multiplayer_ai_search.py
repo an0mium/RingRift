@@ -139,7 +139,7 @@ class TestDescentParanoidValueConversion(unittest.TestCase):
         game_state.current_player = 2
 
         ai.neural_net = MagicMock()
-        ai.neural_net.evaluate_position.return_value = 0.25
+        ai.neural_net.evaluate_batch.return_value = ([0.25], [])
 
         self.assertAlmostEqual(ai.evaluate_position(game_state), -0.25, places=6)
 

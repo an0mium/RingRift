@@ -28,6 +28,7 @@ if PROJECT_ROOT not in sys.path:
 from app.db.game_replay import GameReplayDB
 from app.game_engine import GameEngine
 from app.models import BoardType, GameState, Move, MoveType, Position
+from app.training.generate_data import create_initial_state
 
 
 def parse_position(pos_dict: Dict[str, Any]) -> Position:
@@ -88,10 +89,229 @@ def get_board_type(board_str: str) -> BoardType:
     board_map = {
         "square8": BoardType.SQUARE8,
         "square19": BoardType.SQUARE19,
-        "square25": BoardType.SQUARE25,
+        # Legacy alias used by early GPU/selfplay outputs.
+        "square25": BoardType.HEXAGONAL,
         "hexagonal": BoardType.HEXAGONAL,
+        "hex": BoardType.HEXAGONAL,
     }
     return board_map.get(board_str, BoardType.SQUARE8)
+
+
+def _find_matching_candidate_move(
+    candidates: List[Move],
+    *,
+    desired_type: MoveType,
+    from_pos: Optional[Position],
+    to_pos: Optional[Position],
+) -> Optional[Move]:
+    from_key = from_pos.to_key() if from_pos else None
+    to_key = to_pos.to_key() if to_pos else None
+    if to_key is None and desired_type == MoveType.SKIP_CAPTURE:
+        # Canonical skip_capture moves use a placeholder `to` position.
+        to_key = Position(x=0, y=0).to_key()
+
+    for candidate in candidates:
+        if candidate.type != desired_type:
+            continue
+        cand_from = candidate.from_pos.to_key() if candidate.from_pos else None
+        if cand_from != from_key:
+            continue
+        cand_to = candidate.to.to_key() if candidate.to else None
+        if cand_to != to_key:
+            continue
+        return candidate
+
+    return None
+
+
+def expand_gpu_jsonl_moves_to_canonical(
+    gpu_moves: List[Move],
+    initial_state: GameState,
+) -> tuple[List[Move], GameState]:
+    """Expand GPU JSONL move histories into canonical phase-recorded moves.
+
+    GPU JSONLs omit explicit phase-bookkeeping and decision moves that are
+    required by RR-CANON-R075. This helper advances the CPU engine through:
+    - line/territory decision phases (auto-selecting the first option),
+    - required no_*_action bookkeeping moves,
+    - implicit skip_capture and skip_placement moves when the GPU stream
+      advances past those phases without recording them.
+    """
+    from app.models.core import GamePhase
+
+    expanded: List[Move] = []
+    state = initial_state
+    move_num = 0
+
+    def stamp(m: Move, ts) -> Move:
+        nonlocal move_num
+        move_num += 1
+        return m.model_copy(
+            update={
+                "id": f"move-{move_num}",
+                "timestamp": ts,
+                "think_time": 0,
+                "move_number": move_num,
+            }
+        )
+
+    def apply(m: Move, ts) -> None:
+        nonlocal state
+        stamped = stamp(m, ts)
+        expanded.append(stamped)
+        state = GameEngine.apply_move(state, stamped)
+
+    def auto_line(ts) -> None:
+        player = state.current_player
+        line_moves = GameEngine._get_line_processing_moves(state, player)
+        if line_moves:
+            choose_moves = [m for m in line_moves if m.type == MoveType.CHOOSE_LINE_OPTION]
+            process_moves = [m for m in line_moves if m.type == MoveType.PROCESS_LINE]
+            picked = choose_moves[0] if choose_moves else process_moves[0]
+            apply(picked, ts)
+            return
+        apply(
+            Move(
+                id="no-line-action",
+                type=MoveType.NO_LINE_ACTION,
+                player=player,
+                timestamp=ts,
+                think_time=0,
+                move_number=0,
+            ),
+            ts,
+        )
+
+    def auto_territory(ts) -> None:
+        player = state.current_player
+        terr_moves = GameEngine._get_territory_processing_moves(state, player)
+        if terr_moves:
+            apply(terr_moves[0], ts)
+            return
+        apply(
+            Move(
+                id="no-territory-action",
+                type=MoveType.NO_TERRITORY_ACTION,
+                player=player,
+                timestamp=ts,
+                think_time=0,
+                move_number=0,
+            ),
+            ts,
+        )
+
+    for gpu_move in gpu_moves:
+        ts = gpu_move.timestamp
+
+        # Advance through any implied phases until the GPU move becomes applicable.
+        safety = 0
+        while state.game_status.value == "active" and safety < 500:
+            safety += 1
+            phase = state.current_phase
+            player = state.current_player
+
+            if phase == GamePhase.LINE_PROCESSING:
+                auto_line(ts)
+                continue
+            if phase == GamePhase.TERRITORY_PROCESSING:
+                auto_territory(ts)
+                continue
+
+            if phase == GamePhase.CAPTURE and gpu_move.type not in {
+                MoveType.OVERTAKING_CAPTURE,
+                MoveType.CONTINUE_CAPTURE_SEGMENT,
+                MoveType.SKIP_CAPTURE,
+            }:
+                apply(
+                    Move(
+                        id="skip-capture",
+                        type=MoveType.SKIP_CAPTURE,
+                        player=player,
+                        timestamp=ts,
+                        think_time=0,
+                        move_number=0,
+                    ),
+                    ts,
+                )
+                continue
+
+            if phase == GamePhase.RING_PLACEMENT and gpu_move.type != MoveType.PLACE_RING:
+                # Prefer skip_placement when available to advance to movement.
+                candidates = GameEngine.get_valid_moves(state, player)
+                skip_moves = [m for m in candidates if m.type == MoveType.SKIP_PLACEMENT]
+                if skip_moves:
+                    apply(skip_moves[0], ts)
+                    continue
+
+            requirement = GameEngine.get_phase_requirement(state, player)
+            if requirement is not None:
+                synthesized = GameEngine.synthesize_bookkeeping_move(requirement, state)
+                apply(synthesized, ts)
+                continue
+
+            break
+
+        if safety >= 500:
+            raise RuntimeError("Exceeded safety limit while advancing phases for GPU import")
+
+        # In CHAIN_CAPTURE, GPU records segments as overtaking_capture but the
+        # canonical engine expects continue_capture_segment.
+        desired_type = gpu_move.type
+        if desired_type == MoveType.OVERTAKING_CAPTURE and state.current_phase == GamePhase.CHAIN_CAPTURE:
+            desired_type = MoveType.CONTINUE_CAPTURE_SEGMENT
+
+        candidates = GameEngine.get_valid_moves(state, state.current_player)
+        matched = _find_matching_candidate_move(
+            candidates,
+            desired_type=desired_type,
+            from_pos=gpu_move.from_pos,
+            to_pos=gpu_move.to,
+        )
+        if matched is None:
+            raise RuntimeError(
+                f"No matching candidate move for gpu={gpu_move.type.value} desired={desired_type.value} "
+                f"from={gpu_move.from_pos} to={gpu_move.to} phase={state.current_phase.value}"
+            )
+
+        apply(matched, ts)
+
+    # Flush any remaining decision/bookkeeping phases after the last GPU move.
+    safety = 0
+    while state.game_status.value == "active" and safety < 500:
+        safety += 1
+        phase = state.current_phase
+        player = state.current_player
+        ts = state.last_move_at
+
+        if phase == GamePhase.CAPTURE:
+            apply(
+                Move(
+                    id="skip-capture",
+                    type=MoveType.SKIP_CAPTURE,
+                    player=player,
+                    timestamp=ts,
+                    think_time=0,
+                    move_number=0,
+                ),
+                ts,
+            )
+            continue
+        if phase == GamePhase.LINE_PROCESSING:
+            auto_line(ts)
+            continue
+        if phase == GamePhase.TERRITORY_PROCESSING:
+            auto_territory(ts)
+            continue
+
+        requirement = GameEngine.get_phase_requirement(state, player)
+        if requirement is not None:
+            synthesized = GameEngine.synthesize_bookkeeping_move(requirement, state)
+            apply(synthesized, ts)
+            continue
+
+        break
+
+    return expanded, state
 
 
 def import_game(
@@ -113,15 +333,12 @@ def import_game(
     if initial_state_dict:
         # Reconstruct initial state from dict
         try:
-            initial_state = GameEngine.create_initial_state(
-                board_type=board_type,
-                num_players=num_players,
-            )
+            initial_state = GameState.model_validate(initial_state_dict)
         except Exception as e:
-            print(f"  Warning: Failed to create initial state for {game_id}: {e}")
+            print(f"  Warning: Failed to parse initial_state for {game_id}: {e}")
             return False
     else:
-        initial_state = GameEngine.create_initial_state(
+        initial_state = create_initial_state(
             board_type=board_type,
             num_players=num_players,
         )
@@ -139,16 +356,11 @@ def import_game(
             print(f"  Warning: Failed to parse move {i} in {game_id}: {e}")
             return False
 
-    # Apply moves to get final state
-    current_state = initial_state
-    for move in moves:
-        try:
-            current_state = GameEngine.apply_move(current_state, move)
-        except Exception as e:
-            print(f"  Warning: Failed to apply move in {game_id}: {e}")
-            return False
-
-    final_state = current_state
+    try:
+        canonical_moves, final_state = expand_gpu_jsonl_moves_to_canonical(moves, initial_state)
+    except Exception as e:
+        print(f"  Warning: Failed to canonicalize moves for {game_id}: {e}")
+        return False
 
     # Prepare metadata
     metadata = {
@@ -159,6 +371,8 @@ def import_game(
         "engine_mode": game_record.get("engine_mode", "gpu_heuristic"),
         "batch_id": game_record.get("batch_id"),
         "device": game_record.get("device"),
+        "gpu_move_count": len(moves),
+        "canonical_move_count": len(canonical_moves),
     }
 
     # Store the game
@@ -167,7 +381,7 @@ def import_game(
             game_id=f"gpu_{board_type_str}_{game_id}",
             initial_state=initial_state,
             final_state=final_state,
-            moves=moves,
+            moves=canonical_moves,
             metadata=metadata,
             store_history_entries=True,
         )
