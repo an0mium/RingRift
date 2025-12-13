@@ -80,6 +80,13 @@ if [ "$HAS_USABLE_SYSTEMD" = "1" ]; then
     cp "$RINGRIFT_DIR/deploy/systemd/ringrift-p2p.service" /etc/systemd/system/
     cp "$RINGRIFT_DIR/deploy/systemd/ringrift-resilience.service" /etc/systemd/system/
 
+    # Rewrite hard-coded paths for non-root installations.
+    if [ "$RINGRIFT_DIR" != "/root/ringrift/ai-service" ]; then
+        RINGRIFT_ROOT="$(cd "$(dirname "$RINGRIFT_DIR")" && pwd)"
+        sed -i "s|/root/ringrift/ai-service|$RINGRIFT_DIR|g" /etc/systemd/system/ringrift-*.service
+        sed -i "s|/root/ringrift|$RINGRIFT_ROOT|g" /etc/systemd/system/ringrift-*.service
+    fi
+
     # Reload and enable
     systemctl daemon-reload
     systemctl enable ringrift-p2p.service
