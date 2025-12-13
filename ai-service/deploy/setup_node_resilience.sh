@@ -67,7 +67,7 @@ fi
 echo "Created /etc/ringrift/node.conf"
 
 # Install systemd services if available
-if command -v systemctl &> /dev/null && [ -d /etc/systemd/system ]; then
+if command -v systemctl &> /dev/null && [ -d /etc/systemd/system ] && systemctl is-system-running >/dev/null 2>&1; then
     echo "Installing systemd services..."
 
     # Copy service files
