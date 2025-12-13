@@ -1161,11 +1161,18 @@ def main():
     if args.replay_db:
         replay_db_path = _resolve_ai_service_path(args.replay_db)
     else:
-        default_name = f"canonical_{args.board}.db" if canonical_mode else "selfplay.db"
+        db_token = "hex" if args.board == "hexagonal" else args.board
+        suffix = "" if int(args.players) == 2 else f"_{int(args.players)}p"
+        default_name = f"canonical_{db_token}{suffix}.db" if canonical_mode else "selfplay.db"
         replay_db_path = (AI_SERVICE_ROOT / "data" / "games" / default_name).resolve()
 
     registry_path = _resolve_ai_service_path(args.registry)
     gate_summary_path = (AI_SERVICE_ROOT / f"db_health.{replay_db_path.stem}.json").resolve()
+    staging_db_dir = _resolve_ai_service_path(args.staging_db_dir)
+    ingest_scan_dirs = [str(staging_db_dir)] + [str(x) for x in (args.ingest_scan_dir or [])]
+    db_label = ("hex" if args.board == "hexagonal" else args.board)
+    holdout_db = args.holdout_db or f"data/games/holdouts/holdout_{db_label}_{int(args.players)}p.db"
+    quarantine_db = args.quarantine_db or f"data/games/quarantine/quarantine_{db_label}_{int(args.players)}p.db"
 
     # Configure
     config = {
@@ -1184,6 +1191,10 @@ def main():
         "policy_temperature": args.policy_temperature,
         "policy_nn_model_id": args.policy_nn_model_id,
         "replay_db": str(replay_db_path),
+        "staging_db_dir": str(staging_db_dir),
+        "ingest_scan_dirs": ingest_scan_dirs,
+        "holdout_db": holdout_db if canonical_mode else None,
+        "quarantine_db": quarantine_db if canonical_mode else None,
         "canonical_mode": canonical_mode,
         "allow_pending_gate": bool(args.allow_pending_gate),
         "registry_path": str(registry_path),

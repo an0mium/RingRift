@@ -1460,6 +1460,22 @@ export function processTurn(
   const hashAfter = hashGameState(stateMachine.gameState);
   const moveActuallyChangedState = hashBefore !== hashAfter;
 
+  // DEBUG: Trace line-phase move processing
+  if (
+    process.env.RINGRIFT_TRACE_DEBUG === '1' &&
+    (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
+  ) {
+    // eslint-disable-next-line no-console
+    console.log('[processTurn] LINE_PHASE_MOVE_DEBUG:', {
+      moveType: move.type,
+      hashBefore,
+      hashAfter,
+      moveActuallyChangedState,
+      currentPhase: stateMachine.gameState.currentPhase,
+      currentPlayer: stateMachine.gameState.currentPlayer,
+    });
+  }
+
   // If this was a capture move and chain continuation is required, set the chain capture state
   if (applyResult.chainCaptureRequired && applyResult.chainCapturePosition) {
     stateMachine.setChainCapture(true, applyResult.chainCapturePosition);
@@ -1476,13 +1492,25 @@ export function processTurn(
   // For decision moves (process_territory_region, eliminate_rings_from_stack, etc.),
   // if the move didn't actually change state (e.g., Q23 prerequisite not met), don't
   // process post-move phases - just return the unchanged state.
-  const isDecisionMove =
-    move.type === 'process_territory_region' ||
-    move.type === 'choose_territory_option' ||
-    move.type === 'eliminate_rings_from_stack' ||
+  //
+  // EXCEPTION: Line-phase decision moves (process_line, choose_line_option, choose_line_reward)
+  // MUST always trigger processPostMovePhases because the phase transition logic needs to run
+  // regardless of whether the collapse changed state. After choose_line_option, we need to
+  // transition to territory_processing even if the line was already processed. This matches
+  // Python's behavior which always checks remaining lines and advances phases after any
+  // line-phase move (RR-PARITY-FIX-2025-12-13).
+  const isLinePhaseMoveType =
     move.type === 'process_line' ||
     move.type === 'choose_line_option' ||
     move.type === 'choose_line_reward';
+
+  const isTerritoryDecisionMove =
+    move.type === 'process_territory_region' ||
+    move.type === 'choose_territory_option' ||
+    move.type === 'eliminate_rings_from_stack';
+
+  // Territory decision moves should only trigger post-move phases if they changed state
+  const isDecisionMove = isLinePhaseMoveType || isTerritoryDecisionMove;
 
   // For turn-ending territory moves, the turn is complete - no post-move processing needed.
   // The applyMoveWithChainInfo handler already rotates to the next player.
@@ -1490,13 +1518,31 @@ export function processTurn(
   const isTurnEndingTerritoryMove = move.type === 'skip_territory_processing';
 
   let result: { pendingDecision?: PendingDecision; victoryResult?: VictoryState } = {};
-  if (
+  // Line-phase moves ALWAYS need post-move processing for phase transitions (RR-PARITY-FIX-2025-12-13)
+  const needsPostMoveProcessing =
     !isPlacementMove &&
     !isTurnEndingTerritoryMove &&
-    (moveActuallyChangedState || !isDecisionMove)
+    (moveActuallyChangedState || !isDecisionMove || isLinePhaseMoveType);
+
+  // DEBUG: Trace post-move processing decision for line-phase moves
+  if (
+    process.env.RINGRIFT_TRACE_DEBUG === '1' &&
+    (move.type === 'choose_line_option' || move.type === 'choose_line_reward')
   ) {
+    // eslint-disable-next-line no-console
+    console.log('[processTurn] POST_MOVE_DECISION:', {
+      isPlacementMove,
+      isTurnEndingTerritoryMove,
+      moveActuallyChangedState,
+      isDecisionMove,
+      isLinePhaseMoveType,
+      needsPostMoveProcessing,
+    });
+  }
+
+  if (needsPostMoveProcessing) {
     // Process post-move phases only for movement/capture moves, or for decision moves
-    // that actually changed state.
+    // that actually changed state, or for line-phase moves (always need phase transition check).
     result = processPostMovePhases(stateMachine, options);
 
     // DEBUG: Trace stacks after processPostMovePhases for choose_line_option
@@ -2535,9 +2581,23 @@ function processPostMovePhases(
     // IMPORTANT: Use stateMachine.gameState (updated after move application),
     // not the stale `state` snapshot from function start.
     const updatedStateForLines = stateMachine.gameState;
-    const lines = findAllLines(updatedStateForLines.board).filter(
-      (l) => l.player === updatedStateForLines.currentPlayer
-    );
+    const allLines = findAllLines(updatedStateForLines.board);
+    const lines = allLines.filter((l) => l.player === updatedStateForLines.currentPlayer);
+
+    // DEBUG: Trace line detection in processPostMovePhases
+    if (
+      process.env.RINGRIFT_TRACE_DEBUG === '1' &&
+      (originalMoveType === 'choose_line_option' || originalMoveType === 'choose_line_reward')
+    ) {
+      // eslint-disable-next-line no-console
+      console.log('[processPostMovePhases] LINE_DETECTION:', {
+        originalMoveType,
+        currentPlayer: updatedStateForLines.currentPlayer,
+        allLinesCount: allLines.length,
+        playerLinesCount: lines.length,
+        allLinesPlayers: allLines.map((l) => ({ player: l.player, len: l.length })),
+      });
+    }
 
     if (lines.length > 0) {
       // Core rules: never auto-generate or auto-apply process_line moves.

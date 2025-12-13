@@ -34,6 +34,7 @@ if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.db.game_replay import GameReplayDB
+from app.rules.history_validation import validate_canonical_config_for_game
 
 
 DEFAULT_HOLDOUT_SOURCE_SUBSTRINGS = (
@@ -46,7 +47,7 @@ DEFAULT_HOLDOUT_SOURCE_SUBSTRINGS = (
 
 @dataclass(frozen=True)
 class GateFailure:
-    kind: str  # structural | semantic | holdout | filtered_out
+    kind: str  # structural | semantic | config | holdout | filtered_out
     reason: str
     details: Dict[str, Any]
 
@@ -221,6 +222,46 @@ def _extract_gate_failures(parity_summary: Dict[str, Any]) -> Dict[str, GateFail
     return failures
 
 
+def _extract_noncanonical_config_failures(
+    db_path: Path,
+    game_ids: Iterable[str],
+) -> Dict[str, GateFailure]:
+    failures: Dict[str, GateFailure] = {}
+    try:
+        db = GameReplayDB(str(db_path))
+    except Exception as exc:
+        # If we cannot open the DB, treat everything as failed (the parity
+        # harness would likely have surfaced this too, but be explicit).
+        msg = f"{type(exc).__name__}: {exc}"
+        for gid in game_ids:
+            failures[str(gid)] = GateFailure(
+                kind="config",
+                reason="config_validation_error",
+                details={"error": msg, "db_path": str(db_path)},
+            )
+        return failures
+
+    for gid in game_ids:
+        game_id = str(gid)
+        try:
+            report = validate_canonical_config_for_game(db, game_id)
+        except Exception as exc:
+            failures[game_id] = GateFailure(
+                kind="config",
+                reason="config_validation_error",
+                details={"error": f"{type(exc).__name__}: {exc}", "db_path": str(db_path)},
+            )
+            continue
+        if not getattr(report, "is_canonical", False):
+            failures[game_id] = GateFailure(
+                kind="config",
+                reason="non_canonical_config",
+                details={"issues": [asdict(issue) for issue in (report.issues or [])], "db_path": str(db_path)},
+            )
+
+    return failures
+
+
 def _ensure_db_initialized(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists() and db_path.stat().st_size > 0:
@@ -378,6 +419,9 @@ def build_pool(
 
             parity_summary = _run_parity_summary(db_path, work_dir=work_dir)
             failures = _extract_gate_failures(parity_summary)
+            config_failures = _extract_noncanonical_config_failures(db_path, games.keys())
+            for game_id, failure in config_failures.items():
+                failures.setdefault(game_id, failure)
 
             training_ids: List[str] = []
             holdout_ids: List[str] = []
@@ -415,6 +459,7 @@ def build_pool(
                         "games_with_semantic_divergence": parity_summary.get("games_with_semantic_divergence"),
                         "games_with_structural_issues": parity_summary.get("games_with_structural_issues"),
                         "games_with_non_canonical_history": parity_summary.get("games_with_non_canonical_history"),
+                        "games_with_non_canonical_config": len(config_failures),
                         "passed_canonical_parity_gate": parity_summary.get("passed_canonical_parity_gate"),
                         "total_games_checked": parity_summary.get("total_games_checked"),
                     },

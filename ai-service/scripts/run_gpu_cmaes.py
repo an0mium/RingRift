@@ -110,6 +110,7 @@ class GPUFitnessEvaluator:
         max_moves: int = 500,
         device: Optional[torch.device] = None,
         baseline_weights: Optional[Dict[str, float]] = None,
+        board_type: Optional[str] = None,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -117,6 +118,7 @@ class GPUFitnessEvaluator:
         self.max_moves = max_moves
         self.device = device or get_device()
         self.baseline_weights = baseline_weights or DEFAULT_WEIGHTS.copy()
+        self.board_type = board_type
 
         # Pre-create runner for reuse
         self.runner = ParallelGameRunner(
@@ -124,6 +126,7 @@ class GPUFitnessEvaluator:
             board_size=board_size,
             num_players=num_players,
             device=self.device,
+            board_type=board_type,
         )
 
         # Statistics

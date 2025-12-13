@@ -3830,6 +3830,7 @@ class ParallelGameRunner:
         swap_enabled: bool = False,
         lps_victory_rounds: Optional[int] = None,
         rings_per_player: Optional[int] = None,
+        board_type: Optional[str] = None,
     ):
         """Initialize parallel game runner.
 
@@ -3848,11 +3849,14 @@ class ParallelGameRunner:
             lps_victory_rounds: Number of consecutive rounds one player must have exclusive
                                real actions to win via LPS (None = board default, respects env vars)
             rings_per_player: Starting rings per player (None = board default, respects env vars)
+            board_type: Board type string ("square8", "square19", "hexagonal") for proper
+                       initialization. If "hexagonal", marks out-of-bounds cells as collapsed.
         """
         self.batch_size = batch_size
         self.board_size = board_size
         self.num_players = num_players
         self.swap_enabled = swap_enabled
+        self.board_type = board_type
         # Default LPS victory rounds to 3 if not specified
         self.lps_victory_rounds = lps_victory_rounds if lps_victory_rounds is not None else 3
         self.rings_per_player = rings_per_player
@@ -3871,6 +3875,7 @@ class ParallelGameRunner:
             num_players=num_players,
             device=self.device,
             rings_per_player=rings_per_player,
+            board_type=board_type,
         )
 
         # Shadow validation for GPU/CPU parity checking (Phase 2 - move generation)
@@ -3918,6 +3923,7 @@ class ParallelGameRunner:
             num_players=self.num_players,
             device=self.device,
             rings_per_player=self.rings_per_player,
+            board_type=self.board_type,
         )
 
     @torch.no_grad()

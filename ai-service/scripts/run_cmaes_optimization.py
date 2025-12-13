@@ -1276,6 +1276,7 @@ def evaluate_fitness_gpu(
         num_players=2,
         device=device,
         swap_enabled=True,
+        board_type=board_type,
     )
 
     # Convert HeuristicWeights to GPU runner format
@@ -1323,6 +1324,7 @@ def evaluate_fitness_gpu(
                 num_players=2,
                 device=device,
                 swap_enabled=True,
+                board_type=board_type,
             )
 
         weights_list = [candidate_gpu_weights] * batch_games
@@ -1355,6 +1357,7 @@ def evaluate_fitness_gpu(
                 num_players=2,
                 device=device,
                 swap_enabled=True,
+                board_type=board_type,
             )
 
         weights_list = [baseline_gpu_weights] * batch_games

@@ -427,6 +427,7 @@ class GPUSelfPlayGenerator:
         shadow_threshold: float = 0.001,
         lps_victory_rounds: int = 3,
         rings_per_player: Optional[int] = None,
+        board_type: Optional[str] = None,
     ):
         self.board_size = board_size
         self.num_players = num_players
@@ -437,6 +438,7 @@ class GPUSelfPlayGenerator:
         self.shadow_validation = shadow_validation
         self.lps_victory_rounds = lps_victory_rounds
         self.rings_per_player = rings_per_player
+        self.board_type = board_type
         # For random-only mode, use None weights (uniform random)
         # For heuristic-only mode, use provided weights or defaults
         if engine_mode == "random-only":
@@ -454,6 +456,7 @@ class GPUSelfPlayGenerator:
             shadow_threshold=shadow_threshold,
             lps_victory_rounds=lps_victory_rounds,
             rings_per_player=rings_per_player,
+            board_type=board_type,
         )
 
         # Log shadow validation status
@@ -774,6 +777,7 @@ def run_gpu_selfplay(
         shadow_threshold=shadow_threshold,
         lps_victory_rounds=lps_victory_rounds,
         rings_per_player=rings_per_player,
+        board_type=board_type,
     )
 
     # Generate games
