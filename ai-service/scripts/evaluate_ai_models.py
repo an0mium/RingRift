@@ -343,21 +343,19 @@ def create_ai(
             randomness=0.0,
             rngSeed=ai_rng_seed,
             heuristic_profile_id=None,
+            nn_model_id=ckpt if ckpt else None,
             allow_fresh_weights=False,
         )
 
         # Create DescentAI
         ai = DescentAI(player_num, config)
 
-        # Load checkpoint if available
+        # Ensure the neural net is initialized (and checkpoint loaded) if available.
         if ckpt and os.path.exists(ckpt):
             if ai.neural_net is None:
                 raise RuntimeError(f"NeuralNetAI unavailable; cannot load checkpoint: {ckpt}")
             try:
-                # NeuralNetAI is lazily initialized; ensure model exists for the
-                # target board type before loading the checkpoint.
                 ai.neural_net._ensure_model_initialized(board_type)
-                ai.neural_net._load_model_checkpoint(ckpt)
                 print(f"Loaded checkpoint: {ckpt}")
             except Exception as e:
                 raise RuntimeError(f"Failed to load checkpoint {ckpt}: {e}") from e

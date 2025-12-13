@@ -1,0 +1,29 @@
+[Unit]
+Description=RingRift P2P Orchestrator
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ringrift/ai-service
+Environment=PYTHONPATH=/root/ringrift/ai-service
+ExecStart=/usr/bin/python3 scripts/p2p_orchestrator.py --port 8765
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Watchdog - restart if no response in 60s
+WatchdogSec=60
+
+# Resource limits
+MemoryMax=2G
+CPUQuota=50%
+
+# Logging
+StandardOutput=append:/var/log/ringrift/p2p.log
+StandardError=append:/var/log/ringrift/p2p.error.log
+
+[Install]
+WantedBy=multi-user.target

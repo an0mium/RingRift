@@ -1,0 +1,24 @@
+[Unit]
+Description=RingRift Node Resilience Daemon
+After=network.target
+Wants=network.target ringrift-p2p.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/ringrift/ai-service
+Environment=PYTHONPATH=/root/ringrift/ai-service
+# NODE_ID and COORDINATOR_URL should be set in /etc/ringrift/node.conf
+EnvironmentFile=-/etc/ringrift/node.conf
+ExecStart=/usr/bin/python3 scripts/node_resilience.py --node-id ${NODE_ID} --coordinator ${COORDINATOR_URL}
+Restart=always
+RestartSec=30
+StartLimitBurst=3
+StartLimitIntervalSec=300
+
+# Logging
+StandardOutput=append:/var/log/ringrift/resilience.log
+StandardError=append:/var/log/ringrift/resilience.error.log
+
+[Install]
+WantedBy=multi-user.target
