@@ -52,6 +52,7 @@ interface SandboxContextValue {
     boardType: BoardType;
     numPlayers: number;
     playerTypes: LocalPlayerType[];
+    aiDifficulties?: number[];
     interactionHandler: SandboxInteractionHandler;
   }) => ClientSandboxEngine;
   /**
@@ -103,7 +104,7 @@ export function SandboxProvider({ children }: { children: React.ReactNode }) {
       boardType: options.boardType,
       numPlayers: options.numPlayers,
       playerKinds: options.playerTypes,
-      aiDifficulties: options.aiDifficulties,
+      ...(options.aiDifficulties !== undefined ? { aiDifficulties: options.aiDifficulties } : {}),
     };
 
     const engine = new ClientSandboxEngine({

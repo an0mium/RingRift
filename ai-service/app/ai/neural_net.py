@@ -3014,6 +3014,179 @@ class NeuralNetAI(BaseAI):
             f"device={self.device} (total cached: {len(_MODEL_CACHE)})"
         )
 
+    def _maybe_rebuild_model_to_match_checkpoint(
+        self,
+        state_dict: Dict[str, torch.Tensor],
+        metadata: Any,
+    ) -> bool:
+        """Best-effort rebuild of ``self.model`` to match checkpoint shapes.
+
+        This is a last-resort guard for situations where the runtime model was
+        instantiated with stale hyperparameters (historically 10/128 filters)
+        but the checkpoint was trained with the canonical 12/192 filters,
+        leading to errors like:
+
+            value_fc1 in_features: checkpoint=212, expected=148
+
+        When possible, we infer the correct configuration from the checkpoint
+        weights and reconstruct the model in-place so neural tiers do not
+        silently fall back to heuristic rollouts.
+        """
+        if self.model is None:
+            return False
+
+        model_class = getattr(metadata, "model_class", None)
+        if not isinstance(model_class, str):
+            model_class = self.model.__class__.__name__
+
+        # Only handle the square-board CNN families here. Hex networks have a
+        # different value-head geometry (1 + global_features).
+        if not model_class.startswith("RingRiftCNN_"):
+            return False
+
+        conv1_weight = state_dict.get("conv1.weight")
+        value_fc1_weight = state_dict.get("value_fc1.weight")
+        value_fc2_weight = state_dict.get("value_fc2.weight")
+        policy_fc2_weight = state_dict.get("policy_fc2.weight")
+
+        # Canonical encoder constants for square boards.
+        base_in_channels = 14
+        global_features = 20
+
+        inferred_filters: Optional[int] = None
+        inferred_history_length: Optional[int] = None
+        if conv1_weight is not None and hasattr(conv1_weight, "shape"):
+            inferred_filters = int(conv1_weight.shape[0])
+            inferred_in_channels = int(conv1_weight.shape[1])
+            if inferred_in_channels % base_in_channels == 0:
+                frames = inferred_in_channels // base_in_channels
+                inferred_history_length = max(frames - 1, 0)
+
+        if inferred_filters is None and value_fc1_weight is not None and hasattr(value_fc1_weight, "shape"):
+            inferred_filters = int(value_fc1_weight.shape[1]) - global_features
+
+        inferred_num_players: Optional[int] = None
+        if value_fc2_weight is not None and hasattr(value_fc2_weight, "shape"):
+            inferred_num_players = int(value_fc2_weight.shape[0])
+
+        inferred_policy_size: Optional[int] = None
+        if policy_fc2_weight is not None and hasattr(policy_fc2_weight, "shape"):
+            inferred_policy_size = int(policy_fc2_weight.shape[0])
+
+        cfg = getattr(metadata, "config", None)
+        if not isinstance(cfg, dict):
+            cfg = {}
+
+        if inferred_policy_size is None and cfg.get("policy_size") is not None:
+            try:
+                inferred_policy_size = int(cfg["policy_size"])
+            except Exception:
+                inferred_policy_size = None
+
+        current_filters = getattr(self.model, "num_filters", None)
+        current_policy_size = getattr(self.model, "policy_size", None)
+        current_value_out = 0
+        if hasattr(self.model, "value_fc2"):
+            current_value_out = int(getattr(self.model.value_fc2, "out_features", 0) or 0)
+
+        needs_rebuild = False
+        if inferred_filters is not None and current_filters is not None:
+            if int(current_filters) != inferred_filters:
+                needs_rebuild = True
+        if inferred_policy_size is not None and current_policy_size is not None:
+            if int(current_policy_size) != inferred_policy_size:
+                needs_rebuild = True
+        if inferred_history_length is not None and int(self.history_length) != inferred_history_length:
+            needs_rebuild = True
+        if inferred_num_players in (2, 3, 4) and current_value_out and inferred_num_players != current_value_out:
+            needs_rebuild = True
+
+        if not needs_rebuild:
+            return False
+
+        num_filters = inferred_filters or (int(current_filters) if current_filters is not None else 192)
+        history_length = inferred_history_length if inferred_history_length is not None else int(self.history_length)
+        num_players = inferred_num_players if inferred_num_players in (2, 3, 4) else (current_value_out or 4)
+
+        num_res_blocks = None
+        if cfg.get("num_res_blocks") is not None:
+            try:
+                num_res_blocks = int(cfg["num_res_blocks"])
+            except Exception:
+                num_res_blocks = None
+        if num_res_blocks is None and hasattr(self.model, "res_blocks"):
+            try:
+                num_res_blocks = len(self.model.res_blocks)  # type: ignore[arg-type]
+            except Exception:
+                num_res_blocks = None
+        if num_res_blocks is None:
+            # Infer from state_dict keys.
+            try:
+                import re
+
+                indices = set()
+                for key in state_dict.keys():
+                    if not isinstance(key, str):
+                        continue
+                    m = re.match(r"res_blocks\.(\d+)\.", key)
+                    if m:
+                        indices.add(int(m.group(1)))
+                if indices:
+                    num_res_blocks = max(indices) + 1
+            except Exception:
+                num_res_blocks = None
+        if num_res_blocks is None:
+            num_res_blocks = 12
+
+        policy_size = inferred_policy_size
+        if policy_size is None:
+            # For v3 models, policy head size is determined by board defaults
+            # unless the checkpoint explicitly pins a legacy MAX_N layout.
+            if getattr(self.model, "policy_size", None) is not None:
+                policy_size = int(getattr(self.model, "policy_size"))
+
+        square_model_classes: Dict[str, Any] = {
+            "RingRiftCNN_v2": RingRiftCNN_v2,
+            "RingRiftCNN_v2_Lite": RingRiftCNN_v2_Lite,
+            "RingRiftCNN_v3": RingRiftCNN_v3,
+            "RingRiftCNN_v3_Lite": RingRiftCNN_v3_Lite,
+        }
+        cls = square_model_classes.get(model_class)
+        if cls is None:
+            return False
+
+        board_size = getattr(self.model, "board_size", self.board_size)
+        try:
+            board_size = int(board_size)
+        except Exception:
+            board_size = self.board_size
+
+        logger.warning(
+            "Rebuilding %s to match checkpoint shapes (filters=%s, res_blocks=%s, "
+            "history_length=%s, num_players=%s, policy_size=%s)",
+            model_class,
+            num_filters,
+            num_res_blocks,
+            history_length,
+            num_players,
+            policy_size,
+        )
+
+        self.model = cls(
+            board_size=board_size,
+            in_channels=base_in_channels,
+            global_features=global_features,
+            num_res_blocks=num_res_blocks,
+            num_filters=num_filters,
+            history_length=history_length,
+            policy_size=policy_size,
+            num_players=num_players,
+        )
+        self.model.to(self.device)
+        self.model.eval()
+        self.history_length = history_length
+        return True
+
     def _load_model_checkpoint(self, model_path: str) -> None:
         """
         Load model checkpoint with version validation.
@@ -3054,6 +3227,13 @@ class NeuralNetAI(BaseAI):
                 )
                 if isinstance(state_dict, dict):
                     state_dict = _strip_module_prefix(state_dict)
+
+                # If the checkpoint config disagrees with the instantiated
+                # model (common when callers build the historical 128-filter
+                # variant), rebuild the model to match the checkpoint weights
+                # before running strict shape guards.
+                self._maybe_rebuild_model_to_match_checkpoint(state_dict, metadata)
+
                 # Guard: reject checkpoints whose declared global_features do not
                 # match the current encoder/output shape.
                 expected_globals = getattr(self.model, "global_features", None)

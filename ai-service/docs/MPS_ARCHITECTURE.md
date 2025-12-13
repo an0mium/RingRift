@@ -51,6 +51,12 @@ board-appropriate `nn_model_id`:
 - Square8 2p v2 family: `ringrift_v4_sq8_2p`
 - Square8 2p v3 family: `ringrift_v5_sq8_2p_2xh100`
 
+**Update (2025-12-13):** `NeuralNetAI` now attempts to _self-heal_ this mismatch
+by rebuilding its runtime model to match the checkpoint’s shapes (filters,
+residual blocks, history length, policy size, and num_players) before loading.
+This converts “212 vs 148” failures into a one-time warning and avoids silent
+neural-tier fallback.
+
 **Debug commands:**
 
 ```bash

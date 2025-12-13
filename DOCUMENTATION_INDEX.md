@@ -100,7 +100,7 @@ AI service and training documentation.
 | [AI_TRAINING_AND_DATASETS.md](docs/ai/AI_TRAINING_AND_DATASETS.md)                           | Training pipelines and datasets    |
 | [AI_TRAINING_ASSESSMENT_FINAL.md](docs/ai/AI_TRAINING_ASSESSMENT_FINAL.md)                   | Training assessment                |
 | [AI_TRAINING_PREPARATION_GUIDE.md](docs/ai/AI_TRAINING_PREPARATION_GUIDE.md)                 | Training preparation               |
-| [AI_TRAINING_PIPELINE_PLAN.md](docs/ai/AI_TRAINING_PIPELINE_PLAN.md)                         | Comprehensive AI training pipeline |
+| [AI_TRAINING_PIPELINE_PLAN.md](ai-service/docs/AI_TRAINING_PIPELINE_PLAN.md)                 | Comprehensive AI training pipeline |
 | [AI_PIPELINE_PARITY_FIXES.md](docs/ai/AI_PIPELINE_PARITY_FIXES.md)                           | TS↔Python parity fixes (Dec 2025)  |
 
 ### /docs/testing/

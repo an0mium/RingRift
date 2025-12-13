@@ -367,8 +367,9 @@ export function evaluateVictory(state: GameState): VictoryResult {
     return { isGameOver: false };
   }
 
-  // 1) Ring-elimination victory: strictly more than 50% of total rings in
-  // play have been eliminated for a single player.
+  // 1) Ring-elimination victory: a player reaches GameState.victoryThreshold
+  // (RR-CANON-R061). In 2-player games this equals the player's starting ring
+  // supply; in 3–4 player games it scales with player count.
   const ringWinner = players.find((p) => p.eliminatedRings >= state.victoryThreshold);
   if (ringWinner) {
     return {

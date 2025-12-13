@@ -29,7 +29,7 @@ from typing import Dict, List, Optional, Tuple, Any
 import logging
 
 from app.db.game_replay import GameReplayDB, _compute_state_hash
-from app.game_engine import BoardType
+from app.game_engine import BoardType, GameEngine
 # NOTE: create_initial_state is imported lazily inside functions to avoid circular imports
 from app.rules.serialization import serialize_game_state
 
@@ -198,6 +198,29 @@ def _summarize_python_initial_state(db: GameReplayDB, game_id: str) -> StateSumm
         else str(state.game_status),
         state_hash=_compute_state_hash(state),
     )
+
+
+def _get_python_initial_state_for_replay(db: GameReplayDB, game_id: str):
+    """Return the initial GameState for replay, falling back deterministically.
+
+    This mirrors :func:`_summarize_python_initial_state` but returns the full
+    GameState so callers can perform a single-pass replay (O(n)) instead of
+    repeatedly invoking get_state_at_move (O(n^2)).
+    """
+    state = db.get_initial_state(game_id)
+    if state is not None:
+        return state
+
+    # Lazy import to avoid circular dependency
+    from app.training.generate_data import create_initial_state
+
+    metadata = db.get_game_metadata(game_id)
+    if metadata is None:
+        raise RuntimeError(f"No initial_state and no metadata for {game_id}")
+    board_type_str = metadata.get("board_type", "square8")
+    num_players = metadata.get("num_players", 2)
+    board_type = _parse_board_type(board_type_str)
+    return create_initial_state(board_type=board_type, num_players=num_players)
 
 
 def _run_ts_replay(db_path: Path, game_id: str) -> Tuple[int, Dict[int, StateSummary]]:
@@ -476,7 +499,8 @@ def validate_game_parity(
         logger.warning(f"Game {game_id} not found in {db_path}")
         return None
 
-    total_moves_py = int(meta.get("total_moves", 0))
+    moves = db.get_moves(game_id)
+    total_moves_py = len(moves)
 
     try:
         total_moves_ts, ts_summaries = _run_ts_replay(db_path_obj, game_id)
@@ -528,15 +552,54 @@ def validate_game_parity(
 
     # Compare post-move states: TS k ↔ Python get_state_at_move(k-1)
     if divergence is None:
+        state = _get_python_initial_state_for_replay(db, game_id)
         max_ts_k = total_moves_ts
         for ts_k in range(1, max_ts_k + 1):
             py_move_index = ts_k - 1
             if py_move_index >= total_moves_py:
                 break
 
+            try:
+                state = GameEngine.apply_move(state, moves[py_move_index], trace_mode=True)
+            except Exception as exc:
+                py_summary = StateSummary(
+                    move_index=py_move_index,
+                    current_player=state.current_player,
+                    current_phase=state.current_phase.value
+                    if hasattr(state.current_phase, "value")
+                    else str(state.current_phase),
+                    game_status=state.game_status.value
+                    if hasattr(state.game_status, "value")
+                    else str(state.game_status),
+                    state_hash=_compute_state_hash(state),
+                )
+                divergence = ParityDivergence(
+                    game_id=game_id,
+                    db_path=str(db_path_obj),
+                    diverged_at=ts_k,
+                    mismatch_kinds=["python_replay_error"],
+                    mismatch_context=f"python_apply_move_error:{type(exc).__name__}:{exc}",
+                    total_moves_python=total_moves_py,
+                    total_moves_ts=total_moves_ts,
+                    python_summary=py_summary,
+                    ts_summary=ts_summaries.get(ts_k),
+                )
+                break
+
+            py_summary = StateSummary(
+                move_index=py_move_index,
+                current_player=state.current_player,
+                current_phase=state.current_phase.value
+                if hasattr(state.current_phase, "value")
+                else str(state.current_phase),
+                game_status=state.game_status.value
+                if hasattr(state.game_status, "value")
+                else str(state.game_status),
+                state_hash=_compute_state_hash(state),
+            )
+
             ts_summary = ts_summaries.get(ts_k)
             if ts_summary is None:
-                py_summary = _summarize_python_state(db, game_id, py_move_index)
                 divergence = ParityDivergence(
                     game_id=game_id,
                     db_path=str(db_path_obj),
@@ -550,7 +613,6 @@ def validate_game_parity(
                 )
                 break
 
-            py_summary = _summarize_python_state(db, game_id, py_move_index)
             step_mismatches: List[str] = []
 
             if py_summary.current_player != ts_summary.current_player:
@@ -566,7 +628,6 @@ def validate_game_parity(
                 # Get the move at divergence for debugging
                 move_dict = None
                 try:
-                    moves = db.get_moves(game_id)
                     if moves and py_move_index < len(moves):
                         move = moves[py_move_index]
                         move_dict = json.loads(move.model_dump_json(by_alias=True))

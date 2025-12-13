@@ -594,10 +594,20 @@ export const SandboxGameHost: React.FC = () => {
           }
         : scenarioState;
 
-      engine.initFromSerializedState(normalizedState, playerTypes, interactionHandler);
+      engine.initFromSerializedState(
+        normalizedState,
+        playerTypes,
+        interactionHandler,
+        config.aiDifficulties.slice(0, scenario.playerCount)
+      );
       return engine;
     },
-    [config.playerTypes, createSandboxInteractionHandler, initLocalSandboxEngine]
+    [
+      config.aiDifficulties,
+      config.playerTypes,
+      createSandboxInteractionHandler,
+      initLocalSandboxEngine,
+    ]
   );
 
   // Callback when scenario is loaded (for telemetry)
@@ -949,13 +959,18 @@ export const SandboxGameHost: React.FC = () => {
           increment: 0,
         },
         aiOpponents: (() => {
-          const aiSeats = snapshot.playerTypes
-            .slice(0, snapshot.numPlayers)
-            .filter((t) => t === 'ai').length;
+          const clampDifficulty = (value: number) => Math.max(1, Math.min(10, Math.round(value)));
+          const seatTypes = snapshot.playerTypes.slice(0, snapshot.numPlayers);
+          const aiDifficulties = seatTypes
+            .map((t, idx) =>
+              t === 'ai' ? clampDifficulty(snapshot.aiDifficulties[idx] ?? 5) : null
+            )
+            .filter((d): d is number => d !== null);
+          const aiSeats = aiDifficulties.length;
           if (aiSeats <= 0) return undefined;
           return {
             count: aiSeats,
-            difficulty: Array(aiSeats).fill(5),
+            difficulty: aiDifficulties,
             mode: 'service',
             aiType: 'heuristic',
           };
@@ -991,6 +1006,7 @@ export const SandboxGameHost: React.FC = () => {
       boardType: preset.config.boardType,
       numPlayers: preset.config.numPlayers,
       playerTypes: updatedTypes,
+      aiDifficulties: [...config.aiDifficulties],
     };
 
     setConfig(snapshot);

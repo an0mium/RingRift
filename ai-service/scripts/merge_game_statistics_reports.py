@@ -21,6 +21,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Ensure `app.*` imports work regardless of the current working directory.
+AI_SERVICE_ROOT = Path(__file__).resolve().parent.parent
+if str(AI_SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(AI_SERVICE_ROOT))
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -329,12 +334,14 @@ def _format_markdown_summary(report: dict[str, Any]) -> str:
 
     lines.append("## Outcomes (victory_type)")
     lines.append("")
-    lines.append("| Config | Games | LPS | Elim | Terr | Stalemate | Timeout | Draw | Unknown |")
-    lines.append("|--------|-------|-----|------|------|----------:|--------:|-----:|--------:|")
+    lines.append("| Config | Games | Avg moves | LPS | Elim | Terr | Stalemate | Timeout | Draw | Unknown |")
+    lines.append("|--------|------:|----------:|-----|------|------|----------|--------:|-----:|--------:|")
     for cfg_key, cfg in (report.get("configurations", {}) or {}).items():
         total_games = int(cfg.get("total_games", 0) or 0)
         if total_games <= 0:
             continue
+        total_moves = int(cfg.get("total_moves", 0) or 0)
+        avg_moves = total_moves / total_games if total_games else 0.0
         vtypes = cfg.get("victory_types", {}) or {}
         lps = int(vtypes.get("lps", 0) or 0)
         terr = int(vtypes.get("territory", 0) or 0)
@@ -344,11 +351,13 @@ def _format_markdown_summary(report: dict[str, Any]) -> str:
         draw = int(vtypes.get("draw", 0) or 0)
         unknown = int(vtypes.get("unknown", 0) or 0)
         lines.append(
-            f"| {cfg_key} | {total_games} | "
+            f"| {cfg_key} | {total_games} | {avg_moves:.1f} | "
             f"{100*lps/total_games:.1f}% ({lps}) | "
             f"{100*elim/total_games:.1f}% ({elim}) | "
             f"{100*terr/total_games:.1f}% ({terr}) | "
-            f"{stalemate} | {timeout} | {draw} | {unknown} |"
+            f"{100*stalemate/total_games:.1f}% ({stalemate}) | "
+            f"{100*timeout/total_games:.1f}% ({timeout}) | "
+            f"{draw} | {unknown} |"
         )
     lines.append("")
 
@@ -378,6 +387,32 @@ def _format_markdown_summary(report: dict[str, Any]) -> str:
             f"| {cfg_key} | {json.dumps(observed_rings, sort_keys=True)} | "
             f"{expected_rings or '-'} | {json.dumps(observed_threshold, sort_keys=True)} | "
             f"{expected_threshold or '-'} |"
+        )
+    lines.append("")
+
+    lines.append("## Recovery (recovery_slide)")
+    lines.append("")
+    lines.append(
+        "| Config | Games | Games w/ recovery_slide | Games w/ stack_strike | recovery_slide modes (move counts) |"
+    )
+    lines.append("|--------|------:|-----------------------:|----------------------:|-----------------------------------|")
+    for cfg_key, cfg in (report.get("configurations", {}) or {}).items():
+        total_games = int(cfg.get("total_games", 0) or 0)
+        if total_games <= 0:
+            continue
+        games_with_recovery = int(cfg.get("games_with_recovery_slide", 0) or 0)
+        games_with_stack_strike = int(cfg.get("games_with_stack_strike", 0) or 0)
+        modes = cfg.get("recovery_slides_by_mode", {}) or {}
+        try:
+            modes_str = ", ".join(f"{k}:{int(v)}" for k, v in sorted(modes.items()))
+        except Exception:
+            modes_str = json.dumps(modes, sort_keys=True)
+
+        lines.append(
+            f"| {cfg_key} | {total_games} | "
+            f"{games_with_recovery} ({100*games_with_recovery/total_games:.1f}%) | "
+            f"{games_with_stack_strike} ({100*games_with_stack_strike/total_games:.1f}%) | "
+            f"{modes_str} |"
         )
     lines.append("")
 

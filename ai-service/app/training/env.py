@@ -492,6 +492,28 @@ class RingRiftEnv:
                 self.state.current_player,
             )
 
+        # Defensive decision-surface check: in LINE/TERRITORY processing, the
+        # interactive move surface must never be replaced by a bookkeeping
+        # no_* action when decisions exist. In rare cases, cache/metadata drift
+        # can cause get_valid_moves() to return an empty list even though the
+        # phase-local decision enumerators would surface interactive moves.
+        #
+        # When that happens, prefer the phase-local interactive moves and
+        # avoid synthesizing NO_LINE_ACTION / NO_TERRITORY_ACTION, which would
+        # violate RR-CANON bookkeeping semantics and be rejected by FSM guards.
+        if not moves and self.state.current_phase in (
+            GamePhase.LINE_PROCESSING,
+            GamePhase.TERRITORY_PROCESSING,
+        ):
+            if self.state.current_phase == GamePhase.LINE_PROCESSING:
+                moves = GameEngine._get_line_processing_moves(
+                    self.state, self.state.current_player
+                )
+            else:
+                moves = GameEngine._get_territory_processing_moves(
+                    self.state, self.state.current_player
+                )
+
         # If no interactive moves, check for phase requirements (R076)
         if not moves:
             requirement = GameEngine.get_phase_requirement(

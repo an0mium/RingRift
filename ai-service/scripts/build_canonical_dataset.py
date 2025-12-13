@@ -8,6 +8,9 @@ This is a thin, policy-aware wrapper around scripts/export_replay_dataset.py
 that:
   - Restricts --db inputs to canonical_<board>.db by default.
   - Encourages a clear dataset naming convention under data/training/.
+  - Defaults to **board-aware policy encoding** for square boards (required for
+    v3 training); pass --legacy-maxn-encoding to force the older MAX_N layout.
+  - Archives any existing output NPZ before rebuilding (opt out with --append).
   - Supports all board types (square8, square19, hexagonal) and player counts (2, 3, 4).
 
 It does not change the underlying NPZ layout, which remains compatible with
@@ -33,6 +36,7 @@ Usage examples (from ai-service/):
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 from typing import List
 
@@ -98,6 +102,8 @@ def run_export(
     *,
     registry_path: Path,
     allow_pending_gate: bool,
+    legacy_maxn_encoding: bool,
+    append: bool,
 ) -> int:
     """Invoke export_replay_dataset.main(...) with canonical-safe arguments."""
     # Basic guard: insist on canonical_*.db basenames by default.
@@ -116,6 +122,13 @@ def run_export(
 
     os.makedirs(str(output_path.parent), exist_ok=True)
 
+    if output_path.exists() and not append:
+        archived = Path(
+            f"{output_path.as_posix()}.archived_{time.strftime('%Y%m%d_%H%M%S')}"
+        )
+        output_path.rename(archived)
+        print(f"[build-canonical-dataset] archived existing output -> {archived}", file=sys.stderr)
+
     argv = [
         "--db",
         str(db_path),
@@ -129,6 +142,8 @@ def run_export(
         "--output",
         str(output_path),
     ]
+    if board_type in {"square8", "square19"} and not legacy_maxn_encoding:
+        argv.append("--board-aware-encoding")
 
     # Delegate to the existing export_replay_dataset CLI main.
     return export_main(argv)
@@ -175,6 +190,23 @@ def main(argv: List[str] | None = None) -> int:
             "reports canonical_ok=true and a passing parity gate."
         ),
     )
+    parser.add_argument(
+        "--legacy-maxn-encoding",
+        action="store_true",
+        help=(
+            "Export using the legacy MAX_N policy encoding (larger action space). "
+            "Default is board-aware encoding for square boards, which is required "
+            "for v3 training."
+        ),
+    )
+    parser.add_argument(
+        "--append",
+        action="store_true",
+        help=(
+            "Append to an existing output NPZ if present (legacy export_replay_dataset behavior). "
+            "Default is to archive any existing output and rebuild from scratch."
+        ),
+    )
     args = parser.parse_args(argv)
 
     board_type: str = args.board_type
@@ -190,6 +222,8 @@ def main(argv: List[str] | None = None) -> int:
         output_path,
         registry_path=registry_path,
         allow_pending_gate=bool(args.allow_pending_gate),
+        legacy_maxn_encoding=bool(args.legacy_maxn_encoding),
+        append=bool(args.append),
     )
 
 

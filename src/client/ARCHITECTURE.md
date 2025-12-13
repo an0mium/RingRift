@@ -772,7 +772,7 @@ Current responsibilities in [`BackendGameHost.tsx`](src/client/pages/BackendGame
 Current responsibilities in [`SandboxGameHost.tsx`](src/client/pages/SandboxGameHost.tsx:1) include:
 
 - Pre‑game setup:
-  - Local config (`LocalConfig`) for `boardType`, `numPlayers`, and `playerTypes`.
+  - Local config (`LocalConfig`) for `boardType`, `numPlayers`, `playerTypes`, and per-seat `aiDifficulties`.
   - Attempted backend sandbox game creation via [`gameApi.createGame`](src/client/services/api.ts:1) and fallback to local `ClientSandboxEngine`.
 - Sandbox engine lifecycle:
   - Calls `initLocalSandboxEngine()` and `resetSandboxEngine()` from [`SandboxContext.tsx`](src/client/contexts/SandboxContext.tsx:64).
@@ -790,7 +790,7 @@ Current responsibilities in [`SandboxGameHost.tsx`](src/client/pages/SandboxGame
 - **ConnectionShell (sandbox)**:
   - Treat the pre‑game setup and engine initialisation as the sandbox ConnectionShell:
     - Own `LocalConfig`, backend sandbox error, and `isConfigured`.
-    - Call `initLocalSandboxEngine()` with a [`SandboxInteractionHandler`](src/client/sandbox/ClientSandboxEngine.ts:112) derived from `playerTypes`.
+    - Call `initLocalSandboxEngine()` with a [`SandboxInteractionHandler`](src/client/sandbox/ClientSandboxEngine.ts:112) derived from `playerTypes` and `aiDifficulties`.
     - Expose a simple `startSandboxGame()` and `resetSandboxGame()` API to the rest of the host.
   - This logic can remain in `SandboxGameHost` but should be isolated from board rendering and diagnostics.
 

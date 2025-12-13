@@ -339,7 +339,8 @@ describe('FSMAdapter - Branch Coverage', () => {
       expect(context.boardType).toBe('square8');
       expect(context.numPlayers).toBe(2);
       expect(context.ringsPerPlayer).toBe(18);
-      expect(context.lineLength).toBe(3);
+      // Per RR-CANON-R120: square8 2-player uses line length 4 (3+ player uses 3)
+      expect(context.lineLength).toBe(4);
     });
 
     it('should derive context for 4-player game', () => {

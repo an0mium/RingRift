@@ -63,13 +63,15 @@ describe('FSM Canonical Orchestrator', () => {
   }
 
   describe('Phase-Move Type Validation', () => {
-    // These mappings match PHASE_ALLOWED_MOVE_TYPES in FSMAdapter.ts
-    // Note: swap_sides is a meta move allowed in any phase for historical compatibility
+    // These mappings match VALID_MOVES_BY_PHASE in phaseValidation.ts
+    // swap_sides is a meta move permitted in interactive phases, but the
+    // canonical history contract treats it as ring_placement-only (pie rule);
+    // see CANONICAL_VALID_MOVES_BY_PHASE in phaseValidation.ts.
     const phaseMovePairs: { phase: GamePhase; validMoves: MoveType[]; invalidMoves: MoveType[] }[] =
       [
         {
           phase: 'ring_placement',
-          validMoves: ['place_ring', 'skip_placement', 'no_placement_action'],
+          validMoves: ['place_ring', 'skip_placement', 'no_placement_action', 'swap_sides'],
           invalidMoves: [
             'move_stack',
             'overtaking_capture',
@@ -86,12 +88,13 @@ describe('FSM Canonical Orchestrator', () => {
             'continue_capture_segment',
             'no_movement_action',
             'recovery_slide',
+            'swap_sides', // Valid in interactive phases per RR-CANON R180-R184
           ],
           invalidMoves: ['place_ring', 'choose_line_reward', 'process_territory_region'],
         },
         {
           phase: 'chain_capture',
-          validMoves: ['overtaking_capture', 'continue_capture_segment'],
+          validMoves: ['overtaking_capture', 'continue_capture_segment', 'swap_sides'],
           invalidMoves: ['place_ring', 'move_stack', 'choose_line_reward', 'no_movement_action'],
         },
         {
@@ -394,24 +397,35 @@ describe('FSM Canonical Orchestrator', () => {
   });
 
   describe('Meta Move Types', () => {
-    it('should allow swap_sides as meta move in any phase', () => {
-      // swap_sides is a meta move that bypasses phase restrictions
+    it('should allow swap_sides in interactive phases (pie rule)', () => {
+      // swap_sides is valid in interactive phases per RR-CANON R180-R184
+      const interactivePhases: GamePhase[] = [
+        'ring_placement',
+        'movement',
+        'capture',
+        'chain_capture',
+      ];
+      interactivePhases.forEach((phase) => {
+        expect(isMoveTypeValidForPhase(phase, 'swap_sides')).toBe(true);
+      });
+
+      // swap_sides is NOT valid in processing phases
+      expect(isMoveTypeValidForPhase('line_processing', 'swap_sides')).toBe(false);
+      expect(isMoveTypeValidForPhase('territory_processing', 'swap_sides')).toBe(false);
+    });
+
+    it('should allow resign/timeout as meta moves in any phase', () => {
+      // Per ALWAYS_VALID_MOVES, only resign and timeout are valid everywhere
       const phases: GamePhase[] = [
         'ring_placement',
         'movement',
         'line_processing',
         'territory_processing',
       ];
-
       phases.forEach((phase) => {
-        expect(isMoveTypeValidForPhase(phase, 'swap_sides')).toBe(true);
+        expect(isMoveTypeValidForPhase(phase, 'resign')).toBe(true);
+        expect(isMoveTypeValidForPhase(phase, 'timeout')).toBe(true);
       });
-    });
-
-    it('should allow line_formation as meta move', () => {
-      // line_formation is a legacy/meta move type
-      expect(isMoveTypeValidForPhase('ring_placement', 'line_formation')).toBe(true);
-      expect(isMoveTypeValidForPhase('movement', 'line_formation')).toBe(true);
     });
   });
 

@@ -16,19 +16,21 @@ This document tracks the provenance and canonical status of all self-play databa
 
 ### Canonical (Parity + Canonical-History Gated)
 
-| Database                  | Board Type | Players | Status        | Gate Summary                        | Notes                                                                                                                                                                  |
-| ------------------------- | ---------- | ------- | ------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical_square8.db`    | square8    | 2       | **canonical** | db_health.canonical_square8.json    | 2025-12-12 distributed regeneration (12 games) and re-gate after TS territory-control parity fix; `canonical_ok=true` (only end-of-game-only current_player mismatch). |
-| `canonical_square8_3p.db` | square8    | 3       | **canonical** | db_health.canonical_square8_3p.json | 2025-12-12 initial 3P canonical DB (2 games) gated successfully (`canonical_ok=true`; parity only end-of-game-only current_player mismatch).                           |
-| `canonical_square8_4p.db` | square8    | 4       | **canonical** | db_health.canonical_square8_4p.json | 2025-12-12 4P canonical DB (2 games) gated successfully (`canonical_ok=true`). Scale up for training.                                                                  |
+| Database                  | Board Type | Players | Status        | Gate Summary                        | Notes                                                                                                                                                                        |
+| ------------------------- | ---------- | ------- | ------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canonical_square8.db`    | square8    | 2       | **canonical** | db_health.canonical_square8.json    | 2025-12-12 distributed regeneration (12 games) and re-gate after TS territory-control parity fix; `canonical_ok=true` (only end-of-game-only current_player mismatch).       |
+| `canonical_square8_3p.db` | square8    | 3       | **canonical** | db_health.canonical_square8_3p.json | 2025-12-12 initial 3P canonical DB (2 games) gated successfully (`canonical_ok=true`; parity only end-of-game-only current_player mismatch).                                 |
+| `canonical_square8_4p.db` | square8    | 4       | **canonical** | db_health.canonical_square8_4p.json | 2025-12-12 4P canonical DB (2 games) gated successfully (`canonical_ok=true`). Scale up for training.                                                                        |
+| `canonical_square19.db`   | square19   | 2       | **canonical** | db_health.canonical_square19.json   | 2025-12-13 regeneration + gate after phase/move invariant failures in older recordings; `canonical_ok=true` (1 game). Scale up once large-board throughput is acceptable.    |
+| `canonical_hex.db`        | hexagonal  | 2       | **canonical** | db_health.canonical_hex.json        | 2025-12-13 radius-12 regeneration + gate; parity + canonical history + hex FE/territory fixtures pass (`canonical_ok=true`, 1 game). Scale up once throughput is acceptable. |
 
-The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. For supported board types (currently `square8` and `square19`; hex pending), this also implies `fe_territory_fixtures_ok == true` as well as a passing parity gate and canonical phase history.
+The `Status` column uses `canonical` only for DBs whose latest gate summary JSON has `canonical_ok == true`. For supported board types (`square8`, `square19`, and `hexagonal`), this also implies `fe_territory_fixtures_ok == true` as well as a passing parity gate and canonical phase history.
 
 ### Pending Re-Gate / Needs Regeneration
 
-| Database                | Board Type | Players | Status           | Gate Summary                      | Notes                                                                                                                              |
-| ----------------------- | ---------- | ------- | ---------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `canonical_square19.db` | square19   | 2       | **pending_gate** | db_health.canonical_square19.json | Latest parity-only recheck fails with a phase/move invariant error (`place_ring` attempted in `territory_processing`). Regenerate. |
+| Database | Board Type | Players | Status | Gate Summary | Notes |
+| -------- | ---------- | ------- | ------ | ------------ | ----- |
+| _None_   |            |         |        |              |       |
 
 ### Legacy / Non-Canonical
 
@@ -50,7 +52,8 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 - 2025-12-12 distributed regeneration + parity fix: `canonical_square8.db` now passes the canonical gate (`canonical_ok=true`, parity only end-of-game-only mismatches). It is safe for new training.
 - 2025-12-12: `canonical_square8_3p.db` has initial gated games; scale up before training.
 - 2025-12-12: `canonical_square8_4p.db` is now canonical (`canonical_ok=true`); scale up before training.
-- Hex assets remain deprecated until a radius-12 canonical DB is generated. Only radius-12 hex DBs whose gate summary JSON reports `canonical_ok == true` and `fe_territory_fixtures_ok == true` **and** that are listed as `canonical` in this registry should be used for training hex models. Older radius-10/legacy hex DBs remain permanently non-canonical; see `docs/HEX_PARITY_AUDIT.md` and `ai-service/data/HEX_DATA_DEPRECATION_NOTICE.md` for deprecation and parity-audit context.
+- 2025-12-13: `canonical_square19.db` now passes the canonical gate (`canonical_ok=true`); scale up before training.
+- 2025-12-13: `canonical_hex.db` (radius-12) now passes the canonical gate (`canonical_ok=true`, `fe_territory_fixtures_ok=true`); scale up before training. Older radius-10/legacy hex DBs remain permanently non-canonical; see `docs/HEX_PARITY_AUDIT.md` and `ai-service/data/HEX_DATA_DEPRECATION_NOTICE.md` for deprecation and parity-audit context.
 - Historical: the sandboxed environment can fail OpenMP shared-memory allocation (`OMP: Error #179: Function Can't open SHM2 failed`); run canonical self-play on a host/container with SHM permissions.
 - (Historical) 2025-12-09 re-gate of `canonical_square8.db` found TS replay structural errors; resolved on 2025-12-12 by aligning TS territory-control victory to collapsed-territory counts.
 
@@ -70,17 +73,17 @@ _None retained._ All legacy/non-canonical DBs were deleted as part of the 2025-1
 | `ringrift_v1_2025*.pth`                   | Legacy selfplay DBs         | **legacy_noncanonical** | v1 checkpoints from Nov 2025                                                                                                            |
 | `ringrift_from_replays_square8.pth`       | Mixed replay DBs            | **legacy_noncanonical** | Trained from legacy replays                                                                                                             |
 | `ringrift_from_replays_square8_2025*.pth` | Mixed replay DBs            | **legacy_noncanonical** | Checkpoints from legacy replays                                                                                                         |
-| `ringrift_v1_hex*.pth`                    | Legacy hex DBs (radius 10)  | ⚠️ **DEPRECATED_R10**   | Old hex geometry (331 cells, 36 rings, 21×21 input). Do not load; retrain on new radius-12 geometry (469 cells, 72 rings, 25×25 input). |
+| `ringrift_v1_hex*.pth`                    | Legacy hex DBs (radius 10)  | ⚠️ **DEPRECATED_R10**   | Old hex geometry (331 cells, 36 rings, 21×21 input). Do not load; retrain on new radius-12 geometry (469 cells, 96 rings, 25×25 input). |
 
 ### Target Canonical Models
 
 Once canonical self-play DBs are generated and exported, retrain these models:
 
-| Target Model               | Training Data Source       | Status                                              |
-| -------------------------- | -------------------------- | --------------------------------------------------- |
-| `ringrift_v2_square8.pth`  | canonical_square8.db       | Pending                                             |
-| `ringrift_v2_square19.pth` | canonical_square19.db      | Pending                                             |
-| `ringrift_v2_hex.pth`      | canonical_hex.db (removed) | Pending — regenerate a radius-12 hex DB and retrain |
+| Target Model               | Training Data Source  | Status  |
+| -------------------------- | --------------------- | ------- |
+| `ringrift_v2_square8.pth`  | canonical_square8.db  | Pending |
+| `ringrift_v2_square19.pth` | canonical_square19.db | Pending |
+| `ringrift_v2_hex.pth`      | canonical_hex.db      | Pending |
 
 ---
 
@@ -103,11 +106,11 @@ Once canonical self-play DBs are generated and exported, retrain these models:
 
    For distributed self-play across SSH hosts, pass `--hosts host1,host2,...`.
    Per-host DBs are merged into the destination DB (deduped by `game_id`).
-   Use `--reset-db` to archive any existing canonical DB before merging.
+   Use `--reset-db` to archive any existing destination DB before generating/merging.
 
    A DB is eligible for `Status = canonical` **only if** its latest gate summary JSON (written by `scripts/generate_canonical_selfplay.py`) reports:
    - `canonical_ok == true` (the top-level allowlist flag), and
-   - for supported board types (currently `square8` and `square19`; hex pending), this in turn implies:
+   - for supported board types (`square8`, `square19`, and `hexagonal`), this in turn implies:
      - `parity_gate.passed_canonical_parity_gate == true`, and
      - `canonical_history.games_checked > 0` and `canonical_history.non_canonical_games == 0`, and
      - `fe_territory_fixtures_ok == true`, and
@@ -210,4 +213,4 @@ parity issues before promoting a DB to the canonical training allowlist.
 
 ---
 
-_Last updated: 2025-12-12_
+_Last updated: 2025-12-13_

@@ -1,6 +1,6 @@
 # AI Strength & Training Infrastructure Progress
 
-> **Last Updated:** 2025-12-12
+> **Last Updated:** 2025-12-13
 
 This document tracks concrete AI/training improvements as they land, so work
 is not duplicated and future refactors stay canonical and debuggable.
@@ -93,15 +93,18 @@ Status tags:
   registry is updated (`canonical_ok=true`).
 - **done** `generate_canonical_selfplay.py` now streams gate progress to stderr
   (parity + pytest gates) and keeps stdout as clean JSON to avoid long silent runs.
+- **done** `generate_canonical_selfplay.py` now supports local `--reset-db`
+  archiving and runs sampled canonical config/history postchecks even when parity
+  fails (to surface the first invalid move quickly).
 - **done** Gated initial `canonical_square8_3p.db` (3P) (`canonical_ok=true`).
 - **done** Gated initial `canonical_square8_4p.db` (4P) (`canonical_ok=true`);
   scale up before training.
-- **blocked** `canonical_square19.db` (2P) needs regeneration; latest parity-only
-  recheck fails a phase/move invariant (`place_ring` applied during
-  `territory_processing`). Re-run `generate_canonical_selfplay.py` to rebuild the DB
-  and update `ai-service/TRAINING_DATA_REGISTRY.md` once `canonical_ok=true`.
-- **next** Regenerate `canonical_hex.db` (radius‑12) and gate it, then update
-  `ai-service/TRAINING_DATA_REGISTRY.md` with gate summaries.
+- **done** Regenerated and gated `canonical_square19.db` (2P); parity + canonical
+  history pass (`canonical_ok=true`). Scale up for training once large-board
+  throughput is acceptable.
+- **done** Regenerated and gated `canonical_hex.db` (radius‑12); parity + canonical
+  history + hex FE/territory fixtures pass (`canonical_ok=true`). Scale up for
+  training once large-board throughput is acceptable.
 - **done** Canonical dataset export path fixed (`build_canonical_dataset.py`
   - programmatic `export_replay_dataset.py`) and neural tier training now
     defaults to `canonical_square8_2p.npz` for non-demo runs.

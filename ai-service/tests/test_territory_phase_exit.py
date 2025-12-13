@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from app.game_engine import GameEngine, PhaseRequirementType
+from app.game_engine import GameEngine
 from app.models import (
     BoardState,
     BoardType,
@@ -17,13 +17,14 @@ from app.models import (
 )
 
 
-def test_eliminate_rings_from_stack_does_not_silently_exit_territory_processing() -> None:
+def test_eliminate_rings_from_stack_ends_turn_when_territory_complete() -> None:
     """
-    Regression: after an ELIMINATE_RINGS_FROM_STACK decision in territory_processing,
-    Python must NOT rotate to the next player when no further territory decisions remain.
+    After an ELIMINATE_RINGS_FROM_STACK decision in territory_processing, if no
+    further territory decisions remain, the engine must end the turn and rotate
+    to the next player's ring_placement (RR-CANON-R075/R204).
 
-    Instead, it should remain in territory_processing so the host can record an
-    explicit NO_TERRITORY_ACTION bookkeeping move (RR-CANON-R075/R204), mirroring TS.
+    NO_TERRITORY_ACTION is reserved for the case where the player entered
+    territory_processing and had *no* eligible territory decisions at all.
     """
 
     now = datetime.now()
@@ -126,17 +127,5 @@ def test_eliminate_rings_from_stack_does_not_silently_exit_territory_processing(
     )
 
     after_elim = GameEngine.apply_move(state, eliminate, trace_mode=True)
-    assert after_elim.current_phase == GamePhase.TERRITORY_PROCESSING
-    assert after_elim.current_player == 2
-
-    # No further interactive territory decisions exist, so the host must emit NO_TERRITORY_ACTION.
-    assert GameEngine.get_valid_moves(after_elim, 2) == []
-    req = GameEngine.get_phase_requirement(after_elim, 2)
-    assert req is not None
-    assert req.type == PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED
-
-    bookkeeping = GameEngine.synthesize_bookkeeping_move(req, after_elim)
-    after_bookkeeping = GameEngine.apply_move(after_elim, bookkeeping, trace_mode=True)
-    assert after_bookkeeping.current_phase == GamePhase.RING_PLACEMENT
-    assert after_bookkeeping.current_player == 1
-
+    assert after_elim.current_phase == GamePhase.RING_PLACEMENT
+    assert after_elim.current_player == 1

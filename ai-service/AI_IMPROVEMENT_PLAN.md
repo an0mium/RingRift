@@ -1367,12 +1367,19 @@ Recent failure mode:
   loaded into a default-constructed model with `num_players=4`, triggering
   size mismatches in `value_fc2` / `rank_dist_fc2` and causing search AIs to
   fall back to heuristic rollouts.
+  - A related failure class is stale runtime defaults for `num_filters` /
+    `history_length`, producing mismatches like `value_fc1 in_features:
+checkpoint=212, expected=148`.
 
-**Fix (2025-12-12):** `NeuralNetAI` now infers `num_players` from
-`value_fc2.weight.shape[0]` during initialization and constructs `RingRiftCNN_v2`
-/ `RingRiftCNN_v3` with matching `num_players` before loading the checkpoint.
-This restores neural evaluation for V3 checkpoints and eliminates the
-`checkpoint=212 expected=148` class of mismatches when metadata is missing.
+**Fix (2025-12-13):** `NeuralNetAI` now hardens checkpoint loading by
+cross-checking metadata against actual weight shapes and performing a
+best-effort **model rebuild** when the instantiated runtime model disagrees
+with the checkpoint’s shapes (filters, residual blocks, history length,
+policy size, num_players). This restores neural evaluation for V2/V3
+checkpoints and prevents silent fallback for mismatches like:
+
+- `value_fc1 in_features: checkpoint=212, expected=148`
+- `value_fc2 out_features: checkpoint=2, expected=4`
 
 **Debug tool:** `scripts/inspect_nn_checkpoint.py` prints inferred filters,
 `num_players`, and value-head shapes for a given checkpoint/model-id.

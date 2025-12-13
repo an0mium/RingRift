@@ -35,8 +35,9 @@ Historical (pre‑fix) large‑board self‑play showed extreme stalemate rates:
   opportunities are comparatively scarce.
 
 As of the current canonical recovery rules + turn-rotation fixes, recent
-distributed selfplay shows stalemates are effectively eliminated but outcomes
-are often LPS‑heavy on large boards; see `ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md`.
+distributed selfplay shows stalemate rates are **materially lower** than the
+historical baseline, but large‑board **2‑player** stalemates remain common and
+are still a high‑leverage target; see `ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md`.
 
 Allowing a low‑power stack strike aims to:
 

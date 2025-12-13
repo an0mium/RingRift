@@ -92,6 +92,7 @@ ai-service/data/synced_selfplay/
 ai-service/**/*.pth
 ai-service/**/*.pth.bak
 ai-service/**/*.npz
+ai-service/**/*.npz.archived_*
 ai-service/self_play_data/
 ai-service/results/
 
