@@ -948,11 +948,35 @@ class P2POrchestrator:
         """Check if this node is the current cluster leader with valid lease."""
         if self.leader_id != self.node_id:
             return False
+        # Consistency: we should never claim leader_id=self while being a follower/candidate.
+        if self.role != NodeRole.LEADER:
+            print("[P2P] Inconsistent leadership state (leader_id=self but role!=leader); clearing leader_id")
+            self.role = NodeRole.FOLLOWER
+            self.leader_id = None
+            self.leader_lease_id = ""
+            self.leader_lease_expires = 0.0
+            self.last_lease_renewal = 0.0
+            self._save_state()
+            try:
+                asyncio.get_running_loop().create_task(self._start_election())
+            except RuntimeError:
+                pass
+            return False
+
         # LEARNED LESSONS - Lease-based leadership prevents split-brain
         # Must have valid lease to act as leader
         if self.leader_lease_expires > 0 and time.time() >= self.leader_lease_expires:
-            print(f"[P2P] Leadership lease expired, stepping down")
+            print("[P2P] Leadership lease expired, stepping down")
             self.role = NodeRole.FOLLOWER
+            self.leader_id = None
+            self.leader_lease_id = ""
+            self.leader_lease_expires = 0.0
+            self.last_lease_renewal = 0.0
+            self._save_state()
+            try:
+                asyncio.get_running_loop().create_task(self._start_election())
+            except RuntimeError:
+                pass
             return False
         return True
 
@@ -2881,7 +2905,29 @@ class P2POrchestrator:
         self._update_self_info()
 
         with self.peers_lock:
-            peers = {k: v.to_dict() for k, v in self.peers.items()}
+            peers_snapshot = list(self.peers.values())
+
+        conflict_keys = self._endpoint_conflict_keys([self.self_info] + peers_snapshot)
+        effective_leader = self._get_leader_peer()
+
+        peers: Dict[str, Any] = {}
+        for node_id, info in ((p.node_id, p) for p in peers_snapshot):
+            d = info.to_dict()
+            d["endpoint_conflict"] = self._endpoint_key(info) in conflict_keys
+            d["leader_eligible"] = self._is_leader_eligible(info, conflict_keys, require_alive=False)
+            peers[node_id] = d
+
+        # Convenience diagnostics: reported leaders vs eligible leaders.
+        leaders_reported = sorted(
+            [p.node_id for p in peers_snapshot if p.role == NodeRole.LEADER and p.is_alive()]
+        )
+        leaders_eligible = sorted(
+            [
+                p.node_id
+                for p in peers_snapshot
+                if p.role == NodeRole.LEADER and self._is_leader_eligible(p, conflict_keys)
+            ]
+        )
 
         with self.jobs_lock:
             jobs = {k: v.to_dict() for k, v in self.local_jobs.items()}
@@ -2901,6 +2947,9 @@ class P2POrchestrator:
             "node_id": self.node_id,
             "role": self.role.value,
             "leader_id": self.leader_id,
+            "effective_leader_id": (effective_leader.node_id if effective_leader else None),
+            "leaders_reported": leaders_reported,
+            "leaders_eligible": leaders_eligible,
             "self": self.self_info.to_dict(),
             "peers": peers,
             "local_jobs": jobs,
@@ -3260,11 +3309,13 @@ class P2POrchestrator:
             with self.peers_lock:
                 peers = {k: v.to_dict() for k, v in self.peers.items()}
 
+            effective_leader = self._get_leader_peer()
             return web.json_response({
                 "success": True,
                 "self": self.self_info.to_dict(),
                 "peers": peers,
-                "leader_id": self.leader_id,
+                "leader_id": (effective_leader.node_id if effective_leader else self.leader_id),
+                "effective_leader_id": (effective_leader.node_id if effective_leader else None),
                 "relay_node": self.node_id,
                 "commands": commands_to_send,
             })
@@ -3281,6 +3332,7 @@ class P2POrchestrator:
             if self.auth_token and not self._is_request_authorized(request):
                 return web.json_response({"error": "unauthorized"}, status=401)
             self._update_self_info()
+            effective_leader = self._get_leader_peer()
             with self.peers_lock:
                 all_peers = {k: v.to_dict() for k, v in self.peers.items()}
 
@@ -3290,7 +3342,8 @@ class P2POrchestrator:
 
             return web.json_response({
                 "success": True,
-                "leader_id": self.leader_id,
+                "leader_id": (effective_leader.node_id if effective_leader else self.leader_id),
+                "effective_leader_id": (effective_leader.node_id if effective_leader else None),
                 "total_peers": len(all_peers),
                 "direct_peers": len(direct),
                 "nat_blocked_peers": len(nat_blocked),
