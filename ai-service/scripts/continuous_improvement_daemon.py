@@ -265,6 +265,18 @@ class DaemonState:
     last_error: str = ""
     last_error_time: str = ""
 
+    # NNUE training tracking (per board_type/num_players config)
+    # Maps "square8_2p" -> {"last_train_time": float, "last_train_games": int, "model_path": str}
+    nnue_state: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    # CMAES heuristic optimization tracking (per board_type/num_players config)
+    # Maps "square8_2p" -> {"last_opt_time": float, "last_opt_games": int, "profile_id": str}
+    cmaes_state: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    # Auto-promotion tracking
+    last_auto_promote_time: float = 0.0
+    total_auto_promotions: int = 0
+
 
 # =============================================================================
 # State Management
@@ -297,6 +309,12 @@ def load_state() -> DaemonState:
             state.elo_ratings = data.get("elo_ratings", {})
             state.elo_history = data.get("elo_history", [])
 
+            # Load NNUE and CMAES state
+            state.nnue_state = data.get("nnue_state", {})
+            state.cmaes_state = data.get("cmaes_state", {})
+            state.last_auto_promote_time = data.get("last_auto_promote_time", 0.0)
+            state.total_auto_promotions = data.get("total_auto_promotions", 0)
+
             return state
         except Exception as e:
             print(f"Warning: Could not load state: {e}")
@@ -323,6 +341,10 @@ def save_state(state: DaemonState) -> None:
         "models": {k: asdict(v) for k, v in state.models.items()},
         "elo_ratings": state.elo_ratings,
         "elo_history": state.elo_history,
+        "nnue_state": state.nnue_state,
+        "cmaes_state": state.cmaes_state,
+        "last_auto_promote_time": state.last_auto_promote_time,
+        "total_auto_promotions": state.total_auto_promotions,
     }
 
     STATE_FILE.write_text(json.dumps(data, indent=2))
@@ -985,7 +1007,358 @@ def print_status(state: DaemonState) -> None:
         pct = 100 * s["jsonl_games"] / s["min_games"] if s["min_games"] > 0 else 0
         print(f"  {key}: {s['jsonl_games']} games ({pct:.0f}% of minimum)")
 
+    print("\n--- NNUE Training Status ---")
+    for key, nnue in state.nnue_state.items():
+        last_train = datetime.fromtimestamp(nnue.get("last_train_time", 0)).strftime("%Y-%m-%d %H:%M") if nnue.get("last_train_time") else "never"
+        games = nnue.get("last_train_games", 0)
+        print(f"  {key}: last trained {last_train} at {games} games")
+
+    print("\n--- CMAES Heuristic Status ---")
+    for key, cmaes in state.cmaes_state.items():
+        last_opt = datetime.fromtimestamp(cmaes.get("last_opt_time", 0)).strftime("%Y-%m-%d %H:%M") if cmaes.get("last_opt_time") else "never"
+        games = cmaes.get("last_opt_games", 0)
+        profile = cmaes.get("profile_id", "none")
+        print(f"  {key}: last optimized {last_opt} at {games} games, profile={profile}")
+
+    print("\n--- Auto-Promotion Status ---")
+    last_promote = datetime.fromtimestamp(state.last_auto_promote_time).strftime("%Y-%m-%d %H:%M") if state.last_auto_promote_time else "never"
+    print(f"  Last promotion check: {last_promote}")
+    print(f"  Total auto-promotions: {state.total_auto_promotions}")
+
     print_leaderboard(state)
+
+
+# =============================================================================
+# NNUE Auto-Training
+# =============================================================================
+
+# Minimum new games before considering NNUE retraining
+NNUE_MIN_NEW_GAMES = 10000
+# Minimum time between NNUE training runs (seconds) = 4 hours
+NNUE_MIN_INTERVAL = 4 * 60 * 60
+# NNUE training epochs
+NNUE_EPOCHS = 30
+# NNUE gating parameters
+NNUE_GATE_GAMES = 20
+NNUE_GATE_WIN_THRESHOLD = 0.52  # New model must win 52%+ to be promoted
+
+
+async def gate_nnue_model(
+    new_model_path: Path,
+    old_model_path: Path,
+    board_type: str,
+    num_players: int,
+) -> Dict[str, Any]:
+    """Run evaluation games between new and old NNUE models.
+
+    Returns dict with 'promote' (bool) and 'win_rate' (float).
+    """
+    # Run evaluation using minimax with each NNUE
+    eval_cmd = [
+        sys.executable, "scripts/run_ai_tournament.py",
+        "--player1", f"minimax:nnue={new_model_path}",
+        "--player2", f"minimax:nnue={old_model_path}",
+        "--board", board_type,
+        "--num-players", str(num_players),
+        "--games", str(NNUE_GATE_GAMES),
+        "--output-format", "json",
+    ]
+
+    success, output = run_command(eval_cmd, timeout=600)
+
+    if not success:
+        print(f"[Daemon] NNUE gating failed: {output[:200]}")
+        # If gating fails, don't promote (conservative)
+        return {"promote": False, "win_rate": 0.5, "error": output[:200]}
+
+    # Parse results
+    try:
+        import re
+        # Look for "P1: X/Y" pattern
+        match = re.search(r"P1[:\s]+(\d+)/(\d+)", output)
+        if match:
+            wins = int(match.group(1))
+            total = int(match.group(2))
+            win_rate = wins / total if total > 0 else 0.5
+        else:
+            # Try JSON format
+            import json
+            for line in output.split("\n"):
+                if line.strip().startswith("{"):
+                    result = json.loads(line)
+                    win_rate = result.get("player1_win_rate", 0.5)
+                    break
+            else:
+                win_rate = 0.5
+
+        promote = win_rate >= NNUE_GATE_WIN_THRESHOLD
+        return {"promote": promote, "win_rate": win_rate}
+
+    except Exception as e:
+        print(f"[Daemon] Error parsing NNUE gate results: {e}")
+        return {"promote": False, "win_rate": 0.5, "error": str(e)}
+
+
+async def check_and_run_nnue_training(state: DaemonState) -> List[str]:
+    """Check if NNUE models need retraining and run training if needed.
+
+    Returns list of board config keys that were trained.
+    """
+    trained = []
+    current_time = time.time()
+
+    for config in BOARD_CONFIGS:
+        key = get_config_key(config["board"], config["players"])
+        bs = state.board_states.get(key)
+
+        if not bs:
+            continue
+
+        # Get NNUE state for this config
+        nnue = state.nnue_state.get(key, {
+            "last_train_time": 0,
+            "last_train_games": 0,
+            "model_path": None,
+        })
+
+        # Check if enough time has passed
+        time_since_train = current_time - nnue.get("last_train_time", 0)
+        if time_since_train < NNUE_MIN_INTERVAL:
+            continue
+
+        # Check if enough new games accumulated
+        games_since_train = bs.total_games - nnue.get("last_train_games", 0)
+        if games_since_train < NNUE_MIN_NEW_GAMES:
+            continue
+
+        print(f"[Daemon] NNUE training triggered for {key}: {games_since_train} new games")
+
+        # Find selfplay databases
+        db_pattern = str(AI_SERVICE_ROOT / "data" / "games" / "*.db")
+        dbs = list(Path(AI_SERVICE_ROOT / "data" / "games").glob("*.db"))
+
+        if not dbs:
+            print(f"[Daemon] No selfplay databases found for NNUE training")
+            continue
+
+        # Run NNUE training
+        output_dir = AI_SERVICE_ROOT / "logs" / "nnue_auto" / f"{key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        nnue_cmd = [
+            sys.executable, "scripts/train_nnue.py",
+            "--db", *[str(db) for db in dbs[:5]],  # Use up to 5 databases
+            "--board-type", config["board"],
+            "--num-players", str(config["players"]),
+            "--epochs", str(NNUE_EPOCHS),
+            "--run-dir", str(output_dir),
+        ]
+
+        success, output = run_command(nnue_cmd, timeout=3600)  # 1 hour timeout
+
+        if success:
+            # Find the trained model path
+            new_model_path = AI_SERVICE_ROOT / "models" / "nnue" / f"nnue_{config['board']}.pt"
+            old_model_path = AI_SERVICE_ROOT / "models" / "nnue" / f"nnue_{config['board']}_prev.pt"
+
+            # Gate the new NNUE against the old one
+            if new_model_path.exists():
+                should_promote = True
+
+                # If there's a previous model, run evaluation games
+                if old_model_path.exists():
+                    print(f"[Daemon] Gating new NNUE against previous model...")
+                    gate_result = await gate_nnue_model(
+                        new_model_path, old_model_path,
+                        config["board"], config["players"]
+                    )
+                    should_promote = gate_result.get("promote", False)
+                    win_rate = gate_result.get("win_rate", 0.5)
+                    print(f"[Daemon] NNUE gate result: win_rate={win_rate:.1%}, promote={should_promote}")
+
+                if should_promote:
+                    # Backup current as previous before promoting
+                    if new_model_path.exists() and not old_model_path.exists():
+                        # First training - no backup needed
+                        pass
+                    elif new_model_path.exists():
+                        # Backup current to _prev
+                        import shutil
+                        shutil.copy2(new_model_path, old_model_path)
+
+                    # Update NNUE state
+                    state.nnue_state[key] = {
+                        "last_train_time": current_time,
+                        "last_train_games": bs.total_games,
+                        "model_path": str(new_model_path),
+                    }
+                    trained.append(key)
+                    print(f"[Daemon] NNUE promoted for {key}")
+                else:
+                    print(f"[Daemon] NNUE not promoted (did not beat previous model)")
+        else:
+            print(f"[Daemon] NNUE training failed for {key}: {output[:200]}")
+
+    return trained
+
+
+# =============================================================================
+# CMAES Heuristic Auto-Optimization
+# =============================================================================
+
+# Minimum new games before considering CMAES optimization
+CMAES_MIN_NEW_GAMES = 20000
+# Minimum time between CMAES runs (seconds) = 8 hours
+CMAES_MIN_INTERVAL = 8 * 60 * 60
+# CMAES iterations
+CMAES_MAX_ITERATIONS = 3
+CMAES_GENERATIONS_PER_ITER = 10
+
+
+async def check_and_run_cmaes_optimization(state: DaemonState) -> List[str]:
+    """Check if heuristic weights need optimization and run CMAES if needed.
+
+    Returns list of board config keys that were optimized.
+    """
+    optimized = []
+    current_time = time.time()
+
+    for config in BOARD_CONFIGS[:3]:  # Focus on main configs (square8 2/3/4p)
+        key = get_config_key(config["board"], config["players"])
+        bs = state.board_states.get(key)
+
+        if not bs:
+            continue
+
+        # Get CMAES state for this config
+        cmaes = state.cmaes_state.get(key, {
+            "last_opt_time": 0,
+            "last_opt_games": 0,
+            "profile_id": None,
+        })
+
+        # Check if enough time has passed
+        time_since_opt = current_time - cmaes.get("last_opt_time", 0)
+        if time_since_opt < CMAES_MIN_INTERVAL:
+            continue
+
+        # Check if enough new games accumulated
+        games_since_opt = bs.total_games - cmaes.get("last_opt_games", 0)
+        if games_since_opt < CMAES_MIN_NEW_GAMES:
+            continue
+
+        print(f"[Daemon] CMAES optimization triggered for {key}: {games_since_opt} new games")
+
+        # Run CMAES optimization
+        output_dir = AI_SERVICE_ROOT / "logs" / "cmaes_auto" / f"{key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        cmaes_cmd = [
+            sys.executable, "scripts/run_iterative_cmaes.py",
+            "--board", config["board"],
+            "--num-players", str(config["players"]),
+            "--generations-per-iter", str(CMAES_GENERATIONS_PER_ITER),
+            "--max-iterations", str(CMAES_MAX_ITERATIONS),
+            "--output-dir", str(output_dir),
+            "--games-per-eval", "15",
+        ]
+
+        success, output = run_command(cmaes_cmd, timeout=7200)  # 2 hour timeout
+
+        if success:
+            # The profile ID follows the pattern heuristic_v1_{board}_{n}p
+            profile_id = f"heuristic_v1_{config['board']}_{config['players']}p"
+
+            # Update CMAES state
+            state.cmaes_state[key] = {
+                "last_opt_time": current_time,
+                "last_opt_games": bs.total_games,
+                "profile_id": profile_id,
+            }
+            optimized.append(key)
+            print(f"[Daemon] CMAES optimization completed for {key}")
+
+            # Auto-promote the new heuristic profile to production ladder (D2-D5)
+            try:
+                from app.config.ladder_config import (
+                    update_tier_heuristic_profile,
+                    get_heuristic_tiers,
+                )
+                from app.models import BoardType
+
+                board_type_map = {
+                    "square8": BoardType.SQUARE8,
+                    "square19": BoardType.SQUARE19,
+                    "hexagonal": BoardType.HEXAGONAL,
+                }
+                board_type_enum = board_type_map.get(config["board"])
+
+                if board_type_enum:
+                    heuristic_tiers = get_heuristic_tiers(board_type_enum, config["players"])
+                    for difficulty in heuristic_tiers:
+                        update_tier_heuristic_profile(
+                            difficulty, board_type_enum, config["players"], profile_id
+                        )
+                    print(f"[Daemon] Auto-promoted heuristic profile {profile_id} to D{heuristic_tiers}")
+            except Exception as e:
+                print(f"[Daemon] Warning: Could not auto-promote heuristic profile: {e}")
+        else:
+            print(f"[Daemon] CMAES optimization failed for {key}: {output[:200]}")
+
+    return optimized
+
+
+# =============================================================================
+# Auto-Promotion from Elo Leaderboard
+# =============================================================================
+
+# Minimum time between auto-promotion runs (seconds) = 1 hour
+AUTO_PROMOTE_INTERVAL = 60 * 60
+# Minimum Elo games required for promotion
+AUTO_PROMOTE_MIN_GAMES = 20
+
+
+async def run_auto_promotion(state: DaemonState) -> int:
+    """Run automatic model promotion based on Elo rankings.
+
+    Promotes best Elo models to production ladder tiers.
+    Returns number of promotions made.
+    """
+    current_time = time.time()
+
+    # Check if enough time has passed
+    if current_time - state.last_auto_promote_time < AUTO_PROMOTE_INTERVAL:
+        return 0
+
+    print("[Daemon] Running auto-promotion from Elo leaderboard...")
+
+    # Run the auto-promote script
+    promote_cmd = [
+        sys.executable, "scripts/auto_promote_best_models.py",
+        "--run",
+        "--min-games", str(AUTO_PROMOTE_MIN_GAMES),
+    ]
+
+    success, output = run_command(promote_cmd, timeout=300)
+
+    if success:
+        # Count promotions from output
+        import re
+        promotions_match = re.search(r"Promotions:\s*(\d+)", output)
+        num_promotions = int(promotions_match.group(1)) if promotions_match else 0
+
+        state.last_auto_promote_time = current_time
+        state.total_auto_promotions += num_promotions
+
+        if num_promotions > 0:
+            print(f"[Daemon] Auto-promoted {num_promotions} model(s) to production ladder")
+        else:
+            print("[Daemon] No promotions needed")
+
+        return num_promotions
+    else:
+        print(f"[Daemon] Auto-promotion failed: {output[:200]}")
+        return 0
 
 
 # =============================================================================
@@ -1034,7 +1407,25 @@ async def daemon_cycle(state: DaemonState) -> bool:
             games = await run_cross_model_tournament(state, top_n=10, games_per_matchup=4)
             print(f"[Daemon] Cross-model tournament completed: {games} games played")
 
-        # Phase 5: Print status
+        # Phase 5: Auto-promote best Elo models to production (every cycle, but rate-limited)
+        print("[Daemon] Phase 5: Checking auto-promotion...")
+        promotions = await run_auto_promotion(state)
+
+        # Phase 6: NNUE retraining (when enough new games accumulated)
+        if state.total_cycles % 5 == 0:
+            print("[Daemon] Phase 6: Checking NNUE retraining thresholds...")
+            nnue_trained = await check_and_run_nnue_training(state)
+            if nnue_trained:
+                print(f"[Daemon] NNUE models retrained for: {', '.join(nnue_trained)}")
+
+        # Phase 7: CMAES heuristic optimization (when enough new games accumulated)
+        if state.total_cycles % 15 == 0:
+            print("[Daemon] Phase 7: Checking CMAES optimization thresholds...")
+            cmaes_optimized = await check_and_run_cmaes_optimization(state)
+            if cmaes_optimized:
+                print(f"[Daemon] CMAES heuristics optimized for: {', '.join(cmaes_optimized)}")
+
+        # Phase 8: Print status
         print_leaderboard(state)
 
         # Reset failure counter on success

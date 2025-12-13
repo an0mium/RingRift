@@ -765,6 +765,146 @@ def run_all_config_tournaments(args):
     conn.close()
 
 
+def generate_elo_based_matchups(
+    models: List[Dict[str, Any]],
+    conn: sqlite3.Connection,
+    board_type: str,
+    num_players: int,
+    max_elo_diff: int = 200,
+) -> List[Tuple[Dict, Dict]]:
+    """Generate matchups between models with similar Elo ratings.
+
+    This produces more informative games than random matchups, as close
+    games provide more Elo information than one-sided blowouts.
+    """
+    # Get current Elo ratings for all models
+    cursor = conn.cursor()
+    model_elos = {}
+
+    for model in models:
+        cursor.execute(
+            "SELECT rating FROM elo_ratings WHERE model_id = ? AND board_type = ? AND num_players = ?",
+            (model["model_id"], board_type, num_players)
+        )
+        row = cursor.fetchone()
+        if row:
+            model_elos[model["model_id"]] = row[0]
+        else:
+            model_elos[model["model_id"]] = 1500.0  # Default
+
+    # Sort models by Elo
+    sorted_models = sorted(models, key=lambda m: model_elos.get(m["model_id"], 1500), reverse=True)
+
+    matchups = []
+    used = set()
+
+    # Pair adjacent models in Elo ranking (closest ratings play each other)
+    for i, m1 in enumerate(sorted_models):
+        if m1["model_id"] in used:
+            continue
+
+        # Find best opponent (closest Elo within range, not already paired)
+        best_opponent = None
+        best_diff = float("inf")
+
+        for m2 in sorted_models:
+            if m2["model_id"] == m1["model_id"] or m2["model_id"] in used:
+                continue
+
+            elo_diff = abs(model_elos[m1["model_id"]] - model_elos[m2["model_id"]])
+            if elo_diff <= max_elo_diff and elo_diff < best_diff:
+                best_diff = elo_diff
+                best_opponent = m2
+
+        if best_opponent:
+            matchups.append((m1, best_opponent))
+            used.add(m1["model_id"])
+            used.add(best_opponent["model_id"])
+
+    # Add remaining unmatched models paired with closest available
+    unmatched = [m for m in sorted_models if m["model_id"] not in used]
+    for i in range(0, len(unmatched) - 1, 2):
+        matchups.append((unmatched[i], unmatched[i + 1]))
+
+    return matchups
+
+
+def archive_low_elo_models(
+    conn: sqlite3.Connection,
+    board_type: str,
+    num_players: int,
+    elo_threshold: int = 1400,
+    min_games: int = 50,
+) -> List[str]:
+    """Archive models with low Elo after sufficient games.
+
+    Archived models are marked in the database and excluded from future tournaments.
+    Returns list of archived model IDs.
+    """
+    cursor = conn.cursor()
+
+    # Find models to archive
+    cursor.execute("""
+        SELECT model_id, rating, games_played
+        FROM elo_ratings
+        WHERE board_type = ? AND num_players = ?
+          AND rating < ? AND games_played >= ?
+    """, (board_type, num_players, elo_threshold, min_games))
+
+    to_archive = []
+    for row in cursor.fetchall():
+        model_id, rating, games = row
+        to_archive.append({
+            "model_id": model_id,
+            "rating": rating,
+            "games_played": games,
+        })
+
+    if not to_archive:
+        return []
+
+    # Create archived_models table if not exists
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS archived_models (
+            model_id TEXT,
+            board_type TEXT,
+            num_players INTEGER,
+            final_rating REAL,
+            games_played INTEGER,
+            archived_at REAL,
+            PRIMARY KEY (model_id, board_type, num_players)
+        )
+    """)
+
+    # Archive the models
+    archived = []
+    now = time.time()
+    for model in to_archive:
+        cursor.execute("""
+            INSERT OR REPLACE INTO archived_models
+            (model_id, board_type, num_players, final_rating, games_played, archived_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (model["model_id"], board_type, num_players, model["rating"], model["games_played"], now))
+        archived.append(model["model_id"])
+
+    conn.commit()
+    return archived
+
+
+def is_model_archived(conn: sqlite3.Connection, model_id: str, board_type: str, num_players: int) -> bool:
+    """Check if a model has been archived."""
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT 1 FROM archived_models
+            WHERE model_id = ? AND board_type = ? AND num_players = ?
+        """, (model_id, board_type, num_players))
+        return cursor.fetchone() is not None
+    except sqlite3.OperationalError:
+        # Table doesn't exist yet - no models archived
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run model Elo tournament")
     parser.add_argument("--board", default="square8", help="Board type")
@@ -776,6 +916,10 @@ def main():
     parser.add_argument("--mcts-sims", type=int, default=50, help="MCTS simulations per move")
     parser.add_argument("--db", type=str, help="Path to Elo database")
     parser.add_argument("--all-configs", action="store_true", help="Run tournament for all board/player configurations")
+    parser.add_argument("--elo-matchmaking", action="store_true", help="Use Elo-based matchmaking (pair similar-rated models)")
+    parser.add_argument("--elo-range", type=int, default=200, help="Max Elo difference for matchmaking (default: 200)")
+    parser.add_argument("--archive-threshold", type=int, default=1400, help="Archive models below this Elo after 50+ games")
+    parser.add_argument("--archive", action="store_true", help="Archive low-Elo models")
 
     args = parser.parse_args()
 
@@ -800,6 +944,26 @@ def main():
     # Register models
     register_models(conn, models)
 
+    # Filter out archived models
+    active_models = [m for m in models if not is_model_archived(conn, m["model_id"], args.board, args.players)]
+    if len(active_models) < len(models):
+        print(f"Filtered out {len(models) - len(active_models)} archived models")
+        models = active_models
+
+    # Handle archiving if requested
+    if args.archive:
+        archived = archive_low_elo_models(
+            conn, args.board, args.players,
+            elo_threshold=args.archive_threshold,
+            min_games=50,
+        )
+        if archived:
+            print(f"\nArchived {len(archived)} low-Elo models:")
+            for model_id in archived:
+                print(f"  - {model_id}")
+            # Re-filter models
+            models = [m for m in models if m["model_id"] not in archived]
+
     # Show leaderboard
     leaderboard = get_leaderboard(conn, args.board, args.players)
     print_leaderboard(leaderboard, f"Current Elo Leaderboard - {args.board} {args.players}p")
@@ -813,11 +977,18 @@ def main():
         conn.close()
         return
 
-    # Generate matchups
-    matchups = []
-    for i, m1 in enumerate(models):
-        for m2 in models[i+1:]:
-            matchups.append((m1, m2))
+    # Generate matchups (Elo-based or round-robin)
+    if args.elo_matchmaking:
+        print(f"\nUsing Elo-based matchmaking (max diff: {args.elo_range})")
+        matchups = generate_elo_based_matchups(
+            models, conn, args.board, args.players, args.elo_range
+        )
+    else:
+        # Standard round-robin matchups
+        matchups = []
+        for i, m1 in enumerate(models):
+            for m2 in models[i+1:]:
+                matchups.append((m1, m2))
 
     print(f"\n{'='*80}")
     print(f" Tournament Plan")

@@ -14,7 +14,9 @@ Additional boards or player counts can be added incrementally.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from app.models import AIType, BoardType
@@ -786,3 +788,208 @@ def list_ladder_tiers(
         key=lambda c: (c.board_type.value, c.num_players, c.difficulty)
     )
     return configs
+
+
+# =============================================================================
+# Runtime Model Promotion API
+# =============================================================================
+# These functions allow the training loop to dynamically update which models
+# are used for each difficulty tier without requiring code changes.
+
+# Runtime overrides loaded from JSON file
+_RUNTIME_OVERRIDES: Dict[LadderKey, Dict[str, str]] = {}
+_RUNTIME_OVERRIDES_PATH = (
+    Path(__file__).resolve().parents[2] / "data" / "ladder_runtime_overrides.json"
+)
+
+
+def load_runtime_overrides() -> None:
+    """Load runtime model/profile overrides from JSON file.
+
+    This allows the training loop to promote new models without editing
+    ladder_config.py. Overrides are stored in data/ladder_runtime_overrides.json.
+    """
+    global _RUNTIME_OVERRIDES
+
+    if not _RUNTIME_OVERRIDES_PATH.exists():
+        _RUNTIME_OVERRIDES = {}
+        return
+
+    try:
+        with _RUNTIME_OVERRIDES_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        _RUNTIME_OVERRIDES = {}
+        for key_str, overrides in data.items():
+            # Parse key like "6_square8_2" -> (6, BoardType.SQUARE8, 2)
+            parts = key_str.split("_")
+            if len(parts) >= 3:
+                difficulty = int(parts[0])
+                board_type_str = parts[1]
+                num_players = int(parts[2])
+
+                # Convert board type string to enum
+                board_type_map = {
+                    "square8": BoardType.SQUARE8,
+                    "square19": BoardType.SQUARE19,
+                    "hexagonal": BoardType.HEXAGONAL,
+                }
+                if board_type_str in board_type_map:
+                    key = (difficulty, board_type_map[board_type_str], num_players)
+                    _RUNTIME_OVERRIDES[key] = overrides
+    except Exception as e:
+        print(f"Warning: Failed to load ladder runtime overrides: {e}")
+        _RUNTIME_OVERRIDES = {}
+
+
+def save_runtime_overrides() -> None:
+    """Save runtime model/profile overrides to JSON file."""
+    _RUNTIME_OVERRIDES_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    # Convert keys to strings for JSON serialization
+    data = {}
+    for (difficulty, board_type, num_players), overrides in _RUNTIME_OVERRIDES.items():
+        key_str = f"{difficulty}_{board_type.value}_{num_players}"
+        data[key_str] = overrides
+
+    with _RUNTIME_OVERRIDES_PATH.open("w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+
+
+def update_tier_model(
+    difficulty: int,
+    board_type: BoardType,
+    num_players: int,
+    model_id: str,
+    heuristic_profile_id: Optional[str] = None,
+) -> bool:
+    """Update the model used for a specific difficulty tier at runtime.
+
+    This stores the override in a JSON file that is loaded on startup.
+    The override takes precedence over the hardcoded defaults.
+
+    Args:
+        difficulty: Difficulty level (1-10)
+        board_type: Board type enum
+        num_players: Number of players
+        model_id: New model ID to use (e.g., "ringrift_v6_sq8_2p")
+        heuristic_profile_id: Optional new heuristic profile ID
+
+    Returns:
+        True if successful, False otherwise
+    """
+    key: LadderKey = (difficulty, board_type, num_players)
+
+    # Verify the tier exists in base config
+    if key not in _LADDER_TIER_CONFIGS:
+        return False
+
+    # Create or update override
+    override: Dict[str, str] = {"model_id": model_id}
+    if heuristic_profile_id:
+        override["heuristic_profile_id"] = heuristic_profile_id
+
+    _RUNTIME_OVERRIDES[key] = override
+    save_runtime_overrides()
+
+    return True
+
+
+def get_effective_ladder_config(
+    difficulty: int,
+    board_type: BoardType,
+    num_players: int,
+) -> LadderTierConfig:
+    """Get ladder config with runtime overrides applied.
+
+    This is the preferred way to get ladder config in production code,
+    as it respects runtime model promotions from the training loop.
+    """
+    key: LadderKey = (difficulty, board_type, num_players)
+
+    # Get base config
+    base_config = get_ladder_tier_config(difficulty, board_type, num_players)
+
+    # Check for runtime overrides
+    if key in _RUNTIME_OVERRIDES:
+        overrides = _RUNTIME_OVERRIDES[key]
+
+        # Create new config with overrides applied
+        return LadderTierConfig(
+            difficulty=base_config.difficulty,
+            board_type=base_config.board_type,
+            num_players=base_config.num_players,
+            ai_type=base_config.ai_type,
+            model_id=overrides.get("model_id", base_config.model_id),
+            heuristic_profile_id=overrides.get(
+                "heuristic_profile_id", base_config.heuristic_profile_id
+            ),
+            randomness=base_config.randomness,
+            think_time_ms=base_config.think_time_ms,
+            use_neural_net=base_config.use_neural_net,
+            notes=base_config.notes + " [runtime override]",
+        )
+
+    return base_config
+
+
+def get_all_runtime_overrides() -> Dict[str, Dict[str, str]]:
+    """Get all current runtime overrides for debugging/display."""
+    result = {}
+    for (difficulty, board_type, num_players), overrides in _RUNTIME_OVERRIDES.items():
+        key_str = f"D{difficulty}_{board_type.value}_{num_players}p"
+        result[key_str] = overrides
+    return result
+
+
+def update_tier_heuristic_profile(
+    difficulty: int,
+    board_type: BoardType,
+    num_players: int,
+    heuristic_profile_id: str,
+) -> bool:
+    """Update just the heuristic profile for a specific difficulty tier.
+
+    This is used by CMAES auto-optimization to promote new heuristic weights
+    without affecting the neural network model assignment.
+
+    Args:
+        difficulty: Difficulty level (1-10)
+        board_type: Board type enum
+        num_players: Number of players
+        heuristic_profile_id: New heuristic profile ID (e.g., "heuristic_v2_sq8_2p")
+
+    Returns:
+        True if successful, False otherwise
+    """
+    key: LadderKey = (difficulty, board_type, num_players)
+
+    # Verify the tier exists in base config
+    if key not in _LADDER_TIER_CONFIGS:
+        return False
+
+    # Get existing override or create new one
+    existing = _RUNTIME_OVERRIDES.get(key, {})
+    existing["heuristic_profile_id"] = heuristic_profile_id
+
+    _RUNTIME_OVERRIDES[key] = existing
+    save_runtime_overrides()
+
+    return True
+
+
+def get_heuristic_tiers(board_type: BoardType, num_players: int) -> List[int]:
+    """Get difficulty tiers that use heuristic evaluation for a board/player config.
+
+    These are tiers D2-D5 which rely on heuristic weights (with or without NN).
+    """
+    heuristic_difficulties = []
+    for difficulty in range(2, 6):  # D2-D5 use heuristics
+        key = (difficulty, board_type, num_players)
+        if key in _LADDER_TIER_CONFIGS:
+            heuristic_difficulties.append(difficulty)
+    return heuristic_difficulties
+
+
+# Load overrides on module import
+load_runtime_overrides()

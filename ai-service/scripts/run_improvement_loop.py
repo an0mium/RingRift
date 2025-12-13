@@ -611,7 +611,7 @@ def evaluate_model(
 
     eval_games = int(config.get("eval_games", 100))
     seed = int(config.get("eval_seed_base", 10_000)) + int(iteration)
-    max_moves = int(config.get("max_moves", 200))
+    max_moves = int(config.get("max_moves", 10000))
 
     log_dir = AI_SERVICE_ROOT / "logs" / "improvement"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -902,6 +902,12 @@ def main():
         help="Number of evaluation games per iteration (default: 100).",
     )
     parser.add_argument(
+        "--max-moves",
+        type=int,
+        default=10000,
+        help="Maximum moves per game before applying evaluation tie-breaks (default: 10000).",
+    )
+    parser.add_argument(
         "--selfplay-difficulty-band",
         type=str,
         choices=["canonical", "light"],
@@ -995,7 +1001,7 @@ def main():
         "board": args.board,
         "players": args.players,
         "games_per_iter": args.games_per_iter,
-        "max_moves": 500 if args.board == "square8" else 1000,
+        "max_moves": int(args.max_moves),
         "promotion_threshold": args.promotion_threshold,
         "promotion_confidence": args.promotion_confidence,
         "eval_games": args.eval_games,

@@ -434,6 +434,40 @@ def determine_victory_type(game_state: GameState) -> Optional[str]:
     return "elimination"
 
 
+def _tiebreak_winner(game_state: GameState) -> Optional[int]:
+    """Deterministically select a winner for evaluation-only timeouts.
+
+    This does not change canonical rules; it is used only to avoid draw-heavy
+    evaluation results when a max-moves budget is hit.
+    """
+    if not getattr(game_state, "players", None):
+        return None
+
+    best_player: Optional[int] = None
+    best_key: Optional[tuple] = None
+
+    for idx, player in enumerate(game_state.players):
+        player_num = getattr(player, "player_number", None)
+        if player_num is None:
+            player_num = idx + 1
+        try:
+            eliminated = int(getattr(player, "eliminated_rings", 0) or 0)
+        except Exception:
+            eliminated = 0
+        try:
+            territory = int(getattr(player, "territory_spaces", 0) or 0)
+        except Exception:
+            territory = 0
+        pieces = count_player_pieces(game_state, int(player_num))
+
+        key = (eliminated, territory, pieces, -int(player_num))
+        if best_key is None or key > best_key:
+            best_key = key
+            best_player = int(player_num)
+
+    return best_player
+
+
 def play_single_game(
     ai_p1: BaseAI,
     ai_p2: BaseAI,
@@ -511,9 +545,14 @@ def play_single_game(
         result.p1_final_pieces = count_player_pieces(game_state, 1)
         result.p2_final_pieces = count_player_pieces(game_state, 2)
 
-        # Handle timeout/draw
+        # Handle timeout/draw (evaluation-only deterministic tie-break)
         if move_count >= max_moves and game_state.winner is None:
-            result.victory_type = "timeout"
+            winner = _tiebreak_winner(game_state)
+            if winner is not None:
+                result.winner = winner
+                result.victory_type = "timeout_tiebreak"
+            else:
+                result.victory_type = "timeout"
 
     except Exception as e:
         result.error = str(e)

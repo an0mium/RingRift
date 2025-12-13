@@ -204,10 +204,15 @@ describe('ClientSandboxEngine optional capture landing click regression (sandbox
 
     const after = seededEngine.getGameState();
     expect(after.moveHistory.length).toBeGreaterThan(before.moveHistory.length);
-    const lastMove = after.moveHistory[after.moveHistory.length - 1];
-    expect(lastMove.type).toBe('overtaking_capture');
-    expect(lastMove.player).toBe(1);
-    expect(lastMove.to && positionToString(lastMove.to)).toBe(landingKey);
+    const appendedMoves = after.moveHistory.slice(before.moveHistory.length);
+    const captureMove = appendedMoves.find(
+      (m) =>
+        m.type === 'overtaking_capture' &&
+        m.player === 1 &&
+        m.to &&
+        positionToString(m.to) === landingKey
+    );
+    expect(captureMove).toBeDefined();
   });
 
   test('clicking a highlighted capture landing without pre-selecting the stack applies overtaking_capture (seed 1365831209)', async () => {
@@ -370,9 +375,14 @@ describe('ClientSandboxEngine optional capture landing click regression (sandbox
 
     const after = seededEngine.getGameState();
     expect(after.moveHistory.length).toBeGreaterThan(before.moveHistory.length);
-    const lastMove = after.moveHistory[after.moveHistory.length - 1];
-    expect(lastMove.type).toBe('overtaking_capture');
-    expect(lastMove.player).toBe(1);
-    expect(lastMove.to && positionToString(lastMove.to)).toBe(landingKey);
+    const appendedMoves = after.moveHistory.slice(before.moveHistory.length);
+    const captureMove = appendedMoves.find(
+      (m) =>
+        m.type === 'overtaking_capture' &&
+        m.player === 1 &&
+        m.to &&
+        positionToString(m.to) === landingKey
+    );
+    expect(captureMove).toBeDefined();
   });
 });

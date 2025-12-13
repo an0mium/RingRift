@@ -104,6 +104,9 @@ ai-service/ts-replay-dumps-local/
 ai-service/tmp_state_*.json
 results/ops/
 
+# Public model artifacts (deployed out-of-band; do not commit)
+public/models/
+
 # Parity testing debug artifacts
 parity_failures/**/*.ts_state.json
 parity_failures/**/*.parity_failure.json
@@ -168,6 +171,10 @@ ai-service-sync.zip
 # Large synced selfplay databases and local game data (too large for GitHub)
 ai-service/data/games/
 ai-service/data/quality_games/
+
+# Runtime ladder overrides / logs (local-only)
+ai-service/data/ladder_runtime_overrides.json
+ai-service/data/auto_promotion_log.json
 
 # Selfplay debug artifacts (large state bundles and parity summaries)
 ai-service/data/games/*.state_bundles/

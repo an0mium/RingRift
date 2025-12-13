@@ -1,5 +1,5 @@
 import type { GameState, Position } from '../types/game';
-import { isTestEnvironment, flagEnabled, debugLog } from '../utils/envFlags';
+import { flagEnabled, debugLog } from '../utils/envFlags';
 
 /**
  * Shared, host-agnostic helpers for turn/phase progression.
@@ -256,7 +256,7 @@ export function advanceTurnAndPhase(
 
         // Debug logging for parity investigation
         debugLog(
-          isTestEnvironment(),
+          flagEnabled('RINGRIFT_TRACE_DEBUG'),
           '[turnLogic.advanceTurnAndPhase.while] player=',
           currentPlayerNumber,
           'hasStacks=',
@@ -280,7 +280,7 @@ export function advanceTurnAndPhase(
           const nextPlayerNumber = delegates.getNextPlayerNumber(workingState, currentPlayerNumber);
           // Debug: log skip for parity debugging
           debugLog(
-            isTestEnvironment(),
+            flagEnabled('RINGRIFT_TRACE_DEBUG'),
             '[turnLogic.advanceTurnAndPhase] SKIP permanently eliminated player',
             currentPlayerNumber,
             'hasStacks=',
@@ -309,7 +309,7 @@ export function advanceTurnAndPhase(
       nextTurn = { hasPlacedThisTurn: false, mustMoveFromStackKey: undefined };
 
       debugLog(
-        isTestEnvironment() || flagEnabled('RINGRIFT_TRACE_DEBUG'),
+        flagEnabled('RINGRIFT_TRACE_DEBUG'),
         '[turnLogic.advanceTurnAndPhase.territory_processing.after]',
         {
           nextPlayer: nextState.currentPlayer,

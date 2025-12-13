@@ -406,6 +406,40 @@
       </div>
 
       <div class="card span-12">
+        <h2>Training Pipeline Status</h2>
+        <div class="grid" style="margin: 0">
+          <div class="card span-4" style="padding: 12px">
+            <h2 style="margin-bottom: 8px">Daemon</h2>
+            <div id="trainingDaemon" class="mono">Loading…</div>
+          </div>
+          <div class="card span-4" style="padding: 12px">
+            <h2 style="margin-bottom: 8px">NNUE Training</h2>
+            <div id="trainingNnue" class="mono">Loading…</div>
+          </div>
+          <div class="card span-4" style="padding: 12px">
+            <h2 style="margin-bottom: 8px">CMAES Optimization</h2>
+            <div id="trainingCmaes" class="mono">Loading…</div>
+          </div>
+          <div class="card span-12" style="padding: 12px">
+            <h2 style="margin-bottom: 8px">Recent Promotions</h2>
+            <div style="overflow: auto; max-height: 200px;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Type</th>
+                    <th>Model/Profile</th>
+                    <th>Config</th>
+                    <th>Promoted</th>
+                  </tr>
+                </thead>
+                <tbody id="trainingPromotionsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card span-12">
         <h2>Canonical Gate (generate_canonical_selfplay.py)</h2>
         <div class="form-grid" style="margin-bottom: 12px">
           <div class="field">
@@ -425,7 +459,7 @@
             </select>
           </div>
           <div class="field">
-            <label for="canonGames">Num games (per host if set)</label>
+            <label for="canonGames">Total games (split across hosts)</label>
             <input id="canonGames" type="number" min="0" step="1" value="256" />
           </div>
           <div class="field span-4">
@@ -992,12 +1026,103 @@
         `;
       }
 
+      function renderTrainingStatus(training) {
+        // Handle missing/failed response
+        if (!training || training.success === false) {
+          const msg = training?.error || training?.message || "training status unavailable";
+          $("trainingDaemon").textContent = msg;
+          $("trainingNnue").textContent = msg;
+          $("trainingCmaes").textContent = msg;
+          $("trainingPromotionsBody").innerHTML = `<tr><td colspan="4" class="mono">${msg}</td></tr>`;
+          return;
+        }
+
+        // Daemon status
+        const daemon = training.daemon || {};
+        const daemonPid = daemon.pid || "-";
+        const daemonRunning = daemon.running ? pill("running", "good") : pill("stopped", "bad");
+        const daemonUptime = daemon.uptime_seconds ? `${Math.floor(daemon.uptime_seconds / 60)}m` : "-";
+        $("trainingDaemon").innerHTML = `
+          <div class="kv"><div class="k">Status</div><div class="v">${daemonRunning}</div></div>
+          <div class="kv"><div class="k">PID</div><div class="v">${daemonPid}</div></div>
+          <div class="kv"><div class="k">Uptime</div><div class="v">${daemonUptime}</div></div>
+          <div class="kv"><div class="k">Cycle</div><div class="v">${daemon.current_cycle || 0}</div></div>
+        `;
+
+        // NNUE status
+        const nnue = training.nnue || {};
+        const nnueState = nnue.state || "idle";
+        const nnueStatePill = nnueState === "training" ? pill(nnueState, "warn") :
+                             nnueState === "gating" ? pill(nnueState, "warn") :
+                             nnueState === "idle" ? pill(nnueState, "good") :
+                             pill(nnueState, "");
+        const nnueModels = nnue.models || [];
+        const latestModel = nnueModels.length > 0 ? nnueModels[0] : null;
+        $("trainingNnue").innerHTML = `
+          <div class="kv"><div class="k">State</div><div class="v">${nnueStatePill}</div></div>
+          <div class="kv"><div class="k">Models</div><div class="v">${nnueModels.length}</div></div>
+          <div class="kv"><div class="k">Latest</div><div class="v">${latestModel ? latestModel.slice(0, 20) + "..." : "-"}</div></div>
+          <div class="kv"><div class="k">Last gate</div><div class="v">${nnue.last_gate_result || "-"}</div></div>
+        `;
+
+        // CMAES status
+        const cmaes = training.cmaes || {};
+        const cmaesState = cmaes.state || "idle";
+        const cmaesStatePill = cmaesState === "optimizing" ? pill(cmaesState, "warn") :
+                              cmaesState === "idle" ? pill(cmaesState, "good") :
+                              pill(cmaesState, "");
+        const cmaesProfiles = cmaes.profiles || [];
+        const latestProfile = cmaesProfiles.length > 0 ? cmaesProfiles[0] : null;
+        $("trainingCmaes").innerHTML = `
+          <div class="kv"><div class="k">State</div><div class="v">${cmaesStatePill}</div></div>
+          <div class="kv"><div class="k">Profiles</div><div class="v">${cmaesProfiles.length}</div></div>
+          <div class="kv"><div class="k">Latest</div><div class="v">${latestProfile ? latestProfile.slice(0, 20) + "..." : "-"}</div></div>
+          <div class="kv"><div class="k">Generations</div><div class="v">${cmaes.generations || "-"}</div></div>
+        `;
+
+        // Recent promotions
+        const promotion = training.promotion || {};
+        const recentPromotions = promotion.recent_promotions || [];
+        const overrides = promotion.runtime_overrides || {};
+        const rows = [];
+
+        // Show runtime overrides as current promotions
+        for (const [key, value] of Object.entries(overrides)) {
+          const modelId = value.model_id || value.heuristic_profile_id || "-";
+          const modelShort = modelId.length > 30 ? modelId.slice(0, 27) + "..." : modelId;
+          const type = value.model_id ? "NNUE" : value.heuristic_profile_id ? "Heuristic" : "Unknown";
+          rows.push(`
+            <tr>
+              <td><span class="pill ${type === "NNUE" ? "good" : "warn"}">${type}</span></td>
+              <td><span class="mono" title="${modelId}">${modelShort}</span></td>
+              <td><span class="mono">${key}</span></td>
+              <td><span class="mono">active</span></td>
+            </tr>
+          `);
+        }
+
+        // Show recent promotion events
+        for (const p of recentPromotions.slice(0, 10)) {
+          const modelShort = (p.model_id || p.profile_id || "-").slice(0, 27);
+          rows.push(`
+            <tr>
+              <td><span class="pill">${p.type || "?"}</span></td>
+              <td><span class="mono">${modelShort}</span></td>
+              <td><span class="mono">${p.config || "-"}</span></td>
+              <td><span class="mono">${fmtAge(p.timestamp)}</span></td>
+            </tr>
+          `);
+        }
+
+        $("trainingPromotionsBody").innerHTML = rows.join("") || `<tr><td colspan="4" class="mono">No promotions yet</td></tr>`;
+      }
+
       async function refreshAll(showBusy) {
         setError("");
         const refreshBtn = $("refreshBtn");
         if (showBusy) refreshBtn.disabled = true;
         try {
-          const [cluster, selfplay, sync, pipeline, canonHealth, canonJobs, jobs, git, elo] = await Promise.all([
+          const [cluster, selfplay, sync, pipeline, canonHealth, canonJobs, jobs, git, elo, training] = await Promise.all([
             safeGet("/api/cluster/status"),
             safeGet("/api/selfplay/stats"),
             safeGet("/sync/status"),
@@ -1007,6 +1132,7 @@
             safeGet("/api/jobs?limit=50"),
             safeGet("/git/status"),
             safeGet("/api/elo/leaderboard"),
+            safeGet("/api/training/status"),
           ]);
 
           if (!cluster || cluster.success === false) throw new Error(cluster?.error || "cluster status failed");
@@ -1021,6 +1147,7 @@
             ["jobs", jobs],
             ["git/status", git],
             ["elo/leaderboard", elo],
+            ["training/status", training],
           ]) {
             if (resp && resp.success === false && (resp.error || resp.message)) {
               softErrors.push(`${label}: ${resp.error || resp.message}`);
@@ -1031,6 +1158,7 @@
           renderNodes(cluster);
           renderSelfplay(selfplay);
           renderEloLeaderboard(elo);
+          renderTrainingStatus(training);
           renderCanonicalHealth(canonHealth);
           renderCanonicalJobs(canonJobs);
           renderJobs(jobs);

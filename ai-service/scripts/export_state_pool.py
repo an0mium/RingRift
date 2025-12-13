@@ -96,8 +96,12 @@ def export_states_from_db(
     params: List[Any] = []
 
     if board_type:
-        query += " AND board_type = ?"
-        params.append(board_type)
+        # Handle "hex" and "hexagonal" as equivalent
+        if board_type in ("hex", "hexagonal"):
+            query += " AND board_type IN ('hex', 'hexagonal')"
+        else:
+            query += " AND board_type = ?"
+            params.append(board_type)
 
     if num_players is not None:
         query += " AND num_players = ?"
@@ -177,8 +181,8 @@ def main():
         "--board-type",
         type=str,
         default=None,
-        choices=["square8", "square19", "hex"],
-        help="Filter by board type",
+        choices=["square8", "square19", "hex", "hexagonal"],
+        help="Filter by board type (hex and hexagonal are equivalent)",
     )
     parser.add_argument(
         "--num-players",
@@ -277,10 +281,15 @@ def main():
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
-    # Write JSONL output
+    # Write JSONL output with datetime handling
+    def datetime_handler(obj):
+        if hasattr(obj, "isoformat"):
+            return obj.isoformat()
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
     with open(args.output, "w", encoding="utf-8") as f:
         for state in all_states:
-            json.dump(state, f, separators=(",", ":"))
+            json.dump(state, f, separators=(",", ":"), default=datetime_handler)
             f.write("\n")
 
     print(f"\nExported {len(all_states)} states to {args.output}")

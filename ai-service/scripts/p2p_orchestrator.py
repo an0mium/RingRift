@@ -6502,6 +6502,130 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)}, status=500)
 
+    async def handle_api_training_status(self, request: web.Request) -> web.Response:
+        """Get training pipeline status including NNUE, CMAES, and auto-promotion state.
+
+        Returns daemon state for NNUE training, CMAES optimization, and model promotion.
+        """
+        try:
+            from datetime import datetime
+
+            ai_root = Path(self.ringrift_path) / "ai-service"
+
+            # Load daemon state (from continuous_improvement_daemon.py)
+            daemon_state_path = ai_root / "logs" / "improvement_daemon" / "state.json"
+            daemon_state = {}
+            daemon_running = False
+            daemon_pid = None
+            daemon_uptime = 0
+
+            # Check if daemon is running
+            pid_file = ai_root / "logs" / "improvement_daemon" / "daemon.pid"
+            if pid_file.exists():
+                try:
+                    daemon_pid = int(pid_file.read_text().strip())
+                    # Check if process is running
+                    import os
+                    os.kill(daemon_pid, 0)  # Doesn't kill, just checks
+                    daemon_running = True
+                except (ValueError, ProcessLookupError, PermissionError):
+                    daemon_running = False
+
+            if daemon_state_path.exists():
+                try:
+                    daemon_state = json.loads(daemon_state_path.read_text())
+                    # Calculate uptime if daemon is running
+                    if daemon_running and daemon_state.get("started_at"):
+                        started = datetime.fromisoformat(daemon_state["started_at"])
+                        daemon_uptime = (datetime.now() - started).total_seconds()
+                except:
+                    pass
+
+            # Load runtime overrides (promoted models)
+            overrides_path = ai_root / "data" / "ladder_runtime_overrides.json"
+            runtime_overrides = {}
+            if overrides_path.exists():
+                try:
+                    runtime_overrides = json.loads(overrides_path.read_text())
+                except:
+                    pass
+
+            # Load auto-promotion log
+            promotion_log_path = ai_root / "data" / "auto_promotion_log.json"
+            promotion_log = []
+            if promotion_log_path.exists():
+                try:
+                    promotion_log = json.loads(promotion_log_path.read_text())
+                    if isinstance(promotion_log, list):
+                        promotion_log = promotion_log[-10:]  # Last 10 entries
+                except:
+                    pass
+
+            # Check NNUE model timestamps
+            nnue_models = {}
+            nnue_dir = ai_root / "models" / "nnue"
+            if nnue_dir.exists():
+                for model_file in nnue_dir.glob("*.pt"):
+                    if "_prev" not in model_file.name:
+                        stat = model_file.stat()
+                        nnue_models[model_file.stem] = {
+                            "path": str(model_file),
+                            "modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                            "size_mb": round(stat.st_size / 1024 / 1024, 2),
+                        }
+
+            # Check trained heuristic profiles
+            profiles_path = ai_root / "data" / "trained_heuristic_profiles.json"
+            heuristic_profiles = {}
+            if profiles_path.exists():
+                try:
+                    profiles_data = json.loads(profiles_path.read_text())
+                    heuristic_profiles = {
+                        "count": len(profiles_data),
+                        "profiles": list(profiles_data.keys())[:20],
+                    }
+                except:
+                    pass
+
+            return web.json_response({
+                "success": True,
+                "daemon": {
+                    "running": daemon_running,
+                    "pid": daemon_pid,
+                    "uptime_seconds": daemon_uptime,
+                    "current_cycle": daemon_state.get("total_cycles", 0),
+                    "last_cycle_at": daemon_state.get("last_cycle_at", ""),
+                    "total_games_generated": daemon_state.get("total_games_generated", 0),
+                    "total_training_runs": daemon_state.get("total_training_runs", 0),
+                    "total_tournaments": daemon_state.get("total_tournaments", 0),
+                    "total_auto_promotions": daemon_state.get("total_auto_promotions", 0),
+                    "last_auto_promote_time": daemon_state.get("last_auto_promote_time", 0),
+                    "consecutive_failures": daemon_state.get("consecutive_failures", 0),
+                },
+                "nnue": {
+                    "state": "idle" if not daemon_state.get("nnue_state") else "active",
+                    "models": list(nnue_models.keys()),
+                    "model_details": nnue_models,
+                    "per_config_state": daemon_state.get("nnue_state", {}),
+                    "last_gate_result": daemon_state.get("last_nnue_gate_result", None),
+                },
+                "cmaes": {
+                    "state": "idle" if not daemon_state.get("cmaes_state") else "active",
+                    "profiles": heuristic_profiles.get("profiles", []) if heuristic_profiles else [],
+                    "profile_count": heuristic_profiles.get("count", 0) if heuristic_profiles else 0,
+                    "per_config_state": daemon_state.get("cmaes_state", {}),
+                    "generations": sum(s.get("generations", 0) for s in daemon_state.get("cmaes_state", {}).values()),
+                },
+                "promotion": {
+                    "runtime_overrides": runtime_overrides,
+                    "recent_promotions": promotion_log,
+                },
+                "timestamp": time.time(),
+            })
+
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
     def _canonical_slug_for_board(self, board_type: str) -> str:
         return {
             "square8": "square8",
@@ -8437,6 +8561,7 @@ print(json.dumps({{
         app.router.add_get('/api/cluster/status', self.handle_api_cluster_status)
         app.router.add_get('/api/selfplay/stats', self.handle_api_selfplay_stats)
         app.router.add_get('/api/elo/leaderboard', self.handle_api_elo_leaderboard)
+        app.router.add_get('/api/training/status', self.handle_api_training_status)
         app.router.add_get('/api/canonical/health', self.handle_api_canonical_health)
         app.router.add_get('/api/canonical/jobs', self.handle_api_canonical_jobs_list)
         app.router.add_get('/api/canonical/jobs/{job_id}', self.handle_api_canonical_job_get)

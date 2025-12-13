@@ -995,6 +995,232 @@ class ImprovementCycleManager:
 
 
 # =============================================================================
+# Health Monitoring & Process Management
+# =============================================================================
+
+# Health monitoring thresholds
+HEALTH_CHECK_LOG_STALE_SECONDS = 300  # Alert if log not updated in 5 min
+HEALTH_CHECK_PROGRESS_RATE_MIN = 0.1  # Alert if progress < 10% of expected
+HEALTH_CHECK_CPU_VS_PROGRESS_THRESHOLD = 10  # High CPU but low progress ratio
+
+
+@dataclass
+class ProcessHealth:
+    """Health status for a running process."""
+    process_name: str
+    pid: Optional[int]
+    log_file: Optional[str]
+    log_mtime: Optional[float]
+    is_stale: bool
+    cpu_time_seconds: float
+    progress_rate: float  # e.g., epochs/hour or games/hour
+    expected_rate: float
+    is_slow: bool
+    status: str  # "healthy", "stale", "slow", "stuck"
+
+
+def check_log_staleness(log_file: str, threshold_seconds: float = HEALTH_CHECK_LOG_STALE_SECONDS) -> Tuple[bool, float]:
+    """Check if a log file has become stale (no updates).
+
+    Returns:
+        Tuple of (is_stale, seconds_since_update)
+    """
+    if not os.path.exists(log_file):
+        return True, float('inf')
+
+    mtime = os.path.getmtime(log_file)
+    age = time.time() - mtime
+    return age > threshold_seconds, age
+
+
+def check_training_process_health(
+    log_file: str,
+    expected_epochs_per_hour: float = 20.0,
+) -> ProcessHealth:
+    """Check health of a training process.
+
+    Monitors:
+    - Log file staleness (no updates for > 5 min)
+    - Progress rate (epochs per hour vs expected)
+    - CPU time vs actual progress (stuck detection)
+    """
+    is_stale, log_age = check_log_staleness(log_file)
+
+    # Parse log for progress
+    epochs_completed = 0
+    start_time = None
+
+    if os.path.exists(log_file):
+        try:
+            with open(log_file, 'r') as f:
+                for line in f:
+                    if 'Epoch [' in line:
+                        # Parse epoch number from "Epoch [N/M]"
+                        import re
+                        match = re.search(r'Epoch \[(\d+)/\d+\]', line)
+                        if match:
+                            epochs_completed = int(match.group(1))
+                    if start_time is None and 'Starting training' in line:
+                        start_time = os.path.getmtime(log_file)
+        except Exception:
+            pass
+
+    # Calculate progress rate
+    if start_time:
+        hours_elapsed = (time.time() - start_time) / 3600.0
+        progress_rate = epochs_completed / hours_elapsed if hours_elapsed > 0 else 0
+    else:
+        progress_rate = 0
+
+    is_slow = progress_rate < expected_epochs_per_hour * HEALTH_CHECK_PROGRESS_RATE_MIN
+
+    # Determine overall status
+    if is_stale and log_age > 600:  # No log update for 10+ min
+        status = "stuck"
+    elif is_stale:
+        status = "stale"
+    elif is_slow:
+        status = "slow"
+    else:
+        status = "healthy"
+
+    return ProcessHealth(
+        process_name="training",
+        pid=None,
+        log_file=log_file,
+        log_mtime=os.path.getmtime(log_file) if os.path.exists(log_file) else None,
+        is_stale=is_stale,
+        cpu_time_seconds=0,  # Would need psutil to get this
+        progress_rate=progress_rate,
+        expected_rate=expected_epochs_per_hour,
+        is_slow=is_slow,
+        status=status,
+    )
+
+
+def check_cmaes_process_health(
+    log_file: str,
+    expected_games_per_hour: float = 100.0,
+) -> ProcessHealth:
+    """Check health of a CMA-ES process.
+
+    Monitors:
+    - Log file staleness
+    - Games per hour vs expected
+    - Generation progress
+    """
+    is_stale, log_age = check_log_staleness(log_file)
+
+    # Parse log for progress
+    games_played = 0
+    generations_completed = 0
+
+    if os.path.exists(log_file):
+        try:
+            with open(log_file, 'r') as f:
+                content = f.read()
+                # Count generation completions
+                import re
+                gen_matches = re.findall(r'Generation (\d+)/\d+ complete', content)
+                if gen_matches:
+                    generations_completed = max(int(g) for g in gen_matches)
+
+                # Count games from progress lines
+                game_matches = re.findall(r'overall: (\d+)/\d+', content)
+                if game_matches:
+                    games_played = max(int(g) for g in game_matches)
+        except Exception:
+            pass
+
+    # Calculate progress rate
+    mtime = os.path.getmtime(log_file) if os.path.exists(log_file) else time.time()
+    ctime = os.path.getctime(log_file) if os.path.exists(log_file) else time.time()
+    hours_elapsed = (time.time() - ctime) / 3600.0
+    progress_rate = games_played / hours_elapsed if hours_elapsed > 0 else 0
+
+    is_slow = progress_rate < expected_games_per_hour * HEALTH_CHECK_PROGRESS_RATE_MIN
+
+    # Determine status
+    if is_stale and log_age > 600:
+        status = "stuck"
+    elif is_stale:
+        status = "stale"
+    elif is_slow:
+        status = "slow"
+    else:
+        status = "healthy"
+
+    return ProcessHealth(
+        process_name="cmaes",
+        pid=None,
+        log_file=log_file,
+        log_mtime=mtime,
+        is_stale=is_stale,
+        cpu_time_seconds=0,
+        progress_rate=progress_rate,
+        expected_rate=expected_games_per_hour,
+        is_slow=is_slow,
+        status=status,
+    )
+
+
+def cleanup_cmaes_processes(host: Optional[str] = None) -> int:
+    """Kill all CMA-ES processes on a host.
+
+    Args:
+        host: SSH host to clean up, or None for local.
+
+    Returns:
+        Number of processes killed.
+    """
+    import subprocess
+
+    if host:
+        cmd = f"ssh {host} 'pkill -9 -f run_cmaes; sleep 1; pgrep -f run_cmaes | wc -l'"
+    else:
+        cmd = "pkill -9 -f run_cmaes; sleep 1; pgrep -f run_cmaes | wc -l"
+
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+        remaining = int(result.stdout.strip()) if result.stdout.strip() else 0
+        return remaining
+    except Exception as e:
+        print(f"[HealthMonitor] Cleanup failed: {e}")
+        return -1
+
+
+def restart_process_if_stuck(
+    process_name: str,
+    health: ProcessHealth,
+    restart_callback: Optional[callable] = None,
+) -> bool:
+    """Auto-restart a stuck process.
+
+    Args:
+        process_name: Name for logging
+        health: Health check result
+        restart_callback: Function to call to restart the process
+
+    Returns:
+        True if restart was triggered
+    """
+    if health.status == "stuck":
+        print(f"[HealthMonitor] {process_name} appears stuck:")
+        print(f"  - Log stale for {(time.time() - health.log_mtime):.0f}s" if health.log_mtime else "  - No log file")
+        print(f"  - Progress rate: {health.progress_rate:.2f} vs expected {health.expected_rate:.2f}")
+
+        if restart_callback:
+            print(f"[HealthMonitor] Triggering restart for {process_name}...")
+            cleanup_cmaes_processes()  # Clean up first
+            restart_callback()
+            return True
+        else:
+            print(f"[HealthMonitor] No restart callback provided for {process_name}")
+
+    return False
+
+
+# =============================================================================
 # CLI Interface
 # =============================================================================
 

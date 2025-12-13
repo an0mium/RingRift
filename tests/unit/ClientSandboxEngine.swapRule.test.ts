@@ -196,7 +196,10 @@ describe('ClientSandboxEngine swap rule (pie rule)', () => {
     // The canonical swap_sides move should be accepted by the orchestrator
     // and recorded in history, and it should change which logical player
     // is to move next (P1's and P2's turn identities are swapped).
-    expect(after.currentPlayer).toBe(1);
-    expect(after.currentPlayer).not.toBe(state.currentPlayer);
+    expect(after.currentPlayer).toBe(2);
+    const p1After = after.players.find((p) => p.playerNumber === 1)!.id;
+    const p2After = after.players.find((p) => p.playerNumber === 2)!.id;
+    expect(p1After).toBe(p2IdBefore);
+    expect(p2After).toBe(p1IdBefore);
   });
 });

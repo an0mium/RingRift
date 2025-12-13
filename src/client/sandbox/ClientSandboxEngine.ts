@@ -1573,16 +1573,12 @@ export class ClientSandboxEngine {
       lpsExclusivePlayerForCompletedRound: this._lpsState.exclusivePlayerForCompletedRound,
     };
 
-    debugLog(
-      isSandboxLpsDebugEnabled() || isTestEnvironment(),
-      '[TurnTrace.sandbox.handleStartOfInteractiveTurn]',
-      {
-        decision: 'handleStartOfInteractiveTurn',
-        reason: 'start_interactive_turn',
-        before: beforeSnapshot,
-        after: afterSnapshot,
-      }
-    );
+    debugLog(isSandboxLpsDebugEnabled(), '[TurnTrace.sandbox.handleStartOfInteractiveTurn]', {
+      decision: 'handleStartOfInteractiveTurn',
+      reason: 'start_interactive_turn',
+      before: beforeSnapshot,
+      after: afterSnapshot,
+    });
   }
 
   // === Internal helpers ===
