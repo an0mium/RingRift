@@ -177,9 +177,13 @@ class NeuralNetConfig:
     # NOTE: "v4" is a model-id / checkpoint lineage prefix, not a Python
     # architecture class. See docs/MPS_ARCHITECTURE.md.
     #
-    # Default to the canonical square8 2p checkpoint family; other board types
-    # should set RINGRIFT_NN_MODEL_ID explicitly.
-    model_id: str = "ringrift_v4_sq8_2p"
+    # Default to the preferred square8 2p v3-family checkpoint lineage ("v5").
+    # Falls back to v2-family ("v4") via NeuralNetAI default selection when
+    # the v5 checkpoint is not present.
+    #
+    # Other board types should set RINGRIFT_NN_MODEL_ID explicitly until
+    # canonical checkpoints are available.
+    model_id: str = "ringrift_v5_sq8_2p_2xh100"
     checkpoint_dir: str = "models"
     save_every_n_epochs: int = 10
 

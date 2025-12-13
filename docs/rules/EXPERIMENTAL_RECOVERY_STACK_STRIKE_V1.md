@@ -27,12 +27,16 @@ On the wire this is a normal `recovery_slide` move with
 
 ## Rationale
 
-Recent large‑board self‑play shows:
+Historical (pre‑fix) large‑board self‑play showed extreme stalemate rates:
 
 - `square19` 2P stalemate rate ≈ 97%.
 - `hexagonal` 3P stalemate rate ≈ 86%.
 - Recovery eligibility is common on large boards, but line‑forming recovery
   opportunities are comparatively scarce.
+
+As of the current canonical recovery rules + turn-rotation fixes, recent
+distributed selfplay shows stalemates are effectively eliminated but outcomes
+are often LPS‑heavy on large boards; see `ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md`.
 
 Allowing a low‑power stack strike aims to:
 

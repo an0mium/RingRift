@@ -26,9 +26,12 @@ class TrainConfig:
     # with NeuralNetAI, which expects checkpoints under
     # "<repo_root>/ai-service/models/<nn_model_id>.pth".
     #
-    # NOTE: "v4" is a model-id / checkpoint lineage prefix, not a Python
-    # architecture class. See docs/MPS_ARCHITECTURE.md.
-    model_id: str = "ringrift_v4_sq8_2p"
+    # NOTE: "v4"/"v5" are model-id / checkpoint lineage prefixes, not Python
+    # architecture class names. See docs/MPS_ARCHITECTURE.md.
+    #
+    # Default to the preferred square8 2p v3-family checkpoint lineage ("v5").
+    # V2-family checkpoints ("v4") remain supported as a fallback.
+    model_id: str = "ringrift_v5_sq8_2p_2xh100"
 
     # Board-specific model architecture parameters
     # If None, uses defaults from neural_net.get_model_config_for_board()
@@ -110,39 +113,40 @@ def get_training_config_for_board(
     if board_type == BoardType.SQUARE8:
         # 8x8 board: smaller action space, faster training
         config.policy_size = POLICY_SIZE_8x8  # 7,000
-        config.num_res_blocks = 6  # Fewer blocks for smaller board
-        config.num_filters = 64  # Reduced filters
+        # Prefer the canonical v3-capacity defaults unless explicitly overridden.
+        config.num_res_blocks = 12
+        config.num_filters = 192
         config.batch_size = 64  # Can use larger batches
         config.learning_rate = 2e-3  # Slightly higher LR
         config.max_moves_per_game = 150  # Shorter games on 8x8
-        config.model_id = "ringrift_8x8_v1"
+        config.model_id = "ringrift_v5_sq8_2p_2xh100"
 
     elif board_type == BoardType.SQUARE19:
         # 19x19 board: large action space, full capacity model
         config.policy_size = POLICY_SIZE_19x19  # 67,000
-        config.num_res_blocks = 10  # Full depth
-        config.num_filters = 128  # Full width
+        config.num_res_blocks = 12
+        config.num_filters = 192
         config.batch_size = 32  # Standard batch size
         config.learning_rate = 1e-3  # Standard LR
         config.max_moves_per_game = 300  # Longer games on 19x19
-        config.model_id = "ringrift_19x19_v1"
+        config.model_id = "ringrift_v4_sq19_2p"
 
     elif board_type == BoardType.HEXAGONAL:
         # Hex board: specialized architecture with masked pooling
         config.policy_size = P_HEX  # 91,876
-        config.num_res_blocks = 8  # Balanced depth
-        config.num_filters = 128  # Full width for complex patterns
+        config.num_res_blocks = 12
+        config.num_filters = 192
         config.batch_size = 32  # Standard batch size
         config.learning_rate = 1e-3  # Standard LR
         config.max_moves_per_game = 250  # Medium game length
-        config.model_id = "ringrift_hex_v1"
+        config.model_id = "ringrift_v4_hex_2p"
 
     else:
         # Unknown board type: use defaults
         config.policy_size = POLICY_SIZE_19x19
-        config.num_res_blocks = 10
-        config.num_filters = 128
-        config.model_id = "ringrift_v4_sq8_2p"
+        config.num_res_blocks = 12
+        config.num_filters = 192
+        config.model_id = "ringrift_v5_sq8_2p_2xh100"
 
     return config
 
@@ -151,32 +155,32 @@ def get_training_config_for_board(
 BOARD_TRAINING_CONFIGS: Dict[BoardType, Dict[str, any]] = {
     BoardType.SQUARE8: {
         "policy_size": 7000,
-        "num_res_blocks": 6,
-        "num_filters": 64,
+        "num_res_blocks": 12,
+        "num_filters": 192,
         "batch_size": 64,
         "learning_rate": 2e-3,
         "max_moves_per_game": 150,
-        "model_id": "ringrift_8x8_v1",
-        "description": "Optimized for 8x8 competitive play - compact and fast",
+        "model_id": "ringrift_v5_sq8_2p_2xh100",
+        "description": "Canonical square8 v3-family (12 blocks, 192 filters)",
     },
     BoardType.SQUARE19: {
         "policy_size": 67000,
-        "num_res_blocks": 10,
-        "num_filters": 128,
+        "num_res_blocks": 12,
+        "num_filters": 192,
         "batch_size": 32,
         "learning_rate": 1e-3,
         "max_moves_per_game": 300,
-        "model_id": "ringrift_19x19_v1",
-        "description": "Full capacity for 19x19 strategic depth",
+        "model_id": "ringrift_v4_sq19_2p",
+        "description": "Full-capacity square19 baseline (v2-family)",
     },
     BoardType.HEXAGONAL: {
         "policy_size": 91876,  # Updated for radius-12 hex (25×25 frame)
-        "num_res_blocks": 8,
-        "num_filters": 128,
+        "num_res_blocks": 12,
+        "num_filters": 192,
         "batch_size": 32,
         "learning_rate": 1e-3,
         "max_moves_per_game": 300,  # Increased for larger 469-cell board
-        "model_id": "ringrift_hex_v1",
-        "description": "Specialized hex architecture with masked pooling (radius 12)",
+        "model_id": "ringrift_v4_hex_2p",
+        "description": "Full-capacity hex baseline (v2-family)",
     },
 }

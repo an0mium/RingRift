@@ -17,9 +17,9 @@ A database is considered "canonical" for training only if:
   - The FE/territory fixture tests pass for this board type.
 
 Current implementation:
-  - Uses scripts/run_canonical_selfplay_parity_gate.py for step (1) + (2).
-  - Uses app.rules.history_validation.validate_canonical_history_for_game
-    over GameReplayDB for step (3).
+- Uses scripts/run_canonical_selfplay_parity_gate.py for step (1) + (2).
+- Uses a strict trace replay validation (GameEngine.apply_move(trace_mode=True))
+    over GameReplayDB moves for step (3).
 
 Typical usage (from ai-service/):
 
@@ -53,7 +53,7 @@ if str(AI_SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_ROOT))
 
 from app.db.game_replay import GameReplayDB
-from app.rules.history_validation import validate_canonical_history_for_game
+from app.game_engine import GameEngine
 
 
 def _build_env() -> Dict[str, str]:
@@ -365,7 +365,13 @@ def merge_distributed_dbs(
 
 
 def run_canonical_history_check(db_path: Path) -> Dict[str, Any]:
-    """Run validate_canonical_history_for_game over all games in the DB."""
+    """Run strict trace-mode replay validation over all games in the DB.
+
+    This is a stronger gate than checking stored (phase, move_type) pairs,
+    because it catches silent phase transitions and missing bookkeeping moves
+    by replaying the recorded move list through GameEngine.apply_move with the
+    strict per-phase move invariant enabled.
+    """
     db = GameReplayDB(str(db_path))
 
     with db._get_conn() as conn:  # type: ignore[attr-defined]
@@ -376,7 +382,7 @@ def run_canonical_history_check(db_path: Path) -> Dict[str, Any]:
 
     if game_ids:
         print(
-            f"[generate_canonical_selfplay] Canonical history check: {len(game_ids)} game(s)",
+            f"[generate_canonical_selfplay] Canonical history (trace replay) check: {len(game_ids)} game(s)",
             file=sys.stderr,
             flush=True,
         )
@@ -388,17 +394,34 @@ def run_canonical_history_check(db_path: Path) -> Dict[str, Any]:
                 file=sys.stderr,
                 flush=True,
             )
-        report = validate_canonical_history_for_game(db, gid)
-        if not report.is_canonical:
+        state = db.get_initial_state(gid)
+        if state is None:
             issues_by_game[gid] = [
                 {
-                    "move_number": issue.move_number,
-                    "phase": issue.phase,
-                    "move_type": issue.move_type,
-                    "reason": issue.reason,
+                    "move_number": -1,
+                    "phase_before": None,
+                    "move_type": None,
+                    "player": None,
+                    "reason": "missing_initial_state",
                 }
-                for issue in report.issues
             ]
+            continue
+
+        moves = db.get_moves(gid)
+        for move_idx, mv in enumerate(moves):
+            try:
+                state = GameEngine.apply_move(state, mv, trace_mode=True)
+            except Exception as exc:
+                issues_by_game[gid] = [
+                    {
+                        "move_number": move_idx,
+                        "phase_before": getattr(getattr(state, "current_phase", None), "value", None),
+                        "move_type": getattr(getattr(mv, "type", None), "value", str(getattr(mv, "type", ""))),
+                        "player": getattr(mv, "player", None),
+                        "reason": f"{type(exc).__name__}: {exc}",
+                    }
+                ]
+                break
 
     games_checked = len(game_ids)
     non_canonical_games = len(issues_by_game)

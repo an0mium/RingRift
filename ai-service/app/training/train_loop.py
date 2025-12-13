@@ -5,7 +5,7 @@ from typing import Optional
 
 from app.training.generate_data import generate_dataset  # noqa: E402
 from app.training.train import train_model  # noqa: E402
-from app.models import AIConfig  # noqa: E402
+from app.models import AIConfig, BoardType  # noqa: E402
 from app.ai.descent_ai import DescentAI  # noqa: E402
 from app.training.tournament import Tournament  # noqa: E402
 from app.training.config import TrainConfig  # noqa: E402
@@ -115,10 +115,18 @@ def run_training_loop(config: Optional[TrainConfig] = None):
             config.model_dir,
             f"{config.model_id}_candidate.pth",
         )
+        # Board-aware default model version (mirror train.py).
+        if config.board_type == BoardType.HEXAGONAL:
+            model_version = "hex"
+        elif config.board_type == BoardType.SQUARE8:
+            model_version = "v3"
+        else:
+            model_version = "v2"
         train_model(
             config=config,
             data_path=data_file,
             save_path=candidate_model_file,
+            model_version=model_version,
         )
 
         # 3. Evaluation (Tournament)

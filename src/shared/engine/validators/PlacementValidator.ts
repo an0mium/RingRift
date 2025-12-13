@@ -264,12 +264,13 @@ export function validatePlacement(state: GameState, action: PlaceRingAction): Va
 
   const boardType = state.board.type;
   const boardConfig = BOARD_CONFIGS[boardType];
+  const ringsPerPlayerCap = state.rulesOptions?.ringsPerPlayer ?? boardConfig.ringsPerPlayer;
 
   const ctx: PlacementContext = {
     boardType,
     player: action.playerId,
     ringsInHand: player.ringsInHand,
-    ringsPerPlayerCap: boardConfig.ringsPerPlayer,
+    ringsPerPlayerCap,
   };
 
   const result = validatePlacementOnBoard(state.board, action.position, action.count, ctx);

@@ -232,6 +232,136 @@ describe('initialState', () => {
       expect(state.rulesOptions).toEqual({ swapRuleEnabled: true });
     });
 
+    describe('rulesOptions.ringsPerPlayer override', () => {
+      it('should use custom ringsPerPlayer from rulesOptions', () => {
+        const rulesOptions: RulesOptions = { ringsPerPlayer: 24 };
+        const state = createInitialGameState(
+          'game-1',
+          'square8',
+          createPlayers(),
+          timeControl,
+          true,
+          undefined,
+          rulesOptions
+        );
+
+        expect(state.players[0].ringsInHand).toBe(24);
+        expect(state.players[1].ringsInHand).toBe(24);
+      });
+
+      it('should compute victoryThreshold based on custom ringsPerPlayer', () => {
+        const rulesOptions: RulesOptions = { ringsPerPlayer: 24 };
+        const state = createInitialGameState(
+          'game-1',
+          'square8',
+          createPlayers(),
+          timeControl,
+          true,
+          undefined,
+          rulesOptions
+        );
+
+        // For 2-player games, victoryThreshold = ringsPerPlayer
+        expect(state.victoryThreshold).toBe(24);
+      });
+
+      it('should fall back to board config when ringsPerPlayer not specified', () => {
+        const rulesOptions: RulesOptions = { swapRuleEnabled: true };
+        const state = createInitialGameState(
+          'game-1',
+          'square8',
+          createPlayers(),
+          timeControl,
+          true,
+          undefined,
+          rulesOptions
+        );
+
+        // square8 default is 18 rings per player
+        expect(state.players[0].ringsInHand).toBe(18);
+        expect(state.victoryThreshold).toBe(18);
+      });
+    });
+
+    describe('rulesOptions.lpsRoundsRequired override', () => {
+      it('should store lpsRoundsRequired from rulesOptions in GameState', () => {
+        const rulesOptions: RulesOptions = { lpsRoundsRequired: 3 };
+        const state = createInitialGameState(
+          'game-1',
+          'square8',
+          createPlayers(),
+          timeControl,
+          true,
+          undefined,
+          rulesOptions
+        );
+
+        expect(state.lpsRoundsRequired).toBe(3);
+      });
+
+      it('should use default LPS rounds when not specified in rulesOptions', () => {
+        const state = createInitialGameState('game-1', 'square8', createPlayers(), timeControl);
+
+        // Default is 2 rounds per LPS_DEFAULT_REQUIRED_ROUNDS
+        expect(state.lpsRoundsRequired).toBe(2);
+      });
+
+      it('should support lpsRoundsRequired of 1 for faster games', () => {
+        const rulesOptions: RulesOptions = { lpsRoundsRequired: 1 };
+        const state = createInitialGameState(
+          'game-1',
+          'square8',
+          createPlayers(),
+          timeControl,
+          true,
+          undefined,
+          rulesOptions
+        );
+
+        expect(state.lpsRoundsRequired).toBe(1);
+      });
+
+      it('should support higher lpsRoundsRequired for slower games', () => {
+        const rulesOptions: RulesOptions = { lpsRoundsRequired: 5 };
+        const state = createInitialGameState(
+          'game-1',
+          'square8',
+          createPlayers(),
+          timeControl,
+          true,
+          undefined,
+          rulesOptions
+        );
+
+        expect(state.lpsRoundsRequired).toBe(5);
+      });
+    });
+
+    describe('combined rulesOptions overrides', () => {
+      it('should apply both ringsPerPlayer and lpsRoundsRequired', () => {
+        const rulesOptions: RulesOptions = {
+          ringsPerPlayer: 12,
+          lpsRoundsRequired: 4,
+          swapRuleEnabled: true,
+        };
+        const state = createInitialGameState(
+          'game-1',
+          'square8',
+          createPlayers(),
+          timeControl,
+          true,
+          undefined,
+          rulesOptions
+        );
+
+        expect(state.players[0].ringsInHand).toBe(12);
+        expect(state.players[1].ringsInHand).toBe(12);
+        expect(state.victoryThreshold).toBe(12);
+        expect(state.lpsRoundsRequired).toBe(4);
+        expect(state.rulesOptions?.swapRuleEnabled).toBe(true);
+      });
+    });
+
     it('should set maxPlayers to number of players', () => {
       const state = createInitialGameState('game-1', 'square8', createPlayers(), timeControl);
 

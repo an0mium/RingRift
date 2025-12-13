@@ -6,6 +6,7 @@ import { validatePlacementOnBoard } from './validators/PlacementValidator';
 import { playerHasAnyRings } from './globalActions';
 import { enumerateSimpleMovesForPlayer } from './aggregates/MovementAggregate';
 import { enumerateAllCaptureMoves } from './aggregates/CaptureAggregate';
+import { getEffectiveRingsPerPlayer } from './rulesConfig';
 
 /**
  * Shared helpers and factory for {@link TurnLogicDelegates} used by the
@@ -63,7 +64,8 @@ export function hasAnyPlacementForPlayer(state: GameState, player: number): bool
   // under ringsPerPlayer, no placements are possible regardless of board
   // geometry.
   const ringsOnBoard = countRingsOnBoardForPlayer(board, player);
-  const remainingByCap = boardConfig.ringsPerPlayer - ringsOnBoard;
+  const ringsPerPlayerCap = getEffectiveRingsPerPlayer(board.type as BoardType, state.rulesOptions);
+  const remainingByCap = ringsPerPlayerCap - ringsOnBoard;
   const remainingBySupply = playerObj.ringsInHand;
   const maxAvailableGlobal = Math.min(remainingByCap, remainingBySupply);
 
@@ -75,7 +77,7 @@ export function hasAnyPlacementForPlayer(state: GameState, player: number): bool
     boardType: board.type as BoardType,
     player,
     ringsInHand: playerObj.ringsInHand,
-    ringsPerPlayerCap: boardConfig.ringsPerPlayer,
+    ringsPerPlayerCap,
     ringsOnBoard,
     maxAvailableGlobal,
   };

@@ -54,6 +54,17 @@ All four primary rules docs agree on RR‑CANON‑R110–R115:
 - Fallback-class recovery includes (b1) adjacent empty-cell repositioning (including slides that cause territory disconnection) and (b2) stack‑strike when enabled.
 - If the recovery slide (line or fallback) creates disconnected territory regions, process them normally, using the **recovery self-elimination rule** (buried ring extraction) per region.
 
+### D) Code/config mirrors ✅ consistent (TS + Python)
+
+Spot-check confirms the executable configs match the docs:
+
+- TS: `src/shared/types/game.ts` (`BOARD_CONFIGS`) uses `square19.ringsPerPlayer=72` and `hexagonal.ringsPerPlayer=96`.
+- Python: GPU + rules helpers use the same defaults (e.g. `ai-service/app/ai/gpu_kernels.py` and `ai-service/app/ai/gpu_parallel_games.py`).
+
+### E) Agent-facing quick reference ✅ consistent
+
+- `AGENTS.md` quick-reference tables match the canonical ring supplies and thresholds.
+
 ---
 
 ## Notes (non-issues / historical docs)

@@ -218,6 +218,8 @@ export class GameEngine {
     });
 
     const boardConfig = BOARD_CONFIGS[boardType];
+    const effectiveRingsPerPlayer = rulesOptions?.ringsPerPlayer ?? boardConfig.ringsPerPlayer;
+    const effectiveLpsRoundsRequired = rulesOptions?.lpsRoundsRequired ?? 2;
 
     this.gameState = {
       id: gameId,
@@ -244,15 +246,16 @@ export class GameEngine {
       // When omitted, hosts should treat this as "use defaults".
       ...(rulesOptions ? { rulesOptions } : {}),
       maxPlayers: players.length,
-      totalRingsInPlay: boardConfig.ringsPerPlayer * players.length,
+      totalRingsInPlay: effectiveRingsPerPlayer * players.length,
       totalRingsEliminated: 0,
       // Per RR-CANON-R061: victoryThreshold = round((2/3) × ownStartingRings + (1/3) × opponentsCombinedStartingRings)
       // Simplified: round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))
       victoryThreshold: computeRingEliminationVictoryThreshold(
-        boardConfig.ringsPerPlayer,
+        effectiveRingsPerPlayer,
         players.length
       ),
       territoryVictoryThreshold: Math.floor(boardConfig.totalSpaces / 2) + 1,
+      lpsRoundsRequired: effectiveLpsRoundsRequired,
     };
 
     // Internal no-op hook to keep selected helpers referenced so that

@@ -49,7 +49,7 @@ import { enumerateChainCaptureSegments } from '../aggregates/CaptureAggregate';
 import { hasAnyGlobalMovementOrCapture, playerHasAnyRings } from '../globalActions';
 import { isEligibleForRecovery } from '../playerStateHelpers';
 import { VALID_MOVES_BY_PHASE, isMoveValidInPhase } from '../phaseValidation';
-import { getEffectiveLineLengthThreshold } from '../rulesConfig';
+import { getEffectiveLineLengthThreshold, getEffectiveRingsPerPlayer } from '../rulesConfig';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TURN ROTATION HELPERS
@@ -865,7 +865,7 @@ export function deriveGameContext(state: GameState): GameContext {
   return {
     boardType: state.boardType,
     numPlayers: state.players.length,
-    ringsPerPlayer: BOARD_CONFIGS[state.boardType].ringsPerPlayer,
+    ringsPerPlayer: getEffectiveRingsPerPlayer(state.boardType, state.rulesOptions),
     lineLength: getEffectiveLineLengthThreshold(
       state.boardType,
       state.players.length,

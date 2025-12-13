@@ -213,21 +213,6 @@ export class GameSession {
       throw new Error('Game not found');
     }
 
-    // Create players array
-    const players: Player[] = [];
-    const boardConfig = BOARD_CONFIGS[game.boardType as keyof typeof BOARD_CONFIGS];
-    const initialTimeMs =
-      typeof game.timeControl === 'string'
-        ? (JSON.parse(game.timeControl).initialTime as number)
-        : 600000;
-
-    if (game.player1) {
-      players.push(this.createPlayer(game.player1, 1, boardConfig, initialTimeMs));
-    }
-    if (game.player2) {
-      players.push(this.createPlayer(game.player2, 2, boardConfig, initialTimeMs));
-    }
-
     // Optional AI opponents and per-game rules configuration (e.g., swap rule).
     // The gameState field is stored as JSON in Prisma and deserialized here.
     const rawGameState = game.gameState;
@@ -237,6 +222,22 @@ export class GameSession {
         : ((rawGameState || {}) as PersistedGameStateSnapshot);
     const aiOpponents = gameStateSnapshot.aiOpponents;
     const rulesOptions = gameStateSnapshot.rulesOptions;
+
+    // Create players array
+    const players: Player[] = [];
+    const boardConfig = BOARD_CONFIGS[game.boardType as keyof typeof BOARD_CONFIGS];
+    const effectiveRingsPerPlayer = rulesOptions?.ringsPerPlayer ?? boardConfig.ringsPerPlayer;
+    const initialTimeMs =
+      typeof game.timeControl === 'string'
+        ? (JSON.parse(game.timeControl).initialTime as number)
+        : 600000;
+
+    if (game.player1) {
+      players.push(this.createPlayer(game.player1, 1, effectiveRingsPerPlayer, initialTimeMs));
+    }
+    if (game.player2) {
+      players.push(this.createPlayer(game.player2, 2, effectiveRingsPerPlayer, initialTimeMs));
+    }
 
     if (aiOpponents && aiOpponents.count > 0) {
       const startingNumber = players.length + 1;
@@ -261,7 +262,7 @@ export class GameSession {
           type: 'ai',
           isReady: true,
           timeRemaining: initialTimeMs,
-          ringsInHand: boardConfig.ringsPerPlayer,
+          ringsInHand: effectiveRingsPerPlayer,
           eliminatedRings: 0,
           territorySpaces: 0,
           aiDifficulty: difficulty,
@@ -401,7 +402,7 @@ export class GameSession {
   private createPlayer(
     dbPlayer: { id: string; username: string | null },
     playerNumber: number,
-    boardConfig: { ringsPerPlayer: number },
+    ringsPerPlayer: number,
     initialTimeMs: number
   ): Player {
     return {
@@ -411,7 +412,7 @@ export class GameSession {
       type: 'human',
       isReady: true,
       timeRemaining: initialTimeMs,
-      ringsInHand: boardConfig.ringsPerPlayer,
+      ringsInHand: ringsPerPlayer,
       eliminatedRings: 0,
       territorySpaces: 0,
     };

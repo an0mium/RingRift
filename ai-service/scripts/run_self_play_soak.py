@@ -350,7 +350,12 @@ def _parse_board_type(name: str) -> BoardType:
     raise SystemExit(f"Unknown board type: {name!r} " "(expected square8|square19|hexagonal)")
 
 
-def _canonical_termination_reason(state: GameState, fallback: str) -> str:
+def _canonical_termination_reason(
+    state: GameState,
+    fallback: str,
+    *,
+    max_moves: int | None = None,
+) -> str:
     """
     Map a completed GameState to a canonical termination reason.
     """
@@ -358,32 +363,12 @@ def _canonical_termination_reason(state: GameState, fallback: str) -> str:
     if status_str != "completed":
         return f"status:{status_str}" if status_str else fallback
 
-    winner = getattr(state, "winner", None)
-    if winner is None:
-        return "status:completed"
-
-    victory_threshold = getattr(state, "victory_threshold", None)
-    territory_threshold = getattr(state, "territory_victory_threshold", None)
-    winner_player = next(
-        (p for p in state.players if getattr(p, "player_number", None) == winner),
-        None,
-    )
-
-    if (
-        victory_threshold is not None
-        and winner_player is not None
-        and getattr(winner_player, "eliminated_rings", 0) >= victory_threshold
-    ):
-        return "status:completed:elimination"
-
-    if (
-        territory_threshold is not None
-        and winner_player is not None
-        and getattr(winner_player, "territory_spaces", 0) >= territory_threshold
-    ):
-        return "status:completed:territory"
-
-    return "status:completed:lps"
+    vtype, _tb = derive_victory_type(state, max_moves)
+    # Historical termination_reason taxonomy used "elimination" while the
+    # canonical victory_type module uses "ring_elimination".
+    if vtype == "ring_elimination":
+        vtype = "elimination"
+    return f"status:completed:{vtype}" if vtype else fallback
 
 
 def _resolve_default_nn_model_id(
@@ -1356,6 +1341,7 @@ def run_self_play_soak(
                             termination_reason = _canonical_termination_reason(
                                 state,
                                 termination_reason or "status:completed",
+                                max_moves=max_moves,
                             )
                             # Completed normally; do not mark skipped.
                         else:

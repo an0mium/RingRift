@@ -1746,12 +1746,9 @@ def main() -> None:
                 f"dims={','.join(dims)}"
             )
             print(line)
-        # Cleanup temp DB if we created one
-        if temp_db_path is not None:
-            import shutil
-
-            shutil.rmtree(temp_db_path.parent, ignore_errors=True)
-        return
+        # NOTE: In compact mode we still enforce exit semantics (especially for
+        # canonical parity gates) and can still emit --summary-json. We only
+        # suppress the large JSON stdout summary + structural issue output.
 
     # Compute canonical parity gate status. In canonical mode we require:
     #   - no structural issues
@@ -1785,7 +1782,8 @@ def main() -> None:
         "legacy_mode": bool(mode == "legacy"),
         "passed_canonical_parity_gate": bool(passed_canonical_parity_gate),
     }
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    if not args.compact:
+        print(json.dumps(summary, indent=2, sort_keys=True))
 
     # Optionally write summary to a file (for CI artifact archiving)
     if args.summary_json:

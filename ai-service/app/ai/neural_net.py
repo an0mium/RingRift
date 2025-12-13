@@ -50,9 +50,9 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 #
 # Singleton cache to share model instances across NeuralNetAI instances.
-# Key: (architecture_type, device_str, model_path)
+# Key: (architecture_type, device_str, model_path, board_type)
 # Value: loaded model instance
-_MODEL_CACHE: Dict[Tuple[str, str, str], nn.Module] = {}
+_MODEL_CACHE: Dict[Tuple[str, str, str, str], nn.Module] = {}
 
 
 def clear_model_cache() -> None:
@@ -2336,10 +2336,12 @@ class NeuralNetAI(BaseAI):
     Configuration overview (:class:`AIConfig` / related fields):
 
     - ``nn_model_id``: Logical identifier for the model checkpoint
-      (e.g. ``"ringrift_v4_sq8_2p"``). Resolved to
+      (e.g. ``"ringrift_v5_sq8_2p_2xh100"``). Resolved to
       ``<base_dir>/models/<id>.pth`` (or ``<id>_mps.pth`` for MPS builds).
-      When omitted, defaults to a board-aware v4 model id (see
-      :meth:`_ensure_model_initialized`).
+      When omitted, defaults to a board-aware model-id selection (see
+      :meth:`_ensure_model_initialized`):
+      - square8: prefer v3-family ("v5") when present, else v2-family ("v4")
+      - square19/hex: v2-family ("v4") until v3-family checkpoints exist
     - ``allow_fresh_weights``: When ``True``, missing checkpoints are
       treated as intentional and the network starts from random weights
       without raising; when ``False`` (default), a WARNING is logged.
@@ -2625,6 +2627,12 @@ class NeuralNetAI(BaseAI):
 
         if cache_key in _MODEL_CACHE:
             self.model = _MODEL_CACHE[cache_key]
+            cached_history_length = getattr(self.model, "_ringrift_history_length", None)
+            if cached_history_length is not None:
+                try:
+                    self.history_length = int(cached_history_length)
+                except Exception:
+                    pass
             self._initialized_board_type = board_type
             logger.debug(
                 f"Reusing cached model: board={board_type}, "
@@ -2644,14 +2652,24 @@ class NeuralNetAI(BaseAI):
         policy_size_override: Optional[int] = None
         model_class_name: Optional[str] = None
         memory_tier_override: Optional[str] = None
+        history_length_override = self.history_length
 
         if chosen_path is not None:
             try:
-                checkpoint = torch.load(
-                    chosen_path,
-                    map_location="cpu",
-                    weights_only=False,
-                )
+                # NOTE: PyTorch 2.6+ supports the `weights_only` kwarg; older
+                # versions do not. Prefer weights_only=False so we can read
+                # versioning metadata when present, but fall back gracefully.
+                try:
+                    checkpoint = torch.load(
+                        chosen_path,
+                        map_location="cpu",
+                        weights_only=False,
+                    )
+                except TypeError:
+                    checkpoint = torch.load(
+                        chosen_path,
+                        map_location="cpu",
+                    )
                 if isinstance(checkpoint, dict):
                     meta = checkpoint.get("_versioning_metadata") or {}
                     if isinstance(meta, dict):
@@ -2660,6 +2678,8 @@ class NeuralNetAI(BaseAI):
                             num_res_blocks = int(cfg.get("num_res_blocks") or num_res_blocks)
                             num_filters = int(cfg.get("num_filters") or num_filters)
                             num_players_override = int(cfg.get("num_players") or num_players_override)
+                            if cfg.get("history_length") is not None:
+                                history_length_override = int(cfg.get("history_length"))
                             policy_size_override = (
                                 int(cfg.get("policy_size"))
                                 if cfg.get("policy_size") is not None
@@ -2740,6 +2760,21 @@ class NeuralNetAI(BaseAI):
                                     inferred_filters,
                                 )
                                 num_filters = inferred_filters
+                            inferred_in_channels = int(conv1_weight.shape[1])
+                            if inferred_in_channels and inferred_in_channels % 14 == 0:
+                                inferred_frames = inferred_in_channels // 14
+                                inferred_history = inferred_frames - 1
+                                if (
+                                    inferred_history >= 0
+                                    and inferred_history != history_length_override
+                                ):
+                                    logger.warning(
+                                        "Checkpoint metadata history_length=%s disagrees with weights (%s); "
+                                        "using inferred value.",
+                                        history_length_override,
+                                        inferred_history,
+                                    )
+                                    history_length_override = inferred_history
 
                         # Infer num_players from the value head when metadata is absent.
                         #
@@ -2827,7 +2862,7 @@ class NeuralNetAI(BaseAI):
                 global_features=20,
                 num_res_blocks=num_res_blocks,
                 num_filters=num_filters,
-                history_length=self.history_length,
+                history_length=history_length_override,
                 policy_size=policy_size_override,
                 num_players=num_players_override,
             )
@@ -2839,9 +2874,11 @@ class NeuralNetAI(BaseAI):
                 global_features=20,
                 num_res_blocks=num_res_blocks,
                 num_filters=num_filters,
-                history_length=self.history_length,
+                history_length=history_length_override,
                 memory_tier=memory_tier_override,
             )
+        # Ensure the encoder uses the same history length as the loaded model.
+        self.history_length = history_length_override
         logger.info(
             "Initialized %s for %s from %s (res_blocks=%s, filters=%s)",
             type(self.model).__name__,
@@ -2903,6 +2940,13 @@ class NeuralNetAI(BaseAI):
             pass  # gpu_batch not available, skip compilation
         except Exception as e:
             logger.debug(f"torch.compile() skipped: {e}")
+
+        # Record the expected history length on the cached model so future
+        # NeuralNetAI wrappers that reuse it keep encoder/channel alignment.
+        try:
+            setattr(self.model, "_ringrift_history_length", int(self.history_length))
+        except Exception:
+            pass
 
         # Cache the model for reuse
         _MODEL_CACHE[cache_key] = self.model

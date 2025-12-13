@@ -245,50 +245,115 @@ def apply_capture_moves_vectorized(
             state.move_history[g, mc, 5] = to_x
         state.move_count[g] += 1
 
-        # Get stack info
-        attacker_height = state.stack_height[g, from_y, from_x].item()
-        attacker_cap_height = state.cap_height[g, from_y, from_x].item()
-        defender_height = state.stack_height[g, to_y, to_x].item()
-        defender_owner = state.stack_owner[g, to_y, to_x].item()
+        # Get attacker stack info at origin.
+        attacker_height = int(state.stack_height[g, from_y, from_x].item())
+        attacker_cap_height = int(state.cap_height[g, from_y, from_x].item())
 
-        # Process markers along path
+        # Capture move representation:
+        # - (from -> landing) is stored in BatchMoves
+        # - The target stack is implicit as the first stack along the ray
         dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
         dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
         dist = max(abs(to_y - from_y), abs(to_x - from_x))
 
+        target_y = None
+        target_x = None
         for step in range(1, dist):
             check_y = from_y + dy * step
             check_x = from_x + dx * step
+            if state.stack_owner[g, check_y, check_x].item() != 0:
+                target_y = check_y
+                target_x = check_x
+                break
+
+        if target_y is None or target_x is None:
+            # Defensive fallback: treat this as a movement to landing.
+            state.stack_height[g, to_y, to_x] = attacker_height
+            state.stack_owner[g, to_y, to_x] = player
+            state.cap_height[g, to_y, to_x] = min(attacker_cap_height, attacker_height)
+            state.stack_height[g, from_y, from_x] = 0
+            state.stack_owner[g, from_y, from_x] = 0
+            state.cap_height[g, from_y, from_x] = 0
+            state.marker_owner[g, from_y, from_x] = player
+            continue
+
+        # Process markers along the full path (RR-CANON-R102 delegates to R092),
+        # excluding the implicit target stack cell.
+        for step in range(1, dist):
+            check_y = from_y + dy * step
+            check_x = from_x + dx * step
+            if check_y == target_y and check_x == target_x:
+                continue
+
             marker_owner = state.marker_owner[g, check_y, check_x].item()
-            if marker_owner != 0 and marker_owner != player:
+            if marker_owner == 0:
+                continue
+            if marker_owner != player:
                 state.marker_owner[g, check_y, check_x] = player
+                continue
 
-        # Eliminate defender's top ring
-        defender_new_height = max(0, defender_height - 1)
+            # Own marker on intermediate cell: collapse to territory.
+            state.marker_owner[g, check_y, check_x] = 0
+            if not state.is_collapsed[g, check_y, check_x].item():
+                state.is_collapsed[g, check_y, check_x] = True
+                state.territory_owner[g, check_y, check_x] = player
+                state.territory_count[g, player] += 1
 
-        # Track elimination
-        if defender_owner > 0:
-            current_elim = state.eliminated_rings[g, defender_owner].item()
-            state.eliminated_rings[g, defender_owner] = current_elim + 1
-            # Credit the attacking player for causing the elimination (RR-CANON-R060)
+        # Landing marker interaction (RR-CANON-R102): remove any marker on landing
+        # (do not collapse), then eliminate the top ring of the moving stack's cap.
+        dest_marker = state.marker_owner[g, to_y, to_x].item()
+        landing_ring_cost = 1 if dest_marker != 0 else 0
+        if landing_ring_cost:
+            state.marker_owner[g, to_y, to_x] = 0
+            state.eliminated_rings[g, player] += 1
             state.rings_caused_eliminated[g, player] += 1
 
-        # Merge stacks
-        if defender_new_height > 0:
-            new_height = attacker_height + defender_new_height
+        # Pop the top ring from the implicit target and append it to the bottom
+        # of the attacking stack (RR-CANON-R102). We do not store full ring
+        # sequences on GPU; we approximate by updating stack/cap metadata and
+        # tracking captured rings via buried_rings.
+        target_owner = int(state.stack_owner[g, target_y, target_x].item())
+        target_height = int(state.stack_height[g, target_y, target_x].item())
+        target_cap_height = int(state.cap_height[g, target_y, target_x].item())
+
+        # Target cell should not contain a marker; clear defensively.
+        state.marker_owner[g, target_y, target_x] = 0
+
+        new_target_height = max(0, target_height - 1)
+        state.stack_height[g, target_y, target_x] = new_target_height
+        if new_target_height <= 0:
+            state.stack_owner[g, target_y, target_x] = 0
+            state.cap_height[g, target_y, target_x] = 0
         else:
-            new_height = attacker_height
+            new_target_cap = target_cap_height - 1
+            if new_target_cap <= 0:
+                new_target_cap = 1
+            if new_target_cap > new_target_height:
+                new_target_cap = new_target_height
+            state.cap_height[g, target_y, target_x] = new_target_cap
+
+        # Track captured ring as "buried" for the ring's owner (when capturing an opponent).
+        if target_owner != 0 and target_owner != player:
+            state.buried_rings[g, target_owner] += 1
+
+        # Move attacker to landing and apply net height change:
+        # +1 captured ring (to bottom) - landing marker elimination cost.
+        new_height = attacker_height + 1 - landing_ring_cost
         state.stack_height[g, to_y, to_x] = new_height
-
         state.stack_owner[g, to_y, to_x] = player
-        # Cap is the attacker's original cap (multicolor stacks preserve cap_height).
-        # (Best-effort: GPU state does not store full ring sequences.)
-        state.cap_height[g, to_y, to_x] = min(attacker_cap_height, new_height)
 
-        # Clear origin
+        new_cap = attacker_cap_height - landing_ring_cost
+        if new_cap <= 0:
+            new_cap = 1
+        if new_cap > new_height:
+            new_cap = new_height
+        state.cap_height[g, to_y, to_x] = new_cap
+
+        # Clear origin stack and leave a departure marker (RR-CANON-R092).
         state.stack_height[g, from_y, from_x] = 0
         state.stack_owner[g, from_y, from_x] = 0
         state.cap_height[g, from_y, from_x] = 0
+        state.marker_owner[g, from_y, from_x] = player
 
 
 def apply_movement_moves_vectorized(
@@ -342,7 +407,9 @@ def apply_movement_moves_vectorized(
         moving_height = state.stack_height[g, from_y, from_x].item()
         moving_cap_height = state.cap_height[g, from_y, from_x].item()
 
-        # Process markers along path
+        # Process markers along path (RR-CANON-R092):
+        # - Flip opponent markers along the path
+        # - Collapse own markers on intermediate cells to territory
         dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
         dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
         dist = max(abs(to_y - from_y), abs(to_x - from_x))
@@ -351,25 +418,28 @@ def apply_movement_moves_vectorized(
             check_y = from_y + dy * step
             check_x = from_x + dx * step
             marker_owner = state.marker_owner[g, check_y, check_x].item()
-            if marker_owner != 0 and marker_owner != player:
+            if marker_owner == 0:
+                continue
+            if marker_owner != player:
                 state.marker_owner[g, check_y, check_x] = player
+                continue
 
-        # Handle landing on own marker
+            # Own marker on intermediate cell: collapse to territory.
+            state.marker_owner[g, check_y, check_x] = 0
+            if not state.is_collapsed[g, check_y, check_x].item():
+                state.is_collapsed[g, check_y, check_x] = True
+                state.territory_owner[g, check_y, check_x] = player
+                state.territory_count[g, player] += 1
+
+        # Handle landing on ANY marker (own or opponent):
+        # remove the marker (do not collapse), then eliminate the top cap ring.
         dest_marker = state.marker_owner[g, to_y, to_x].item()
-        landing_ring_cost = 0
-        if dest_marker == player:
-            landing_ring_cost = 1
-            state.is_collapsed[g, to_y, to_x] = True
+        landing_ring_cost = 1 if dest_marker != 0 else 0
+        if landing_ring_cost:
             state.marker_owner[g, to_y, to_x] = 0
 
-        # Handle landing on own stack (merge)
-        dest_height = state.stack_height[g, to_y, to_x].item()
-        dest_owner = state.stack_owner[g, to_y, to_x].item()
-
-        if dest_owner == player and dest_height > 0:
-            new_height = moving_height + dest_height - landing_ring_cost
-        else:
-            new_height = moving_height - landing_ring_cost
+        # Movement cannot land on stacks; destination is guaranteed empty by move generation.
+        new_height = moving_height - landing_ring_cost
 
         # Track eliminated ring from landing cost
         if landing_ring_cost > 0:
@@ -401,6 +471,8 @@ def apply_movement_moves_vectorized(
         state.stack_height[g, from_y, from_x] = 0
         state.stack_owner[g, from_y, from_x] = 0
         state.cap_height[g, from_y, from_x] = 0
+        # Leave a marker on the departure space (RR-CANON-R092).
+        state.marker_owner[g, from_y, from_x] = player
 
 
 def apply_recovery_moves_vectorized(
@@ -616,7 +688,7 @@ class BatchGameState:
             starting_rings = rings_per_player
         else:
             # Board size -> default rings mapping
-            starting_rings = {8: 18, 19: 72, 25: 96}.get(board_size, 18)
+            starting_rings = {8: 18, 19: 72, 13: 96}.get(board_size, 18)
 
         rings = torch.zeros(shape_players, dtype=torch.int16, device=device)
         rings[:, 1:num_players+1] = starting_rings
@@ -1501,11 +1573,11 @@ def generate_capture_moves_batch(
     """Generate all valid capture moves for active games.
 
     Per RR-CANON-R100-R103:
-    - Capture by "overtaking": move onto opponent stack with attacker cap_height >= target cap_height
+    - Capture by "overtaking": choose (from, target, landing) where landing is empty beyond target
+      and attacker cap_height >= target cap_height (target may be any owner, including self).
     - Move in straight line, distance >= stack height (total height, not cap)
     - Path must be clear of ANY stacks (no passing through own or opponent stacks)
-    - Captures merge stacks (attacker rings on top)
-    - Defender's top ring is eliminated
+    - This generator stores only (from -> landing); the implicit target is the first stack along the ray.
 
     Args:
         state: Current batch game state
@@ -1693,7 +1765,7 @@ def generate_chain_capture_moves_from_position(
         from_x: Column position of the stack to check captures from
 
     Returns:
-        List of (to_y, to_x) destination positions for valid captures
+        List of (landing_y, landing_x) positions for valid capture segments
     """
     board_size = state.board_size
     player = state.current_player[game_idx].item()
@@ -1713,43 +1785,70 @@ def generate_chain_capture_moves_from_position(
         (1, 0), (1, -1), (0, -1), (-1, -1)
     ]
 
-    captures = []
+    captures: List[Tuple[int, int]] = []
 
     for dy, dx in directions:
-        # Move distance must be >= stack height (total, not cap)
-        for dist in range(my_height, board_size):
-            to_y = from_y + dy * dist
-            to_x = from_x + dx * dist
+        # Step 1: Find the first stack along this ray (implicit target).
+        target_y = None
+        target_x = None
+        target_dist = 0
 
-            if not (0 <= to_y < board_size and 0 <= to_x < board_size):
+        for step in range(1, board_size):
+            check_y = from_y + dy * step
+            check_x = from_x + dx * step
+
+            if not (0 <= check_y < board_size and 0 <= check_x < board_size):
                 break
 
-            # Per RR-CANON-R101: path must be clear of ANY stacks
+            if state.is_collapsed[game_idx, check_y, check_x].item():
+                break
+
+            cell_owner = state.stack_owner[game_idx, check_y, check_x].item()
+            if cell_owner != 0:
+                target_cap = state.cap_height[game_idx, check_y, check_x].item()
+                if my_cap_height >= target_cap:
+                    target_y = check_y
+                    target_x = check_x
+                    target_dist = step
+                # Any stack stops the search along this ray.
+                break
+
+        if target_y is None or target_x is None:
+            continue
+
+        # Step 2: Enumerate legal landing positions strictly beyond target.
+        min_landing_dist = max(my_height, target_dist + 1)
+
+        for landing_dist in range(min_landing_dist, board_size):
+            landing_y = from_y + dy * landing_dist
+            landing_x = from_x + dx * landing_dist
+
+            if not (0 <= landing_y < board_size and 0 <= landing_x < board_size):
+                break
+
+            if state.is_collapsed[game_idx, landing_y, landing_x].item():
+                break
+
+            # Ensure the path from target -> landing is clear (no stacks, no collapsed spaces).
             path_clear = True
-            for step in range(1, dist):  # Don't check destination
+            for step in range(target_dist + 1, landing_dist):
                 check_y = from_y + dy * step
                 check_x = from_x + dx * step
-                cell_owner = state.stack_owner[game_idx, check_y, check_x].item()
-
-                # ANY stack blocks the path
-                if cell_owner != 0:
+                if state.stack_owner[game_idx, check_y, check_x].item() != 0:
+                    path_clear = False
+                    break
+                if state.is_collapsed[game_idx, check_y, check_x].item():
                     path_clear = False
                     break
 
             if not path_clear:
                 break
 
-            # Check destination for capture
-            dest_owner = state.stack_owner[game_idx, to_y, to_x].item()
-            if dest_owner != 0 and dest_owner != player:
-                # Opponent stack - check if we can capture using CAP HEIGHT
-                # Per RR-CANON-R101: attacker.cap_height >= target.cap_height
-                dest_cap_height = state.cap_height[game_idx, to_y, to_x].item()
-                if my_cap_height >= dest_cap_height:
-                    # Valid capture!
-                    captures.append((to_y, to_x))
-                # Cannot continue past opponent stack
+            # Landing must be empty (markers are allowed).
+            if state.stack_owner[game_idx, landing_y, landing_x].item() != 0:
                 break
+
+            captures.append((landing_y, landing_x))
 
     return captures
 
@@ -1764,17 +1863,18 @@ def apply_single_chain_capture(
 ) -> Tuple[int, int]:
     """Apply a single capture move for chain capture continuation.
 
-    Per RR-CANON-R100-R103:
-    - Attacker moves onto defender stack
-    - Defender's top ring is eliminated
-    - Stacks merge (attacker on top)
-    - Path markers are flipped to attacker's color
+    Per RR-CANON-R101/R102/R103 (overtaking capture):
+    - Move the attacking stack from ``from`` to the landing cell ``(to_y,to_x)``.
+    - The implicit target is the first stack between ``from`` and landing.
+    - Pop the target's top ring and append it to the bottom of the attacking stack.
+    - Process marker interactions along the path as in movement (R092), including
+      the landing marker removal + cap-elimination cost.
 
     Args:
         state: BatchGameState to modify
         game_idx: Game index in batch
         from_y, from_x: Origin position
-        to_y, to_x: Destination position
+        to_y, to_x: Landing position
 
     Returns:
         (new_y, new_x) landing position for potential chain continuation
@@ -1792,48 +1892,105 @@ def apply_single_chain_capture(
         state.move_history[game_idx, mc, 5] = to_x
     state.move_count[game_idx] += 1
 
-    # Get stack info
-    attacker_height = state.stack_height[game_idx, from_y, from_x].item()
-    attacker_cap_height = state.cap_height[game_idx, from_y, from_x].item()
-    defender_height = state.stack_height[game_idx, to_y, to_x].item()
-    defender_owner = state.stack_owner[game_idx, to_y, to_x].item()
+    # Capture move representation:
+    # - (from -> landing) is passed in as (to_y, to_x)
+    # - The target stack is implicit as the first stack along the ray
+    attacker_height = int(state.stack_height[game_idx, from_y, from_x].item())
+    attacker_cap_height = int(state.cap_height[game_idx, from_y, from_x].item())
 
-    # Process markers along path
     dy = 0 if to_y == from_y else (1 if to_y > from_y else -1)
     dx = 0 if to_x == from_x else (1 if to_x > from_x else -1)
     dist = max(abs(to_y - from_y), abs(to_x - from_x))
 
+    target_y = None
+    target_x = None
     for step in range(1, dist):
         check_y = from_y + dy * step
         check_x = from_x + dx * step
+        if state.stack_owner[game_idx, check_y, check_x].item() != 0:
+            target_y = check_y
+            target_x = check_x
+            break
+
+    if target_y is None or target_x is None:
+        # Defensive fallback: treat as movement.
+        state.stack_height[game_idx, to_y, to_x] = attacker_height
+        state.stack_owner[game_idx, to_y, to_x] = player
+        state.cap_height[game_idx, to_y, to_x] = min(attacker_cap_height, attacker_height)
+        state.stack_height[game_idx, from_y, from_x] = 0
+        state.stack_owner[game_idx, from_y, from_x] = 0
+        state.cap_height[game_idx, from_y, from_x] = 0
+        state.marker_owner[game_idx, from_y, from_x] = player
+        return to_y, to_x
+
+    # Process markers along the full path excluding the implicit target cell.
+    for step in range(1, dist):
+        check_y = from_y + dy * step
+        check_x = from_x + dx * step
+        if check_y == target_y and check_x == target_x:
+            continue
+
         marker_owner = state.marker_owner[game_idx, check_y, check_x].item()
-        if marker_owner != 0 and marker_owner != player:
+        if marker_owner == 0:
+            continue
+        if marker_owner != player:
             state.marker_owner[game_idx, check_y, check_x] = player
+            continue
 
-    # Eliminate defender's top ring
-    defender_new_height = max(0, defender_height - 1)
+        # Own marker on intermediate cell: collapse to territory.
+        state.marker_owner[game_idx, check_y, check_x] = 0
+        if not state.is_collapsed[game_idx, check_y, check_x].item():
+            state.is_collapsed[game_idx, check_y, check_x] = True
+            state.territory_owner[game_idx, check_y, check_x] = player
+            state.territory_count[game_idx, player] += 1
 
-    # Track elimination
-    if defender_owner > 0:
-        current_elim = state.eliminated_rings[game_idx, defender_owner].item()
-        state.eliminated_rings[game_idx, defender_owner] = current_elim + 1
-        # Credit the attacker for causing the elimination (RR-CANON-R060).
+    # Landing marker: remove any marker and pay cap-elimination cost.
+    dest_marker = state.marker_owner[game_idx, to_y, to_x].item()
+    landing_ring_cost = 1 if dest_marker != 0 else 0
+    if landing_ring_cost:
+        state.marker_owner[game_idx, to_y, to_x] = 0
+        state.eliminated_rings[game_idx, player] += 1
         state.rings_caused_eliminated[game_idx, player] += 1
 
-    # Merge stacks
-    if defender_new_height > 0:
-        new_height = attacker_height + defender_new_height
+    # Pop top ring from the implicit target and append to the bottom of attacker.
+    target_owner = int(state.stack_owner[game_idx, target_y, target_x].item())
+    target_height = int(state.stack_height[game_idx, target_y, target_x].item())
+    target_cap_height = int(state.cap_height[game_idx, target_y, target_x].item())
+
+    state.marker_owner[game_idx, target_y, target_x] = 0
+
+    new_target_height = max(0, target_height - 1)
+    state.stack_height[game_idx, target_y, target_x] = new_target_height
+    if new_target_height <= 0:
+        state.stack_owner[game_idx, target_y, target_x] = 0
+        state.cap_height[game_idx, target_y, target_x] = 0
     else:
-        new_height = attacker_height
+        new_target_cap = target_cap_height - 1
+        if new_target_cap <= 0:
+            new_target_cap = 1
+        if new_target_cap > new_target_height:
+            new_target_cap = new_target_height
+        state.cap_height[game_idx, target_y, target_x] = new_target_cap
+
+    if target_owner != 0 and target_owner != player:
+        state.buried_rings[game_idx, target_owner] += 1
+
+    new_height = attacker_height + 1 - landing_ring_cost
     state.stack_height[game_idx, to_y, to_x] = new_height
-
     state.stack_owner[game_idx, to_y, to_x] = player
-    state.cap_height[game_idx, to_y, to_x] = min(attacker_cap_height, new_height)
 
-    # Clear origin
+    new_cap = attacker_cap_height - landing_ring_cost
+    if new_cap <= 0:
+        new_cap = 1
+    if new_cap > new_height:
+        new_cap = new_height
+    state.cap_height[game_idx, to_y, to_x] = new_cap
+
+    # Clear origin stack and leave departure marker.
     state.stack_height[game_idx, from_y, from_x] = 0
     state.stack_owner[game_idx, from_y, from_x] = 0
     state.cap_height[game_idx, from_y, from_x] = 0
+    state.marker_owner[game_idx, from_y, from_x] = player
 
     return to_y, to_x
 

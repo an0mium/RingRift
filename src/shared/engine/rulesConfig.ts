@@ -28,3 +28,17 @@ export function getEffectiveLineLengthThreshold(
   // - hexagonal: 4
   return BOARD_CONFIGS[boardType].lineLength;
 }
+
+/**
+ * Compute the effective rings-per-player supply cap for a given board.
+ *
+ * Canonical default is `BOARD_CONFIGS[boardType].ringsPerPlayer`.
+ * For controlled experiments / ablations, callers may override via
+ * `rulesOptions.ringsPerPlayer`.
+ */
+export function getEffectiveRingsPerPlayer(
+  boardType: BoardType,
+  rulesOptions?: RulesOptions
+): number {
+  return rulesOptions?.ringsPerPlayer ?? BOARD_CONFIGS[boardType].ringsPerPlayer;
+}

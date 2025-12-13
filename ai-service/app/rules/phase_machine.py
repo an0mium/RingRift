@@ -379,6 +379,13 @@ def advance_phases(inp: PhaseTransitionInput) -> None:
             # - end the turn and rotate to the next player.
             _on_territory_processing_complete(game_state, trace_mode=trace_mode)
 
+    elif last_move.type == MoveType.SKIP_TERRITORY_PROCESSING:
+        # Voluntary stop: territory processing is an optional subset. Treat the
+        # phase as complete for this player and delegate to the shared
+        # post-territory helper so we either enter FORCED_ELIMINATION (ANM +
+        # material) or end the turn and rotate to the next player.
+        _on_territory_processing_complete(game_state, trace_mode=trace_mode)
+
     elif last_move.type == MoveType.NO_TERRITORY_ACTION:
         # Forced no-op: player entered territory_processing but had no eligible
         # regions. Per RR-CANON-R075, this move marks that the phase was visited.

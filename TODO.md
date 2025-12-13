@@ -635,34 +635,33 @@ SandboxGameHost integration requires mapping existing state to hooks:
 
 #### Ruleset Optimization Findings (Dec 2025)
 
-Ablation experiments tested ring counts to find balanced termination distributions:
+Ablation experiments tested **non-canonical** ring-supply overrides (`rulesOptions.ringsPerPlayer`) to explore how termination distributions shift under extreme parameter changes. These experiments are useful for intuition, but should not be confused with canonical rules or canonical training data.
+
+Recent canonical last‑24h selfplay summaries are tracked separately (see `ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md`).
 
 **Square8 (64 spaces, default 18 rings):**
 
-- 18 rings → 100% elimination victories ✅ (current default is balanced)
-- 24 rings → 100% LPS victories
+- 18 rings → elimination-dominant (canonical default)
+- 24 rings → LPS-dominant (non-canonical stress test)
 
 **Square19 (361 spaces, default 72 rings):**
 
 - 18 rings → 100% elimination victories
 - 19+ rings → 100% LPS victories
-- **Recommendation:** Use 18-20 rings for training to allow both victory types
-- Current default (72) results in ~100% LPS victories
+- Canonical default (72) remains LPS-heavy in recent large runs; see `ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md` for up-to-date rates.
 
 **Hexagonal (469 spaces, default 96 rings):**
 
 - 12 rings → 100% elimination victories
 - 14-18 rings → mixed/inconsistent (seed-dependent)
-- **Recommendation:** Use 12-16 rings for training
-- Current default (96) results in ~100% LPS victories
+- Canonical default (96) remains LPS-heavy in recent large runs; see `ai-service/docs/SELFPLAY_ANALYSIS_REPORT_2025_12_13.md` for up-to-date rates.
 
-**Key Finding:** Ring count is the dominant factor affecting game termination. LPS threshold (2 vs 3 rounds) had negligible impact.
+**Key Finding (from these ablations):** Ring supply has a large effect on termination mix. However, canonical recovery rules and AI policy/strength also strongly affect outcomes; treat any “dominant factor” claim as context-dependent.
 
-**Training Recommendations:**
+**Training guidance (canonical):**
 
-- Square8: Use default (18 rings) - already balanced
-- Square19: Use `--rings-per-player 18` in training scripts
-- Hexagonal: Use `--rings-per-player 14` in training scripts
+- Prefer canonical board defaults for canonical models (`square8=18`, `square19=72`, `hex=96`) and mark any reduced-ring curricula as **experimental_noncanonical**.
+- If running reduced-ring curricula for research, keep datasets isolated and do not merge them into canonical DB registries or canonical model promotion gates.
 
 Results in `ai-service/logs/lps_ablation/lps_ablation_*.json`
 

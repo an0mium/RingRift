@@ -708,15 +708,52 @@ router.post(
       initialGameState.aiOpponents = gameData.aiOpponents;
     }
 
-    // Compute effective rulesOptions for this game. For now we only support the
-    // pie rule (swap_sides) toggle:
-    // - If the client explicitly specifies rulesOptions.swapRuleEnabled, honour it.
-    // - Otherwise, default to enabling the swap rule for 2-player games only.
+    // Compute effective rulesOptions for this game.
+    //
+    // Canonical defaults:
+    // - swapRuleEnabled defaults to true for 2-player games only.
+    //
+    // Experimental overrides (non-canonical; used for research / ablations):
+    // - rulesOptions.ringsPerPlayer
+    // - rulesOptions.lpsRoundsRequired
+    //
+    // Guardrail: production environments must not accept non-canonical overrides.
+    const requestedRulesOptions = gameData.rulesOptions;
+    const requestedRingsPerPlayer = requestedRulesOptions?.ringsPerPlayer;
+    const requestedLpsRoundsRequired = requestedRulesOptions?.lpsRoundsRequired;
+    if (
+      config.isProduction &&
+      (requestedRingsPerPlayer !== undefined || requestedLpsRoundsRequired !== undefined)
+    ) {
+      throw createError(
+        'Experimental rulesOptions overrides are not permitted in production.',
+        400,
+        'INVALID_RULES_OPTIONS'
+      );
+    }
+
+    const swapRuleEnabled =
+      gameData.maxPlayers === 2
+        ? typeof requestedRulesOptions?.swapRuleEnabled === 'boolean'
+          ? requestedRulesOptions.swapRuleEnabled
+          : true
+        : undefined;
+    const ringsPerPlayer =
+      typeof requestedRingsPerPlayer === 'number' ? requestedRingsPerPlayer : undefined;
+    const lpsRoundsRequired =
+      typeof requestedLpsRoundsRequired === 'number' ? requestedLpsRoundsRequired : undefined;
+
     let effectiveRulesOptions: GameState['rulesOptions'] | undefined;
-    if (typeof gameData.rulesOptions?.swapRuleEnabled === 'boolean') {
-      effectiveRulesOptions = { swapRuleEnabled: gameData.rulesOptions.swapRuleEnabled };
-    } else if (gameData.maxPlayers === 2) {
-      effectiveRulesOptions = { swapRuleEnabled: true };
+    if (
+      swapRuleEnabled !== undefined ||
+      ringsPerPlayer !== undefined ||
+      lpsRoundsRequired !== undefined
+    ) {
+      effectiveRulesOptions = {
+        ...(swapRuleEnabled !== undefined ? { swapRuleEnabled } : {}),
+        ...(ringsPerPlayer !== undefined ? { ringsPerPlayer } : {}),
+        ...(lpsRoundsRequired !== undefined ? { lpsRoundsRequired } : {}),
+      };
     }
 
     if (effectiveRulesOptions) {

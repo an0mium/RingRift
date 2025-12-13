@@ -133,6 +133,8 @@ class ExperimentConfig:
     engine_mode: str
     seed: int
     output_dir: Optional[str]
+    verbose: bool = False
+    progress_interval: int = 10
 
 
 @dataclass
@@ -188,6 +190,8 @@ def run_single_game(
     engine_mode: str,
     seed: int,
     game_id: int,
+    verbose: bool = False,
+    progress_interval: int = 10,
 ) -> GameResult:
     """Run a single self-play game with specified LPS threshold and rings."""
     start_time = time.time()
@@ -221,18 +225,32 @@ def run_single_game(
     # Play the game
     move_count = 0
     done = False
+    last_progress_time = start_time
     while not done and move_count < max_moves:
         current_player = state.current_player
         ai = ais[current_player]
 
         # Get move from AI
+        move_start = time.time()
         move = ai.select_move(state)
+        move_time_ms = (time.time() - move_start) * 1000
         if move is None:
             break
 
         # Apply move through environment
         state, _reward, done, _info = env.step(move)
         move_count += 1
+
+        # Verbose progress output
+        if verbose and (move_count % progress_interval == 0 or move_time_ms > 1000):
+            elapsed = time.time() - start_time
+            moves_per_sec = move_count / elapsed if elapsed > 0 else 0
+            print(
+                f"    [G{game_id}] Move {move_count}: "
+                f"{move.type.value if hasattr(move.type, 'value') else move.type} "
+                f"by P{move.player} ({move_time_ms:.0f}ms, {moves_per_sec:.1f} m/s)",
+                flush=True,
+            )
 
     duration_ms = (time.time() - start_time) * 1000
     termination = get_termination_reason(state)
@@ -294,6 +312,8 @@ def run_experiment(config: ExperimentConfig) -> ExperimentResults:
                         engine_mode=config.engine_mode,
                         seed=config.seed,
                         game_id=game_id,
+                        verbose=config.verbose,
+                        progress_interval=config.progress_interval,
                     )
                     condition_results.append(result)
                     all_results.append(result)
@@ -432,6 +452,17 @@ def main():
         default=None,
         help="Output directory for results (default: logs/lps_ablation)"
     )
+    parser.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Enable move-by-move progress output for monitoring"
+    )
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=10,
+        help="Print progress every N moves when verbose (default: 10)"
+    )
 
     args = parser.parse_args()
 
@@ -447,6 +478,8 @@ def main():
         engine_mode=args.engine_mode,
         seed=args.seed,
         output_dir=args.output_dir or "logs/lps_ablation",
+        verbose=args.verbose,
+        progress_interval=args.progress_interval,
     )
 
     # Run experiment

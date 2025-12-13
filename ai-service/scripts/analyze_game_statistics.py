@@ -24,6 +24,7 @@ Output formats:
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import sys
@@ -31,7 +32,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -182,18 +183,26 @@ def normalize_game(game: dict[str, Any], file_path: str = "") -> dict[str, Any]:
             normalized["num_players"] = 2
 
     # --- Normalize victory_type ---
+    # Prefer explicit victory_type when present; several generators historically
+    # emitted termination_reason values that were too coarse (e.g. mapping all
+    # non-threshold endings to "lps"). termination_reason remains a fallback for
+    # older schemas that didn't emit victory_type.
     victory_type = None
 
-    if "termination_reason" in game:
+    if "victory_type" in game and game["victory_type"] is not None:
+        old_vtype = (
+            game["victory_type"].lower()
+            if isinstance(game["victory_type"], str)
+            else str(game["victory_type"])
+        )
+        victory_type = OLD_VICTORY_TYPE_MAP.get(old_vtype, old_vtype)
+
+    if victory_type is None and "termination_reason" in game:
         tr = game["termination_reason"]
         if tr in TERMINATION_REASON_MAP:
             victory_type = TERMINATION_REASON_MAP[tr]
-        elif tr.startswith("status:completed:"):
+        elif isinstance(tr, str) and tr.startswith("status:completed:"):
             victory_type = tr.split(":")[-1]
-
-    if victory_type is None and "victory_type" in game:
-        old_vtype = game["victory_type"].lower() if isinstance(game["victory_type"], str) else str(game["victory_type"])
-        victory_type = OLD_VICTORY_TYPE_MAP.get(old_vtype, old_vtype)
 
     if victory_type == "stalemate" and game.get("stalemate_tiebreaker"):
         normalized["_stalemate_tiebreaker"] = game["stalemate_tiebreaker"].lower()
@@ -385,9 +394,11 @@ def load_recovery_analysis(path: Path) -> dict[str, Any] | None:
     return None
 
 
-def load_jsonl_games(path: Path) -> list[dict[str, Any]]:
-    """Load completed games from a JSONL file (excludes eval pool positions)."""
-    games = []
+def iter_jsonl_games(path: Path) -> Iterator[dict[str, Any]]:
+    """Yield normalized completed games from a JSONL file.
+
+    This is streaming by design to avoid loading large JSONL files into memory.
+    """
     file_path_str = str(path)
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -397,196 +408,186 @@ def load_jsonl_games(path: Path) -> list[dict[str, Any]]:
                     continue
                 try:
                     game = json.loads(line)
-                    # Filter out eval pool positions and incomplete games
-                    if is_completed_game(game):
-                        # Normalize schema and infer AI type
-                        game = normalize_game(game, file_path_str)
-                        games.append(game)
                 except json.JSONDecodeError:
                     continue
+                if not is_completed_game(game):
+                    continue
+                yield normalize_game(game, file_path_str)
     except OSError:
-        pass
-    return games
+        return
 
 
 def collect_stats_from_jsonl(jsonl_files: list[Path], report: AnalysisReport) -> None:
     """Collect statistics from JSONL files and add to report."""
     for jsonl_path in jsonl_files:
-        games = load_jsonl_games(jsonl_path)
-        if not games:
-            continue
-
-        # Group games by board_type and num_players
-        by_config: dict[tuple[str, int], list[dict]] = defaultdict(list)
-        for game in games:
+        any_games = False
+        for game in iter_jsonl_games(jsonl_path):
+            any_games = True
             board_type = game.get("board_type", "unknown")
-            num_players = game.get("num_players", 2)
-            by_config[(board_type, num_players)].append(game)
-
-        for (board_type, num_players), config_games in by_config.items():
+            num_players = int(game.get("num_players", 2) or 2)
             key = (board_type, num_players)
             if key not in report.stats_by_config:
                 report.stats_by_config[key] = GameStats(board_type=board_type, num_players=num_players)
 
             stats = report.stats_by_config[key]
 
-            for game in config_games:
-                stats.total_games += 1
-                move_count = game.get("move_count", len(game.get("moves", [])))
-                stats.total_moves += move_count
-                stats.game_lengths.append(move_count)
-                stats.total_time_seconds += game.get("game_time_seconds", 0.0)
+            stats.total_games += 1
+            move_count = game.get("move_count", len(game.get("moves", [])))
+            stats.total_moves += move_count
+            stats.game_lengths.append(move_count)
+            stats.total_time_seconds += game.get("game_time_seconds", 0.0)
 
-                # Winner
-                winner = game.get("winner")
-                if winner is not None:
-                    stats.wins_by_player[str(winner)] = stats.wins_by_player.get(str(winner), 0) + 1
+            # Winner
+            winner = game.get("winner")
+            if winner is not None:
+                stats.wins_by_player[str(winner)] = stats.wins_by_player.get(str(winner), 0) + 1
 
-                # Victory type
-                victory_type = game.get("victory_type")
-                if victory_type:
-                    stats.victory_types[victory_type] = stats.victory_types.get(victory_type, 0) + 1
+            # Victory type
+            victory_type = game.get("victory_type")
+            if victory_type:
+                stats.victory_types[victory_type] = stats.victory_types.get(victory_type, 0) + 1
 
-                # Stalemate tiebreaker
-                tiebreaker = game.get("stalemate_tiebreaker")
-                if tiebreaker and victory_type == "stalemate":
-                    stats.stalemate_by_tiebreaker[tiebreaker] = (
-                        stats.stalemate_by_tiebreaker.get(tiebreaker, 0) + 1
-                    )
+            # Stalemate tiebreaker
+            tiebreaker = game.get("stalemate_tiebreaker")
+            if tiebreaker and victory_type == "stalemate":
+                stats.stalemate_by_tiebreaker[tiebreaker] = (
+                    stats.stalemate_by_tiebreaker.get(tiebreaker, 0) + 1
+                )
 
-                # Analyze moves in detail
-                moves = game.get("moves", [])
-                has_fe = False
-                fe_count = 0
-                has_recovery_slide = False
-                recovery_slides_by_player_in_game: dict[str, int] = {}
-                fe_by_player_in_game: dict[str, int] = {}
-                capture_chain_length = 0
-                max_chain_in_game = 0
-                in_chain = False
-                first_capture_player = None
-                active_move_count = 0
-                # Track consecutive skips per player
-                current_skip_streak: dict[str, int] = {}
-                max_skip_streak = 0
+            # Analyze moves in detail
+            moves = game.get("moves", [])
+            has_fe = False
+            fe_count = 0
+            has_recovery_slide = False
+            recovery_slides_by_player_in_game: dict[str, int] = {}
+            fe_by_player_in_game: dict[str, int] = {}
+            capture_chain_length = 0
+            max_chain_in_game = 0
+            in_chain = False
+            first_capture_player = None
+            active_move_count = 0
+            # Track consecutive skips per player
+            current_skip_streak: dict[str, int] = {}
+            max_skip_streak = 0
 
-                for m in moves:
-                    if not isinstance(m, dict):
-                        continue
-                    move_type = m.get("type", "")
-                    player = m.get("player")
-                    player_str = str(player) if player is not None else None
+            for m in moves:
+                if not isinstance(m, dict):
+                    continue
+                move_type = m.get("type", "")
+                player = m.get("player")
+                player_str = str(player) if player is not None else None
 
-                    # Count move types
-                    stats.move_type_counts[move_type] = stats.move_type_counts.get(move_type, 0) + 1
+                # Count move types
+                stats.move_type_counts[move_type] = stats.move_type_counts.get(move_type, 0) + 1
 
-                    # Track phase-specific actions
-                    if move_type == "place_ring":
-                        stats.ring_placement_moves += 1
-                    elif move_type == "process_territory_region":
+                # Track phase-specific actions
+                if move_type == "place_ring":
+                    stats.ring_placement_moves += 1
+                    elif move_type in ("choose_territory_option", "process_territory_region"):
                         stats.territory_claims += 1
-                    elif move_type == "process_line":
+                    elif move_type in ("choose_line_option", "choose_line_reward", "process_line"):
                         stats.line_formations += 1
 
-                    # Track active vs skip moves
-                    is_skip = move_type.startswith("no_") or move_type.startswith("skip_")
-                    if not is_skip:
-                        active_move_count += 1
-                        # Reset skip streak for this player
-                        if player_str:
-                            if player_str in current_skip_streak and current_skip_streak[player_str] > 0:
-                                if player_str not in stats.consecutive_skips_by_player:
-                                    stats.consecutive_skips_by_player[player_str] = []
-                                stats.consecutive_skips_by_player[player_str].append(current_skip_streak[player_str])
-                            current_skip_streak[player_str] = 0
-                    elif player_str:
-                        # Increment skip streak
-                        current_skip_streak[player_str] = current_skip_streak.get(player_str, 0) + 1
-                        if current_skip_streak[player_str] > max_skip_streak:
-                            max_skip_streak = current_skip_streak[player_str]
+                # Track active vs skip moves
+                is_skip = move_type.startswith("no_") or move_type.startswith("skip_")
+                if not is_skip:
+                    active_move_count += 1
+                    # Reset skip streak for this player
+                    if player_str:
+                        if player_str in current_skip_streak and current_skip_streak[player_str] > 0:
+                            if player_str not in stats.consecutive_skips_by_player:
+                                stats.consecutive_skips_by_player[player_str] = []
+                            stats.consecutive_skips_by_player[player_str].append(current_skip_streak[player_str])
+                        current_skip_streak[player_str] = 0
+                elif player_str:
+                    # Increment skip streak
+                    current_skip_streak[player_str] = current_skip_streak.get(player_str, 0) + 1
+                    if current_skip_streak[player_str] > max_skip_streak:
+                        max_skip_streak = current_skip_streak[player_str]
 
-                    # Track forced elimination
-                    if move_type == "forced_elimination":
-                        has_fe = True
-                        fe_count += 1
-                        if player_str:
-                            stats.fe_by_player[player_str] = stats.fe_by_player.get(player_str, 0) + 1
-                            fe_by_player_in_game[player_str] = fe_by_player_in_game.get(player_str, 0) + 1
+                # Track forced elimination
+                if move_type == "forced_elimination":
+                    has_fe = True
+                    fe_count += 1
+                    if player_str:
+                        stats.fe_by_player[player_str] = stats.fe_by_player.get(player_str, 0) + 1
+                        fe_by_player_in_game[player_str] = fe_by_player_in_game.get(player_str, 0) + 1
 
-                    # Track recovery slide
-                    if move_type == "recovery_slide":
-                        has_recovery_slide = True
-                        if player_str:
-                            recovery_slides_by_player_in_game[player_str] = (
-                                recovery_slides_by_player_in_game.get(player_str, 0) + 1
-                            )
-                            stats.recovery_slides_by_player[player_str] = (
-                                stats.recovery_slides_by_player.get(player_str, 0) + 1
-                            )
+                # Track recovery slide
+                if move_type == "recovery_slide":
+                    has_recovery_slide = True
+                    if player_str:
+                        recovery_slides_by_player_in_game[player_str] = (
+                            recovery_slides_by_player_in_game.get(player_str, 0) + 1
+                        )
+                        stats.recovery_slides_by_player[player_str] = (
+                            stats.recovery_slides_by_player.get(player_str, 0) + 1
+                        )
 
-                    # Track capture chains
-                    if move_type == "overtaking_capture":
-                        stats.total_captures += 1
-                        # Track first capture
-                        if first_capture_player is None and player_str:
-                            first_capture_player = player_str
-                            stats.first_capture_by_player[player_str] = (
-                                stats.first_capture_by_player.get(player_str, 0) + 1
-                            )
-                        if in_chain:
-                            capture_chain_length += 1
-                        else:
-                            in_chain = True
-                            capture_chain_length = 1
-                    elif move_type == "continue_capture_segment":
-                        stats.total_chain_captures += 1
+                # Track capture chains
+                if move_type == "overtaking_capture":
+                    stats.total_captures += 1
+                    # Track first capture
+                    if first_capture_player is None and player_str:
+                        first_capture_player = player_str
+                        stats.first_capture_by_player[player_str] = (
+                            stats.first_capture_by_player.get(player_str, 0) + 1
+                        )
+                    if in_chain:
                         capture_chain_length += 1
                     else:
-                        # Chain ended
-                        if capture_chain_length > max_chain_in_game:
-                            max_chain_in_game = capture_chain_length
-                        capture_chain_length = 0
-                        in_chain = False
+                        in_chain = True
+                        capture_chain_length = 1
+                elif move_type == "continue_capture_segment":
+                    stats.total_chain_captures += 1
+                    capture_chain_length += 1
+                else:
+                    # Chain ended
+                    if capture_chain_length > max_chain_in_game:
+                        max_chain_in_game = capture_chain_length
+                    capture_chain_length = 0
+                    in_chain = False
 
-                # Final chain check
-                if capture_chain_length > max_chain_in_game:
-                    max_chain_in_game = capture_chain_length
+            # Final chain check
+            if capture_chain_length > max_chain_in_game:
+                max_chain_in_game = capture_chain_length
 
-                # Record active moves
-                stats.active_moves_per_game.append(active_move_count)
+            # Record active moves
+            stats.active_moves_per_game.append(active_move_count)
 
-                # Record max skip streak for this game
-                if max_skip_streak > 0:
-                    stats.longest_skip_streak_per_game.append(max_skip_streak)
+            # Record max skip streak for this game
+            if max_skip_streak > 0:
+                stats.longest_skip_streak_per_game.append(max_skip_streak)
 
-                if has_fe:
-                    stats.games_with_fe += 1
-                    stats.fe_counts_per_game.append(fe_count)
-                    # Check if winner had forced elimination (comeback)
-                    if winner is not None and str(winner) in fe_by_player_in_game:
-                        stats.games_with_late_fe_winner += 1
+            if has_fe:
+                stats.games_with_fe += 1
+                stats.fe_counts_per_game.append(fe_count)
+                # Check if winner had forced elimination (comeback)
+                if winner is not None and str(winner) in fe_by_player_in_game:
+                    stats.games_with_late_fe_winner += 1
 
-                if has_recovery_slide:
-                    stats.games_with_recovery_slide += 1
-                    # Check if winner used recovery slide
-                    if winner is not None and str(winner) in recovery_slides_by_player_in_game:
-                        stats.wins_with_recovery_slide += 1
-                    elif winner is not None:
-                        stats.wins_without_recovery_slide += 1
+            if has_recovery_slide:
+                stats.games_with_recovery_slide += 1
+                # Check if winner used recovery slide
+                if winner is not None and str(winner) in recovery_slides_by_player_in_game:
+                    stats.wins_with_recovery_slide += 1
                 elif winner is not None:
                     stats.wins_without_recovery_slide += 1
+            elif winner is not None:
+                stats.wins_without_recovery_slide += 1
 
-                if max_chain_in_game > 0:
-                    stats.max_capture_chain_lengths.append(max_chain_in_game)
+            if max_chain_in_game > 0:
+                stats.max_capture_chain_lengths.append(max_chain_in_game)
 
-                # First capture correlation with winning
-                if first_capture_player is not None and winner is not None:
-                    if first_capture_player == str(winner):
-                        stats.first_capturer_wins += 1
-                    else:
-                        stats.first_capturer_loses += 1
+            # First capture correlation with winning
+            if first_capture_player is not None and winner is not None:
+                if first_capture_player == str(winner):
+                    stats.first_capturer_wins += 1
+                else:
+                    stats.first_capturer_loses += 1
 
-        report.data_sources.append(str(jsonl_path))
+        if any_games:
+            report.data_sources.append(str(jsonl_path))
 
 
 def collect_stats(data_dir: Path, jsonl_files: list[Path] | None = None) -> AnalysisReport:
@@ -1062,9 +1063,26 @@ def generate_json_report(report: AnalysisReport) -> dict[str, Any]:
             "victory_type_rates": {
                 vtype: stats.victory_type_rate(vtype) for vtype in stats.victory_types
             },
+            "stalemate_by_tiebreaker": stats.stalemate_by_tiebreaker,
+            "aggregated_victory_types": stats.get_aggregated_victory_counts(),
             "draws": stats.draws,
             "games_with_recovery": stats.games_with_recovery,
             "games_with_fe": stats.games_with_fe,
+            "games_with_recovery_slide": stats.games_with_recovery_slide,
+            "recovery_slides_by_player": stats.recovery_slides_by_player,
+            "wins_with_recovery_slide": stats.wins_with_recovery_slide,
+            "wins_without_recovery_slide": stats.wins_without_recovery_slide,
+            "games_with_late_fe_winner": stats.games_with_late_fe_winner,
+            "fe_by_player": stats.fe_by_player,
+            "move_type_counts": stats.move_type_counts,
+            "total_captures": stats.total_captures,
+            "total_chain_captures": stats.total_chain_captures,
+            "ring_placement_moves": stats.ring_placement_moves,
+            "territory_claims": stats.territory_claims,
+            "line_formations": stats.line_formations,
+            "first_capture_by_player": stats.first_capture_by_player,
+            "first_capturer_wins": stats.first_capturer_wins,
+            "first_capturer_loses": stats.first_capturer_loses,
         }
         # Add detailed game length statistics if available
         if stats.game_lengths:
@@ -1074,8 +1092,83 @@ def generate_json_report(report: AnalysisReport) -> dict[str, Any]:
                 "median": stats.median_moves,
                 "std_dev": stats.std_moves,
             }
+        if stats.active_moves_per_game:
+            config_data["active_moves_stats"] = {
+                "avg": sum(stats.active_moves_per_game) / len(stats.active_moves_per_game),
+                "min": min(stats.active_moves_per_game),
+                "max": max(stats.active_moves_per_game),
+            }
+        if stats.longest_skip_streak_per_game:
+            config_data["skip_streak_stats"] = {
+                "avg_longest": sum(stats.longest_skip_streak_per_game) / len(stats.longest_skip_streak_per_game),
+                "max_longest": max(stats.longest_skip_streak_per_game),
+            }
+        if stats.max_capture_chain_lengths:
+            config_data["capture_chain_stats"] = {
+                "max_chain": max(stats.max_capture_chain_lengths),
+                "avg_max_chain": sum(stats.max_capture_chain_lengths) / len(stats.max_capture_chain_lengths),
+            }
         result["configurations"][key] = config_data
 
+    return result
+
+
+def _read_jsonl_filelist(filelist_path: Path) -> list[Path]:
+    """Read a list of JSONL paths from a text/TSV file.
+
+    Supports:
+    - One path per line
+    - TSV manifests with the path as the last column (e.g. mtime\\tsize\\tpath)
+    """
+    try:
+        lines = filelist_path.read_text(encoding="utf-8").splitlines()
+    except OSError as e:
+        print(f"Warning: Failed to read jsonl file list {filelist_path}: {e}", file=sys.stderr)
+        return []
+
+    candidates: list[Path] = []
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split("\t") if p.strip()]
+        if not parts:
+            continue
+        candidates.append(Path(parts[-1]))
+
+    # De-duplicate while preserving order.
+    seen: set[str] = set()
+    result: list[Path] = []
+    for p in candidates:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(p)
+    return result
+
+
+def _expand_jsonl_globs(paths: list[Path]) -> list[Path]:
+    expanded: list[Path] = []
+    for p in paths:
+        if p.exists():
+            expanded.append(p)
+            continue
+        s = str(p)
+        if any(ch in s for ch in ["*", "?", "["]):
+            expanded.extend(Path(match) for match in glob.glob(s))
+        else:
+            expanded.append(p)
+
+    # De-duplicate while preserving order.
+    seen: set[str] = set()
+    result: list[Path] = []
+    for p in expanded:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(p)
     return result
 
 
@@ -1112,6 +1205,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Suppress progress messages",
     )
     parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="If no completed games are found, emit an empty report instead of exiting non-zero.",
+    )
+    parser.add_argument(
         "--jsonl",
         type=Path,
         nargs="+",
@@ -1121,6 +1219,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--jsonl-dir",
         type=Path,
         help="Directory to scan for JSONL files (*.jsonl)",
+    )
+    parser.add_argument(
+        "--jsonl-filelist",
+        type=Path,
+        help="Text/TSV file listing JSONL files to include (path in last column for TSV).",
     )
     return parser.parse_args(argv)
 
@@ -1135,6 +1238,17 @@ def main(argv: list[str] | None = None) -> int:
         jsonl_files.extend(args.jsonl)
     if args.jsonl_dir and args.jsonl_dir.exists():
         jsonl_files.extend(args.jsonl_dir.glob("*.jsonl"))
+    if args.jsonl_filelist:
+        jsonl_files.extend(_read_jsonl_filelist(args.jsonl_filelist))
+
+    jsonl_files = _expand_jsonl_globs(jsonl_files)
+    missing_files = [p for p in jsonl_files if not p.exists()]
+    if missing_files and not args.quiet:
+        for p in missing_files[:10]:
+            print(f"Warning: JSONL file not found: {p}", file=sys.stderr)
+        if len(missing_files) > 10:
+            print(f"Warning: ... and {len(missing_files) - 10} more missing JSONL files", file=sys.stderr)
+    jsonl_files = [p for p in jsonl_files if p.exists()]
 
     # Check if we have any data sources
     has_data_dir = args.data_dir.exists()
@@ -1152,7 +1266,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report = collect_stats(args.data_dir if has_data_dir else Path("."), jsonl_files if has_jsonl else None)
 
-    if report.total_games() == 0:
+    if report.total_games() == 0 and not args.allow_empty:
         print("Error: No game data found", file=sys.stderr)
         return 1
 

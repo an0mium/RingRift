@@ -146,7 +146,7 @@ class DefaultRulesEngine(RulesEngine):
         This mirrors the behaviour of the TS hosts and keeps the core
         rules layer free of auto-generated moves per RR-CANON-R076.
         """
-        from app.game_engine import GameEngine
+        from app.game_engine import GameEngine, PhaseRequirement
 
         # Interactive moves from the core engine (no bookkeeping moves).
         moves = GameEngine.get_valid_moves(state, player)
@@ -182,7 +182,7 @@ class DefaultRulesEngine(RulesEngine):
                         if state.current_phase == GamePhase.LINE_PROCESSING
                         else PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED
                     )
-                    req = GameEngine.PhaseRequirement(  # type: ignore[attr-defined]
+                    req = PhaseRequirement(
                         type=req_type,
                         player=player,
                         eligible_positions=[],
@@ -200,7 +200,7 @@ class DefaultRulesEngine(RulesEngine):
                         if state.current_phase == GamePhase.LINE_PROCESSING
                         else PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED
                     )
-                    req = GameEngine.PhaseRequirement(  # type: ignore[attr-defined]
+                    req = PhaseRequirement(
                         type=req_type,
                         player=player,
                         eligible_positions=[],
@@ -266,7 +266,7 @@ class DefaultRulesEngine(RulesEngine):
                         self._force_bookkeeping_moves
                         and state.current_phase == GamePhase.TERRITORY_PROCESSING
                     ):
-                        req = GameEngine.PhaseRequirement(  # type: ignore[attr-defined]
+                        req = PhaseRequirement(
                             type=PhaseRequirementType.NO_TERRITORY_ACTION_REQUIRED,
                             player=player,
                             eligible_positions=[],

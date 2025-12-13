@@ -2514,11 +2514,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
 
     # Model architecture version
     parser.add_argument(
-        '--model-version', type=str, default='v2',
+        '--model-version', type=str, default=None,
         choices=['v2', 'v3', 'hex'],
         help=(
             'Model architecture version: v2 (flat policy), v3 (spatial policy '
-            'heads with rank distribution), or hex (HexNeuralNet). Default: v2'
+            'heads with rank distribution), or hex (HexNeuralNet). '
+            'Default: board-aware (square8→v3, square19→v2, hexagonal→hex).'
         ),
     )
 
@@ -2823,6 +2824,17 @@ def main():
         config.model_dir,
         f"{config.model_id}.pth",
     )
+    # Board-aware default model version.
+    # The training CLI is frequently invoked without specifying --model-version,
+    # and we want square8 runs to default to the preferred v3 architecture.
+    model_version = args.model_version
+    if model_version is None:
+        if config.board_type == BoardType.HEXAGONAL:
+            model_version = "hex"
+        elif config.board_type == BoardType.SQUARE8:
+            model_version = "v3"
+        else:
+            model_version = "v2"
     # Run training
     train_model(
         config=config,
@@ -2846,7 +2858,7 @@ def main():
         sampling_weights=args.sampling_weights,
         multi_player=args.multi_player,
         num_players=args.num_players,
-        model_version=args.model_version,
+        model_version=model_version,
     )
 
 

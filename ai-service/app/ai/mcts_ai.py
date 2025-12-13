@@ -23,6 +23,7 @@ import psutil
 import torch
 
 from .bounded_transposition_table import BoundedTranspositionTable
+from .async_nn_eval import AsyncNeuralBatcher
 from .heuristic_ai import HeuristicAI
 from .neural_net import (
     NeuralNetAI,
@@ -650,6 +651,11 @@ class MCTSAI(HeuristicAI):
                 "using heuristic evaluation (neural disabled)"
             )
 
+        # Thread-safe NN batcher (also used for async leaf evaluation).
+        self.nn_batcher: Optional[AsyncNeuralBatcher] = (
+            AsyncNeuralBatcher(self.neural_net) if self.neural_net else None
+        )
+
         # Optional async NN leaf evaluation to overlap CPU tree traversal with
         # GPU inference. Enabled via env var and only when a non-CPU device is used.
         async_env = os.environ.get("RINGRIFT_MCTS_ASYNC_NN_EVAL", "").lower() in {
@@ -659,7 +665,7 @@ class MCTSAI(HeuristicAI):
             "on",
         }
         self.enable_async_nn_eval: bool = False
-        self._nn_eval_executor: Optional[ThreadPoolExecutor] = None
+        self._hex_eval_executor: Optional[ThreadPoolExecutor] = None
         if async_env and self.neural_net is not None:
             dev = getattr(self.neural_net, "device", "cpu")
             dev_type = (
@@ -667,7 +673,7 @@ class MCTSAI(HeuristicAI):
             )
             if dev_type != "cpu":
                 self.enable_async_nn_eval = True
-                self._nn_eval_executor = ThreadPoolExecutor(max_workers=1)
+                self._hex_eval_executor = ThreadPoolExecutor(max_workers=1)
 
         # Optional hex-specific encoder and network (used for hex boards).
         self.hex_encoder: Optional[ActionEncoderHex]
@@ -1122,7 +1128,6 @@ class MCTSAI(HeuristicAI):
 
             if (
                 self.enable_async_nn_eval
-                and self._nn_eval_executor is not None
                 and self.neural_net is not None
             ):
                 # Avoid overlapping model usage: finish any pending batch first.
@@ -1130,11 +1135,9 @@ class MCTSAI(HeuristicAI):
                     assert pending_batch is not None
                     self._finish_leaf_evaluation_legacy(pending_batch, pending_future)
                     pending_batch = None
-                    pending_future = None
+                pending_future = None
 
-                pending_batch, pending_future = self._prepare_leaf_evaluation_legacy(
-                    leaves, self._nn_eval_executor
-                )
+                pending_batch, pending_future = self._prepare_leaf_evaluation_legacy(leaves)
                 if pending_future is None:
                     self._finish_leaf_evaluation_legacy(pending_batch, None)
                     pending_batch = None
@@ -1203,7 +1206,9 @@ class MCTSAI(HeuristicAI):
                         )
                     else:
                         eval_values, eval_policies = (
-                            self.neural_net.evaluate_batch(uncached_states)
+                            self.nn_batcher.evaluate(uncached_states)
+                            if self.nn_batcher is not None
+                            else self.neural_net.evaluate_batch(uncached_states)
                         )
 
                     for j, orig_idx in enumerate(uncached_indices):
@@ -1312,7 +1317,6 @@ class MCTSAI(HeuristicAI):
     def _prepare_leaf_evaluation_legacy(
         self,
         leaves: List[Tuple[MCTSNode, GameState, List[Move]]],
-        executor: ThreadPoolExecutor,
     ) -> tuple[_EvalBatchLegacy, Optional[Future]]:
         states = [leaf[1] for leaf in leaves]
 
@@ -1339,12 +1343,25 @@ class MCTSAI(HeuristicAI):
         future: Optional[Future] = None
         if uncached_states:
             if use_hex_nn:
-                future = executor.submit(self._evaluate_hex_batch, uncached_states)
+                if self._hex_eval_executor is not None:
+                    future = self._hex_eval_executor.submit(
+                        self._evaluate_hex_batch, uncached_states
+                    )
+                else:
+                    fut: Future = Future()
+                    fut.set_result(self._evaluate_hex_batch(uncached_states))
+                    future = fut
             else:
-                future = executor.submit(
-                    self.neural_net.evaluate_batch,  # type: ignore[union-attr]
-                    uncached_states,
-                )
+                if self.nn_batcher is not None:
+                    future = self.nn_batcher.submit(uncached_states)
+                else:
+                    fut = Future()
+                    fut.set_result(
+                        self.neural_net.evaluate_batch(  # type: ignore[union-attr]
+                            uncached_states
+                        )
+                    )
+                    future = fut
 
         batch = _EvalBatchLegacy(
             leaves=leaves,
@@ -1463,7 +1480,6 @@ class MCTSAI(HeuristicAI):
         self,
         leaves: List[Tuple[MCTSNodeLite, List[MoveUndo], List[Move]]],
         mutable_state: MutableGameState,
-        executor: ThreadPoolExecutor,
     ) -> tuple[_EvalBatchIncremental, Optional[Future]]:
         states: List[GameState] = []
         for node, path_undos, played_moves in leaves:
@@ -1497,12 +1513,25 @@ class MCTSAI(HeuristicAI):
         future: Optional[Future] = None
         if uncached_states:
             if use_hex_nn:
-                future = executor.submit(self._evaluate_hex_batch, uncached_states)
+                if self._hex_eval_executor is not None:
+                    future = self._hex_eval_executor.submit(
+                        self._evaluate_hex_batch, uncached_states
+                    )
+                else:
+                    fut: Future = Future()
+                    fut.set_result(self._evaluate_hex_batch(uncached_states))
+                    future = fut
             else:
-                future = executor.submit(
-                    self.neural_net.evaluate_batch,  # type: ignore[union-attr]
-                    uncached_states,
-                )
+                if self.nn_batcher is not None:
+                    future = self.nn_batcher.submit(uncached_states)
+                else:
+                    fut = Future()
+                    fut.set_result(
+                        self.neural_net.evaluate_batch(  # type: ignore[union-attr]
+                            uncached_states
+                        )
+                    )
+                    future = fut
 
         batch = _EvalBatchIncremental(
             leaves=leaves,
@@ -1982,7 +2011,6 @@ class MCTSAI(HeuristicAI):
 
             if (
                 self.enable_async_nn_eval
-                and self._nn_eval_executor is not None
                 and self.neural_net is not None
             ):
                 if pending_future is not None:
@@ -1995,7 +2023,7 @@ class MCTSAI(HeuristicAI):
 
                 pending_batch, pending_future = (
                     self._prepare_leaf_evaluation_incremental(
-                        leaves, mutable_state, self._nn_eval_executor
+                        leaves, mutable_state
                     )
                 )
                 if pending_future is None:
@@ -2129,7 +2157,9 @@ class MCTSAI(HeuristicAI):
                         )
                     else:
                         eval_values, eval_policies = (
-                            self.neural_net.evaluate_batch(uncached_states)
+                            self.nn_batcher.evaluate(uncached_states)
+                            if self.nn_batcher is not None
+                            else self.neural_net.evaluate_batch(uncached_states)
                         )
 
                     for j, orig_idx in enumerate(uncached_indices):
@@ -2578,7 +2608,11 @@ class MCTSAI(HeuristicAI):
                 policy_vec = eval_policies[0]
                 value = float(eval_values[0]) if eval_values else 0.0
             else:
-                eval_values, policy_batch = self.neural_net.evaluate_batch([game_state])
+                eval_values, policy_batch = (
+                    self.nn_batcher.evaluate([game_state])
+                    if self.nn_batcher is not None
+                    else self.neural_net.evaluate_batch([game_state])
+                )
                 policy_vec = policy_batch[0]
                 value = float(eval_values[0]) if eval_values else 0.0
 

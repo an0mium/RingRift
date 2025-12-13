@@ -3329,6 +3329,21 @@ class GameEngine:
                         moveNumber=len(game_state.move_history) + 1,
                     )  # type: ignore
                 )
+            # RR-CANON-R075: Territory processing is an optional subset. When at
+            # least one territory decision exists, players must be able to
+            # explicitly stop processing further regions via a voluntary skip.
+            move_number = len(game_state.move_history) + 1
+            moves.append(
+                Move(
+                    id=f"skip-territory-processing-{move_number}",
+                    type=MoveType.SKIP_TERRITORY_PROCESSING,
+                    player=player_number,
+                    to=Position(x=0, y=0),
+                    timestamp=game_state.last_move_at,
+                    thinkTime=0,
+                    moveNumber=move_number,
+                )
+            )
             return moves
 
         # No eligible regions – return empty list. The host/orchestrator will

@@ -19,6 +19,7 @@ import {
   buildLpsVictoryResult,
   LpsTrackingState,
   LPS_REQUIRED_CONSECUTIVE_ROUNDS,
+  LPS_DEFAULT_REQUIRED_ROUNDS,
 } from '../../src/shared/engine/lpsTracking';
 import type { GameState, GamePhase, Player } from '../../src/shared/types/game';
 
@@ -732,6 +733,138 @@ describe('lpsTracking module', () => {
 
       expect(blockedResult.isVictory).toBe(false);
       expect(blockedResult.reason).toBe('other_player_has_actions');
+    });
+
+    describe('configurable lpsRoundsRequired', () => {
+      it('should use gameState.lpsRoundsRequired when specified', () => {
+        const gameState = createMockGameState({
+          currentPlayer: 1,
+          lpsRoundsRequired: 3,
+        });
+        const lps = createLpsTrackingState();
+        // Only 2 consecutive rounds - would pass default but not custom threshold
+        lps.consecutiveExclusiveRounds = 2;
+        lps.consecutiveExclusivePlayer = 1;
+
+        const result = evaluateLpsVictory({
+          gameState,
+          lps,
+          hasAnyRealAction: (pn) => pn === 1,
+          hasMaterial: () => true,
+        });
+
+        expect(result.isVictory).toBe(false);
+        expect(result.reason).toMatch(/insufficient_consecutive_rounds_2_of_3/);
+      });
+
+      it('should grant victory when lpsRoundsRequired=3 and 3 consecutive rounds', () => {
+        const gameState = createMockGameState({
+          currentPlayer: 1,
+          lpsRoundsRequired: 3,
+        });
+        const lps = createLpsTrackingState();
+        lps.consecutiveExclusiveRounds = 3;
+        lps.consecutiveExclusivePlayer = 1;
+
+        const result = evaluateLpsVictory({
+          gameState,
+          lps,
+          hasAnyRealAction: (pn) => pn === 1,
+          hasMaterial: () => true,
+        });
+
+        expect(result.isVictory).toBe(true);
+        expect(result.winner).toBe(1);
+      });
+
+      it('should grant victory with lpsRoundsRequired=1 after single exclusive round', () => {
+        const gameState = createMockGameState({
+          currentPlayer: 1,
+          lpsRoundsRequired: 1,
+        });
+        const lps = createLpsTrackingState();
+        lps.consecutiveExclusiveRounds = 1;
+        lps.consecutiveExclusivePlayer = 1;
+
+        const result = evaluateLpsVictory({
+          gameState,
+          lps,
+          hasAnyRealAction: (pn) => pn === 1,
+          hasMaterial: () => true,
+        });
+
+        expect(result.isVictory).toBe(true);
+        expect(result.winner).toBe(1);
+      });
+
+      it('should fall back to rulesOptions.lpsRoundsRequired when lpsRoundsRequired not set', () => {
+        const gameState = createMockGameState({
+          currentPlayer: 1,
+          rulesOptions: { lpsRoundsRequired: 4 },
+        });
+        const lps = createLpsTrackingState();
+        lps.consecutiveExclusiveRounds = 3;
+        lps.consecutiveExclusivePlayer = 1;
+
+        const result = evaluateLpsVictory({
+          gameState,
+          lps,
+          hasAnyRealAction: (pn) => pn === 1,
+          hasMaterial: () => true,
+        });
+
+        expect(result.isVictory).toBe(false);
+        expect(result.reason).toMatch(/insufficient_consecutive_rounds_3_of_4/);
+      });
+
+      it('should use LPS_DEFAULT_REQUIRED_ROUNDS when neither lpsRoundsRequired nor rulesOptions specified', () => {
+        const gameState = createMockGameState({ currentPlayer: 1 });
+        const lps = createLpsTrackingState();
+        lps.consecutiveExclusiveRounds = LPS_DEFAULT_REQUIRED_ROUNDS;
+        lps.consecutiveExclusivePlayer = 1;
+
+        const result = evaluateLpsVictory({
+          gameState,
+          lps,
+          hasAnyRealAction: (pn) => pn === 1,
+          hasMaterial: () => true,
+        });
+
+        expect(result.isVictory).toBe(true);
+        expect(result.winner).toBe(1);
+      });
+
+      it('should prefer gameState.lpsRoundsRequired over rulesOptions.lpsRoundsRequired', () => {
+        const gameState = createMockGameState({
+          currentPlayer: 1,
+          lpsRoundsRequired: 2,
+          rulesOptions: { lpsRoundsRequired: 5 },
+        });
+        const lps = createLpsTrackingState();
+        lps.consecutiveExclusiveRounds = 2;
+        lps.consecutiveExclusivePlayer = 1;
+
+        const result = evaluateLpsVictory({
+          gameState,
+          lps,
+          hasAnyRealAction: (pn) => pn === 1,
+          hasMaterial: () => true,
+        });
+
+        // Should use 2 (from lpsRoundsRequired) not 5 (from rulesOptions)
+        expect(result.isVictory).toBe(true);
+        expect(result.winner).toBe(1);
+      });
+    });
+  });
+
+  describe('LPS_DEFAULT_REQUIRED_ROUNDS constant', () => {
+    it('should equal 2 (canonical default)', () => {
+      expect(LPS_DEFAULT_REQUIRED_ROUNDS).toBe(2);
+    });
+
+    it('should equal deprecated LPS_REQUIRED_CONSECUTIVE_ROUNDS for backward compat', () => {
+      expect(LPS_DEFAULT_REQUIRED_ROUNDS).toBe(LPS_REQUIRED_CONSECUTIVE_ROUNDS);
     });
   });
 

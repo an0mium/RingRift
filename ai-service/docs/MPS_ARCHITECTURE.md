@@ -142,7 +142,7 @@ NeuralNetAI using device: mps, architecture: mps
 NeuralNetAI resolves checkpoints under `ai-service/models/` using:
 
 - `AIConfig.nn_model_id` (explicit), or
-- a board-aware default (Square8 → `ringrift_v4_sq8_2p`, etc).
+- a board-aware default (square8 → prefer `ringrift_v5_sq8_2p_2xh100` when present, else `ringrift_v4_sq8_2p`).
 
 When `RINGRIFT_NN_ARCHITECTURE=mps`, the loader will _prefer_ a `*_mps.pth`
 checkpoint but will fall back to the non-suffixed `.pth` if needed. Since v2/v3
