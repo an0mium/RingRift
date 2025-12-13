@@ -98,12 +98,17 @@ def _parse_move(move_dict: Dict[str, Any], move_number: int, timestamp: str) -> 
     move_type_str = move_dict.get("type", "unknown")
 
     # Map move type strings to MoveType enum
+    # NOTE: Only include move types that exist in the MoveType enum
     move_type_map = {
         "place_ring": MoveType.PLACE_RING,
+        "skip_placement": MoveType.SKIP_PLACEMENT,
+        "no_placement_action": MoveType.NO_PLACEMENT_ACTION,
         "move_stack": MoveType.MOVE_STACK,
+        "move_ring": MoveType.MOVE_RING,
+        "no_movement_action": MoveType.NO_MOVEMENT_ACTION,
         "overtaking_capture": MoveType.OVERTAKING_CAPTURE,
         "continue_capture_segment": MoveType.CONTINUE_CAPTURE_SEGMENT,
-        "end_capture_chain": MoveType.END_CAPTURE_CHAIN,
+        "skip_capture": MoveType.SKIP_CAPTURE,
         "choose_line_option": MoveType.CHOOSE_LINE_OPTION,
         "choose_line_reward": MoveType.CHOOSE_LINE_REWARD,
         "process_line": MoveType.PROCESS_LINE,
@@ -111,10 +116,11 @@ def _parse_move(move_dict: Dict[str, Any], move_number: int, timestamp: str) -> 
         "choose_territory_option": MoveType.CHOOSE_TERRITORY_OPTION,
         "process_territory_region": MoveType.PROCESS_TERRITORY_REGION,
         "no_territory_action": MoveType.NO_TERRITORY_ACTION,
+        "skip_territory_processing": MoveType.SKIP_TERRITORY_PROCESSING,
         "eliminate_rings_from_stack": MoveType.ELIMINATE_RINGS_FROM_STACK,
+        "forced_elimination": MoveType.FORCED_ELIMINATION,
         "recovery_slide": MoveType.RECOVERY_SLIDE,
         "skip_recovery": MoveType.SKIP_RECOVERY,
-        "pass_turn": MoveType.PASS_TURN,
     }
 
     move_type = move_type_map.get(move_type_str, MoveType.PLACE_RING)
@@ -146,8 +152,8 @@ def _get_board_type(board_str: str) -> BoardType:
     board_map = {
         "square8": BoardType.SQUARE8,
         "square19": BoardType.SQUARE19,
-        "square25": BoardType.SQUARE25,
         "hexagonal": BoardType.HEXAGONAL,
+        "hex": BoardType.HEXAGONAL,
     }
     return board_map.get(board_str, BoardType.SQUARE8)
 
@@ -346,7 +352,7 @@ class GPUSelfPlayGenerator:
         # Create initial state for DB storage
         board_type_str = {8: "square8", 19: "square19", 25: "hexagonal"}.get(self.board_size, "square8")
         board_type = _get_board_type(board_type_str)
-        initial_state = GameEngine.create_initial_state(
+        initial_state = create_initial_state(
             board_type=board_type,
             num_players=self.num_players,
         )
