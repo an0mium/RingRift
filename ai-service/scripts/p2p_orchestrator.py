@@ -5915,6 +5915,15 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
                 best_model_id=data.get("best_model_id"), wins=data.get("wins", 0),
                 losses=data.get("losses", 0), draws=data.get("draws", 0),
             )
+
+            # Auto-deploy model if evaluation passed (new model is best)
+            if data.get("model_id") == data.get("best_model_id"):
+                model_path = data.get("model_path", "")
+                board_type = data.get("board_type", "square8")
+                num_players = data.get("num_players", 2)
+                if model_path:
+                    asyncio.create_task(self._auto_deploy_model(model_path, board_type, num_players))
+
             return web.json_response({"success": True})
 
         except Exception as e:
@@ -5956,6 +5965,37 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             print(f"[P2P] ImprovementCycle {cycle_id}: Evaluation scheduling failed: {e}")
             if self.improvement_cycle_manager:
                 self.improvement_cycle_manager.update_cycle_phase(cycle_id, "idle", error_message=str(e))
+
+    async def _auto_deploy_model(self, model_path: str, board_type: str, num_players: int):
+        """Auto-deploy promoted model to sandbox and cluster nodes."""
+        try:
+            import subprocess
+            print(f"[P2P] Auto-deploying model: {model_path}")
+
+            # Run deployment script
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    [
+                        sys.executable, "scripts/auto_deploy_models.py",
+                        "--model-path", model_path,
+                        "--board-type", board_type,
+                        "--num-players", str(num_players),
+                        "--skip-eval",  # Already evaluated
+                        "--sync-cluster" if self._is_leader() else "",
+                    ],
+                    capture_output=True, text=True, timeout=300,
+                    cwd=str(Path(__file__).parent.parent)
+                )
+            )
+
+            if result.returncode == 0:
+                print(f"[P2P] Model deployed successfully: {model_path}")
+            else:
+                print(f"[P2P] Model deployment failed: {result.stderr}")
+
+        except Exception as e:
+            print(f"[P2P] Auto-deploy error: {e}")
 
     # Canonical Pipeline Integration (for pipeline_orchestrator.py)
     # =========================================================================
@@ -7439,6 +7479,13 @@ print(json.dumps({{
                     with self.manifest_lock:
                         self.cluster_data_manifest = cluster_manifest
                         self._record_selfplay_stats_sample(cluster_manifest)
+                    if self.improvement_cycle_manager:
+                        try:
+                            self.improvement_cycle_manager.update_from_cluster_totals(
+                                cluster_manifest.by_board_type
+                            )
+                        except Exception as e:
+                            print(f"[P2P] ImprovementCycleManager update error: {e}")
                 else:
                     local_manifest = await asyncio.to_thread(self._collect_local_data_manifest)
                     with self.manifest_lock:

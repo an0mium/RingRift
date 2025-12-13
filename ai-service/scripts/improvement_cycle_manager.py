@@ -173,6 +173,11 @@ class ImprovementCycleManager:
 
         # Register built-in agent variations
         self._register_builtin_agents()
+        # Ensure canonical cycles exist for all tracked configs so the manager can
+        # surface status immediately (and training triggers have something to scan).
+        for config in BOARD_CONFIGS:
+            self._ensure_cycle_state(config["board_type"], config["num_players"])
+        self._save_state()
 
     def _init_db(self):
         """Initialize SQLite database."""
@@ -265,8 +270,9 @@ class ImprovementCycleManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
+        self.state.last_update = time.time()
         data = {
-            "last_update": time.time(),
+            "last_update": self.state.last_update,
             "total_games_scheduled": self.state.total_games_scheduled,
             "total_training_triggered": self.state.total_training_triggered,
             "total_tournaments_run": self.state.total_tournaments_run,
@@ -312,6 +318,64 @@ class ImprovementCycleManager:
         if key not in self.state.cycles:
             self.state.cycles[key] = CycleState(board_type, num_players)
         return self.state.cycles[key]
+
+    def update_from_cluster_totals(self, cluster_totals: Dict[str, Any]) -> bool:
+        """Update per-cycle game totals from a cluster totals dict.
+
+        Expects the `ClusterDataManifest.by_board_type` shape from `p2p_orchestrator.py`:
+            {\"square8_2p\": {\"total_games\": 123, \"nodes\": [...]}, ...}
+
+        Returns True if any state changed.
+        """
+        changed = False
+        totals = cluster_totals or {}
+
+        for config in BOARD_CONFIGS:
+            board_type = config["board_type"]
+            num_players = int(config["num_players"])
+            key = self._get_cycle_key(board_type, num_players)
+
+            cycle = self._ensure_cycle_state(board_type, num_players)
+            entry = totals.get(key) or {}
+
+            try:
+                total_games = int(entry.get("total_games", 0) or 0)
+            except Exception:
+                total_games = 0
+            if total_games < 0:
+                total_games = 0
+
+            # Baseline sync: initialize totals without immediately triggering
+            # training from historical data.
+            baseline = (
+                cycle.total_games == 0
+                and cycle.games_since_last_training == 0
+                and cycle.current_iteration == 0
+                and float(cycle.last_training_time or 0.0) <= 0.0
+                and not cycle.pending_training
+                and not cycle.pending_evaluation
+            )
+            if baseline:
+                if cycle.total_games != total_games:
+                    cycle.total_games = total_games
+                    changed = True
+                continue
+
+            delta = total_games - cycle.total_games
+            if delta > 0:
+                cycle.total_games = total_games
+                cycle.games_since_last_training += delta
+                changed = True
+            elif delta < 0:
+                # Data may have been cleaned up; reflect the new total but do not
+                # decrement games_since_last_training.
+                cycle.total_games = total_games
+                changed = True
+
+        if changed:
+            self._save_state()
+
+        return changed
 
     # =========================================================================
     # Selfplay Scheduling
