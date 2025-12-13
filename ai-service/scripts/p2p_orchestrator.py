@@ -340,12 +340,15 @@ class DistributedCMAESState:
     started_at: float = 0.0
     last_update: float = 0.0
     results_file: str = ""
+    # LEARNED LESSONS - Store pending results keyed by (generation, individual_idx)
+    pending_results: Dict[str, float] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> 'DistributedCMAESState':
+        d.setdefault('pending_results', {})
         return cls(**d)
 
 
@@ -2960,12 +2963,18 @@ class P2POrchestrator:
             if not job_id:
                 return web.json_response({"error": "job_id required"}, status=400)
 
+            # Extract evaluation parameters from request
+            games_per_eval = data.get("games_per_eval", 5)
+            board_type = data.get("board_type", "square8")
+            num_players = data.get("num_players", 2)
+
             # Store evaluation task for local processing
             print(f"[P2P] Received CMA-ES evaluation request: job={job_id}, gen={generation}, idx={individual_idx}")
 
             # Start evaluation in background
             asyncio.create_task(self._evaluate_cmaes_weights(
-                job_id, weights, generation, individual_idx
+                job_id, weights, generation, individual_idx,
+                games_per_eval=games_per_eval, board_type=board_type, num_players=num_players
             ))
 
             return web.json_response({
@@ -3013,6 +3022,10 @@ class P2POrchestrator:
             # Store result - the coordinator loop will process it
             state = self.distributed_cmaes_state[job_id]
             state.last_update = time.time()
+
+            # LEARNED LESSONS - Store result keyed by generation and index for coordinator to collect
+            result_key = f"{generation}_{individual_idx}"
+            state.pending_results[result_key] = fitness
 
             # Update best if applicable
             if fitness > state.best_fitness:
@@ -3123,11 +3136,26 @@ class P2POrchestrator:
 
                 # Wait for results with timeout
                 wait_start = time.time()
+                expected_results = len(solutions) - len(fitness_results)
                 while len(fitness_results) < len(solutions) and (time.time() - wait_start) < 300:
                     await asyncio.sleep(1)
-                    # Check for results that came in via /cmaes/result endpoint
-                    # Results are stored in state by handle_cmaes_result
                     state.last_update = time.time()
+
+                    # Check for results that came in via /cmaes/result endpoint
+                    # Results are stored in state.pending_results by handle_cmaes_result
+                    for idx in range(len(solutions)):
+                        if idx in fitness_results:
+                            continue
+                        result_key = f"{state.current_generation}_{idx}"
+                        if result_key in state.pending_results:
+                            fitness_results[idx] = state.pending_results[result_key]
+                            del state.pending_results[result_key]  # Clean up
+
+                    # Progress logging every 30 seconds
+                    elapsed = time.time() - wait_start
+                    if int(elapsed) % 30 == 0 and elapsed > 1:
+                        received = len(fitness_results)
+                        print(f"[P2P] Gen {state.current_generation}: {received}/{len(solutions)} results received ({elapsed:.0f}s elapsed)")
 
                 # Fill in any missing results with default fitness
                 fitnesses = []
@@ -3235,17 +3263,15 @@ print(wins / total)
             print(f"[P2P] Local CMA-ES evaluation error: {e}")
             return 0.5
 
-    async def _evaluate_cmaes_weights(self, job_id: str, weights: dict, generation: int, individual_idx: int):
+    async def _evaluate_cmaes_weights(
+        self, job_id: str, weights: dict, generation: int, individual_idx: int,
+        games_per_eval: int = 5, board_type: str = "square8", num_players: int = 2
+    ):
         """Evaluate weights locally and report result to coordinator."""
         try:
-            state = self.distributed_cmaes_state.get(job_id)
-            if not state:
-                print(f"[P2P] CMA-ES job {job_id} not found for evaluation")
-                return
-
-            # Run local evaluation
+            # Run local evaluation using passed parameters (workers don't have state)
             fitness = await self._evaluate_cmaes_weights_local(
-                weights, state.games_per_eval, state.board_type, state.num_players
+                weights, games_per_eval, board_type, num_players
             )
 
             print(f"[P2P] Completed local CMA-ES evaluation: job={job_id}, gen={generation}, idx={individual_idx}, fitness={fitness:.4f}")
@@ -5111,9 +5137,10 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             return web.json_response({"success": False, "error": str(e)})
 
     async def handle_cmaes_start_auto(self, request: web.Request) -> web.Response:
-        """Handle CMA-ES optimization start request (worker endpoint).
+        """Handle CMA-ES optimization start request.
 
-        Uses GPU-accelerated distributed CMA-ES for fast parallel evaluation.
+        Uses distributed GPU CMA-ES across all cluster GPU nodes for maximum throughput.
+        Falls back to local GPU CMA-ES if no remote workers available.
         """
         try:
             data = await request.json()
@@ -5121,48 +5148,95 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             board_type = data.get("board_type", "square8")
             num_players = data.get("num_players", 2)
 
-            # Start GPU CMA-ES optimization subprocess
-            output_dir = os.path.join(
-                self.ringrift_path, "ai-service", "data", "cmaes",
-                f"{board_type}_{num_players}p_auto_{int(time.time())}"
-            )
-            os.makedirs(output_dir, exist_ok=True)
+            # Check for available GPU workers in the cluster
+            gpu_workers = []
+            with self.peers_lock:
+                for peer in self.peers.values():
+                    if peer.is_healthy() and peer.has_gpu and peer.node_id != self.node_id:
+                        gpu_workers.append(peer)
 
-            # LEARNED LESSONS - Use GPU-accelerated CMA-ES for speed
-            # run_gpu_cmaes.py uses parallel GPU evaluation for fitness
-            cmd = [
-                sys.executable,
-                os.path.join(self.ringrift_path, "ai-service", "scripts", "run_gpu_cmaes.py"),
-                "--board", board_type,
-                "--num-players", str(num_players),
-                "--generations", "100",  # More generations for better optimization
-                "--population-size", "32",  # Larger population for GPU parallelism
-                "--games-per-eval", "100",  # More games for accurate fitness
-                "--max-moves", "10000",  # Avoid draws due to move limit
-                "--output-dir", output_dir,
-                "--multi-gpu",  # Use all available GPUs
-            ]
+            # Include self if we have GPU
+            if self.self_info.has_gpu:
+                gpu_workers.append(self.self_info)
 
-            env = os.environ.copy()
-            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
-            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+            if len(gpu_workers) >= 2:
+                # DISTRIBUTED MODE: Use P2P distributed CMA-ES across cluster
+                print(f"[P2P] Starting DISTRIBUTED GPU CMA-ES with {len(gpu_workers)} workers")
 
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
+                # Create distributed CMA-ES state
+                cmaes_job_id = f"cmaes_auto_{job_id}_{int(time.time())}"
+                state = DistributedCMAESState(
+                    job_id=cmaes_job_id,
+                    board_type=board_type,
+                    num_players=num_players,
+                    generations=100,  # More generations for better optimization
+                    population_size=max(32, len(gpu_workers) * 8),  # Scale with workers
+                    games_per_eval=100,  # More games for accurate fitness
+                    status="running",
+                    started_at=time.time(),
+                    last_update=time.time(),
+                    worker_nodes=[w.node_id for w in gpu_workers],
+                )
+                self.distributed_cmaes_state[cmaes_job_id] = state
 
-            print(f"[P2P] Started GPU CMA-ES optimization subprocess (PID {proc.pid}) for job {job_id}")
+                # Launch distributed coordinator task
+                asyncio.create_task(self._run_distributed_cmaes(cmaes_job_id))
 
-            # Monitor in background
-            asyncio.create_task(self._monitor_training_process(job_id, proc, output_dir))
+                # Track as training job
+                with self.training_lock:
+                    if job_id in self.training_jobs:
+                        self.training_jobs[job_id].status = "running"
+                        self.training_jobs[job_id].started_at = time.time()
 
-            return web.json_response({
-                "success": True,
-                "pid": proc.pid,
-            })
+                return web.json_response({
+                    "success": True,
+                    "mode": "distributed",
+                    "job_id": cmaes_job_id,
+                    "workers": [w.node_id for w in gpu_workers],
+                })
+
+            else:
+                # LOCAL MODE: Run GPU CMA-ES on this node only
+                print(f"[P2P] Starting LOCAL GPU CMA-ES (no remote workers available)")
+
+                output_dir = os.path.join(
+                    self.ringrift_path, "ai-service", "data", "cmaes",
+                    f"{board_type}_{num_players}p_auto_{int(time.time())}"
+                )
+                os.makedirs(output_dir, exist_ok=True)
+
+                cmd = [
+                    sys.executable,
+                    os.path.join(self.ringrift_path, "ai-service", "scripts", "run_gpu_cmaes.py"),
+                    "--board", board_type,
+                    "--num-players", str(num_players),
+                    "--generations", "100",
+                    "--population-size", "32",
+                    "--games-per-eval", "100",
+                    "--max-moves", "10000",
+                    "--output-dir", output_dir,
+                    "--multi-gpu",
+                ]
+
+                env = os.environ.copy()
+                env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+                env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                )
+
+                print(f"[P2P] Started local GPU CMA-ES (PID {proc.pid}) for job {job_id}")
+                asyncio.create_task(self._monitor_training_process(job_id, proc, output_dir))
+
+                return web.json_response({
+                    "success": True,
+                    "mode": "local",
+                    "pid": proc.pid,
+                })
 
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)})
