@@ -55,6 +55,7 @@ class NodeConfig:
     check_interval: int = 60  # seconds
     reconnect_interval: int = 300  # seconds
     max_local_selfplay_procs: int = 4
+    disk_threshold: int = 80  # percent - trigger cleanup above this
 
 
 class NodeResilience:
@@ -226,6 +227,42 @@ class NodeResilience:
                 pass
         self.local_selfplay_pids = []
 
+    def check_and_cleanup_disk(self) -> bool:
+        """Check disk usage and run cleanup if needed."""
+        try:
+            stat = os.statvfs("/")
+            total = stat.f_blocks * stat.f_frsize
+            free = stat.f_bavail * stat.f_frsize
+            used_percent = ((total - free) / total) * 100 if total > 0 else 0
+
+            if used_percent > self.config.disk_threshold:
+                logger.warning(f"Disk usage {used_percent:.1f}% exceeds threshold {self.config.disk_threshold}%")
+
+                # Try to run disk_monitor.py if available
+                disk_monitor = os.path.join(self.config.ai_service_dir, "scripts/disk_monitor.py")
+                if os.path.exists(disk_monitor):
+                    logger.info("Running disk cleanup...")
+                    result = subprocess.run(
+                        [sys.executable, disk_monitor, "--aggressive", "--threshold", str(self.config.disk_threshold)],
+                        cwd=self.config.ai_service_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                    )
+                    if result.returncode == 0:
+                        logger.info("Disk cleanup completed successfully")
+                        return True
+                    else:
+                        logger.warning(f"Disk cleanup failed: {result.stderr}")
+                else:
+                    logger.warning("disk_monitor.py not found, skipping cleanup")
+
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Disk check failed: {e}")
+            return False
+
     def _process_running(self, pid: int) -> bool:
         """Check if a process is still running."""
         try:
@@ -251,6 +288,9 @@ class NodeResilience:
     def run_once(self) -> None:
         """Run a single check cycle."""
         now = time.time()
+
+        # Check disk and cleanup if needed (critical for Vast instances)
+        self.check_and_cleanup_disk()
 
         # Check P2P health
         p2p_healthy = self.check_p2p_health()
