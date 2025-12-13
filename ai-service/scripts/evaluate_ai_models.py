@@ -128,6 +128,15 @@ BOARD_TYPE_MAP = {
 }
 
 
+def _format_ai_label(ai_type: str, checkpoint: Optional[str]) -> str:
+    if not checkpoint:
+        return ai_type
+    base = os.path.basename(checkpoint)
+    if base.endswith(".pth"):
+        base = base[: -len(".pth")]
+    return f"{ai_type}@{base}"
+
+
 @dataclass
 class GameResult:
     """Result of a single game."""
@@ -550,11 +559,18 @@ def run_evaluation(
     p2_checkpoint = checkpoint_path2 if checkpoint_path2 else checkpoint_path
     start_time = time.time()
 
+    p1_label = _format_ai_label(player1_type, p1_checkpoint)
+    p2_label = _format_ai_label(player2_type, p2_checkpoint)
+
     board_value = board_type.value if hasattr(board_type, "value") else str(board_type)
     results = EvaluationResults(
         config={
             "player1": player1_type,
             "player2": player2_type,
+            "player1_label": p1_label,
+            "player2_label": p2_label,
+            "player1_checkpoint": p1_checkpoint,
+            "player2_checkpoint": p2_checkpoint,
             "games": num_games,
             "board": board_value,
             "seed": seed,
@@ -578,9 +594,9 @@ def run_evaluation(
         random.seed(seed)
         np.random.seed(seed)
 
-    progress_desc = f"{player1_type} vs {player2_type}"
+    progress_desc = f"{p1_label} vs {p2_label}"
 
-    progress_label = f"{player1_type} vs {player2_type} | board={board_value}"
+    progress_label = f"{p1_label} vs {p2_label} | board={board_value}"
     progress_reporter = ProgressReporter(
         total_units=num_games,
         unit_name="game",
@@ -649,6 +665,8 @@ def run_evaluation(
 
         p1_ai_type = player1_type if p1_is_player1_type else player2_type
         p2_ai_type = player2_type if p1_is_player1_type else player1_type
+        p1_ai_label = p1_label if p1_is_player1_type else p2_label
+        p2_ai_label = p2_label if p1_is_player1_type else p1_label
 
         game_result = play_single_game(
             ai_p1,
@@ -703,9 +721,11 @@ def run_evaluation(
         )
         if game_result.winner:
             winner_name = player1_type if winner_is_p1_type else player2_type
+            winner_label = p1_label if winner_is_p1_type else p2_label
             winner_num = 1 if winner_is_p1_type else 2
         else:
             winner_name = "draw"
+            winner_label = "draw"
             winner_num = 0
 
         # Store game record
@@ -713,11 +733,14 @@ def run_evaluation(
             {
                 "game_number": i + 1,
                 "winner": winner_name,
+                "winner_label": winner_label,
                 "winner_number": winner_num,
                 "length": game_result.length,
                 "victory_type": game_result.victory_type,
                 "p1_was": p1_ai_type,
                 "p2_was": p2_ai_type,
+                "p1_was_label": p1_ai_label,
+                "p2_was_label": p2_ai_label,
                 "error": game_result.error,
             }
         )
@@ -818,23 +841,25 @@ def print_summary(results: EvaluationResults) -> None:
     formatted = format_results_json(results)
     config = formatted["config"]
     res = formatted["results"]
+    p1_label = config.get("player1_label") or config["player1"]
+    p2_label = config.get("player2_label") or config["player2"]
 
     print("\n" + "=" * 60)
     print("AI MODEL EVALUATION RESULTS")
     print("=" * 60)
     print("\nConfiguration:")
-    print(f"  Player 1: {config['player1']}")
-    print(f"  Player 2: {config['player2']}")
+    print(f"  Player 1: {p1_label}")
+    print(f"  Player 2: {p2_label}")
     print(f"  Games:    {config['games']}")
     print(f"  Board:    {config['board']}")
     print(f"  Seed:     {config.get('seed', 'None')}")
 
     print("\nResults:")
-    print(f"  {config['player1']} wins: {res['player1_wins']}")
-    print(f"  {config['player2']} wins: {res['player2_wins']}")
+    print(f"  {p1_label} wins: {res['player1_wins']}")
+    print(f"  {p2_label} wins: {res['player2_wins']}")
     print(f"  Draws: {res['draws']}")
 
-    print(f"\nWin Rate ({config['player1']}):")
+    print(f"\nWin Rate ({p1_label}):")
     print(f"  Rate:   {res['player1_win_rate']:.1%}")
     ci_lo = res["player1_win_rate_ci95"][0]
     ci_hi = res["player1_win_rate_ci95"][1]
@@ -846,17 +871,17 @@ def print_summary(results: EvaluationResults) -> None:
     print(f"  Avg length: {avg_len:.1f} +/- {std_len:.1f} moves")
     p1_time = res["avg_decision_time_p1"] * 1000
     p2_time = res["avg_decision_time_p2"] * 1000
-    print(f"  Avg decision time ({config['player1']}): {p1_time:.1f}ms")
-    print(f"  Avg decision time ({config['player2']}): {p2_time:.1f}ms")
+    print(f"  Avg decision time ({p1_label}): {p1_time:.1f}ms")
+    print(f"  Avg decision time ({p2_label}): {p2_time:.1f}ms")
 
     print("\nVictory Types:")
     for vtype, count in res["victory_types"].items():
         print(f"  {vtype}: {count}")
 
     print("\nPiece Advantage:")
-    print(f"  Avg final pieces ({config['player1']}): " f"{res['avg_p1_final_pieces']:.1f}")
-    print(f"  Avg final pieces ({config['player2']}): " f"{res['avg_p2_final_pieces']:.1f}")
-    print(f"  {config['player1']} advantage: " f"{res['piece_advantage_p1']:+.1f}")
+    print(f"  Avg final pieces ({p1_label}): " f"{res['avg_p1_final_pieces']:.1f}")
+    print(f"  Avg final pieces ({p2_label}): " f"{res['avg_p2_final_pieces']:.1f}")
+    print(f"  {p1_label} advantage: " f"{res['piece_advantage_p1']:+.1f}")
 
     print(f"\nTotal runtime: {res['total_runtime_seconds']:.1f}s")
     print("=" * 60)

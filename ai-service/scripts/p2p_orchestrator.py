@@ -203,6 +203,9 @@ class NodeInfo:
     disk_cleanup_needed: bool = False
     oom_events: int = 0
     last_oom_time: float = 0.0
+    # NAT/Relay support - nodes that can't be reached directly
+    nat_blocked: bool = False
+    relay_via: str = ""  # node_id of the relay hub (usually leader)
 
     def is_alive(self) -> bool:
         """Check if node is considered alive based on last heartbeat."""
@@ -268,6 +271,8 @@ class NodeInfo:
         d.setdefault('disk_cleanup_needed', False)
         d.setdefault('oom_events', 0)
         d.setdefault('last_oom_time', 0.0)
+        d.setdefault('nat_blocked', False)
+        d.setdefault('relay_via', '')
         return cls(**d)
 
 
@@ -2423,6 +2428,88 @@ class P2POrchestrator:
             })
         except Exception as e:
             return web.json_response({"error": str(e), "healthy": False}, status=500)
+
+    # ============================================
+    # Relay/Hub Handlers for NAT-blocked nodes
+    # ============================================
+
+    async def handle_relay_heartbeat(self, request: web.Request) -> web.Response:
+        """POST /relay/heartbeat - Accept heartbeat from NAT-blocked node.
+
+        NAT-blocked nodes (e.g., Vast.ai behind carrier NAT) can't receive
+        incoming connections. They use this endpoint to:
+        1. Send their status to the leader
+        2. Get back the full cluster peer list
+        3. Mark themselves as nat_blocked so leader doesn't try to reach them
+
+        Request body: Same as regular heartbeat (NodeInfo dict)
+        Response: {
+            "self": NodeInfo,  # Leader's info
+            "peers": {node_id: NodeInfo},  # All known peers including NAT-blocked
+            "leader_id": str
+        }
+        """
+        try:
+            data = await request.json()
+            peer_info = NodeInfo.from_dict(data)
+            peer_info.last_heartbeat = time.time()
+            peer_info.nat_blocked = True  # Mark as NAT-blocked
+            peer_info.relay_via = self.node_id  # This node is their relay
+
+            # Get their real IP from the request (for logging/debugging)
+            forwarded_for = (
+                request.headers.get("X-Forwarded-For")
+                or request.headers.get("X-Real-IP")
+            )
+            real_ip = forwarded_for.split(",")[0].strip() if forwarded_for else request.remote
+
+            # Store in peers list (they're part of the cluster even if not directly reachable)
+            with self.peers_lock:
+                self.peers[peer_info.node_id] = peer_info
+
+            print(f"[P2P] Relay heartbeat from {peer_info.node_id} (real IP: {real_ip})")
+
+            # Return cluster state so they can see all peers
+            self._update_self_info()
+            with self.peers_lock:
+                peers = {k: v.to_dict() for k, v in self.peers.items()}
+
+            return web.json_response({
+                "success": True,
+                "self": self.self_info.to_dict(),
+                "peers": peers,
+                "leader_id": self.leader_id,
+                "relay_node": self.node_id,
+            })
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+    async def handle_relay_peers(self, request: web.Request) -> web.Response:
+        """GET /relay/peers - Get list of all peers including NAT-blocked ones.
+
+        Used by nodes to discover the full cluster including NAT-blocked members.
+        """
+        try:
+            self._update_self_info()
+            with self.peers_lock:
+                all_peers = {k: v.to_dict() for k, v in self.peers.items()}
+
+            # Separate NAT-blocked and directly reachable
+            nat_blocked = {k: v for k, v in all_peers.items() if v.get('nat_blocked')}
+            direct = {k: v for k, v in all_peers.items() if not v.get('nat_blocked')}
+
+            return web.json_response({
+                "success": True,
+                "leader_id": self.leader_id,
+                "total_peers": len(all_peers),
+                "direct_peers": len(direct),
+                "nat_blocked_peers": len(nat_blocked),
+                "peers": all_peers,
+            })
+
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     async def handle_register(self, request: web.Request) -> web.Response:
         """POST /register - Node self-registration for dynamic IP updates.
@@ -5872,6 +5959,54 @@ print(json.dumps({{
             pass
         return None
 
+    async def _send_relay_heartbeat(self, relay_url: str) -> Dict[str, Any]:
+        """Send heartbeat via relay endpoint for NAT-blocked nodes.
+
+        This is used when the peer URL is HTTPS (indicating a relay/proxy endpoint)
+        or when direct heartbeats fail consistently.
+
+        Returns dict with:
+        - success: bool
+        - peers: dict of all cluster peers
+        - leader_id: current leader
+        """
+        try:
+            self._update_self_info()
+
+            timeout = ClientTimeout(total=15)
+            async with ClientSession(timeout=timeout) as session:
+                # Use /relay/heartbeat endpoint
+                url = f"{relay_url.rstrip('/')}/relay/heartbeat"
+                async with session.post(url, json=self.self_info.to_dict(), headers=self._auth_headers()) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get("success"):
+                            # Update our peer list with all peers from relay
+                            peers_data = data.get("peers", {})
+                            with self.peers_lock:
+                                for node_id, peer_dict in peers_data.items():
+                                    if node_id != self.node_id:
+                                        peer_info = NodeInfo.from_dict(peer_dict)
+                                        self.peers[node_id] = peer_info
+
+                            # Update leader if provided
+                            leader_id = data.get("leader_id")
+                            if leader_id and leader_id != self.node_id:
+                                if self.leader_id != leader_id:
+                                    print(f"[P2P] Adopted leader from relay: {leader_id}")
+                                self.leader_id = leader_id
+                                self.role = NodeRole.FOLLOWER
+
+                            return {
+                                "success": True,
+                                "peers_received": len(peers_data),
+                                "leader_id": leader_id,
+                            }
+                        return {"success": False, "error": data.get("error", "Unknown error")}
+                    return {"success": False, "error": f"HTTP {resp.status}"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
     async def _heartbeat_loop(self):
         """Send heartbeats to all known peers."""
         while self.running:
@@ -5882,6 +6017,15 @@ print(json.dumps({{
                         scheme, host, port = self._parse_peer_address(peer_addr)
                     except Exception:
                         continue
+
+                    # Use relay heartbeat for HTTPS endpoints (they're proxies/relays)
+                    if scheme == "https":
+                        # HTTPS endpoint = relay/proxy, use relay heartbeat
+                        relay_url = f"https://{host}" if port == 443 else f"https://{host}:{port}"
+                        result = await self._send_relay_heartbeat(relay_url)
+                        if result.get("success"):
+                            # Relay heartbeat already updates peers and leader
+                            continue
 
                     info = await self._send_heartbeat_to_peer(host, port, scheme=scheme)
                     if info:
@@ -5894,9 +6038,9 @@ print(json.dumps({{
                             self.leader_id = info.node_id
                             self.role = NodeRole.FOLLOWER
 
-                # Send to discovered peers
+                # Send to discovered peers (skip NAT-blocked peers - they can't receive)
                 with self.peers_lock:
-                    peer_list = list(self.peers.values())
+                    peer_list = [p for p in self.peers.values() if not p.nat_blocked]
 
                 for peer in peer_list:
                     if peer.node_id != self.node_id:
@@ -6563,6 +6707,10 @@ print(json.dumps({{
         app.router.add_get('/registry/status', self.handle_registry_status)
         app.router.add_post('/registry/update_vast', self.handle_registry_update_vast)
         app.router.add_post('/registry/save_yaml', self.handle_registry_save_yaml)
+
+        # Relay/Hub routes for NAT-blocked nodes
+        app.router.add_post('/relay/heartbeat', self.handle_relay_heartbeat)
+        app.router.add_get('/relay/peers', self.handle_relay_peers)
 
         # Phase 2: Distributed data manifest routes
         app.router.add_get('/data_manifest', self.handle_data_manifest)
