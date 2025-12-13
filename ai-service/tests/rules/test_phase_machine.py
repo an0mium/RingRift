@@ -130,6 +130,27 @@ def test_skip_capture_advances_to_line_processing():
     assert state.current_phase == GamePhase.LINE_PROCESSING
 
 
+def test_entering_line_processing_clears_must_move_from_stack_key():
+    """
+    mustMoveFromStackKey must be cleared when transitioning into LINE_PROCESSING.
+
+    TS clears mustMoveFromStackKey when entering line_processing because the
+    constraint is only relevant during movement/capture phases. Leaving it set
+    can create stale keys (e.g., when the constrained stack is eliminated by
+    landing-on-marker cap removal) and cause TS↔Python ANM parity mismatches.
+    """
+    state = _make_minimal_state(GamePhase.MOVEMENT, current_player=1)
+    state.must_move_from_stack_key = "5,0"
+
+    move = _make_noop_move(MoveType.NO_MOVEMENT_ACTION, player=1)
+
+    inp = PhaseTransitionInput(game_state=state, last_move=move, trace_mode=False)
+    advance_phases(inp)
+
+    assert state.current_phase == GamePhase.LINE_PROCESSING
+    assert state.must_move_from_stack_key is None
+
+
 def test_no_line_action_with_empty_board_enters_territory_processing():
     """
     NO_LINE_ACTION on empty board should advance to TERRITORY_PROCESSING.

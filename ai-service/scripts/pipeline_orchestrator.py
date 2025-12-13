@@ -28,6 +28,10 @@ Available Phases:
     resources         - Log resource usage across workers
     refresh-workers   - Dynamically discover Vast.ai instances
 
+Backend Modes:
+    ssh (default)     - Direct SSH execution on workers
+    p2p               - Use P2P orchestrator REST API (requires p2p_orchestrator running)
+
 Usage:
     # Run a single iteration of the pipeline
     python scripts/pipeline_orchestrator.py --iterations 1
@@ -38,6 +42,11 @@ Usage:
     # Run canonical selfplay with Vast instance discovery
     python scripts/pipeline_orchestrator.py --phase canonical-selfplay \\
         --discover-vast --games-per-worker 1000
+
+    # Run using P2P backend (requires p2p_orchestrator daemons on nodes)
+    python scripts/pipeline_orchestrator.py --backend p2p \\
+        --p2p-leader http://192.168.1.100:8770 \\
+        --phase canonical-selfplay --games-per-worker 1000
 
     # Run parity validation on generated games
     python scripts/pipeline_orchestrator.py --phase parity-validation
@@ -89,6 +98,18 @@ MAX_PHASE_WAIT_MINUTES = 120  # Maximum wait for any phase
 SELFPLAY_MIN_GAMES_THRESHOLD = 50  # Min games before proceeding
 CMAES_COMPLETION_CHECK_CMD = "pgrep -f 'run_iterative_cmaes' >/dev/null && echo running || echo done"
 
+# P2P orchestrator integration
+P2P_DEFAULT_PORT = 8770
+P2P_HTTP_TIMEOUT = 30  # seconds
+P2P_JOB_POLL_INTERVAL = 30  # seconds
+
+# Try to import aiohttp for P2P backend
+try:
+    import aiohttp
+    HAS_AIOHTTP = True
+except ImportError:
+    HAS_AIOHTTP = False
+
 
 @dataclass
 class WorkerConfig:
@@ -116,6 +137,150 @@ class SelfplayJob:
     seed: int = 0
     use_trained_profiles: bool = True  # Load CMA-ES optimized heuristics
     use_neural_net: bool = False  # Enable NN for descent/mcts
+
+
+@dataclass
+class P2PNodeInfo:
+    """Information about a node from P2P cluster."""
+    node_id: str
+    host: str
+    port: int
+    role: str
+    has_gpu: bool
+    gpu_name: str
+    memory_gb: int
+    capabilities: List[str]
+    cpu_percent: float = 0.0
+    memory_percent: float = 0.0
+    disk_percent: float = 0.0
+    selfplay_jobs: int = 0
+    training_jobs: int = 0
+    is_alive: bool = True
+    is_healthy: bool = True
+
+    def to_worker_config(self) -> WorkerConfig:
+        """Convert to WorkerConfig for compatibility."""
+        return WorkerConfig(
+            name=self.node_id,
+            host=self.host,
+            role="mixed" if self.has_gpu else "selfplay",
+            capabilities=self.capabilities,
+            ssh_port=22,
+            remote_path="~/ringrift/ai-service",
+            max_parallel_jobs=4 if self.has_gpu else 2,
+        )
+
+
+class P2PBackend:
+    """Backend for communicating with P2P orchestrator cluster.
+
+    Provides interface to P2P orchestrator REST API for job dispatch without SSH.
+    """
+
+    def __init__(self, leader_url: str, auth_token: Optional[str] = None, timeout: float = P2P_HTTP_TIMEOUT):
+        if not HAS_AIOHTTP:
+            raise ImportError("aiohttp required for P2P backend: pip install aiohttp")
+        self.leader_url = leader_url.rstrip("/")
+        self.auth_token = auth_token or os.environ.get("RINGRIFT_CLUSTER_AUTH_TOKEN", "")
+        self.timeout = timeout
+        self._session: Optional[aiohttp.ClientSession] = None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            headers = {"Authorization": f"Bearer {self.auth_token}"} if self.auth_token else {}
+            self._session = aiohttp.ClientSession(timeout=timeout, headers=headers)
+        return self._session
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+
+    async def get_cluster_status(self) -> Dict[str, Any]:
+        session = await self._get_session()
+        async with session.get(f"{self.leader_url}/api/cluster/status") as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Failed to get cluster status: {resp.status}")
+            return await resp.json()
+
+    async def get_nodes(self) -> List[P2PNodeInfo]:
+        status = await self.get_cluster_status()
+        nodes = []
+        for n in status.get("nodes", []):
+            nodes.append(P2PNodeInfo(
+                node_id=n.get("node_id", ""), host=n.get("host", ""), port=n.get("port", P2P_DEFAULT_PORT),
+                role=n.get("role", "follower"), has_gpu=n.get("has_gpu", False), gpu_name=n.get("gpu_name", ""),
+                memory_gb=n.get("memory_gb", 0), capabilities=n.get("capabilities", []),
+                cpu_percent=n.get("cpu_percent", 0), memory_percent=n.get("memory_percent", 0),
+                disk_percent=n.get("disk_percent", 0), selfplay_jobs=n.get("selfplay_jobs", 0),
+                training_jobs=n.get("training_jobs", 0), is_alive=n.get("is_alive", True),
+                is_healthy=n.get("is_healthy", True),
+            ))
+        return nodes
+
+    async def get_healthy_nodes(self) -> List[P2PNodeInfo]:
+        return [n for n in await self.get_nodes() if n.is_alive and n.is_healthy]
+
+    async def start_canonical_selfplay(self, board_type: str = "square8", num_players: int = 2,
+                                       games_per_node: int = 500, seed: int = 0) -> Dict[str, Any]:
+        session = await self._get_session()
+        payload = {"phase": "canonical_selfplay", "board_type": board_type, "num_players": num_players,
+                   "games_per_node": games_per_node, "seed": seed}
+        async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
+            result = await resp.json()
+            if not result.get("success"):
+                raise RuntimeError(f"Failed to start canonical selfplay: {result.get('error')}")
+            return result
+
+    async def start_parity_validation(self, board_type: str = "square8", num_players: int = 2,
+                                      db_paths: Optional[List[str]] = None) -> Dict[str, Any]:
+        session = await self._get_session()
+        payload = {"phase": "parity_validation", "board_type": board_type, "num_players": num_players}
+        if db_paths:
+            payload["db_paths"] = db_paths
+        async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
+            result = await resp.json()
+            if not result.get("success"):
+                raise RuntimeError(f"Failed to start parity validation: {result.get('error')}")
+            return result
+
+    async def start_npz_export(self, board_type: str = "square8", num_players: int = 2,
+                               output_dir: str = "data/training") -> Dict[str, Any]:
+        session = await self._get_session()
+        payload = {"phase": "npz_export", "board_type": board_type, "num_players": num_players,
+                   "output_dir": output_dir}
+        async with session.post(f"{self.leader_url}/pipeline/start", json=payload) as resp:
+            result = await resp.json()
+            if not result.get("success"):
+                raise RuntimeError(f"Failed to start NPZ export: {result.get('error')}")
+            return result
+
+    async def get_pipeline_status(self) -> Dict[str, Any]:
+        session = await self._get_session()
+        async with session.get(f"{self.leader_url}/pipeline/status") as resp:
+            return await resp.json()
+
+    async def wait_for_pipeline_completion(self, job_id: str, poll_interval: float = P2P_JOB_POLL_INTERVAL,
+                                           timeout_minutes: float = MAX_PHASE_WAIT_MINUTES) -> Dict[str, Any]:
+        start_time = time.time()
+        while time.time() - start_time < timeout_minutes * 60:
+            status = await self.get_pipeline_status()
+            current = status.get("current_job", {})
+            if current.get("job_id") == job_id and current.get("status") in ("completed", "failed"):
+                return status
+            await asyncio.sleep(poll_interval)
+        raise TimeoutError(f"Pipeline job {job_id} did not complete within {timeout_minutes} minutes")
+
+    async def trigger_data_sync(self) -> Dict[str, Any]:
+        session = await self._get_session()
+        async with session.post(f"{self.leader_url}/sync/start") as resp:
+            return await resp.json()
+
+    async def trigger_git_update(self, node_id: Optional[str] = None) -> Dict[str, Any]:
+        session = await self._get_session()
+        payload = {"node_id": node_id} if node_id else {}
+        async with session.post(f"{self.leader_url}/git/update", json=payload) as resp:
+            return await resp.json()
 
 
 @dataclass
@@ -225,13 +390,21 @@ DEFAULT_SELFPLAY_CONFIG = {
 
 
 class PipelineOrchestrator:
-    """Master orchestrator for the AI training pipeline."""
+    """Master orchestrator for the AI training pipeline.
+
+    Supports two backends:
+    - SSH (default): Direct SSH execution on workers
+    - P2P: Use P2P orchestrator REST API (requires p2p_orchestrator on nodes)
+    """
 
     def __init__(
         self,
         config_path: Optional[str] = None,
         state_path: Optional[str] = None,
         dry_run: bool = False,
+        backend: str = "ssh",
+        p2p_leader_url: Optional[str] = None,
+        p2p_auth_token: Optional[str] = None,
     ):
         self.config = self._load_config(config_path) if config_path else {}
         self.state_path = state_path or "logs/pipeline/state.json"
@@ -239,6 +412,17 @@ class PipelineOrchestrator:
         self.dry_run = dry_run
         self.log_dir = Path("logs/pipeline")
         self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Backend configuration
+        self.backend_mode = backend
+        self.p2p_backend: Optional[P2PBackend] = None
+        if backend == "p2p":
+            if not p2p_leader_url:
+                raise ValueError("P2P backend requires --p2p-leader URL")
+            self.p2p_backend = P2PBackend(leader_url=p2p_leader_url, auth_token=p2p_auth_token)
+            self.log(f"Using P2P backend with leader: {p2p_leader_url}")
+        else:
+            self.log("Using SSH backend")
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load pipeline configuration from JSON."""
@@ -2166,28 +2350,60 @@ def main():
         action="store_true",
         help="Dynamically discover Vast.ai instances before running",
     )
+    # P2P backend options
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default="ssh",
+        choices=["ssh", "p2p"],
+        help="Backend mode: 'ssh' (default) or 'p2p' for P2P orchestrator API",
+    )
+    parser.add_argument(
+        "--p2p-leader",
+        type=str,
+        default=None,
+        help="URL of P2P leader node (e.g., http://192.168.1.100:8770)",
+    )
+    parser.add_argument(
+        "--p2p-auth-token",
+        type=str,
+        default=None,
+        help="Auth token for P2P cluster (or set RINGRIFT_CLUSTER_AUTH_TOKEN)",
+    )
     args = parser.parse_args()
+
+    # Validate P2P backend requirements
+    if args.backend == "p2p" and not args.p2p_leader:
+        parser.error("--p2p-leader is required when using --backend p2p")
 
     orchestrator = PipelineOrchestrator(
         config_path=args.config,
         state_path=args.state_path,
         dry_run=args.dry_run,
+        backend=args.backend,
+        p2p_leader_url=args.p2p_leader,
+        p2p_auth_token=args.p2p_auth_token,
     )
 
     async def main_async():
-        # Optionally discover Vast instances
-        if args.discover_vast:
-            await orchestrator.refresh_workers()
+        try:
+            # Optionally discover Vast instances (SSH backend only)
+            if args.discover_vast and args.backend == "ssh":
+                await orchestrator.refresh_workers()
 
-        await orchestrator.run(
-            iterations=args.iterations,
-            start_iteration=args.start_iteration,
-            phase=args.phase,
-            resume=args.resume,
-            board_type=args.board_type,
-            num_players=args.num_players,
-            games_per_worker=args.games_per_worker,
-        )
+            await orchestrator.run(
+                iterations=args.iterations,
+                start_iteration=args.start_iteration,
+                phase=args.phase,
+                resume=args.resume,
+                board_type=args.board_type,
+                num_players=args.num_players,
+                games_per_worker=args.games_per_worker,
+            )
+        finally:
+            # Clean up P2P backend session
+            if orchestrator.p2p_backend:
+                await orchestrator.p2p_backend.close()
 
     asyncio.run(main_async())
 

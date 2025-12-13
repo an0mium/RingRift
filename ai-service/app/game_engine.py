@@ -1128,6 +1128,13 @@ class GameEngine:
         # This ensures the next capture opportunity (e.g., after a future
         # MOVE_STACK) will be correctly classified as OVERTAKING_CAPTURE.
         game_state.chain_capture_state = None
+        # RR-FIX-2025-12-12: Clear must_move_from_stack_key when transitioning
+        # to line_processing. The per-turn must-move constraint is only
+        # relevant during movement/capture phases; leaving it set can cause
+        # stale keys (e.g., when the constrained stack is eliminated by
+        # landing-on-marker cap removal) to incorrectly suppress global
+        # movement/capture availability and break TS↔Python ANM parity.
+        game_state.must_move_from_stack_key = None
 
         # Always enter LINE_PROCESSING phase. Per RR-CANON-R075, all phases
         # must be explicitly visited. When there are no lines to process,

@@ -4574,6 +4574,226 @@ print(f"Saved model to {config.get('output_model', '/tmp/model.pt')}")
             print(f"[P2P] Training monitor error for {job_id}: {e}")
 
     # =========================================================================
+    # Canonical Pipeline Integration (for pipeline_orchestrator.py)
+    # =========================================================================
+
+    async def handle_pipeline_start(self, request: web.Request) -> web.Response:
+        """POST /pipeline/start - Start a canonical pipeline phase."""
+        try:
+            if not self._is_leader():
+                return web.json_response({"success": False, "error": "Only leader can start pipeline phases",
+                                         "leader_id": self.leader_id}, status=403)
+            data = await request.json()
+            phase = data.get("phase")
+            board_type = data.get("board_type", "square8")
+            num_players = data.get("num_players", 2)
+
+            if phase == "canonical_selfplay":
+                result = await self._start_canonical_selfplay_pipeline(
+                    board_type, num_players, data.get("games_per_node", 500), data.get("seed", 0))
+            elif phase == "parity_validation":
+                result = await self._start_parity_validation_pipeline(
+                    board_type, num_players, data.get("db_paths"))
+            elif phase == "npz_export":
+                result = await self._start_npz_export_pipeline(
+                    board_type, num_players, data.get("output_dir", "data/training"))
+            else:
+                return web.json_response({"success": False,
+                    "error": f"Unknown phase: {phase}. Supported: canonical_selfplay, parity_validation, npz_export"}, status=400)
+            return web.json_response(result)
+        except Exception as e:
+            print(f"[P2P] Pipeline start error: {e}")
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def handle_pipeline_status(self, request: web.Request) -> web.Response:
+        """GET /pipeline/status - Get current pipeline phase status."""
+        pipeline_status = getattr(self, '_pipeline_status', {})
+        return web.json_response({"success": True, "node_id": self.node_id,
+                                 "is_leader": self._is_leader(), "current_job": pipeline_status})
+
+    async def handle_pipeline_selfplay_worker(self, request: web.Request) -> web.Response:
+        """POST /pipeline/selfplay_worker - Worker endpoint for canonical selfplay."""
+        try:
+            data = await request.json()
+            asyncio.create_task(self._run_local_canonical_selfplay(
+                data.get("job_id"), data.get("board_type", "square8"), data.get("num_players", 2),
+                data.get("num_games", 500), data.get("seed", 0)))
+            return web.json_response({"success": True, "job_id": data.get("job_id"),
+                                     "message": f"Started canonical selfplay: {data.get('num_games', 500)} games"})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)}, status=500)
+
+    async def _start_canonical_selfplay_pipeline(self, board_type: str, num_players: int,
+                                                 games_per_node: int, seed: int) -> Dict[str, Any]:
+        """Start canonical selfplay on all healthy nodes in the cluster."""
+        job_id = f"pipeline-selfplay-{int(time.time())}"
+        healthy_nodes = []
+        with self.peers_lock:
+            for peer_id, peer in self.peers.items():
+                if peer.is_alive() and peer.is_healthy():
+                    healthy_nodes.append((peer_id, peer))
+        if self.self_info.is_healthy():
+            healthy_nodes.append((self.node_id, self.self_info))
+        if not healthy_nodes:
+            return {"success": False, "error": "No healthy nodes available"}
+
+        print(f"[P2P] Starting canonical selfplay pipeline: {len(healthy_nodes)} nodes, {games_per_node} games/node")
+        dispatched = 0
+        for i, (node_id, node) in enumerate(healthy_nodes):
+            node_seed = seed + i * 10000 + hash(node_id) % 10000
+            if node_id == self.node_id:
+                asyncio.create_task(self._run_local_canonical_selfplay(
+                    f"{job_id}-{node_id}", board_type, num_players, games_per_node, node_seed))
+                dispatched += 1
+            else:
+                try:
+                    url = f"http://{node.host}:{node.port}/pipeline/selfplay_worker"
+                    async with ClientSession(timeout=ClientTimeout(total=30)) as session:
+                        async with session.post(url, json={"job_id": f"{job_id}-{node_id}",
+                            "board_type": board_type, "num_players": num_players,
+                            "num_games": games_per_node, "seed": node_seed},
+                            headers=self._get_auth_headers()) as resp:
+                            if resp.status == 200:
+                                dispatched += 1
+                except Exception as e:
+                    print(f"[P2P] Failed to dispatch selfplay to {node_id}: {e}")
+
+        self._pipeline_status = {"job_id": job_id, "phase": "canonical_selfplay", "status": "running",
+            "dispatched_count": dispatched, "total_nodes": len(healthy_nodes),
+            "board_type": board_type, "num_players": num_players,
+            "games_per_node": games_per_node, "started_at": time.time()}
+        return {"success": True, "job_id": job_id, "dispatched_count": dispatched, "total_nodes": len(healthy_nodes)}
+
+    async def _run_local_canonical_selfplay(self, job_id: str, board_type: str, num_players: int,
+                                            num_games: int, seed: int):
+        """Run canonical selfplay locally."""
+        try:
+            db_file = os.path.join(self.ringrift_path, "ai-service", "data", "games",
+                                   f"canonical_{board_type}_{num_players}p_{self.node_id}.db")
+            log_file = os.path.join(self.ringrift_path, "ai-service", "logs", "selfplay",
+                                    f"canonical_{job_id}.jsonl")
+            os.makedirs(os.path.dirname(db_file), exist_ok=True)
+            os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+            cmd = [sys.executable, os.path.join(self.ringrift_path, "ai-service", "scripts", "run_self_play_soak.py"),
+                "--num-games", str(num_games), "--board-type", board_type, "--num-players", str(num_players),
+                "--difficulty-band", "light", "--seed", str(seed), "--log-jsonl", log_file, "--record-db", db_file]
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+            print(f"[P2P] Starting canonical selfplay job {job_id}: {num_games} games -> {db_file}")
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.PIPE, env=env)
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                print(f"[P2P] Canonical selfplay job {job_id} completed successfully")
+            else:
+                print(f"[P2P] Canonical selfplay job {job_id} failed: {stderr.decode()[:500]}")
+        except Exception as e:
+            print(f"[P2P] Canonical selfplay job {job_id} error: {e}")
+
+    async def _start_parity_validation_pipeline(self, board_type: str, num_players: int,
+                                                db_paths: Optional[List[str]]) -> Dict[str, Any]:
+        """Start parity validation on the leader node."""
+        job_id = f"pipeline-parity-{int(time.time())}"
+        asyncio.create_task(self._run_parity_validation(job_id, board_type, num_players, db_paths))
+        self._pipeline_status = {"job_id": job_id, "phase": "parity_validation", "status": "running",
+                                "board_type": board_type, "num_players": num_players, "started_at": time.time()}
+        return {"success": True, "job_id": job_id, "message": "Parity validation started"}
+
+    async def _run_parity_validation(self, job_id: str, board_type: str, num_players: int,
+                                     db_paths: Optional[List[str]]):
+        """Run parity validation."""
+        try:
+            if not db_paths:
+                import glob
+                db_paths = glob.glob(os.path.join(self.ringrift_path, "ai-service", "data", "games",
+                                                  f"canonical_{board_type}_{num_players}p_*.db"))
+            if not db_paths:
+                self._pipeline_status["status"] = "failed"
+                self._pipeline_status["error"] = "No databases found"
+                return
+
+            output_json = os.path.join(self.ringrift_path, "ai-service", "data", f"parity_validation_{job_id}.json")
+            cmd = [sys.executable, os.path.join(self.ringrift_path, "ai-service", "scripts", "run_parity_validation.py"),
+                "--databases", *db_paths, "--mode", "canonical", "--output-json", output_json, "--progress-every", "100"]
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+            env["RINGRIFT_SKIP_SHADOW_CONTRACTS"] = "true"
+
+            print(f"[P2P] Starting parity validation job {job_id}: {len(db_paths)} databases")
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.PIPE, env=env)
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                print(f"[P2P] Parity validation job {job_id} completed successfully")
+                self._pipeline_status["status"] = "completed"
+                if os.path.exists(output_json):
+                    with open(output_json) as f:
+                        self._pipeline_status["results"] = json.load(f)
+            else:
+                print(f"[P2P] Parity validation job {job_id} failed: {stderr.decode()[:500]}")
+                self._pipeline_status["status"] = "failed"
+                self._pipeline_status["error"] = stderr.decode()[:500]
+        except Exception as e:
+            print(f"[P2P] Parity validation job {job_id} error: {e}")
+            self._pipeline_status["status"] = "failed"
+            self._pipeline_status["error"] = str(e)
+
+    async def _start_npz_export_pipeline(self, board_type: str, num_players: int,
+                                         output_dir: str) -> Dict[str, Any]:
+        """Start NPZ export on the leader node."""
+        job_id = f"pipeline-npz-{int(time.time())}"
+        asyncio.create_task(self._run_npz_export(job_id, board_type, num_players, output_dir))
+        self._pipeline_status = {"job_id": job_id, "phase": "npz_export", "status": "running",
+                                "board_type": board_type, "num_players": num_players,
+                                "output_dir": output_dir, "started_at": time.time()}
+        return {"success": True, "job_id": job_id, "message": "NPZ export started"}
+
+    async def _run_npz_export(self, job_id: str, board_type: str, num_players: int, output_dir: str):
+        """Run NPZ export."""
+        try:
+            import glob
+            db_paths = glob.glob(os.path.join(self.ringrift_path, "ai-service", "data", "games",
+                                              f"canonical_{board_type}_{num_players}p_*.db"))
+            if not db_paths:
+                self._pipeline_status["status"] = "failed"
+                self._pipeline_status["error"] = "No databases found"
+                return
+
+            full_output_dir = os.path.join(self.ringrift_path, "ai-service", output_dir)
+            os.makedirs(full_output_dir, exist_ok=True)
+            output_file = os.path.join(full_output_dir, f"canonical_{board_type}_{num_players}p_{job_id}.npz")
+
+            cmd = [sys.executable, os.path.join(self.ringrift_path, "ai-service", "scripts", "export_replay_dataset.py"),
+                "--databases", *db_paths, "--output", output_file, "--board-type", board_type,
+                "--num-players", str(num_players)]
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.path.join(self.ringrift_path, "ai-service")
+
+            print(f"[P2P] Starting NPZ export job {job_id}: {len(db_paths)} databases -> {output_file}")
+            proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE,
+                                                        stderr=asyncio.subprocess.PIPE, env=env)
+            stdout, stderr = await proc.communicate()
+            if proc.returncode == 0:
+                print(f"[P2P] NPZ export job {job_id} completed successfully")
+                self._pipeline_status["status"] = "completed"
+                self._pipeline_status["output_file"] = output_file
+            else:
+                print(f"[P2P] NPZ export job {job_id} failed: {stderr.decode()[:500]}")
+                self._pipeline_status["status"] = "failed"
+                self._pipeline_status["error"] = stderr.decode()[:500]
+        except Exception as e:
+            print(f"[P2P] NPZ export job {job_id} error: {e}")
+            self._pipeline_status["status"] = "failed"
+            self._pipeline_status["error"] = str(e)
+
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Get authentication headers for peer requests."""
+        return {"Authorization": f"Bearer {self.auth_token}"} if self.auth_token else {}
+
+    # =========================================================================
     # Phase 4: REST API for External Job Submission and Dashboard
     # =========================================================================
 
@@ -5959,6 +6179,11 @@ print(json.dumps({{
         app.router.add_post('/training/update', self.handle_training_update)
         app.router.add_post('/training/nnue/start', self.handle_nnue_start)
         app.router.add_post('/training/cmaes/start', self.handle_cmaes_start_auto)
+
+        # Canonical pipeline routes (for pipeline_orchestrator.py integration)
+        app.router.add_post('/pipeline/start', self.handle_pipeline_start)
+        app.router.add_get('/pipeline/status', self.handle_pipeline_status)
+        app.router.add_post('/pipeline/selfplay_worker', self.handle_pipeline_selfplay_worker)
 
         # Phase 4: REST API and Dashboard routes
         app.router.add_get('/', self.handle_root)
