@@ -1,5 +1,7 @@
 import express from 'express';
 import request from 'supertest';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // --- Mock data -----------------------------------------------------------
 
@@ -7,6 +9,10 @@ const mockDatabases = [
   { path: '/data/games/test.db', name: 'test.db', gameCount: 10, createdAt: '2024-01-01' },
   { path: '/data/games/training.db', name: 'training.db', gameCount: 100, createdAt: '2024-02-01' },
 ];
+
+const TEST_DB_ROOT = path.join(process.cwd(), 'data', 'games');
+let TEST_DB_PATH = path.join(TEST_DB_ROOT, '__jest_placeholder__.db');
+let TEST_DB_REALPATH = TEST_DB_PATH;
 
 const mockGames = [
   { gameId: 'game-1', boardType: 'square8', numPlayers: 2, winner: 1 },
@@ -87,6 +93,22 @@ function createTestApp() {
 // --- Tests --------------------------------------------------------------
 
 describe('Selfplay HTTP routes', () => {
+  beforeAll(() => {
+    fs.mkdirSync(TEST_DB_ROOT, { recursive: true });
+    const tmpDir = fs.mkdtempSync(path.join(TEST_DB_ROOT, '__jest_selfplay_'));
+    TEST_DB_PATH = path.join(tmpDir, 'test.db');
+    fs.writeFileSync(TEST_DB_PATH, '');
+    TEST_DB_REALPATH = fs.realpathSync(TEST_DB_PATH);
+  });
+
+  afterAll(() => {
+    try {
+      fs.rmSync(path.dirname(TEST_DB_PATH), { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup failures in CI environments.
+    }
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     // Set default mock implementations
@@ -125,7 +147,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(200);
 
       expect(res.body.success).toBe(true);
@@ -150,7 +172,7 @@ describe('Selfplay HTTP routes', () => {
       await request(app)
         .get('/api/selfplay/games')
         .query({
-          db: '/path/to/test.db',
+          db: TEST_DB_PATH,
           boardType: 'square8',
           numPlayers: '2',
           source: 'cmaes',
@@ -160,7 +182,7 @@ describe('Selfplay HTTP routes', () => {
         })
         .expect(200);
 
-      expect(mockListGames).toHaveBeenCalledWith('/path/to/test.db', {
+      expect(mockListGames).toHaveBeenCalledWith(TEST_DB_REALPATH, {
         boardType: 'square8',
         numPlayers: 2,
         source: 'cmaes',
@@ -178,7 +200,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -191,12 +213,12 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.game).toEqual(mockGameDetails);
-      expect(mockGetGame).toHaveBeenCalledWith('/path/to/test.db', 'game-1');
+      expect(mockGetGame).toHaveBeenCalledWith(TEST_DB_REALPATH, 'game-1');
     });
 
     it('returns 400 when db param is missing', async () => {
@@ -213,7 +235,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/nonexistent')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(404);
 
       expect(res.body.success).toBe(false);
@@ -228,7 +250,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -241,13 +263,13 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1/state')
-        .query({ db: '/path/to/test.db', move: '5' })
+        .query({ db: TEST_DB_PATH, move: '5' })
         .expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.moveNumber).toBe(5);
       expect(res.body.state).toEqual(mockState);
-      expect(mockGetStateAtMove).toHaveBeenCalledWith('/path/to/test.db', 'game-1', 5);
+      expect(mockGetStateAtMove).toHaveBeenCalledWith(TEST_DB_REALPATH, 'game-1', 5);
     });
 
     it('returns 400 when db param is missing', async () => {
@@ -265,7 +287,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1/state')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(400);
 
       expect(res.body.success).toBe(false);
@@ -276,7 +298,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1/state')
-        .query({ db: '/path/to/test.db', move: '-1' })
+        .query({ db: TEST_DB_PATH, move: '-1' })
         .expect(400);
 
       expect(res.body.success).toBe(false);
@@ -287,7 +309,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1/state')
-        .query({ db: '/path/to/test.db', move: 'abc' })
+        .query({ db: TEST_DB_PATH, move: 'abc' })
         .expect(400);
 
       expect(res.body.success).toBe(false);
@@ -300,7 +322,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1/state')
-        .query({ db: '/path/to/test.db', move: '999' })
+        .query({ db: TEST_DB_PATH, move: '999' })
         .expect(404);
 
       expect(res.body.success).toBe(false);
@@ -315,7 +337,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/games/game-1/state')
-        .query({ db: '/path/to/test.db', move: '5' })
+        .query({ db: TEST_DB_PATH, move: '5' })
         .expect(500);
 
       expect(res.body.success).toBe(false);
@@ -328,12 +350,12 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/stats')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(200);
 
       expect(res.body.success).toBe(true);
       expect(res.body.stats).toEqual(mockStats);
-      expect(mockGetStats).toHaveBeenCalledWith('/path/to/test.db');
+      expect(mockGetStats).toHaveBeenCalledWith(TEST_DB_REALPATH);
     });
 
     it('returns 400 when db param is missing', async () => {
@@ -352,7 +374,7 @@ describe('Selfplay HTTP routes', () => {
       const app = createTestApp();
       const res = await request(app)
         .get('/api/selfplay/stats')
-        .query({ db: '/path/to/test.db' })
+        .query({ db: TEST_DB_PATH })
         .expect(500);
 
       expect(res.body.success).toBe(false);

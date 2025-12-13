@@ -6,10 +6,101 @@
  */
 
 import { Router, Request, Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 import { getSelfPlayGameService } from '../services/SelfPlayGameService';
 import { httpLogger } from '../utils/logger';
 
 const router = Router();
+
+const MAX_LIMIT = 500;
+const MAX_OFFSET = 100_000;
+
+const getAllowedDbRoots = (): string[] => {
+  const cwd = process.cwd();
+  const candidates = [
+    path.join(cwd, 'data', 'games'),
+    path.join(cwd, 'ai-service', 'logs', 'cmaes'),
+    path.join(cwd, 'ai-service', 'data', 'games'),
+  ];
+
+  const roots: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      if (!fs.existsSync(candidate)) continue;
+      roots.push(fs.realpathSync(candidate));
+    } catch {
+      // Ignore unreadable roots; they won't be allowed.
+    }
+  }
+  return roots;
+};
+
+const validateDbPath = (
+  dbPath: string
+): { ok: true; resolved: string } | { ok: false; error: string } => {
+  if (!dbPath || typeof dbPath !== 'string') {
+    return { ok: false, error: 'Invalid database path' };
+  }
+  if (dbPath.includes('\0')) {
+    return { ok: false, error: 'Invalid database path' };
+  }
+  if (dbPath.length > 1024) {
+    return { ok: false, error: 'Database path too long' };
+  }
+
+  const candidate = path.isAbsolute(dbPath) ? dbPath : path.resolve(process.cwd(), dbPath);
+
+  if (!candidate.endsWith('.db')) {
+    return { ok: false, error: 'Database path must point to a .db file' };
+  }
+
+  let resolved: string;
+  try {
+    const stat = fs.statSync(candidate);
+    if (!stat.isFile()) {
+      return { ok: false, error: 'Database path must be a file' };
+    }
+    resolved = fs.realpathSync(candidate);
+  } catch {
+    return { ok: false, error: 'Database not found' };
+  }
+
+  const allowedRoots = getAllowedDbRoots();
+  const isAllowed = allowedRoots.some((root) => {
+    const prefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+    return resolved === root || resolved.startsWith(prefix);
+  });
+
+  if (!isAllowed) {
+    return {
+      ok: false,
+      error: 'Database path is not within an allowed directory',
+    };
+  }
+
+  return { ok: true, resolved };
+};
+
+const parseBoundedInt = (
+  value: unknown,
+  label: string,
+  fallback: number,
+  min: number,
+  max: number
+): { ok: true; value: number } | { ok: false; error: string } => {
+  if (value === undefined || value === null || value === '') {
+    return { ok: true, value: fallback };
+  }
+  const parsed = typeof value === 'string' ? parseInt(value, 10) : NaN;
+  if (!Number.isFinite(parsed)) {
+    return { ok: false, error: `Invalid ${label}` };
+  }
+  if (parsed < min || parsed > max) {
+    return { ok: false, error: `${label} must be between ${min} and ${max}` };
+  }
+  return { ok: true, value: parsed };
+};
 
 /**
  * @openapi
@@ -130,19 +221,53 @@ router.get('/games', (req: Request, res: Response) => {
     return;
   }
 
+  const validatedDb = validateDbPath(dbPath);
+  if (!validatedDb.ok) {
+    res.status(400).json({
+      success: false,
+      error: validatedDb.error,
+    });
+    return;
+  }
+
   try {
     const service = getSelfPlayGameService();
 
+    const limitParsed = parseBoundedInt(req.query.limit, 'limit', 50, 1, MAX_LIMIT);
+    if (!limitParsed.ok) {
+      res.status(400).json({ success: false, error: limitParsed.error });
+      return;
+    }
+    const offsetParsed = parseBoundedInt(req.query.offset, 'offset', 0, 0, MAX_OFFSET);
+    if (!offsetParsed.ok) {
+      res.status(400).json({ success: false, error: offsetParsed.error });
+      return;
+    }
+
+    let numPlayers: number | undefined;
+    if (
+      req.query.numPlayers !== undefined &&
+      req.query.numPlayers !== null &&
+      req.query.numPlayers !== ''
+    ) {
+      const parsed = parseInt(req.query.numPlayers as string, 10);
+      if (!Number.isFinite(parsed) || parsed < 2 || parsed > 4) {
+        res.status(400).json({ success: false, error: 'numPlayers must be 2, 3, or 4' });
+        return;
+      }
+      numPlayers = parsed;
+    }
+
     const options = {
       boardType: req.query.boardType as string | undefined,
-      numPlayers: req.query.numPlayers ? parseInt(req.query.numPlayers as string, 10) : undefined,
+      numPlayers,
       source: req.query.source as string | undefined,
       hasWinner: req.query.hasWinner !== undefined ? req.query.hasWinner === 'true' : undefined,
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
-      offset: req.query.offset ? parseInt(req.query.offset as string, 10) : 0,
+      limit: limitParsed.value,
+      offset: offsetParsed.value,
     };
 
-    const games = service.listGames(dbPath, options);
+    const games = service.listGames(validatedDb.resolved, options);
 
     res.json({
       success: true,
@@ -204,9 +329,18 @@ router.get('/games/:gameId', (req: Request, res: Response) => {
     return;
   }
 
+  const validatedDb = validateDbPath(dbPath);
+  if (!validatedDb.ok) {
+    res.status(400).json({
+      success: false,
+      error: validatedDb.error,
+    });
+    return;
+  }
+
   try {
     const service = getSelfPlayGameService();
-    const game = service.getGame(dbPath, gameId);
+    const game = service.getGame(validatedDb.resolved, gameId);
 
     if (!game) {
       res.status(404).json({
@@ -278,6 +412,15 @@ router.get('/games/:gameId/state', (req: Request, res: Response) => {
     return;
   }
 
+  const validatedDb = validateDbPath(dbPath);
+  if (!validatedDb.ok) {
+    res.status(400).json({
+      success: false,
+      error: validatedDb.error,
+    });
+    return;
+  }
+
   if (moveStr === undefined) {
     res.status(400).json({
       success: false,
@@ -297,7 +440,7 @@ router.get('/games/:gameId/state', (req: Request, res: Response) => {
 
   try {
     const service = getSelfPlayGameService();
-    const state = service.getStateAtMove(dbPath, gameId, moveNumber);
+    const state = service.getStateAtMove(validatedDb.resolved, gameId, moveNumber);
 
     if (state === null) {
       res.status(404).json({
@@ -354,9 +497,18 @@ router.get('/stats', (req: Request, res: Response) => {
     return;
   }
 
+  const validatedDb = validateDbPath(dbPath);
+  if (!validatedDb.ok) {
+    res.status(400).json({
+      success: false,
+      error: validatedDb.error,
+    });
+    return;
+  }
+
   try {
     const service = getSelfPlayGameService();
-    const stats = service.getStats(dbPath);
+    const stats = service.getStats(validatedDb.resolved);
 
     res.json({
       success: true,
