@@ -94,10 +94,16 @@ class Tournament:
         model_path_b: str,
         num_games: int = 20,
         k_elo: int = 32,
+        board_type: BoardType = BoardType.SQUARE8,
+        num_players: int = 2,
+        max_moves: int = 200,
     ):
         self.model_path_a = model_path_a
         self.model_path_b = model_path_b
         self.num_games = num_games
+        self.board_type = board_type
+        self.num_players = num_players
+        self.max_moves = max_moves
         self.results = {"A": 0, "B": 0, "Draw": 0}
         # Simple Elo-like rating system for candidate (A) vs best (B).
         self.k_elo = k_elo
@@ -139,11 +145,18 @@ class Tournament:
         return ai
 
     def run(self) -> Dict[str, int]:
-        """Run the tournament"""
+        """Run the tournament.
+
+        For 2-player games, alternates colors between models A and B.
+        For 3-4 player games, rotates the candidate (A) through each seat
+        position while other seats are filled with model B.
+        """
         logger.info(
-            "Starting tournament: %s vs %s",
+            "Starting tournament: %s vs %s (%s %dp)",
             self.model_path_a,
             self.model_path_b,
+            self.board_type.value,
+            self.num_players,
         )
 
         # Initialize progress reporter for time-based progress output (~10s intervals)
@@ -152,50 +165,57 @@ class Tournament:
         progress_reporter = SoakProgressReporter(
             total_games=self.num_games,
             report_interval_sec=10.0,
-            context_label=f"{model_a_name}_vs_{model_b_name}",
+            context_label=f"{model_a_name}_vs_{model_b_name}_{self.board_type.value}_{self.num_players}p",
         )
 
         for i in range(self.num_games):
             game_start_time = time.time()
-            # Alternate colors
-            if i % 2 == 0:
-                p1_model = self.model_path_a
-                p2_model = self.model_path_b
-                p1_label = "A"
-                p2_label = "B"
-            else:
-                p1_model = self.model_path_b
-                p2_model = self.model_path_a
-                p1_label = "B"
-                p2_label = "A"
 
-            ai1 = self._create_ai(1, p1_model)
-            ai2 = self._create_ai(2, p2_model)
+            # Create AIs for all players
+            # For multiplayer: rotate candidate (A) through seats
+            candidate_seat = (i % self.num_players) + 1
+            ais = {}
+            seat_labels = {}
 
-            winner, final_state = self._play_game(ai1, ai2)
+            for player_num in range(1, self.num_players + 1):
+                if self.num_players == 2:
+                    # 2-player: alternate colors
+                    if i % 2 == 0:
+                        model = self.model_path_a if player_num == 1 else self.model_path_b
+                        label = "A" if player_num == 1 else "B"
+                    else:
+                        model = self.model_path_b if player_num == 1 else self.model_path_a
+                        label = "B" if player_num == 1 else "A"
+                else:
+                    # Multiplayer: candidate sits in rotating seat
+                    if player_num == candidate_seat:
+                        model = self.model_path_a
+                        label = "A"
+                    else:
+                        model = self.model_path_b
+                        label = "B"
+
+                ais[player_num] = self._create_ai(player_num, model)
+                seat_labels[player_num] = label
+
+            winner, final_state = self._play_game_multiplayer(ais)
 
             # Track victory reason for LPS and other victory types.
             victory_reason = infer_victory_reason(final_state)
             self.victory_reasons[victory_reason] += 1
 
-            if winner == 1:
-                self.results[p1_label] += 1
-                self._update_elo(p1_label)
-            elif winner == 2:
-                self.results[p2_label] += 1
-                self._update_elo(p2_label)
+            if winner and winner in seat_labels:
+                winner_label = seat_labels[winner]
+                self.results[winner_label] += 1
+                self._update_elo(winner_label)
+                winner_label_str = winner_label
             else:
                 self.results["Draw"] += 1
                 self._update_elo(None)
-
-            if winner == 1:
-                winner_label_str = p1_label
-            elif winner == 2:
-                winner_label_str = p2_label
-            else:
                 winner_label_str = "Draw"
+
             logger.info(
-                "Game %d/%d: Winner %s (%s) via %s",
+                "Game %d/%d: Winner P%s (%s) via %s",
                 i + 1,
                 self.num_games,
                 winner,
@@ -225,7 +245,20 @@ class Tournament:
     def _play_game(
         self, ai1: DescentAI, ai2: DescentAI
     ) -> tuple[Optional[int], GameState]:
-        """Play a single game and return (winner, final_state).
+        """Play a single 2-player game and return (winner, final_state).
+
+        Returns:
+            A tuple of (winner player number or None, final GameState).
+        """
+        return self._play_game_multiplayer({1: ai1, 2: ai2})
+
+    def _play_game_multiplayer(
+        self, ais: Dict[int, DescentAI]
+    ) -> tuple[Optional[int], GameState]:
+        """Play a single game with any number of players.
+
+        Args:
+            ais: Dictionary mapping player number to AI instance.
 
         Returns:
             A tuple of (winner player number or None, final GameState).
@@ -234,16 +267,20 @@ class Tournament:
         state = self._create_initial_state()
         move_count = 0
 
-        while state.game_status == GameStatus.ACTIVE and move_count < 200:
+        while state.game_status == GameStatus.ACTIVE and move_count < self.max_moves:
             current_player = state.current_player
-            ai = ai1 if current_player == 1 else ai2
+            ai = ais.get(current_player)
+
+            if ai is None:
+                logger.error(f"No AI for player {current_player}")
+                break
 
             move = ai.select_move(state)
 
             if not move:
-                # No moves available, current player loses
-                state.winner = 2 if current_player == 1 else 1
-                state.game_status = GameStatus.COMPLETED
+                # No moves available - game engine should handle this
+                # via forced elimination or LPS checks
+                logger.warning(f"No move from P{current_player}, breaking")
                 break
 
             state = GameEngine.apply_move(state, move)
@@ -271,48 +308,63 @@ class Tournament:
         self.ratings["B"] = rb + self.k_elo * (sb - eb)
 
     def _create_initial_state(self) -> GameState:
-        """Create initial game state"""
-        # Simplified version of generate_data.create_initial_state
-        size = 8
-        rings = 18
+        """Create initial game state for any board type and player count.
+
+        Uses centralized BOARD_CONFIGS and victory threshold calculations
+        from app.rules.core to ensure consistency with the game engine.
+        """
+        from app.rules.core import (
+            BOARD_CONFIGS,
+            get_victory_threshold,
+            get_territory_victory_threshold,
+        )
+
+        # Get board configuration
+        if self.board_type in BOARD_CONFIGS:
+            config = BOARD_CONFIGS[self.board_type]
+            size = config.size
+            rings_per_player = config.rings_per_player
+            total_spaces = config.total_spaces
+        else:
+            # Fallback to square8-style defaults
+            size = 8
+            rings_per_player = 18
+            total_spaces = 64
+
+        # Create players
+        players = [
+            Player(
+                id=f"p{idx}",
+                username=f"AI {idx}",
+                type="ai",
+                playerNumber=idx,
+                isReady=True,
+                timeRemaining=600,
+                ringsInHand=rings_per_player,
+                eliminatedRings=0,
+                territorySpaces=0,
+                aiDifficulty=10,
+            )
+            for idx in range(1, self.num_players + 1)
+        ]
+
+        total_rings = rings_per_player * self.num_players
+        victory_threshold = get_victory_threshold(self.board_type, self.num_players)
+        territory_threshold = get_territory_victory_threshold(self.board_type)
+
         return GameState(
             id="tournament",
-            boardType=BoardType.SQUARE8,
+            boardType=self.board_type,
             rngSeed=None,
             board=BoardState(
-                type=BoardType.SQUARE8,
+                type=self.board_type,
                 size=size,
                 stacks={},
                 markers={},
                 collapsedSpaces={},
                 eliminatedRings={},
             ),
-            players=[
-                Player(
-                    id="p1",
-                    username="AI 1",
-                    type="ai",
-                    playerNumber=1,
-                    isReady=True,
-                    timeRemaining=600,
-                    ringsInHand=rings,
-                    eliminatedRings=0,
-                    territorySpaces=0,
-                    aiDifficulty=10,
-                ),
-                Player(
-                    id="p2",
-                    username="AI 2",
-                    type="ai",
-                    playerNumber=2,
-                    isReady=True,
-                    timeRemaining=600,
-                    ringsInHand=rings,
-                    eliminatedRings=0,
-                    territorySpaces=0,
-                    aiDifficulty=10,
-                ),
-            ],
+            players=players,
             currentPhase=GamePhase.RING_PLACEMENT,
             currentPlayer=1,
             moveHistory=[],
@@ -325,14 +377,11 @@ class Tournament:
             createdAt=datetime.now(),
             lastMoveAt=datetime.now(),
             isRated=False,
-            maxPlayers=2,
-            totalRingsInPlay=rings * 2,
+            maxPlayers=self.num_players,
+            totalRingsInPlay=total_rings,
             totalRingsEliminated=0,
-            # Per RR-CANON-R061: victoryThreshold = round(ringsPerPlayer × (2/3 + 1/3 × (numPlayers - 1)))
-            # For 2p: round(18 × (2/3 + 1/3 × 1)) = round(18 × 1) = 18
-            victoryThreshold=round(rings * (2 / 3 + (1 / 3) * (2 - 1))),
-            # Per RR-CANON-R062: territoryVictoryThreshold = floor(totalSpaces / 2) + 1
-            territoryVictoryThreshold=(size * size) // 2 + 1,  # 33 for 8x8
+            victoryThreshold=victory_threshold,
+            territoryVictoryThreshold=territory_threshold,
             chainCaptureState=None,
             mustMoveFromStackKey=None,
             zobristHash=None,
@@ -360,11 +409,11 @@ def run_tournament(
     model_b_path : str
         Path to the baseline model checkpoint.
     num_games : int
-        Number of games to play (alternating colors).
+        Number of games to play (alternating colors for 2p, rotating seats for 3-4p).
     board_type : BoardType
-        Board type to use (currently only SQUARE8 fully supported).
+        Board type to use (square8, square19, hexagonal all supported).
     num_players : int
-        Number of players (currently only 2 supported).
+        Number of players (2, 3, or 4 supported).
     max_moves : int
         Maximum moves per game.
     seed : Optional[int]
@@ -380,25 +429,22 @@ def run_tournament(
         - total_games: Total games played
         - avg_game_length: Average game length in moves
         - victory_reasons: Dict of victory reason counts
+        - board_type: Board type used
+        - num_players: Number of players
     """
-    # Currently Tournament class only supports SQUARE8 2-player
-    # TODO: Extend Tournament class for other board types and player counts
-    if board_type != BoardType.SQUARE8:
-        logger.warning(
-            "Tournament currently only supports SQUARE8, using SQUARE8 instead of %s",
-            board_type.value,
-        )
-
-    if num_players != 2:
-        logger.warning(
-            "Tournament currently only supports 2 players, using 2 instead of %d",
-            num_players,
-        )
+    # Validate player count
+    if num_players < 2:
+        num_players = 2
+    if num_players > 4:
+        num_players = 4
 
     tournament = Tournament(
         model_path_a=model_a_path,
         model_path_b=model_b_path,
         num_games=num_games,
+        board_type=board_type,
+        num_players=num_players,
+        max_moves=max_moves,
     )
 
     results = tournament.run()
@@ -410,6 +456,9 @@ def run_tournament(
         "total_games": num_games,
         "avg_game_length": 0,  # Not tracked by Tournament class currently
         "victory_reasons": tournament.victory_reasons,
+        "board_type": board_type.value,
+        "num_players": num_players,
+        "elo_ratings": tournament.ratings,
     }
 
 

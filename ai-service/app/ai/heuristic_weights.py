@@ -333,6 +333,11 @@ HEURISTIC_V1_SQUARE19_2P: HeuristicWeights = {
     "WEIGHT_SWAP_DIAGONAL_BONUS": 5.19,
     "WEIGHT_SWAP_OPENING_STRENGTH": 21.10,
     "WEIGHT_SWAP_EXPLORATION_TEMPERATURE": -0.38,
+    # v1.5: Recovery evaluation weights (larger board = recovery more strategic)
+    "WEIGHT_RECOVERY_POTENTIAL": 8.0,
+    "WEIGHT_RECOVERY_ELIGIBILITY": 10.0,
+    "WEIGHT_BURIED_RING_VALUE": 4.0,
+    "WEIGHT_RECOVERY_THREAT": 6.0,
 }
 
 
@@ -395,6 +400,11 @@ HEURISTIC_V1_3P: HeuristicWeights = {
     "WEIGHT_SWAP_DIAGONAL_BONUS": 6.64,
     "WEIGHT_SWAP_OPENING_STRENGTH": 19.60,
     "WEIGHT_SWAP_EXPLORATION_TEMPERATURE": 0.81,
+    # v1.5: Recovery evaluation weights (multi-player = recovery more tactical)
+    "WEIGHT_RECOVERY_POTENTIAL": 7.0,
+    "WEIGHT_RECOVERY_ELIGIBILITY": 9.0,
+    "WEIGHT_BURIED_RING_VALUE": 3.5,
+    "WEIGHT_RECOVERY_THREAT": 5.5,
 }
 
 # 4-player optimized weights (CMA-ES, 20 generations, fitness: 75%)
@@ -451,6 +461,11 @@ HEURISTIC_V1_4P: HeuristicWeights = {
     "WEIGHT_SWAP_DIAGONAL_BONUS": 5.71,
     "WEIGHT_SWAP_OPENING_STRENGTH": 20.96,
     "WEIGHT_SWAP_EXPLORATION_TEMPERATURE": -0.19,
+    # v1.5: Recovery evaluation weights (4P = recovery is critical for survival)
+    "WEIGHT_RECOVERY_POTENTIAL": 8.0,
+    "WEIGHT_RECOVERY_ELIGIBILITY": 10.0,
+    "WEIGHT_BURIED_RING_VALUE": 4.0,
+    "WEIGHT_RECOVERY_THREAT": 6.0,
 }
 
 
